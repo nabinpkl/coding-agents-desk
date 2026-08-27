@@ -57,6 +57,19 @@ export type {
   TextInputEditability,
   TextInputFocusSource,
 } from "./desktopControl.ts";
+export type {
+  DesktopAuditSnapshot,
+  DesktopSpace,
+  DesktopWindow,
+  DesktopWindowBounds,
+  WindowInputReason,
+  WindowComposerEnvelope,
+  WindowComposerStatus,
+  WindowQuestionAction,
+  WindowQuestionStatus,
+  WindowResolution,
+  WindowTarget,
+} from "./desktopWindow.ts";
 export {
   DESKTOP_CONTROL_MAX_KEY_BATCH,
   DESKTOP_CONTROL_MAX_MESSAGE_BYTES,

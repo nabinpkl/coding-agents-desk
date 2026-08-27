@@ -24,7 +24,6 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     /// Native container seam for Claude Desktop composer sync. Unset until the phone lane routes it,
     /// in which case nothing answers and the panel keeps its field disabled rather than believing a
     /// write landed.
-    var onWindowInput: ((AgentPanelRequest) -> Void)?
     /// Test seam: when set, receives the delivered payload instead of the real panel.
     var deliverForTesting: ((String) -> Void)?
     var resumeAfterReconnectForTesting: (() -> Void)?
@@ -351,11 +350,6 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
             onTerminalIntent?(intent)
             terminalSession.handle(intent)
             return
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit:
-            // A host-local Accessibility action against another application's window, not a sidecar
-            // request, so it never enters the agent-feed envelope.
-            onWindowInput?(request)
-            return
         default:
             break
         }
@@ -378,16 +372,13 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
 /// package's `AgentPanelRequest`, whose webview-message decoding is authoritative and tested in the
 /// package (`requestDecoderPreservesCurrentAgentFeedContract`).
 ///
-/// Two natures, and the split is deliberate. A relayed sidecar call carries a path and an opaque
-/// body: the phone reads no field of it, so adding one to the feed is not a change to this file.
-/// The AskUserQuestion cases are native authority -- they press buttons in another application's
-/// window -- so they stay typed and bounded all the way across.
+/// One nature now: a relayed sidecar call, carrying a path and an opaque body the phone reads no
+/// field of. The composer and AskUserQuestion cases used to sit beside it as typed native-authority
+/// frames; they became ordinary `/api/window/*` calls through this same relay (ADR-0110), so adding
+/// a field to either is no longer a change to this file, or to the wire, or to the phone at all.
 enum AgentFeedRequest: Equatable {
     case http(AgentFeedRelayRequest)
     case httpCancel(AgentFeedRelayCancel)
-    case questionWatch(AgentWindowQuestionWatch)
-    case questionUnwatch(AgentWindowQuestionUnwatch)
-    case questionAction(AgentWindowQuestionAction)
 
     init(_ request: AgentPanelRequest) {
         switch request {
@@ -401,26 +392,8 @@ enum AgentFeedRequest: Equatable {
             ))
         case .httpCancel(let rid):
             self = .httpCancel(AgentFeedRelayCancel(rid: rid))
-        case .questionWatch(let subscriptionId, let sessionId):
-            self = .questionWatch(AgentWindowQuestionWatch(
-                subscriptionId: subscriptionId,
-                sessionId: sessionId
-            ))
-        case .questionUnwatch(let subscriptionId):
-            self = .questionUnwatch(AgentWindowQuestionUnwatch(subscriptionId: subscriptionId))
-        case .questionAction(let requestId, let sessionId, let kind, let optionIndex, let desired, let otherText):
-            self = .questionAction(AgentWindowQuestionAction(
-                requestId: requestId,
-                sessionId: sessionId,
-                kind: kind.rawValue,
-                optionIndex: optionIndex,
-                desired: desired.map { $0 ? 1 : 0 },
-                text: otherText
-            ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit:
-            preconditionFailure("Composer sync must route through AgentFeedSurface.onWindowInput")
         }
     }
 }

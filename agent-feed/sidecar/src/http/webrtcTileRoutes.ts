@@ -31,6 +31,7 @@ import {
   RtpPacket,
 } from "werift";
 import { config } from "../config.ts";
+import { helperBinary, missingHelperMessage } from "../desktop/helperBinary.ts";
 import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 import { frames, KIND_META } from "./tileEncoderPool.ts";
@@ -249,6 +250,13 @@ const H264 = new RTCRtpCodecParameters({
  */
 interface SharedEncoder {
   key: string;
+  /**
+   * Build stamp of the binary this child was spawned from. Reuse is keyed on the window, so
+   * without this a rebuilt helper would be shadowed by the process the previous build started for
+   * as long as one viewer stayed connected, and `tools/build-grid-encoder.sh` would look like it
+   * had done nothing.
+   */
+  binaryMtimeMs: number;
   codec: TileVideoCodec;
   child: ReturnType<typeof Bun.spawn>;
   subscribers: Set<EncoderSubscriber>;
@@ -396,11 +404,20 @@ function rememberCursorAck(shared: SharedEncoder, revision: number, ack: Pending
 function acquireSharedEncoder(
   windowID: string,
   binary: string,
+  binaryMtimeMs: number,
   args: string[],
   codec: TileVideoCodec,
 ): SharedEncoder {
   const existing = sharedEncoders.get(windowID);
-  if (existing && !existing.dead) {
+  // A rebuild retires the running child rather than joining it. The viewer pays one reconnect,
+  // which is the cost the tile pool already accepts for the same reason, and in exchange an edit
+  // to the helper is visible on the next offer instead of whenever the last viewer happens to
+  // leave.
+  if (existing && !existing.dead && existing.binaryMtimeMs !== binaryMtimeMs) {
+    diag(`encoder key=${windowID} retired stale binary mtime=${existing.binaryMtimeMs} -> ${binaryMtimeMs}`);
+    killSharedEncoder(existing, "stale-binary");
+  }
+  if (existing && !existing.dead && existing.binaryMtimeMs === binaryMtimeMs) {
     if (existing.codec !== codec) {
       throw new Error(`shared encoder codec changed from ${existing.codec} to ${codec}`);
     }
@@ -414,6 +431,7 @@ function acquireSharedEncoder(
   const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
   const shared: SharedEncoder = {
     key: windowID,
+    binaryMtimeMs,
     codec,
     child,
     subscribers: new Set(),
@@ -953,10 +971,10 @@ function bounded(value: unknown, min: number, max: number): number | undefined {
 }
 
 async function answer(windowID: string, offer: TileOffer): Promise<Response> {
-  const binary = config.gridEncoderPath;
-  if (!binary || !(await Bun.file(binary).exists())) {
+  const { path: binary, mtimeMs: binaryMtimeMs, exists } = helperBinary();
+  if (!exists) {
     return jsonResponse(
-      { code: "tile-encoder-missing", message: `no grid encoder at ${binary}` },
+      { code: "tile-encoder-missing", message: missingHelperMessage(binary) },
       503,
     );
   }
@@ -1171,7 +1189,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (fps) args.push("--fps", String(fps));
   if (bitrate) args.push("--bitrate", String(bitrate));
 
-  const shared = acquireSharedEncoder(windowID, binary, args, choice.kind);
+  const shared = acquireSharedEncoder(windowID, binary, binaryMtimeMs, args, choice.kind);
   inputEncoder = shared;
   connectionDiagnostic.encoder = shared;
   let source: WebrtcTileSourceMetadata;

@@ -29,8 +29,6 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private let placementCoordinator: DesktopWindowPlacementCoordinator?
     /// Host-wide, not window-owned: every Agents window and every paired phone writes Claude Desktop
     /// composers through the same serializer. This window is one addressed sink on it.
-    private let composerCoordinator: AgentWindowComposerCoordinator?
-    private let composerSinkID: AgentWindowComposerCoordinator.SinkID
     private let localTerminalEndpoint: AgentSessionTerminalEndpoint?
     private let terminalPtyClient: PtyClient?
     private let terminalControllerForTesting: (any AgentWindowTerminalControlling)?
@@ -64,14 +62,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         initialFrame: CGRect? = nil,
         initialPlacement: WorkspaceWindowPlacement? = nil,
         placementCoordinator: DesktopWindowPlacementCoordinator? = nil,
-        composerCoordinator: AgentWindowComposerCoordinator? = nil,
-        composerSinkID: AgentWindowComposerCoordinator.SinkID = "agents-window",
         initialZoomStep: Int = 0,
         onClosed: (@MainActor () -> Void)? = nil
     ) {
         self.relayClient = relayClient
-        self.composerCoordinator = composerCoordinator
-        self.composerSinkID = composerSinkID
         self.localTerminalEndpoint = localTerminalEndpoint
         self.terminalPtyClient = terminalPtyClient
         self.terminalControllerForTesting = terminalControllerForTesting
@@ -206,7 +200,6 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         // Drops this window's composer watches with it. The coordinator outlives the window, so a
         // closed one left attached would keep re-resolving its sessions against the process table
         // forever, and keep the poll timer alive with no surface to answer.
-        composerCoordinator?.detachSink(composerSinkID)
         panelController?.teardown()
         uninstallPressMonitor()
         window?.orderOut(nil)
@@ -312,20 +305,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 window.contentView = makeContentView(webView)
             }
 
-            // Composer sync only exists when this host has its Space authority: every write may have to
-            // move a Claude window between Desktops and put it back. Without the coordinator the panel
-            // gets no status at all and keeps its field disabled, which is the honest state.
-            composerCoordinator?.attachSink(composerSinkID) { [weak self] json in
-                Task { @MainActor in self?.panelController?.deliver(rawJSON: json) }
-            }
             let transport = AgentPanelBridgeTransport(
                 relay: relay,
                 onTerminalIntent: { [weak self] intent in
                     self?.terminalController?.handle(intent)
-                },
-                onWindowInput: { [weak self] request in
-                    guard let self else { return }
-                    composerCoordinator?.handle(request, from: composerSinkID)
                 }
             )
             controller.transport = transport

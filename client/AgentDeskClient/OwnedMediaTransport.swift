@@ -405,37 +405,13 @@ private struct Channels {
         try await inputStream.send(try Self.workspaceTerminalFrame(message))
     }
 
-    func sendAgentWindowInputWatch(_ request: AgentWindowInputWatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowInputUnwatch(_ request: AgentWindowInputUnwatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowInputSubmit(_ request: AgentWindowInputSubmit) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowQuestionWatch(_ request: AgentWindowQuestionWatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowQuestionUnwatch(_ request: AgentWindowQuestionUnwatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
-    func sendAgentWindowQuestionAction(_ request: AgentWindowQuestionAction) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
 
     static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
         let encoder = JSONEncoder()

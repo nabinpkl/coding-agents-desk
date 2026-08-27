@@ -14,7 +14,7 @@
 // unbounded wait here once turned into a page stuck on "connecting" with
 // nothing to diagnose.
 
-import { config } from "../config.ts";
+import { helperBinary, missingHelperMessage } from "../desktop/helperBinary.ts";
 import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 import {
@@ -73,13 +73,10 @@ async function tile(
   options: TileOptions,
   signal: AbortSignal,
 ): Promise<Response> {
-  const binary = config.gridEncoderPath;
-  if (!binary || !(await Bun.file(binary).exists())) {
+  const { path: binary, mtimeMs, exists } = helperBinary();
+  if (!exists) {
     return jsonResponse(
-      {
-        code: "tile-encoder-missing",
-        message: `no grid encoder at ${binary}; run tools/build-grid-encoder.sh`,
-      },
+      { code: "tile-encoder-missing", message: missingHelperMessage(binary) },
       503,
     );
   }
@@ -87,7 +84,10 @@ async function tile(
   const args = encoderArguments(windowID, options);
   let subscription;
   try {
-    subscription = await pool.acquire(`${binary}\u0000${args.join("\u0000")}`);
+    // The build stamp rides in the key so a rebuilt helper is a DIFFERENT encoder rather than a
+    // cache hit on the old process. Without it, `tools/build-grid-encoder.sh` would appear to do
+    // nothing for as long as one subscriber kept the previous binary alive.
+    subscription = await pool.acquire(`${binary}\u0000${mtimeMs}\u0000${args.join("\u0000")}`);
   } catch (error) {
     if (error instanceof TileEncoderError) {
       return jsonResponse({ code: error.code, message: error.message }, 502);
@@ -129,9 +129,11 @@ async function tile(
 
 export function createTileRoutes(): RouteHandler {
   // The pool key doubles as the spawn command line, NUL-separated because a
-  // path may contain spaces and an argument never contains NUL.
+  // path may contain spaces and an argument never contains NUL. The second
+  // field is the binary's build stamp, which identifies the encoder without
+  // being passed to it.
   const pool = createTileEncoderPool((key) => {
-    const [binary, ...args] = key.split("\u0000");
+    const [binary, _mtimeMs, ...args] = key.split("\u0000");
     return spawnEncoder(binary!, args);
   });
   return (request, url) => {

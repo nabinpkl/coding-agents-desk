@@ -388,6 +388,105 @@ export const config = {
   // for a bundled sidecar whose source layout is gone.
   gridEncoderPath: process.env.AGENT_FEED_GRID_ENCODER_PATH?.trim()
     || resolve(import.meta.dir, "../../../.build/grid-encoder"),
+  // Claude Desktop's main binary. The parent chain of a `--resume` child reaching THIS path is what
+  // identifies the window that owns a session; a chain that stops at a shell or tmux is a terminal
+  // session with no window to write into. Env-overridable so a non-default install location does not
+  // need a code change.
+  claudeDesktopMainPath: process.env.AGENTDESK_CLAUDE_MAIN_PATH?.trim()
+    || "/Applications/Claude.app/Contents/MacOS/Claude",
+  // Matched in BOTH argv spellings, because both are live on a normal machine and they mean
+  // different things here. Claude Desktop's embedded CLI passes `--resume=<id>`, a terminal session
+  // passes `--resume <id>`. Scanning only the first would report an open terminal session as "not
+  // running" rather than "terminal only", which is the wrong answer on screen and hides the fact
+  // that the session is open at all.
+  claudeResumeFlag: process.env.AGENTDESK_CLAUDE_RESUME_MARK?.trim() || "--resume",
+  // Only a Desktop-spawned coding session carries this `entrypoint`; a terminal session reads `cli`.
+  // Env-overridable because it is another application's private field and can change without notice.
+  claudeDesktopRegistryEntrypoint: process.env.AGENTDESK_CLAUDE_REGISTRY_ENTRYPOINT?.trim()
+    || "claude-desktop",
+  // How often a watched session is re-resolved against the process table. A `ps` scan plus a chain
+  // walk is cheap, but the thing it observes changes only when a human opens or closes a Claude
+  // window, so a slower cadence than the panel's other streams is right.
+  claudeWindowResolveIntervalMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_WINDOW_RESOLVE_INTERVAL_MS",
+    3_000,
+    250,
+    60_000,
+  ),
+  // Codex Desktop is hosted by ChatGPT.app. A process whose argv is exactly this path is the app's
+  // main process; a wrong pid degrades to "no window" at targeting, never to a write against another
+  // application. Env-overridable like the Claude one.
+  codexDesktopMainPath: process.env.AGENTDESK_CODEX_MAIN_PATH?.trim()
+    || "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
+  // The app's own thread registry, and its display-title index. `threads` rows carry `cwd` and a
+  // lowercased `title`; the title a window actually SHOWS is the `thread_name` in the JSONL, which
+  // matches the accessibility header exactly.
+  codexStateSqlite: process.env.AGENTDESK_CODEX_STATE_SQLITE?.trim()
+    || join(userHomeDirectory, ".codex", "state_5.sqlite"),
+  codexSessionIndex: process.env.AGENTDESK_CODEX_SESSION_INDEX?.trim()
+    || join(userHomeDirectory, ".codex", "session_index.jsonl"),
+  // How long a Codex window is given to build its accessibility tree. Unlike Claude there is no
+  // `AXManualAccessibility` latch to set -- the attribute is unsupported on this app -- so attaching
+  // and waiting is the only mechanism, and the tree only builds for a window on the active Desktop.
+  codexTreeMaterializeTimeoutMs: integerEnvironment(
+    "AGENT_FEED_CODEX_TREE_MATERIALIZE_TIMEOUT_MS", 20_000, 250, 120_000,
+  ),
+  // Renderer revive gates. The composer must be CONTINUOUSLY missing for the first, so a tree that
+  // flaps on a sub-minute cycle is never killed and a genuinely wedged one recovers inside it; the
+  // second bounds a tree that never rebuilds to one kill per Claude process per window. Each kill
+  // reloads a window the user is looking at, which is why neither is aggressive.
+  claudeRendererReviveMinMissingMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_RENDERER_REVIVE_MIN_MISSING_MS", 8_000, 1_000, 600_000,
+  ),
+  claudeRendererReviveCooldownMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_RENDERER_REVIVE_COOLDOWN_MS", 60_000, 1_000, 3_600_000,
+  ),
+  // How long a respawned web contents gets to build its tree before the caller gives up and lets the
+  // poll retry.
+  claudeRendererReviveWaitMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_RENDERER_REVIVE_WAIT_MS", 3_000, 250, 60_000,
+  ),
+  // How long a window brought to this Desktop gets to materialize its composer. Chromium builds a
+  // window's tree lazily and only for the current Space, so the first search after a move-in
+  // reliably misses and this is the budget for it appearing.
+  claudeComposerMaterializeTimeoutMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_COMPOSER_MATERIALIZE_TIMEOUT_MS", 20_000, 250, 120_000,
+  ),
+  claudeComposerMaterializePollMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_COMPOSER_MATERIALIZE_POLL_MS", 200, 10, 5_000,
+  ),
+  // How long a written value gets to commit and read back before the write is judged. Chromium
+  // commits asynchronously and a contents mid-rebuild answers the first read with the old value.
+  claudeComposerVerifySettleMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_COMPOSER_VERIFY_SETTLE_MS", 2_000, 100, 60_000,
+  ),
+  // How long a submitted composer gets to clear before the send is reported as not obviously landed.
+  claudeComposerSubmitSettleMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_COMPOSER_SUBMIT_SETTLE_MS", 2_000, 100, 60_000,
+  ),
+  claudeComposerSettlePollMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_COMPOSER_SETTLE_POLL_MS", 100, 10, 5_000,
+  ),
+  // How long a `--control` helper waits without a command before ending itself. It exists because
+  // `bun --watch` reloads this module graph IN THE SAME PID: a helper spawned before a reload is
+  // referenced by nothing afterwards and no code here will ever kill it. An orphan receives nothing
+  // by definition, so silence is the signal. Long enough to survive a quiet panel, short enough
+  // that a rebuilt binary is not shadowed by yesterday's process.
+  desktopHelperIdleSeconds: integerEnvironment(
+    "AGENT_FEED_DESKTOP_HELPER_IDLE_SECONDS",
+    30,
+    5,
+    3_600,
+  ),
+  // A helper verb answers in single-digit milliseconds unless it is moving a window between
+  // Desktops, which waits on the window server. Past this the request failed, and reporting that is
+  // better than a panel field that never resolves.
+  desktopHelperRequestTimeoutMs: integerEnvironment(
+    "AGENT_FEED_DESKTOP_HELPER_REQUEST_TIMEOUT_MS",
+    8_000,
+    250,
+    60_000,
+  ),
   // Werift's stock sender retains only 128 RTP packets for NACK repair. LTE traces showed
   // requests continuing after that ring had been overwritten, so the repository patch makes
   // the history an explicit peer option and this central knob raises it to roughly 6 seconds

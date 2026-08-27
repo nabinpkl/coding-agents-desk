@@ -13,10 +13,15 @@ import type {
 import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type {
   HostActionsClient,
-  QuestionPanelStatus,
-  WindowComposerStatus,
 } from "../features/activity-feed/data-source/HostActionsClient";
-import { WindowComposerError, WindowQuestionError } from "../features/activity-feed/data-source/HostActionsClient";
+import {
+  type QuestionPanelStatus,
+  sidecarWindowComposerClient,
+  WindowComposerError,
+  type WindowComposerClient,
+  type WindowComposerStatus,
+  WindowQuestionError,
+} from "../features/window-composer/WindowComposerClient";
 import type { AgentSessionControlState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
@@ -202,6 +207,12 @@ export function App({ feed, host }: Props) {
   // Gathering windows onto one Desktop is a machine-level capability, probed once
   // the same way usage is. Absent yabai, the menu entry stays disabled.
   const park = useDesktopPark(feed);
+  // Both window composers are served by the sidecar and the standalone helper (ADR-0110). One client
+  // per source, because the two resolve their window differently -- Claude by its process tree, Codex
+  // by its own state joined to its accessibility tree -- and the sidecar is told which to run rather
+  // than guessing. Built here, not in the composer, for the same reason `cliInput` is.
+  const claudeComposer = useMemo(() => sidecarWindowComposerClient(feed, "claude"), [feed]);
+  const codexComposer = useMemo(() => sidecarWindowComposerClient(feed, "codex"), [feed]);
   // Whether the selected thread is a Claude Code session running in someone's terminal, which is
   // what decides between the window composer and a plain send. Asked only for claude rows; every
   // other source leaves the hook inert and never issues a request.
@@ -946,6 +957,9 @@ export function App({ feed, host }: Props) {
               error={commandError}
               question={openQuestion}
               cliInput={cliInput}
+              windowComposerClient={
+                displayedThread.session.source === "codex" ? codexComposer : claudeComposer
+              }
               agentTerminal={terminalComposer}
               onSendMessage={sendPrompt}
               onAbort={abortRun}
@@ -996,6 +1010,7 @@ function SessionComposer({
   error,
   question,
   cliInput,
+  windowComposerClient,
   agentTerminal,
   onSendMessage,
   onAbort,
@@ -1017,6 +1032,11 @@ function SessionComposer({
    * Resolved by the app, because it is a sidecar read and this component takes only the host.
    */
   cliInput: CliInputHandle;
+  /**
+   * This session's window composer, bound to its source. Resolved by the app, because it is a
+   * sidecar read and this component takes only the host.
+   */
+  windowComposerClient: WindowComposerClient;
   /** The already-open Agent Feed pty, or null while no owned terminal is ready. */
   agentTerminal: AgentTerminalComposer | null;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
@@ -1035,7 +1055,7 @@ function SessionComposer({
   // terminal session, so hook order here never varies. Codex reads are free on any Desktop, so it
   // skips the off-Desktop bring-and-move-back round trip Claude's windows need.
   const windowComposer = useWindowComposer(
-    host,
+    windowComposerClient,
     sessionId,
     windowCandidate,
     isCodex ? "Codex" : "Claude",
@@ -1072,7 +1092,12 @@ function SessionComposer({
   // because that is what it did before this band existed and what it should keep doing: the
   // question is real and worth reading. Pressing one would mean delivering the answer through the
   // inbox instead of through a window, which is a different feature from typing a turn.
-  const questionPanel = useClaudeWindowQuestion(host, sessionId, isClaude && question != null, question);
+  const questionPanel = useClaudeWindowQuestion(
+    windowComposerClient,
+    sessionId,
+    isClaude && question != null,
+    question,
+  );
 
   // Every non-window transport composes against local state. If native resolution refuses after
   // somebody has already typed, hand that exact draft to the selected local transport before the
@@ -1435,7 +1460,7 @@ type ComposerAction = {
  * updates it while idle. Enter stays the one explicit action.
  */
 function useWindowComposer(
-  host: HostActionsClient,
+  host: WindowComposerClient,
   sessionId: string,
   active: boolean,
   windowName: string,
@@ -1656,7 +1681,7 @@ function useWindowComposer(
  * arriving between keystrokes cannot clobber them.
  */
 function useClaudeWindowQuestion(
-  host: HostActionsClient,
+  host: WindowComposerClient,
   sessionId: string,
   active: boolean,
   question: OpenAskUserQuestion | null,

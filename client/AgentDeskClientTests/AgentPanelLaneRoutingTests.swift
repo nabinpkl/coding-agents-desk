@@ -5,16 +5,10 @@ import Testing
 /// Pins the `.agent`-lane routing boundary: panel-protocol frames are forwarded verbatim to the web
 /// view (including types the client has not been taught yet), while a fixed native set is
 /// intercepted. This is what makes new agent message types reach the panel without a per-type
-/// change here — the class of bug that silently dropped `agent-live-tail` /
-/// `agent-window-input-status` / `agent-window-input-result`.
+/// change here — the class of bug that silently dropped `agent-live-tail`.
 struct AgentPanelLaneRoutingTests {
     @Test func liveTailIsPanelProtocol() {
         #expect(AgentPanelLaneRouting.isPanelProtocol("agent-live-tail"))
-    }
-
-    @Test func composerStatusAndResultArePanelProtocol() {
-        #expect(AgentPanelLaneRouting.isPanelProtocol("agent-window-input-status"))
-        #expect(AgentPanelLaneRouting.isPanelProtocol("agent-window-input-result"))
     }
 
     // Raw-event fragments stopped being a native concern when the relay took over chunking
@@ -34,7 +28,7 @@ struct AgentPanelLaneRoutingTests {
     // client-side allowlist every time the panel grows.
     @Test func unknownAgentTypesAreForwardedByConstruction() {
         #expect(AgentPanelLaneRouting.isPanelProtocol("agent-future-message"))
-        #expect(AgentPanelLaneRouting.isPanelProtocol("agent-window-input-something-new"))
+        #expect(AgentPanelLaneRouting.isPanelProtocol("agent-something-not-yet-invented"))
     }
 
     @Test func nativeInterceptedAgentTypesAreNotForwarded() {

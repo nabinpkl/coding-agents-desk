@@ -94,34 +94,6 @@ struct AgentPanelBridgeTransportTests {
         #expect(client.performed.isEmpty)
     }
 
-    /// Composer sync and the question mirror write into another application's window through
-    /// Accessibility. Routing one of them at the sidecar would send a keystroke nowhere and leave
-    /// the panel believing it landed.
-    @Test func nativeAuthorityRequestsNeverReachTheRelay() {
-        let client = TransportRelayClient()
-        var received: [AgentPanelRequest] = []
-        let sink = CapturingSink()
-        let transport = AgentPanelBridgeTransport(
-            relay: AgentFeedHTTPRelay(client: client, send: sink.accept),
-            onWindowInput: { received.append($0) }
-        )
-
-        transport.sendAgentPanelRequest(.windowInputWatch(subscriptionId: "w-1", sessionId: "s1"))
-        transport.sendAgentPanelRequest(.windowInputSubmit(requestId: "r-1", sessionId: "s1", text: "hi"))
-        transport.sendAgentPanelRequest(.questionAction(
-            requestId: "r-2",
-            sessionId: "s1",
-            kind: .submit,
-            optionIndex: nil,
-            desired: nil,
-            otherText: nil
-        ))
-
-        #expect(received.count == 3)
-        #expect(client.performed.isEmpty)
-        #expect(client.subscribed.isEmpty)
-        #expect(sink.count == 0)
-    }
 }
 
 /// A sidecar transport that records what the relay asked of it and never answers.

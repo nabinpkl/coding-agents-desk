@@ -242,6 +242,9 @@ function setup(terminalIds: string[] = []) {
 }
 
 /** The newest subscription id the App posted for a native-authority watch. */
+/** Claude's composer and question stream. One path, because the sidecar sends both down it. */
+const COMPOSER_STREAM = "/api/window/composer/stream";
+
 function latestSubscription(fake: FakeHostBridge, type: string): string {
   const message = [...fake.posted]
     .reverse()
@@ -1331,28 +1334,61 @@ describe("Claude window composer field", () => {
     restoreViewport();
   });
 
-  function windowInputSubscription(fake: FakeHostBridge): string {
-    return latestSubscription(fake, "agent-window-input-watch");
-  }
-
-  /** Focuses the Claude field and returns its watch subscription: the watch is focus-gated now. */
-  function focusComposer(fake: FakeHostBridge) {
+  /**
+   * Focuses the Claude field, which is what opens the composer stream: the watch is focus-gated.
+   *
+   * Claude's composer is served by the sidecar now (ADR-0110), so the seam these tests drive is the
+   * HTTP transport rather than the host bridge. Codex still uses the lane, which is why the Codex
+   * test below still asserts on `fake.posted`.
+   */
+  function focusComposer(_transport: FakeHttpTransport) {
     const field = screen.getByLabelText("Claude composer text");
     fireEvent.focus(field);
-    return { field, sub: windowInputSubscription(fake) };
+    return { field };
   }
 
-  function deliverStatus(fake: FakeHostBridge, sub: string, overrides: Record<string, unknown> = {}) {
+  /** One status frame on the composer stream. The short keys are the test's, not the wire's. */
+  function deliverStatus(transport: FakeHttpTransport, overrides: Record<string, unknown> = {}) {
+    const { en = true, cur = true, tx = "", r = null, sid = "sid-claude-01" } = overrides;
     act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: true,
-        tx: "",
-        ...overrides,
+      transport.deliver(COMPOSER_STREAM, {
+        composer: {
+          sessionId: sid,
+          enabled: en,
+          reason: r,
+          onActiveDesktop: cur,
+          composerText: tx,
+        },
       });
+    });
+  }
+
+  /** Every composer command of one kind the panel issued, in order. */
+  function composerCalls(transport: FakeHttpTransport, kind: "sync" | "submit" | "read") {
+    return transport.requests.filter((request) => request.path === `/api/window/composer/${kind}`);
+  }
+
+  /** The body of the last composer command of one kind, for a `toMatchObject` on what was sent. */
+  function lastComposerCall(transport: FakeHttpTransport, kind: "sync" | "submit" | "read") {
+    return composerCalls(transport, kind).at(-1)?.body;
+  }
+
+  /**
+   * Pre-seeds what a composer command answers.
+   *
+   * Seeded BEFORE the action rather than delivered after it, because a POST resolves its own
+   * promise: there is no correlation id to answer late against, which is most of why this path is
+   * simpler than the lane it replaced.
+   */
+  function answerComposer(
+    transport: FakeHttpTransport,
+    kind: "sync" | "submit" | "read",
+    body: unknown,
+    status = 200,
+  ) {
+    transport.responses.set(`POST /api/window/composer/${kind}`, {
+      status,
+      body: JSON.stringify(body),
     });
   }
 
@@ -1364,8 +1400,8 @@ describe("Claude window composer field", () => {
     // arrives" could never be focused and the status would never arrive.
     expect(screen.getByLabelText("Claude composer text")).toBeEnabled();
 
-    const { sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { en: false, r: "terminal-only" });
+    focusComposer(transport);
+    deliverStatus(transport, { en: false, r: "terminal-only" });
 
     expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
     expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
@@ -1382,9 +1418,9 @@ describe("Claude window composer field", () => {
     // one of them -- has to be readable from the notice alone.
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { sub } = focusComposer(fake);
+    focusComposer(transport);
 
-    deliverStatus(fake, sub, { en: false, r: "multiple-instances" });
+    deliverStatus(transport, { en: false, r: "multiple-instances" });
 
     expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
     expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
@@ -1397,9 +1433,9 @@ describe("Claude window composer field", () => {
     vi.useFakeTimers();
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
+    const { field } = focusComposer(transport);
 
-    deliverStatus(fake, sub, { tx: "half-written prompt" });
+    deliverStatus(transport, { tx: "half-written prompt" });
 
     expect(field).toBeEnabled();
     expect(field).toHaveValue("half-written prompt");
@@ -1409,17 +1445,16 @@ describe("Claude window composer field", () => {
     expect(screen.queryByRole("button", { name: "Fill Claude's composer" })).toBeNull();
     fireEvent.keyDown(field, { key: "Enter" });
     expect(
-      fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-sync"),
+      composerCalls(transport, "sync"),
     ).toHaveLength(0);
 
     // One burst of typing lands as one sync, 500ms after the last keystroke.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-sync",
-      sid: "sid-claude-01",
-      tx: "review the diff",
+    expect(lastComposerCall(transport, "sync")).toMatchObject({
+      sessionId: "sid-claude-01",
+      text: "review the diff",
     });
     unmount();
   });
@@ -1428,17 +1463,16 @@ describe("Claude window composer field", () => {
     vi.useFakeTimers();
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { tx: "text to delete" });
+    const { field } = focusComposer(transport);
+    deliverStatus(transport, { tx: "text to delete" });
 
     fireEvent.change(field, { target: { value: "" } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-sync",
-      sid: "sid-claude-01",
-      tx: "",
+    expect(lastComposerCall(transport, "sync")).toMatchObject({
+      sessionId: "sid-claude-01",
+      text: "",
     });
     unmount();
   });
@@ -1447,29 +1481,28 @@ describe("Claude window composer field", () => {
     vi.useFakeTimers();
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
+    const { field } = focusComposer(transport);
 
     // The lease is still being acquired. Typing is allowed, but the first debounce cannot send to
     // an off-Desktop window yet.
-    deliverStatus(fake, sub, { cur: false, tx: null });
+    deliverStatus(transport, { cur: false, tx: null });
     fireEvent.change(field, { target: { value: "sync after lease" } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
     expect(
-      fake.posted.filter((message) => (message as { t?: string }).t === "agent-window-input-sync"),
+      composerCalls(transport, "sync"),
     ).toHaveLength(0);
 
     // The host's lease status flips active. The debounce effect must wake up and retry the existing
     // unsynced draft without requiring another keystroke.
-    deliverStatus(fake, sub, { cur: true, tx: "" });
+    deliverStatus(transport, { cur: true, tx: "" });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-sync",
-      sid: "sid-claude-01",
-      tx: "sync after lease",
+    expect(lastComposerCall(transport, "sync")).toMatchObject({
+      sessionId: "sid-claude-01",
+      text: "sync after lease",
     });
     unmount();
   });
@@ -1477,36 +1510,33 @@ describe("Claude window composer field", () => {
   it("blur flushes an unsynced edit and unwatches, stopping the host's poll", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { tx: "" });
+    const { field } = focusComposer(transport);
+    deliverStatus(transport, { tx: "" });
 
     fireEvent.change(field, { target: { value: "about to leave" } });
     fireEvent.blur(field);
 
-    // The flush push lands before the unwatch, so nothing typed is lost.
-    expect(fake.posted.at(-2)).toMatchObject({
-      t: "agent-window-input-sync",
-      sid: "sid-claude-01",
-      tx: "about to leave",
+    // The flush lands before the stream closes, so nothing typed is lost. Closing the stream is
+    // what releases the window's editing lease and stops the sidecar's poll.
+    expect(lastComposerCall(transport, "sync")).toMatchObject({
+      sessionId: "sid-claude-01",
+      text: "about to leave",
     });
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-unwatch",
-      sub,
-    });
+    expect(transport.subscriptions.some((open) => open.path.includes(COMPOSER_STREAM))).toBe(false);
     unmount();
   });
 
   it("an echo of our own write marks the field in sync; an independent edit then lands", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { tx: "" });
+    const { field } = focusComposer(transport);
+    deliverStatus(transport, { tx: "" });
 
     fireEvent.change(field, { target: { value: "mid" } });
     // The host's write echo arrives while the draft is still "unsent": matching text means field and
     // window agree again, so a LATER independent edit must be adopted rather than guarded forever.
-    deliverStatus(fake, sub, { tx: "mid" });
-    deliverStatus(fake, sub, { tx: "edited directly in Claude" });
+    deliverStatus(transport, { tx: "mid" });
+    deliverStatus(transport, { tx: "edited directly in Claude" });
 
     expect(field).toHaveValue("edited directly in Claude");
     unmount();
@@ -1515,14 +1545,14 @@ describe("Claude window composer field", () => {
   it("does not overwrite an in-flight edit with a status that arrives while typing", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { tx: "" });
+    const { field } = focusComposer(transport);
+    deliverStatus(transport, { tx: "" });
 
     fireEvent.change(field, { target: { value: "mid-sentence" } });
 
     // The host re-resolves on a timer, so a status carrying the window's own text can land at any
     // moment. Adopting it here would delete what the viewer just typed.
-    deliverStatus(fake, sub, { tx: "whatever the window holds" });
+    deliverStatus(transport, { tx: "whatever the window holds" });
 
     expect(field).toHaveValue("mid-sentence");
     unmount();
@@ -1532,28 +1562,20 @@ describe("Claude window composer field", () => {
     vi.useFakeTimers();
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { tx: "" });
+    const { field } = focusComposer(transport);
+    deliverStatus(transport, { tx: "" });
 
+    // The sidecar answers the write with what the field read back, which is already stale by the
+    // time it resolves: the user kept typing while Chromium settled the value.
+    answerComposer(transport, "sync", { text: "first burst" });
     fireEvent.change(field, { target: { value: "first burst" } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    // The debounce fired: a sync for "first burst" is in flight. The user keeps typing before the
-    // host settles the write, so the write's read-back is stale the moment it resolves. Adopting it
-    // would truncate the field back to "first burst" mid-keystroke.
+    // Adopting the read-back here would truncate the field back to "first burst" mid-keystroke.
     fireEvent.change(field, { target: { value: "first burst, then more" } });
-    const sync = [...fake.posted].reverse().find(
-      (m) => (m as { t?: string }).t === "agent-window-input-sync",
-    ) as { rid: string };
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-input-result",
-        rid: sync.rid,
-        sid: "sid-claude-01",
-        ok: true,
-        tx: "first burst",
-      });
+      await vi.advanceTimersByTimeAsync(0);
     });
 
     expect(field).toHaveValue("first burst, then more");
@@ -1563,8 +1585,8 @@ describe("Claude window composer field", () => {
   it("the Enter button actually sends by filling and pressing Return", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
-    deliverStatus(fake, sub, { tx: "" });
+    const { field } = focusComposer(transport);
+    deliverStatus(transport, { tx: "" });
 
     const sendButton = screen.getByRole("button", { name: "Send to Claude's composer" });
     expect(sendButton).toBeDisabled();
@@ -1573,10 +1595,9 @@ describe("Claude window composer field", () => {
     expect(sendButton).toBeEnabled();
 
     fireEvent.click(sendButton);
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-submit",
-      sid: "sid-claude-01",
-      tx: "run the tests",
+    expect(lastComposerCall(transport, "submit")).toMatchObject({
+      sessionId: "sid-claude-01",
+      text: "run the tests",
     });
     unmount();
   });
@@ -1584,39 +1605,29 @@ describe("Claude window composer field", () => {
   it("an off-Desktop window is prefilled by one automatic round trip", async () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
+    const { field } = focusComposer(transport);
 
-    deliverStatus(fake, sub, { cur: false, tx: null });
+    answerComposer(transport, "read", { text: "found on the other Desktop" });
+    deliverStatus(transport, { cur: false, tx: null });
 
     // No bring-window button: the round trip is the flow now, fired once on focus.
     expect(screen.queryByRole("button", { name: "Load from Claude window" })).toBeNull();
-    const read = fake.posted.at(-1) as { t?: string; rid?: string };
-    expect(read.t).toBe("agent-window-input-read");
-
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-input-result",
-        rid: read.rid,
-        sid: "sid-claude-01",
-        ok: true,
-        tx: "found on the other Desktop",
-      });
+      await Promise.resolve();
     });
-    expect(field).toHaveValue("found on the other Desktop");
+    expect(composerCalls(transport, "read")).toHaveLength(1);
+    await waitFor(() => expect(field).toHaveValue("found on the other Desktop"));
     unmount();
   });
 
   it("keeps the field editable while an off-Desktop prefill is in flight", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
+    const { field } = focusComposer(transport);
 
-    deliverStatus(fake, sub, { cur: false, tx: null });
+    deliverStatus(transport, { cur: false, tx: null });
 
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-read",
-      sid: "sid-claude-01",
-    });
+    expect(lastComposerCall(transport, "read")).toMatchObject({ sessionId: "sid-claude-01" });
     expect(field).toBeEnabled();
     fireEvent.change(field, { target: { value: "typing while Claude is being read" } });
     expect(field).toHaveValue("typing while Claude is being read");
@@ -1627,18 +1638,12 @@ describe("Claude window composer field", () => {
     vi.useFakeTimers();
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { field, sub } = focusComposer(fake);
+    const { field } = focusComposer(transport);
 
-    deliverStatus(fake, sub, { cur: false, tx: null });
-    const read = fake.posted.at(-1) as { rid: string };
+    answerComposer(transport, "read", { text: "draft from Claude" });
+    deliverStatus(transport, { cur: false, tx: null });
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-input-result",
-        rid: read.rid,
-        sid: "sid-claude-01",
-        ok: true,
-        tx: "draft from Claude",
-      });
+      await Promise.resolve();
     });
 
     fireEvent.change(field, { target: { value: "finish without moving the window" } });
@@ -1647,14 +1652,13 @@ describe("Claude window composer field", () => {
     });
 
     expect(
-      fake.posted.filter((message) => (message as { t?: string }).t === "agent-window-input-sync"),
+      composerCalls(transport, "sync"),
     ).toHaveLength(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Send to Claude's composer" }));
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-submit",
-      sid: "sid-claude-01",
-      tx: "finish without moving the window",
+    expect(lastComposerCall(transport, "submit")).toMatchObject({
+      sessionId: "sid-claude-01",
+      text: "finish without moving the window",
     });
     unmount();
   });
@@ -1665,22 +1669,20 @@ describe("Claude window composer field", () => {
     // an unavailable capability rather than inviting an endless retry.
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { sub } = focusComposer(fake);
+    focusComposer(transport);
 
-    deliverStatus(fake, sub, { cur: false, tx: null });
-    const read = fake.posted.at(-1) as { rid: string };
+    answerComposer(
+      transport,
+      "read",
+      { error: { code: "window-composer-failed", message: "window-mover-unavailable" } },
+      503,
+    );
+    deliverStatus(transport, { cur: false, tx: null });
 
-    await act(async () => {
-      fake.deliver({
-        t: "agent-window-input-result",
-        rid: read.rid,
-        sid: "sid-claude-01",
-        ok: false,
-        r: "window-mover-unavailable",
-      });
-    });
-
-    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("does not expose the window mover");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
+        "does not expose the window mover",
+      ));
     unmount();
   });
 
@@ -1697,17 +1699,18 @@ describe("Claude window composer field", () => {
     const field = screen.getByLabelText("Codex composer text");
     expect(field).not.toBeDisabled();
     fireEvent.focus(field);
-    const watch = fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-watch");
-    expect(watch).toHaveLength(1);
-    const sub = (watch[0] as { sub: string }).sub;
+    // The stream names its source, because the sidecar runs a different resolver for each and a
+    // silently wrong default would report "not running" for a window in front of the user.
+    expect(transport.subscriptions.some((open) => open.path.includes("source=codex"))).toBe(true);
     act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-codex-01",
-        en: true,
-        cur: true,
-        tx: "existing codex draft",
+      transport.deliver(COMPOSER_STREAM, {
+        composer: {
+          sessionId: "sid-codex-01",
+          enabled: true,
+          reason: null,
+          onActiveDesktop: true,
+          composerText: "existing codex draft",
+        },
       });
     });
     expect(field).toHaveValue("existing codex draft");
@@ -1726,23 +1729,21 @@ describe("Claude window composer field", () => {
     // bring-and-move-back must not fire here even when the window sits on another Desktop.
     const field = screen.getByLabelText("Codex composer text");
     fireEvent.focus(field);
-    const sub = (fake.posted.find((m) => (m as { t?: string }).t === "agent-window-input-watch") as {
-      sub: string;
-    }).sub;
     act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-codex-01",
-        en: true,
-        cur: false,
-        tx: "already readable",
+      transport.deliver(COMPOSER_STREAM, {
+        composer: {
+          sessionId: "sid-codex-01",
+          enabled: true,
+          reason: null,
+          onActiveDesktop: false,
+          composerText: "already readable",
+        },
       });
     });
 
     expect(field).toHaveValue("already readable");
     expect(
-      fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-read"),
+      composerCalls(transport, "read"),
     ).toHaveLength(0);
     unmount();
   });
@@ -1750,9 +1751,9 @@ describe("Claude window composer field", () => {
   it("renders the composer as a roomy, padded field rather than a single cramped row", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    const { sub } = focusComposer(fake);
+    focusComposer(transport);
 
-    deliverStatus(fake, sub, { tx: "" });
+    deliverStatus(transport, { tx: "" });
 
     const field = screen.getByLabelText("Claude composer text");
     expect(screen.getByLabelText("Claude window composer").className).toContain("px-6");
@@ -1849,26 +1850,57 @@ describe("AskUserQuestion mirror", () => {
     restoreViewport();
   });
 
-  function questionSubscription(fake: FakeHostBridge): string {
-    return latestSubscription(fake, "agent-window-question-watch");
+  /**
+   * Whether the composer stream is open. The question mirror shares it with the composer field,
+   * because the sidecar reads both halves in one pass and sends them down one stream.
+   */
+  function questionStreamOpen(transport: FakeHttpTransport): boolean {
+    return transport.subscriptions.some((open) => open.path.includes(COMPOSER_STREAM));
   }
 
   function deliverQuestionStatus(
-    fake: FakeHostBridge,
-    sub: string,
+    transport: FakeHttpTransport,
     overrides: Record<string, unknown> = {},
   ) {
+    const { en = true, pr = true, sel = [], ot = null, sb = null, r = null } = overrides;
     act(() => {
-      fake.deliver({
-        t: "agent-window-question-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: true,
-        pr: true,
-        sel: [],
-        ...overrides,
+      transport.deliver(COMPOSER_STREAM, {
+        question: {
+          sessionId: "sid-claude-01",
+          enabled: en,
+          reason: r,
+          present: pr,
+          selectedIndices: sel,
+          otherText: ot,
+          submitEnabled: sb,
+        },
       });
+    });
+  }
+
+  /** Every question action the panel posted, in order. */
+  function questionCalls(transport: FakeHttpTransport) {
+    return transport.requests.filter((request) => request.path === "/api/window/question/action");
+  }
+
+  function lastQuestionCall(transport: FakeHttpTransport) {
+    return questionCalls(transport).at(-1)?.body;
+  }
+
+  /** Pre-seeds the post-action state a question action answers with. */
+  function answerQuestion(transport: FakeHttpTransport, overrides: Record<string, unknown> = {}) {
+    const { en = true, pr = true, sel = [], ot = null, sb = null, r = null } = overrides;
+    transport.responses.set("POST /api/window/question/action", {
+      status: 200,
+      body: JSON.stringify({
+        sessionId: "sid-claude-01",
+        enabled: en,
+        reason: r,
+        present: pr,
+        selectedIndices: sel,
+        otherText: ot,
+        submitEnabled: sb,
+      }),
     });
   }
 
@@ -1904,7 +1936,7 @@ describe("AskUserQuestion mirror", () => {
     expect(screen.getByRole("button", { name: "Submit answer" })).toBeDisabled();
 
     // The mirror watches the live panel state while the question is open.
-    expect(questionSubscription(fake)).toBeTruthy();
+    expect(questionStreamOpen(transport)).toBe(true);
     unmount();
   });
 
@@ -1914,28 +1946,11 @@ describe("AskUserQuestion mirror", () => {
     openQuestion(QUESTION);
 
     fireEvent.click(screen.getByRole("radio", { name: "Reuse 2026-08-03.1" }));
-    const action = [...fake.posted]
-      .reverse()
-      .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
-      rid: string;
-      sid: string;
-      k: string;
-      oi: number;
-      v: number;
-    };
-    expect(action).toMatchObject({ sid: "sid-claude-01", k: "select", oi: 1, v: 1 });
+    const action = lastQuestionCall(transport) as Record<string, unknown>;
+    expect(action).toMatchObject({ sessionId: "sid-claude-01", kind: "select", option: 1, desired: true });
 
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-question-result",
-        rid: action.rid,
-        sid: "sid-claude-01",
-        ok: true,
-        pr: true,
-        sel: [1],
-        oth: null,
-        sb: true,
-      });
+      await Promise.resolve();
     });
     expect(screen.getByRole("radio", { name: "Reuse 2026-08-03.1" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Submit answer" })).toBeEnabled();
@@ -1949,44 +1964,24 @@ describe("AskUserQuestion mirror", () => {
 
     expect(screen.getAllByRole("checkbox").length).toBeGreaterThanOrEqual(3);
     const dark = screen.getByRole("checkbox", { name: "Dark mode" });
+    // The panel answers the press with the post-action state: our option, checked, alongside a
+    // selection made in the window itself.
+    answerQuestion(transport, { sel: [0, 1], sb: true });
     fireEvent.click(dark);
-    let action = [...fake.posted]
-      .reverse()
-      .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
-      rid: string;
-      k: string;
-      oi: number;
-      v: number;
-    };
-    expect(action).toMatchObject({ k: "select", oi: 0, v: 1 });
+    let action = lastQuestionCall(transport) as Record<string, unknown>;
+    expect(action).toMatchObject({ kind: "select", option: 0, desired: true });
 
     // The host reports it landed, pre-checked alongside a host-side selection.
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-question-result",
-        rid: action.rid,
-        sid: "sid-claude-01",
-        ok: true,
-        pr: true,
-        sel: [0, 1],
-        oth: null,
-        sb: true,
-      });
+      await Promise.resolve();
     });
     expect(dark).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Notifications" })).toBeChecked();
 
     // Un-checking a box asks the host to press it toward unchecked.
     fireEvent.click(dark);
-    action = [...fake.posted]
-      .reverse()
-      .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
-      rid: string;
-      k: string;
-      oi: number;
-      v: number;
-    };
-    expect(action).toMatchObject({ k: "select", oi: 0, v: 0 });
+    action = lastQuestionCall(transport) as Record<string, unknown>;
+    expect(action).toMatchObject({ kind: "select", option: 0, desired: false });
     unmount();
   });
 
@@ -2001,11 +1996,10 @@ describe("AskUserQuestion mirror", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-question-action",
-      sid: "sid-claude-01",
-      k: "other",
-      tx: "Deploy a different release",
+    expect(lastQuestionCall(transport)).toMatchObject({
+      sessionId: "sid-claude-01",
+      kind: "other",
+      text: "Deploy a different release",
     });
 
     // Clearing the input pushes the empty value, matching the composer's deletion rule.
@@ -2013,7 +2007,7 @@ describe("AskUserQuestion mirror", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(fake.posted.at(-1)).toMatchObject({ t: "agent-window-question-action", k: "other", tx: "" });
+    expect(lastQuestionCall(transport)).toMatchObject({ kind: "other", text: "" });
     unmount();
   });
 
@@ -2021,51 +2015,32 @@ describe("AskUserQuestion mirror", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(QUESTION);
-    const sub = questionSubscription(fake);
-    deliverQuestionStatus(fake, sub, { sel: [0], sb: true });
+    deliverQuestionStatus(transport, { sel: [0], sb: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
     expect(
-      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
-    ).toMatchObject({ k: "submit" });
+      lastQuestionCall(transport),
+    ).toMatchObject({ kind: "submit" });
     // Each explicit action holds the controls until its result lands; resolve
     // between clicks so the next control is enabled again.
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-question-result",
-        rid: ([...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action") as { rid: string }).rid,
-        sid: "sid-claude-01",
-        ok: true,
-        pr: true,
-        sel: [0],
-        oth: null,
-        sb: true,
-      });
+      await Promise.resolve();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(
-      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
-    ).toMatchObject({ k: "skip" });
+      lastQuestionCall(transport),
+    ).toMatchObject({ kind: "skip" });
     // Skip keeps the panel up in the window until Claude records it; only Dismiss
     // ends the test, so the mirror stays mounted.
     await act(async () => {
-      fake.deliver({
-        t: "agent-window-question-result",
-        rid: ([...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action") as { rid: string }).rid,
-        sid: "sid-claude-01",
-        ok: true,
-        pr: true,
-        sel: [0],
-        oth: null,
-        sb: true,
-      });
+      await Promise.resolve();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss question" }));
     expect(
-      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
-    ).toMatchObject({ k: "dismiss" });
+      lastQuestionCall(transport),
+    ).toMatchObject({ kind: "dismiss" });
     unmount();
   });
 
@@ -2073,9 +2048,7 @@ describe("AskUserQuestion mirror", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(MULTI_QUESTION);
-    const sub = questionSubscription(fake);
-
-    deliverQuestionStatus(fake, sub, { sel: [0, 2], sb: true });
+    deliverQuestionStatus(transport, { sel: [0, 2], sb: true });
 
     expect(screen.getByRole("checkbox", { name: "Dark mode" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Notifications" })).not.toBeChecked();
@@ -2087,9 +2060,7 @@ describe("AskUserQuestion mirror", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(QUESTION);
-    const sub = questionSubscription(fake);
-
-    deliverQuestionStatus(fake, sub, { pr: false });
+    deliverQuestionStatus(transport, { pr: false });
 
     expect(screen.queryByLabelText("Claude question")).toBeNull();
     unmount();
@@ -2099,10 +2070,10 @@ describe("AskUserQuestion mirror", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(QUESTION);
-    expect(questionSubscription(fake)).toBeTruthy();
+    expect(questionStreamOpen(transport)).toBe(true);
 
     openQuestion(null);
-    expect(fake.posted.at(-1)).toMatchObject({ t: "agent-window-question-unwatch" });
+    expect(questionStreamOpen(transport)).toBe(false);
     unmount();
   });
 
@@ -2110,9 +2081,7 @@ describe("AskUserQuestion mirror", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(QUESTION);
-    const sub = questionSubscription(fake);
-
-    deliverQuestionStatus(fake, sub, { en: false, r: "terminal-only", pr: null });
+    deliverQuestionStatus(transport, { en: false, r: "terminal-only", pr: null });
 
     expect(screen.getByLabelText("Claude question")).toHaveTextContent(
       "running in a terminal",
@@ -2129,8 +2098,8 @@ describe("AskUserQuestion mirror", () => {
     expect(screen.queryByText("Add a ledger entry for a new application release.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View question options" }));
     expect(
-      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
-    ).toMatchObject({ k: "view-options" });
+      lastQuestionCall(transport),
+    ).toMatchObject({ kind: "view-options" });
     expect(screen.getByText("Add a ledger entry for a new application release.")).toBeInTheDocument();
     unmount();
   });
@@ -2534,14 +2503,14 @@ describe("terminal session composer", () => {
     });
     fireEvent.focus(windowField);
     fireEvent.change(windowField, { target: { value: "keep this draft" } });
-    act(() => fake.deliver({
-      t: "agent-window-input-status",
-      sub: latestSubscription(fake, "agent-window-input-watch"),
-      sid: "sid-claude-01",
-      en: false,
-      cur: true,
-      tx: "",
-      r: "terminal-only",
+    act(() => transport.deliver(COMPOSER_STREAM, {
+      composer: {
+        sessionId: "sid-claude-01",
+        enabled: false,
+        reason: "terminal-only",
+        onActiveDesktop: true,
+        composerText: "",
+      },
     }));
 
     const terminalField = await screen.findByLabelText("Message through Agent Feed terminal");
@@ -2559,9 +2528,9 @@ describe("terminal session composer", () => {
       body: { data: "\u001b[200~keep this draft\u001b[201~\r", encoding: "utf8" },
     });
     await waitFor(() => expect(terminalField).toHaveValue(""));
-    expect(fake.posted).toContainEqual(expect.objectContaining({
-      t: "agent-window-input-unwatch",
-    }));
+    // The window composer's stream closed when the field went away, which is what releases the
+    // window's editing lease and stops the sidecar's poll.
+    expect(transport.subscriptions.some((open) => open.path.includes(COMPOSER_STREAM))).toBe(false);
     unmount();
   });
 
@@ -2585,13 +2554,14 @@ describe("terminal session composer", () => {
       },
     });
     fireEvent.focus(windowField);
-    act(() => fake.deliver({
-      t: "agent-window-input-status",
-      sub: latestSubscription(fake, "agent-window-input-watch"),
-      sid: "sid-claude-01",
-      en: true,
-      cur: true,
-      tx: "native draft",
+    act(() => transport.deliver(COMPOSER_STREAM, {
+      composer: {
+        sessionId: "sid-claude-01",
+        enabled: true,
+        reason: null,
+        onActiveDesktop: true,
+        composerText: "native draft",
+      },
     }));
 
     expect(screen.getByLabelText("Claude composer text")).toHaveValue("native draft");

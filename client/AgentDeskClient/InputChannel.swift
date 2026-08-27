@@ -59,17 +59,6 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentHTTPCancel(_ request: AgentFeedRelayCancel) async throws
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
     func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws
-    // Claude Desktop composer sync. Carried on this lane like the agent requests above, but answered by
-    // the host's own Accessibility path rather than the transcript sidecar.
-    func sendAgentWindowInputWatch(_ request: AgentWindowInputWatch) async throws
-    func sendAgentWindowInputUnwatch(_ request: AgentWindowInputUnwatch) async throws
-    func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws
-    func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws
-    func sendAgentWindowInputSubmit(_ request: AgentWindowInputSubmit) async throws
-    // AskUserQuestion panel state, answered on the same Accessibility-answered lane.
-    func sendAgentWindowQuestionWatch(_ request: AgentWindowQuestionWatch) async throws
-    func sendAgentWindowQuestionUnwatch(_ request: AgentWindowQuestionUnwatch) async throws
-    func sendAgentWindowQuestionAction(_ request: AgentWindowQuestionAction) async throws
 
     var closed: AsyncStream<Void> { get }
 }

@@ -14,16 +14,13 @@ import AgentPanel
 final class AgentPanelBridgeTransport: AgentPanelTransport {
     private let relay: AgentFeedHTTPRelay
     private let onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)?
-    private let onWindowInput: ((AgentPanelRequest) -> Void)?
 
     init(
         relay: AgentFeedHTTPRelay,
-        onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)? = nil,
-        onWindowInput: ((AgentPanelRequest) -> Void)? = nil
+        onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)? = nil
     ) {
         self.relay = relay
         self.onTerminalIntent = onTerminalIntent
-        self.onWindowInput = onWindowInput
     }
 
     func sendAgentPanelRequest(_ request: AgentPanelRequest) {
@@ -40,14 +37,6 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             relay.handleCancel(AgentFeedRelayCancel(rid: rid))
         case .terminal(let intent):
             onTerminalIntent?(intent)
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit,
-             .questionWatch, .questionUnwatch, .questionAction:
-            // Composer sync and the AskUserQuestion mirror are host-local Accessibility actions against
-            // another application's window. They route past the relay deliberately: the relay is a
-            // sidecar proxy, and there is no sidecar in this path. With no handler attached -- a
-            // host without its Space authority -- nothing answers, so the panel keeps its field disabled
-            // and its mirror inert rather than believing a write or press landed.
-            onWindowInput?(request)
         }
     }
 }

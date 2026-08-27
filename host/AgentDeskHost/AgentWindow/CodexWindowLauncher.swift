@@ -193,8 +193,8 @@ final class CodexWindowLauncher: @unchecked Sendable {
 /// localized/private UI strings and can change independently of AgentDesk.
 private struct LiveCodexDesktopApplicationAccess: CodexDesktopApplicationOpening {
     func runningMainPID() throws -> pid_t? {
-        let pids = CodexWindowSessionResolver.codexMainPids(
-            in: AgentWindowSessionResolver.liveProcessRows(),
+        let pids = AgentWindowProcessTable.codexMainPids(
+            in: AgentWindowProcessTable.liveProcessRows(),
             mainPath: Config.codexMainPath
         )
         guard pids.count <= 1 else { throw CodexWindowLaunchError.multipleApplications(pids) }

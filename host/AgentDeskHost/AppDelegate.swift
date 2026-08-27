@@ -180,26 +180,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var terminalWindowRegistry = TerminalWindowRegistry(
         placementCoordinator: desktopWindowPlacementCoordinator
     )
-    /// One writer for Claude Desktop's composers, shared by every Agents window and every paired phone.
-    /// Host-owned rather than window-owned because a write may move a Claude window between Desktops:
-    /// two coordinators could move the same window at once, and each would restore it to a home Desktop
-    /// the other had already changed.
-    private lazy var agentWindowComposerCoordinator = AgentWindowComposerCoordinator(
-        writer: AgentWindowComposerWriter(
-            access: AgentWindowComposerAccess(),
-            placement: BridgedWindowSpaceMover()
-        ),
-        // Codex Desktop sessions resolve through the same coordinator: one access instance serves both
-        // the window-identity scans and the composer writes, so the summary a session resolved to and
-        // the window a write targets are always the same AX scan.
-        codexWriter: CodexWindowComposerWriter(
-            access: codexWindowComposerAccess,
-            placement: BridgedWindowSpaceMover()
-        ),
-        codexSummaries: codexWindowComposerAccess,
-        audit: HostWorkspaceDesktopAudit()
-    )
-    private lazy var codexWindowComposerAccess = CodexWindowComposerAccess()
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
     // store. Each attached `.files` stream owns a subscription session, while the repository
@@ -686,7 +666,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
             makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() },
             placementCoordinator: desktopWindowPlacementCoordinator,
-            composerCoordinator: agentWindowComposerCoordinator,
             desktopSwitcher: desktopSwitcher
         )
         agentWindowRegistry = agentWindows
@@ -1623,17 +1602,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pushAgentPanelOrigin(to: lane)
         // Composer sync answers on this lane but never enters the agent-feed bridge: it is a
         // host-local Accessibility action against Claude Desktop, and the bridge is a sidecar proxy.
-        // The sink is keyed by device so a phone is told the outcome of its OWN writes only -- a
-        // status addressed to another surface would be adopted as this panel's field contents.
-        //
-        // Keyed per LANE INSTANCE, not per device: a reconnect stands up the new lane and closes the
-        // old one in either order, so a fingerprint-keyed id would let the dead lane's teardown
-        // detach the live lane's sink. The panel re-posts its watches after a resume anyway.
-        let laneInstance = String(UInt(bitPattern: ObjectIdentifier(lane).hashValue), radix: 16)
-        let composerSink = "agent-lane-\(fingerprint.rawValue)-\(laneInstance)"
-        agentWindowComposerCoordinator.attachSink(composerSink) { [weak lane] json in
-            lane?.pushAgentData(Data(json.utf8))
-        }
         // Agent Panel terminal ownership follows this lane. The workspace terminal stays on the
         // input lane.
         let terminalEndpointBinding = agentSessionTerminalEndpoints.beginBinding(for: fingerprint)
@@ -1669,15 +1637,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lane?.pushAgentData(data)
         })
         agentFeedRelay = relay
-        let composer = agentWindowComposerCoordinator
-        let composerLogger = agentComposerLogger
-        let route: (AgentPanelRequest?) -> Void = { request in
-            guard let request else {
-                composerLogger.error("composer-sync frame rejected by bounds")
-                return
-            }
-            composer.handle(request, from: composerSink)
-        }
         lane.agentRequestHandler = { [weak relay] request in
             switch request {
             case .http(let request):
@@ -1690,22 +1649,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let terminalEndpoint = await terminalEndpointTask.value else { return }
                     await terminalEndpoint.handle(message)
                 }
-            case .windowInputWatch(let msg):
-                route(AgentWindowInputLaneRequest.watch(msg))
-            case .windowInputUnwatch(let msg):
-                route(AgentWindowInputLaneRequest.unwatch(msg))
-            case .windowInputSync(let msg):
-                route(AgentWindowInputLaneRequest.sync(msg))
-            case .windowInputRead(let msg):
-                route(AgentWindowInputLaneRequest.read(msg))
-            case .windowInputSubmit(let msg):
-                route(AgentWindowInputLaneRequest.submit(msg))
-            case .questionWatch(let msg):
-                route(AgentWindowInputLaneRequest.questionWatch(msg))
-            case .questionUnwatch(let msg):
-                route(AgentWindowInputLaneRequest.questionUnwatch(msg))
-            case .questionAction(let msg):
-                route(AgentWindowInputLaneRequest.questionAction(msg))
             }
         }
         lane.onClosed = { [weak self] in
@@ -1715,10 +1658,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let terminalEndpoint = await terminalEndpointTask.value {
                     await terminalEndpoint.unbindPush(id: terminalPushBindingID)
                 }
-                // Drops this device's composer watches with the lane. A phone that walked away would
-                // otherwise keep its sessions in the re-resolve loop, scanning the process table on a
-                // timer for a panel that is no longer listening.
-                self.agentWindowComposerCoordinator.detachSink(composerSink)
             }
         }
     }

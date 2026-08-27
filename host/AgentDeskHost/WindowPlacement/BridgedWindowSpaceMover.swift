@@ -2,11 +2,19 @@ import AgentDeskWire
 import Foundation
 import os
 
+/// Moves a window between Desktops, for the host's own window placement.
+///
+/// Lived here with the composer writer that used it twice per write; that writer is gone (ADR-0110)
+/// and the standalone helper performs the composer's own move-in and move-back. What remains is
+/// `CodexWindowLauncher`, which opens a window and places it, and is host-owned placement.
+protocol AgentWindowDesktopMoving {
+    func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws
+}
+
 /// Moves another application's WindowServer window to a stable Space id and proves it landed.
 ///
 /// The bridged SkyLight operation accepts the raw WindowServer id, including a window on an inactive
-/// Desktop that has no Accessibility reference. It never changes the active Desktop. The composer
-/// writer uses this twice: bring the target window to the active Desktop, then restore its home Space.
+/// Desktop that has no Accessibility reference. It never changes the active Desktop.
 struct BridgedWindowSpaceMover: AgentWindowDesktopMoving {
     private let operation: any BridgedWindowSpaceOperating
     private let membership: any WindowSpaceMembershipReading

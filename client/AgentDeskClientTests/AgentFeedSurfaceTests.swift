@@ -37,48 +37,6 @@ struct AgentFeedSurfaceTests {
 
     /// The AskUserQuestion frames press buttons in another application's window, so they stay
     /// typed and bounded all the way across rather than riding the opaque relay.
-    @Test func keepsTheQuestionMirrorTyped() {
-        #expect(AgentFeedRequest(.questionWatch(
-            subscriptionId: "q-1",
-            sessionId: "session"
-        )) == .questionWatch(AgentWindowQuestionWatch(
-            subscriptionId: "q-1",
-            sessionId: "session"
-        )))
-        #expect(AgentFeedRequest(.questionUnwatch(subscriptionId: "q-1"))
-            == .questionUnwatch(AgentWindowQuestionUnwatch(subscriptionId: "q-1")))
-        #expect(AgentFeedRequest(.questionAction(
-            requestId: "a-1",
-            sessionId: "session",
-            kind: .select,
-            optionIndex: 2,
-            desired: true,
-            otherText: nil
-        )) == .questionAction(AgentWindowQuestionAction(
-            requestId: "a-1",
-            sessionId: "session",
-            kind: "select",
-            optionIndex: 2,
-            desired: 1,
-            text: nil
-        )))
-        #expect(AgentFeedRequest(.questionAction(
-            requestId: "a-2",
-            sessionId: "session",
-            kind: .other,
-            optionIndex: nil,
-            desired: nil,
-            otherText: "custom answer"
-        )) == .questionAction(AgentWindowQuestionAction(
-            requestId: "a-2",
-            sessionId: "session",
-            kind: "other",
-            optionIndex: nil,
-            desired: nil,
-            text: "custom answer"
-        )))
-    }
-
     @Test func sendsBridgedRequestsToTheInputLaneCallback() {
         let surface = AgentFeedSurface()
         var received: [AgentFeedRequest] = []
@@ -92,18 +50,6 @@ struct AgentFeedSurfaceTests {
             stream: false
         ))
         surface.sendAgentPanelRequest(.httpCancel(rid: "r1"))
-        surface.sendAgentPanelRequest(.questionWatch(
-            subscriptionId: "q",
-            sessionId: "s"
-        ))
-        surface.sendAgentPanelRequest(.questionAction(
-            requestId: "a",
-            sessionId: "s",
-            kind: .submit,
-            optionIndex: nil,
-            desired: nil,
-            otherText: nil
-        ))
 
         #expect(received == [
             .http(AgentFeedRelayRequest(
@@ -114,18 +60,6 @@ struct AgentFeedSurfaceTests {
                 stream: false
             )),
             .httpCancel(AgentFeedRelayCancel(rid: "r1")),
-            .questionWatch(AgentWindowQuestionWatch(
-                subscriptionId: "q",
-                sessionId: "s"
-            )),
-            .questionAction(AgentWindowQuestionAction(
-                requestId: "a",
-                sessionId: "s",
-                kind: "submit",
-                optionIndex: nil,
-                desired: nil,
-                text: nil
-            )),
         ])
     }
 

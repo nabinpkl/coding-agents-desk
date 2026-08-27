@@ -41,6 +41,10 @@ import type {
   TimelineMessage,
   TokenUsage,
   UsageStreamMessage,
+  WindowComposerEnvelope,
+  WindowComposerStatus,
+  WindowQuestionAction,
+  WindowQuestionStatus,
 } from "@agentdesk/agent-feed-wire";
 import type {
   AgentDataSource,
@@ -256,6 +260,103 @@ export class SidecarDataSource implements AgentDataSource {
         `/api/bots/${encodeURIComponent(botId)}/sessions/detach`,
         { body: { ...command, requestId: crypto.randomUUID() } },
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Claude Desktop composer and AskUserQuestion panel
+  // ---------------------------------------------------------------------
+
+  /**
+   * One session's composer and question state, as they change.
+   *
+   * One stream carrying both, because the sidecar reads them in one pass: the question mirror rides
+   * the composer's poll, and asking for them separately would double the Accessibility traffic for a
+   * window that is walked once either way.
+   *
+   * Reaching the sidecar rather than the host lane is the point of ADR-0110. The capability bound did
+   * not go away -- the sidecar resolves the window and the standalone helper is the only thing
+   * holding `AXUIElement` -- but a change to a poll interval or a failure sentence stopped costing a
+   * host build and a re-attach of every surface.
+   */
+  subscribeWindowComposer(
+    session: { source: string; sessionId: string },
+    handlers: {
+      onComposer?: (status: WindowComposerStatus) => void;
+      onQuestion?: (status: WindowQuestionStatus) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void {
+    return this.transport.subscribe(
+      `/api/window/composer/stream?source=${encodeURIComponent(session.source)}`
+        + `&sessionId=${encodeURIComponent(session.sessionId)}`,
+      {
+        onMessage: (payload) => {
+          try {
+            const envelope = JSON.parse(payload) as WindowComposerEnvelope & {
+              error?: { message?: string };
+            };
+            if (envelope.error) {
+              handlers.onError?.(envelope.error.message ?? "Composer stream failed");
+              return;
+            }
+            if (envelope.composer) handlers.onComposer?.(envelope.composer);
+            if (envelope.question) handlers.onQuestion?.(envelope.question);
+          } catch {
+            handlers.onError?.("Composer stream returned malformed JSON");
+          }
+        },
+        onError: (reason) => handlers.onError?.(reason),
+      },
+    );
+  }
+
+  /** Fills the composer without committing it. Returns what the field reads back. */
+  async syncWindowComposer(
+    session: { source: string; sessionId: string },
+    text: string,
+  ): Promise<string> {
+    return parse<{ text: string }>(
+      await this.transport.request("POST", "/api/window/composer/sync", {
+        body: { ...session, text },
+      }),
+    ).text;
+  }
+
+  /** Fills the composer and presses Return. This one deliberately fronts the Claude window. */
+  async submitWindowComposer(
+    session: { source: string; sessionId: string },
+    text: string,
+  ): Promise<string> {
+    return parse<{ text: string }>(
+      await this.transport.request("POST", "/api/window/composer/submit", {
+        body: { ...session, text },
+      }),
+    ).text;
+  }
+
+  /**
+   * Reads the composer, moving the window here if that is what it takes.
+   *
+   * A POST rather than a GET despite reading nothing but the composer: it can move a window between
+   * Desktops, which is a side effect the user asked for explicitly and not something a retry or a
+   * prefetch should be free to do.
+   */
+  async readWindowComposer(session: { source: string; sessionId: string }): Promise<string> {
+    return parse<{ text: string }>(
+      await this.transport.request("POST", "/api/window/composer/read", { body: session }),
+    ).text;
+  }
+
+  /** One AskUserQuestion interaction, answered with the panel's post-action state. */
+  async actOnWindowQuestion(
+    sessionId: string,
+    action: WindowQuestionAction,
+  ): Promise<WindowQuestionStatus> {
+    return parse<WindowQuestionStatus>(
+      await this.transport.request("POST", "/api/window/question/action", {
+        body: { sessionId, ...action },
+      }),
     );
   }
 

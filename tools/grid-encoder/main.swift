@@ -557,6 +557,17 @@ func argument(_ name: String) -> String? {
     guard let index = arguments.firstIndex(of: "--\(name)"), index + 1 < arguments.count else { return nil }
     return arguments[index + 1]
 }
+// `--control` is the third mode and takes neither: no capture, no encoder, no cursor mirror, just
+// the AX and SkyLight surface the composer path needs. It never returns, so everything below this
+// branch is capture-only and can keep assuming a target exists.
+if arguments.contains("--control") {
+    runControlMode(
+        idleSeconds: argument("idle-seconds").flatMap(Double.init) ?? 30,
+        emitMeta: { emitMeta($0) },
+        emitControl: { emit(.control, $0) }
+    )
+}
+
 // One of two capture targets: a single window by id, or a whole display.
 let windowArgument = argument("window").flatMap(UInt32.init)
 let displayArgument = argument("display")

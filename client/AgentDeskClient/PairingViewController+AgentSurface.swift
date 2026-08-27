@@ -312,20 +312,6 @@ extension PairingViewController {
             self.forwardAgentRequest(request, on: channel)
         }
 
-        // Composer sync takes the same live-channel path but bypasses `AgentFeedRequest`: the host
-        // answers it from its own Accessibility stack rather than the transcript sidecar, so it never
-        // enters the agent-feed envelope. Dropping when no channel is attached is correct here -- the
-        // panel keeps its field disabled until a status arrives, so a dropped watch reads as
-        // unavailable rather than as a write that silently did not happen.
-        surface.onWindowInput = { [weak self] request in
-            guard let self else { return }
-            guard let channel = self.pairingClient.activeInputChannel else {
-                Self.logger.notice("agent-feed: window input dropped, no active input channel")
-                return
-            }
-            self.forwardWindowInput(request, on: channel)
-        }
-
         // Wire outbound: host pushes -> surface.deliver, via the pairing client's
         // stable sink rather than a captured transport. A reconnect/resume
         // replaces activeSessionTransport; binding a specific transport here
@@ -658,53 +644,6 @@ extension PairingViewController {
 
     // MARK: - Request forwarding
 
-    /// Encodes one composer-sync request onto the input lane.
-    ///
-    /// Takes `AgentPanelRequest` rather than a client-side enum because these four requests carry no
-    /// client-side behavior at all: unlike a terminal intent, which also drives the local PTY view, the
-    /// phone's only part here is transport. The panel's own decoder already bounded these fields, and the
-    /// host bounds them again on arrival because this side is remote.
-    private func forwardWindowInput(_ request: AgentPanelRequest, on channel: InputChannel) {
-        Task {
-            do {
-                switch request {
-                case .windowInputWatch(let subscriptionId, let sessionId):
-                    try await channel.sendAgentWindowInputWatch(AgentWindowInputWatch(
-                        subscriptionId: subscriptionId,
-                        sessionId: sessionId
-                    ))
-                case .windowInputUnwatch(let subscriptionId):
-                    try await channel.sendAgentWindowInputUnwatch(AgentWindowInputUnwatch(
-                        subscriptionId: subscriptionId
-                    ))
-                case .windowInputSync(let requestId, let sessionId, let text):
-                    try await channel.sendAgentWindowInputSync(AgentWindowInputSync(
-                        requestId: requestId,
-                        sessionId: sessionId,
-                        text: text
-                    ))
-                case .windowInputRead(let requestId, let sessionId):
-                    try await channel.sendAgentWindowInputRead(AgentWindowInputRead(
-                        requestId: requestId,
-                        sessionId: sessionId
-                    ))
-                case .windowInputSubmit(let requestId, let sessionId, let text):
-                    try await channel.sendAgentWindowInputSubmit(AgentWindowInputSubmit(
-                        requestId: requestId,
-                        sessionId: sessionId,
-                        text: text
-                    ))
-                default:
-                    preconditionFailure("Only composer-sync requests route through forwardWindowInput")
-                }
-            } catch {
-                Self.logger.error(
-                    "window input send failed: \(String(describing: error), privacy: .public)"
-                )
-            }
-        }
-    }
-
     private func forwardAgentRequest(_ request: AgentFeedRequest, on channel: InputChannel) {
         Task {
             do {
@@ -713,12 +652,6 @@ extension PairingViewController {
                     try await channel.sendAgentHTTPRequest(request)
                 case .httpCancel(let request):
                     try await channel.sendAgentHTTPCancel(request)
-                case .questionWatch(let request):
-                    try await channel.sendAgentWindowQuestionWatch(request)
-                case .questionUnwatch(let request):
-                    try await channel.sendAgentWindowQuestionUnwatch(request)
-                case .questionAction(let request):
-                    try await channel.sendAgentWindowQuestionAction(request)
                 }
             } catch {
                 Self.logger.error(

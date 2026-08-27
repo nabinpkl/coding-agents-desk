@@ -22,9 +22,6 @@ declare global {
     __agentFeedFixture?: boolean;
     /** Selects a first-party page entry before React mounts. */
     __agentPanelEntry?: "feed" | "desktop";
-    __agentFeedBridge?: {
-      resumeAfterSessionReconnect(): void;
-    };
   }
 }
 
@@ -72,9 +69,10 @@ if (panelEntry() === "desktop") {
   const feed = new SidecarDataSource(transport);
   const host = new HostActionsClient(bridge);
 
-  window.__agentFeedBridge = {
-    resumeAfterSessionReconnect: () => host.resumeAfterSessionReconnect(),
-  };
+  // No `window.__agentFeedBridge`: it existed only to re-issue the composer's watches after a
+  // reconnect, and those are relayed subscriptions now (ADR-0110) -- a relayed subscription that
+  // dies fails its request and the panel re-opens it. WebPanelKit's call is guarded by a typeof
+  // check, so its absence is a no-op rather than an error.
 
   createRoot(root).render(
     <StrictMode>
