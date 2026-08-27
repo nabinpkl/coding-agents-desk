@@ -73,9 +73,11 @@ a while to appear.
 
 ### Consequences
 
-- Good, because the composer's AX observer delivers for the first time. This also closes a latent
-  bug: the poll SKIPS its value read once a pid is observed, so a successful `composer-observe`
-  used to stop the text updating by either route.
+- Good, because the composer's AX observer delivers for the first time, and the panel's composer
+  text finally tracks the window live. That took a second fix on top of the run loop: the poll
+  SKIPS its value read once a pid is observed, and the refresh the observer triggers took the same
+  path, so the notification arrived and re-emitted the text it already had. Between the two, a
+  successful `composer-observe` used to stop the text updating by either route.
 - Good, because a scan that consumes bytes and emits nothing now logs
   `agent-feed-index-scan-emitted-nothing` with the offsets, and a transcript that cannot be `stat`ed
   raises to the follower instead of returning quietly. The freeze's next occurrence is a grep.
@@ -96,6 +98,11 @@ a while to appear.
   `CFRunLoopRun()` delivers the notification.
 - Through the real helper after the change: a background `open -g -a Calculator` and its quit
   produced `workspace-changed` `launched` and `terminated` with pid and bundle id.
+- End to end against a live Claude window, on a restarted host: the composer stream reported an
+  out-of-band edit **0.11s** after it landed, twice, against a 30s backstop. The same measurement
+  before the skip-read fix showed the edit sitting unreported in the window for twenty seconds
+  while the stream kept serving the old value. The borrowed window returned to its own Desktop on
+  stream close.
 - The idle watchdog still ends the process on silence under the new loop (measured: exit at 4s with
   `--idle-seconds 3`), so the reaper ADR-0110 depends on is intact.
 - 606 sidecar tests and `just check` green, including new cases for the late-arriving mirror, an

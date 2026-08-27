@@ -280,6 +280,41 @@ describe("window-system events", () => {
   });
 });
 
+describe("the observer's own refresh", () => {
+  const session = "s-5";
+  const audit = snapshot([{ windowID: 900, ownerPID: CLAUDE_PID, spaceIDs: ["3"] }]);
+
+  test("re-reads the composer when the observer says it changed", async () => {
+    // The skip that makes an observed pid cheap on the periodic pass was also applied to the pass
+    // the observer triggered, so the notification arrived and the refresh re-emitted the value it
+    // already had. Measured against a live window: an out-of-band edit sat there for twenty seconds
+    // while the stream kept reporting the old text.
+    let text = "first";
+    const { helper, of, push } = fakeHelper({
+      "composer-read": () => ({ text }),
+      "question-read": () => ({ present: false }),
+      "composer-observe": () => ({ observing: true }),
+    }, audit);
+    const subject = coordinator(helper, claudeRows(session));
+    const seen: string[] = [];
+    const stop = subject.watch({ source: "claude", sessionId: session }, (envelope) => {
+      if (envelope.composer) seen.push(envelope.composer.composerText ?? "");
+    });
+    await settle();
+    expect(seen).toContain("first");
+    expect(of("composer-observe").length).toBe(1);
+
+    // Somebody typed in the real window. The only thing that says so is the observer.
+    text = "second";
+    push({ type: "composer-changed", pid: CLAUDE_PID });
+    await settle();
+
+    expect(seen).toContain("second");
+    stop();
+    subject.stop();
+  });
+});
+
 describe("what a watcher is told", () => {
   test("a lease that cannot be taken is reported, not silently swallowed", async () => {
     const session = "s-3";

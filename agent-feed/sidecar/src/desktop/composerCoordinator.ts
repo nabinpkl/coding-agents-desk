@@ -574,7 +574,17 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
       // entirely: that is the difference between walking a Chromium subtree every few seconds and
       // walking it when a human types.
       if (!textBySession.has(id)) {
+        // The skip is what the observer BUYS: while a pid is observed, the periodic pass does not
+        // walk a Chromium subtree to re-read a value it would be told about anyway.
+        //
+        // It must not apply to the pass the observer itself triggered. `onlyPid` is set by nothing
+        // except a helper push, so it marks an event-driven pass -- one that exists precisely
+        // because the value moved. Skipping the read there made the whole event path a no-op:
+        // the notification arrived, the refresh ran, and it re-emitted the text it already had.
+        // Measured before this line existed: an out-of-band edit sat in the window for twenty
+        // seconds while the stream kept reporting the old value.
         const skipRead = !isForced
+          && onlyPid === undefined
           && observed.has(resolved.claudeMainPid)
           && subscription.lastComposer?.composerText !== undefined;
         if (skipRead) {
