@@ -289,9 +289,54 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         }
         var visited: Set<UInt> = []
         guard let composer = findComposer(in: window, depth: 0, visited: &visited) else {
+            // The one breadcrumb that separates the two very different causes of this reason, which
+            // otherwise look identical from outside: a tree Chromium never built (a handful of bare
+            // AXGroup shells -- measured at 14 nodes for a window on another Space, against 403 for
+            // the same window on the active one), versus a full tree whose composer no longer carries
+            // the description this build matches on. Node and text-area counts tell them apart.
+            var counted: Set<UInt> = []
+            let census = treeCensus(of: window, depth: 0, visited: &counted)
+            logger.error(
+                """
+                composer not found window=\(target.windowID, privacy: .public) \
+                pid=\(target.claudeMainPid, privacy: .public) nodes=\(census.nodes, privacy: .public) \
+                textAreas=\(census.textAreas, privacy: .public) \
+                wantDescription=\(Config.claudeComposerDescription, privacy: .public) \
+                sawDescriptions=\(census.textAreaDescriptions, privacy: .public)
+                """
+            )
             throw AgentWindowInputReason.composerMissing
         }
         return composer
+    }
+
+    /// Node and text-area counts for one window subtree, for the composer-missing breadcrumb only.
+    private func treeCensus(
+        of element: AXUIElement,
+        depth: Int,
+        visited: inout Set<UInt>
+    ) -> (nodes: Int, textAreas: Int, textAreaDescriptions: [String]) {
+        guard depth < Self.maxSearchDepth, visited.insert(CFHash(element)).inserted else {
+            return (0, 0, [])
+        }
+        var nodes = 1
+        var textAreas = 0
+        var descriptions: [String] = []
+        if string(element, kAXRoleAttribute) == kAXTextAreaRole {
+            textAreas += 1
+            descriptions.append(string(element, kAXDescriptionAttribute))
+        }
+        var rawChildren: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &rawChildren) == .success,
+           let children = rawChildren as? [AXUIElement] {
+            for child in children {
+                let child = treeCensus(of: child, depth: depth + 1, visited: &visited)
+                nodes += child.nodes
+                textAreas += child.textAreas
+                descriptions.append(contentsOf: child.textAreaDescriptions)
+            }
+        }
+        return (nodes, textAreas, descriptions)
     }
 
     /// Every window an application element will admit to, deduplicated.
@@ -324,20 +369,36 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
     /// Correlates the audited `CGWindowID` to an `AXUIElement`.
     ///
     /// The Accessibility API exposes no window id, so the only shared fact between the two views is the
-    /// frame. With a single window there is nothing to disambiguate; with several, an ambiguous frame
-    /// match refuses rather than guessing, because the cost of guessing is typing a prompt into the wrong
-    /// conversation.
+    /// frame. An ambiguous match refuses rather than guessing, because the cost of guessing is typing a
+    /// prompt into the wrong conversation.
+    ///
+    /// The frame is checked even when only one window came back. It used to be taken on trust -- "with
+    /// a single window there is nothing to disambiguate" -- but this view is known-incomplete: as
+    /// `windowElements` says a few lines up, `AXWindows` returns EMPTY for windows on other Spaces, so
+    /// the list often collapses to whatever `AXFocusedWindow` answers, which may be a different window
+    /// of the same app entirely. One window here has never meant one window in the application, and
+    /// accepting it unchecked turned a mis-targeted window into a silent wrong answer.
     private func matchingWindow(
         target: AgentWindowSessionTarget,
         among windows: [AXUIElement]
     ) -> AXUIElement? {
-        if windows.count == 1 { return windows[0] }
         let matches = windows.filter { window in
             guard let frame = frame(of: window) else { return false }
             return abs(frame.origin.x - target.frame.origin.x) < 2
                 && abs(frame.origin.y - target.frame.origin.y) < 2
                 && abs(frame.size.width - target.frame.size.width) < 2
                 && abs(frame.size.height - target.frame.size.height) < 2
+        }
+        if matches.count != 1 {
+            logger.error(
+                """
+                composer window correlation failed window=\(target.windowID, privacy: .public) \
+                pid=\(target.claudeMainPid, privacy: .public) \
+                axWindows=\(windows.count, privacy: .public) matches=\(matches.count, privacy: .public) \
+                wantFrame=\(String(describing: target.frame), privacy: .public) \
+                sawFrames=\(windows.compactMap { self.frame(of: $0) }.map { String(describing: $0) }, privacy: .public)
+                """
+            )
         }
         return matches.count == 1 ? matches[0] : nil
     }

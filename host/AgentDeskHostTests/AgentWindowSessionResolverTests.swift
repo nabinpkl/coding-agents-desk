@@ -445,13 +445,14 @@ struct AgentWindowSessionResolverTests {
         id: UInt32,
         pid: pid_t,
         spaceIDs: [UInt64],
-        layer: Int = 0
+        layer: Int = 0,
+        title: String = "Claude"
     ) -> WorkspaceDesktopWindow {
         WorkspaceDesktopWindow(
             windowID: id,
             ownerPID: pid,
             ownerName: "Claude",
-            title: "Claude",
+            title: title,
             spaceIDs: spaceIDs,
             layer: layer,
             bounds: CGRect(x: 0, y: 0, width: 1200, height: 800),
@@ -496,6 +497,35 @@ struct AgentWindowSessionResolverTests {
 
         // Picking the free one avoids moving a window when this process already has one in reach.
         #expect((try? result.get())?.windowID == 43)
+    }
+
+    @Test func targetingSkipsTheUntitledScaffoldingWindowsElectronAlsoOwns() {
+        // Measured against the live app: one Claude Desktop instance owned eight layer-0 windows, of
+        // which seven were untitled Electron scaffolding (1800x39 strips, 800x600 and 500x500 shells)
+        // and one was the real browser window. Scaffolding sorts first by window id, so taking the
+        // lowest id on the active Space used to select a strip -- which then reads as "already on the
+        // active Desktop", skips the move, and leaves the real window's tree collapsed on its own
+        // Space. The failure surfaced as a missing composer.
+        let result = AgentWindowSessionTargeting.target(
+            sessionId: desktopSession,
+            claudeMainPid: 400,
+            in: snapshot(activeSpaceID: 1, windows: [
+                window(id: 10, pid: 400, spaceIDs: [1], title: ""),
+                window(id: 11, pid: 400, spaceIDs: [1], title: ""),
+                window(id: 12, pid: 400, spaceIDs: [4]),
+            ])
+        )
+
+        // The real window, on its own Desktop, so the caller moves it in rather than believing a strip.
+        #expect((try? result.get())?.windowID == 12)
+        #expect((try? result.get())?.isOnActiveDesktop == false)
+
+        let onlyScaffolding = AgentWindowSessionTargeting.target(
+            sessionId: desktopSession,
+            claudeMainPid: 400,
+            in: snapshot(activeSpaceID: 1, windows: [window(id: 10, pid: 400, spaceIDs: [1], title: "")])
+        )
+        #expect(onlyScaffolding == .failure(.noWindow))
     }
 
     @Test func targetingRefusesWindowsThatAreNotOrdinaryOrNotOnOneDesktop() {

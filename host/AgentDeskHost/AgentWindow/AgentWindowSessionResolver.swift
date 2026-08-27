@@ -292,8 +292,18 @@ enum AgentWindowSessionTargeting {
         }
         // Ordinary app windows only. Layer 0 excludes panels, sheets, and the status-item and shadow
         // entries CGWindowList also reports for the same process, none of which hold the composer.
+        //
+        // Layer 0 alone is NOT enough, which cost a long diagnosis: one Claude Desktop instance was
+        // measured owning eight layer-0 windows -- four 1800x39 strips, two 800x600, one 500x500, and
+        // the real 644x795 browser window. Only the last carries a title; Electron's scaffolding
+        // windows are all untitled. Without this filter the lowest-windowID scaffolding window on the
+        // active Space wins the selection below, the target then reads as already-on-the-active-Desktop,
+        // so no move happens, and the REAL window keeps the collapsed accessibility tree Chromium gives
+        // a window on another Space. That surfaces as "composer missing" with nothing pointing at the
+        // window it actually looked in.
         let candidates = snapshot.windows
             .filter { $0.ownerPID == claudeMainPid && $0.layer == 0 }
+            .filter { !$0.title.isEmpty }
             .filter { $0.spaceIDs.count == 1 }
             .sorted { $0.windowID < $1.windowID }
         guard let window = candidates.first(where: { $0.spaceID == activeSpaceID }) ?? candidates.first,
