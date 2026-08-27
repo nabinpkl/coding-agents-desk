@@ -267,6 +267,12 @@ export function App({ feed, host }: Props) {
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Width owns composition. A fine pointer may change desktop affordances, but
   // it must not turn a compact layout back into two side-by-side columns.
+  //
+  // It does NOT own whether hovering works. Those are separate facts -- one about the window,
+  // one about the input device -- and conflating them meant a 480pt Agents window on a Mac was
+  // handed the touch story and stopped responding to the mouse it still had. Width decides
+  // whether the sidebar can sit beside the content; the pointer decides whether pointing at the
+  // trigger is enough to reveal it.
   const usesModalSidebar = compact;
   const sidebarPinned = !usesModalSidebar && sidebarPreferences.open;
   const drawerOpen = usesModalSidebar && sidebarPreferences.open;
@@ -456,8 +462,11 @@ export function App({ feed, host }: Props) {
 
   const revealSidebarOnHover = useCallback(() => {
     cancelHoverClose();
-    if (!usesModalSidebar && hoverCapable && !sidebarPinned) setHoverPreviewOpen(true);
-  }, [cancelHoverClose, hoverCapable, sidebarPinned, usesModalSidebar]);
+    // Not gated on width: see `usesModalSidebar`. The two surfaces it IS gated on are the ones
+    // that already show the same list -- the pinned rail and the modal drawer -- because a
+    // transient copy layered over either of them is two navigations for one pointer.
+    if (hoverCapable && !sidebarPinned && !drawerOpen) setHoverPreviewOpen(true);
+  }, [cancelHoverClose, drawerOpen, hoverCapable, sidebarPinned]);
 
   const hideSidebarAfterHover = useCallback(() => {
     cancelHoverClose();
@@ -467,7 +476,16 @@ export function App({ feed, host }: Props) {
     }, 120);
   }, [cancelHoverClose]);
 
-  const pinSidebar = useCallback(() => {
+  /**
+   * The trigger's press, at either width.
+   *
+   * Hover peeks; pressing commits to the surface the width allows -- the pinned rail when there
+   * is room beside the content, the modal drawer that traps focus and answers Escape when there
+   * is not. One callback because the choice is already made downstream by `usesModalSidebar`;
+   * `sidebarPreferences.open` means the same thing to both. The peek is dropped first so the two
+   * never stack.
+   */
+  const openSidebar = useCallback(() => {
     cancelHoverClose();
     setHoverPreviewOpen(false);
     setSidebarOpen(true);
@@ -762,7 +780,7 @@ export function App({ feed, host }: Props) {
             />
           </ResizableSidebar>
         ) : null}
-        {!usesModalSidebar && hoverCapable && !sidebarPinned && hoverPreviewOpen ? (
+        {hoverCapable && !sidebarPinned && !drawerOpen && hoverPreviewOpen ? (
           <HoverSidebarPreview
             width={sidebarPreferences.width}
             onPointerEnter={cancelHoverClose}
@@ -790,13 +808,13 @@ export function App({ feed, host }: Props) {
               <button
                 ref={drawerTriggerRef}
                 type="button"
-                onClick={usesModalSidebar ? () => setSidebarOpen(true) : pinSidebar}
-                onPointerEnter={!usesModalSidebar && hoverCapable ? revealSidebarOnHover : undefined}
-                onPointerLeave={!usesModalSidebar && hoverCapable ? hideSidebarAfterHover : undefined}
+                onClick={openSidebar}
+                onPointerEnter={hoverCapable ? revealSidebarOnHover : undefined}
+                onPointerLeave={hoverCapable ? hideSidebarAfterHover : undefined}
                 aria-label={usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
-                aria-expanded={usesModalSidebar ? drawerOpen : hoverPreviewOpen}
+                aria-expanded={drawerOpen || hoverPreviewOpen}
                 title={usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
-                className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2 active:bg-muted/70"
               >
                 <PanelLeft className="size-5" aria-hidden />
             </button>

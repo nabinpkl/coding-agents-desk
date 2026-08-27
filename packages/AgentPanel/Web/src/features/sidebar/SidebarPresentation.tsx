@@ -144,7 +144,11 @@ export function HoverSidebarPreview({
     <aside
       aria-label="Agent navigation preview"
       className="absolute top-11 bottom-0 left-0 z-40 border-r border-border bg-card shadow-2xl"
-      style={{ width }}
+      // The stored width is what the sidebar wants when it is pinned beside content. As a
+      // transient overlay it also has to leave enough of the thread showing to read as a layer
+      // over the panel rather than a replacement of it, which a 420px preference does not do in a
+      // 480pt Agents window. The cap only ever binds in a window too narrow to pin in.
+      style={{ width, maxWidth: "calc(100% - 3.5rem)" }}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onFocus={onPointerEnter}

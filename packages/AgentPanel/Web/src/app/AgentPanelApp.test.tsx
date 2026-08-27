@@ -708,6 +708,8 @@ describe("App shell", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
+    // The drawer is already open here. A transient peek layered over it would be two
+    // navigations answering one pointer, so hovering the trigger changes nothing.
     const trigger = screen.getByRole("button", { name: "Open agent navigation" });
     fireEvent.pointerEnter(trigger);
     expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
@@ -715,9 +717,47 @@ describe("App shell", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("dialog", { name: "Agent navigation" }))
       .toHaveAttribute("open");
+    // Width still owns composition: no pointer makes a compact layout grow a pinned column.
     expect(screen.queryByRole("complementary", { name: "Agent navigation" }))
       .not.toBeInTheDocument();
     unmount();
+  });
+
+  it("peeks the transient drawer on hover in a window too narrow to pin in", () => {
+    vi.useFakeTimers();
+    // The Agents window is 480pt wide, which is compact, and it is on a Mac, which hovers. Both
+    // at once is the case that used to fall through to the touch story and ignore the mouse.
+    installViewport({ compact: true, hoverCapable: true });
+    storeSidebarPreferences({ open: false, width: 300 });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+
+    const trigger = screen.getByRole("button", { name: "Open agent navigation" });
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
+      .not.toBeInTheDocument();
+
+    fireEvent.pointerEnter(trigger);
+    const preview = screen.getByRole("complementary", { name: "Agent navigation preview" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    // An overlay, never the pinned column, and never wide enough to hide the thread behind it.
+    expect(screen.queryByRole("complementary", { name: "Agent navigation" }))
+      .not.toBeInTheDocument();
+    expect(preview).toHaveStyle({ width: "300px", maxWidth: "calc(100% - 3.5rem)" });
+
+    fireEvent.pointerLeave(trigger);
+    act(() => vi.advanceTimersByTime(120));
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
+      .not.toBeInTheDocument();
+
+    // Pressing commits to the modal drawer, and the peek is dropped rather than stacked under it.
+    fireEvent.pointerEnter(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Agent navigation" })).toHaveAttribute("open");
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
+      .not.toBeInTheDocument();
+
+    unmount();
+    vi.useRealTimers();
   });
 
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
