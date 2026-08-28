@@ -2098,9 +2098,11 @@ default, unlike Claude.
   TypeScript-owned.
   The user approved this native slice. Verify per-panel policy isolation, WebPanelKit tests, client
   compilation and `just check`; stop at the exact in-place client-update command before hardware
-  installation. No host deployment/relaunch or TestFlight upload is part of this slice.
+  installation. No host deployment/relaunch is part of this slice.
   Native implementation is self-reviewed and ready: WebPanelKit 13 tests, AgentPanel 6 tests, all
   709 client simulator tests, signed generic-iOS Debug build, and final `just check` pass. The built
   client uses `.build/DerivedData-keyboard-device` to avoid a shared Xcode build-database lock.
-  Pending: approved in-place install and real iPhone confirmation that the native toolbar is absent
-  while the TypeScript rail, typing, and Hide continue to work.
+  Direct installs were not confirmed after repeated CoreDevice connection/install timeouts. The user
+  then approved TestFlight distribution as client patch release 1.13.1. Archive/export/upload use the
+  isolated release tree, with no host or phone launch. Pending: upload confirmation and real iPhone
+  verification that the native toolbar is absent while the TypeScript rail, typing, and Hide work.
