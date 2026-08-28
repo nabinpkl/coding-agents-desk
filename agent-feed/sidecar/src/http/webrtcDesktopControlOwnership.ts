@@ -5,7 +5,7 @@ export interface DesktopControlOwnershipChange<Owner> {
   current: Owner | null;
 }
 
-/** One non-replayable controller authority scoped to a shared native helper. */
+/** One non-replayable controller authority for the Mac, across every capture helper. */
 export class DesktopControlOwnership<Owner> {
   private currentOwner: Owner | null = null;
   private currentEpoch = 0;

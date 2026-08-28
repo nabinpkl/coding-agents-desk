@@ -788,6 +788,7 @@ build-tools-check:
     set -euo pipefail
     node --test tools/build-system/*.test.mjs
     sh tools/test-desktop-input-controller.sh
+    sh tools/test-desktop-navigation.sh
     sh tools/build-grid-encoder.sh
 
 # Build the gesture/voice interaction webview bundle into InteractionPanel's

@@ -142,3 +142,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0109 | Own first-party WebView desktop control in TypeScript | accepted | 2026-08-27 |
 | ADR-0110 | Own the Claude and Codex window composers in TypeScript | accepted | 2026-08-27 |
 | ADR-0111 | Drive the composer and the feed from events, and name the one place that cannot be | accepted | 2026-08-27 |
+| ADR-0112 | Navigate Desktops through the Web control channel | accepted | 2026-08-27 |

@@ -307,7 +307,7 @@ export function TileViewport({
         };
       }
       puck.style.right = `${puckOffset.right}px`;
-      puck.style.bottom = `${puckOffset.bottom}px`;
+      puck.style.bottom = `max(${puckOffset.bottom}px, var(--desktop-nav-clearance, 0px))`;
       if (!persist) return;
       try {
         window.localStorage.setItem(POINTER_SCROLL_PUCK_STORAGE_KEY, JSON.stringify(puckOffset));
@@ -861,7 +861,7 @@ export function TileViewport({
           }}
           style={{
             right: DEFAULT_POINTER_SCROLL_PUCK_OFFSET.right,
-            bottom: DEFAULT_POINTER_SCROLL_PUCK_OFFSET.bottom,
+            bottom: `max(${DEFAULT_POINTER_SCROLL_PUCK_OFFSET.bottom}px, var(--desktop-nav-clearance, 0px))`,
           }}
           className={`absolute z-20 grid size-14 touch-none select-none place-items-center rounded-full border bg-black/45 text-white shadow-md transition-[opacity,transform,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-black/70 active:scale-95 motion-reduce:transition-none ${
             scrollEngaged

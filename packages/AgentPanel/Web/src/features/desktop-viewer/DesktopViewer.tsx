@@ -1,226 +1,178 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import type {
-  DesktopControlEvent,
-  WebrtcCursorEvent,
-  WebrtcTileSourceMetadata,
-} from "@agentdesk/agent-feed-wire";
-import { Hand, MousePointer2 } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
+  type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
+import { DesktopViewerSurface } from "./DesktopViewerSurface";
+import { DesktopNavigationChrome } from "./DesktopNavigationChrome";
+import { useDesktopNavigation } from "./useDesktopNavigation";
+import { postTileTelemetry, type DesktopControlTransport } from "./TileStreamRtc";
 import type { DesktopStreamState } from "./DesktopStreamState";
-import {
-  postTileTelemetry,
-  TileStreamRtc,
-  type DesktopControlTransport,
-} from "./TileStreamRtc";
-import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
-import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
-import { useDesktopKeyboard } from "./useDesktopKeyboard";
 
-export function desktopDocumentFallbackHeight(
-  viewportHeight: number,
-  screenHeight: number,
-): number | null {
+export function desktopDocumentFallbackHeight(viewportHeight: number, screenHeight: number): number | null {
   if (viewportHeight > 0 || !Number.isFinite(screenHeight) || screenHeight <= 0) return null;
   return Math.round(screenHeight);
 }
 
-/** The whole Mac desktop, with no window inventory or Desktop Park controls. */
+interface ViewerSlotState {
+  id: number;
+  displayId?: string;
+  source?: WebrtcTileSourceMetadata;
+  control?: DesktopControlTransport | null;
+  snapshot?: DesktopNavigationState;
+  keyboard?: boolean;
+  ready?: boolean;
+  error?: string;
+}
+interface ViewerState { active: number; pending: number | null; slots: ViewerSlotState[]; notice: string | null }
+
+/** A monitor handover replaces one source, never the identity of an in-flight source. */
 export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) {
-  const [source, setSource] = useState<WebrtcTileSourceMetadata | null>(null);
-  const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
-  const [controlTransport, setControlTransport] = useState<DesktopControlTransport | null>(null);
-  const [pointerMode, setPointerMode] = useState(true);
-  const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
-  const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
-
   useLayoutEffect(() => {
-    const documentRoot = document.documentElement;
-    const previousHeight = documentRoot.style.height;
-    const applyHeight = () => {
+    const root = document.documentElement;
+    const previous = root.style.height;
+    const apply = () => {
       const fallback = desktopDocumentFallbackHeight(window.innerHeight, window.screen.height);
-      documentRoot.style.height = fallback === null ? previousHeight : `${fallback}px`;
+      root.style.height = fallback === null ? previous : `${fallback}px`;
     };
-    applyHeight();
-    window.addEventListener("resize", applyHeight);
-    window.addEventListener("orientationchange", applyHeight);
+    apply();
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
     return () => {
-      window.removeEventListener("resize", applyHeight);
-      window.removeEventListener("orientationchange", applyHeight);
-      documentRoot.style.height = previousHeight;
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+      root.style.height = previous;
     };
   }, []);
-
-  const reportKeyboardTelemetry = useCallback((event: { phase: string; detail: Record<string, unknown> }) => {
-    postTileTelemetry("display", {
-      attempt: crypto.randomUUID(),
-      phase: event.phase,
-      detail: JSON.stringify(event.detail),
-      elapsedMs: 0,
-    }, transport);
-  }, [transport]);
-  const compatibleControlTransport = source?.desktopControlVersion === 2 ? controlTransport : null;
-  const keyboard = useDesktopKeyboard({
-    transport: compatibleControlTransport,
-    report: reportKeyboardTelemetry,
+  const [viewer, setViewer] = useState<ViewerState>({
+    active: 1, pending: null, slots: [{ id: 1 }], notice: null,
   });
-  const sendPointerInput = useCallback(
-    (input: Parameters<DesktopControlTransport["send"]>[0]) => (
-      source !== null && keyboard.sendControl(input)
-    ),
-    [keyboard.sendControl, source],
-  );
-  const publishControlEvent = useCallback((event: DesktopControlEvent) => {
-    if (
-      event.type === "cursor-applied"
-      || event.type === "cursor-image"
-      || event.type === "cursor-position"
-    ) {
-      if (event.type !== "cursor-applied") latestCursorEvents.current.set(event.type, event);
-      for (const listener of cursorListeners.current) listener(event);
-    }
-    keyboard.handleControlEvent(event);
-  }, [keyboard.handleControlEvent]);
-  const subscribeCursorEvents = useCallback((listener: (event: WebrtcCursorEvent) => void) => {
-    cursorListeners.current.add(listener);
-    for (const event of latestCursorEvents.current.values()) listener(event);
-    return () => cursorListeners.current.delete(listener);
-  }, []);
-  const applySourceMetadata = useCallback((metadata: WebrtcTileSourceMetadata) => {
-    setSource((current) => {
-      if (
-        current
-        && current.width === metadata.width
-        && current.height === metadata.height
-      ) return current;
-      latestCursorEvents.current.clear();
-      return metadata;
+  const viewerRef = useRef(viewer);
+  viewerRef.current = viewer;
+  const sequence = useRef(1);
+  const [navigationHeight, setNavigationHeight] = useState(0);
+  const active = viewer.slots.find((slot) => slot.id === viewer.active)!;
+  const activeDisplayId = active.source?.displayId;
+  const report = useCallback((phase: string, detail: Record<string, unknown>) => {
+    postTileTelemetry("display", { phase, attempt: crypto.randomUUID(),
+      elapsedMs: 0, detail: JSON.stringify(detail) }, transport);
+  }, [transport]);
+  const navigation = useDesktopNavigation({
+    transport: viewer.pending === null && active.source?.desktopNavigationVersion === 1 ? active.control ?? null : null,
+    displayId: activeDisplayId, report,
+  });
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const patchSlot = useCallback((id: number, patch: Partial<ViewerSlotState>) => {
+    setViewer((current) => {
+      if (!current.slots.some((slot) => slot.id === id)) return current;
+      const slots = current.slots.map((slot) => slot.id === id ? { ...slot, ...patch } : slot);
+      if (patch.ready && current.pending === id) {
+        return { active: id, pending: null, slots: slots.filter((slot) => slot.id === id), notice: current.notice };
+      }
+      return { ...current, slots };
     });
   }, []);
-  const reportGestureTelemetry = useCallback(
-    (event: ViewportGestureTelemetry) => {
-      postTileTelemetry("display", {
-        attempt: event.gestureId,
-        phase: event.phase,
-        detail: JSON.stringify(event.detail),
-        elapsedMs: event.elapsedMs,
-      }, transport);
-    },
-    [transport],
-  );
-
-  const controlMismatch = source !== null && source.desktopControlVersion !== 2;
-  const pointerReady = !controlMismatch
-    && source !== null
-    && compatibleControlTransport !== null
-    && tile.kind === "playing";
+  const event = useCallback((id: number, value: DesktopControlEvent) => {
+    const current = viewerRef.current;
+    if (!current.slots.some((slot) => slot.id === id)) return;
+    if (id === current.active) navigationRef.current.handleEvent(value);
+    const decoded = desktopNavigationEvent(value);
+    if (decoded?.type === "desktop-state") patchSlot(id, { snapshot: decoded });
+  }, [patchSlot]);
+  const selectDisplay = useCallback((displayId?: string, notice: string | null = null) => {
+    const current = viewerRef.current;
+    const old = current.slots.find((slot) => slot.id === current.active);
+    if (displayId && old?.source?.displayId === displayId && current.pending === null && old.ready) return;
+    navigationRef.current.cancel();
+    old?.control?.send({ type: "release-control" });
+    const id = ++sequence.current;
+    report("navigation-display", { phase: "requested", displayId: displayId ?? "main", generation: id });
+    setViewer({ active: current.active, pending: id,
+      slots: [...current.slots.filter((slot) => slot.id === current.active), { id, displayId }], notice });
+  }, [report]);
+  const displaySnapshot = active.snapshot ?? navigation.model.snapshot;
+  const displays = displaySnapshot?.displays ?? [];
+  const missingDisplay = !!activeDisplayId && !!displaySnapshot
+    && !displays.some((display) => display.id === activeDisplayId);
+  const canInteract = viewer.pending === null && !missingDisplay;
+  const displayUnavailable = useCallback((id: number, replacement: string) => {
+    const current = viewerRef.current;
+    if (id !== (current.pending ?? current.active)) return;
+    selectDisplay(replacement, "Monitor disconnected. Now viewing the remaining main monitor.");
+  }, [selectDisplay]);
+  useEffect(() => {
+    if (!activeDisplayId || !displaySnapshot || viewer.pending !== null
+        || displays.some((display) => display.id === activeDisplayId)) return;
+    const replacement = displays.find((display) => display.isMain) ?? displays[0];
+    if (replacement) {
+      selectDisplay(replacement.id, `Monitor disconnected. Now viewing ${replacement.label || "Main"}.`);
+    }
+  }, [activeDisplayId, displaySnapshot, displays, viewer.pending, selectDisplay]);
+  useEffect(() => {
+    const id = viewer.pending;
+    if (id === null) return;
+    const timeout = setTimeout(() => patchSlot(id, { error: "Display handover timed out" }), 15_000);
+    return () => clearTimeout(timeout);
+  }, [viewer.pending, patchSlot]);
+  const pending = viewer.slots.find((slot) => slot.id === viewer.pending);
+  const error = pending?.error ?? active.error
+    ?? (missingDisplay && displays.length === 0 ? "No monitor is available" : undefined)
+    ?? (active.source && active.source.desktopNavigationVersion !== 1
+      ? "Desktop navigation unavailable. Update the standalone helper." : undefined);
+  const onDisplay = useCallback((id: string) => selectDisplay(id), [selectDisplay]);
   return (
-    <main className="relative h-full overflow-hidden bg-black text-white">
-      <TileViewport
-        className="size-full"
-        pointerMode={pointerMode && source !== null}
-        sendPointerInput={sendPointerInput}
-        keyboardPresented={keyboard.keyboardPresented}
-        onPointerGestureStart={keyboard.consumePointerGesture}
-        onBeforeRemoteClick={keyboard.beforeRemoteClick}
-        onGestureTelemetry={reportGestureTelemetry}
-        sourceWidth={source?.width}
-        sourceHeight={source?.height}
-        initialCursor={source?.cursor}
-        subscribeCursorEvents={subscribeCursorEvents}
-      >
-        <TileStreamRtc
-          windowID="display"
-          fill
-          httpTransport={transport}
-          onState={setTile}
-          onControlTransport={setControlTransport}
-          onControlEvent={publishControlEvent}
-          onSourceMetadata={applySourceMetadata}
-        />
-      </TileViewport>
-
-      <div className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between
-        gap-3 bg-gradient-to-t from-black/65 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]
-        pt-10 ${keyboard.keyboardPresented ? "bg-none" : ""}`}>
-        {!keyboard.keyboardPresented ? (
-          <p className="min-w-0 truncate font-mono text-[10px] text-white/70">
-            {tile.kind === "playing" && source
-              ? `${source.width}×${source.height} · ${tile.codec}`
-              : tile.kind}
-          </p>
-        ) : <span />}
-        <div className="pointer-events-auto flex shrink-0 rounded-lg bg-black/60 p-1 backdrop-blur">
-          <DesktopKeyboardChrome
-            captureRef={keyboard.captureRef}
-            captureProps={keyboard.captureProps}
-            shown={keyboard.keyboardPresented}
-            available={compatibleControlTransport !== null}
-            autoKeyboard={keyboard.autoKeyboard}
-            modifiers={keyboard.modifiers}
-            receipt={keyboard.receipt}
-            localEcho={keyboard.localEcho}
-            deliveryStatus={keyboard.deliveryStatus}
-            bottom={keyboard.accessoryBottom}
-            softwareKeyboardVisible={keyboard.softwareKeyboardVisible}
-            onShow={keyboard.showManually}
-            onHide={keyboard.hide}
-            onAutoChange={keyboard.setAutoKeyboard}
-            onKey={keyboard.sendChromeKey}
-            onModifier={keyboard.tapModifier}
-          />
-          {!keyboard.keyboardPresented ? (
-            <>
-              <ModeButton
-                active={!pointerMode}
-                label="View"
-                icon={<Hand className="size-3.5" aria-hidden />}
-                onClick={() => setPointerMode(false)}
-              />
-              <ModeButton
-                active={pointerMode}
-                disabled={!pointerReady}
-                label={controlMismatch
-                  ? `Control v${source.desktopControlVersion || "unknown"} unsupported`
-                  : pointerReady ? "Pointer" : "Input connecting"}
-                icon={<MousePointer2 className="size-3.5" aria-hidden />}
-                onClick={() => setPointerMode(true)}
-              />
-            </>
-          ) : null}
+    <main className="relative size-full overflow-hidden bg-black text-white"
+      style={{ "--desktop-nav-clearance": `${navigationHeight + 56}px` } as CSSProperties}>
+      {viewer.slots.map((slot) => (
+        <div key={slot.id} className="absolute inset-0"
+          aria-hidden={slot.id !== viewer.active || viewer.pending !== null}
+          style={{ opacity: slot.id === viewer.active ? 1 : 0,
+            pointerEvents: slot.id === viewer.active && canInteract ? "auto" : "none" }}>
+          <ViewerSlot slot={slot} transport={transport} interactive={slot.id === viewer.active && canInteract}
+            patch={patchSlot} event={event} displayUnavailable={displayUnavailable} />
         </div>
-      </div>
+      ))}
+      {viewer.pending !== null || viewer.notice || error ? (
+        <div role="status" className="pointer-events-auto absolute inset-x-3 top-3 rounded-md bg-black/85 px-3 py-2 text-xs">
+          {error || (viewer.pending !== null ? "Switching display…" : viewer.notice)}
+          {error ? <button type="button" className="ml-3 underline focus-visible:outline-2"
+            onClick={() => selectDisplay(pending?.displayId ?? active.displayId)}>Retry</button> : null}
+          {viewer.pending === null && viewer.notice ? <button type="button" aria-label="Dismiss display notice"
+            className="ml-3 underline" onClick={() => setViewer((state) => ({ ...state, notice: null }))}>Dismiss</button> : null}
+        </div>
+      ) : null}
+      {active.source?.desktopNavigationVersion === 1 ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[max(3rem,env(safe-area-inset-bottom))] z-30">
+          <DesktopNavigationChrome model={navigation.model} displays={displays} displayId={activeDisplayId}
+            disabled={!active.control || !canInteract || displays.length === 0}
+            switching={viewer.pending !== null} hidden={!!active.keyboard}
+            onDisplay={onDisplay} onSelect={navigation.select} onBegin={navigation.begin}
+            onMove={navigation.move} onEnd={navigation.end} onCancel={navigation.cancel}
+            onRefresh={navigation.refresh} onHeight={setNavigationHeight} />
+        </div>
+      ) : null}
     </main>
   );
 }
 
-function ModeButton({
-  active,
-  disabled = false,
-  label,
-  icon,
-  onClick,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
+function ViewerSlot({ slot, transport, interactive, patch, event, displayUnavailable }: {
+  slot: ViewerSlotState; transport: AgentHttpTransport; interactive: boolean;
+  patch: (id: number, patch: Partial<ViewerSlotState>) => void;
+  event: (id: number, event: DesktopControlEvent) => void;
+  displayUnavailable: (id: number, replacement: string) => void;
 }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] transition-colors
-        focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white
-        disabled:cursor-wait disabled:opacity-50
-        ${active ? "bg-white text-black" : "text-white/75 hover:bg-white/10 active:bg-white/15"}`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
+  const source = useCallback((value: WebrtcTileSourceMetadata) => patch(slot.id, { source: value }), [slot.id, patch]);
+  const control = useCallback((value: DesktopControlTransport | null) => patch(slot.id, { control: value }), [slot.id, patch]);
+  const onEvent = useCallback((value: DesktopControlEvent) => event(slot.id, value), [slot.id, event]);
+  const ready = useCallback(() => patch(slot.id, { ready: true, error: undefined }), [slot.id, patch]);
+  const keyboard = useCallback((shown: boolean) => patch(slot.id, { keyboard: shown }), [slot.id, patch]);
+  const unavailable = useCallback((replacement: string) => displayUnavailable(slot.id, replacement), [slot.id, displayUnavailable]);
+  const state = useCallback((value: DesktopStreamState) => {
+    if (value.kind === "error" || value.kind === "unsupported") patch(slot.id, { error: value.message });
+  }, [slot.id, patch]);
+  return <DesktopViewerSurface transport={transport} displayId={slot.displayId} interactive={interactive}
+    onSource={source} onTransport={control} onEvent={onEvent} onFirstFrame={ready} onKeyboard={keyboard}
+    onState={state} onDisplayUnavailable={unavailable} />;
 }

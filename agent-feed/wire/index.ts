@@ -157,3 +157,4 @@ export type {
   WireErrorPayload,
   WireStreamError,
 } from "./http.ts";
+export * from "./desktopNavigation.ts";

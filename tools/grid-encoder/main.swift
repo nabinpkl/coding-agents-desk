@@ -33,7 +33,21 @@ import VideoToolbox
 /// Kind 4 is one desktop-control JSON event for the TypeScript control path.
 enum Frame: UInt8 { case meta = 0, initialization = 1, media = 2, accessUnit = 3, control = 4 }
 
+func emitNavigationEvent(_ value: [String: Any]) {
+    do {
+        let data = try JSONSerialization.data(withJSONObject: value)
+        guard data.count <= 16 * 1024 else {
+            emitNavigationEvent(["type": "desktop-unavailable", "reason": "navigation-unavailable"])
+            return
+        }
+        emit(.control, data)
+    } catch {
+        fail("navigation event encoding failed: \(error)")
+    }
+}
+
 let stdoutLock = NSLock()
+nonisolated(unsafe) var navigationTerminationSignals: [DispatchSourceSignal] = []
 // A reader that goes away without closing the pipe is the dangerous case, not
 // the broken pipe. The pipe fills, the write BLOCKS rather than erroring, and
 // this process sits alive forever holding a capture nobody sees. Worse,
@@ -645,26 +659,39 @@ Task {
             "title": window.title ?? "",
         ]
     } else {
-        // A display capture shows the ACTIVE Space as the user sees it,
-        // excluding nothing. "main" or an unmatched id falls back to the main
-        // display rather than failing, because the caller usually means "the
-        // screen I am looking at".
-        let requested = displayArgument.flatMap(UInt32.init)
-        let display = content.displays.first(where: { $0.displayID == requested })
-            ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
-            ?? content.displays.first
-        guard let display else { fail("no shareable display") }
+        // An explicit selection must never silently capture another monitor.
+        let requested = displayArgument == "main" ? CGMainDisplayID() : displayArgument.flatMap(UInt32.init)
+        guard let display = content.displays.first(where: { $0.displayID == requested }),
+              let uuid = CGDisplayCreateUUIDFromDisplayID(display.displayID)?.takeRetainedValue()
+        else { fail("selected display is unavailable") }
         filter = SCContentFilter(display: display, excludingWindows: [])
         sourceWidth = display.width
         sourceHeight = display.height
         inputBounds = CGDisplayBounds(display.displayID)
-        openMeta = ["type": "open", "display": Int(display.displayID)]
+        openMeta = ["type": "open", "display": Int(display.displayID),
+                    "displayId": CFUUIDCreateString(nil, uuid) as String,
+                    "desktopNavigationVersion": 1]
     }
 
     let desktopInput = DesktopInputController(
         bounds: inputBounds,
         emit: { emit(.control, $0) }
     )
+    let navigation = (openMeta["displayId"] as? String).map { displayID in
+        DesktopSpacesController(captureDisplayID: displayID,
+                                captureGeometryChanged: { fail("display capture geometry changed; reopen required") },
+                                emit: emitNavigationEvent)
+    }
+    if let navigation { DispatchQueue.main.async {
+        navigation.start()
+        for number in [SIGTERM, SIGINT] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+            source.setEventHandler { navigation.stop(); exit(0) }
+            source.resume()
+            navigationTerminationSignals.append(source)
+        }
+    } }
     if displayArgument != nil {
         let cursorMirror = CursorMirror(
             bounds: inputBounds,
@@ -724,6 +751,7 @@ Task {
                 // accumulated. availableData wakes for the first flushed line.
                 let data = FileHandle.standardInput.availableData
                 guard !data.isEmpty else {
+                    if let navigation { DispatchQueue.main.sync { navigation.stop() } }
                     return
                 }
                 buffer.append(data)
@@ -731,7 +759,10 @@ Task {
                     let rawLine = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
                     let line = rawLine.last == "\r" ? String(rawLine.dropLast()) : rawLine
                     buffer.removeSubrange(buffer.startIndex...newline)
-                    if desktopInput.handle(line) {
+                    let navigationHandled = navigation.map { nav in
+                        DispatchQueue.main.sync { nav.handle(line) }
+                    } ?? false
+                    if navigationHandled || desktopInput.handle(line) {
                         continue
                     } else if let capture = CaptureControlCommand.parse(line) {
                         switch capture {
@@ -810,4 +841,4 @@ Task {
 }
 // Keep the AppKit main queue alive for NSCursor sampling. Capture and encode callbacks keep
 // their existing queues; this replaces the old blocked semaphore with an actual event loop.
-dispatchMain()
+CFRunLoopRun()

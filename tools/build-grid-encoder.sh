@@ -14,6 +14,8 @@ swiftc -O \
   "$root/tools/grid-encoder/main.swift" \
   "$root/tools/grid-encoder/ControlMode.swift" \
   "$root/tools/grid-encoder/DesktopAudit.swift" \
+  "$root/tools/grid-encoder/DesktopSpaces.swift" \
+  "$root/tools/grid-encoder/DesktopSpacesObserver.swift" \
   "$root/tools/grid-encoder/ComposerAccess.swift" \
   "$root/tools/grid-encoder/CodexAccess.swift" \
   "$root/tools/grid-encoder/ComposerObserver.swift" \
@@ -23,5 +25,6 @@ swiftc -O \
   "$root/tools/grid-encoder/CaptureControlCommand.swift" \
   "$root/tools/grid-encoder/CursorMirror.swift" \
   "$root/host/AgentDeskHost/SkyLightSymbols.swift" \
+  "$root/host/AgentDeskHost/DockSwipeEvent.swift" \
   -o "$out"
 echo "built $out"

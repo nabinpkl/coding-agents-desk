@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
 import type {
   DesktopControlEvent,
   DesktopControlInput,
@@ -56,6 +57,8 @@ const CONTROL_BUFFER_LIMIT = 64 * 1024;
 
 export interface DesktopControlTransport {
   send(input: DesktopControlInput): DesktopControlSendResult;
+  /** Terminal controls cannot sit behind an unbounded data-channel backlog. */
+  abort?(): void;
 }
 
 export type DesktopControlSendResult = "sent" | "channel-closed" | "backpressured";
@@ -79,6 +82,9 @@ function validSourceMetadata(value: unknown): value is WebrtcTileSourceMetadata 
     && Number.isFinite(source.height)
     && source.height > 0
     && source.height <= MAX_SOURCE_EXTENT
+    && (source.displayId === undefined || desktopDisplayId(source.displayId))
+    && (source.desktopNavigationVersion === undefined
+      || (Number.isSafeInteger(source.desktopNavigationVersion) && Number(source.desktopNavigationVersion) > 0))
     && (source.desktopControlVersion === undefined
       || (typeof source.desktopControlVersion === "number"
         && Number.isSafeInteger(source.desktopControlVersion)
@@ -264,6 +270,7 @@ export function classifyReceiverProgress(
 
 export function TileStreamRtc({
   windowID,
+  displayId,
   width,
   height,
   fps = 15,
@@ -273,10 +280,13 @@ export function TileStreamRtc({
   onControlTransport,
   onControlEvent,
   onSourceMetadata,
+  onFirstFrame,
+  onDisplayUnavailable,
   httpTransport,
 }: {
   /** A window id, or "display" for the whole active screen. */
   windowID: number | "display";
+  displayId?: string;
   /** Known source size for catalogued windows. A display learns this from the answer. */
   width?: number;
   height?: number;
@@ -290,6 +300,8 @@ export function TileStreamRtc({
   onControlEvent?: (event: DesktopControlEvent) => void;
   /** Authoritative logical-point geometry from the native capture helper. */
   onSourceMetadata?: (metadata: WebrtcTileSourceMetadata) => void;
+  onFirstFrame?: () => void;
+  onDisplayUnavailable?: (replacementDisplayId: string) => void;
   /** Control-plane HTTP transport; omitted callers use same-origin fetch. */
   httpTransport?: Pick<AgentHttpTransport, "request">;
 }) {
@@ -299,6 +311,10 @@ export function TileStreamRtc({
   const onControlTransportRef = useRef(onControlTransport);
   const onControlEventRef = useRef(onControlEvent);
   const onSourceMetadataRef = useRef(onSourceMetadata);
+  const onFirstFrameRef = useRef(onFirstFrame);
+  onFirstFrameRef.current = onFirstFrame;
+  const onDisplayUnavailableRef = useRef(onDisplayUnavailable);
+  onDisplayUnavailableRef.current = onDisplayUnavailable;
 
   useEffect(() => {
     onControlTransportRef.current = onControlTransport;
@@ -325,6 +341,8 @@ export function TileStreamRtc({
     }
 
     let cancelled = false;
+    // Resolve the initial main alias once; reconnect must retain the same physical screen.
+    let resolvedDisplayId = displayId;
     let activePeer: RTCPeerConnection | null = null;
     let cancelActiveSession: (() => void) | null = null;
     let wake: (() => void) | null = null;
@@ -462,6 +480,7 @@ export function TileStreamRtc({
           : Math.round(performance.now() - owner.gapStartedAt);
         owner.frameRequest = null;
         owner.presentedSamples += 1;
+        if (owner.presentedSamples === 1) onFirstFrameRef.current?.();
         owner.lastPresentedAt = performance.now();
         owner.mediaTime = metadata.mediaTime;
         if (recoveredGapMs !== null) {
@@ -530,6 +549,7 @@ export function TileStreamRtc({
       new Promise((resolve) => {
         const started = performance.now();
         const peer = new RTCPeerConnection();
+        const offerAbort = new AbortController();
         activePeer = peer;
         let sawFrames = false;
         let finished = false;
@@ -557,6 +577,7 @@ export function TileStreamRtc({
           }
         };
         const controlTransport: DesktopControlTransport = {
+          abort() { finish("control channel backpressure"); },
           send(input) {
             if (inputChannel.readyState !== "open") return "channel-closed";
             if (inputChannel.bufferedAmount > CONTROL_BUFFER_LIMIT) return "backpressured";
@@ -788,6 +809,7 @@ export function TileStreamRtc({
             });
           }
           finished = true;
+          offerAbort.abort();
           clearSetupTimer();
           if (statsTimer !== 0) window.clearInterval(statsTimer);
           if (disconnectTimer !== 0) window.clearTimeout(disconnectTimer);
@@ -912,24 +934,37 @@ export function TileStreamRtc({
                 peer.addEventListener("icegatheringstatechange", check);
               });
             }
+            if (finished || cancelled) return;
             const capture = captureSize();
             const body = {
               type: "offer",
               sdp: peer.localDescription!.sdp,
               attempt,
+              ...(resolvedDisplayId === undefined ? {} : { displayId: resolvedDisplayId }),
               ...(capture.width === undefined ? {} : { width: capture.width }),
               ...(capture.height === undefined ? {} : { height: capture.height }),
               fps,
               bitrate: capture.bitrate,
             };
             const response = httpTransport
-              ? await httpTransport.request("POST", `/api/park/tile/${windowID}/webrtc`, { body })
+              ? await httpTransport.request("POST", `/api/park/tile/${windowID}/webrtc`, { body, signal: offerAbort.signal })
               : await fetch(`/api/park/tile/${windowID}/webrtc`, {
                   method: "POST",
                   headers: { "content-type": "application/json" },
                   body: JSON.stringify(body),
+                  signal: offerAbort.signal,
                 }).then(async (answer) => ({ status: answer.status, body: await answer.text() }));
             if (response.status < 200 || response.status >= 300) {
+              if (!cancelled && response.status === 409 && onDisplayUnavailableRef.current) {
+                let failure: Record<string, unknown> | null = null;
+                try { failure = JSON.parse(response.body); } catch { /* Report the HTTP failure below. */ }
+                if (failure?.code === "display-unavailable" && desktopDisplayId(failure.replacementDisplayId)
+                    && failure.replacementDisplayId !== resolvedDisplayId) {
+                  onDisplayUnavailableRef.current(failure.replacementDisplayId);
+                  finish("cancelled");
+                  return;
+                }
+              }
               finish(
                 cancelled
                   ? "cancelled"
@@ -942,6 +977,10 @@ export function TileStreamRtc({
               return;
             }
             const answer = parseWebrtcTileAnswer(response.body);
+            if (resolvedDisplayId && answer.source.displayId !== resolvedDisplayId) {
+              throw new Error("WebRTC source changed monitor identity");
+            }
+            resolvedDisplayId = answer.source.displayId;
             negotiatedCodec = answer.codec;
             controlCompatible = answer.source.desktopControlVersion === 2;
             if (!controlCompatible) {
@@ -1016,6 +1055,7 @@ export function TileStreamRtc({
     };
   }, [
     windowID,
+    displayId,
     width,
     height,
     fps,

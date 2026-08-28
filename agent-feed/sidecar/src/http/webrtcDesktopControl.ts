@@ -8,6 +8,7 @@ import type {
 import {
   DESKTOP_CONTROL_MAX_KEY_BATCH,
   DESKTOP_CONTROL_MAX_MESSAGE_BYTES,
+  desktopNavigationInput,
 } from "@agentdesk/agent-feed-wire";
 
 export const MAX_DESKTOP_CONTROL_MESSAGE_BYTES = DESKTOP_CONTROL_MAX_MESSAGE_BYTES;
@@ -80,6 +81,10 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
   const input = record(decoded);
   if (!input || typeof input.type !== "string") return null;
   switch (input.type) {
+    case "desktop-refresh":
+    case "space-select":
+    case "space-gesture":
+      return desktopNavigationInput(input);
     case "configure":
       return typeof input.initialFocusDelayMs === "number"
         && Number.isInteger(input.initialFocusDelayMs)

@@ -21,6 +21,9 @@ import type {
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
 import { networkInterfaces } from "node:os";
+import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
+import { controlHelper } from "../desktop/controlHelper.ts";
+import { resolveDisplayTarget, DisplayTargetUnavailable } from "./webrtcDisplayTarget.ts";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
@@ -263,7 +266,6 @@ interface SharedEncoder {
   latestKeyframe: Uint8Array | null;
   accessUnits: number;
   lastAccessUnitAtMs: number | null;
-  controlOwnership: DesktopControlOwnership<symbol>;
   firstAccessUnitDeadline: ReturnType<typeof setTimeout> | null;
   linger: ReturnType<typeof setTimeout> | null;
   dead: boolean;
@@ -297,6 +299,9 @@ interface EncoderSubscriber {
 }
 
 const sharedEncoders = new Map<string, SharedEncoder>();
+// Input affects the whole Mac, even when two peers capture different monitors.
+const controlOwnership = new DesktopControlOwnership<symbol>();
+const controlOwners = new Map<symbol, { encoder: SharedEncoder; revoke: (epoch: number) => void }>();
 const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
 const ENCODER_METADATA_TIMEOUT_MS = 5_000;
 const ENCODER_LINGER_MS = 3_000;
@@ -438,7 +443,6 @@ function acquireSharedEncoder(
     latestKeyframe: null,
     accessUnits: 0,
     lastAccessUnitAtMs: null,
-    controlOwnership: new DesktopControlOwnership(),
     firstAccessUnitDeadline: null,
     linger: null,
     dead: false,
@@ -482,6 +486,9 @@ function acquireSharedEncoder(
         if (frame.kind === KIND_CONTROL) {
           const event = shared.controlEvents.accept(frame.payload);
           if (event) {
+            if (event.type === "desktop-unavailable") {
+              diag(`encoder key=${shared.key} navigation-unavailable reason=${event.reason}`);
+            }
             if (event.type === "cursor-applied") {
               const pending = shared.pendingCursorAcks.get(event.revision);
               shared.pendingCursorAcks.delete(event.revision);
@@ -492,11 +499,12 @@ function acquireSharedEncoder(
                   subscriber.onControl({ type: "cursor-position", x: event.x, y: event.y });
                 }
               }
-            } else if (event.type === "cursor-image" || event.type === "cursor-position") {
+            } else if (event.type === "cursor-image" || event.type === "cursor-position"
+                || event.type === "desktop-state" || event.type === "desktop-unavailable") {
               for (const subscriber of shared.subscribers) subscriber.onControl(event);
             } else {
               const owner = [...shared.subscribers].find(
-                (subscriber) => subscriber.inputOwner === shared.controlOwnership.owner,
+                (subscriber) => subscriber.inputOwner === controlOwnership.owner,
               );
               owner?.onControl(event);
             }
@@ -565,6 +573,7 @@ function primeSubscriber(shared: SharedEncoder, subscriber: EncoderSubscriber) {
 }
 
 interface TileOffer {
+  displayId?: string;
   attempt?: string;
   sdp?: string;
   type?: string;
@@ -901,6 +910,11 @@ const CLIENT_PHASES = new Set([
   "keyboard-input-applied",
   "keyboard-input-rejected",
   "keyboard-buffer-overflow",
+  "navigation-rejected",
+  "navigation-gesture",
+  "navigation-settled",
+  "navigation-select",
+  "navigation-display",
   "setup-timeout",
   "first-frame-timeout",
   "viewport-gesture-start",
@@ -970,7 +984,7 @@ function bounded(value: unknown, min: number, max: number): number | undefined {
   return value >= min && value <= max ? Math.round(value) : undefined;
 }
 
-async function answer(windowID: string, offer: TileOffer): Promise<Response> {
+async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): Promise<Response> {
   const { path: binary, mtimeMs: binaryMtimeMs, exists } = helperBinary();
   if (!exists) {
     return jsonResponse(
@@ -981,6 +995,25 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (!offer.sdp || offer.type !== "offer") {
     return jsonResponse({ code: "webrtc-bad-offer", message: "body must carry an SDP offer" }, 400);
   }
+  if (offer.displayId !== undefined && (windowID !== "display" || !desktopDisplayId(offer.displayId))) {
+    return jsonResponse({ code: "webrtc-bad-offer", message: "invalid display selection" }, 400);
+  }
+  let captureKey = windowID;
+  let captureId: number | undefined;
+  let captureDisplayId: string | undefined;
+  if (windowID === "display") {
+    try {
+      const target = await resolveDisplayTarget(offer.displayId, () => controlHelper.request("desktop-displays"));
+      captureKey = target.key;
+      captureId = target.captureId;
+      captureDisplayId = target.displayId;
+    } catch (error) {
+      const code = error instanceof DisplayTargetUnavailable ? error.code : "navigation-unavailable";
+      return jsonResponse({ code, message: code,
+        ...(error instanceof DisplayTargetUnavailable && error.replacementDisplayId
+          ? { replacementDisplayId: error.replacementDisplayId } : {}) }, 409);
+    }
+  }
   if (
     offer.attempt !== undefined
     && !/^[a-zA-Z0-9-]{1,80}$/.test(offer.attempt)
@@ -988,6 +1021,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     return jsonResponse({ code: "webrtc-bad-offer", message: "attempt was invalid" }, 400);
   }
 
+  if (signal.aborted) return jsonResponse({ code: "offer-cancelled" }, 499);
   const tailnet = tailnetIPv4();
   const peer = new RTCPeerConnection({
     codecs: { video: [H265, H264] },
@@ -1035,7 +1069,8 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     for (const [revision, pending] of encoder.pendingCursorAcks) {
       if (pending.inputOwner === inputOwner) encoder.pendingCursorAcks.delete(revision);
     }
-    const released = encoder.controlOwnership.release(inputOwner);
+    controlOwners.delete(inputOwner);
+    const released = controlOwnership.release(inputOwner);
     if (!released.changed) return;
     encoderStdin(encoder, desktopControlLine({ type: "release-control" }));
     sendControl({ type: "control-revoked", epoch: released.epoch });
@@ -1052,13 +1087,20 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     sendControl({ type: "input-rejected", reason });
   };
   const acquireInputOwner = (encoder: SharedEncoder) => {
-    const acquired = encoder.controlOwnership.acquire(inputOwner);
+    const acquired = controlOwnership.acquire(inputOwner);
     if (!acquired.changed) return;
-    const previousOwner = [...encoder.subscribers].find(
-      (subscriber) => subscriber.inputOwner === acquired.previous,
-    );
+    const previousOwner = acquired.previous ? controlOwners.get(acquired.previous) : undefined;
+    if (previousOwner) {
+      encoderStdin(previousOwner.encoder, desktopControlLine({ type: "release-control" }));
+      previousOwner.revoke(acquired.epoch);
+    }
     encoderStdin(encoder, desktopControlLine({ type: "release-control" }));
-    previousOwner?.onControl({ type: "control-revoked", epoch: acquired.epoch });
+    controlOwners.set(inputOwner, { encoder, revoke: (epoch) => {
+      for (const [revision, pending] of encoder.pendingCursorAcks) {
+        if (pending.inputOwner === inputOwner) encoder.pendingCursorAcks.delete(revision);
+      }
+      sendControl({ type: "control-revoked", epoch });
+    } });
     sendControl({ type: "control-granted", epoch: acquired.epoch });
     diag(`c${connection} control acquired encoder=${encoder.key} epoch=${acquired.epoch}`);
   };
@@ -1086,16 +1128,37 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
         rejectControl("helper-unavailable");
         return;
       }
-      if (input.type === "configure") {
+      if (input.type === "space-select" || input.type === "space-gesture") {
+        if (input.displayId !== captureDisplayId || inputEncoder.sourceMetadata?.desktopNavigationVersion !== 1) {
+          sendControl({ type: "space-result", requestId: input.type === "space-select" ? input.requestId : input.gestureId,
+            status: "rejected", reason: "display-unavailable" });
+          return;
+        }
+      }
+      if (captureDisplayId && input.type !== "desktop-refresh" && input.type !== "release-control"
+          && inputEncoder.controlEvents.captureDisplayMissing(captureDisplayId)) {
+        sendControl({ type: "desktop-unavailable", reason: "display-unavailable" });
+        return;
+      }
+      if (input.type === "desktop-refresh" && !captureDisplayId) {
+        sendControl({ type: "desktop-unavailable", reason: "navigation-unavailable" });
+        return;
+      }
+      if (input.type === "configure" || input.type === "desktop-refresh") {
         encoderStdin(inputEncoder, desktopControlLine(input));
         return;
       }
       if (input.type === "release-control") {
-        if (inputEncoder.controlOwnership.owner !== inputOwner) {
+        if (controlOwnership.owner !== inputOwner) {
           rejectControl("not-owner");
           return;
         }
         releaseInputOwner();
+        return;
+      }
+      if (input.type === "space-gesture" && input.phase !== "began"
+          && controlOwnership.owner !== inputOwner) {
+        sendControl({ type: "space-result", requestId: input.gestureId, status: "rejected", reason: "not-owner" });
         return;
       }
       acquireInputOwner(inputEncoder);
@@ -1115,7 +1178,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     channel.stateChange.subscribe((state) => {
       diag(`c${connection} control channel=${state}`);
       if (state === "open" && inputEncoder) {
-        for (const event of inputEncoder.controlEvents.cursorSnapshot()) sendControl(event);
+        for (const event of inputEncoder.controlEvents.snapshot()) sendControl(event);
       }
       if (state === "closed") releaseInputOwner();
     });
@@ -1126,7 +1189,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   diag(`c${connection} offered-codecs=${transceiver.codecs.map(
     (codec) => `${codec.mimeType}:${codec.payloadType}:${codec.parameters ?? ""}`,
   ).join(" | ")}`);
-  const activeCodec = sharedEncoders.get(windowID)?.codec;
+  const activeCodec = sharedEncoders.get(captureKey)?.codec;
   let choice = chooseTileVideoCodec(transceiver.codecs, activeCodec);
   if (!choice) {
     closeConnectionDiagnostic();
@@ -1143,6 +1206,11 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
 
   const local = await peer.createAnswer();
   await peer.setLocalDescription(local);
+  if (signal.aborted) {
+    closeConnectionDiagnostic();
+    void peer.close();
+    return jsonResponse({ code: "offer-cancelled" }, 499);
+  }
   diag(`c${connection} answer candidates: ${candidateLines(peer.localDescription!.sdp).join(" | ") || "NONE"}`);
   peer.iceConnectionStateChange.subscribe((state) => {
     connectionDiagnostic.iceState = state;
@@ -1152,7 +1220,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   // Another offer can finish while certificates and ICE are being prepared.
   // Re-check synchronously before acquiring so both connections cannot create
   // different codecs for the one-window/one-capture authority.
-  const nowActiveCodec = sharedEncoders.get(windowID)?.codec;
+  const nowActiveCodec = sharedEncoders.get(captureKey)?.codec;
   if (nowActiveCodec && nowActiveCodec !== choice.kind) {
     const activeChoice = chooseTileVideoCodec(transceiver.codecs, nowActiveCodec);
     if (!activeChoice) {
@@ -1172,7 +1240,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   diag(`c${connection} codec=${choice.kind} pt=${choice.negotiated.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate} rtpHistoryPackets=${config.webrtcRtpHistoryPackets}`);
 
   const args = [
-    ...(windowID === "display" ? ["--display", "main"] : ["--window", windowID]),
+    ...(windowID === "display" ? ["--display", String(captureId)] : ["--window", windowID]),
     "--codec", choice.kind === "h265" ? "h265-annexb" : "h264-annexb",
     // RTP has no segment boundary to satisfy. A joining viewer receives the
     // retained bootstrap and requests a fresh keyframe; loss recovery does the
@@ -1189,12 +1257,15 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (fps) args.push("--fps", String(fps));
   if (bitrate) args.push("--bitrate", String(bitrate));
 
-  const shared = acquireSharedEncoder(windowID, binary, binaryMtimeMs, args, choice.kind);
+  const shared = acquireSharedEncoder(captureKey, binary, binaryMtimeMs, args, choice.kind);
   inputEncoder = shared;
   connectionDiagnostic.encoder = shared;
   let source: WebrtcTileSourceMetadata;
   try {
     source = await waitForEncoderMetadata(shared);
+    if (captureDisplayId && source.displayId !== captureDisplayId) {
+      throw new Error("capture display identity does not match the requested monitor");
+    }
   } catch (error) {
     closeConnectionDiagnostic();
     killSharedEncoder(shared, "source-metadata-unavailable");
@@ -1293,8 +1364,12 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     onDead: () => shutdown("encoder-dead"),
   };
   release = subscribeSharedEncoder(shared, subscriber);
+  if (signal.aborted) {
+    shutdown("offer-cancelled");
+    return jsonResponse({ code: "offer-cancelled" }, 499);
+  }
   if (currentControlChannel()?.readyState === "open") {
-    for (const event of shared.controlEvents.cursorSnapshot()) sendControl(event);
+    for (const event of shared.controlEvents.snapshot()) sendControl(event);
   }
 
   // The transport reports peer death (ICE consent, DTLS close); that report is
@@ -1369,7 +1444,7 @@ export function createWebrtcTileRoutes(
       } catch {
         return jsonResponse({ code: "webrtc-bad-offer", message: "body was not JSON" }, 400);
       }
-      return answer(match[1]!, body).catch((error: unknown) =>
+      return answer(match[1]!, body, request.signal).catch((error: unknown) =>
         jsonResponse(
           {
             code: "webrtc-tile-failed",

@@ -203,39 +203,6 @@ private func skyLightAuditBounds(from raw: Any?) -> CGRect? {
     return CGRect(x: x, y: y, width: width, height: height)
 }
 
-// Reverse-engineered CGEventField indices for the dock-swipe synthesis
-// paths. Names mirror the constants InstantSpaceSwitcher / iss /
-// Karabiner-Elements expose. Stable since 3-finger swipe shipped in
-// 10.11; if Apple ever changes them the symptom is "swipe posts but
-// nothing happens" and the smoke for that is HITL.
-private enum DockSwipeField {
-    static let cgsEventType = CGEventField(rawValue: 55)!
-    static let gestureHIDType = CGEventField(rawValue: 110)!
-    static let gestureSwipeMotion = CGEventField(rawValue: 123)!
-    static let gestureSwipeProgress = CGEventField(rawValue: 124)!
-    static let gestureSwipeVelocityX = CGEventField(rawValue: 129)!
-    static let gestureSwipeVelocityY = CGEventField(rawValue: 130)!
-    static let gesturePhase = CGEventField(rawValue: 132)!
-}
-
-private enum DockSwipeConstant {
-    static let dockControl: Int64 = 30
-    static let dockSwipeHIDType: Int64 = 23
-    static let motionHorizontal: Int64 = 1
-}
-
-// CGSGesturePhase mapping for the wire-level SwipePhase. Began=1,
-// Changed=2, Ended=4, Cancelled=8 - matches the values trackpads
-// natively send.
-private func cgsPhase(_ phase: NormalizedInput.SwipePhase) -> Int64 {
-    switch phase {
-    case .began:     return 1
-    case .changed:   return 2
-    case .ended:     return 4
-    case .cancelled: return 8
-    }
-}
-
 final class SpacesProvider {
     typealias EventPoster = (CGEvent) -> Void
     typealias DirectSpaceSetter = (_ displayId: String, _ spaceId: UInt64) -> Bool
@@ -553,20 +520,20 @@ final class SpacesProvider {
         velocityX: Float,
         eventLocation: CGPoint? = nil
     ) -> Bool {
-        guard let event = CGEvent(source: nil) else {
+        let dockPhase: DockSwipeEvent.Phase
+        switch phase {
+        case .began: dockPhase = .began
+        case .changed: dockPhase = .changed
+        case .ended: dockPhase = .ended
+        case .cancelled: dockPhase = .cancelled
+        }
+        guard let event = DockSwipeEvent.make(
+            phase: dockPhase, progress: Double(progress),
+            velocityX: Double(velocityX), location: eventLocation
+        ) else {
             logger.error("CGEvent(source:nil) returned nil")
             return false
         }
-        if let eventLocation {
-            event.location = eventLocation
-        }
-        event.setIntegerValueField(DockSwipeField.cgsEventType, value: DockSwipeConstant.dockControl)
-        event.setIntegerValueField(DockSwipeField.gestureHIDType, value: DockSwipeConstant.dockSwipeHIDType)
-        event.setIntegerValueField(DockSwipeField.gesturePhase, value: cgsPhase(phase))
-        event.setIntegerValueField(DockSwipeField.gestureSwipeMotion, value: DockSwipeConstant.motionHorizontal)
-        event.setDoubleValueField(DockSwipeField.gestureSwipeProgress, value: Double(progress))
-        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityX, value: Double(velocityX))
-        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityY, value: Double(velocityX))
         eventPoster(event)
         return true
     }

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { desktopNavigationEvent, type DesktopNavigationState } from "@agentdesk/agent-feed-wire";
 import type {
   DesktopControlEvent,
   DesktopCursorKind,
@@ -122,10 +123,12 @@ function delivery(value: Record<string, unknown>): DesktopControlEvent | null {
   return null;
 }
 
-/** Validates native control events and retains only replayable shared cursor state. */
+/** Retains replayable cursor/topology snapshots, never input or gesture results. */
 export class WebrtcDesktopControlEvents {
   private image: WebrtcCursorImage | null = null;
   private position: WebrtcCursorPosition | null = null;
+  private navigation: DesktopNavigationState | null = null;
+  private navigationFailure: Extract<DesktopControlEvent, { type: "desktop-unavailable" }> | null = null;
 
   accept(payload: Uint8Array): DesktopControlEvent | null {
     let decoded: unknown;
@@ -136,6 +139,8 @@ export class WebrtcDesktopControlEvents {
     }
     if (typeof decoded !== "object" || decoded === null) return null;
     const value = decoded as Record<string, unknown>;
+    if (["desktop-state", "desktop-unavailable", "space-result"].includes(String(value.type))
+        && payload.byteLength > 16 * 1024) return null;
     const next = value.type === "cursor-image"
       ? cursorImage(value)
       : value.type === "cursor-applied"
@@ -144,7 +149,7 @@ export class WebrtcDesktopControlEvents {
           ? cursorPosition(value)
           : value.type === "text-focus"
             ? textFocus(value)
-            : delivery(value);
+            : delivery(value) ?? desktopNavigationEvent(value);
     if (!next) return null;
     if (next.type === "cursor-image") {
       if (next.hash === this.image?.hash) return null;
@@ -154,6 +159,12 @@ export class WebrtcDesktopControlEvents {
       this.position = next;
     } else if (next.type === "cursor-applied") {
       this.position = { type: "cursor-position", x: next.x, y: next.y };
+    } else if (next.type === "desktop-state") {
+      if (this.navigation && next.revision <= this.navigation.revision) return null;
+      this.navigation = next;
+      this.navigationFailure = null;
+    } else if (next.type === "desktop-unavailable") {
+      this.navigationFailure = next;
     }
     return next;
   }
@@ -163,5 +174,14 @@ export class WebrtcDesktopControlEvents {
     if (this.image) snapshot.push(this.image);
     if (this.position) snapshot.push(this.position);
     return snapshot;
+  }
+
+  snapshot(): DesktopControlEvent[] {
+    return [...this.cursorSnapshot(), ...(this.navigation ? [this.navigation] : []),
+      ...(this.navigationFailure ? [this.navigationFailure] : [])];
+  }
+
+  captureDisplayMissing(displayId: string): boolean {
+    return this.navigation !== null && !this.navigation.displays.some((display) => display.id === displayId);
   }
 }

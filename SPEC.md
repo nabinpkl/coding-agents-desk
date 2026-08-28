@@ -975,10 +975,39 @@ intact and the TypeScript rail as its only accessory. Other panels retain the sy
 shell change needs one client update; later keyboard behavior and chrome remain TypeScript-owned.
 
 The sidecar validates and forwards canonical NDJSON, but does not translate key names or own keyboard
-behavior. The latest intentional interaction acquires one helper ownership epoch, resets native
+behavior. The latest intentional interaction acquires one Mac-wide ownership epoch, resets native
 pointer state, and revokes the prior page. Frame kind 4 is the control-event frame and carries cursor,
-focus, delivery, and native rejection events. Only cursor image and position are replayable to a new
+focus, delivery, navigation, and native rejection events. Only cursor image, position, and the latest
+display/Space snapshot are replayable to a new
 channel. Key input, focus state, receipts, ownership, and pending events never replay.
+
+### Web Desktop and monitor navigation
+
+The same ordered control-v2 channel carries `desktop-refresh`, exact-ID `space-select`, and
+UUID-correlated `space-gesture` phases. Source metadata advertises `desktopNavigationVersion: 1`
+and its stable `displayId`. Events report a revisioned `desktop-state` with each display's own
+active Space, explicit unavailability, or a correlated posted/rejected result. Posting is not
+settlement: the page waits for the target Space to become active, ignoring intermediate transitions,
+and reports a bounded timeout. IDs remain UInt64 decimal strings, never JavaScript numbers (ADR-0112).
+
+The compact TypeScript rail uses 40 by 30 px numbered pills in a 36 px expanded row, a 26 px collapsed
+row, and an optional 32 px monitor row. Raw travel over half the rail or an agreeing flick above
+800 points/sec commits; a short reverse flick cancels. Default finger-left selects next; the
+TypeScript-owned Mac-direction toggle reverses swipes, never target taps. Explicit cancellation uses
+Dock phase 8, not a zero-distance end. Two fingers, pointer-capture loss, blur, hidden page, ownership
+loss, and topology changes retire the gesture. The rail hides while typing and reserves scroll-puck
+clearance without changing video zoom. There are no thumbnails or window picker.
+
+The sidecar resolves main/explicit monitor aliases before encoder reuse. The helper captures exactly
+that physical display and emits matching logical input bounds. A monitor handover keeps the old
+image with input blocked, warms one candidate generation, and replaces the old source only after
+the matching first presented frame. Stale candidate callbacks are ignored. Reconnect remains pinned
+to that display. Unplug rehomes to the remaining main monitor with an explicit notice, including
+when capture dies before sending a final topology event. Ordinary Desktop changes keep the stream,
+pointer mode, and zoom. The standalone helper uses OS notifications, plus Mission-Control-scoped
+exit checks; there is no idle topology polling. A changed monitor origin or extent retires its
+capture so reconnection obtains fresh input bounds. Live acceptance reopens only the WebRTC stream after
+the helper build, with neither app rebuilt or relaunched.
 
 The standalone grid helper is the native capability boundary. It owns AX trust and focused-element
 classification, I-beam sampling after an 80 ms probe plus an optional 160 ms settle, stable key-code

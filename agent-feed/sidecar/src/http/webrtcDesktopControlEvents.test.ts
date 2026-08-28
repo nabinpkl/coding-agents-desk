@@ -68,4 +68,24 @@ describe("WebrtcDesktopControlEvents", () => {
       .toBeNull();
     expect(events.accept(event({ type: "input-applied", sequence: 0 }))).toBeNull();
   });
+
+  test("late join replays only the latest topology, not switch results, and detects unplug", () => {
+    const events = new WebrtcDesktopControlEvents();
+    const state = { type: "desktop-state" as const, revision: 1, captureDisplayId: "A", displays: [{
+      id: "A", label: "Main", isMain: true, activeSpaceId: "1", spaces: [{ id: "1", type: 0 }],
+    }] };
+    expect(events.accept(event(state))).toEqual(state);
+    expect(events.captureDisplayMissing("A")).toBe(false);
+    const result = { type: "space-result", requestId: "5f03b272-2922-4ca1-93ee-82d902fdbe21", status: "posted" } as const;
+    expect(events.accept(event(result))).toEqual(result);
+    expect(events.snapshot()).toEqual([state]);
+    const unplugged = { ...state, revision: 2, displays: [] };
+    expect(events.accept(event(unplugged))).toEqual(unplugged);
+    expect(events.accept(event(state))).toBeNull();
+    expect(events.snapshot()).toEqual([unplugged]);
+    expect(events.captureDisplayMissing("A")).toBe(true);
+    const unavailable = { type: "desktop-unavailable", reason: "navigation-unavailable" } as const;
+    events.accept(event(unavailable));
+    expect(events.snapshot()).toEqual([unplugged, unavailable]);
+  });
 });

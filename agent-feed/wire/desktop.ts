@@ -5,6 +5,8 @@ export interface WebrtcTileSourceMetadata {
   cursor: { x: number; y: number };
   /** The viewer keeps video alive when this is not the one supported control version. */
   desktopControlVersion: number;
+  displayId?: string;
+  desktopNavigationVersion?: number;
 }
 
 /** The one-round-trip WebRTC answer, including the encoder's authoritative source metadata. */

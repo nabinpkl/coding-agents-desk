@@ -1,0 +1,12 @@
+{
+  "requestId": "a144ab48-d878-41f8-93cf-831174cb316e",
+  "displayId": "DISPLAY-A",
+  "spaceId": "18446744073709551615",
+  "commands": [
+    {"type":"desktop-refresh"},
+    {"type":"space-select","requestId":"a144ab48-d878-41f8-93cf-831174cb316e","displayId":"DISPLAY-A","spaceId":"18446744073709551615"},
+    {"type":"space-gesture","gestureId":"a144ab48-d878-41f8-93cf-831174cb316e","displayId":"DISPLAY-A","phase":"began","progress":0,"velocityX":0},
+    {"type":"space-gesture","gestureId":"a144ab48-d878-41f8-93cf-831174cb316e","displayId":"DISPLAY-A","phase":"changed","progress":0.3,"velocityX":900},
+    {"type":"space-gesture","gestureId":"a144ab48-d878-41f8-93cf-831174cb316e","displayId":"DISPLAY-A","phase":"cancelled","progress":0,"velocityX":0}
+  ]
+}

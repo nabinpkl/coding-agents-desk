@@ -1,4 +1,5 @@
 import type { DesktopCursorKind, WebrtcCursorEvent } from "./desktop.ts";
+import type { DesktopNavigationEvent, DesktopNavigationInput } from "./desktopNavigation.ts";
 
 export const DESKTOP_CONTROL_MAX_MESSAGE_BYTES = 16 * 1024;
 export const DESKTOP_CONTROL_MAX_KEY_BATCH = 256;
@@ -55,6 +56,7 @@ export interface DesktopControlConfiguration {
 }
 
 export type DesktopControlInput =
+  | DesktopNavigationInput
   | DesktopControlConfiguration
   | { type: "pointer-move"; revision: number; dx: number; dy: number }
   | { type: "click"; button: "left" | "right"; focusRequestId?: string }
@@ -92,6 +94,7 @@ export interface DesktopTextFocusEvent {
 }
 
 export type DesktopControlEvent =
+  | DesktopNavigationEvent
   | WebrtcCursorEvent
   | DesktopTextFocusEvent
   | { type: "input-applied"; sequence: number }

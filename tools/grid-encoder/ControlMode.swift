@@ -8,7 +8,7 @@
 // It stays RESIDENT rather than running one verb and exiting. An `AXObserver` only delivers while
 // its own process runs a run loop (`ComposerObserver.swift` adds its source to the main one), so a
 // one-shot-per-request helper would silently downgrade composer sync from event-driven back to
-// polling. `dispatchMain()` at the end of `main.swift` is that run loop.
+// polling. `CFRunLoopRun()` keeps that run loop alive.
 //
 // Resident processes need a way to die, and this one cannot rely on being killed. `bun --watch`
 // reloads the sidecar's module graph IN THE SAME PID, so a helper spawned before a reload is
@@ -47,6 +47,10 @@ func runControlMode(
         ])
     }
     control.register("desktop-audit") { _ in .ok(DesktopAudit.snapshot()) }
+    control.register("desktop-displays") { _ in
+        // NSScreen is an AppKit read. The command reader lives on its own thread.
+        DispatchQueue.main.sync { .ok(DesktopSpaces.catalog()) }
+    }
     registerComposerVerbs(on: control)
 
     // Announced before the loop starts so the sidecar can refuse a helper that came up without the

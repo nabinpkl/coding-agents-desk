@@ -1,4 +1,5 @@
 import type { WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
+import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
 
 const MAX_SOURCE_EXTENT = 100_000;
 
@@ -38,5 +39,7 @@ export function gridEncoderSourceMetadata(value: unknown): WebrtcTileSourceMetad
     height: bounds.h,
     cursor: { x: position.x, y: position.y },
     desktopControlVersion: 2,
+    ...(desktopDisplayId(meta.displayId) ? { displayId: meta.displayId } : {}),
+    ...(meta.desktopNavigationVersion === 1 ? { desktopNavigationVersion: 1 } : {}),
   };
 }

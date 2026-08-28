@@ -2106,3 +2106,31 @@ default, unlike Claude.
   then approved TestFlight distribution as client patch release 1.13.1. Archive/export/upload use the
   isolated release tree, with no host or phone launch. Pending: upload confirmation and real iPhone
   verification that the native toolbar is absent while the TypeScript rail, typing, and Hide work.
+
+## TypeScript Desktop and monitor navigation
+
+Position: add compact Desktop navigation and monitor selection to the first-party Web desktop.
+Protocol/native capabilities precede UI because target identity and cancellation must agree across
+the channel. Physical acceptance follows the complete source/test gates and an explicit run approval.
+Thumbnails, Desktop Park, window picking, app installation, and app relaunch are outside this arc.
+
+- D274. Implement ADR-0112: canonical navigation wire shapes and golden fixtures; a notification-driven
+  standalone Spaces adapter using the shared Dock event primitive; stable display capture keys;
+  Mac-wide WebRTC control ownership; the compact TypeScript rail with native thresholds/direction,
+  exact-ID taps, cancellation, settlement timeout, and preferences; generation-guarded monitor
+  handover with first-presented-frame promotion and explicit unplug rehome. Keep keyboard and
+  scroll-puck arbitration intact. Final gates: AgentPanel typecheck/tests/build, sidecar
+  typecheck/tests, native navigation/input contracts, helper build, and `just check` after self-review.
+  Implemented and self-reviewed. Final `just check` passes: 551 AgentPanel tests, 614 sidecar tests,
+  native input/navigation contracts and helper compilation, shared package/Rust gates, and 829 host
+  tests. The production web build passes. A host-free 375 px browser fixture verified compact rail
+  sizing (36 px; 72 px with monitor row), no page overflow, exact taps, drag phases, and monitor
+  selection. One full run hit the existing BotStore file-watcher timing test; that test passed in
+  isolation and the complete final rerun passed without changing BotStore. Physical acceptance is
+  intentionally separate under R275; neither daily-driver app was installed or relaunched.
+- R275. After explicit device-run approval, reopen only the existing WebRTC stream and verify on the
+  installed iPhone WebView: default and Mac swipe direction, threshold/reverse flick/cancel, distant
+  exact Desktop taps across fullscreen Spaces, external Mac Space changes and Mission Control
+  topology changes, monitor changes with correct cursor/keyboard bounds, rapid selection replacement,
+  unplug rehome notice, keyboard coexistence, and unchanged zoom on ordinary Desktop transitions.
+  Retrieve evidence through TypeScript telemetry; no client/host app build, install, or relaunch.

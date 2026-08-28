@@ -254,7 +254,7 @@ describe("TileViewport pointer mode", () => {
     pointer(puck, "pointerup", 10, -1_000, -1_000);
 
     expect(puck.style.right).toBe("744px");
-    expect(puck.style.bottom).toBe("444px");
+    expect(puck.style.bottom).toBe("max(444px, var(--desktop-nav-clearance, 0px))");
     expect(puck).toHaveAttribute("aria-pressed", "false");
     expect(inputs).toEqual([]);
     expect(surface.contains(puck)).toBe(true);
