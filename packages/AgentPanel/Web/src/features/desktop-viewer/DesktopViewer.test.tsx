@@ -1,19 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import { desktopDocumentFallbackHeight, DesktopViewer } from "./DesktopViewer";
+import type { DesktopControlEvent, DesktopControlInput } from "@agentdesk/agent-feed-wire";
 
-const tileMock = vi.hoisted(() => ({ publishSource: true, controlVersion: 2 }));
+const tileMock = vi.hoisted(() => ({ publishSource: true, controlVersion: 2, navigation: false }));
 
 vi.mock("./TileStreamRtc", async (importOriginal) => {
   const React = await import("react");
   const actual = await importOriginal<typeof import("./TileStreamRtc")>();
   return {
     ...actual,
-    TileStreamRtc: ({ onState, onControlTransport, onSourceMetadata }: {
+    TileStreamRtc: ({ onState, onControlTransport, onSourceMetadata, onControlEvent }: {
       onState?: (state: unknown) => void;
-      onControlTransport?: (transport: { send: () => "sent" }) => void;
+      onControlTransport?: (transport: { send: (input: DesktopControlInput) => "sent" }) => void;
       onSourceMetadata?: (metadata: unknown) => void;
+      onControlEvent?: (event: DesktopControlEvent) => void;
     }) => {
       React.useEffect(() => {
         if (tileMock.publishSource) {
@@ -22,14 +24,28 @@ vi.mock("./TileStreamRtc", async (importOriginal) => {
             height: 1169,
             cursor: { x: 900, y: 584.5 },
             desktopControlVersion: tileMock.controlVersion,
+            ...(tileMock.navigation ? { desktopNavigationVersion: 1, displayId: "A" } : {}),
           });
         }
         onState?.({ kind: "playing", codec: "webrtc/h264", firstFrameMs: 12 });
-        onControlTransport?.({ send: () => "sent" });
+        onControlTransport?.({ send: (input) => {
+          if (tileMock.navigation && input.type === "desktop-refresh") {
+            onControlEvent?.({ type: "desktop-state", revision: 1, captureDisplayId: "A", displays: [{
+              id: "A", label: "Main", isMain: true, activeSpaceId: "1",
+              spaces: Array.from({ length: 8 }, (_, i) => ({ id: String(i + 1), type: 0 })),
+            }] });
+          }
+          return "sent";
+        } });
       }, [onControlTransport, onSourceMetadata, onState]);
       return <div data-testid="desktop-video" />;
     },
   };
+});
+
+beforeEach(() => {
+  tileMock.navigation = false;
+  localStorage.clear();
 });
 
 function transport(): AgentHttpTransport {
@@ -40,6 +56,48 @@ function transport(): AgentHttpTransport {
 }
 
 describe("DesktopViewer", () => {
+  it("composes navigation, input controls and stream status in one measured dock", async () => {
+    tileMock.publishSource = true;
+    tileMock.controlVersion = 2;
+    tileMock.navigation = true;
+    const measurements = new Map<Element, () => void>();
+    const disconnected = vi.fn();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) { measurements.set(element, this.callback); }
+      disconnect() { disconnected(); }
+    });
+    const { container, unmount } = render(<DesktopViewer transport={transport()} />);
+    const dock = await screen.findByTestId("desktop-bottom-chrome");
+    expect(within(dock).getByRole("button", { name: "Desktop 8" })).toBeInTheDocument();
+    expect(within(dock).getByRole("group", { name: "Desktop input controls" })).toBeInTheDocument();
+    expect(within(dock).getByLabelText("Desktop stream status")).toHaveTextContent("1800×1169");
+    const rect = vi.spyOn(dock, "getBoundingClientRect").mockReturnValue({ height: 120 } as DOMRect);
+    act(() => measurements.get(dock)!());
+    expect(container.firstElementChild).toHaveStyle({ "--desktop-chrome-clearance": "128px" });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(dock).getByRole("button", { name: "Desktop 2" }));
+      act(() => vi.advanceTimersByTime(2001));
+      expect(within(dock).getByText("Desktop switch timed out")).toBeInTheDocument();
+      expect(within(dock).getByRole("button", { name: "Keyboard" })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+    rect.mockReturnValue({ height: 154 } as DOMRect);
+    act(() => measurements.get(dock)!());
+    expect(container.firstElementChild).toHaveStyle({ "--desktop-chrome-clearance": "162px" });
+
+    fireEvent.click(within(dock).getByRole("button", { name: "Keyboard" }));
+    expect(screen.queryByTestId("desktop-navigation")).not.toBeInTheDocument();
+    expect(within(dock).queryByRole("group", { name: "Desktop input controls" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Remote keyboard controls" }).parentElement).toBe(document.body);
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(within(dock).getByRole("button", { name: "Desktop 8" })).toBeInTheDocument();
+    unmount();
+    expect(disconnected).toHaveBeenCalled();
+  });
+
   it("keeps the capture and every accessory control outside the clipped viewer toolbar", async () => {
     tileMock.publishSource = true;
     tileMock.controlVersion = 2;

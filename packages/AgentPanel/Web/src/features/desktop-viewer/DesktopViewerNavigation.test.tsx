@@ -31,7 +31,7 @@ vi.mock("./DesktopViewerSurface", async () => {
         props.onEvent?.(snapshot(id));
         if (props.displayId === undefined) props.onFirstFrame?.();
       }, []);
-      return <div data-testid={`surface-${id}`} data-interactive={props.interactive} />;
+      return <div data-testid={`surface-${id}`} data-interactive={props.interactive}>{props.navigation}</div>;
     },
   };
 });

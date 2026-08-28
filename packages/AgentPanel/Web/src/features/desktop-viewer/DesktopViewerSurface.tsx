@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type {
   DesktopControlEvent,
   WebrtcCursorEvent,
@@ -20,11 +20,14 @@ import { useDesktopKeyboard } from "./useDesktopKeyboard";
 
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
-  transport, displayId, interactive = true, onSource, onTransport, onEvent, onFirstFrame, onKeyboard, onState, onDisplayUnavailable,
+  transport, displayId, interactive = true, navigation, onChromeHeight,
+  onSource, onTransport, onEvent, onFirstFrame, onKeyboard, onState, onDisplayUnavailable,
 }: {
   transport: AgentHttpTransport;
   displayId?: string;
   interactive?: boolean;
+  navigation?: ReactNode;
+  onChromeHeight?: (height: number) => void;
   onSource?: (source: WebrtcTileSourceMetadata) => void;
   onTransport?: (transport: DesktopControlTransport | null) => void;
   onEvent?: (event: DesktopControlEvent) => void;
@@ -37,6 +40,17 @@ export function DesktopViewerSurface({
   const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
   const [controlTransport, setControlTransport] = useState<DesktopControlTransport | null>(null);
   const [pointerMode, setPointerMode] = useState(true);
+  const chromeRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const chrome = chromeRef.current;
+    if (!chrome || !onChromeHeight) return;
+    // Observe the entire dock: monitor rows, errors, wrapping, and safe-area padding.
+    const measure = () => onChromeHeight(Math.ceil(chrome.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(chrome);
+    return () => observer.disconnect();
+  }, [onChromeHeight]);
   const applyTileState = useCallback((state: DesktopStreamState) => { setTile(state); onState?.(state); }, [onState]);
   const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
   const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
@@ -140,17 +154,13 @@ export function DesktopViewerSurface({
         />
       </TileViewport>
 
-      <div style={interactive ? undefined : { display: "none" }} className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between
-        gap-3 bg-gradient-to-t from-black/65 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]
-        pt-10 ${keyboard.keyboardPresented ? "bg-none" : ""}`}>
-        {!keyboard.keyboardPresented ? (
-          <p className="min-w-0 truncate font-mono text-[10px] text-white/70">
-            {tile.kind === "playing" && source
-              ? `${source.width}×${source.height} · ${tile.codec}`
-              : tile.kind}
-          </p>
-        ) : <span />}
-        <div className="pointer-events-auto flex shrink-0 rounded-lg bg-black/60 p-1 backdrop-blur">
+      <div ref={chromeRef} data-testid="desktop-bottom-chrome"
+        className={`pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col
+          ${keyboard.keyboardPresented ? "" : "gap-1 bg-gradient-to-t from-black/65 to-transparent px-2 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"}`}>
+        {navigation}
+        <div role="group" aria-label="Desktop input controls"
+          style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
+          className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-1 rounded-lg bg-black/60 p-1">
           <DesktopKeyboardChrome
             captureRef={keyboard.captureRef}
             captureProps={keyboard.captureProps}
@@ -189,6 +199,13 @@ export function DesktopViewerSurface({
             </>
           ) : null}
         </div>
+        <p aria-label="Desktop stream status"
+          style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
+          className="truncate px-1 font-mono text-[10px] leading-3 text-white/70">
+          {tile.kind === "playing" && source
+            ? `${source.width}×${source.height} · ${tile.codec}`
+            : tile.kind}
+        </p>
       </div>
     </main>
   );

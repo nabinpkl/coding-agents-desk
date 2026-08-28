@@ -998,6 +998,12 @@ Dock phase 8, not a zero-distance end. Two fingers, pointer-capture loss, blur, 
 loss, and topology changes retire the gesture. The rail hides while typing and reserves scroll-puck
 clearance without changing video zoom. There are no thumbnails or window picker.
 
+Navigation, its status messages, input-mode controls, and stream metadata form one bottom dock in
+normal vertical flow. Safe-area padding belongs to that dock once. A ResizeObserver measures the
+complete dock for scroll-puck clearance, including monitor rows and wrapped messages; navigation does
+not guess a fixed offset above an independently positioned toolbar. Keyboard capture/accessory
+portals remain outside the dock and video clipping.
+
 The sidecar resolves main/explicit monitor aliases before encoder reuse. The helper captures exactly
 that physical display and emits matching logical input bounds. A monitor handover keeps the old
 image with input blocked, warms one candidate generation, and replaces the old source only after

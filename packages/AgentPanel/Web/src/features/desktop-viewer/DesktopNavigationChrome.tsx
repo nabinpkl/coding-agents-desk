@@ -11,7 +11,7 @@ function preference(key: string, fallback: boolean): { value: boolean; failed: b
 
 export function DesktopNavigationChrome({
   model, displays, displayId, disabled, hidden, switching, onDisplay, onSelect,
-  onBegin, onMove, onEnd, onCancel, onRefresh, onHeight,
+  onBegin, onMove, onEnd, onCancel, onRefresh,
 }: {
   model: NavigationModel;
   displays: DesktopDisplay[];
@@ -26,7 +26,6 @@ export function DesktopNavigationChrome({
   onEnd: (translation: number, velocity: number, width: number, mac: boolean) => void;
   onCancel: () => void;
   onRefresh: () => void;
-  onHeight: (height: number) => void;
 }) {
   const [saved] = useState(() => ({ expanded: preference("agentdesk.desktop-rail-expanded", true),
     direction: preference("agentdesk.desktop-mac-direction", false) }));
@@ -61,14 +60,12 @@ export function DesktopNavigationChrome({
   useLayoutEffect(() => {
     const measure = () => {
       setWidth(row.current?.clientWidth ?? 1);
-      onHeight(hidden ? 0 : root.current?.getBoundingClientRect().height ?? 0);
     };
     measure();
     const observer = new ResizeObserver(measure);
-    if (root.current) observer.observe(root.current);
     if (row.current) observer.observe(row.current);
     return () => observer.disconnect();
-  }, [expanded, hidden, displays.length, spaces.length, onHeight, model.error, settings]);
+  }, [expanded, hidden, displays.length, spaces.length]);
 
   useEffect(() => {
     if (hidden || disabled) { pointer.current = null; activePointers.current.clear(); onCancel(); }
@@ -120,7 +117,7 @@ export function DesktopNavigationChrome({
   };
   if (hidden) return null;
   return (
-    <div ref={root} data-testid="desktop-navigation" className="pointer-events-auto select-none text-[12px]">
+    <div ref={root} data-testid="desktop-navigation" className="pointer-events-auto relative select-none text-[12px]">
       {displays.length > 1 ? (
         <div aria-label="Monitors" className="mb-1 flex h-8 gap-2 px-2">
           {displays.map((item) => (

@@ -2134,3 +2134,13 @@ Thumbnails, Desktop Park, window picking, app installation, and app relaunch are
   topology changes, monitor changes with correct cursor/keyboard bounds, rapid selection replacement,
   unplug rehome notice, keyboard coexistence, and unchanged zoom on ordinary Desktop transitions.
   Retrieve evidence through TypeScript telemetry; no client/host app build, install, or relaunch.
+- D276. Correct the Web desktop bottom-chrome overlap reported on iPhone: compose the Desktop rail,
+  status, keyboard/input-mode controls, and stream details in one measured dock with one safe area.
+  Preserve keyboard dismissal and monitor handover; derive scroll-puck clearance from the entire
+  dock without resetting zoom. Verify the full composition at phone widths, then self-review and
+  run `just check`. No native changes, device install, or app relaunch.
+  Self-reviewed; production web build and final `just check` pass, including 552 AgentPanel tests.
+  A host-free browser pass exercised the real viewer composition at 375 and 320 px, a navigation
+  timeout, monitor row, collapsed rail, and keyboard presentation; simulated 34 px bottom padding
+  remained clear of all controls. The dock's measured height moves scroll-puck clearance with it.
+  Physical iPhone confirmation and the separate switching-timeout investigation remain unverified.

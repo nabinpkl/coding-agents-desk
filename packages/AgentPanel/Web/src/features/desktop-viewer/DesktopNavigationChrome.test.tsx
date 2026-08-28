@@ -10,7 +10,7 @@ beforeEach(() => {
 });
 function setup() {
   const callbacks = { onBegin: vi.fn(() => "id"), onMove: vi.fn(), onEnd: vi.fn(), onCancel: vi.fn(),
-    onSelect: vi.fn(), onDisplay: vi.fn(), onRefresh: vi.fn(), onHeight: vi.fn() };
+    onSelect: vi.fn(), onDisplay: vi.fn(), onRefresh: vi.fn() };
   render(<DesktopNavigationChrome model={initialNavigationModel} displayId="A" displays={[{
     id: "A", label: "Main", isMain: true, activeSpaceId: "1", spaces: [{ id: "1", type: 0 }, { id: "2", type: 0 }],
   }]} disabled={false} hidden={false} switching={false} {...callbacks} />);

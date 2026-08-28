@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
   type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
@@ -51,7 +51,7 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
   const viewerRef = useRef(viewer);
   viewerRef.current = viewer;
   const sequence = useRef(1);
-  const [navigationHeight, setNavigationHeight] = useState(0);
+  const [chromeHeight, setChromeHeight] = useState(0);
   const active = viewer.slots.find((slot) => slot.id === viewer.active)!;
   const activeDisplayId = active.source?.displayId;
   const report = useCallback((phase: string, detail: Record<string, unknown>) => {
@@ -122,15 +122,25 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
     ?? (active.source && active.source.desktopNavigationVersion !== 1
       ? "Desktop navigation unavailable. Update the standalone helper." : undefined);
   const onDisplay = useCallback((id: string) => selectDisplay(id), [selectDisplay]);
+  const navigationChrome = active.source?.desktopNavigationVersion === 1 ? (
+    <DesktopNavigationChrome model={navigation.model} displays={displays} displayId={activeDisplayId}
+      disabled={!active.control || !canInteract || displays.length === 0}
+      switching={viewer.pending !== null} hidden={!!active.keyboard}
+      onDisplay={onDisplay} onSelect={navigation.select} onBegin={navigation.begin}
+      onMove={navigation.move} onEnd={navigation.end} onCancel={navigation.cancel}
+      onRefresh={navigation.refresh} />
+  ) : null;
   return (
     <main className="relative size-full overflow-hidden bg-black text-white"
-      style={{ "--desktop-nav-clearance": `${navigationHeight + 56}px` } as CSSProperties}>
+      style={{ "--desktop-chrome-clearance": `${chromeHeight + 8}px` } as CSSProperties}>
       {viewer.slots.map((slot) => (
         <div key={slot.id} className="absolute inset-0"
-          aria-hidden={slot.id !== viewer.active || viewer.pending !== null}
+          aria-hidden={slot.id !== viewer.active}
           style={{ opacity: slot.id === viewer.active ? 1 : 0,
             pointerEvents: slot.id === viewer.active && canInteract ? "auto" : "none" }}>
           <ViewerSlot slot={slot} transport={transport} interactive={slot.id === viewer.active && canInteract}
+            navigation={slot.id === viewer.active ? navigationChrome : null}
+            onChromeHeight={slot.id === viewer.active ? setChromeHeight : undefined}
             patch={patchSlot} event={event} displayUnavailable={displayUnavailable} />
         </div>
       ))}
@@ -143,22 +153,14 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
             className="ml-3 underline" onClick={() => setViewer((state) => ({ ...state, notice: null }))}>Dismiss</button> : null}
         </div>
       ) : null}
-      {active.source?.desktopNavigationVersion === 1 ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[max(3rem,env(safe-area-inset-bottom))] z-30">
-          <DesktopNavigationChrome model={navigation.model} displays={displays} displayId={activeDisplayId}
-            disabled={!active.control || !canInteract || displays.length === 0}
-            switching={viewer.pending !== null} hidden={!!active.keyboard}
-            onDisplay={onDisplay} onSelect={navigation.select} onBegin={navigation.begin}
-            onMove={navigation.move} onEnd={navigation.end} onCancel={navigation.cancel}
-            onRefresh={navigation.refresh} onHeight={setNavigationHeight} />
-        </div>
-      ) : null}
     </main>
   );
 }
 
-function ViewerSlot({ slot, transport, interactive, patch, event, displayUnavailable }: {
+function ViewerSlot({ slot, transport, interactive, navigation, onChromeHeight, patch, event, displayUnavailable }: {
   slot: ViewerSlotState; transport: AgentHttpTransport; interactive: boolean;
+  navigation: ReactNode;
+  onChromeHeight?: (height: number) => void;
   patch: (id: number, patch: Partial<ViewerSlotState>) => void;
   event: (id: number, event: DesktopControlEvent) => void;
   displayUnavailable: (id: number, replacement: string) => void;
@@ -173,6 +175,7 @@ function ViewerSlot({ slot, transport, interactive, patch, event, displayUnavail
     if (value.kind === "error" || value.kind === "unsupported") patch(slot.id, { error: value.message });
   }, [slot.id, patch]);
   return <DesktopViewerSurface transport={transport} displayId={slot.displayId} interactive={interactive}
+    navigation={navigation} onChromeHeight={onChromeHeight}
     onSource={source} onTransport={control} onEvent={onEvent} onFirstFrame={ready} onKeyboard={keyboard}
     onState={state} onDisplayUnavailable={unavailable} />;
 }
