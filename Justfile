@@ -55,13 +55,13 @@ client_debug_result_path := host_support_dir + "/.client-debug-result.json"
 host_dev_client_debug_request_path := host_dev_support_dir + "/.client-debug-request.json"
 host_dev_client_debug_result_path := host_dev_support_dir + "/.client-debug-result.json"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
-host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
+host_build_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 # Release-configuration product paths, used by the Release feel-test composites
 # (fresh-install / sim-fresh-install). xcodebuild writes Release products into a
 # separate Products/Release* dir, so these coexist with the Debug builds above.
-host_app_release := derived_data + "/Build/Products/Release/AgentDeskHost.app"
+host_build_app_release := derived_data + "/Build/Products/Release/AgentDeskHost.app"
 client_app_release := derived_data + "/Build/Products/Release-iphoneos/AgentDeskClient.app"
 client_sim_app_release := derived_data + "/Build/Products/Release-iphonesimulator/AgentDeskClient.app"
 # Two coexisting HOST installs mirroring the client: the stable daily-driver and
@@ -69,18 +69,21 @@ client_sim_app_release := derived_data + "/Build/Products/Release-iphonesimulato
 # AgentDeskHost / .dev), so each self-namespaces its logs, keychain, Application
 # Support state, launchd label, and tier-derived ports (Config.tier) and can run
 # CONCURRENTLY. The dev host builds into a SEPARATE derived-data dir: both share
-# PRODUCT_NAME (AgentDeskHost.app) so they would otherwise clobber on disk, and
-# the distinct path is how the kill step targets one variant without killing the
+# PRODUCT_NAME (AgentDeskHost.app) so they would otherwise clobber build output.
+# The installed path is how the kill step targets one variant without killing the
 # other (a bare `pkill -f AgentDeskHost` would kill both). Override ids via env.
 host_bundle_id := env_var_or_default("AGENTDESK_HOST_BUNDLE_ID", "com.example.agentdesk.AgentDeskHost")
 host_dev_bundle_id := env_var_or_default("AGENTDESK_HOST_DEV_BUNDLE_ID", "com.example.agentdesk.AgentDeskHost.dev")
 host_dev_derived_data := derived_data + "-host-dev"
-host_dev_app := host_dev_derived_data + "/Build/Products/Debug/AgentDeskHost.app"
-host_dev_app_release := host_dev_derived_data + "/Build/Products/Release/AgentDeskHost.app"
-# Match only the host app executable when sending host-control signals. Recipes
-# further scope this with the selected variant's derived-data root, because the
-# stable and dev hosts can run concurrently.
-host_process_suffix := "AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
+host_dev_build_app := host_dev_derived_data + "/Build/Products/Debug/AgentDeskHost.app"
+host_dev_build_app_release := host_dev_derived_data + "/Build/Products/Release/AgentDeskHost.app"
+# ADR-0113: compilation products are never live runtime paths. One shared resolver
+# owns these defaults for recipes and the TypeScript sidecar. Each host variant
+# has one installed app location across Debug/Release builds and source checkouts.
+runtime_root := shell('node tools/runtime-paths.mjs root')
+host_app := shell('node tools/runtime-paths.mjs host-app "$1"', host_bundle_id)
+host_dev_app := shell('node tools/runtime-paths.mjs host-app "$1"', host_dev_bundle_id)
+grid_encoder := shell('node tools/runtime-paths.mjs grid-encoder')
 # Two coexisting client installs: the stable daily-driver and an experimental
 # "dev" build under test. They differ only by bundle id, so iOS keeps both on
 # the phone. The dev build outputs to a SEPARATE derived-data dir because both
@@ -95,9 +98,8 @@ client_dev_app := dev_derived_data + "/Build/Products/Debug-iphoneos/AgentDeskCl
 client_sim_dev_app := dev_derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
 # Isolated derived-data path for TestFlight archiving. The archive runs `clean archive`, which wipes
-# its derived data's Build tree; pointing it at a dedicated dir (not `derived_data`) keeps that clean
-# from deleting the running host/client build products under `.build/DerivedData` — otherwise every
-# upload deletes a live `host-run` host's on-disk bundle and its keychain/TCC identity breaks.
+# its derived data's Build tree; a dedicated dir keeps archive cleanup from invalidating
+# concurrent builds. Running hosts are independent installed copies under `runtime_root`.
 # The client test gate builds into its own tree so it never shares a build database with a
 # device or host build. Xcode takes an exclusive lock on build.db, so a `sim-test` running
 # beside a `client-install` used to fail one of the two with "build.db is locked" -- and the
@@ -143,9 +145,9 @@ agent_panel_origin_var := "AGENTDESK_AGENT_PANEL_ORIGIN"
 # either way, and it reaches its own tier's sidecar through that host's relay, not through Vite.
 agent_panel_dev_port := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_PORT", "5173")
 agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp/agentdesk-agent-panel-dev.log")
-# The dev server's TLS material, keyed to this Mac's MagicDNS name. Under .build because it is
-# generated per machine and the key must never be committed.
-agent_panel_dev_tls_dir := justfile_directory() + "/.build/agent-panel-dev-tls"
+# The dev server's TLS material belongs to its durable runtime, outside the checkout.
+# Deleting build caches must not erase the certificate/key of the running server.
+agent_panel_dev_tls_dir := shell('node tools/runtime-paths.mjs panel-tls')
 # The env var carrying the sidecar's control token. Mirrors Config.agentFeedControlTokenVariable
 # on the host and the name the sidecar reads at startup; one spelling, because a second one is a
 # host that mints a token nothing else knows.
@@ -158,12 +160,12 @@ agent_feed_token_var := "AGENT_FEED_CONTROL_TOKEN"
 # inverted here: whoever starts the dev server mints the token, and the host adopts it.
 #
 # On disk because the dev server outlives the launch that started it and is reused by every later
-# one, so the value has to survive in something both can read. Written 0600 under gitignored
-# .build, and removed by agent-webview-dev-stop. The tradeoff is real and worth stating: while a
+# one, so the value has to survive in something both can read. Written 0600 in the durable
+# runtime, and removed by agent-webview-dev-stop. The tradeoff is real and worth stating: while a
 # dev server is up, any process running as this user can read the token and drive the sidecar's
 # control API, which is not true of a host that minted its own. The relay's own guarantee is
 # untouched -- the token still never enters the page, on any surface.
-agent_panel_dev_token_file := justfile_directory() + "/.build/agent-panel-dev/control-token"
+agent_panel_dev_token_file := shell('node tools/runtime-paths.mjs panel-token')
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
@@ -572,6 +574,7 @@ agent-webview-dev-cert:
     set -euo pipefail
     NAME="$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh')"
     DIR='{{agent_panel_dev_tls_dir}}'
+    umask 077
     mkdir -p "$DIR"
     tailscale cert --min-validity 168h \
       --cert-file "$DIR/$NAME.crt" --key-file "$DIR/$NAME.key" "$NAME" >&2
@@ -610,13 +613,12 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     serving() { curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
     if serving; then
         echo "agent-webview-dev: already serving at $ORIGIN" >&2
-        # Its token, if it has one, stays untouched: the file belongs to the running server, and
-        # rewriting it here would hand the host a value that server never had. A server from before
-        # this file existed has none, which costs only the browser leg and is worth one line rather
-        # than a restart that would drop the phone's panel and every HMR connection.
+        # Never mint a replacement token for a running server. The host would adopt
+        # a value that the server never had and every browser request would fail.
         if [ ! -s "$TOKEN_FILE" ]; then
-            echo "  it predates the shared sidecar token, so a plain browser tab will not load" >&2
-            echo "  data from it. 'just agent-webview-dev-stop' then relaunch to fix that." >&2
+            echo "ERROR: running dev server has no durable control token at $TOKEN_FILE." >&2
+            echo "Run 'just agent-webview-dev-stop' before the next host launch; no token was replaced." >&2
+            exit 1
         fi
         echo "$ORIGIN"
         exit 0
@@ -631,7 +633,7 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     # and every later launch reuses it: the token has to belong to the server's lifetime, not to one
     # host process. The host reads this file and spawns its sidecar with the same value, so a
     # browser tab and the webview end up talking to one sidecar with one capability.
-    mkdir -p "$(dirname "$TOKEN_FILE")"
+    ( umask 077; mkdir -p "$(dirname "$TOKEN_FILE")" )
     TOKEN="$(openssl rand -hex 32)"
     ( umask 077; printf '%s' "$TOKEN" > "$TOKEN_FILE" )
     # Detached, because the launch that called this outlives it and a dev server that died with the
@@ -685,7 +687,7 @@ agent-webview-dev port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
     fi
     CERT="$(just agent-webview-dev-cert)"
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
-    mkdir -p "$(dirname "$TOKEN_FILE")"
+    ( umask 077; mkdir -p "$(dirname "$TOKEN_FILE")" )
     TOKEN="$(openssl rand -hex 32)"
     ( umask 077; printf '%s' "$TOKEN" > "$TOKEN_FILE" )
     echo "agent-webview-dev: serving at $ORIGIN"
@@ -1077,19 +1079,21 @@ dom-mirror-e2e: ext-stamp
     cleanup() {
       kill "${SIMTEE_PID:-0}" 2>/dev/null || true
       xcrun simctl terminate "$UDID" com.example.agentdesk.AgentDeskClient 2>/dev/null || true
-      kill $(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}') 2>/dev/null || true
+      kill $(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost') 2>/dev/null || true
       for v in AGENTDESK_AUTO_APPROVE AGENTDESK_DEV_ITERATION_RUN AGENTDESK_DOM_MIRROR_ENABLED; do launchctl unsetenv "$v" 2>/dev/null || true; done
     }
     trap cleanup EXIT
 
     echo "== build + launch host with DOM mirror enabled =="
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
-    kill $(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}') 2>/dev/null || true; sleep 1
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    kill $(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost') 2>/dev/null || true; sleep 1
+    node tools/build-system/install-runtime.mjs host '{{host_build_app}}' '{{host_app}}' '{{host_bundle_id}}'
+    just grid-encoder-install
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
     launchctl setenv AGENTDESK_DEV_ITERATION_RUN 1
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
-    open "{{host_app}}"; sleep 3
-    pgrep -lf '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' >/dev/null || { echo "host did not start"; exit 1; }
+    open --env 'AGENTDESK_RUNTIME_ROOT={{runtime_root}}' --env 'AGENT_FEED_GRID_ENCODER_PATH={{grid_encoder}}' "{{host_app}}"; sleep 3
+    test -n "$(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost')" || { echo "host did not start"; exit 1; }
 
     echo "== build + update sim client =="
     just client-sim-install >/dev/null
@@ -1097,7 +1101,7 @@ dom-mirror-e2e: ext-stamp
     echo "== pair + launch sim client with DOM mirror on (console tee) =="
     xcrun simctl bootstatus "$UDID" -b >/dev/null
     rm -f "$PAIRURL" "$CONSOLE"
-    HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "$PAIRURL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
@@ -1450,6 +1454,9 @@ prepare-pty-runtime variant="stable": build-pty-runtime
 host-debug:
     lldb --wait-for --attach-name AgentDeskHost
 
+grid-encoder-install:
+    sh tools/install-grid-encoder.sh
+
 host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1460,15 +1467,15 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     # host's own code default carries it (single source of truth). The native-messaging
     # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
+        DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
+        DD='{{derived_data}}'; BUILT_APP='{{host_build_app}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
-        EXTRA=()
+        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}')
     fi
     # Resolved here, above every reader, because the panel block below now needs the effective
     # value too: it tells the dev server which sidecar to proxy a browser tab to, and a tier
@@ -1476,6 +1483,8 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
     export AGENT_FEED_PTY_MANAGER_SOCKET="$PTY_SOCKET"
+    export AGENTDESK_RUNTIME_ROOT='{{runtime_root}}'
+    export AGENT_FEED_GRID_ENCODER_PATH='{{grid_encoder}}'
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
@@ -1567,20 +1576,14 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
-    # Kill both build configurations of THIS variant. LaunchServices treats Debug
-    # and Release as the same running app because they share a bundle id, so leaving
-    # either one alive can make `open "$APP"` silently keep the stale executable.
-    # Exact executable matching avoids selecting agent-feed-sidecar or PTY processes.
-    HOST_PIDS="$(
-        {
-            sh tools/exact-executable-pids.sh "$DD/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
-            sh tools/exact-executable-pids.sh "$DD/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
-        } | sort -u
-    )"
+    node tools/build-system/install-runtime.mjs verify-host "$BUILT_APP" "$HOST_BID"
+    just grid-encoder-install
+    # Debug/Release share one durable install per bundle id. Exact matching cannot
+    # select the sibling host, bundled sidecars, or surviving PTY processes.
+    HOST_PIDS="$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")"
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
-    # Backstop: a host from a DIFFERENT checkout has the same bundle id but a
-    # different derived-data path, so the path-scoped kill above misses it and the two stacks
-    # collide on the signaling port. Also kill whoever holds THIS variant's port.
+    # Backstop for a separately configured runtime root holding this tier's port.
+    # The installed path above is otherwise shared across source checkouts.
     # Scoped to the tier-derived port (env override honored, matching Config), so
     # the sibling variant on its own port is never touched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
@@ -1613,6 +1616,8 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sleep 1
+    node tools/build-system/install-runtime.mjs host "$BUILT_APP" "$APP" "$HOST_BID"
+    trap 'env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset' EXIT
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
     # nothing behind but a timestamp, which is exactly what happened to the close-all-sessions crash.
@@ -1634,6 +1639,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
         sleep 0.1
     done
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
+    trap - EXIT
     test -n "$HOST_PID" || {
         echo "ERROR: newly built host did not launch: $APP" >&2
         exit 1
@@ -1665,15 +1671,15 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
+        DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app_release}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
+        DD='{{derived_data}}'; BUILT_APP='{{host_build_app_release}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
-        EXTRA=()
+        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}')
     fi
     # Resolved here, above every reader, because the panel block below now needs the effective
     # value too: it tells the dev server which sidecar to proxy a browser tab to, and a tier
@@ -1681,6 +1687,8 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
     export AGENT_FEED_PTY_MANAGER_SOCKET="$PTY_SOCKET"
+    export AGENTDESK_RUNTIME_ROOT='{{runtime_root}}'
+    export AGENT_FEED_GRID_ENCODER_PATH='{{grid_encoder}}'
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
@@ -1779,19 +1787,13 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     # codec's per-byte loop was live. It is not: `crispTextOverlayEnabled` defaults to false and
     # `OwnedTileCodec.extractTileWithHash` has one caller behind that switch.
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" SWIFT_COMPILATION_MODE="${AGENTDESK_HOST_SWIFT_COMPILATION_MODE:-singlefile}" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
-    # Kill both build configurations of THIS variant. LaunchServices treats Debug
-    # and Release as the same running app because they share a bundle id, so leaving
-    # either one alive can make `open "$APP"` silently keep the stale executable.
-    # Exact executable matching avoids selecting agent-feed-sidecar or PTY processes.
-    HOST_PIDS="$(
-        {
-            sh tools/exact-executable-pids.sh "$DD/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
-            sh tools/exact-executable-pids.sh "$DD/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
-        } | sort -u
-    )"
+    node tools/build-system/install-runtime.mjs verify-host "$BUILT_APP" "$HOST_BID"
+    just grid-encoder-install
+    # Both build configurations publish to this variant's one installed app.
+    HOST_PIDS="$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")"
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
-    # Backstop: kill a same-bundle-id host from a different checkout that holds this
-    # variant's signaling port (the path-scoped kill misses it). Port-scoped, so the
+    # Backstop for a same-bundle-id host under a different runtime-root override.
+    # It may hold this variant's signaling port. Port-scoped, so the
     # sibling variant on its own tier-derived port is untouched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
     UDP_PORT_RECORDS="$(lsof -nP -iUDP:"$SIGPORT" -F pn 2>/dev/null || true)"
@@ -1823,6 +1825,8 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sleep 1
+    node tools/build-system/install-runtime.mjs host "$BUILT_APP" "$APP" "$HOST_BID"
+    trap 'env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset' EXIT
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
     # nothing behind but a timestamp, which is exactly what happened to the close-all-sessions crash.
@@ -1844,6 +1848,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
         sleep 0.1
     done
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
+    trap - EXIT
     test -n "$HOST_PID" || {
         echo "ERROR: newly built host did not launch: $APP" >&2
         exit 1
@@ -2025,13 +2030,13 @@ pair-iphone variant="stable":
     # dev pairs with the dev host; it also enables the Chrome DOM mirror on the client
     # (ADR-0038), matching the dev host default set by host-run. devicectl apps get env
     # not argv, so the client reads AGENTDESK_DOM_MIRROR_ENABLED via the CHILD prefix.
-    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    if [ "{{variant}}" = "dev" ]; then HOST_APP='{{host_dev_app}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_APP='{{host_app}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
     # Nothing here selects the panel's code. The HOST states its dev origin to the phone on every
     # agent-lane attach, so the phone picks up a TSX edit with no client rebuild and no reinstall,
     # and gets told again after a close and reopen. That has to come over the wire rather than from
     # a launch env, because the install that must work is the one from TestFlight, which has no
     # environment at all (ADR-0096).
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL"
     trap 'rm -f "$PAIR_URL"' EXIT
@@ -2051,11 +2056,11 @@ client-diagnostics variant="stable":
     set -euo pipefail
     umask 077
     case "{{variant}}" in
-      stable) HOST_DD='{{derived_data}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
-      dev) HOST_DD='{{host_dev_derived_data}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
+      stable) HOST_APP='{{host_app}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
+      dev) HOST_APP='{{host_dev_app}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
       *) echo "variant must be stable or dev"; exit 2 ;;
     esac
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     TS="$(date +%Y%m%d-%H%M%S)"
     OUT_DIR="${AGENTDESK_CLIENT_DIAGNOSTICS_OUTPUT:-/tmp/agentdesk-client-diagnostics-$TS}"
@@ -2170,11 +2175,11 @@ client-screenshot variant="stable":
     set -euo pipefail
     umask 077
     case "{{variant}}" in
-      stable) HOST_DD='{{derived_data}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
-      dev) HOST_DD='{{host_dev_derived_data}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
+      stable) HOST_APP='{{host_app}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
+      dev) HOST_APP='{{host_dev_app}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
       *) echo "variant must be stable or dev"; exit 2 ;;
     esac
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     TS="$(date +%Y%m%d-%H%M%S)"
     OUT_DIR="${AGENTDESK_CLIENT_SCREENSHOT_OUTPUT:-/tmp/agentdesk-client-screenshot-$TS}"
@@ -2196,11 +2201,11 @@ client-debug-bundle variant="stable":
     set -euo pipefail
     umask 077
     case "{{variant}}" in
-      stable) HOST_DD='{{derived_data}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
-      dev) HOST_DD='{{host_dev_derived_data}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
+      stable) HOST_APP='{{host_app}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
+      dev) HOST_APP='{{host_dev_app}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
       *) echo "variant must be stable or dev"; exit 2 ;;
     esac
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     TS="$(date +%Y%m%d-%H%M%S)"
     OUT_DIR="${AGENTDESK_CLIENT_DEBUG_OUTPUT:-/tmp/agentdesk-client-debug-$TS}"
@@ -2224,11 +2229,11 @@ iphone-console-run variant="stable":
     set -euo pipefail
     # dev also enables the Chrome DOM mirror on the client (ADR-0038), matching the dev
     # host default; devicectl apps get env not argv, so it rides the CHILD prefix.
-    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    if [ "{{variant}}" = "dev" ]; then HOST_APP='{{host_dev_app}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_APP='{{host_app}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
     # Nothing here selects the panel's code; the host states its dev origin over the agent lane on
     # every attach, so a TSX edit reaches the phone with no client rebuild and survives a close and
     # reopen. See pair-iphone and ADR-0096.
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL" "{{iphone_console_log}}"
     trap 'rm -f "$PAIR_URL"' EXIT
@@ -2340,7 +2345,7 @@ dom-mirror-device-run:
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run
     just client-install-release
-    HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     BID='{{client_bundle_id}}'
     rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
@@ -2365,7 +2370,7 @@ dom-mirror-device-run-dev:
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run-dev dev
     just client-install dev
-    HOST_PID="$(pgrep -f '{{host_dev_derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    HOST_PID="$(sh tools/exact-executable-pids.sh '{{host_dev_app}}/Contents/MacOS/AgentDeskHost' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     BID='{{client_dev_bundle_id}}'
     rm -f "{{host_dev_last_pair_url_path}}" "{{iphone_console_log}}"
@@ -2459,7 +2464,7 @@ fresh-diagnostic-run-dev:
 motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     #!/usr/bin/env bash
     set -uo pipefail
-    HOST_BIN_PAT="Contents/MacOS/AgentDeskHost"
+    HOST_BIN='{{host_app}}/Contents/MacOS/AgentDeskHost'
     LOG_PID=""; CONSOLE_PID=""
     cleanup() {
         [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null || true
@@ -2476,33 +2481,37 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     PROFILE_LOG_MARKER="bitrateKbps=$PROFILE_BITRATE fps=$PROFILE_FPS resolutionScale=$PROFILE_SCALE_FORMATTED"
 
     echo "== [1/5] build host =="
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
 
     echo "== [2/5] build + install client ($BID) =="
     just client-install {{variant}}
 
     echo "== [3/5] launch host (motion={{video}}), capture stdio + os_log =="
     # Clear a stale host and any leftover capture stream from a crashed prior run.
-    pkill -f "$HOST_BIN_PAT" 2>/dev/null || true
+    HOST_PIDS="$(sh tools/exact-executable-pids.sh "$HOST_BIN")"
+    [ -z "$HOST_PIDS" ] || kill $HOST_PIDS
     pkill -f 'log stream.*dev[.]dev[.]AgentDeskHost' 2>/dev/null || true
     sleep 1
     # Start the os_log capture BEFORE launch so the listener/server-started lines land.
+    node tools/build-system/install-runtime.mjs host '{{host_build_app}}' '{{host_app}}' '{{host_bundle_id}}' || exit 1
+    just grid-encoder-install || exit 1
     log stream --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost"' --info --debug --style compact >"{{motion_host_oslog}}" 2>&1 &
     LOG_PID=$!
     sleep 1
     # `open --env` delivers config to the GUI app directly (no launchctl); --stdout/--stderr
     # capture its stdio. Forward EVERY AGENTDESK_* var from this recipe's environment
     # (.env via dotenv-load, plus the three defaults below), so the host sees the same
-    # config the current code expects, not a hand-picked subset.
+    # config the current code expects. Pass the resolved runtime/helper paths
+    # explicitly because the helper override uses the AGENT_FEED_ namespace.
     export AGENTDESK_AUTO_APPROVE=1
     export AGENTDESK_DEV_ITERATION_RUN=1
     export AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED={{video}}
     HOST_ENV_ARGS=()
     while IFS= read -r kv; do HOST_ENV_ARGS+=( --env "$kv" ); done < <(env | grep '^AGENTDESK_')
     echo "forwarding $(env | grep -c '^AGENTDESK_') AGENTDESK_* vars to host"
-    open --stdout "{{motion_host_stdio}}" --stderr "{{motion_host_stdio}}" "${HOST_ENV_ARGS[@]}" "{{host_app}}"
+    open --stdout "{{motion_host_stdio}}" --stderr "{{motion_host_stdio}}" "${HOST_ENV_ARGS[@]}" --env 'AGENTDESK_RUNTIME_ROOT={{runtime_root}}' --env 'AGENT_FEED_GRID_ENCODER_PATH={{grid_encoder}}' "{{host_app}}"
     HOST_PID=""; i=0
-    while [ -z "$HOST_PID" ] && [ $i -lt 100 ]; do HOST_PID="$(pgrep -f "$HOST_BIN_PAT" | head -1)"; sleep 0.1; i=$((i+1)); done
+    while [ -z "$HOST_PID" ] && [ $i -lt 100 ]; do HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_BIN" | head -1)"; sleep 0.1; i=$((i+1)); done
     test -n "$HOST_PID" || { echo "host did not start"; exit 1; }
     # Wait until the host finishes launching before signaling it. SIGUSR1's default
     # disposition is terminate, so signaling before the host installs its handler kills
@@ -2620,8 +2629,8 @@ pair-sim variant="stable":
     # bundle-id Application Support tree; read that variant's path and sim.
     # dev sim pairs with the dev host and enables the Chrome DOM mirror on the client
     # (ADR-0038), matching the dev host default; simctl forwards it via the CHILD prefix.
-    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    if [ "{{variant}}" = "dev" ]; then HOST_APP='{{host_dev_app}}'; SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_APP='{{host_app}}'; SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL"
     trap 'rm -f "$PAIR_URL"' EXIT
@@ -2646,8 +2655,8 @@ pair-sim variant="stable":
 sim-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
-    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    if [ "{{variant}}" = "dev" ]; then HOST_APP='{{host_dev_app}}'; SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_APP='{{host_app}}'; SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    HOST_PID="$(sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL" "{{sim_console_log}}"
     trap 'rm -f "$PAIR_URL"' EXIT

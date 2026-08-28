@@ -2,6 +2,11 @@
 
 Written 2026-08-25. Branch `main`, HEAD `b241d3fa`, everything committed and pushed.
 
+Runtime update, 2026-08-28: the build-path instructions below are historical. ADR-0113 installs
+the helper with `just grid-encoder-install` into the durable Application Support runtime; compiling
+to `.build` alone no longer updates it. Host launch recipes likewise use an installed app copy.
+Read the current `AGENTS.md` runtime section and `TASKS.md` D277/R278 before deployment.
+
 Read `AGENTS.md` first for how to work in this repo. This file covers only the
 arc that just happened and what it left behind. Previous handovers are preserved
 in this file's git history; the one before this is `55155019` (2026-08-01,

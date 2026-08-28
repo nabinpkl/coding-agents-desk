@@ -40,10 +40,20 @@ export AGENTDESK_OWNED_MEDIA_KEYFRAME_COOLDOWN_MS=1000
 export AGENTDESK_OWNED_MEDIA_NORMAL_MAX_UNACKED_FRAMES=2
 export AGENTDESK_OWNED_MEDIA_BEHIND_MAX_UNACKED_FRAMES=1
 export AGENTDESK_VOICE_IMPORTTIME_TRACE_PATH=/tmp/agentdesk-voice-importtime.log
+export AGENTDESK_RUNTIME_ROOT='/tmp/agentdesk test runtime'
+export AGENT_FEED_GRID_ENCODER_PATH='/tmp/agentdesk test runtime/bin/grid-encoder'
+export AGENTDESK_BUN_PATH='/test/tools/bun'
+export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='/test/source/server.ts'
 export AGENTDESK_UNRELATED=ignored
 
 tools/launch-env.sh set
 tools/launch-env.sh unset
+
+for name in AGENTDESK_RUNTIME_ROOT AGENT_FEED_GRID_ENCODER_PATH AGENTDESK_BUN_PATH AGENTDESK_AGENT_FEED_SIDECAR_ENTRY; do
+    value="$(printenv "$name")"
+    grep -F "setenv $name $value" "$LAUNCHCTL_LOG" >/dev/null
+    grep -F "unsetenv $name" "$LAUNCHCTL_LOG" >/dev/null
+done
 
 grep -F 'setenv AGENTDESK_AUTO_APPROVE 1' "$LAUNCHCTL_LOG" >/dev/null
 grep -F 'setenv AGENTDESK_DEV_ITERATION_RUN 1' "$LAUNCHCTL_LOG" >/dev/null

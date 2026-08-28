@@ -7,8 +7,8 @@
 # dev tier) and starting a second listener there would fight it. This one binds
 # AGENT_FEED_PARK_DEV_PORT, default 7690, and the running host never notices.
 #
-# The bearer token is minted into a 0600 file under `.build/`, which is
-# gitignored, rather than living in `.claude/launch.json`, which is tracked.
+# The bearer token is minted into a 0600 file in the durable runtime, outside
+# the checkout and its disposable build output.
 # Same shape as the panel dev server's control token, and the same cost applies:
 # while this is up, anything running as this user can read that file and drive
 # this sidecar's API. It is a development instance on loopback; the host's own
@@ -17,12 +17,12 @@ set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 port="${AGENT_FEED_PARK_DEV_PORT:-7690}"
-token_dir="$root/.build/agent-park-dev"
-token_file="$token_dir/control-token"
+token_file="$(node "$root/tools/runtime-paths.mjs" park-token)"
+token_dir="$(dirname "$token_file")"
 
+umask 077
 mkdir -p "$token_dir"
 if [ ! -s "$token_file" ]; then
-  umask 077
   # 32 bytes of urandom, hex. No dependency on openssl being present.
   od -An -tx1 -N32 /dev/urandom | tr -d ' \n' > "$token_file"
 fi

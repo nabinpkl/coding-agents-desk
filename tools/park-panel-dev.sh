@@ -16,12 +16,12 @@ which="${1:-dev}"
 case "$which" in
   host)
     port="${AGENT_FEED_PORT_HOST:-7682}"
-    token_file="$root/.build/agent-panel-dev/control-token"
+    token_file="$(node "$root/tools/runtime-paths.mjs" panel-token)"
     panel_port="${AGENTDESK_PARK_PANEL_PORT:-5185}"
     ;;
   dev)
     port="${AGENT_FEED_PARK_DEV_PORT:-7690}"
-    token_file="$root/.build/agent-park-dev/control-token"
+    token_file="$(node "$root/tools/runtime-paths.mjs" park-token)"
     panel_port="${AGENTDESK_PARK_PANEL_PORT:-5184}"
     ;;
   *)

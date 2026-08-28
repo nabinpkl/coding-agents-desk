@@ -175,8 +175,7 @@ describe("control helper", () => {
     ignore(helper.request("desktop-audit"));
     expect(spawned).toHaveLength(1);
 
-    // `tools/build-grid-encoder.sh` ran. The old process must not serve the next request, or the
-    // seven-second rebuild loop would silently be doing nothing.
+    // A changed helper was installed. The next request must use that generation.
     mtimeMs = 2;
     ignore(helper.request("desktop-audit"));
     expect(spawned).toHaveLength(2);
@@ -216,11 +215,11 @@ describe("control helper", () => {
     helper.stop();
   });
 
-  test("refuses when the binary has not been built", async () => {
+  test("refuses when the helper has not been installed", async () => {
     const helper = createControlHelper(() => fakeProcess().process, {
       probe: () => ({ path: "/fake/grid-encoder", mtimeMs: 0, exists: false }),
     });
 
-    await expect(helper.request("ax-ping")).rejects.toThrow("tools/build-grid-encoder.sh");
+    await expect(helper.request("ax-ping")).rejects.toThrow("just grid-encoder-install");
   });
 });

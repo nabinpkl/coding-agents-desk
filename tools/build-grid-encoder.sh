@@ -1,15 +1,26 @@
 #!/bin/sh
 # The one compiled piece of the live-tile path, and now of the composer path too.
-# Built once and spawned by the sidecar, so changing the TypeScript around it
-# never waits on a Swift build and never needs a host relaunch.
+# Builds a disposable candidate only. `just grid-encoder-install` publishes it
+# to the durable runtime without rebuilding or relaunching either app.
 #
 # `SkyLightSymbols.swift` comes from the host tree on purpose. The helper needs
 # the same private-API binding the host uses, and a second copy is how the two
 # drift apart on the next macOS release.
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
-out="$root/.build/grid-encoder"
-mkdir -p "$root/.build"
+if [ "$#" -gt 1 ]; then
+  echo "usage: build-grid-encoder.sh [output-path]" >&2
+  exit 64
+fi
+out="${1:-$root/.build/grid-encoder}"
+build_dir="$(dirname "$out")"
+mkdir -p "$build_dir"
+staging="$(mktemp -d "$build_dir/.grid-encoder-build.XXXXXX")"
+cleanup() {
+  rm -f "$staging/grid-encoder"
+  rmdir "$staging"
+}
+trap cleanup EXIT
 swiftc -O \
   "$root/tools/grid-encoder/main.swift" \
   "$root/tools/grid-encoder/ControlMode.swift" \
@@ -26,5 +37,6 @@ swiftc -O \
   "$root/tools/grid-encoder/CursorMirror.swift" \
   "$root/host/AgentDeskHost/SkyLightSymbols.swift" \
   "$root/host/AgentDeskHost/DockSwipeEvent.swift" \
-  -o "$out"
+  -o "$staging/grid-encoder"
+mv "$staging/grid-encoder" "$out"
 echo "built $out"

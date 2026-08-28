@@ -2144,3 +2144,31 @@ Thumbnails, Desktop Park, window picking, app installation, and app relaunch are
   timeout, monitor row, collapsed rail, and keyboard presentation; simulated 34 px bottom padding
   remained clear of all controls. The dock's measured height moves scroll-puck clearance with it.
   Physical iPhone confirmation and the separate switching-timeout investigation remain unverified.
+
+## Durable local runtime installation
+
+Position: runtime deployment, not media or gesture changes. First make build/install paths explicit,
+then switch host launch and discovery together so diagnostics keep targeting the correct process.
+Correctness gates use isolated test artifacts. Actual host recovery is a separate approval checkpoint.
+
+- D277. Implement ADR-0113: shared durable runtime paths for the helper, signed host apps and dev
+  server credentials; separate helper compilation from atomic installation; copy/validate host
+  bundles before launching installed paths; update exact process discovery; reject missing runtime
+  state explicitly. Test build-tree deletion, failed candidate preservation, changed/unchanged helper
+  generations, signed app resource/link preservation, running-app refusal, compiled Bun lookup,
+  and stable/dev launch wiring, including custom paths in the secondary launch recipes.
+  Inline self-review and the final `just check` passed: sidecar typecheck/616 tests, panel
+  typecheck/552 tests, 22 build-tool tests including 14 runtime tests, native helper tests and
+  compilation, and 829 host tests. The real built host bundle passed installation validation.
+  `just grid-encoder-install` published the 565,776-byte helper into the durable runtime; its bytes
+  match the candidate, the sidecar reports it available, and an identical install is unchanged.
+  Deleted voice-test inputs were restaged from installed assets without downloads. A preliminary
+  gate stalled in the existing PTY fixture's `Process.waitUntilExit()` cleanup; the full retry
+  passed without changing that fixture. No daily-driver app installation or launch occurred.
+  Host recovery remains R278.
+- R278. After explicit approval, run `just agent-webview-dev-stop` for the old panel server whose
+  credential file was deleted, then `just host-run stable live live`. Verify the host executes from
+  its durable home, the sidecar finds the installed helper, Screen Recording and Accessibility
+  remain granted, and the already installed iPhone WebView reconnects. Retrieve evidence through
+  TypeScript telemetry. Do not install or relaunch the iPhone app, reset permissions, or delete
+  user data as an automatic recovery step.

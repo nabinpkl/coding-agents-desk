@@ -254,9 +254,9 @@ const H264 = new RTCRtpCodecParameters({
 interface SharedEncoder {
   key: string;
   /**
-   * Build stamp of the binary this child was spawned from. Reuse is keyed on the window, so
-   * without this a rebuilt helper would be shadowed by the process the previous build started for
-   * as long as one viewer stayed connected, and `tools/build-grid-encoder.sh` would look like it
+   * Installed stamp of the binary this child was spawned from. Reuse is keyed on the window, so
+   * without this an updated helper would be shadowed by the previous process for
+   * as long as one viewer stayed connected, and `just grid-encoder-install` would look like it
    * had done nothing.
    */
   binaryMtimeMs: number;

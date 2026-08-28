@@ -52,6 +52,23 @@ protocol. Stable Space IDs are authoritative; display and ordinal are presentati
 ADR-0065 supersedes ADR-0048's fixed mobile-toggle contract with viewer ownership and raises the
 AgentDesk session protocol from `12` to `13`.
 
+## Local runtime installation
+
+ADR-0113 separates disposable build candidates from installed runtime. One resolver,
+`tools/runtime-paths.mjs`, serves the Node recipes and the live/compiled TypeScript sidecar. The
+default `~/Library/Application Support/AgentDeskRuntime` root is overridable with
+`AGENTDESK_RUNTIME_ROOT`; it holds `hosts/<bundle-id>/AgentDeskHost.app`, `bin/grid-encoder`, panel
+TLS/token state, and the separate park-development token. Existing paired-device state and PTY
+sockets remain under their host bundle-id Application Support directories.
+
+`host-run` and `host-run-dev` build in DerivedData, validate/copy the signed app into its installed
+home, and launch only that copy. Exact process discovery uses that same path. Helper deployment is
+independent: `just grid-encoder-install` builds then atomically publishes changed executable content;
+ordinary compilation and `just check` never replace the installed helper. Mtime remains the helper
+pool's cheap generation signal. Invalid candidates and external bundle links are rejected, and a
+missing helper fails explicitly instead of searching build output. Runtime relocation does not add
+a security boundary or change the zero-app-recompilation target for TypeScript iteration.
+
 ## Module Boundaries
 
 Designed as deep modules: small interface, hides churn. Each one is independently testable.

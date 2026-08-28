@@ -84,8 +84,8 @@ async function tile(
   const args = encoderArguments(windowID, options);
   let subscription;
   try {
-    // The build stamp rides in the key so a rebuilt helper is a DIFFERENT encoder rather than a
-    // cache hit on the old process. Without it, `tools/build-grid-encoder.sh` would appear to do
+    // The installed stamp rides in the key so an updated helper is a DIFFERENT encoder rather than a
+    // cache hit on the old process. Without it, `just grid-encoder-install` would appear to do
     // nothing for as long as one subscriber kept the previous binary alive.
     subscription = await pool.acquire(`${binary}\u0000${mtimeMs}\u0000${args.join("\u0000")}`);
   } catch (error) {

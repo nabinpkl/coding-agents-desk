@@ -5,7 +5,7 @@ assert_contains() {
     output="$1"
     expected="$2"
     description="$3"
-    if ! printf '%s\n' "$output" | grep -Fq "$expected"; then
+    if ! printf '%s\n' "$output" | grep -Fq -- "$expected"; then
         printf 'host run lifecycle test failed: %s\nmissing: %s\n' \
             "$description" "$expected" >&2
         exit 1
@@ -16,7 +16,7 @@ assert_not_contains() {
     output="$1"
     unexpected="$2"
     description="$3"
-    if printf '%s\n' "$output" | grep -Fq "$unexpected"; then
+    if printf '%s\n' "$output" | grep -Fq -- "$unexpected"; then
         printf 'host run lifecycle test failed: %s\nunexpected: %s\n' \
             "$description" "$unexpected" >&2
         exit 1
@@ -25,11 +25,8 @@ assert_not_contains() {
 
 stable_release="$(just --dry-run host-run stable 2>&1)"
 assert_contains "$stable_release" \
-    '/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
-    'Release launch must kill an existing stable Debug host'
-assert_contains "$stable_release" \
-    '/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
-    'Release launch must kill an existing stable Release host'
+    "APP='$(node tools/runtime-paths.mjs host-app "${AGENTDESK_HOST_BUNDLE_ID:-com.example.agentdesk.AgentDeskHost}")'" \
+    'Release launch must use the stable installed app'
 assert_contains "$stable_release" \
     'sh tools/local-udp-port-pids.sh "$SIGPORT"' \
     'QUIC signaling owner discovery must inspect the local UDP endpoint'
@@ -58,11 +55,8 @@ assert_contains "$stable_release" \
 
 dev_debug="$(just --dry-run host-run-dev dev false 2>&1)"
 assert_contains "$dev_debug" \
-    '/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
-    'Debug launch must kill an existing dev Debug host'
-assert_contains "$dev_debug" \
-    '/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
-    'Debug launch must kill an existing dev Release host'
+    "APP='$(node tools/runtime-paths.mjs host-app "${AGENTDESK_HOST_DEV_BUNDLE_ID:-com.example.agentdesk.AgentDeskHost.dev}")'" \
+    'Debug launch must use the separate dev installed app'
 assert_contains "$dev_debug" \
     'sh tools/local-udp-port-pids.sh "$SIGPORT"' \
     'dev QUIC signaling discovery must inspect the local UDP endpoint'
@@ -148,13 +142,47 @@ assert_contains "$ensure" \
     'the token file must not be world-readable'
 for launch in "$stable_release" "$dev_debug"; do
     assert_contains "$launch" \
+        'node tools/build-system/install-runtime.mjs host "$BUILT_APP" "$APP" "$HOST_BID"' \
+        'a launch must publish the signed build as an independent installed app'
+    assert_contains "$launch" \
+        'sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost"' \
+        'launch and stop must discover only the installed executable'
+    assert_contains "$launch" \
+        'just grid-encoder-install' \
+        'a host deployment must install its standalone helper'
+    assert_contains "$launch" \
         'export AGENT_FEED_CONTROL_TOKEN="$DEV_FEED_TOKEN"' \
         'a live panel launch must adopt the dev server token rather than let the host mint one'
 done
 stop="$(just --dry-run agent-webview-dev-stop 2>&1)"
 assert_contains "$stop" \
-    '/.build/agent-panel-dev/control-token' \
+    "$(node tools/runtime-paths.mjs panel-token)" \
     'stopping the dev server must take its token with it'
+assert_contains "$ensure" \
+    'ERROR: running dev server has no durable control token' \
+    'a missing runtime token must stop launch without minting a mismatched token'
+for variant in stable dev; do
+    for recipe in client-diagnostics client-screenshot client-debug-bundle pair-iphone iphone-console-run pair-sim sim-console-run; do
+        diagnostic="$(just --dry-run "$recipe" "$variant" 2>&1)"
+        assert_contains "$diagnostic" \
+            'sh tools/exact-executable-pids.sh "$HOST_APP/Contents/MacOS/AgentDeskHost"' \
+            "$recipe $variant must discover the installed host executable"
+    done
+done
+for recipe in dom-mirror-e2e motion-verify; do
+    launch="$(env AGENTDESK_RUNTIME_ROOT='/private/agentdesk lifecycle runtime' \
+        AGENT_FEED_GRID_ENCODER_PATH='/private/agentdesk lifecycle helper' \
+        AGENTDESK_HOST_BUNDLE_ID='test.agentdesk.lifecycle' just --dry-run "$recipe" 2>&1)"
+    assert_contains "$launch" \
+        "PRODUCT_BUNDLE_IDENTIFIER='test.agentdesk.lifecycle'" \
+        "$recipe must build the same bundle identity it installs"
+    assert_contains "$launch" \
+        "--env 'AGENTDESK_RUNTIME_ROOT=/private/agentdesk lifecycle runtime'" \
+        "$recipe must pass the selected runtime root to the launched host"
+    assert_contains "$launch" \
+        "--env 'AGENT_FEED_GRID_ENCODER_PATH=/private/agentdesk lifecycle helper'" \
+        "$recipe must pass the installed helper override to the launched host"
+done
 assert_contains "$(cat "$(dirname "$0")/launch-env.sh")" \
     'AGENT_FEED_CONTROL_TOKEN' \
     'the adopted token must reach a host launched by open, which inherits launchd, not the shell'

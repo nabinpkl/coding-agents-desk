@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { runtimePaths } from "../../../tools/runtime-paths.mjs";
 
 function integerEnvironment(
   name: string,
@@ -382,12 +383,9 @@ export const config = {
   // the stacking order is re-read. Offsets have to run monotonically with the
   // real order, so reading it too early lays a ladder against a stale one.
   parkSettleMs: integerEnvironment("AGENT_FEED_PARK_SETTLE_MS", 900, 0, 10_000),
-  // The one compiled piece of the live-tile path: one window in, fragmented
-  // HEVC out. Resolved relative to this source file so a from-source run finds
-  // the build output without anyone spelling a home directory, and overridable
-  // for a bundled sidecar whose source layout is gone.
-  gridEncoderPath: process.env.AGENT_FEED_GRID_ENCODER_PATH?.trim()
-    || resolve(import.meta.dir, "../../../.build/grid-encoder"),
+  // Build outputs are disposable. Both the live and compiled sidecar spawn the
+  // installed helper, whose location is shared with the deployment recipes.
+  gridEncoderPath: runtimePaths().gridEncoder,
   // Claude Desktop's main binary. The parent chain of a `--resume` child reaching THIS path is what
   // identifies the window that owns a session; a chain that stops at a shell or tmux is a terminal
   // session with no window to write into. Env-overridable so a non-default install location does not
