@@ -28,6 +28,25 @@ public final class WebPanelWebViewController: NSObject {
     }
 
     public let webView: WKWebView
+
+    /// Video plays IN the page, not in the system's player.
+    ///
+    /// On iOS `allowsInlineMediaPlayback` defaults to false, and the page's
+    /// `playsinline` attribute cannot override it: WebKit hands any playing
+    /// `<video>` to the native fullscreen player, which replaces the page's own
+    /// presentation entirely. A live tile loses its gesture overlay, its pan and
+    /// zoom, and every control drawn around it the moment the first frame
+    /// arrives, which is exactly what a viewing surface must not do.
+    ///
+    /// The user-action requirement goes with it: these videos are muted, silent
+    /// by construction, and play a stream the viewer already asked for by
+    /// opening the tile, so there is no gesture left to wait for.
+    static func applyInlineMediaPolicy(to configuration: WKWebViewConfiguration) {
+        #if os(iOS)
+        configuration.allowsInlineMediaPlayback = true
+        #endif
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+    }
     public weak var messageSink: (any WebPanelMessageSink)?
 
     /// Fires when the page starts navigating, including a reload.
@@ -98,6 +117,7 @@ public final class WebPanelWebViewController: NSObject {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = contentController
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        Self.applyInlineMediaPolicy(to: configuration)
         for script in additionalUserScripts {
             contentController.addUserScript(script)
         }

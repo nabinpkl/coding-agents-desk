@@ -49,6 +49,21 @@ struct WebPanelKitTests {
     #endif
 
     @MainActor
+    @Test func panelWebviewPlaysVideoInsideThePageRatherThanTheSystemPlayer() {
+        // A tile is a surface with a gesture overlay and controls around it. iOS
+        // defaults to handing playing video to its fullscreen player, which
+        // takes the page's presentation with it, and the `playsinline` attribute
+        // cannot override the configuration.
+        let configuration = WKWebViewConfiguration()
+        WebPanelWebViewController.applyInlineMediaPolicy(to: configuration)
+
+        #expect(configuration.mediaTypesRequiringUserActionForPlayback.isEmpty)
+        #if os(iOS)
+        #expect(configuration.allowsInlineMediaPlayback)
+        #endif
+    }
+
+    @MainActor
     @Test func queuedPushesFlushInOrderAfterWebReadiness() {
         var delivered: [String] = []
         let queue = WebPanelDeliveryQueue { delivered.append($0) }
