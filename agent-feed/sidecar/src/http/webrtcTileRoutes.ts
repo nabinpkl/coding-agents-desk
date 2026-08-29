@@ -14,6 +14,7 @@
 // are the jitter buffer's problem on the far side. Even the encoder's bitrate
 // is the receiver's number (REMB), not ours.
 
+import { networkInterfaces } from "node:os";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
@@ -29,8 +30,54 @@ import { packetizeH264 } from "./h264Packetizer.ts";
 
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10})\/webrtc$/;
 
+// Connection diagnostics, appended per event so a failing surface (a phone on
+// LTE) leaves evidence readable on the Mac without touching the device. The
+// offer SDP carries every ICE candidate the remote webview gathered, which is
+// the question that decides whether a path can exist at all.
+let diagSequence = 0;
+function diag(line: string) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("node:fs").appendFileSync(
+      "/tmp/agentdesk-webrtc-diag.log",
+      `${new Date().toISOString()} ${line}\n`,
+    );
+  } catch {
+    // Diagnostics never take the path down.
+  }
+}
+function candidateLines(sdp: string): string[] {
+  return [...sdp.matchAll(/a=candidate:(\S+) (\d+) (\S+) (\d+) (\S+) (\d+) typ (\S+)/g)].map(
+    (m) => `${m[3]} ${m[5]}:${m[6]} typ ${m[7]}`,
+  );
+}
+
 /** Kind 3 in the encoder framing: one Annex-B access unit. */
 const KIND_ACCESS_UNIT = 3;
+
+/**
+ * The Mac's tailnet address, derived from the CGNAT range tailscale uses.
+ *
+ * werift's own interface scan skips utun devices, so without this the answer
+ * advertises only the LAN address, public IPv6, and a STUN reflexive -- none
+ * of which a phone on LTE can reach (measured: exactly that candidate list,
+ * and a phone that connected on the home WiFi but only ever said reconnecting
+ * on LTE). The tailnet address is the one path that exists regardless of what
+ * network either end sits on; the phone's checks toward it route through its
+ * own tunnel, and the reply address they arrive from gives werift the working
+ * pair. Re-read per connection, because tailscale can come up after the
+ * sidecar did.
+ */
+function tailnetIPv4(): string | null {
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.family !== "IPv4") continue;
+      const octets = address.address.split(".").map(Number);
+      if (octets[0] === 100 && octets[1]! >= 64 && octets[1]! <= 127) return address.address;
+    }
+  }
+  return null;
+}
 
 // werift negotiates by mimeType alone and adopts the browser's own H264
 // entries; the fmtp below never constrains anything. Which of the browser's
@@ -195,13 +242,24 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     return jsonResponse({ code: "webrtc-bad-offer", message: "body must carry an SDP offer" }, 400);
   }
 
-  const peer = new RTCPeerConnection({ codecs: { video: [H264] } });
+  const tailnet = tailnetIPv4();
+  const peer = new RTCPeerConnection({
+    codecs: { video: [H264] },
+    iceAdditionalHostAddresses: tailnet ? [tailnet] : undefined,
+  });
   const track = new MediaStreamTrack({ kind: "video" });
   const transceiver = peer.addTransceiver(track, { direction: "sendonly" });
+
+  const connection = ++diagSequence;
+  diag(`c${connection} window=${windowID} offer candidates: ${candidateLines(offer.sdp).join(" | ") || "NONE"}`);
 
   await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
   const local = await peer.createAnswer();
   await peer.setLocalDescription(local);
+  diag(`c${connection} answer candidates: ${candidateLines(peer.localDescription!.sdp).join(" | ") || "NONE"}`);
+  peer.iceConnectionStateChange.subscribe((state) => {
+    diag(`c${connection} ice=${state}`);
+  });
 
   // werift negotiates by mimeType and keeps the browser's own H264 entries,
   // defaulting the sender to the first one -- typically Baseline. The browser
@@ -221,6 +279,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     track.codec = chosen;
   }
   const profile = high ? "high" : "cb";
+  diag(`c${connection} codec pt=${chosen?.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate}`);
 
   const args = [
     "--window", windowID,
@@ -255,6 +314,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   // this subscription's whole lifecycle. The shared encoder itself dies a few
   // seconds after its last subscriber.
   peer.connectionStateChange.subscribe((state) => {
+    diag(`c${connection} connection=${state}`);
     if (state === "failed" || state === "closed" || state === "disconnected") shutdown();
   });
   // Picture loss on the far side becomes a keyframe at the source. Every
