@@ -262,7 +262,8 @@ build-agent-feed-sidecar:
     ENTRY="$SIDECAR/src/server.ts"
     OUT='{{agent_feed_sidecar_out}}'
     STAMP='{{stamps_dir}}/agent-feed-sidecar'
-    HASH="$('{{source_hash}}' "$SIDECAR")"
+    # These imported sources live outside the sidecar package but ship in its binary.
+    HASH="$('{{source_hash}}' "$SIDECAR" "{{justfile_directory()}}/agent-feed/wire" "{{justfile_directory()}}/tools/runtime-paths.mjs")"
     if [ -f "$OUT" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
         echo "build-agent-feed-sidecar: source unchanged, skipping"
         exit 0
@@ -606,23 +607,22 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     LOG='{{agent_panel_dev_log}}'
     TOKEN_FILE='{{agent_panel_dev_token_file}}'
     NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
+    TLS_PREFIX='{{agent_panel_dev_tls_dir}}'/"$NAME"
     ORIGIN="https://$NAME:{{port}}"
     # `/@vite/client` rather than `/`, because this asks a narrower question: not "is something
-    # listening on this port" but "is that something a Vite dev server". Anything else holding the
-    # port is a problem to report, not a server to point a launch at.
+    # listening on this port" but "is that something a Vite dev server". An unhealthy listener
+    # or missing runtime credentials must be replaced before a host adopts this origin.
     serving() { curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
-    if serving; then
+    if serving && [ -s "$TOKEN_FILE" ] && [ -s "$TLS_PREFIX.crt" ] && [ -s "$TLS_PREFIX.key" ]; then
         echo "agent-webview-dev: already serving at $ORIGIN" >&2
-        # Never mint a replacement token for a running server. The host would adopt
-        # a value that the server never had and every browser request would fail.
-        if [ ! -s "$TOKEN_FILE" ]; then
-            echo "ERROR: running dev server has no durable control token at $TOKEN_FILE." >&2
-            echo "Run 'just agent-webview-dev-stop' before the next host launch; no token was replaced." >&2
-            exit 1
-        fi
         echo "$ORIGIN"
         exit 0
     fi
+    echo "agent-webview-dev: preparing $ORIGIN (server unavailable or durable credentials missing)" >&2
+    # Stop first, including a listener whose TLS can no longer answer the probe. Never
+    # replace a token behind a running server: the host and its proxy would disagree.
+    # The existing port reclaimer is a no-op on a cold start and fails if it cannot stop.
+    just agent-webview-dev-stop '{{port}}' >&2
     CERT="$(just agent-webview-dev-cert)"
     # stdout of this recipe IS the origin, so everything else here goes to stderr. Without the
     # redirect the dependency check's own chatter is prepended to the captured value and the host
@@ -827,8 +827,9 @@ build-gesture-webview:
 # NOTE (Xcode inclusion): `uv` is a single file and is picked up as a bundle
 # resource by the synchronized root group like `agent-feed-sidecar`. `voice-src/`
 # and `voice-wheelhouse/` are folder references, preserving both trees under
-# `Contents/Resources/`.
-build-voice-sidecar: voice-zipa-model-check
+# `Contents/Resources/`. ZIPA model staging is not an input: the runtime reads
+# installed Application Support assets, so packaging must survive build-cache deletion.
+build-voice-sidecar:
     #!/usr/bin/env bash
     set -euo pipefail
     SRC='{{gesture_agent_dir}}'
@@ -836,6 +837,7 @@ build-voice-sidecar: voice-zipa-model-check
     SRC_OUT='{{voice_src_out}}'
     WHEELHOUSE_OUT='{{voice_wheelhouse_out}}'
     WHEELHOUSE_BUILDER='{{justfile_directory()}}/tools/build-system/build-voice-wheelhouse.sh'
+    WHEELHOUSE_CONSTRAINTS='{{justfile_directory()}}/tools/build-system/voice-build-constraints.txt'
     UV_BIN="$(command -v uv)"
     CMU_DICT='{{voice_assets_src}}/VoiceCMUDictionary.txt'
     PHONE_MAP='{{voice_assets_src}}/arpabet-model-phone-map.json'
@@ -843,9 +845,9 @@ build-voice-sidecar: voice-zipa-model-check
     if [ ! -f "$SRC/pyproject.toml" ]; then echo "build-voice-sidecar: no pyproject at $SRC" >&2; exit 1; fi
     if [ ! -f "$SRC/uv.lock" ]; then echo "build-voice-sidecar: no uv.lock at $SRC (run 'uv lock')" >&2; exit 1; fi
     STAMP='{{stamps_dir}}/voice-sidecar'
-    # Hash package inputs, pinned pronunciation assets, the wheelhouse builder,
+    # Hash package inputs, pinned pronunciation assets, the wheelhouse builder/constraints,
     # and the uv binary, never the whole tree (its data/ holds a ~500 MB model).
-    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN" "$CMU_DICT" "$PHONE_MAP" "$WHEELHOUSE_BUILDER")"
+    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN" "$CMU_DICT" "$PHONE_MAP" "$WHEELHOUSE_BUILDER" "$WHEELHOUSE_CONSTRAINTS")"
     if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ -f "$SRC_OUT/stage-hash" ] && [ -f "$WHEELHOUSE_OUT/SHA256SUMS" ] && [ "$HASH" = "$(cat "$WHEELHOUSE_OUT/.stage-hash" 2>/dev/null || true)" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
         if (cd "$WHEELHOUSE_OUT" && shasum -a 256 -c SHA256SUMS >/dev/null); then
             echo "build-voice-sidecar: inputs unchanged, skipping"
@@ -1666,6 +1668,8 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
 # `panel` (live | bundled) selects where the Agent Panel's code comes from. Live is the default and
 # starts the Vite dev server if it is not already up, so a TSX edit changes the running host with
 # no rebuild. Choose bundled to judge the webview as it actually ships.
+# Plain `just host-run` prepares the live panel and agent sidecar, PTY runtime, standalone
+# desktop helper, and provisioned voice inputs, then installs/launches the durable host app.
 host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail

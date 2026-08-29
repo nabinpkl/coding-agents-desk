@@ -49,9 +49,11 @@ host, install an independent signed copy, and launch that copy. All host discove
 installed executable. Bundle links escaping the app are rejected so a copied app cannot secretly
 depend on its original build directory. Installation refuses to replace a running destination app.
 
-There is no build-directory lookup fallback. A missing helper names the installation command. A
-running panel server whose token file is missing must be stopped explicitly before a new host
-launch; minting a new token behind that server would break authentication.
+There is no build-directory lookup fallback. A missing helper names the installation command.
+Plain `just host-run` includes helper installation and defaults to the live panel and agent sidecar.
+It reuses a healthy panel server with intact durable credentials; otherwise it stops the configured
+port's listener before recreating credentials and waiting for readiness. Failed stop or startup
+aborts the launch. Minting a new token behind a running server would break authentication.
 
 ### Consequences
 
@@ -72,3 +74,5 @@ signature/resource preservation, reject external bundle links and invalid candid
 helper generations, and refuse replacement of a running app. A compiled Bun probe confirms that
 runtime lookup does not depend on source paths. Dry-run recipe and environment tests cover both
 host variants and durable discovery without launching either daily-driver app.
+Isolated execution of the panel-ensure recipe covers healthy reuse, missing credentials, cold or
+unhealthy startup, and stop/certificate/readiness failures without touching live services.

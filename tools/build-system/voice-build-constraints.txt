@@ -1,0 +1,3 @@
+# curated-tokenizers 0.0.9 crashes in Cython 3.3.0's OptimizeBuiltinCalls while
+# preparing metadata. Constrain isolated build tools, not the runtime closure.
+Cython==3.2.9

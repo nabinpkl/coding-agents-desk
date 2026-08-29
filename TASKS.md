@@ -2166,9 +2166,22 @@ Correctness gates use isolated test artifacts. Actual host recovery is a separat
   gate stalled in the existing PTY fixture's `Process.waitUntilExit()` cleanup; the full retry
   passed without changing that fixture. No daily-driver app installation or launch occurred.
   Host recovery remains R278.
-- R278. After explicit approval, run `just agent-webview-dev-stop` for the old panel server whose
-  credential file was deleted, then `just host-run stable live live`. Verify the host executes from
+- R278. After explicit approval, run `just host-run`. It repairs the old panel server whose
+  credential file was deleted as part of setup. Verify the host executes from
   its durable home, the sidecar finds the installed helper, Screen Recording and Accessibility
   remain granted, and the already installed iPhone WebView reconnects. Retrieve evidence through
   TypeScript telemetry. Do not install or relaunch the iPhone app, reset permissions, or delete
   user data as an automatic recovery step.
+- D279. Make plain `just host-run` complete the existing live setup: preserve live panel/agent
+  sidecar defaults, PTY preparation, helper installation and durable host deployment; recover an
+  unhealthy or credential-less panel server before minting its next token; remove the unused
+  disposable ZIPA staging prerequisite from voice packaging; include shared wire/runtime sources
+  in the compiled sidecar hash. Pin isolated voice-wheel build tooling to avoid the reproduced
+  Cython compiler crash without changing runtime dependencies. Add recipe/default-wiring regressions,
+  self-review, and run `just check`. No daily-driver app launch or client installation.
+  Inline self-review and the final `just check` passed, including 616 sidecar tests, 552 panel
+  tests, 32 build-tool tests and 829 host tests. Real agent-sidecar compilation and voice packaging
+  passed; the latter built 112 wheels and validated the 113-package install offline with an empty
+  cache. A second packaging run skipped unchanged inputs. An earlier gate hit the existing Rust
+  terminal argument/exit-status test failure; its exact rerun and the full final gate passed without
+  terminal changes. Live host deployment and iPhone reconnection remain R278.

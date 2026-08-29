@@ -24,6 +24,30 @@ assert_not_contains() {
 }
 
 stable_release="$(just --dry-run host-run stable 2>&1)"
+defaults="$(just --dry-run host-run 2>&1)"
+explicit_live="$(just --dry-run host-run stable live live 2>&1)"
+if [ "$defaults" != "$explicit_live" ]; then
+    echo 'host run lifecycle test failed: plain host-run must select stable, live panel, and live sidecar' >&2
+    exit 1
+fi
+assert_contains "$defaults" \
+    'export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY=' \
+    'default launch must wire the source-mode agent sidecar'
+assert_contains "$defaults" \
+    'just prepare-pty-runtime "stable"' \
+    'default launch must prepare the PTY helper runtime'
+assert_contains "$defaults" \
+    'build-voice-sidecar: staging uv' \
+    'default launch must stage the automatically provisioned voice sidecar'
+assert_not_contains "$defaults" \
+    'prepare-voice-zipa-model.py' \
+    'host packaging must not require disposable ZIPA model staging it never consumes'
+assert_not_contains "$defaults" \
+    'devicectl device' \
+    'host setup must not install or launch the iPhone app'
+assert_contains "$defaults" \
+    "\"$(pwd)/agent-feed/wire\" \"$(pwd)/tools/runtime-paths.mjs\"" \
+    'compiled sidecar hashing must include shared wire and runtime configuration'
 assert_contains "$stable_release" \
     "APP='$(node tools/runtime-paths.mjs host-app "${AGENTDESK_HOST_BUNDLE_ID:-com.example.agentdesk.AgentDeskHost}")'" \
     'Release launch must use the stable installed app'
@@ -159,8 +183,8 @@ assert_contains "$stop" \
     "$(node tools/runtime-paths.mjs panel-token)" \
     'stopping the dev server must take its token with it'
 assert_contains "$ensure" \
-    'ERROR: running dev server has no durable control token' \
-    'a missing runtime token must stop launch without minting a mismatched token'
+    "just agent-webview-dev-stop '5173' >&2" \
+    'unhealthy runtime state must stop the server before credentials can be replaced'
 for variant in stable dev; do
     for recipe in client-diagnostics client-screenshot client-debug-bundle pair-iphone iphone-console-run pair-sim sim-console-run; do
         diagnostic="$(just --dry-run "$recipe" "$variant" 2>&1)"

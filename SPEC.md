@@ -61,6 +61,11 @@ default `~/Library/Application Support/AgentDeskRuntime` root is overridable wit
 TLS/token state, and the separate park-development token. Existing paired-device state and PTY
 sockets remain under their host bundle-id Application Support directories.
 
+Plain `just host-run` defaults to a live Agent Panel and watched agent-feed sidecar, prepares PTY
+helpers, installs the desktop helper, and stages the automatically provisioned voice sidecar.
+An unhealthy panel listener or missing durable credentials is repaired before host launch; healthy
+servers are reused. Voice packaging does not depend on disposable ZIPA model staging.
+
 `host-run` and `host-run-dev` build in DerivedData, validate/copy the signed app into its installed
 home, and launch only that copy. Exact process discovery uses that same path. Helper deployment is
 independent: `just grid-encoder-install` builds then atomically publishes changed executable content;

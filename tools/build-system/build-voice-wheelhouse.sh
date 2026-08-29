@@ -11,6 +11,7 @@ SOURCE="$2"
 OUTPUT="$3"
 STAGE_HASH="$4"
 PIP_VERSION="26.0.1"
+BUILD_CONSTRAINTS="$(cd "$(dirname "$0")" && pwd)/voice-build-constraints.txt"
 
 if [ ! -x "$UV_BIN" ]; then
     echo "build-voice-wheelhouse: uv is not executable: $UV_BIN" >&2
@@ -65,6 +66,7 @@ UV_CACHE_DIR="$WORK/bootstrap-uv-cache" \
 PIP_CACHE_DIR="$WORK/pip-cache" \
     "$DOWNLOADER/bin/pip" download \
         --quiet \
+        --build-constraint "$BUILD_CONSTRAINTS" \
         --no-deps \
         --ignore-requires-python \
         --require-hashes \
@@ -77,6 +79,7 @@ while IFS= read -r -d '' archive; do
     PIP_CACHE_DIR="$WORK/pip-cache" \
         "$DOWNLOADER/bin/pip" wheel \
             --quiet \
+            --build-constraint "$BUILD_CONSTRAINTS" \
             --no-deps \
             --wheel-dir "$PACKAGES" \
             "$archive"
