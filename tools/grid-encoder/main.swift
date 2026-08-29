@@ -653,7 +653,10 @@ Task {
     configuration.height = height
     configuration.minimumFrameInterval = CMTime(value: 1, timescale: fps)
     configuration.queueDepth = 5
-    configuration.showsCursor = false
+    // The cursor belongs to a screen, not to a document: a display capture
+    // shows it because the viewer is looking at "my Mac right now", while a
+    // parked window's tile stays clean.
+    configuration.showsCursor = displayArgument != nil
     configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
     let stream = SCStream(filter: filter, configuration: configuration, delegate: capturer)
     liveStream = stream
