@@ -21,17 +21,39 @@ import { useEffect, useRef, useState } from "react";
  * encoder derives it from the stream it actually produced; a real capture came
  * back as level 90 where a hardcoded guess would have claimed 93, and MSE
  * rejects a SourceBuffer whose codec string does not describe the bytes.
+ *
+ * The stream ENDS sometimes, and that is normal: the sidecar cuts a reader
+ * that stalled for ten seconds (a radio dip, the app backgrounded), a sidecar
+ * reload drops every stream it was serving, a dev server restarts. A live tile
+ * that freezes on its last frame when that happens is a broken tile, so each
+ * connection is one session in a loop: when a session ends for any reason
+ * other than the viewer closing the tile, the loop reconnects with backoff,
+ * keeping the last frame on screen while it does.
  */
 /** Fall this far behind the newest buffered frame and playback jumps forward. */
-const MAX_LAG_SECONDS = 3;
+const MAX_LAG_SECONDS = 1.5;
 /** Where the jump lands, back from the very edge so the seek target is buffered. */
 const LIVE_EDGE_OFFSET_SECONDS = 0.3;
 /** How much played history stays buffered before old ranges are evicted. */
 const KEEP_BEHIND_SECONDS = 10;
+/** Reconnect backoff: doubles from the first delay, capped, reset by a healthy run. */
+const RECONNECT_FIRST_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 8_000;
+/** A session that lived this long was healthy; the next drop starts backoff over. */
+const HEALTHY_SESSION_MS = 15_000;
+/** Give up reconnecting after this many consecutive immediate failures. */
+const RECONNECT_ATTEMPT_LIMIT = 6;
+/**
+ * Capture no more pixels than the tile can show. The window itself may be
+ * 1300 wide while the tile renders at 400: encoding the difference costs
+ * encoder time, bandwidth, and phone-side decode for pixels nobody sees.
+ */
+const CAPTURE_PIXEL_RATIO_CAP = 2;
 
 export type TileState =
   | { kind: "connecting" }
   | { kind: "playing"; codec: string; firstFrameMs: number }
+  | { kind: "reconnecting"; attempt: number }
   | { kind: "unsupported"; message: string }
   | { kind: "error"; message: string };
 
@@ -50,6 +72,13 @@ function mediaSourceConstructor(): (new () => MediaSourceLike) | null {
   return scope.ManagedMediaSource ?? scope.MediaSource ?? null;
 }
 
+/** How one streaming session ended, which is what decides whether to retry. */
+type SessionEnd =
+  | { why: "ended" }
+  | { why: "cancelled" }
+  | { why: "failed"; message: string }
+  | { why: "unsupported"; message: string };
+
 export function TileStream({
   windowID,
   width,
@@ -59,6 +88,7 @@ export function TileStream({
   onState,
 }: {
   windowID: number;
+  /** The window's own size. Sets the tile's aspect; capture may be smaller. */
   width: number;
   height: number;
   fps?: number;
@@ -66,6 +96,7 @@ export function TileStream({
   onState?: (state: TileState) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<TileState>({ kind: "connecting" });
 
   useEffect(() => {
@@ -84,155 +115,214 @@ export function TileStream({
       return undefined;
     }
 
-    const controller = new AbortController();
-    let objectUrl: string | null = null;
     let cancelled = false;
-    let removeVisibilityListener: (() => void) | null = null;
-    const started = performance.now();
+    let activeController: AbortController | null = null;
+    let wake: (() => void) | null = null;
 
-    void (async () => {
+    const captureSize = () => {
+      // Measured once per session rather than observed live: a capture size is
+      // an encoder restart, and chasing every layout change would thrash it.
+      const shown = frame.current?.clientWidth ?? width;
+      const ratio = Math.min(window.devicePixelRatio || 1, CAPTURE_PIXEL_RATIO_CAP);
+      const scale = Math.min(1, (shown * ratio) / width);
+      return {
+        width: Math.max(16, Math.round(width * scale)),
+        height: Math.max(16, Math.round(height * scale)),
+        // Bits follow pixels: area shrinks with scale squared, and paying the
+        // full-window bitrate for a phone-sized capture is where "laggy on the
+        // phone" came from - the link was carrying pixels nobody saw.
+        bitrate: Math.max(300_000, Math.round(bitrate * scale * scale)),
+      };
+    };
+
+    // This is a live view, not a tape. The viewer always wants the newest
+    // frame, so playback rides the live edge: snap there on start, re-snap
+    // whenever it has fallen behind (a stall, a hidden page, a slow connect
+    // all leave currentTime in the past while the buffer runs ahead).
+    const liveEdge = () => {
+      const ranges = element.buffered;
+      return ranges.length ? ranges.end(ranges.length - 1) : 0;
+    };
+    const chaseLiveEdge = () => {
+      const edge = liveEdge();
+      if (edge - element.currentTime > MAX_LAG_SECONDS && !element.seeking) {
+        element.currentTime = Math.max(0, edge - LIVE_EDGE_OFFSET_SECONDS);
+      }
+    };
+    // The browser pauses muted video on its own (hidden page, power saving).
+    // When the page comes back, resume at the live edge rather than staying
+    // frozen on a frame from minutes ago.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || cancelled) return;
+      chaseLiveEdge();
+      void element.play().catch(() => {});
+      // A backgrounded webview also stalls the read loop until the server cut
+      // it; waking the session loop lets a pending backoff end early.
+      wake?.();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    const session = async (firstEver: boolean): Promise<SessionEnd> => {
+      const controller = new AbortController();
+      activeController = controller;
+      const started = performance.now();
+
       let response: Response;
       try {
+        const capture = captureSize();
         const query = new URLSearchParams({
-          width: String(Math.round(width)),
-          height: String(Math.round(height)),
+          width: String(capture.width),
+          height: String(capture.height),
           fps: String(fps),
-          bitrate: String(bitrate),
+          bitrate: String(capture.bitrate),
         });
         response = await fetch(`/api/park/tile/${windowID}/stream?${query}`, {
           signal: controller.signal,
         });
       } catch (error) {
-        if (!cancelled) setState({ kind: "error", message: (error as Error).message });
-        return;
+        if (cancelled) return { why: "cancelled" };
+        return { why: "failed", message: (error as Error).message };
       }
       if (!response.ok || !response.body) {
         const detail = await response.text().catch(() => "");
-        if (!cancelled) {
-          setState({ kind: "error", message: detail.slice(0, 200) || `HTTP ${response.status}` });
-        }
-        return;
+        return { why: "failed", message: detail.slice(0, 200) || `HTTP ${response.status}` };
       }
       const codec = response.headers.get("x-agentdesk-codec");
-      if (!codec) {
-        if (!cancelled) setState({ kind: "error", message: "stream did not declare its codec" });
-        return;
-      }
+      if (!codec) return { why: "failed", message: "stream did not declare its codec" };
 
+      // The old source keeps showing its last frame through the whole backoff
+      // wait; it is replaced only once the new stream is answering, so a
+      // reconnect blanks the tile for the sub-second before the first new
+      // frame rather than for the whole retry.
       const source = new Constructor();
-      objectUrl = URL.createObjectURL(source as unknown as MediaSource);
-      // A `<source>` child rather than `video.src`, which is the form WebKit's
-      // own ManagedMediaSource example uses.
-      const child = document.createElement("source");
-      child.type = "video/mp4";
-      child.src = objectUrl;
-      element.appendChild(child);
-      // A `<source>` appended to a live element is not picked up until the
-      // element re-runs its resource selection. Without this the MediaSource
-      // never opens and the tile sits at "connecting" forever, with bytes
-      // arriving and nowhere to put them.
-      element.load();
-
-      const opened = await Promise.race([
-        new Promise<boolean>((resolve) => {
-          source.addEventListener("sourceopen", () => resolve(true), { once: true });
-        }),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
-      ]);
-      if (cancelled) return;
-      if (!opened) {
-        setState({ kind: "error", message: "the media source never opened" });
-        return;
-      }
-
-      let buffer: SourceBuffer;
+      const objectUrl = URL.createObjectURL(source as unknown as MediaSource);
       try {
-        source.duration = Infinity;
-        buffer = source.addSourceBuffer(`video/mp4; codecs="${codec}"`);
-      } catch (error) {
-        if (!cancelled) {
-          setState({ kind: "unsupported", message: `${codec}: ${(error as Error).message}` });
+        // A `<source>` child rather than `video.src`, which is the form
+        // WebKit's own ManagedMediaSource example uses.
+        const child = document.createElement("source");
+        child.type = "video/mp4";
+        child.src = objectUrl;
+        element.replaceChildren(child);
+        // A `<source>` appended to a live element is not picked up until the
+        // element re-runs its resource selection. Without this the MediaSource
+        // never opens and the tile waits forever with bytes arriving and
+        // nowhere to put them.
+        element.load();
+
+        const opened = await Promise.race([
+          new Promise<boolean>((resolve) => {
+            source.addEventListener("sourceopen", () => resolve(true), { once: true });
+          }),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+        ]);
+        if (cancelled) return { why: "cancelled" };
+        if (!opened) return { why: "failed", message: "the media source never opened" };
+
+        let buffer: SourceBuffer;
+        try {
+          source.duration = Infinity;
+          buffer = source.addSourceBuffer(`video/mp4; codecs="${codec}"`);
+        } catch (error) {
+          return { why: "unsupported", message: `${codec}: ${(error as Error).message}` };
         }
-        return;
-      }
-      // Live: only the recent past is worth keeping, and an unbounded buffer on
-      // a phone is what ManagedMediaSource exists to prevent.
-      try {
-        buffer.mode = "sequence";
-      } catch {
-        // Some engines only allow this before the first append; not fatal.
-      }
-
-      const settle = () =>
-        new Promise<void>((resolve) => {
-          if (!buffer.updating) return resolve();
-          buffer.addEventListener("updateend", () => resolve(), { once: true });
-        });
-
-      // This is a live view, not a tape. The viewer always wants the newest
-      // frame, so playback rides the live edge: snap there on start, re-snap
-      // whenever we have fallen behind (a stall, a hidden page, a slow first
-      // connect all leave currentTime in the past while the buffer runs ahead).
-      const liveEdge = () => {
-        const ranges = element.buffered;
-        return ranges.length ? ranges.end(ranges.length - 1) : 0;
-      };
-      const chaseLiveEdge = () => {
-        const edge = liveEdge();
-        if (edge - element.currentTime > MAX_LAG_SECONDS && !element.seeking) {
-          element.currentTime = Math.max(0, edge - LIVE_EDGE_OFFSET_SECONDS);
+        try {
+          buffer.mode = "sequence";
+        } catch {
+          // Some engines only allow this before the first append; not fatal.
         }
-      };
-      // The browser pauses muted video on its own (hidden page, power saving).
-      // When the page comes back, resume at the live edge rather than staying
-      // frozen on a frame from minutes ago.
-      const onVisible = () => {
-        if (document.visibilityState !== "visible" || cancelled) return;
-        chaseLiveEdge();
-        void element.play().catch(() => {});
-      };
-      document.addEventListener("visibilitychange", onVisible);
-      removeVisibilityListener = () => document.removeEventListener("visibilitychange", onVisible);
 
-      const reader = response.body.getReader();
-      let painted = false;
-      try {
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done || cancelled) break;
-          if (!value) continue;
-          await settle();
-          if (cancelled) break;
-          buffer.appendBuffer(value);
-          await settle();
-          chaseLiveEdge();
-          // Only the recent past is worth its memory. Without this the buffer
-          // grows for as long as the tile is open; measured at 117s in two
-          // minutes before this existed.
-          const ranges = element.buffered;
-          if (ranges.length && element.currentTime - ranges.start(0) > KEEP_BEHIND_SECONDS) {
-            buffer.remove(ranges.start(0), element.currentTime - KEEP_BEHIND_SECONDS / 2);
+        const settle = () =>
+          new Promise<void>((resolve) => {
+            if (!buffer.updating) return resolve();
+            buffer.addEventListener("updateend", () => resolve(), { once: true });
+          });
+
+        const reader = response.body.getReader();
+        let painted = false;
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done || cancelled) break;
+            if (!value) continue;
             await settle();
+            if (cancelled) break;
+            buffer.appendBuffer(value);
+            await settle();
+            chaseLiveEdge();
+            // Only the recent past is worth its memory. Without this the
+            // buffer grows for as long as the tile is open; measured at 117s
+            // in two minutes before this existed.
+            const ranges = element.buffered;
+            if (ranges.length && element.currentTime - ranges.start(0) > KEEP_BEHIND_SECONDS) {
+              buffer.remove(ranges.start(0), element.currentTime - KEEP_BEHIND_SECONDS / 2);
+              await settle();
+            }
+            if (!painted) {
+              painted = true;
+              setState({
+                kind: "playing",
+                codec,
+                firstFrameMs: firstEver ? Math.round(performance.now() - started) : 0,
+              });
+              void element.play().catch(() => {
+                // Autoplay refusal on a muted inline video is not expected,
+                // and is not worth taking the tile down over.
+              });
+            }
           }
-          if (!painted) {
-            painted = true;
-            setState({ kind: "playing", codec, firstFrameMs: Math.round(performance.now() - started) });
-            void element.play().catch(() => {
-              // Autoplay refusal on a muted inline video is not expected, and is
-              // not worth taking the tile down over.
-            });
-          }
+        } catch (error) {
+          if (cancelled) return { why: "cancelled" };
+          return { why: "failed", message: (error as Error).message };
         }
-      } catch (error) {
-        if (!cancelled) setState({ kind: "error", message: (error as Error).message });
+        return cancelled ? { why: "cancelled" } : { why: "ended" };
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      }).finally(() => {
+        wake = null;
+      });
+
+    void (async () => {
+      let attempt = 0;
+      let firstEver = true;
+      while (!cancelled) {
+        const startedAt = performance.now();
+        const end = await session(firstEver);
+        firstEver = false;
+        if (cancelled || end.why === "cancelled") return;
+        if (end.why === "unsupported") {
+          setState({ kind: "unsupported", message: end.message });
+          return;
+        }
+        // A session that ran for a while was real; its drop is a blip, not a
+        // strike against the retry budget.
+        if (performance.now() - startedAt > HEALTHY_SESSION_MS) attempt = 0;
+        attempt += 1;
+        if (end.why === "failed" && attempt > RECONNECT_ATTEMPT_LIMIT) {
+          setState({ kind: "error", message: end.message });
+          return;
+        }
+        setState({ kind: "reconnecting", attempt });
+        await delay(
+          Math.min(RECONNECT_FIRST_DELAY_MS * 2 ** (attempt - 1), RECONNECT_MAX_DELAY_MS),
+        );
       }
     })();
 
     return () => {
       cancelled = true;
-      removeVisibilityListener?.();
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      document.removeEventListener("visibilitychange", onVisible);
+      wake?.();
+      activeController?.abort();
       element.replaceChildren();
       element.removeAttribute("src");
       element.load();
@@ -240,7 +330,7 @@ export function TileStream({
   }, [windowID, width, height, fps, bitrate]);
 
   return (
-    <div className="relative bg-black" style={{ aspectRatio: `${width} / ${height}` }}>
+    <div ref={frame} className="relative bg-black" style={{ aspectRatio: `${width} / ${height}` }}>
       <video
         ref={video}
         muted
@@ -251,12 +341,17 @@ export function TileStream({
         disableRemotePlayback
         className="size-full object-contain"
       />
-      {state.kind !== "playing" ? (
+      {state.kind === "connecting" || state.kind === "unsupported" || state.kind === "error" ? (
         <p
           className={`absolute inset-0 grid place-items-center px-3 text-center font-mono text-[11px]
             ${state.kind === "connecting" ? "text-muted-foreground" : "text-destructive"}`}
         >
           {state.kind === "connecting" ? "connecting…" : state.message}
+        </p>
+      ) : null}
+      {state.kind === "reconnecting" ? (
+        <p className="absolute bottom-1 right-2 font-mono text-[10px] text-muted-foreground">
+          reconnecting…
         </p>
       ) : null}
     </div>
