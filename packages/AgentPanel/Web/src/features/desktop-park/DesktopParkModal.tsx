@@ -5,6 +5,7 @@ import { ArrowLeftToLine, ArrowRightToLine, RotateCcw, X } from "lucide-react";
 import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
 import { TileStream, type TileState } from "./TileStream";
 import { TileStreamRtc } from "./TileStreamRtc";
+import { TileViewport } from "./TileViewport";
 import type { DesktopParkHandle } from "./useDesktopPark";
 
 /**
@@ -210,6 +211,7 @@ export function DesktopParkPanel({
             </button>
           </div>
           <div className="mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border">
+            <TileViewport>
             {transport === "rtc" ? (
               <TileStreamRtc
                 key={`rtc-${watched.id}`}
@@ -227,6 +229,7 @@ export function DesktopParkPanel({
                 onState={setTile}
               />
             )}
+            </TileViewport>
           </div>
         </section>
       ) : null}
