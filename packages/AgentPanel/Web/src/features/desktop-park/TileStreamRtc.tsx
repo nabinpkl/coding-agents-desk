@@ -21,7 +21,11 @@ const RECONNECT_FIRST_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 8_000;
 const HEALTHY_SESSION_MS = 15_000;
 const RECONNECT_ATTEMPT_LIMIT = 6;
-const CAPTURE_PIXEL_RATIO_CAP = 2;
+// 3, not 2: the phone renders at 3x, and capturing below the display density
+// guarantees an upscale that reads as blurry text no matter what the codec
+// does. Bits follow pixels via the scale-squared bitrate, so the cost lands
+// only where the density exists.
+const CAPTURE_PIXEL_RATIO_CAP = 3;
 
 export function TileStreamRtc({
   windowID,

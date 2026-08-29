@@ -34,6 +34,11 @@ const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10})\/webrtc$/;
 /** Kind 3 in the encoder framing: one Annex-B access unit. */
 const KIND_ACCESS_UNIT = 3;
 
+// werift negotiates by mimeType alone and adopts the browser's own H264
+// entries; the fmtp below never constrains anything. Which of the browser's
+// entries the sender actually stamps on packets is chosen after negotiation,
+// in answer(), because the receiver enforces the profile of the payload type
+// it receives.
 const H264 = new RTCRtpCodecParameters({
   mimeType: "video/H264",
   clockRate: 90000,
@@ -75,7 +80,39 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   const track = new MediaStreamTrack({ kind: "video" });
   const transceiver = peer.addTransceiver(track, { direction: "sendonly" });
 
-  const args = ["--window", windowID, "--codec", "h264-annexb"];
+  await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
+  const local = await peer.createAnswer();
+  await peer.setLocalDescription(local);
+
+  // werift negotiates by mimeType and keeps the browser's own H264 entries,
+  // defaulting the sender to the first one -- typically Baseline. The browser
+  // enforces the profile of the payload type it receives (measured: High bits
+  // on a Baseline PT decode zero frames), so sending better-than-Baseline text
+  // means SELECTING the browser's own High entry and encoding to match it.
+  // Preference order: High (64), Constrained High (f4), then whatever
+  // packetization-mode=1 entry remains.
+  const negotiated = transceiver.codecs.filter(
+    (codec) => codec.mimeType.toLowerCase() === "video/h264"
+      && (codec.parameters ?? "").includes("packetization-mode=1"),
+  );
+  const high = negotiated.find((codec) => /profile-level-id=(64|f4)/i.test(codec.parameters ?? ""));
+  const chosen = high ?? negotiated[0];
+  if (chosen) {
+    transceiver.sender.codec = chosen;
+    track.codec = chosen;
+  }
+  const profile = high ? "high" : "cb";
+
+  const args = [
+    "--window", windowID,
+    "--codec", "h264-annexb",
+    // A 4-second GOP instead of the MSE path's 0.4s: that cadence was a
+    // segment constraint, not a transport need, and at tile bitrates a
+    // keyframe every 0.4s spends the whole budget on refreshes so static text
+    // never sharpens. Joins and loss recovery are PLI's job here, not the GOP's.
+    "--segment", "4",
+    "--profile", profile,
+  ];
   const width = bounded(offer.width, 16, 7680);
   const height = bounded(offer.height, 16, 4320);
   const fps = bounded(offer.fps, 1, 60);
@@ -155,9 +192,6 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     }
   })();
 
-  await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
-  const local = await peer.createAnswer();
-  await peer.setLocalDescription(local);
   // Vanilla ICE: werift resolves setLocalDescription after gathering, so the
   // answer already carries the host candidates and no trickle round-trips are
   // needed over the signaling channel.

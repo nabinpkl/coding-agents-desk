@@ -300,13 +300,15 @@ final class RawH264Encoder: NSObject {
     private var session: VTCompressionSession?
     private var firstPTS: CMTime?
     private let width: Int, height: Int, bitrate: Int, keyframeSeconds: Double
+    private let profile: CFString
     private let forceKeyLock = NSLock()
     private var forceKeyframe = false
     private(set) var submitted = 0, encodedCount = 0, appended = 0, notReady = 0, encodeErrors = 0
 
-    init(width: Int, height: Int, bitrate: Int, keyframeSeconds: Double) {
+    init(width: Int, height: Int, bitrate: Int, keyframeSeconds: Double, profile: CFString) {
         self.width = width; self.height = height; self.bitrate = bitrate
         self.keyframeSeconds = keyframeSeconds
+        self.profile = profile
         super.init()
     }
 
@@ -338,8 +340,7 @@ final class RawH264Encoder: NSObject {
         session = created
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel,
-                             value: kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel, value: profile)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
                              value: NSNumber(value: keyframeSeconds))
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
@@ -347,7 +348,7 @@ final class RawH264Encoder: NSObject {
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitrate))
         VTCompressionSessionPrepareToEncodeFrames(created)
-        emitMeta(["type": "codec", "codec": "avc1.42E01F", "derived": false])
+        emitMeta(["type": "codec", "codec": "h264", "derived": false])
     }
 
     func submit(_ sample: CMSampleBuffer) {
@@ -494,6 +495,18 @@ let codecMode = argument("codec") ?? "hevc-fmp4"
 guard codecMode == "hevc-fmp4" || codecMode == "h264-annexb" else {
     fail("unknown --codec \(codecMode); expected hevc-fmp4 or h264-annexb")
 }
+/// H.264 profile for annexb mode. High is the text-quality profile (CABAC,
+/// 8x8 transform); receivers configure their decoder from the SPS in-band, so
+/// this does not need to match anything in an SDP. `cb` remains for a receiver
+/// that truly cannot take High.
+let profileArgument = argument("profile") ?? "high"
+let h264Profile: CFString
+switch profileArgument {
+case "high": h264Profile = kVTProfileLevel_H264_High_AutoLevel
+case "main": h264Profile = kVTProfileLevel_H264_Main_AutoLevel
+case "cb": h264Profile = kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel
+default: fail("unknown --profile \(profileArgument); expected high, main, or cb")
+}
 
 _ = NSApplication.shared
 let semaphore = DispatchSemaphore(value: 0)
@@ -536,6 +549,7 @@ Task {
     if codecMode == "h264-annexb" {
         let encoder = RawH264Encoder(
             width: width, height: height, bitrate: bitrate, keyframeSeconds: segmentSeconds,
+            profile: h264Profile,
         )
         encoder.start()
         sink = encoder
