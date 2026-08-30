@@ -1,267 +1,231 @@
-# Handover — 2026-08-01
+# Handover: Desktop park live tiles
 
-Branch `main`, in sync with `origin/main`. Uncommitted files in the tree belong to a
-**parallel session's** agent-feed work, not this arc — leave them alone.
-(Previous handovers are preserved in this file's git history.)
+Written 2026-08-25. Branch `main`, HEAD `b241d3fa`, everything committed and pushed.
 
-**Gate**: `just check` green (exit 0) — 172 host XCTest + 713 swift-testing in 92 suites.
-`just sim-test` green (exit 0) — 497 client tests in 59 suites.
+Read `AGENTS.md` first for how to work in this repo. This file covers only the
+arc that just happened and what it left behind. Previous handovers are preserved
+in this file's git history; the one before this is `55155019` (2026-08-01,
+quality ladder R231 and the R230 black screen), and section "Still open from the
+previous handover" below carries forward the part of it that is not done.
 
-**The one thing to do next**: R230's root cause is found but **not fixed** — the client is
-never told the host replaced its media stream on a resume, so it decodes a new stream with old
-state and the screen goes black. Section 4 has the diagnosis and the one open design decision.
-Nothing in `TASKS.md` reflects any of this document.
+## Where this stands
 
-Arcs this session, newest first (`feb6d8ef`, `4a8e76ce`, `aeb52bc0` interleave from the
-parallel agent-feed session — ignore them):
+Desktop park can show a live window, or the whole active Space, as video inside
+the Agent Panel, on the Mac and on the iPhone, over the tailnet including LTE.
+Two delivery paths exist behind a per-tile toggle: **WebRTC** (default, better)
+and **fMP4 over HTTP into MSE** (the first one built, kept as the A/B control).
+The tile has a map-style viewport (pinch, pan, double-tap) and a
+pseudo-fullscreen mode.
 
-| commit | what |
-|---|---|
-| `aa41559f` | read the sample buffer renderer, not the deprecated layer properties |
-| `ee800d8b` | log surface generation; report the crisp overlay above the video |
-| `f55590f9` | report what the display layer does, not just what we hand it |
-| `6f04718a` | stop the media transport a resume supersedes |
-| `bc514ab3` | make the resolution climb-back earn a long clean streak |
-| `4e9053ff` | require two consecutive stale windows before collapsing the ladder |
-| `417897aa` | make a rescale wait for evidence, since only it costs a keyframe |
-| `9547f203` | reshape R231 as decoupling, not a dwell on the whole rung |
+The arc's thesis, which held: **WebRTC as transport only.** Our own hardware
+encoder on one end, the webview's built-in hardware decoder on the other, and
+the transport in between owning every timing decision. ADR-0001's libwebrtc was
+encoder *and* transport *and* renderer and lost on software codecs; that verdict
+never tested this shape, and it does not apply to it.
 
----
+## The one thing waiting on a human
 
-## 1. The quality ladder (R231 / R231b / R231c) — confirmed on hardware
+**A client install has been prepared and NOT run.** Per `AGENTS.md`, device
+installs are a checkpoint: state the command, then wait for the user to say run
+it.
 
-### The shared defect
+```bash
+just client-install
+```
 
-The ladder is one ordinal emitting bitrate, fps and resolution together, but they are not the
-same kind of instruction. Bitrate and fps are live properties of the compression session and
-cost nothing. **Resolution is fixed at session creation**, so changing it recreates the
-`VTCompressionSession`, emits an IDR, and destroys every long-term reference inside it.
+Why it cannot be avoided: commit `b241d3fa` sets
+`WKWebViewConfiguration.allowsInlineMediaPlayback`, which defaults to `false` on
+iPhone (`true` on iPad). A page's `playsinline` attribute is honored only if the
+container already permits inline playback, so without this the iPhone hands any
+playing tile to the system fullscreen player and the gesture overlay, pan/zoom
+and tile chrome all vanish. This is the **only** native change in the whole arc;
+everything else is live-reloadable TypeScript.
 
-The same mistake appeared in three places: the expensive axis shared a threshold with the cheap
-ones.
+Unverified claim to test with that install: that this flag was the cause. The
+symptom ("goes fullscreen the moment it connects") is that flag's exact
+signature, but if it persists afterwards, suspect the client constructing its
+own `WKWebView` for the agent surface outside `WebPanelKit`.
 
-### What changed
+## What exists now
 
-- **R231** — the rung's resolution is a *request* that must persist (`resolutionDownDwellMs`,
-  10s) before the encoder acts. Bitrate and fps still move on the window that asked. Gated
-  **downward only**: the climb back already had a gate, `recover()` raising resolution through a
-  probe phase with a clean-streak requirement, warmup and rollback. An earlier version clamped
-  both directions and broke the probe outright — 29 test failures. Freeze and probe-rollback
-  bypass the wait, being evidence about the setting actually running rather than a guess.
-- **R231b** — `stalePressure` (`staleRecoveryCount > 0`: one abandoned frame, no magnitude) now
-  needs `staleDownWindows` (2) consecutive windows. A clean *or idle* window breaks the run.
-  The streak is deliberately **not** folded into `resetPressureStreaks()` — the stale branch
-  calls that on its way through to clear the cadence streak, so folding it in would have the
-  signal wipe the counter it is accumulating.
-- **R231c** — the climb back needs `resolutionRaiseCleanMs` (30s), separate from
-  `raiseCleanWindows` (4s) which gates every other recovery step. It needs its own accumulator:
-  `cleanRecoveryMs` is zeroed each time it reaches `requiredRecoveryMs`, capping it at 4s and
-  making "clean for thirty seconds" unrepresentable in it. The wait **holds** the recovery
-  sequence rather than letting fps overtake — that sequence is one axis at a time by design, so
-  a probe failure is attributable to the axis that moved.
+**Encoder** `tools/grid-encoder/main.swift`, built by
+`tools/build-grid-encoder.sh` to `.build/grid-encoder`. ScreenCaptureKit in,
+VideoToolbox hardware encode out. Makes no policy decisions.
 
-### The measurements (25-minute host log, before the changes)
+- Target: `--window <id>` or `--display <id|main>`.
+- Output mode: `--codec hevc-fmp4` (default, fragmented MP4 for MSE) or
+  `--codec h264-annexb` (bare access units for a transport that packetizes).
+- `--profile high|main|cb` (annexb only, default high).
+- stdout framing `[1 byte kind][4 bytes BE length][payload]`; kind 0 meta JSON,
+  1 fMP4 init, 2 fMP4 media, 3 access unit (8 bytes pts microseconds BE, 1
+  keyframe byte, then Annex-B).
+- **stdin line protocol**: `K\n` forces a keyframe on the next frame,
+  `B<bits>\n` applies a bitrate live. That is the entire encoder control
+  surface, and it mirrors libwebrtc's own internal encoder callbacks.
+- Cursor is drawn for display captures, not window captures.
+- Self-reaping: exits if a stdout write stalls past 10s (reader gone), and if
+  zero frames are submitted within 10s of `startCapture` (wedged stream).
 
-- 103 resolution changes: **51 up, 52 down** — a pure oscillation with no net drift.
-- An upward rescale survived a **median 22.4s**; **80% were undone within 30s**. Four times in
-  five the keyframe bought nothing. Largest measured: 122,041 bytes, spent climbing back onto a
-  link that had just failed at that scale.
-- Stale pressure fired in **59 of 2,664 windows**, in 51 bursts of which **47 (92%) lasted
-  exactly one window**. Two consecutive windows would have fired 4 times instead of 51.
-- Magnitude thresholds were all weaker: `>=2` stale frames leaves 42% of firings, `>=3` leaves
-  29%, a 250-permille rate leaves 39%. The median firing window produced only 7 frames, so a
-  rate mostly measures how much the screen happened to be changing.
+**Sidecar** `agent-feed/sidecar/src/http/`
 
-### Confirmed on device, across a WiFi→cellular handover
+- `webrtcTileRoutes.ts` — `POST /api/park/tile/:target/webrtc`, target is a
+  window id or the literal `display`. Owns offer/answer, negotiated-codec
+  selection, the shared per-target encoder pool, PLI and REMB relay to the
+  encoder's stdin. Writes connection diagnostics to
+  `/tmp/agentdesk-webrtc-diag.log`.
+- `h264Packetizer.ts` — RFC 6184 mode 1. Pure reframing, tested. Exists only
+  because werift ships the depacketizer and not the packetizer.
+- `tileRoutes.ts` + `tileEncoderPool.ts` — the MSE path, `GET
+  /api/park/tile/:target/stream`.
 
-| | before | after |
-|---|---|---|
-| resolution changes | ~4.1/min | 1 in 2.3 min |
-| `stale-capacity-down` | 59 firings | **0** |
-| `stale-hold` | n/a | 2 |
+**Panel** `packages/AgentPanel/Web/src/features/desktop-park/`
 
-The ladder descended once, one step at a time (`capacity-down` → `survival-down` →
-`emergency-down`), then sat at `at-emergency-floor` instead of sawtoothing.
+- `TileStreamRtc.tsx` — offer/answer POST plus `srcObject`. That is all.
+- `TileStream.tsx` — the MSE feed loop, which needs a live-edge chase, buffer
+  pruning and a reconnect policy. Keep it around as the honest comparison of
+  what a byte-hose transport costs.
+- `TileViewport.tsx` + `tileViewportMath.ts` — gesture ownership and pan/zoom
+  as one CSS transform. `toContentPoint()` is the exported inverse and is
+  deliberately the hook remote control will use.
+- `DesktopParkModal.tsx` — watch a window or the desktop, transport toggle,
+  pseudo-fullscreen toggle.
 
-**Not verified**: R231c's climb-back threshold. The link stayed bad all run (`latency-hold` ×31
-on cellular) so the ladder never got clean enough to climb. Its 30s default also rests on an
-inference — clean-time-*before*-climbing and survival-*after*-climbing are correlated, not the
-same measurement.
+**The seam ledger.** What we write: the packetizer, offer/answer, post-
+negotiation profile selection, two stdin control lines, the viewport. What we
+glue with zero decisions of ours: capture, hardware encode, ICE, DTLS, SRTP,
+NACK retransmit, jitter buffering, late-frame dropping, bandwidth estimation,
+hardware decode, compositing. There are **no frame acks anywhere**; the receiver
+speaks only in standard RTCP.
 
-### Settled — do not relitigate
+## Traps that cost real time, all measured
 
-**The codec route is closed.** Changing resolution requires an IDR at the bitstream level: HEVC
-has no reference picture resampling, a reference picture must match the dimensions of the
-picture referencing it, and a new SPS activates only at an IRAP. The codecs that resample
-references (AV1, VP9, VVC) are not encodable on the host — `VTCopyVideoEncoderList` on an
-M-series Mac returns hardware encoders for H.264, HEVC, ProRes and JPEG only. The iPhone decodes
-AV1 and VVC and that is useless, because nothing on the Mac can feed it. Doing it less often is
-the only lever.
+- **Two ScreenCaptureKit captures of one window starve each other.** Seen three
+  times in three costumes: React strict mode's 48ms double-fetch; a reconnect
+  overlapping the dead peer's encoder (which outlives it by the ICE consent
+  timeout); and a manual encoder bounce racing its own replacement. **A starved
+  SCK stream never recovers while its process lives** (observed wedged at 0% CPU
+  for 8 minutes). Hence one encoder per target, keyed by target alone, plus the
+  zero-frame watchdog.
+- **The receiver enforces the profile of the payload type it receives.** High
+  bits on a Baseline payload type decode **zero** frames. werift negotiates by
+  mimeType only and defaults the sender to the browser's *first* H264 entry
+  (Baseline), so the route picks the browser's own High entry (`64`/`f4`,
+  `packetization-mode=1`) after the answer and encodes to match. "SDP is
+  advisory" was measured false.
+- **Do not negotiate transport-wide-cc for screen content.** werift's
+  sender-side estimator assumes a saturating sender: 191 TWCC feedbacks in, zero
+  estimates out on a static window. Without the extension the browser falls back
+  to REMB, its own receiver-side estimator, which hands us a number directly on
+  `sender.onRtcp` as `feedback.bitrate` (bigint).
+- **Never carry MSE's GOP into RTP.** A 0.4s keyframe cadence was a segment
+  container constraint; at tile bitrates it spends the whole budget on refreshes
+  and text never sharpens. 4s plus PLI is the shape.
+- **ICE: werift skips `utun`, browsers mask candidates as mDNS `.local` names.**
+  So off-LAN (LTE) had no reachable address at all and only ever said
+  reconnecting. Fixed by deriving the Mac's tailnet IPv4 from the CGNAT range
+  and passing it as `iceAdditionalHostAddresses`.
+- **Bun never reports a client disconnect** (neither `request.signal` nor stream
+  `cancel`), and `Bun.serve` treats a streaming response as idle, so
+  `idleTimeout: 0` is load-bearing for every long-lived response, SSE included.
+- **Vite's proxy drains abandoned upstreams forever.** Destroy on the client
+  *response* close when `!writableEnded`; listening on the *request* close is a
+  trap that kills every proxied GET at birth.
+- **werift's SCTP data channels crash** on Bun and Node alike. Media is fine.
+  Never smoke-test werift with a data channel.
+- **The Claude browser pane's page is permanently hidden**, which pauses muted
+  MSE video but not WebRTC video. Verify MSE playback by canvas readback and
+  currentTime, never by `paused`.
+- **Hardware-overlay decode does not appear in the pane's screencast**, so a
+  working High-profile tile screenshots black there. Sample pixels from the
+  element instead.
 
----
+## Known open issues
 
-## 2. Media transport leaked on every resume (fixed, `6f04718a`)
+1. **`just check` is red before it reaches Swift, and has been all session.**
+   `agent-panel-web-check` runs first and fails, so the entire host/client Swift
+   build and test half never executes. Cause is environmental, not ours: under
+   vitest 3, jsdom 26.1.0 exposes `globalThis.localStorage` as an accessor whose
+   getter returns `undefined` (the URL is a healthy `http://localhost:3000`, so
+   it is not the opaque-origin case), and every test touching localStorage dies.
+   70 failures across `AgentPanelApp.test.tsx` and `sidebarPreferences.test.ts`,
+   reproducible on a clean tree. Until this is fixed, **verify Swift changes with
+   a direct `xcodebuild`**, and check the gate's own exit code rather than a
+   pipeline's. Worth also making `just check` run the Swift half even when the
+   web suite fails.
+2. **Encoders leak across sidecar hot-reloads.** `bun --watch` keeps the same
+   pid and re-reads in place, so the previous module's reader loops keep draining
+   orphaned children (which therefore never trip the stalled-write watchdog)
+   while the new `sharedEncoders` map knows nothing about them. Observed three
+   `--display main` encoders alive at 5% CPU each. Workaround `pkill -f
+   grid-encoder`; viewers self-heal. A real fix probably belongs in the encoder
+   (exit if no stdin control line and no reader interest for N seconds) or in a
+   pid registry the pool can reclaim.
+3. **Capture size is fixed at connect**, so pseudo-fullscreen and deep zoom show
+   that ceiling as softness. The fix is reconnecting at the larger measured size
+   once expanded persists, at the cost of a one-second blink.
+4. **Multi-viewer REMB is last-writer-wins.** The honest answer is the minimum
+   across viewers; it can land with the grid work.
+5. **No ADR yet.** This shape deserves one: transport-only WebRTC for park
+   delivery, with the evidence trail above, and MoQ recorded as "rejected for
+   now, revisit on native browser playback or the RFC landing" because no browser
+   has a native MoQ receiver and the page would have to re-implement the receive
+   side we just deleted.
 
-`SessionRegistry.noteReady` has two branches. A genuine replacement (new session id) calls
-`endSession`, which stops the old transport. **A resume keeps the same session id**, so it took
-`.sameSession`, which did not — the superseded transport was overwritten in the dictionary.
+## Still open from the previous handover (different arc, not touched here)
 
-Overwriting does not stop it: `startMediaTransport` observes `connectionState` from a Task that
-captures the transport **strongly**, and that stream only finishes inside `stop()`. So the
-dropped transport never deallocated and kept its link-health tick running for the process
-lifetime.
+The 2026-08-01 handover (`git show 55155019:HANDOVER.md`) flagged **R230, the
+post-handover black screen**, as root-caused but unfixed, and nothing in this
+arc went near it. Preserved here so it does not get lost behind a newer
+document:
 
-Measured on device: still ticking quality windows **4.7 minutes** after being replaced, at rung
-0, three frames frozen in flight, `oldestInflightMs` climbing linearly. Two media transports
-against one client. Verified fixed on device — a resume now leaves exactly one window-id
-sequence.
+After a WiFi/cellular switch the phone shows black until relaunch. The host
+resumes the session in place and pushes a **fresh encoder** (frame ids restart,
+new parameter sets) at a client that never tore its own transport down, so
+`prepareForStreamHandover()` never fires and the client decodes a new stream
+with its old format description, pacer state and layer contents. The client is
+never told the stream was replaced. It is a regression: a handover used to
+freeze, say "Reconnecting", and recover.
 
-**This was not the black screen.** The black screen persisted with one transport.
+The open decision recorded there, still open: signal the handover explicitly on
+resume (correct, costs a wire message) versus letting the client infer it (a
+frame id lower than the last seen, or new parameter sets mid-stream; no wire
+change, but inference can be wrong). Check what the resume handshake already
+carries before choosing. That handover also lists what was measured and
+eliminated, so read it before re-chasing anything.
 
----
+Note the overlap in flavour with this arc: a receiver holding stale state across
+a stream replacement is exactly the class of bug the WebRTC path avoids by
+letting the transport own stream identity, which may be worth weighing if R230
+gets revisited rather than patched.
 
-## 3. Instrumentation now available
+## Running it
 
-Landed in `f55590f9`, `ee800d8b`, `aa41559f`. On an attached-console run these appear in
-`/tmp/agentdesk-client-console.log`:
+Host must be up (it owns the sidecar and the Screen Recording grant):
 
-- `video-render-diagnostics` — renderer status/error, `requiresFlush`, `readyForMore`, geometry
-  (`bounds`, `frame`, `hidden`, `opacity`, `attached`), `timebaseRate`, crisp overlay state,
-  `surfaceGen`, `enqueued` count. Emitted on change, plus unconditionally on the window boundary
-  and the recovery path.
-- `displayedFrame=present|none` — `displayedPixelBuffer()`, the only signal reporting what is
-  **actually on screen** rather than what was handed over.
-- `video-performance` — `totalNumberOfFrames` / `dropped` / `corrupted`, against the enqueue count.
-- `video-renderer-decode-failed` — the renderer's `didFailToDecode` notification and its
-  `NSError`. The layer reports no per-sample decode result; this is the only push signal.
+```bash
+just host-run
+```
 
-Host side: `owned media video sent … gen=N` carries the surface generation for correlation.
+Then a panel dev server pointed at the host's sidecar, which is what makes
+panel and sidecar edits live on the Mac and the phone with no rebuild:
 
-**Still missing**: the luma of `displayedPixelBuffer()`. Everything above reports intent or
-liveness; sampling those pixels would say whether the displayed frame is itself black. That
-splits the remaining space — a black displayed frame points upstream of display, a non-black one
-points at the view hierarchy.
+```bash
+tools/park-panel-dev.sh host
+```
 
----
+Triage in ten seconds when a tile misbehaves: `tail /tmp/agentdesk-webrtc-diag.log`
+separates transport from capture (candidates, ICE state, chosen codec), and
+`ps -o pid,etime,%cpu -p $(pgrep -f grid-encoder | tr '\n' ',' | sed 's/,$//')`
+says whether the encoder is producing. A connected peer with a 0% CPU encoder is
+capture starvation, not transport.
 
-## 4. R230, the black screen — root cause found, fix not written
+## Next arc, already scoped
 
-### Symptom
-
-After a WiFi↔cellular switch the phone shows black. It survives further transport rebuilds and
-switching back. It clears only on app relaunch.
-
-### Root cause
-
-`prepareForStreamHandover()` — the reset that adopts a new stream — is called from exactly one
-place, `PairingViewController.swift:703`, inside the branch where the **client** tears down its
-own transport with `preservingSessionSurfaces`.
-
-The handover does not take that path. The **host** resumes the session in place
-(`session resuming` → `media transport started`) and pushes a new stream at a client that never
-stopped its transport. So:
-
-- the host builds a **fresh encoder** — frame ids restart at 1, new parameter sets
-- the client keeps its **old decoder format description, old pacer state, old layer contents**
-- `prepareForStreamHandover` fires **zero** times
-- the "Reconnecting…" label never appears
-
-**The client is never told the stream was replaced.**
-
-This is a **regression**, and the operator's report is what located it: a handover used to
-freeze, say it was reconnecting, and recover. It now goes black silently. Bisectable across the
-handover arc — `19dab2a2`, `aeffb269`, `de228969`, `549cb2d5`, `d07df7ab`, `01498b3f`,
-`0d29c0f5`, `efaca398`, `5ce75e90`, `aee9ac5c`. `d07df7ab` introduced
-`prepareForStreamHandover`.
-
-### The open decision
-
-- **Explicit** — the host signals a stream handover on resume; the client runs
-  `prepareForStreamHandover`. Correct and obvious, costs a wire message.
-- **Inferred** — the client detects it (frame id lower than last seen, or new parameter sets
-  mid-stream) and resets itself. No wire change, but inference can be wrong.
-
-Check what the resume handshake already carries before picking.
-
-### Eliminated — do not re-chase
-
-All measured, most on a live black screen:
-
-| eliminated | evidence |
-|---|---|
-| host capture / encode / transport | real bytes, keyframes delivered and acked |
-| LTR reference loss | full IDRs (69KB, 57KB, 25KB) also fail — a keyframe needs no history |
-| zombie transport | fixed; black persists with one transport |
-| decoder wedge | `status=rendering`, zero decode failures, on the **non-deprecated** renderer |
-| display layer wedge | `displayedFrame=present`, `totalFrames` climbing **while black** |
-| crisp overlay covering video | unpainted surface is all-zero BGRA under `premultipliedFirst` = fully transparent |
-| surface generation mismatch | the client's video path never reads `surfaceGeneration`; only the crisp path does |
-| stale-frame discards | zero `mediaStalePresentationSkipped` |
-| stalled control timebase | `timebaseRate=none` — none is set, same as when working |
-| Mac display sleep | `displaysleep 0` |
-
-Also confirmed harmless, though it looks wrong: the crisp overlay is revealed by a bare
-`resetSurface` even when crisp is disabled. `ownedMediaVideoSinkCompositesCrispOverlayOver
-VideoFloorWithoutSwap` asserts that reveal deliberately (R7 / ADR-0034), and an unpainted
-surface is transparent, so the video shows through. Changing it means rewriting a test that
-encodes intent, to fix nothing.
-
-### Two traps that cost real time
-
-- **The layer's own properties are deprecated.** `AVSampleBufferDisplayLayer.status`, `.error`,
-  `.timebase` and `.enqueueSampleBuffer:` are deprecated as of iOS 18 in favour of
-  `sampleBufferRenderer`. `OwnedMediaDisplayQueuePolicy` — the existing wedged-layer recovery —
-  decided from the deprecated values, which is why it never fired. `aa41559f` moves the reads to
-  the renderer and keeps the legacy values as `legacyStatus`/`legacyError`; if the two ever
-  disagree, that disagreement is the finding.
-- **Everything else measures intent, not pixels.** `advanceVideoMilestone(.decoderEnqueued)` and
-  `.presentationAttempted` both fire at enqueue. A wedged layer and a working one printed
-  identically, which is why this survived three sessions and produced a wrong "wedged display
-  layer" framing that shaped the whole investigation.
-
----
-
-## 5. Operational notes that will otherwise cost time
-
-- **`git add -A` is dangerous here.** A parallel session works in this repo on the same branch
-  and has already swept another session's uncommitted files into its commits. Stage explicit
-  paths. Where a file is genuinely shared, build the commit through a temporary index
-  (`GIT_INDEX_FILE=… git read-tree HEAD; git add <paths>; git write-tree; git commit-tree;
-  git update-ref`) so `.git/index` is never touched — then re-`git add` your own paths so the
-  shared index does not show them as deletions.
-- **Verify the gate's exit code, not the pipeline's.** `just check | tail` reports `tail`'s
-  status. Redirect to a file and echo `$?` separately. A `cmd | tail || fallback` construct
-  silently skips the fallback.
-- **Watch the shell's working directory.** A `cd` persisted across calls and caused a `python3`
-  edit to write nowhere and an `xcodebuild` to fail on a relative project path. Use absolute paths.
-- **`sim-test` can fail on a stale precompiled module cache** (`malformed or corrupted
-  precompiled file`, onnxruntime). Remove
-  `.build/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules` and
-  `.build/DerivedData/ModuleCache.noindex`, then re-run.
-- **The phone goes `unavailable` to `devicectl` when its WiFi is off.** After a handover test
-  that left WiFi disabled no install will work until it is back on. `xcrun devicectl list
-  devices` tells you.
-- **Host-only changes need no client reinstall.** `just host-run` builds and launches the Mac
-  host and returns; it does not touch the phone. The client leg is separate:
-  `just client-install-release`, then `just iphone-console-run` for an attached console.
-- **Device installs, launches and relaunches are a checkpoint** — state the command, wait for a
-  go-ahead. See `AGENTS.md`.
-- **Reading the host log**: `mediaQualityDecision` carries `staleRecoveryCount`, `stalePressure`,
-  `reason`, `changedAxes` per window; `mediaQualityWindow` carries `completedFrames`, `gapSkips`,
-  `abandonedFrames`. Invoke `/usr/bin/log` explicitly — bare `log` resolves to the zsh builtin.
-- **Two log-analysis traps**, both of which produced wrong numbers that reached commit messages:
-  keying per-window stats by `windowId` in a dict collapses duplicates (ids repeat across
-  reconnects) and undercounts by ~40% — parse as a list in file order. And
-  `grep -c "stale-capacity-down"` over-counts ~4x, because one event writes that reason onto the
-  `mediaQualityDecision`, `bitrate-step`, `resolution-step` and `fps-step` lines.
-
----
-
-## 6. Open items
-
-- **R230's fix** — decide explicit vs inferred handover signalling, then implement (section 4).
-- **`TASKS.md` records none of this.** R230 and R231 still describe the original framing,
-  including the superseded "wedged display layer" theory.
-- **R231c unverified on hardware**, and its threshold rests on an inference.
-- **The luma sample** on `displayedPixelBuffer()` (section 3).
-- **Duplicate task ids D189–D193** in `TASKS.md` (pre-existing).
+**Remote control on the tile.** Input never rides the video (ADR-0005 settled
+this); it is a parallel plane. The pieces are named: an `input-bridge` Swift CLI
+under the sidecar taking NDJSON on stdin and posting CGEvents (same pattern and
+same TCC umbrella as the grid encoder), one `POST /api/park/input` route, and
+`toContentPoint()` mapping a finger to a desktop coordinate. Click and scroll
+first, keys second. Measure tap-to-photon on the phone before committing to
+typing: this path is a glance-and-poke surface, and the daily-driver remote
+control crown stays with the owned QUIC pipeline until proven otherwise.
