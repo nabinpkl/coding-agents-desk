@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftToLine, ArrowRightToLine, RotateCcw, X } from "lucide-react";
 import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
 import { TileStream, type TileState } from "./TileStream";
+import { TileStreamRtc } from "./TileStreamRtc";
 import type { DesktopParkHandle } from "./useDesktopPark";
 
 /**
@@ -85,6 +86,9 @@ export function DesktopParkPanel({
   // One window at a time for now. The grid comes after a compositor; this proves
   // the delivery path with the piece that already exists.
   const [watching, setWatching] = useState<number | null>(null);
+  // A/B seam for the delivery spike: WebRTC (transport owns timing) against
+  // MSE over HTTP (the page owns timing). Default is the contender under test.
+  const [transport, setTransport] = useState<"rtc" | "mse">("rtc");
   const [tile, setTile] = useState<TileState>({ kind: "connecting" });
   const watched = ready?.state.windows.find((w) => w.id === watching) ?? null;
 
@@ -163,6 +167,16 @@ export function DesktopParkPanel({
             </span>
             <button
               type="button"
+              onClick={() => setTransport((current) => (current === "rtc" ? "mse" : "rtc"))}
+              title="Switch tile transport"
+              className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground
+                transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
+                focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+            >
+              {transport}
+            </button>
+            <button
+              type="button"
               onClick={() => setWatching(null)}
               className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground
                 transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
@@ -172,13 +186,23 @@ export function DesktopParkPanel({
             </button>
           </div>
           <div className="mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border">
-            <TileStream
-              key={watched.id}
-              windowID={watched.id}
-              width={watched.frame.w}
-              height={watched.frame.h}
-              onState={setTile}
-            />
+            {transport === "rtc" ? (
+              <TileStreamRtc
+                key={`rtc-${watched.id}`}
+                windowID={watched.id}
+                width={watched.frame.w}
+                height={watched.frame.h}
+                onState={setTile}
+              />
+            ) : (
+              <TileStream
+                key={`mse-${watched.id}`}
+                windowID={watched.id}
+                width={watched.frame.w}
+                height={watched.frame.h}
+                onState={setTile}
+              />
+            )}
           </div>
         </section>
       ) : null}

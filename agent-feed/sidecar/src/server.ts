@@ -11,6 +11,7 @@ import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import { createParkRoutes } from "./http/parkRoutes.ts";
 import { createTileRoutes } from "./http/tileRoutes.ts";
+import { createWebrtcTileRoutes } from "./http/webrtcTileRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createSummaryRoutes } from "./http/summaryRoutes.ts";
@@ -76,6 +77,7 @@ const routes: RouteHandler[] = [
   // Same: a Desktop belongs to the machine, not to a thread.
   createParkRoutes(),
   createTileRoutes(),
+  createWebrtcTileRoutes(),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
