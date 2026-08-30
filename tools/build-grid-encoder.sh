@@ -6,5 +6,8 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$root/.build/grid-encoder"
 mkdir -p "$root/.build"
-swiftc -O "$root/tools/grid-encoder/main.swift" -o "$out"
+swiftc -O \
+  "$root/tools/grid-encoder/main.swift" \
+  "$root/tools/grid-encoder/PointerInput.swift" \
+  -o "$out"
 echo "built $out"

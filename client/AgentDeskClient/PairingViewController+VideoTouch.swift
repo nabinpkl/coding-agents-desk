@@ -538,7 +538,7 @@ extension PairingViewController {
         // Use the authoritative selected surface, kept in sync by the control rail. Deriving this
         // state from button presentation would couple video input to the rail's current icon and
         // accessibility treatment.
-        activeControlSurface == .control
+        activeControlSurface == .control && desktopViewerMode == .native
     }
 
     @objc func remoteInputModeControlChanged(_ control: RemoteInputModeControl) {

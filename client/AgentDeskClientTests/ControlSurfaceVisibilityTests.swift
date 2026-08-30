@@ -32,28 +32,6 @@ struct ControlSurfaceVisibilityTests {
         #expect(!visibility(for: .voice).voiceHidden)
     }
 
-    @Test func onlyControlShowsTheMacChromeAndForwardsKeys() {
-        #expect(!visibility(for: .control).controlChromeHidden)
-        #expect(visibility(for: .control).keyboardInteractive)
-        for surface in ControlSurface.allCases where surface != .control {
-            #expect(visibility(for: surface).controlChromeHidden)
-            // Every other surface owns its own text fields (the voice probe's
-            // included). A live host keyboard helper would forward what is typed
-            // into them to the Mac.
-            #expect(!visibility(for: surface).keyboardInteractive)
-        }
-    }
-
-    /// The host stops encoding for this client whenever this is `.none`, so a
-    /// surface wrongly demanding video costs the whole downlink for pixels its
-    /// own webview is covering.
-    @Test func onlyControlDemandsTheHostVideo() {
-        #expect(ControlSurface.control.videoDemand == .live)
-        for surface in ControlSurface.allCases where surface != .control {
-            #expect(surface.videoDemand == .none)
-        }
-    }
-
     @Test func onlyVoiceReplacesTheHostContentRoot() {
         for surface in ControlSurface.allCases where surface != .voice {
             #expect(!visibility(for: surface).hostContentHidden)

@@ -17,6 +17,8 @@ export type {
   CliInputUnavailableReason,
 } from "./cliInput.ts";
 
+export type { DesktopDisplayResponse } from "./desktop.ts";
+
 export type {
   AgentQueueState,
   AgentRunState,
@@ -40,6 +42,7 @@ export type {
   ParkStepResult,
   ParkUnavailable,
   ParkWindow,
+  WebrtcPointerInput,
 } from "./park.ts";
 
 export type {

@@ -88,6 +88,7 @@ extension PairingViewController {
     func applyPanelOrigin(_ push: AgentPanelOriginPush) {
         latestPanelOrigin = push
         agentSurface?.applyPanelOrigin(push)
+        desktopWebSurface?.applyPanelOrigin(push)
     }
 
     var agentTerminalLifecycleRouter: AgentFeedTerminalLifecycleRouter {
@@ -202,6 +203,12 @@ extension PairingViewController {
             agentSurface = nil
             agentSurfaceBoundTransport = nil
         }
+
+        desktopWebSurface?.teardown()
+        desktopWebSurface?.removeFromSuperview()
+        desktopWebSurface = nil
+        desktopViewerMode = .native
+        desktopViewerTabBar.select(.native)
 
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
@@ -499,14 +506,19 @@ extension PairingViewController {
 
     func applySurface(_ surface: ControlSurface) {
         let v = visibility(for: surface)
+        let desktop = DesktopViewerPresentation.resolve(surface: surface, mode: desktopViewerMode)
         hostContentView.isHidden = v.hostContentHidden
         // Inside applySurface rather than beside it. Every caller used to follow
         // this with its own `pushMediaViewerState()`, which is two statements
         // that have to stay adjacent forever to stay correct.
-        applyVideoDemand(surface.videoDemand)
-        if !v.keyboardInteractive {
+        applyVideoDemand(desktop.videoDemand)
+        if !desktop.keyboardInteractive {
             applyKeyboardPresentationIntent(.hide)
         }
+
+        desktopViewerTabBar.isHidden = desktop.tabsHidden
+        desktopViewerTabBar.select(desktopViewerMode)
+        desktopWebSurface?.isHidden = desktop.webViewHidden
 
         agentSurface?.isHidden = v.agentHidden
         agentSurface?.setViewportPresented(!v.agentHidden)
@@ -518,9 +530,9 @@ extension PairingViewController {
 
         // The combined selected-surface, layout-mode, and keyboard policy
         // below owns relative-control and bottom-row presentation.
-        displayRailView.isHidden = v.controlChromeHidden
+        displayRailView.isHidden = desktop.nativeChromeHidden
         // The keyboard surface is a first-responder helper; just disable it.
-        keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
+        keyboardSurface.isUserInteractionEnabled = desktop.keyboardInteractive
         applyVideoTouchState()
         workspaceSurface?.isHidden = v.workspaceHidden
         workspaceSurface?.setViewportPresented(!v.workspaceHidden)
@@ -529,6 +541,37 @@ extension PairingViewController {
         voiceSurface?.isHidden = v.voiceHidden
 
         Self.logger.debug("active surface: \(String(describing: surface))")
+    }
+
+    func desktopViewerSelectionChanged(_ mode: DesktopViewerMode) {
+        guard desktopViewerMode != mode else { return }
+        desktopViewerMode = mode
+        if mode == .web {
+            ensureDesktopWebSurface()
+        }
+        applySurface(activeControlSurface)
+    }
+
+    @discardableResult
+    private func ensureDesktopWebSurface() -> DesktopWebSurface {
+        if let desktopWebSurface { return desktopWebSurface }
+        let surface = DesktopWebSurface()
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.isHidden = true
+        stage(.surface).addSubview(surface)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: desktopViewerTabBar.bottomAnchor),
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        desktopWebSurface = surface
+        if let latestPanelOrigin {
+            surface.applyPanelOrigin(latestPanelOrigin)
+        }
+        view.bringSubviewToFront(surfaceControlRail)
+        stage(.overlay).bringSubviewToFront(desktopViewerTabBar)
+        return surface
     }
 
     // Idempotent: opens the .files lane, builds the browser + workbench, and loads the workspace list.

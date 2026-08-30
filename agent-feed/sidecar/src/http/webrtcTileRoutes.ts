@@ -27,9 +27,12 @@ import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 import { frames, KIND_META } from "./tileEncoderPool.ts";
 import { packetizeH264 } from "./h264Packetizer.ts";
+import { encoderPointerCommand } from "./webrtcPointerInput.ts";
 
 /** The target is a window id, or the literal `display` for the whole screen. */
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;
+const WEBRTC_TILE_TELEMETRY_ROUTE =
+  /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc\/telemetry$/;
 
 // Connection diagnostics, appended per event so a failing surface (a phone on
 // LTE) leaves evidence readable on the Mac without touching the device. The
@@ -121,6 +124,10 @@ interface SharedEncoder {
   key: string;
   child: ReturnType<typeof Bun.spawn>;
   subscribers: Set<EncoderSubscriber>;
+  latestKeyframe: Uint8Array | null;
+  accessUnits: number;
+  inputOwner: symbol | null;
+  firstAccessUnitDeadline: ReturnType<typeof setTimeout> | null;
   linger: ReturnType<typeof setTimeout> | null;
   dead: boolean;
 }
@@ -133,6 +140,7 @@ interface EncoderSubscriber {
 }
 
 const sharedEncoders = new Map<string, SharedEncoder>();
+const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
 const ENCODER_LINGER_MS = 3_000;
 
 function encoderStdin(shared: SharedEncoder, line: string) {
@@ -145,10 +153,14 @@ function encoderStdin(shared: SharedEncoder, line: string) {
   }
 }
 
-function killSharedEncoder(shared: SharedEncoder) {
+function killSharedEncoder(shared: SharedEncoder, reason: string) {
   if (shared.dead) return;
+  diag(
+    `encoder key=${shared.key} stop reason=${reason} accessUnits=${shared.accessUnits} subscribers=${shared.subscribers.size}`,
+  );
   shared.dead = true;
   if (sharedEncoders.get(shared.key) === shared) sharedEncoders.delete(shared.key);
+  if (shared.firstAccessUnitDeadline) clearTimeout(shared.firstAccessUnitDeadline);
   if (shared.linger) clearTimeout(shared.linger);
   try {
     shared.child.kill();
@@ -161,35 +173,64 @@ function killSharedEncoder(shared: SharedEncoder) {
 
 function acquireSharedEncoder(windowID: string, binary: string, args: string[]): SharedEncoder {
   const existing = sharedEncoders.get(windowID);
-  if (existing && !existing.dead) return existing;
+  if (existing && !existing.dead) {
+    diag(
+      `encoder key=${windowID} reuse accessUnits=${existing.accessUnits} subscribers=${existing.subscribers.size} cachedKeyframe=${existing.latestKeyframe !== null}`,
+    );
+    return existing;
+  }
 
   const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
   const shared: SharedEncoder = {
     key: windowID,
     child,
     subscribers: new Set(),
+    latestKeyframe: null,
+    accessUnits: 0,
+    inputOwner: null,
+    firstAccessUnitDeadline: null,
     linger: null,
     dead: false,
   };
   sharedEncoders.set(windowID, shared);
+  diag(`encoder key=${windowID} spawn pid=${child.pid}`);
+  shared.firstAccessUnitDeadline = setTimeout(() => {
+    killSharedEncoder(shared, "first-access-unit-timeout");
+  }, FIRST_ACCESS_UNIT_TIMEOUT_MS);
 
-  void child.exited.then(() => killSharedEncoder(shared));
+  void child.exited.then((status) => killSharedEncoder(shared, `process-exit-${status}`));
   void (async () => {
+    let stopReason = "stdout-ended";
     try {
       for await (const frame of frames(child.stdout as ReadableStream<Uint8Array>)) {
         if (shared.dead) break;
         if (frame.kind === KIND_META) {
           const meta = JSON.parse(new TextDecoder().decode(frame.payload)) as Record<string, unknown>;
-          if (meta.type === "error") break;
+          diag(`encoder key=${windowID} meta=${JSON.stringify(meta)}`);
+          if (meta.type === "error") {
+            stopReason = `encoder-error-${String(meta.message)}`;
+            break;
+          }
           continue;
         }
         if (frame.kind !== KIND_ACCESS_UNIT || frame.payload.length < 10) continue;
+        shared.accessUnits += 1;
+        if (frame.payload[8] === 1) shared.latestKeyframe = frame.payload;
+        if (shared.accessUnits === 1) {
+          if (shared.firstAccessUnitDeadline) {
+            clearTimeout(shared.firstAccessUnitDeadline);
+            shared.firstAccessUnitDeadline = null;
+          }
+          diag(
+            `encoder key=${windowID} first-access-unit bytes=${frame.payload.length} keyframe=${frame.payload[8] === 1}`,
+          );
+        }
         for (const subscriber of shared.subscribers) subscriber.onAccessUnit(frame.payload);
       }
-    } catch {
-      // Reader failure is death; the finally covers it.
+    } catch (error) {
+      stopReason = `reader-error-${error instanceof Error ? error.message : String(error)}`;
     } finally {
-      killSharedEncoder(shared);
+      killSharedEncoder(shared, stopReason);
     }
   })();
   return shared;
@@ -201,20 +242,32 @@ function subscribeSharedEncoder(shared: SharedEncoder, subscriber: EncoderSubscr
     shared.linger = null;
   }
   shared.subscribers.add(subscriber);
-  // A joining viewer needs a keyframe to start decoding; ask the running
-  // encoder for one rather than making the viewer wait out the GOP.
-  encoderStdin(shared, "K\n");
+  diag(`encoder key=${shared.key} subscribe subscribers=${shared.subscribers.size}`);
   let released = false;
   return () => {
     if (released) return;
     released = true;
     shared.subscribers.delete(subscriber);
+    diag(`encoder key=${shared.key} release subscribers=${shared.subscribers.size}`);
     if (shared.subscribers.size === 0 && !shared.dead && !shared.linger) {
       shared.linger = setTimeout(() => {
-        if (shared.subscribers.size === 0) killSharedEncoder(shared);
+        if (shared.subscribers.size === 0) killSharedEncoder(shared, "linger-expired");
       }, ENCODER_LINGER_MS);
     }
   };
+}
+
+function primeSubscriber(shared: SharedEncoder, subscriber: EncoderSubscriber) {
+  if (shared.latestKeyframe) {
+    diag(`encoder key=${shared.key} replay-keyframe bytes=${shared.latestKeyframe.length}`);
+    subscriber.onAccessUnit(shared.latestKeyframe);
+  } else {
+    diag(`encoder key=${shared.key} request-keyframe no-cache`);
+  }
+  // Refresh the cache on the next capture callback. A static display may not
+  // produce one, which is why replaying the retained keyframe above is the
+  // joining viewer's authoritative bootstrap.
+  encoderStdin(shared, "K\n");
 }
 
 interface TileOffer {
@@ -224,6 +277,54 @@ interface TileOffer {
   height?: number;
   fps?: number;
   bitrate?: number;
+}
+
+interface TileTelemetry {
+  attempt?: unknown;
+  phase?: unknown;
+  detail?: unknown;
+  elapsedMs?: unknown;
+}
+
+const CLIENT_PHASES = new Set([
+  "answer-received",
+  "answer-applied",
+  "ice-state",
+  "connection-state",
+  "track-received",
+  "play-rejected",
+  "first-frame",
+  "receiver-stats",
+  "receiver-stats-error",
+  "input-channel-state",
+  "setup-timeout",
+  "first-frame-timeout",
+]);
+
+function recordClientTelemetry(windowID: string, body: TileTelemetry): Response {
+  if (
+    typeof body.attempt !== "string"
+    || !/^[a-zA-Z0-9-]{1,80}$/.test(body.attempt)
+    || typeof body.phase !== "string"
+    || !CLIENT_PHASES.has(body.phase)
+  ) {
+    return jsonResponse(
+      { code: "webrtc-bad-telemetry", message: "invalid attempt or phase" },
+      400,
+    );
+  }
+  const detail = typeof body.detail === "string" ? body.detail.slice(0, 512) : undefined;
+  const elapsedMs = bounded(body.elapsedMs, 0, 600_000);
+  diag(
+    `client ${JSON.stringify({
+      windowID,
+      attempt: body.attempt,
+      phase: body.phase,
+      detail,
+      elapsedMs,
+    })}`,
+  );
+  return new Response(null, { status: 204 });
 }
 
 function bounded(value: unknown, min: number, max: number): number | undefined {
@@ -248,10 +349,49 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
     codecs: { video: [H264] },
     iceAdditionalHostAddresses: tailnet ? [tailnet] : undefined,
   });
+  const connection = ++diagSequence;
+  let inputEncoder: SharedEncoder | null = null;
+  const inputOwner = Symbol(`pointer-c${connection}`);
+  let pointerMessages = 0;
+  let rejectedPointerMessages = 0;
+  const releaseInputOwner = () => {
+    if (inputEncoder?.inputOwner !== inputOwner) return;
+    encoderStdin(inputEncoder, "X\n");
+    inputEncoder.inputOwner = null;
+    diag(`c${connection} pointer released messages=${pointerMessages}`);
+  };
+  peer.onDataChannel.subscribe((channel) => {
+    if (channel.label !== "agentdesk-pointer-v1") {
+      diag(`c${connection} rejected data-channel label=${channel.label}`);
+      channel.close();
+      return;
+    }
+    diag(`c${connection} pointer channel received`);
+    channel.onMessage.subscribe((data) => {
+      const command = encoderPointerCommand(data);
+      if (!command || !inputEncoder || inputEncoder.dead) {
+        rejectedPointerMessages += 1;
+        if (rejectedPointerMessages === 1) {
+          diag(`c${connection} rejected first pointer message`);
+        }
+        return;
+      }
+      if (inputEncoder.inputOwner !== inputOwner) {
+        encoderStdin(inputEncoder, "X\n");
+        inputEncoder.inputOwner = inputOwner;
+        diag(`c${connection} pointer acquired encoder=${inputEncoder.key}`);
+      }
+      pointerMessages += 1;
+      encoderStdin(inputEncoder, command);
+    });
+    channel.stateChange.subscribe((state) => {
+      diag(`c${connection} pointer channel=${state}`);
+      if (state === "closed") releaseInputOwner();
+    });
+  });
   const track = new MediaStreamTrack({ kind: "video" });
   const transceiver = peer.addTransceiver(track, { direction: "sendonly" });
 
-  const connection = ++diagSequence;
   diag(`c${connection} window=${windowID} offer candidates: ${candidateLines(offer.sdp).join(" | ") || "NONE"}`);
 
   await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
@@ -302,22 +442,17 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (bitrate) args.push("--bitrate", String(bitrate));
 
   const shared = acquireSharedEncoder(windowID, binary, args);
+  inputEncoder = shared;
   let dead = false;
   let release: () => void = () => {};
   const shutdown = () => {
     if (dead) return;
     dead = true;
+    releaseInputOwner();
     release();
     void peer.close();
   };
 
-  // The transport reports peer death (ICE consent, DTLS close); that report is
-  // this subscription's whole lifecycle. The shared encoder itself dies a few
-  // seconds after its last subscriber.
-  peer.connectionStateChange.subscribe((state) => {
-    diag(`c${connection} connection=${state}`);
-    if (state === "failed" || state === "closed" || state === "disconnected") shutdown();
-  });
   // Picture loss on the far side becomes a keyframe at the source. Every
   // viewer gets the refresh, which is what sharing a capture means.
   transceiver.sender.onPictureLossIndication.subscribe(() => {
@@ -353,9 +488,15 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   // werift rewrites SSRC and payload type to the negotiated values; sequence
   // numbers and the 90kHz timestamp are ours to keep monotonic per connection.
   let sequence = Math.floor(Math.random() * 0xffff);
-  release = subscribeSharedEncoder(shared, {
+  let sentAccessUnits = 0;
+  let transportReady = false;
+  const subscriber: EncoderSubscriber = {
     onAccessUnit: (payload) => {
-      if (dead) return;
+      if (dead || !transportReady) return;
+      sentAccessUnits += 1;
+      if (sentAccessUnits === 1) {
+        diag(`c${connection} first-access-unit bytes=${payload.length} keyframe=${payload[8] === 1}`);
+      }
       const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
       const ptsMicros = view.getBigUint64(0);
       const timestamp = Number((ptsMicros * 9n) / 100n) % 0x100000000;
@@ -376,6 +517,19 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
       }
     },
     onDead: shutdown,
+  };
+  release = subscribeSharedEncoder(shared, subscriber);
+
+  // The transport reports peer death (ICE consent, DTLS close); that report is
+  // this subscription's whole lifecycle. Bootstrap only after DTLS is ready so
+  // the retained keyframe cannot be written before the peer can receive RTP.
+  peer.connectionStateChange.subscribe((state) => {
+    diag(`c${connection} connection=${state}`);
+    if (state === "connected" && !transportReady) {
+      transportReady = true;
+      primeSubscriber(shared, subscriber);
+    }
+    if (state === "failed" || state === "closed" || state === "disconnected") shutdown();
   });
 
   // Vanilla ICE: werift resolves setLocalDescription after gathering, so the
@@ -387,6 +541,21 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
 export function createWebrtcTileRoutes(): RouteHandler {
   return (request, url) => {
     if (request.method !== "POST") return undefined;
+    const telemetry = WEBRTC_TILE_TELEMETRY_ROUTE.exec(url.pathname);
+    if (telemetry) {
+      return (async () => {
+        let body: TileTelemetry;
+        try {
+          body = (await request.json()) as TileTelemetry;
+        } catch {
+          return jsonResponse(
+            { code: "webrtc-bad-telemetry", message: "body was not JSON" },
+            400,
+          );
+        }
+        return recordClientTelemetry(telemetry[1]!, body);
+      })();
+    }
     const match = WEBRTC_TILE_ROUTE.exec(url.pathname);
     if (!match) return undefined;
     return (async () => {

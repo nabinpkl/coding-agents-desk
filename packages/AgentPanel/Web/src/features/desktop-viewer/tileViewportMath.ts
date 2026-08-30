@@ -17,6 +17,16 @@ export const MAX_SCALE = 8;
 
 export const IDENTITY: ViewportTransform = { scale: 1, tx: 0, ty: 0 };
 
+/** Matches GestureTranslator's default relative pointer acceleration. */
+export function pointerAccelerationGain(speed: number): number {
+  return 1.5 + Math.min(Math.max(0, speed) * 0.005, 8.5);
+}
+
+/** Matches GestureTranslator's default two-finger scroll acceleration. */
+export function scrollAccelerationGain(speed: number): number {
+  return 1 + Math.min(Math.max(0, speed) * 0.0045, 11);
+}
+
 /** Pan so no edge of the content pulls inside the viewport. */
 export function clampPan(
   transform: ViewportTransform,

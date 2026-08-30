@@ -291,7 +291,7 @@ final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
 
 /// Hardware H.264 through VideoToolbox, emitted as bare Annex-B access units.
 ///
-/// No muxer at all: this mode exists for a WebRTC-style transport that wants
+/// No muxer at all: this mode exists for an RTP transport that wants
 /// encoded frames to packetize itself. Constrained Baseline because that is the
 /// profile every browser's RTP answer advertises (42e01f), so the bytes match
 /// what the SDP promised. SPS and PPS ride in front of every keyframe, which is
@@ -551,6 +551,7 @@ Task {
     let filter: SCContentFilter
     let sourceWidth: Int
     let sourceHeight: Int
+    let inputBounds: CGRect
     let openMeta: [String: Any]
     if let windowID = windowArgument {
         guard let window = content.windows.first(where: { $0.windowID == windowID })
@@ -558,6 +559,7 @@ Task {
         filter = SCContentFilter(desktopIndependentWindow: window)
         sourceWidth = Int(window.frame.width)
         sourceHeight = Int(window.frame.height)
+        inputBounds = window.frame
         openMeta = [
             "type": "open", "window": Int(windowID),
             "app": window.owningApplication?.applicationName ?? "",
@@ -576,8 +578,11 @@ Task {
         filter = SCContentFilter(display: display, excludingWindows: [])
         sourceWidth = display.width
         sourceHeight = display.height
+        inputBounds = CGDisplayBounds(display.displayID)
         openMeta = ["type": "open", "display": Int(display.displayID)]
     }
+
+    let pointerInput = PointerInputController(bounds: inputBounds)
 
     // Even dimensions: the encoder rejects odd ones for 4:2:0 chroma.
     let width = (requestedWidth ?? sourceWidth) & ~1
@@ -586,6 +591,13 @@ Task {
     meta["width"] = width
     meta["height"] = height
     meta["segmentSeconds"] = segmentSeconds
+    meta["inputTrusted"] = pointerInput.isTrusted
+    meta["inputBounds"] = [
+        "x": inputBounds.minX,
+        "y": inputBounds.minY,
+        "w": inputBounds.width,
+        "h": inputBounds.height,
+    ]
     emitMeta(meta)
 
     let sink: FrameSink
@@ -599,9 +611,10 @@ Task {
         liveRawEncoder = encoder
         // Transport control arrives as lines on stdin: "K" forces a keyframe
         // on the next frame (picture loss on the far side), "B<bps>" applies
-        // the transport's bandwidth estimate to the encoder. Anything else is
-        // ignored, so an older parent that writes bare bytes still gets its
-        // keyframe behaviour from the "K".
+        // the transport's bandwidth estimate to the encoder. Pointer input uses
+        // separate M/C/S/X commands consumed before capture control is considered.
+        // Anything else is ignored, so an older parent that writes bare bytes still
+        // gets its keyframe behaviour from the "K".
         Thread.detachNewThread {
             var buffer = Data()
             while true {
@@ -613,7 +626,9 @@ Task {
                     let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
                         .trimmingCharacters(in: .whitespaces)
                     buffer.removeSubrange(buffer.startIndex...newline)
-                    if line.hasPrefix("B"), let bits = Int(line.dropFirst()) {
+                    if pointerInput.handle(line) {
+                        continue
+                    } else if line.hasPrefix("B"), let bits = Int(line.dropFirst()) {
                         encoder.setBitrate(bits)
                     } else if line.contains("K") {
                         encoder.requestKeyframe()

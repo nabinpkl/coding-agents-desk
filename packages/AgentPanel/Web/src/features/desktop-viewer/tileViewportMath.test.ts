@@ -1,8 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { clampPan, IDENTITY, panBy, toContentPoint, zoomAt } from "./tileViewportMath";
+import {
+  clampPan,
+  IDENTITY,
+  panBy,
+  pointerAccelerationGain,
+  scrollAccelerationGain,
+  toContentPoint,
+  zoomAt,
+} from "./tileViewportMath";
 
 const W = 800;
 const H = 500;
+
+describe("remote pointer acceleration", () => {
+  it("matches the native pointer gain and cap", () => {
+    expect(pointerAccelerationGain(0)).toBe(1.5);
+    expect(pointerAccelerationGain(400)).toBe(3.5);
+    expect(pointerAccelerationGain(10_000)).toBe(10);
+  });
+
+  it("matches the native scroll gain and cap", () => {
+    expect(scrollAccelerationGain(0)).toBe(1);
+    expect(scrollAccelerationGain(1_000)).toBe(5.5);
+    expect(scrollAccelerationGain(10_000)).toBe(12);
+  });
+});
 
 describe("zoomAt", () => {
   it("keeps the zoom point over the same content", () => {

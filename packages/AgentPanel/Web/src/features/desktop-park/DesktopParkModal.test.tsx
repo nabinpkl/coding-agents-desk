@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ParkPlanResponse, ParkStateResponse } from "@agentdesk/agent-feed-wire";
 import { DesktopParkPanel, groupByDesktop } from "./DesktopParkModal";
 import type { DesktopParkHandle } from "./useDesktopPark";
+import {
+  FIRST_FRAME_TIMEOUT_MS,
+  ICE_SETUP_TIMEOUT_MS,
+  TileStreamRtc,
+} from "../desktop-viewer/TileStreamRtc";
 
 const DISPLAY = { x: 0, y: 0, w: 1800, h: 1169 };
 
@@ -178,5 +183,195 @@ describe("the Desktop park view", () => {
     expect(screen.getByRole("button", { name: "Stop desktop" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Stop desktop" }));
     expect(screen.queryByText(/the active Space/)).not.toBeInTheDocument();
+  });
+});
+
+describe("the WebRTC tile", () => {
+  const originalFetch = globalThis.fetch;
+  const originalPeerConnection = globalThis.RTCPeerConnection;
+  const originalCrypto = globalThis.crypto;
+
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperties(globalThis, {
+      fetch: { configurable: true, writable: true, value: originalFetch },
+      RTCPeerConnection: {
+        configurable: true,
+        writable: true,
+        value: originalPeerConnection,
+      },
+      crypto: { configurable: true, writable: true, value: originalCrypto },
+    });
+  });
+
+  it("records receiver stats, times out stalled peers, and cleans up its timers", async () => {
+    vi.useFakeTimers();
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push({ url, body });
+      if (url.endsWith("/telemetry")) return new Response(null, { status: 204 });
+      return Response.json({ type: "answer", sdp: "answer" });
+    }));
+
+    class ConnectingPeer {
+      static last: ConnectingPeer | undefined;
+      localDescription: RTCSessionDescriptionInit | null = null;
+      iceGatheringState: RTCIceGatheringState = "complete";
+      iceConnectionState: RTCIceConnectionState = "checking";
+      connectionState: RTCPeerConnectionState = "connecting";
+      ontrack: RTCPeerConnection["ontrack"] = null;
+      oniceconnectionstatechange: RTCPeerConnection["oniceconnectionstatechange"] = null;
+      onconnectionstatechange: RTCPeerConnection["onconnectionstatechange"] = null;
+      constructor() {
+        ConnectingPeer.last = this;
+      }
+      createDataChannel(): RTCDataChannel {
+        return {
+          readyState: "connecting",
+          bufferedAmount: 0,
+          send: vi.fn(),
+          close: vi.fn(),
+          onopen: null,
+          onclose: null,
+          onerror: null,
+        } as unknown as RTCDataChannel;
+      }
+      addTransceiver() {}
+      async createOffer(): Promise<RTCSessionDescriptionInit> {
+        return { type: "offer", sdp: "offer" };
+      }
+      async setLocalDescription(description: RTCSessionDescriptionInit) {
+        this.localDescription = description;
+      }
+      async setRemoteDescription() {}
+      async getStats(): Promise<RTCStatsReport> {
+        return new Map<string, RTCStats>([
+          ["inbound", {
+            id: "inbound",
+            type: "inbound-rtp",
+            timestamp: 0,
+            kind: "video",
+            ssrc: 1,
+            trackIdentifier: "video",
+            packetsReceived: 120,
+            packetsLost: 2,
+            packetsRepaired: 1,
+            packetsDiscarded: 3,
+            jitter: 0.012,
+            framesReceived: 60,
+            framesDecoded: 58,
+            framesDropped: 2,
+            jitterBufferDelay: 1.16,
+            jitterBufferTargetDelay: 2.32,
+            jitterBufferEmittedCount: 58,
+            totalDecodeTime: 0.58,
+            nackCount: 4,
+            pliCount: 1,
+            decoderImplementation: "VideoToolbox",
+            powerEfficientDecoder: true,
+          } as RTCInboundRtpStreamStats],
+          ["transport", {
+            id: "transport",
+            type: "transport",
+            timestamp: 0,
+            dtlsState: "connected",
+            selectedCandidatePairId: "pair",
+          } as RTCTransportStats],
+          ["pair", {
+            id: "pair",
+            type: "candidate-pair",
+            timestamp: 0,
+            localCandidateId: "local",
+            remoteCandidateId: "remote",
+            state: "succeeded",
+            currentRoundTripTime: 0.08,
+            availableIncomingBitrate: 1_500_000,
+          } as RTCIceCandidatePairStats],
+        ]) as RTCStatsReport;
+      }
+      addEventListener() {}
+      removeEventListener() {}
+      close() {
+        this.connectionState = "closed";
+        this.iceConnectionState = "closed";
+      }
+    }
+    vi.stubGlobal("RTCPeerConnection", ConnectingPeer);
+    vi.stubGlobal("crypto", { randomUUID: () => "test-attempt" });
+
+    const { unmount } = render(
+      <TileStreamRtc windowID="display" width={1800} height={1169} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ICE_SETUP_TIMEOUT_MS);
+    });
+
+    expect(screen.getByText("reconnecting…")).toBeInTheDocument();
+    expect(requests).toContainEqual({
+      url: "/api/park/tile/display/webrtc/telemetry",
+      body: {
+        attempt: "test-attempt",
+        phase: "setup-timeout",
+        detail: "ice=checking connection=connecting",
+        elapsedMs: ICE_SETUP_TIMEOUT_MS,
+      },
+    });
+    unmount();
+
+    requests.length = 0;
+    const second = render(
+      <TileStreamRtc windowID="display" width={1800} height={1169} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    second.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ICE_SETUP_TIMEOUT_MS);
+    });
+    expect(requests.some(({ body }) => body.phase === "setup-timeout")).toBe(false);
+
+    requests.length = 0;
+    const third = render(
+      <TileStreamRtc windowID="display" width={1800} height={1169} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const connected = document.querySelector("video");
+    expect(connected).not.toBeNull();
+    const active = ConnectingPeer.last;
+    expect(active).toBeDefined();
+    active!.connectionState = "connected";
+    active!.iceConnectionState = "connected";
+    const onConnectionStateChange = active!.onconnectionstatechange as ((event: Event) => void) | null;
+    onConnectionStateChange?.(new Event("connectionstatechange"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FIRST_FRAME_TIMEOUT_MS);
+    });
+    expect(requests.some(({ body }) => body.phase === "first-frame-timeout")).toBe(true);
+    const receiverStats = requests.find(({ body }) => body.phase === "receiver-stats");
+    expect(JSON.parse(String(receiverStats?.body.detail))).toEqual({
+      packetsReceived: 120,
+      packetsLost: 2,
+      packetsRepaired: 1,
+      packetsDiscarded: 3,
+      jitterMs: 12,
+      framesReceived: 60,
+      framesDecoded: 58,
+      framesDropped: 2,
+      jitterBufferMs: 20,
+      jitterTargetMs: 40,
+      decodeMs: 10,
+      nackCount: 4,
+      pliCount: 1,
+      rttMs: 80,
+      incomingKbps: 1500,
+      decoder: "VideoToolbox",
+      powerEfficient: true,
+    });
+    third.unmount();
   });
 });

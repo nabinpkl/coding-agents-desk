@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftToLine, ArrowRightToLine, RotateCcw, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, MousePointer2, RotateCcw, X } from "lucide-react";
 import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
-import { TileStream, type TileState } from "./TileStream";
-import { TileStreamRtc } from "./TileStreamRtc";
-import { TileViewport } from "./TileViewport";
+import type { DesktopStreamState } from "../desktop-viewer/DesktopStreamState";
+import { TileStreamRtc, type PointerInputTransport } from "../desktop-viewer/TileStreamRtc";
+import { TileViewport } from "../desktop-viewer/TileViewport";
+import { TileStream } from "./TileStream";
 import type { DesktopParkHandle } from "./useDesktopPark";
 
 /**
@@ -96,7 +97,9 @@ export function DesktopParkPanel({
   // survives, and iOS's native video player (which would eat the overlay)
   // never enters the picture.
   const [expanded, setExpanded] = useState(false);
-  const [tile, setTile] = useState<TileState>({ kind: "connecting" });
+  const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
+  const [pointerMode, setPointerMode] = useState(false);
+  const [pointerTransport, setPointerTransport] = useState<PointerInputTransport | null>(null);
   const watchedWindow =
     typeof watching === "number" ? ready?.state.windows.find((w) => w.id === watching) ?? null : null;
   const displayFrame = ready?.plan.display.frame ?? null;
@@ -109,6 +112,18 @@ export function DesktopParkPanel({
           frame: displayFrame,
         }
       : watchedWindow;
+
+  useEffect(() => {
+    setPointerMode(false);
+    setPointerTransport(null);
+  }, [watching, transport]);
+
+  useEffect(() => {
+    if (!pointerTransport) setPointerMode(false);
+  }, [pointerTransport]);
+
+  const pointerAvailable =
+    transport === "rtc" && pointerTransport !== null && tile.kind === "playing";
 
   return (
     <div className="flex max-h-[88dvh] flex-col">
@@ -203,6 +218,30 @@ export function DesktopParkPanel({
             </span>
             <button
               type="button"
+              aria-pressed={pointerMode}
+              disabled={!pointerAvailable}
+              onClick={() => {
+                setPointerMode((current) => !current);
+                setExpanded(true);
+              }}
+              title={
+                pointerAvailable
+                  ? "Relative pointer: drag to move, tap to click, two fingers to scroll"
+                  : "Pointer control becomes available when the WebRTC tile is playing"
+              }
+              className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-mono
+                text-[10px] transition-colors focus-visible:outline-2
+                focus-visible:-outline-offset-2 focus-visible:outline-primary
+                disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent
+                ${pointerMode
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/70"}`}
+            >
+              <MousePointer2 className="size-3" aria-hidden />
+              pointer
+            </button>
+            <button
+              type="button"
               onClick={() => setExpanded((current) => !current)}
               title={expanded ? "Exit full screen" : "Full screen"}
               className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground
@@ -213,7 +252,10 @@ export function DesktopParkPanel({
             </button>
             <button
               type="button"
-              onClick={() => setTransport((current) => (current === "rtc" ? "mse" : "rtc"))}
+              onClick={() => {
+                setPointerMode(false);
+                setTransport((current) => (current === "rtc" ? "mse" : "rtc"));
+              }}
               title="Switch tile transport"
               className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground
                 transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
@@ -226,6 +268,7 @@ export function DesktopParkPanel({
               onClick={() => {
                 setWatching(null);
                 setExpanded(false);
+                setPointerMode(false);
               }}
               className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground
                 transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
@@ -241,7 +284,11 @@ export function DesktopParkPanel({
                 : "mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border"
             }
           >
-            <TileViewport className={expanded ? "h-full" : ""}>
+            <TileViewport
+              className={expanded ? "h-full" : ""}
+              pointerMode={pointerMode}
+              sendPointerInput={pointerTransport?.send}
+            >
             {transport === "rtc" ? (
               <TileStreamRtc
                 key={`rtc-${watched.id}`}
@@ -250,6 +297,7 @@ export function DesktopParkPanel({
                 height={watched.frame.h}
                 fill={expanded}
                 onState={setTile}
+                onPointerTransport={setPointerTransport}
               />
             ) : (
               <TileStream

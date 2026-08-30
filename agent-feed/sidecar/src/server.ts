@@ -8,6 +8,7 @@ import {
 import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
+import { createDesktopDisplayRoutes } from "./http/desktopDisplayRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import { createParkRoutes } from "./http/parkRoutes.ts";
 import { createTileRoutes } from "./http/tileRoutes.ts";
@@ -75,6 +76,7 @@ const routes: RouteHandler[] = [
   // here is only for readability.
   createUsageRoutes(),
   // Same: a Desktop belongs to the machine, not to a thread.
+  createDesktopDisplayRoutes(),
   createParkRoutes(),
   createTileRoutes(),
   createWebrtcTileRoutes(),

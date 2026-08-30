@@ -113,10 +113,7 @@ struct SurfaceVisibility: Equatable {
     let content: ControlSurface
 
     /// Whether this surface's view should be hidden. False for `content` alone.
-    ///
-    /// `.control` answers false for itself even though it has no full-bleed view
-    /// of its own; its "surface" is the Mac chrome, which `controlChromeHidden`
-    /// covers. No consumer asks this about `.control`.
+    /// `.control` has no full-bleed view of its own, so no consumer asks this about it.
     func isHidden(_ surface: ControlSurface) -> Bool { surface != content }
 
     var agentHidden: Bool { isHidden(.agent) }
@@ -133,15 +130,6 @@ struct SurfaceVisibility: Equatable {
     var hostContentHidden: Bool { content == .voice }
     var controlRailHidden: Bool { content == .voice }
 
-    /// The interactive Mac controls: trackpad, hints, scroll strip, button row,
-    /// display rail. Only Control drives the Mac, so only Control shows them.
-    var controlChromeHidden: Bool { content != .control }
-
-    /// Whether the keyboard helper may take first responder and forward keys to
-    /// the Mac. The same answer as showing the chrome, asked as its own question
-    /// because a local surface with its own text field must not forward what is
-    /// typed into it to the desktop.
-    var keyboardInteractive: Bool { content == .control }
 }
 
 extension ControlSurface {
@@ -160,24 +148,6 @@ extension ControlSurface {
         case .voice: return "waveform"
         }
     }
-
-    /// Whether this surface needs the Mac's pixels.
-    ///
-    /// The one home for that question, because it has two consumers that must
-    /// agree: the WIRE (the host stops encoding for this client when nothing
-    /// wants frames, so they cost no downlink and no Mac encode) and the SCREEN
-    /// (a stage with no frames arriving must not keep painting the last one).
-    ///
-    /// They used to be two facts. The wire read `watchesHostVideo`; the screen
-    /// read nothing at all, because the video's visibility was left to whatever
-    /// happened to cover it, on the theory that every non-Control surface is
-    /// full-bleed. That theory was false in exactly one of three layout modes --
-    /// split portrait pins the video to the raw view top while a surface pins to
-    /// the safe-area top -- so the host stopped encoding while the last decoded
-    /// frame sat frozen in the uncovered strip above every surface. Deriving both
-    /// consumers from one value is what makes that state unrepresentable rather
-    /// than fixed.
-    var videoDemand: VideoDemand { self == .control ? .live : .none }
 
     /// VoiceOver / Maestro accessibility label for the rail button. This is the product-facing surface
     /// name and the stable target used by accessibility-driven flows.

@@ -73,6 +73,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var activeControlSurface: ControlSurface = .control {
         didSet { if oldValue != activeControlSurface { sessionSupervisor?.signal() } }
     }
+    let desktopViewerTabBar = DesktopViewerTabBar()
+    var desktopViewerMode: DesktopViewerMode = .native
+    var desktopWebSurface: DesktopWebSurface?
     // R21: pinch-zoom container around the owned media sink. Local-only zoom
     // via UIScrollView transform; ADR-0008 dropped the host-side
     // sourceRect crop path in favour of native-pixel encoder density.

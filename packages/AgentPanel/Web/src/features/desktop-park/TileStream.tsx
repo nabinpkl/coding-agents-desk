@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { DesktopStreamState } from "../desktop-viewer/DesktopStreamState";
 
 /**
  * One window, live, as a `<video>`.
@@ -50,13 +51,6 @@ const RECONNECT_ATTEMPT_LIMIT = 6;
  */
 const CAPTURE_PIXEL_RATIO_CAP = 2;
 
-export type TileState =
-  | { kind: "connecting" }
-  | { kind: "playing"; codec: string; firstFrameMs: number }
-  | { kind: "reconnecting"; attempt: number }
-  | { kind: "unsupported"; message: string }
-  | { kind: "error"; message: string };
-
 interface MediaSourceLike extends EventTarget {
   readyState: string;
   duration: number;
@@ -97,11 +91,11 @@ export function TileStream({
   bitrate?: number;
   /** Fill the parent instead of imposing the source's aspect ratio. */
   fill?: boolean;
-  onState?: (state: TileState) => void;
+  onState?: (state: DesktopStreamState) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<TileState>({ kind: "connecting" });
+  const [state, setState] = useState<DesktopStreamState>({ kind: "connecting" });
 
   useEffect(() => {
     onState?.(state);
