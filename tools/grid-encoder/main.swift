@@ -666,5 +666,21 @@ Task {
     } catch {
         fail("startCapture failed: \(error.localizedDescription)")
     }
+
+    // A capture that starts and then delivers nothing is wedged, not idle:
+    // ScreenCaptureKit always sends the current content as an initial frame,
+    // even for a static window. Measured: a capture racing another one's
+    // teardown starves at zero frames and NEVER recovers while the process
+    // lives, so dying here is what lets the supervisor and the viewer's
+    // reconnect bring up a clean one.
+    Thread.detachNewThread {
+        Thread.sleep(forTimeInterval: 10)
+        countersLock.lock()
+        let snapshot = counters?() ?? ""
+        countersLock.unlock()
+        if snapshot.hasPrefix("submitted=0 ") {
+            fail("capture produced no frames within 10s; SCK stream is wedged")
+        }
+    }
 }
 semaphore.wait()
