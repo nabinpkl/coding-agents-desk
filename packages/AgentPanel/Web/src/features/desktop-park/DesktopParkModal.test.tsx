@@ -169,4 +169,14 @@ describe("the Desktop park view", () => {
     render(<DesktopParkPanel park={park} onClose={() => {}} />);
     expect(screen.getByText("no yabai binary found")).toBeInTheDocument();
   });
+
+  it("offers the whole desktop as a watchable source", () => {
+    render(<DesktopParkPanel park={handle()} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Watch desktop" }));
+    // The tile section opens naming the display, and the toggle inverts.
+    expect(screen.getByText(/the active Space/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop desktop" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop desktop" }));
+    expect(screen.queryByText(/the active Space/)).not.toBeInTheDocument();
+  });
 });

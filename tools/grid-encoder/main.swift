@@ -489,9 +489,12 @@ func argument(_ name: String) -> String? {
     guard let index = arguments.firstIndex(of: "--\(name)"), index + 1 < arguments.count else { return nil }
     return arguments[index + 1]
 }
-guard let windowArgument = argument("window"), let windowID = UInt32(windowArgument) else {
-    fail("usage: grid-encoder --window <id> [--width N] [--height N] [--fps N] "
-        + "[--bitrate BPS] [--segment SECONDS] [--verbose]")
+// One of two capture targets: a single window by id, or a whole display.
+let windowArgument = argument("window").flatMap(UInt32.init)
+let displayArgument = argument("display")
+guard windowArgument != nil || displayArgument != nil else {
+    fail("usage: grid-encoder (--window <id> | --display <id|main>) [--width N] [--height N] "
+        + "[--fps N] [--bitrate BPS] [--segment SECONDS] [--verbose]")
 }
 let requestedWidth = argument("width").flatMap(Int.init)
 let requestedHeight = argument("height").flatMap(Int.init)
@@ -541,19 +544,49 @@ Thread.detachNewThread {
     }
 }
 Task {
-    guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
-          let window = content.windows.first(where: { $0.windowID == windowID })
-    else { fail("window \(windowID) is not shareable") }
+    guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+    else { fail("shareable content unavailable") }
+
+    // The capture target decides the filter; everything downstream is identical.
+    let filter: SCContentFilter
+    let sourceWidth: Int
+    let sourceHeight: Int
+    let openMeta: [String: Any]
+    if let windowID = windowArgument {
+        guard let window = content.windows.first(where: { $0.windowID == windowID })
+        else { fail("window \(windowID) is not shareable") }
+        filter = SCContentFilter(desktopIndependentWindow: window)
+        sourceWidth = Int(window.frame.width)
+        sourceHeight = Int(window.frame.height)
+        openMeta = [
+            "type": "open", "window": Int(windowID),
+            "app": window.owningApplication?.applicationName ?? "",
+            "title": window.title ?? "",
+        ]
+    } else {
+        // A display capture shows the ACTIVE Space as the user sees it,
+        // excluding nothing. "main" or an unmatched id falls back to the main
+        // display rather than failing, because the caller usually means "the
+        // screen I am looking at".
+        let requested = displayArgument.flatMap(UInt32.init)
+        let display = content.displays.first(where: { $0.displayID == requested })
+            ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+            ?? content.displays.first
+        guard let display else { fail("no shareable display") }
+        filter = SCContentFilter(display: display, excludingWindows: [])
+        sourceWidth = display.width
+        sourceHeight = display.height
+        openMeta = ["type": "open", "display": Int(display.displayID)]
+    }
 
     // Even dimensions: the encoder rejects odd ones for 4:2:0 chroma.
-    let width = (requestedWidth ?? Int(window.frame.width)) & ~1
-    let height = (requestedHeight ?? Int(window.frame.height)) & ~1
-    emitMeta([
-        "type": "open", "window": Int(windowID), "width": width, "height": height,
-        "segmentSeconds": segmentSeconds,
-        "app": window.owningApplication?.applicationName ?? "",
-        "title": window.title ?? "",
-    ])
+    let width = (requestedWidth ?? sourceWidth) & ~1
+    let height = (requestedHeight ?? sourceHeight) & ~1
+    var meta = openMeta
+    meta["width"] = width
+    meta["height"] = height
+    meta["segmentSeconds"] = segmentSeconds
+    emitMeta(meta)
 
     let sink: FrameSink
     if codecMode == "h264-annexb" {
@@ -622,11 +655,7 @@ Task {
     configuration.queueDepth = 5
     configuration.showsCursor = false
     configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-    let stream = SCStream(
-        filter: SCContentFilter(desktopIndependentWindow: window),
-        configuration: configuration,
-        delegate: capturer,
-    )
+    let stream = SCStream(filter: filter, configuration: configuration, delegate: capturer)
     liveStream = stream
     do {
         try stream.addStreamOutput(capturer, type: .screen, sampleHandlerQueue: DispatchQueue(label: "grid-encoder"))

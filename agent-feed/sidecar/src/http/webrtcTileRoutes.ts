@@ -28,7 +28,8 @@ import type { RouteHandler } from "./route.ts";
 import { frames, KIND_META } from "./tileEncoderPool.ts";
 import { packetizeH264 } from "./h264Packetizer.ts";
 
-const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10})\/webrtc$/;
+/** The target is a window id, or the literal `display` for the whole screen. */
+const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;
 
 // Connection diagnostics, appended per event so a failing surface (a phone on
 // LTE) leaves evidence readable on the Mac without touching the device. The
@@ -282,7 +283,7 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   diag(`c${connection} codec pt=${chosen?.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate}`);
 
   const args = [
-    "--window", windowID,
+    ...(windowID === "display" ? ["--display", "main"] : ["--window", windowID]),
     "--codec", "h264-annexb",
     // A 4-second GOP instead of the MSE path's 0.4s: that cadence was a
     // segment constraint, not a transport need, and at tile bitrates a

@@ -83,14 +83,26 @@ export function DesktopParkPanel({
   }, [ready]);
   const groups = useMemo(() => groupByDesktop(ready?.state), [ready]);
   const unsound = ready ? !ready.plan.sound : false;
-  // One window at a time for now. The grid comes after a compositor; this proves
-  // the delivery path with the piece that already exists.
-  const [watching, setWatching] = useState<number | null>(null);
+  // One source at a time for now: a window id, or "display" for the whole
+  // active screen. The grid comes after a compositor; this proves the delivery
+  // path with the piece that already exists.
+  const [watching, setWatching] = useState<number | "display" | null>(null);
   // A/B seam for the delivery spike: WebRTC (transport owns timing) against
   // MSE over HTTP (the page owns timing). Default is the contender under test.
   const [transport, setTransport] = useState<"rtc" | "mse">("rtc");
   const [tile, setTile] = useState<TileState>({ kind: "connecting" });
-  const watched = ready?.state.windows.find((w) => w.id === watching) ?? null;
+  const watchedWindow =
+    typeof watching === "number" ? ready?.state.windows.find((w) => w.id === watching) ?? null : null;
+  const displayFrame = ready?.plan.display.frame ?? null;
+  const watched =
+    watching === "display" && displayFrame
+      ? {
+          id: "display" as const,
+          app: "Desktop",
+          title: `the active Space, ${displayFrame.w}\u00d7${displayFrame.h}`,
+          frame: displayFrame,
+        }
+      : watchedWindow;
 
   return (
     <div className="flex max-h-[88dvh] flex-col">
@@ -130,6 +142,18 @@ export function DesktopParkPanel({
           icon={<RotateCcw className="size-3.5" aria-hidden />}
           label="Restore"
         />
+        <button
+          type="button"
+          onClick={() => setWatching((current) => (current === "display" ? null : "display"))}
+          disabled={!ready}
+          className={`rounded-md px-2 py-1 text-xs transition-colors
+            hover:bg-muted hover:text-foreground active:bg-muted/70 focus-visible:outline-2
+            focus-visible:-outline-offset-2 focus-visible:outline-primary
+            disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent
+            ${watching === "display" ? "bg-accent/60 text-foreground" : "text-muted-foreground"}`}
+        >
+          {watching === "display" ? "Stop desktop" : "Watch desktop"}
+        </button>
         <button
           type="button"
           onClick={park.load}

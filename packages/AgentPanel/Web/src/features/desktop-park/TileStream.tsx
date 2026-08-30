@@ -87,8 +87,9 @@ export function TileStream({
   bitrate = 1_200_000,
   onState,
 }: {
-  windowID: number;
-  /** The window's own size. Sets the tile's aspect; capture may be smaller. */
+  /** A window id, or "display" for the whole active screen. */
+  windowID: number | "display";
+  /** The source's own size. Sets the tile's aspect; capture may be smaller. */
   width: number;
   height: number;
   fps?: number;

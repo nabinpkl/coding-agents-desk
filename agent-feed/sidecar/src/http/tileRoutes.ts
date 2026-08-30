@@ -24,7 +24,8 @@ import {
   type EncoderProcess,
 } from "./tileEncoderPool.ts";
 
-const TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10})\/stream$/;
+/** The target is a window id, or the literal `display` for the whole screen. */
+const TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/stream$/;
 
 export interface TileOptions {
   width?: number;
@@ -42,7 +43,7 @@ function bounded(raw: string | null, min: number, max: number): number | undefin
 }
 
 function encoderArguments(windowID: string, options: TileOptions): string[] {
-  const args = ["--window", windowID];
+  const args = windowID === "display" ? ["--display", "main"] : ["--window", windowID];
   if (options.width) args.push("--width", String(Math.round(options.width)));
   if (options.height) args.push("--height", String(Math.round(options.height)));
   if (options.fps) args.push("--fps", String(Math.round(options.fps)));
