@@ -91,6 +91,11 @@ export function DesktopParkPanel({
   // A/B seam for the delivery spike: WebRTC (transport owns timing) against
   // MSE over HTTP (the page owns timing). Default is the contender under test.
   const [transport, setTransport] = useState<"rtc" | "mse">("rtc");
+  // Pseudo-fullscreen: a layout state, not the Fullscreen API. The app owns
+  // the webview, so filling the viewport is CSS, the gesture overlay
+  // survives, and iOS's native video player (which would eat the overlay)
+  // never enters the picture.
+  const [expanded, setExpanded] = useState(false);
   const [tile, setTile] = useState<TileState>({ kind: "connecting" });
   const watchedWindow =
     typeof watching === "number" ? ready?.state.windows.find((w) => w.id === watching) ?? null : null;
@@ -179,7 +184,13 @@ export function DesktopParkPanel({
       <Outcome action={action} />
 
       {watched ? (
-        <section className="shrink-0 border-b border-border">
+        <section
+          className={
+            expanded
+              ? "fixed inset-0 z-50 flex flex-col bg-background"
+              : "shrink-0 border-b border-border"
+          }
+        >
           <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 truncate">
               <span className="text-muted-foreground">{watched.app}</span>{" "}
@@ -192,6 +203,16 @@ export function DesktopParkPanel({
             </span>
             <button
               type="button"
+              onClick={() => setExpanded((current) => !current)}
+              title={expanded ? "Exit full screen" : "Full screen"}
+              className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground
+                transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
+                focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+            >
+              {expanded ? "\u2921 exit" : "\u2922 full"}
+            </button>
+            <button
+              type="button"
               onClick={() => setTransport((current) => (current === "rtc" ? "mse" : "rtc"))}
               title="Switch tile transport"
               className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground
@@ -202,7 +223,10 @@ export function DesktopParkPanel({
             </button>
             <button
               type="button"
-              onClick={() => setWatching(null)}
+              onClick={() => {
+                setWatching(null);
+                setExpanded(false);
+              }}
               className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground
                 transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
                 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
@@ -210,14 +234,21 @@ export function DesktopParkPanel({
               stop
             </button>
           </div>
-          <div className="mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border">
-            <TileViewport>
+          <div
+            className={
+              expanded
+                ? "min-h-0 flex-1"
+                : "mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border"
+            }
+          >
+            <TileViewport className={expanded ? "h-full" : ""}>
             {transport === "rtc" ? (
               <TileStreamRtc
                 key={`rtc-${watched.id}`}
                 windowID={watched.id}
                 width={watched.frame.w}
                 height={watched.frame.h}
+                fill={expanded}
                 onState={setTile}
               />
             ) : (
@@ -226,6 +257,7 @@ export function DesktopParkPanel({
                 windowID={watched.id}
                 width={watched.frame.w}
                 height={watched.frame.h}
+                fill={expanded}
                 onState={setTile}
               />
             )}

@@ -24,7 +24,7 @@ import {
  * pointermove per frame through React state would re-render the tile sixty
  * times a second for no layout change.
  */
-export function TileViewport({ children }: { children: ReactNode }) {
+export function TileViewport({ children, className = "" }: { children: ReactNode; className?: string }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
 
@@ -142,10 +142,10 @@ export function TileViewport({ children }: { children: ReactNode }) {
   return (
     <div
       ref={viewport}
-      className="relative overflow-hidden select-none"
+      className={`relative overflow-hidden select-none ${className}`}
       style={{ touchAction: "none", WebkitTouchCallout: "none" } as React.CSSProperties}
     >
-      <div ref={content} className="origin-top-left will-change-transform">
+      <div ref={content} className="h-full origin-top-left will-change-transform">
         {children}
       </div>
     </div>

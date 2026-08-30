@@ -33,6 +33,7 @@ export function TileStreamRtc({
   height,
   fps = 15,
   bitrate = 1_200_000,
+  fill = false,
   onState,
 }: {
   /** A window id, or "display" for the whole active screen. */
@@ -42,6 +43,8 @@ export function TileStreamRtc({
   height: number;
   fps?: number;
   bitrate?: number;
+  /** Fill the parent instead of imposing the source's aspect ratio. */
+  fill?: boolean;
   onState?: (state: TileState) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -201,7 +204,11 @@ export function TileStreamRtc({
   }, [windowID, width, height, fps, bitrate]);
 
   return (
-    <div ref={frame} className="relative bg-black" style={{ aspectRatio: `${width} / ${height}` }}>
+    <div
+      ref={frame}
+      className={`relative bg-black ${fill ? "size-full" : ""}`}
+      style={fill ? undefined : { aspectRatio: `${width} / ${height}` }}
+    >
       <video
         ref={video}
         muted
