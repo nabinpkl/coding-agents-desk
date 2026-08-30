@@ -11,10 +11,8 @@
 // What deliberately does NOT exist here, because the transport owns it: no
 // live-edge chase, no buffer pruning, no idle sweeper, no reconnect policy.
 // A dead peer fails ICE consent and the connection state says so; late packets
-// are the jitter buffer's problem on the far side.
-//
-// Spike scope: one encoder per connection (no pool sharing yet), fixed bitrate
-// from the query (no bandwidth-estimate feedback into the encoder yet).
+// are the jitter buffer's problem on the far side. Even the encoder's bitrate
+// is the receiver's number (REMB), not ours.
 
 import {
   MediaStreamTrack,
@@ -39,6 +37,16 @@ const KIND_ACCESS_UNIT = 3;
 // entries the sender actually stamps on packets is chosen after negotiation,
 // in answer(), because the receiver enforces the profile of the payload type
 // it receives.
+//
+// Deliberately NO transport-wide-cc header extension. Negotiating it makes the
+// browser use TWCC feedback, which feeds werift's sender-side estimator, and
+// that estimator assumes a saturating sender: it emits only on windows of
+// twenty-plus acked packets and reads a quiet second as congestion, so a
+// mostly-static window never produces an estimate at all (measured: 191 TWCC
+// feedbacks in, zero estimates out). Without TWCC the browser falls back to
+// REMB, its own receiver-side estimator telling us a number directly, which is
+// both the more battle-tested estimator and the more minimal arrangement: the
+// receiver decides, the encoder obeys.
 const H264 = new RTCRtpCodecParameters({
   mimeType: "video/H264",
   clockRate: 90000,
@@ -49,6 +57,117 @@ const H264 = new RTCRtpCodecParameters({
   ],
   parameters: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
 });
+
+/**
+ * One encoder per WINDOW, shared by every viewer, keyed by window alone.
+ *
+ * Not an optimization: two ScreenCaptureKit captures of the same window starve
+ * each other (measured on the MSE path at 48ms apart, and measured again here
+ * when a reconnect overlapped the old session's encoder, which outlives its
+ * dead peer by the ICE consent timeout, so BOTH captures sat at zero frames).
+ * Since overlap is guaranteed by the reconnect flow, the second capture must
+ * never exist. The first viewer's geometry and profile win; a later viewer of
+ * the same window joins the running stream and its element scales the picture.
+ */
+interface SharedEncoder {
+  key: string;
+  child: ReturnType<typeof Bun.spawn>;
+  subscribers: Set<EncoderSubscriber>;
+  linger: ReturnType<typeof setTimeout> | null;
+  dead: boolean;
+}
+
+interface EncoderSubscriber {
+  /** One access-unit payload: 8 bytes pts-microseconds, 1 keyframe byte, Annex-B. */
+  onAccessUnit: (payload: Uint8Array) => void;
+  /** The encoder died; the connection has nothing left to send. */
+  onDead: () => void;
+}
+
+const sharedEncoders = new Map<string, SharedEncoder>();
+const ENCODER_LINGER_MS = 3_000;
+
+function encoderStdin(shared: SharedEncoder, line: string) {
+  const stdin = shared.child.stdin;
+  if (!stdin || typeof stdin === "number") return;
+  try {
+    stdin.write(line);
+  } catch {
+    // Dying encoder; its exit handler tears the subscribers down.
+  }
+}
+
+function killSharedEncoder(shared: SharedEncoder) {
+  if (shared.dead) return;
+  shared.dead = true;
+  if (sharedEncoders.get(shared.key) === shared) sharedEncoders.delete(shared.key);
+  if (shared.linger) clearTimeout(shared.linger);
+  try {
+    shared.child.kill();
+  } catch {
+    // Already gone.
+  }
+  for (const subscriber of [...shared.subscribers]) subscriber.onDead();
+  shared.subscribers.clear();
+}
+
+function acquireSharedEncoder(windowID: string, binary: string, args: string[]): SharedEncoder {
+  const existing = sharedEncoders.get(windowID);
+  if (existing && !existing.dead) return existing;
+
+  const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
+  const shared: SharedEncoder = {
+    key: windowID,
+    child,
+    subscribers: new Set(),
+    linger: null,
+    dead: false,
+  };
+  sharedEncoders.set(windowID, shared);
+
+  void child.exited.then(() => killSharedEncoder(shared));
+  void (async () => {
+    try {
+      for await (const frame of frames(child.stdout as ReadableStream<Uint8Array>)) {
+        if (shared.dead) break;
+        if (frame.kind === KIND_META) {
+          const meta = JSON.parse(new TextDecoder().decode(frame.payload)) as Record<string, unknown>;
+          if (meta.type === "error") break;
+          continue;
+        }
+        if (frame.kind !== KIND_ACCESS_UNIT || frame.payload.length < 10) continue;
+        for (const subscriber of shared.subscribers) subscriber.onAccessUnit(frame.payload);
+      }
+    } catch {
+      // Reader failure is death; the finally covers it.
+    } finally {
+      killSharedEncoder(shared);
+    }
+  })();
+  return shared;
+}
+
+function subscribeSharedEncoder(shared: SharedEncoder, subscriber: EncoderSubscriber): () => void {
+  if (shared.linger) {
+    clearTimeout(shared.linger);
+    shared.linger = null;
+  }
+  shared.subscribers.add(subscriber);
+  // A joining viewer needs a keyframe to start decoding; ask the running
+  // encoder for one rather than making the viewer wait out the GOP.
+  encoderStdin(shared, "K\n");
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    shared.subscribers.delete(subscriber);
+    if (shared.subscribers.size === 0 && !shared.dead && !shared.linger) {
+      shared.linger = setTimeout(() => {
+        if (shared.subscribers.size === 0) killSharedEncoder(shared);
+      }, ENCODER_LINGER_MS);
+    }
+  };
+}
 
 interface TileOffer {
   sdp?: string;
@@ -122,75 +241,81 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (fps) args.push("--fps", String(fps));
   if (bitrate) args.push("--bitrate", String(bitrate));
 
-  const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
+  const shared = acquireSharedEncoder(windowID, binary, args);
   let dead = false;
+  let release: () => void = () => {};
   const shutdown = () => {
     if (dead) return;
     dead = true;
-    try {
-      child.kill();
-    } catch {
-      // Already gone.
-    }
+    release();
     void peer.close();
   };
 
   // The transport reports peer death (ICE consent, DTLS close); that report is
-  // the encoder's whole lifecycle.
+  // this subscription's whole lifecycle. The shared encoder itself dies a few
+  // seconds after its last subscriber.
   peer.connectionStateChange.subscribe((state) => {
     if (state === "failed" || state === "closed" || state === "disconnected") shutdown();
   });
-  // Picture loss on the far side becomes a keyframe at the source: one byte on
-  // the encoder's stdin.
+  // Picture loss on the far side becomes a keyframe at the source. Every
+  // viewer gets the refresh, which is what sharing a capture means.
   transceiver.sender.onPictureLossIndication.subscribe(() => {
-    try {
-      child.stdin.write("K");
-    } catch {
-      // Encoder gone; the state change above will shut everything down.
-    }
+    encoderStdin(shared, "K\n");
   });
-  void child.exited.then(() => shutdown());
+  // The receiver's bandwidth estimate drives the encoder's bitrate, which
+  // retires the last hand-set number in this path: the page's request is only
+  // the seed until the first REMB lands. With several viewers the last
+  // estimate wins, which slightly favours whoever spoke most recently; the
+  // honest multi-viewer answer (minimum across viewers) can land with the
+  // grid. Updates under a tenth of the last applied value are noise and
+  // skipped.
+  let appliedBitrate = 0;
+  const applyEstimate = (estimate: number) => {
+    if (!Number.isFinite(estimate) || estimate <= 0) return;
+    // The floor matters more than it looks: a quiet window sends almost
+    // nothing, REMB can only estimate what it measures, so quiet-time
+    // estimates read tens of kilobits. That is absence of evidence, not a bad
+    // link, and obeying it would start every burst of motion at slideshow
+    // quality. From the floor, GCC's multiplicative ramp recovers the real
+    // capacity within seconds of traffic flowing.
+    const clamped = Math.max(300_000, Math.min(20_000_000, Math.round(estimate)));
+    if (appliedBitrate > 0 && Math.abs(clamped - appliedBitrate) / appliedBitrate < 0.1) return;
+    appliedBitrate = clamped;
+    encoderStdin(shared, `B${clamped}\n`);
+  };
+  transceiver.sender.onRtcp.subscribe((rtcp) => {
+    const feedback = (rtcp as { feedback?: { bitrate?: bigint } }).feedback;
+    if (feedback && typeof feedback.bitrate === "bigint") applyEstimate(Number(feedback.bitrate));
+  });
 
-  // Feed loop: de-frame access units, packetize, hand to the track. werift
-  // rewrites SSRC and payload type to the negotiated values; sequence numbers
-  // and the 90kHz timestamp are ours to keep monotonic.
-  void (async () => {
-    let sequence = Math.floor(Math.random() * 0xffff);
-    const source = frames(child.stdout as ReadableStream<Uint8Array>);
-    try {
-      for await (const frame of source) {
-        if (dead) break;
-        if (frame.kind === KIND_META) {
-          const meta = JSON.parse(new TextDecoder().decode(frame.payload)) as Record<string, unknown>;
-          if (meta.type === "error") break;
-          continue;
-        }
-        if (frame.kind !== KIND_ACCESS_UNIT || frame.payload.length < 10) continue;
-        const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
-        const ptsMicros = view.getBigUint64(0);
-        const timestamp = Number((ptsMicros * 9n) / 100n) % 0x100000000;
-        const accessUnit = frame.payload.subarray(9);
-        for (const { payload, last } of packetizeH264(accessUnit)) {
-          const packet = new RtpPacket(
-            new RtpHeader({
-              sequenceNumber: sequence,
-              timestamp,
-              marker: last,
-              payloadType: 96,
-              ssrc: 0,
-            }),
-            Buffer.from(payload),
-          );
-          sequence = (sequence + 1) % 0x10000;
-          track.writeRtp(packet);
-        }
+  // Feed: packetize each shared access unit into this connection's track.
+  // werift rewrites SSRC and payload type to the negotiated values; sequence
+  // numbers and the 90kHz timestamp are ours to keep monotonic per connection.
+  let sequence = Math.floor(Math.random() * 0xffff);
+  release = subscribeSharedEncoder(shared, {
+    onAccessUnit: (payload) => {
+      if (dead) return;
+      const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+      const ptsMicros = view.getBigUint64(0);
+      const timestamp = Number((ptsMicros * 9n) / 100n) % 0x100000000;
+      const accessUnit = payload.subarray(9);
+      for (const { payload: rtpPayload, last } of packetizeH264(accessUnit)) {
+        const packet = new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: sequence,
+            timestamp,
+            marker: last,
+            payloadType: 96,
+            ssrc: 0,
+          }),
+          Buffer.from(rtpPayload),
+        );
+        sequence = (sequence + 1) % 0x10000;
+        track.writeRtp(packet);
       }
-    } catch {
-      // The child died or the peer closed mid-write; shutdown covers both.
-    } finally {
-      shutdown();
-    }
-  })();
+    },
+    onDead: shutdown,
+  });
 
   // Vanilla ICE: werift resolves setLocalDescription after gathering, so the
   // answer already carries the host candidates and no trickle round-trips are

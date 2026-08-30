@@ -319,6 +319,16 @@ final class RawH264Encoder: NSObject {
         forceKeyLock.unlock()
     }
 
+    /// The transport's bandwidth estimate, applied live. VideoToolbox accepts
+    /// AverageBitRate changes mid-session; the next frames simply cost less or
+    /// more. This is the whole congestion response: the estimator decides, the
+    /// encoder obeys, nothing in between holds an opinion.
+    func setBitrate(_ bitsPerSecond: Int) {
+        guard let session, bitsPerSecond > 0 else { return }
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate,
+                             value: NSNumber(value: bitsPerSecond))
+    }
+
     func start() {
         var created: VTCompressionSession?
         let status = VTCompressionSessionCreate(
@@ -554,14 +564,33 @@ Task {
         encoder.start()
         sink = encoder
         liveRawEncoder = encoder
-        // The transport's picture-loss signal arrives as a byte on stdin; any
-        // byte means "next frame must be a keyframe".
+        // Transport control arrives as lines on stdin: "K" forces a keyframe
+        // on the next frame (picture loss on the far side), "B<bps>" applies
+        // the transport's bandwidth estimate to the encoder. Anything else is
+        // ignored, so an older parent that writes bare bytes still gets its
+        // keyframe behaviour from the "K".
         Thread.detachNewThread {
+            var buffer = Data()
             while true {
-                guard let data = try? FileHandle.standardInput.read(upToCount: 1), !data.isEmpty else {
+                guard let data = try? FileHandle.standardInput.read(upToCount: 256), !data.isEmpty else {
                     return
                 }
-                encoder.requestKeyframe()
+                buffer.append(data)
+                while let newline = buffer.firstIndex(of: 0x0A) {
+                    let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
+                        .trimmingCharacters(in: .whitespaces)
+                    buffer.removeSubrange(buffer.startIndex...newline)
+                    if line.hasPrefix("B"), let bits = Int(line.dropFirst()) {
+                        encoder.setBitrate(bits)
+                    } else if line.contains("K") {
+                        encoder.requestKeyframe()
+                    }
+                }
+                // A bare "K" with no newline still works: flush it eagerly.
+                if buffer == Data([0x4B]) {
+                    encoder.requestKeyframe()
+                    buffer.removeAll()
+                }
             }
         }
         countersLock.lock()
