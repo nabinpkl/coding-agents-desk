@@ -844,7 +844,7 @@ export function TileViewport({
       <div ref={content} className="h-full origin-top-left will-change-transform">
         {children}
       </div>
-      {pointerMode && !keyboardPresented ? (
+      {pointerMode ? (
         <button
           ref={scrollPuck}
           type="button"
@@ -862,6 +862,11 @@ export function TileViewport({
           style={{
             right: DEFAULT_POINTER_SCROLL_PUCK_OFFSET.right,
             bottom: `max(${DEFAULT_POINTER_SCROLL_PUCK_OFFSET.bottom}px, var(--desktop-chrome-clearance, 0px))`,
+            // Hidden, never unmounted, while typing. The puck's own pointer listeners are
+            // bound once by the layout effect above, whose deps do not include the keyboard;
+            // a remounted puck comes back deaf, and its taps then fall through to the tile as
+            // a remote click that re-arms the keyboard instead of toggling the clutch.
+            ...(keyboardPresented ? { display: "none" } : {}),
           }}
           className={`absolute z-20 grid size-14 touch-none select-none place-items-center rounded-full border bg-black/45 text-white shadow-md transition-[opacity,transform,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-black/70 active:scale-95 motion-reduce:transition-none ${
             scrollEngaged

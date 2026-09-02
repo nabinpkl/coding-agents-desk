@@ -124,7 +124,7 @@ describe("TileViewport pointer mode", () => {
     pointer(surface, "pointerup", 1, 90, 80);
     expect(consume).toHaveBeenCalledOnce();
     expect(inputs).toEqual([]);
-    expect(screen.queryByTestId("pointer-scroll-puck")).not.toBeInTheDocument();
+    expect(screen.getByTestId("pointer-scroll-puck")).not.toBeVisible();
   });
 
   it("uses the puck to clutch one finger into free-axis scroll without moving the cursor", () => {
@@ -237,6 +237,40 @@ describe("TileViewport pointer mode", () => {
     pointer(puck, "pointerup", 10, 40, 40);
     act(() => vi.advanceTimersByTime(300));
 
+    expect(puck).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the puck deaf to the tile after the keyboard has come and gone", () => {
+    vi.useFakeTimers();
+    const inputs: DesktopPointerInput[] = [];
+    const beforeRemoteClick = vi.fn(() => "focus-1");
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      animationFrames.push(callback);
+      return animationFrames.length;
+    });
+    const surface = (presented: boolean) => (
+      <TileViewport
+        pointerMode
+        keyboardPresented={presented}
+        onBeforeRemoteClick={beforeRemoteClick}
+        sendPointerInput={(input) => { inputs.push(input); return true; }}
+      >
+        <div data-testid="content" />
+      </TileViewport>
+    );
+    const { rerender } = render(surface(false));
+    // Present the keyboard and dismiss it: the puck must come back wired to its
+    // own gesture arbitration, not to the tile's tap-to-click-and-arm path.
+    rerender(surface(true));
+    rerender(surface(false));
+
+    const puck = screen.getByTestId("pointer-scroll-puck");
+    pointer(puck, "pointerdown", 10, 40, 40);
+    pointer(puck, "pointerup", 10, 40, 40);
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(beforeRemoteClick).not.toHaveBeenCalled();
+    expect(inputs).toEqual([]);
     expect(puck).toHaveAttribute("aria-pressed", "true");
   });
 
