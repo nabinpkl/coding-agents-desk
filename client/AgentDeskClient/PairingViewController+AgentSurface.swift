@@ -501,6 +501,14 @@ extension PairingViewController {
 
         desktopViewerTabBar.isHidden = desktop.tabsHidden
         desktopViewerTabBar.select(desktopViewerMode)
+        // A hidden view still holds its height, so a bar left open while another surface owns
+        // the screen would reserve the strip for nothing. Coming back restores the remembered
+        // disclosure rather than the closed state that hiding imposed, exactly as the two
+        // bottom strips do in `refreshThumbnailStripVisibility`.
+        desktopViewerTabBar.setExpanded(
+            desktop.tabsHidden ? false : SettingsStore.shared.desktopViewerTabsExpanded
+        )
+        applyDesktopViewerTabsHeight(animated: false)
         desktopWebSurface?.setPresented(!desktop.webViewHidden)
 
         agentSurface?.isHidden = v.agentHidden
@@ -526,6 +534,20 @@ extension PairingViewController {
         Self.logger.debug("active surface: \(String(describing: surface))")
     }
 
+    /// The bar's height is the WebView surface's top edge, so the disclosure is a layout
+    /// change, not just a chrome change. Animated on a tap and immediate on a surface switch:
+    /// a surface that is being revealed has nothing to animate from.
+    func applyDesktopViewerTabsHeight(animated: Bool) {
+        guard let constraint = desktopViewerTabBarHeightConstraint else { return }
+        let height = desktopViewerTabBar.preferredHeight
+        guard constraint.constant != height else { return }
+        constraint.constant = height
+        guard animated else { return }
+        UIView.animate(withDuration: 0.2) { [weak self] in
+            self?.view.layoutIfNeeded()
+        }
+    }
+
     func desktopViewerSelectionChanged(_ mode: DesktopViewerMode) {
         guard desktopViewerMode != mode else { return }
         desktopViewerMode = mode
@@ -544,17 +566,29 @@ extension PairingViewController {
         desktopViewerTabBar.onSelection = { [weak self] mode in
             self?.desktopViewerSelectionChanged(mode)
         }
+        // Only a deliberate tap is remembered; the restore in `applySurface` must not write
+        // back over what the user chose.
+        desktopViewerTabBar.onDisclosureChange = { [weak self] expanded in
+            SettingsStore.shared.desktopViewerTabsExpanded = expanded
+            self?.applyDesktopViewerTabsHeight(animated: true)
+        }
         stage(.overlay).addSubview(desktopViewerTabBar)
 
         let surface = DesktopWebSurface()
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.setPresented(false)
         stage(.surface).addSubview(surface)
+        let tabBarHeight = desktopViewerTabBar.heightAnchor.constraint(
+            equalToConstant: desktopViewerTabBar.preferredHeight
+        )
+        desktopViewerTabBarHeightConstraint = tabBarHeight
         NSLayoutConstraint.activate([
             desktopViewerTabBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             desktopViewerTabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             desktopViewerTabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            desktopViewerTabBar.heightAnchor.constraint(equalToConstant: 44),
+            tabBarHeight,
+            // Chained under the bar rather than pinned to the safe area, so a closed bar hands
+            // the WebView the whole strip back instead of leaving it behind a transparent band.
             surface.topAnchor.constraint(equalTo: desktopViewerTabBar.bottomAnchor),
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),

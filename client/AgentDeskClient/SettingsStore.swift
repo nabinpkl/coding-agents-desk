@@ -69,6 +69,7 @@ final class SettingsStore: @unchecked Sendable {
         static let spacesStripExpanded = "agentDesk.spacesStripExpanded"
         static let windowPickerStripExpanded = "agentDesk.windowPickerStripExpanded"
         static let mediaDiagnosticsExpanded = "agentDesk.mediaDiagnosticsExpanded"
+        static let desktopViewerTabsExpanded = "agentDesk.desktopViewerTabsExpanded"
         static let pointerScrollPuckOffsetX = "agentDesk.pointerScrollPuckOffsetX"
         static let pointerScrollPuckOffsetY = "agentDesk.pointerScrollPuckOffsetY"
     }
@@ -441,6 +442,15 @@ final class SettingsStore: @unchecked Sendable {
     var mediaDiagnosticsExpanded: Bool {
         get { defaults.object(forKey: Key.mediaDiagnosticsExpanded) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.mediaDiagnosticsExpanded) }
+    }
+
+    // The Native/WebView switcher above the Desktop surface, on the same terms as the strips
+    // and the readout. Closed by default, which is the opposite of the readout's default and
+    // for the opposite reason: this one spans the full width of the Mac's own menu bar, and
+    // choosing which implementation draws Desktop is something a session does once, if ever.
+    var desktopViewerTabsExpanded: Bool {
+        get { defaults.object(forKey: Key.desktopViewerTabsExpanded) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Key.desktopViewerTabsExpanded) }
     }
 
     // Where the pointer-mode scroll clutch was last dragged to, as negative offsets from the

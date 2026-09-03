@@ -73,7 +73,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var activeControlSurface: ControlSurface = .control {
         didSet { if oldValue != activeControlSurface { sessionSupervisor?.signal() } }
     }
-    let desktopViewerTabBar = DesktopViewerTabBar()
+    // Restored from settings at construction rather than defaulted open: the bar lies on the
+    // Mac's own menu bar, so a run that starts with it closed has to stay closed.
+    let desktopViewerTabBar = DesktopViewerTabBar(
+        isExpanded: SettingsStore.shared.desktopViewerTabsExpanded
+    )
+    // The bar collapses to a pull tab and expands on demand, so its height is driven by
+    // `preferredHeight` rather than being a fixed row -- the same shape as the two strips.
+    var desktopViewerTabBarHeightConstraint: NSLayoutConstraint?
     var desktopViewerMode: DesktopViewerMode = .native
     var desktopWebSurface: DesktopWebSurface?
     // R21: pinch-zoom container around the owned media sink. Local-only zoom

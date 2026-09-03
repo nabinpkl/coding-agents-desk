@@ -103,7 +103,6 @@
 				AgentFeedWebview,
 				AppDelegate.swift,
 				Assets.xcassets,
-				HitOutsetView.swift,
 				Info.plist,
 				KeyboardDictationHandoffViewController.swift,
 				MediaStack.swift,

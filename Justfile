@@ -129,7 +129,7 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # 1.5.0 = input-lane liveness (popover no longer stuck on "Connected") +
 # client-initiated unpair (revoke frame).
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.7.0")
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.13.1")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.14.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 # AgentDesk-owned source for transcript discovery, parsing, indexing, and feed
 # HTTP/SSE delivery.
