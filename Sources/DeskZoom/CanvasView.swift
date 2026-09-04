@@ -12,7 +12,7 @@ final class CanvasView: NSView {
     private(set) var viewport: Viewport {
         didSet {
             guard viewport != oldValue else { return }
-            applyContentsRect()
+            placeContent()
             onViewportChange?(viewport)
         }
     }
@@ -22,6 +22,10 @@ final class CanvasView: NSView {
     private var frameRegion: CGRect?
     private var cursorPollTimer: Timer?
     private var mouseMonitor: Any?
+    /// The captured frame lives in its own layer, positioned by frame rather than drawn with
+    /// `contentsGravity`. Gravity plus a clamped `contentsRect` letterboxed the picture into black bars
+    /// whenever the view moved outside the captured region; placing the layer geometrically cannot.
+    private let contentLayer = CALayer()
     private let cursorLayer = CALayer()
     private var cursorOnCanvas = false
 
@@ -34,11 +38,15 @@ final class CanvasView: NSView {
         super.init(frame: NSRect(origin: .zero, size: canvas))
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
-        layer?.contentsGravity = .resizeAspect
-        layer?.magnificationFilter = .linear
-        layer?.minificationFilter = .trilinear
+        layer?.masksToBounds = true
         layer?.borderWidth = 0
         layer?.borderColor = NSColor.systemBlue.cgColor
+        // The layer's frame is set to exactly the region the pixels cover, so the contents fill it.
+        contentLayer.contentsGravity = .resize
+        contentLayer.magnificationFilter = .linear
+        contentLayer.minificationFilter = .trilinear
+        contentLayer.anchorPoint = .zero
+        layer?.addSublayer(contentLayer)
         installCursorOverlay()
         startCursorTracking()
     }
@@ -67,17 +75,25 @@ final class CanvasView: NSView {
         else { return }
         currentFrame = frame
         frameRegion = region
-        layer?.contents = surface
-        applyContentsRect()
+        contentLayer.contents = surface
+        placeContent()
     }
 
-    /// Re-crops the frame already on screen to the current viewport, so a zoom shows immediately instead of
-    /// waiting for the capture stream to be re-aimed, which on an idle display could be never.
-    private func applyContentsRect() {
-        guard let region = frameRegion else { return }
+    /// Puts the frame already on screen exactly where the current viewport says it belongs, so a zoom or a
+    /// pan shows immediately instead of waiting for the capture stream to be re-aimed, which on an idle
+    /// display could be never. Anything the frame does not cover stays background rather than being faked.
+    private func placeContent() {
+        guard let region = frameRegion, viewport.visible.width > 0 else { return }
+        let content = contentRect
+        let scale = content.width / viewport.visible.width
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.contentsRect = viewport.contentsRect(forCapturedRegion: region)
+        contentLayer.frame = CGRect(
+            x: content.minX + (region.minX - viewport.visible.minX) * scale,
+            y: content.minY + (region.minY - viewport.visible.minY) * scale,
+            width: region.width * scale,
+            height: region.height * scale
+        )
         CATransaction.commit()
     }
 
@@ -119,7 +135,7 @@ final class CanvasView: NSView {
 
     override func layout() {
         super.layout()
-        applyContentsRect()
+        placeContent()
         onViewportChange?(viewport)
     }
 

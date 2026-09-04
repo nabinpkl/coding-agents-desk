@@ -207,8 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingCaptureUpdate?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.applyCaptureUpdate() }
         pendingCaptureUpdate = work
-        // Aiming a fresh stream is expensive, so only do it once movement has settled.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+        // Aiming a fresh stream is expensive, so normally wait for movement to settle. But once the view
+        // has moved off what was captured, the uncovered part is showing background, so go at once.
+        let uncovered = canvasView.map { !$0.isServed(by: capture?.plan) } ?? false
+        DispatchQueue.main.asyncAfter(deadline: .now() + (uncovered ? 0.03 : 0.25), execute: work)
     }
 
     private func applyCaptureUpdate() {

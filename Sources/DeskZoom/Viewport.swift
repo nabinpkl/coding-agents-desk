@@ -70,24 +70,6 @@ struct Viewport: Equatable {
         return visible.insetBy(dx: -visible.width * padding, dy: -visible.height * padding).intersection(whole)
     }
 
-    /// Where the visible rect sits inside an already-captured region, as the unit rect CALayer wants for
-    /// `contentsRect`. This is what makes zooming look instant: the frame on screen is re-cropped straight
-    /// away, before a freshly-aimed capture stream has produced anything.
-    func contentsRect(forCapturedRegion region: CGRect) -> CGRect {
-        guard region.width > 0, region.height > 0 else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
-        let raw = CGRect(
-            x: (visible.minX - region.minX) / region.width,
-            y: (visible.minY - region.minY) / region.height,
-            width: visible.width / region.width,
-            height: visible.height / region.height
-        )
-        // Zooming out past what was captured would ask for pixels the frame does not have; CALayer would
-        // smear its edge rows. Clamp instead, and let the next frame from the new stream correct it.
-        let x = min(max(0, raw.minX), 1)
-        let y = min(max(0, raw.minY), 1)
-        return CGRect(x: x, y: y, width: min(raw.width, 1 - x), height: min(raw.height, 1 - y))
-    }
-
     /// Maps a fraction of the visible rect (0...1 in each axis, top-left origin) to a canvas point.
     func canvasPoint(atFraction f: CGPoint) -> CGPoint {
         CGPoint(x: visible.minX + f.x * visible.width, y: visible.minY + f.y * visible.height)

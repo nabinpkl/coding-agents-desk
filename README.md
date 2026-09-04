@@ -55,7 +55,7 @@ can be entered this way; once across, drag it anywhere.
   while the pointer is on the canvas.
 - `CanvasFocus.swift`: hands keyboard focus to whatever the teleported pointer lands on.
 - `ZoomControls.swift`: the title bar accessory.
-- `Viewport.swift`: pure zoom, pan, cursor-following and crop math, unit tested.
+- `Viewport.swift`: pure zoom, pan, cursor-following and capture-region math, unit tested.
 - `CanvasView.swift`: gestures, click-to-teleport, cursor presence highlight.
 
 ## Learnings (macOS 26.4, M2 Pro)
@@ -78,6 +78,9 @@ can be entered this way; once across, drag it anywhere.
 - `queueDepth` must leave spare buffers. The view holds the frame it is showing so the
   IOSurface under it is not recycled, so a depth of 1 delivered exactly one frame and then
   froze forever. Three works.
+- Do not combine `contentsGravity` with a clamped `contentsRect`. Clamping the crop to stay
+  inside the frame changes its aspect ratio, and the gravity then letterboxes the picture into
+  black bars. Positioning a content layer by frame is exact and cannot letterbox.
 - macOS decides where a new window opens from the display holding the focused window, and
   focus follows clicks, never the pointer. Teleporting the pointer is not enough on its own.
 - An inactive app cannot activate another one: `NSRunningApplication.activate()` is ignored,

@@ -99,34 +99,8 @@ extension ViewportTests {
 }
 
 extension ViewportTests {
-    func testContentsRectIsIdentityWhenTheFrameMatchesTheViewport() {
-        let viewport = Viewport(canvas: CGSize(width: 7680, height: 4800))
-        let rect = viewport.contentsRect(forCapturedRegion: viewport.visible)
-        XCTAssertEqual(rect, CGRect(x: 0, y: 0, width: 1, height: 1))
-    }
 
-    func testContentsRectCropsAFrameCapturedBeforeZoomingIn() {
-        var viewport = Viewport(canvas: CGSize(width: 7680, height: 4800))
-        let captured = viewport.visible
-        viewport.zoom(by: 4, anchor: CGPoint(x: 1920, y: 1200))
-        let rect = viewport.contentsRect(forCapturedRegion: captured)
-        XCTAssertEqual(rect.width, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(rect.height, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(rect.minX, viewport.visible.minX / 7680, accuracy: 0.0001)
-        XCTAssertEqual(rect.minY, viewport.visible.minY / 4800, accuracy: 0.0001)
-    }
 
-    func testContentsRectStaysInsideTheFrameWhenZoomingBackOut() {
-        var viewport = Viewport(canvas: CGSize(width: 7680, height: 4800))
-        viewport.zoom(by: 8, anchor: CGPoint(x: 3840, y: 2400))
-        let captured = viewport.visible
-        viewport.fit()
-        let rect = viewport.contentsRect(forCapturedRegion: captured)
-        XCTAssertGreaterThanOrEqual(rect.minX, 0)
-        XCTAssertGreaterThanOrEqual(rect.minY, 0)
-        XCTAssertLessThanOrEqual(rect.maxX, 1.0001)
-        XCTAssertLessThanOrEqual(rect.maxY, 1.0001)
-    }
 }
 
 extension ViewportTests {
