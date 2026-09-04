@@ -154,27 +154,30 @@ final class CapturePlanTests: XCTestCase {
 
     func testAPanInsideTheCapturedRegionNeedsNoNewStream() {
         let inside = CGRect(x: 1200, y: 700, width: 3000, height: 1875)
-        XCTAssertTrue(plan(pixelsPerPoint: 0.5).satisfies(visible: inside, pixelsPerPoint: 0.5, tolerance: 0.35))
+        XCTAssertTrue(plan(pixelsPerPoint: 0.5).satisfies(visible: inside, pixelsPerPoint: 0.5, shortfall: 0.92, surplus: 2.2))
     }
 
     func testPanningOutOfTheCapturedRegionNeedsANewStream() {
         let outside = CGRect(x: 4500, y: 700, width: 3000, height: 1875)
-        XCTAssertFalse(plan(pixelsPerPoint: 0.5).satisfies(visible: outside, pixelsPerPoint: 0.5, tolerance: 0.35))
+        XCTAssertFalse(plan(pixelsPerPoint: 0.5).satisfies(visible: outside, pixelsPerPoint: 0.5, shortfall: 0.92, surplus: 2.2))
     }
 
     func testTooFewPixelsForTheWantedDetailNeedsANewStream() {
         let inside = CGRect(x: 1200, y: 700, width: 1000, height: 625)
-        XCTAssertFalse(plan(pixelsPerPoint: 0.2).satisfies(visible: inside, pixelsPerPoint: 1, tolerance: 0.35))
+        XCTAssertFalse(plan(pixelsPerPoint: 0.2).satisfies(visible: inside, pixelsPerPoint: 1, shortfall: 0.92, surplus: 2.2))
     }
 
     func testFarTooManyPixelsAlsoNeedsANewStream() {
         let inside = CGRect(x: 1200, y: 700, width: 3000, height: 1875)
-        XCTAssertFalse(plan(pixelsPerPoint: 1).satisfies(visible: inside, pixelsPerPoint: 0.2, tolerance: 0.35))
+        XCTAssertFalse(plan(pixelsPerPoint: 1).satisfies(visible: inside, pixelsPerPoint: 0.2, shortfall: 0.92, surplus: 2.2))
     }
 
-    func testASmallDetailChangeIsToleratedWithoutRestarting() {
+    func testASpareOfPixelsIsToleratedButAShortfallIsNot() {
         let inside = CGRect(x: 1200, y: 700, width: 3000, height: 1875)
-        XCTAssertTrue(plan(pixelsPerPoint: 0.5).satisfies(visible: inside, pixelsPerPoint: 0.6, tolerance: 0.35))
+        // Twice the pixels needed only wastes work, so it keeps the stream it has.
+        XCTAssertTrue(plan(pixelsPerPoint: 1).satisfies(visible: inside, pixelsPerPoint: 0.5, shortfall: 0.92, surplus: 2.2))
+        // A tenth short is visibly softer text, so it re-aims.
+        XCTAssertFalse(plan(pixelsPerPoint: 0.9).satisfies(visible: inside, pixelsPerPoint: 1, shortfall: 0.92, surplus: 2.2))
     }
 }
 

@@ -82,15 +82,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fail("\(error)")
         }
         virtualDisplay = display
-        openWindow(for: display)
         Task {
             await self.waitForScreen(display.displayID)
             do {
+                // Until the mode is chosen the display's size is only what was asked for; a HiDPI display
+                // reports half of it in points, and the canvas is measured in points, so the window cannot
+                // be built before this.
                 try display.selectDeclaredMode()
             } catch {
                 fail("\(error)")
             }
             await self.waitForScreenSize(display)
+            self.openWindow(for: display)
             await self.startCapture(for: display)
             // Leave the canvas belonging to the Finder rather than to DeskZoom: DeskZoom is a window on the
             // built-in screen, and a display whose menu bar says DeskZoom is a display nothing will open on.
@@ -150,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.addTitlebarAccessoryViewController(controls)
         self.zoomControls = controls
 
+        view.maxPixelsPerPoint = display.pixelsPerPoint
         view.onViewportChange = { [weak self] viewport in
             self?.zoomControls?.update(with: viewport)
             self?.scheduleCaptureUpdate()
@@ -338,7 +342,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             state = "click to move the cursor here"
         }
-        window?.title = "DeskZoom \(config.width)×\(config.height) · \(frameCount) frames · \(state)"
+        let canvas = canvasView.map { "\(Int($0.viewport.canvas.width))×\(Int($0.viewport.canvas.height))" }
+            ?? "\(config.width)×\(config.height)"
+        window?.title = "DeskZoom \(canvas) · \(frameCount) frames · \(state)"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "dev"
         window?.contentView?.toolTip = "DeskZoom build \(build)"
     }

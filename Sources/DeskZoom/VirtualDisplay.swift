@@ -31,7 +31,12 @@ enum DeskZoomError: Error, CustomStringConvertible {
 /// Owns one virtual display for the app's lifetime. Deallocating it removes the display.
 final class VirtualDisplay {
     let displayID: CGDirectDisplayID
-    let size: CGSize
+    /// The canvas in points: what windows are laid out in, and what everything else here measures.
+    private(set) var size: CGSize
+    /// Framebuffer pixels per point, read from the mode the display actually adopted rather than assumed.
+    /// This is the ceiling on how sharp a capture of it can ever be.
+    private(set) var pixelsPerPoint: CGFloat
+    private let pixelSize: CGSize
     private let display: CGVirtualDisplay
 
     init(width: Int, height: Int, name: String) throws {
@@ -51,6 +56,9 @@ final class VirtualDisplay {
 
         let display = CGVirtualDisplay(descriptor: descriptor)
         let settings = CGVirtualDisplaySettings()
+        // Asking for HiDPI here does not produce a 2x display: measured on macOS 26.4 / M2 Pro, the display
+        // came up at one pixel per point either way, just smaller. There is no way from here to give the
+        // capture more detail to read than the framebuffer holds.
         settings.hiDPI = 0
         settings.modes = [CGVirtualDisplayMode(width: UInt(width), height: UInt(height), refreshRate: 60)]
         guard display.apply(settings) else {
@@ -59,18 +67,22 @@ final class VirtualDisplay {
 
         self.display = display
         self.displayID = display.displayID
+        self.pixelSize = CGSize(width: width, height: height)
+        // Provisional until the display is online and its real mode can be read.
         self.size = CGSize(width: width, height: height)
+        self.pixelsPerPoint = 1
     }
 
     /// macOS 26 brings the display up at a default it picks itself (1920x1200 observed), even when only
     /// one mode was declared. Select the declared mode explicitly. Returns immediately if already active.
     func selectDeclaredMode() throws {
         let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-        let width = Int(size.width), height = Int(size.height)
+        let width = Int(pixelSize.width), height = Int(pixelSize.height)
         guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
-              let mode = modes.first(where: { $0.width == width && $0.height == height })
+              let mode = modes.first(where: { $0.pixelWidth == width && $0.pixelHeight == height })
         else { throw DeskZoomError.modeMissing(width: width, height: height) }
-        if let current = CGDisplayCopyDisplayMode(displayID), current.width == width, current.height == height {
+        adopt(mode)
+        if let current = CGDisplayCopyDisplayMode(displayID), current.pixelWidth == width, current.pixelHeight == height {
             return
         }
         var configuration: CGDisplayConfigRef?
@@ -83,5 +95,11 @@ final class VirtualDisplay {
         }
         status = CGCompleteDisplayConfiguration(configuration, .forSession)
         guard status == .success else { throw DeskZoomError.modeChangeFailed(status) }
+    }
+
+    /// The mode is the authority on how the display is measured, not what was asked for.
+    private func adopt(_ mode: CGDisplayMode) {
+        size = CGSize(width: mode.width, height: mode.height)
+        pixelsPerPoint = mode.width > 0 ? CGFloat(mode.pixelWidth) / CGFloat(mode.width) : 1
     }
 }

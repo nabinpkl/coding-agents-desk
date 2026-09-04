@@ -37,6 +37,10 @@ final class CanvasView: NSView {
     var onViewportChange: ((Viewport) -> Void)?
     var onCursorPresenceChange: ((Bool) -> Void)?
 
+    /// Capture can never be sharper than the display it reads. On a 1x virtual display that is one pixel
+    /// per point; a HiDPI one renders text at two and is worth asking for.
+    var maxPixelsPerPoint: CGFloat = 1
+
     init(canvas: CGSize, displayID: CGDirectDisplayID, restoring remembered: CGRect?) {
         self.viewport = remembered.map { Viewport(canvas: canvas, restoring: $0) } ?? Viewport(canvas: canvas)
         self.displayID = displayID
@@ -139,13 +143,13 @@ final class CanvasView: NSView {
     /// resolution, which on a 1x virtual display is one pixel per point.
     var wantedPixelsPerPoint: CGFloat {
         let scale = window?.backingScaleFactor ?? 2
-        return min(contentRect.width * scale / max(1, viewport.visible.width), 1)
+        return min(contentRect.width * scale / max(1, viewport.visible.width), maxPixelsPerPoint)
     }
 
     /// Whether a running capture still serves the current viewport, so the app can skip the expensive
     /// re-aim while the view is merely panning inside what it already captured.
     func isServed(by plan: CapturePlan?) -> Bool {
-        plan?.satisfies(visible: viewport.visible, pixelsPerPoint: wantedPixelsPerPoint, tolerance: 0.35) ?? false
+        plan?.satisfies(visible: viewport.visible, pixelsPerPoint: wantedPixelsPerPoint, shortfall: 0.92, surplus: 2.2) ?? false
     }
 
     /// The part of the view the aspect-fitted frame occupies.

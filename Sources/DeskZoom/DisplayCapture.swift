@@ -9,11 +9,13 @@ struct CapturePlan: Equatable {
     let pixelSize: CGSize
 
     /// True when this capture already shows everything `visible` needs at close enough to the wanted
-    /// detail. Too few pixels reads as blur; far too many is wasted window-server work every frame.
-    func satisfies(visible: CGRect, pixelsPerPoint wanted: CGFloat, tolerance: CGFloat) -> Bool {
+    /// detail. The two directions are not symmetric: being short of pixels is blurred text, which is the
+    /// thing being looked at, while having spare pixels only wastes window-server work. So a shortfall
+    /// re-aims almost immediately and a surplus is tolerated well past double.
+    func satisfies(visible: CGRect, pixelsPerPoint wanted: CGFloat, shortfall: CGFloat, surplus: CGFloat) -> Bool {
         guard region.width > 0, region.contains(visible) else { return false }
         let have = pixelSize.width / region.width
-        return have >= wanted * (1 - tolerance) && have <= wanted * (1 + tolerance)
+        return have >= wanted * shortfall && have <= wanted * surplus
     }
 }
 

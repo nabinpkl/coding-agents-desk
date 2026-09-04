@@ -136,6 +136,22 @@ iteration puts you back where you were looking rather than at the whole canvas.
 - A title bar accessory is positioned from its view's frame. An autolayout-only view comes up
   zero-width and the whole accessory silently fails to appear.
 
+## Sharpness
+
+The virtual display is 7680x4800 points with one framebuffer pixel per point, so one captured
+pixel per point is all the detail that exists. The viewer reaches that ceiling at about 237%
+zoom, where its window has as many physical pixels as the region shows canvas points. Zooming
+past that magnifies 1x pixels and cannot make text sharper.
+
+Asking the virtual display for HiDPI does not help: measured on macOS 26.4 and an M2 Pro, it
+came up at one pixel per point either way, only smaller. Framebuffer width is capped around
+7680 on this hardware, so more points and more pixels per point trade directly against each
+other regardless.
+
+What did help is not settling for less than the ceiling. The capture is re-aimed once it is
+within 8% of the detail the window can show, where it previously tolerated being 35% short,
+which is visibly soft text at rest for no reason.
+
 ## Limits
 
 - Apple Silicon framebuffers top out at 7680 pixels wide; larger displays may be rejected
