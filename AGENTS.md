@@ -32,6 +32,8 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
 - Pointer travel on the canvas is boosted with a speed-dependent gain (`--pointer-gain`,
   default 3), and pinch gestures made on the canvas are taken over to zoom it
   (`--pinch-zoom 0` to disable). Both use event taps and need the Accessibility grant.
+- The zoom level and window position survive a rebuild, since every rebuild recreates the
+  virtual display and would otherwise interrupt whatever was being worked on.
 - Fail loud: any capture or display error shows an alert and exits.
 
 Deferred (propose in one line, do not build): multiple virtual displays, remembered window

@@ -60,6 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureUpdateInFlight = false
     private var captureUpdateQueued = false
     private var lastRegionChange = Date.distantPast
+    private let viewportStore = ViewportStore()
+    private var pendingViewportSave: DispatchWorkItem?
     private var cursorOnCanvas = false
     private var frameCount = 0
     private var screenRecordingDenied = false
@@ -117,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openWindow(for display: VirtualDisplay) {
-        let view = CanvasView(canvas: display.size, displayID: display.displayID)
+        let view = CanvasView(canvas: display.size, displayID: display.displayID, restoring: viewportStore.load(canvas: display.size))
         let mainFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let aspect = display.size.width / display.size.height
         var size = CGSize(width: mainFrame.width * 0.9, height: mainFrame.width * 0.9 / aspect)
@@ -133,7 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = view
         window.contentAspectRatio = display.size
         window.contentMinSize = CGSize(width: 480, height: 480 / aspect)
-        window.center()
+        // The window's own place is worth keeping across rebuilds for the same reason the zoom is.
+        window.setFrameAutosaveName("viewer")
+        if !window.setFrameUsingName("viewer") { window.center() }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -149,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.onViewportChange = { [weak self] viewport in
             self?.zoomControls?.update(with: viewport)
             self?.scheduleCaptureUpdate()
+            self?.scheduleViewportSave(viewport)
         }
         view.onCursorPresenceChange = { [weak self] present in
             self?.cursorOnCanvas = present
@@ -274,6 +279,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.applyCaptureUpdate()
             }
         }
+    }
+
+    /// Written after movement settles rather than on every pan, since this runs on every pointer move.
+    private func scheduleViewportSave(_ viewport: Viewport) {
+        pendingViewportSave?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.viewportStore.save(viewport) }
+        pendingViewportSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     // MARK: Menu and title

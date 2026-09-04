@@ -37,8 +37,8 @@ final class CanvasView: NSView {
     var onViewportChange: ((Viewport) -> Void)?
     var onCursorPresenceChange: ((Bool) -> Void)?
 
-    init(canvas: CGSize, displayID: CGDirectDisplayID) {
-        self.viewport = Viewport(canvas: canvas)
+    init(canvas: CGSize, displayID: CGDirectDisplayID, restoring remembered: CGRect?) {
+        self.viewport = remembered.map { Viewport(canvas: canvas, restoring: $0) } ?? Viewport(canvas: canvas)
         self.displayID = displayID
         super.init(frame: NSRect(origin: .zero, size: canvas))
         wantsLayer = true

@@ -43,6 +43,14 @@ display sits immediately to the right in the arrangement, so the window crosses 
 appears in the viewer. Only the top-left band of the canvas, as tall as your physical screen,
 can be entered this way; once across, drag it anywhere.
 
+## Iterating
+
+`just dev` takes about 2.7 seconds from command to live picture: 0.8s to compile, bundle and
+sign, 1.3s for the window, 0.6s for frames to flow. A touched-file rebuild alone is 2.6s, a
+clean build 9.5s. Every rebuild kills the app, which destroys the virtual display and creates
+a new one, so the zoom level and the window's position are remembered and restored: an
+iteration puts you back where you were looking rather than at the whole canvas.
+
 ## How it works
 
 - `Sources/CGVirtualDisplayPrivate`: header for the private CoreGraphics virtual display

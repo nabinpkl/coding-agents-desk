@@ -212,3 +212,33 @@ final class CanvasFocusTests: XCTestCase {
         XCTAssertNil(CanvasFocus.topmostOwner(at: CGPoint(x: 2100, y: 600), in: windows, excluding: 42))
     }
 }
+
+final class ViewportStoreTests: XCTestCase {
+    private let canvas = CGSize(width: 7680, height: 4800)
+
+    func testARememberedViewSurvivesTheRoundTrip() {
+        var viewport = Viewport(canvas: canvas)
+        viewport.zoom(by: 4, anchor: CGPoint(x: 2000, y: 1500))
+        let restored = ViewportStore.decode(ViewportStore.encode(viewport), canvas: canvas)
+        XCTAssertEqual(restored, viewport.visible)
+    }
+
+    func testAViewStoredForAnotherCanvasIsIgnored() {
+        let viewport = Viewport(canvas: CGSize(width: 5120, height: 3200))
+        XCTAssertNil(ViewportStore.decode(ViewportStore.encode(viewport), canvas: canvas))
+    }
+
+    func testNonsenseIsIgnored() {
+        XCTAssertNil(ViewportStore.decode(nil, canvas: canvas))
+        XCTAssertNil(ViewportStore.decode([7680, 4800, 0, 0], canvas: canvas))
+        XCTAssertNil(ViewportStore.decode([7680, 4800, 0, 0, 20, 12], canvas: canvas), "narrower than the zoom limit")
+        XCTAssertNil(ViewportStore.decode([7680, 4800, 7000, 0, 4000, 2500], canvas: canvas), "runs off the canvas")
+    }
+
+    func testRestoringClampsAViewThatNoLongerFits() {
+        let viewport = Viewport(canvas: canvas, restoring: CGRect(x: 7000, y: 4000, width: 4000, height: 2500))
+        XCTAssertLessThanOrEqual(viewport.visible.maxX, canvas.width)
+        XCTAssertLessThanOrEqual(viewport.visible.maxY, canvas.height)
+        XCTAssertEqual(viewport.visible.width / viewport.visible.height, canvas.width / canvas.height, accuracy: 0.001)
+    }
+}

@@ -15,6 +15,15 @@ struct Viewport: Equatable {
         self.visible = CGRect(origin: .zero, size: canvas)
     }
 
+    /// Starts from a remembered view rather than the whole canvas. The rect is trusted only as far as it
+    /// fits: anything wider than the canvas or narrower than the zoom limit falls back to the whole canvas.
+    init(canvas: CGSize, restoring rect: CGRect) {
+        self.canvas = canvas
+        let width = min(canvas.width, max(Self.minVisibleWidth, rect.width))
+        let size = CGSize(width: width, height: width * canvas.height / canvas.width)
+        self.visible = Self.clamp(CGRect(origin: rect.origin, size: size), within: canvas)
+    }
+
     /// 1 when the whole canvas is visible, larger when zoomed in.
     var magnification: CGFloat { canvas.width / visible.width }
 
