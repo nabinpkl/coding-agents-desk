@@ -38,8 +38,10 @@ Two system prompts on first launch:
 
 Other sizes: `just dev-size 5120 3200`. If input ever feels laggy, run with `--pointer-gain 1`
 to switch the pointer event tap off entirely and compare. The virtual display disappears when the app quits.
-Move windows there by dragging past the right edge of your screen, or with any window
-manager; the display sits to the right of the main one in the arrangement.
+Move a window there by dragging its title bar off the right edge of your screen: the virtual
+display sits immediately to the right in the arrangement, so the window crosses onto it and
+appears in the viewer. Only the top-left band of the canvas, as tall as your physical screen,
+can be entered this way; once across, drag it anywhere.
 
 ## How it works
 
