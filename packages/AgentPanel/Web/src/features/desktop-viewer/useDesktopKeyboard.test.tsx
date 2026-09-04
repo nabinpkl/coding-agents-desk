@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "./TileStreamRtc";
 import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "./useDesktopKeyboard";
@@ -20,11 +20,17 @@ function Harness({
   const controller = useDesktopKeyboard({ transport, cursorKind, report });
   expose(controller);
   return (
-    <textarea
-      ref={controller.captureRef}
-      aria-label="capture"
-      {...controller.captureProps}
-    />
+    <>
+      <textarea
+        ref={controller.captureRef}
+        aria-label="capture"
+        {...controller.captureProps}
+      />
+      {/* Stands in for the portaled accessory, which is what the hook measures. */}
+      {controller.keyboardPresented
+        ? <section ref={controller.accessoryRef} aria-label="accessory" />
+        : null}
+    </>
   );
 }
 
@@ -66,6 +72,22 @@ function beforeInput(_controller: Controller, element: HTMLTextAreaElement, inpu
 }
 
 describe("useDesktopKeyboard", () => {
+  /** jsdom has no ResizeObserver, and the hook measures the accessory with one. */
+  const accessoryObservers = new Map<Element, () => void>();
+
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) { accessoryObservers.set(element, this.callback); }
+      disconnect() {}
+    });
+  });
+
+  afterEach(() => {
+    accessoryObservers.clear();
+    vi.unstubAllGlobals();
+  });
+
   it("pre-arms synchronously, buffers input, then flushes one ordered batch", () => {
     const harness = setup();
     let requestID: string | undefined;
@@ -317,6 +339,35 @@ describe("useDesktopKeyboard", () => {
       act(() => viewport.dispatchEvent(new Event("resize")));
       expect(harness.controller.presentation.presentation).toBe("hidden");
       expect(harness.controller.softwareKeyboardVisible).toBe(false);
+    } finally {
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
+    }
+  });
+
+  it("reports the whole occluded band, keyboard and accessory together", () => {
+    const previous = window.visualViewport;
+    const originalHeight = window.innerHeight;
+    const viewport = Object.assign(new EventTarget(), { height: originalHeight, offsetTop: 0 });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    try {
+      const harness = setup();
+      expect(harness.controller.occludedBottom).toBe(0);
+      act(() => harness.controller.showManually());
+
+      // A layout viewport that has not caught up to the keyboard: the accessory floats 300px up.
+      viewport.height = originalHeight - 300;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(harness.controller.accessoryBottom).toBe(300);
+
+      const accessory = screen.getByLabelText("accessory");
+      vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ height: 80 } as DOMRect);
+      act(() => accessoryObservers.get(accessory)!());
+
+      // The video's box ends at the accessory's top, which is both occluders in one number.
+      expect(harness.controller.occludedBottom).toBe(380);
+
+      act(() => harness.controller.hide());
+      expect(harness.controller.occludedBottom).toBe(300);
     } finally {
       Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
     }

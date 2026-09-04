@@ -17,6 +17,7 @@ const MODIFIERS: Array<{ label: string; modifier: RemoteModifier }> = [
 
 export function DesktopKeyboardChrome({
   captureRef,
+  accessoryRef,
   captureProps,
   shown,
   available,
@@ -34,6 +35,8 @@ export function DesktopKeyboardChrome({
   onModifier,
 }: {
   captureRef: RefObject<HTMLTextAreaElement | null>;
+  /** Measured by the keyboard hook so the viewer can end the video above this bar. */
+  accessoryRef: RefObject<HTMLElement | null>;
   captureProps: TextareaHTMLAttributes<HTMLTextAreaElement>;
   shown: boolean;
   available: boolean;
@@ -90,6 +93,7 @@ export function DesktopKeyboardChrome({
         </div>
       ) : createPortal(
         <section
+          ref={accessoryRef}
           aria-label="Remote keyboard controls"
           style={{
             bottom: `${bottom}px`,

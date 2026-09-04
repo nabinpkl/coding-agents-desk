@@ -1,13 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
 import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
 
 describe("TileViewport pointer mode", () => {
   const animationFrames: FrameRequestCallback[] = [];
+  /** jsdom has no ResizeObserver, and the viewport now watches its own frame for the keyboard. */
+  const frameObservers = new Map<Element, () => void>();
+
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) { frameObservers.set(element, this.callback); }
+      disconnect() {}
+    });
+  });
 
   afterEach(() => {
     animationFrames.length = 0;
+    frameObservers.clear();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -307,6 +319,37 @@ describe("TileViewport pointer mode", () => {
     expect(overlay.style.transform).toBe("translate3d(400px, 250px, 0)");
     expect(overlay.querySelector("svg")).toHaveClass("h-3", "w-2");
     expect(surface.contains(overlay)).toBe(true);
+  });
+
+  it("re-clamps a zoomed pan when the keyboard shortens the box", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    render(
+      <TileViewport sourceWidth={800} sourceHeight={500} initialCursor={{ x: 400, y: 250 }}>
+        <div data-testid="content" />
+      </TileViewport>,
+    );
+    const content = screen.getByTestId("content").parentElement!;
+    const surface = content.parentElement!;
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+
+    // Double-tap near the bottom edge: 2.5x about (400, 480) lands ty at -720, legal only while
+    // the box is 500 tall.
+    for (const _ of [0, 1]) {
+      pointer(surface, "pointerdown", 1, 400, 480);
+      pointer(surface, "pointerup", 1, 400, 480);
+    }
+    expect(content.style.transform).toBe("translate(-600px, -720px) scale(2.5)");
+
+    Object.defineProperty(surface, "clientHeight", { configurable: true, value: 200 });
+    act(() => frameObservers.get(surface)!());
+
+    // Without the clamp the picture keeps ty at -720 and its bottom edge pulls inside the shorter
+    // box, showing black under the video.
+    expect(content.style.transform).toBe("translate(-600px, -300px) scale(2.5)");
   });
 
   it("mirrors host cursor images, hotspots, kinds, and idle Mac movement", () => {

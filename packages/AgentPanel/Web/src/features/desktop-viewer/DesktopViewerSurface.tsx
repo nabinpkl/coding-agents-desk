@@ -135,32 +135,42 @@ export function DesktopViewerSurface({
     && tile.kind === "playing";
   return (
     <main className="relative h-full overflow-hidden bg-black text-white">
-      <TileViewport
-        className="size-full"
-        pointerMode={pointerMode && source !== null}
-        sendPointerInput={sendPointerInput}
-        keyboardPresented={keyboard.keyboardPresented}
-        onPointerGestureStart={keyboard.consumePointerGesture}
-        onBeforeRemoteClick={keyboard.beforeRemoteClick}
-        onGestureTelemetry={reportGestureTelemetry}
-        sourceWidth={source?.width}
-        sourceHeight={source?.height}
-        initialCursor={source?.cursor}
-        subscribeCursorEvents={subscribeCursorEvents}
-      >
-        <TileStreamRtc
-          windowID="display"
-          displayId={displayId}
-          fill
-          httpTransport={transport}
-          onState={applyTileState}
-          onControlTransport={setControlTransport}
-          onControlEvent={publishControlEvent}
-          onSourceMetadata={applySourceMetadata}
-          onFirstFrame={onFirstFrame}
-          onDisplayUnavailable={onDisplayUnavailable}
-        />
-      </TileViewport>
+      {/*
+        The video's own box, so it can end above the keyboard rather than run full height under it.
+        The picture is `object-contain`, so a shorter box re-fits and re-centres it upward and the
+        whole Mac stays visible instead of its bottom band living behind the accessory. In portrait
+        that costs nothing until the box drops below the picture's fitted height, because the
+        picture is width-constrained and already floating in black.
+      */}
+      <div data-testid="desktop-video-box" className="absolute inset-x-0 top-0"
+        style={{ bottom: keyboard.occludedBottom }}>
+        <TileViewport
+          className="size-full"
+          pointerMode={pointerMode && source !== null}
+          sendPointerInput={sendPointerInput}
+          keyboardPresented={keyboard.keyboardPresented}
+          onPointerGestureStart={keyboard.consumePointerGesture}
+          onBeforeRemoteClick={keyboard.beforeRemoteClick}
+          onGestureTelemetry={reportGestureTelemetry}
+          sourceWidth={source?.width}
+          sourceHeight={source?.height}
+          initialCursor={source?.cursor}
+          subscribeCursorEvents={subscribeCursorEvents}
+        >
+          <TileStreamRtc
+            windowID="display"
+            displayId={displayId}
+            fill
+            httpTransport={transport}
+            onState={applyTileState}
+            onControlTransport={setControlTransport}
+            onControlEvent={publishControlEvent}
+            onSourceMetadata={applySourceMetadata}
+            onFirstFrame={onFirstFrame}
+            onDisplayUnavailable={onDisplayUnavailable}
+          />
+        </TileViewport>
+      </div>
 
       <div ref={chromeRef} data-testid="desktop-bottom-chrome"
         className={`pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col
@@ -171,6 +181,7 @@ export function DesktopViewerSurface({
           className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-1 rounded-lg bg-black/60 p-1">
           <DesktopKeyboardChrome
             captureRef={keyboard.captureRef}
+            accessoryRef={keyboard.accessoryRef}
             captureProps={keyboard.captureProps}
             shown={keyboard.keyboardPresented}
             available={compatibleControlTransport !== null}

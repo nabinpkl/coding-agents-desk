@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import { desktopDocumentFallbackHeight, DesktopViewer } from "./DesktopViewer";
@@ -49,10 +49,25 @@ vi.mock("./TileStreamRtc", async (importOriginal) => {
   };
 });
 
+/** jsdom has no ResizeObserver, and the dock, the accessory and the tile frame all watch one. */
+const observed = new Map<Element, () => void>();
+const disconnected = vi.fn();
+
 beforeEach(() => {
   tileMock.navigation = false;
   tileMock.emit = null;
+  observed.clear();
+  disconnected.mockClear();
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(private callback: () => void) {}
+    observe(element: Element) { observed.set(element, this.callback); }
+    disconnect() { disconnected(); }
+  });
   localStorage.clear();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function transport(): AgentHttpTransport {
@@ -67,20 +82,13 @@ describe("DesktopViewer", () => {
     tileMock.publishSource = true;
     tileMock.controlVersion = 2;
     tileMock.navigation = true;
-    const measurements = new Map<Element, () => void>();
-    const disconnected = vi.fn();
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(private callback: () => void) {}
-      observe(element: Element) { measurements.set(element, this.callback); }
-      disconnect() { disconnected(); }
-    });
     const { container, unmount } = render(<DesktopViewer transport={transport()} />);
     const dock = await screen.findByTestId("desktop-bottom-chrome");
     expect(within(dock).getByRole("button", { name: "Desktop 8" })).toBeInTheDocument();
     expect(within(dock).getByRole("group", { name: "Desktop input controls" })).toBeInTheDocument();
     expect(within(dock).getByLabelText("Desktop stream status")).toHaveTextContent("1800×1169");
     const rect = vi.spyOn(dock, "getBoundingClientRect").mockReturnValue({ height: 120 } as DOMRect);
-    act(() => measurements.get(dock)!());
+    act(() => observed.get(dock)!());
     expect(container.firstElementChild).toHaveStyle({ "--desktop-chrome-clearance": "128px" });
     vi.useFakeTimers();
     try {
@@ -92,7 +100,7 @@ describe("DesktopViewer", () => {
       vi.useRealTimers();
     }
     rect.mockReturnValue({ height: 154 } as DOMRect);
-    act(() => measurements.get(dock)!());
+    act(() => observed.get(dock)!());
     expect(container.firstElementChild).toHaveStyle({ "--desktop-chrome-clearance": "162px" });
 
     fireEvent.click(within(dock).getByRole("button", { name: "Keyboard" }));
@@ -193,6 +201,26 @@ describe("DesktopViewer", () => {
 
     expect(await screen.findByTestId("desktop-video")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Control v1 unsupported" })).toBeDisabled();
+  });
+
+  it("ends the video where the keyboard accessory begins", async () => {
+    tileMock.publishSource = true;
+    tileMock.controlVersion = 2;
+    render(<DesktopViewer transport={transport()} />);
+    const box = screen.getByTestId("desktop-video-box");
+    expect(box).toHaveStyle({ bottom: "0px" });
+
+    const show = await screen.findByRole("button", { name: "Keyboard" });
+    await waitFor(() => expect(show).toBeEnabled());
+    fireEvent.click(show);
+
+    const accessory = screen.getByRole("region", { name: "Remote keyboard controls" });
+    vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ height: 80 } as DOMRect);
+    act(() => observed.get(accessory)!());
+    expect(box).toHaveStyle({ bottom: "80px" });
+
+    fireEvent.click(within(accessory).getByRole("button", { name: "Hide" }));
+    expect(box).toHaveStyle({ bottom: "0px" });
   });
 
   it("summons the keyboard from the mirrored cursor shape at the moment of the tap", async () => {

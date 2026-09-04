@@ -991,6 +991,17 @@ textarea retains a non-user sentinel so WebKit emits deletion even when the echo
 `beforeinput` is bound directly, rather than React's text-only polyfill. The capture and accessory
 are portaled to the document body so a blurred or clipped viewer toolbar cannot trap fixed positioning.
 Viewport dismissal compares with the pre-keyboard height, not a concurrently shrinking layout viewport.
+
+The video box ends at the accessory's top edge rather than running full height beneath it. That edge
+is one measured number, the accessory's observed height plus its own offset from the layout viewport's
+bottom, which covers the keyboard too because the accessory is drawn on top of it: the offset is zero
+when the WKWebView's layout viewport has already shrunk to the keyboard-free area and the keyboard's
+height when it has not, so the visible band is the same either way. The picture is `object-contain`,
+so a shorter box re-fits and re-centres it upward and the whole Mac stays visible instead of its
+bottom band living behind the bar being typed into. The accessory's height is measured, never assumed,
+because its bottom padding follows the safe area until the software keyboard owns it. The viewport
+observes its own frame and re-clamps the pan on any resize, since a shorter box narrows the legal
+pan range and a window-resize listener never sees this change.
 The keyboard chrome uses a 32 px echo field and one 36 px key rail with an inverted-T arrow cluster.
 Auto and Hide sit in the echo line; acknowledged event history stays screen-reader-accessible without
 a second visible receipt row. The software keyboard already owns the bottom safe area, so the web

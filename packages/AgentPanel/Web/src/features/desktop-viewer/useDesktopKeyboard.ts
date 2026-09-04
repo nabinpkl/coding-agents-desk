@@ -89,6 +89,8 @@ export function useDesktopKeyboard({
   const [localEcho, setLocalEcho] = useState<string[]>([]);
   const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
   const [accessoryBottom, setAccessoryBottom] = useState(0);
+  const [accessoryHeight, setAccessoryHeight] = useState(0);
+  const accessoryRef = useRef<HTMLElement>(null);
   const [softwareKeyboardVisible, setSoftwareKeyboardVisible] = useState(false);
   const pendingKeys = useRef<RemoteKeyEvent[]>([]);
   const pendingDeliveries = useRef(new Map<number, PendingDelivery>());
@@ -596,16 +598,44 @@ export function useDesktopKeyboard({
     };
   }, [clearLocalState, report]);
 
+  const keyboardPresented = presentation.presentation === "pending"
+    || presentation.presentation === "shown";
+
+  // The accessory's height is measured rather than known: its bottom padding follows the safe area
+  // until the software keyboard actually owns it, and the key rail is free to change shape. The
+  // viewer subtracts this from the video, so a stale guess here is a band of Mac nobody can see.
+  useEffect(() => {
+    const accessory = accessoryRef.current;
+    if (!accessory) return;
+    const measure = () => setAccessoryHeight(Math.ceil(accessory.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(accessory);
+    return () => {
+      observer.disconnect();
+      setAccessoryHeight(0);
+    };
+  }, [keyboardPresented]);
+
   return {
     captureRef,
+    accessoryRef,
     presentation,
-    keyboardPresented: presentation.presentation === "pending" || presentation.presentation === "shown",
+    keyboardPresented,
     autoKeyboard,
     modifiers,
     receipt,
     localEcho,
     deliveryStatus,
     accessoryBottom,
+    /**
+     * The band at the bottom of the layout viewport that the keyboard and its accessory cover,
+     * which is the accessory's top edge. One number for both occluders, because the accessory is
+     * drawn on top of the keyboard: `accessoryBottom` is 0 when the WKWebView's layout viewport
+     * has already shrunk to the keyboard-free area and the keyboard's own height when it has not,
+     * so the answer is the same visible band either way.
+     */
+    occludedBottom: accessoryBottom + accessoryHeight,
     softwareKeyboardVisible,
     sendControl,
     handleControlEvent,

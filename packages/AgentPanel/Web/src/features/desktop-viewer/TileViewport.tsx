@@ -5,6 +5,7 @@ import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-fe
 import {
   IDENTITY,
   advanceRemoteCursor,
+  clampPan,
   followRemoteCursor,
   panBy,
   pointerAccelerationGain,
@@ -791,6 +792,11 @@ export function TileViewport({
     const puckUp = (event: PointerEvent) => finishPuckPointer(event, false);
     const puckCancel = (event: PointerEvent) => finishPuckPointer(event, true);
     const handleResize = () => {
+      // Clamping, not just re-applying: a shorter box narrows `clampPan`'s range, so a pan that
+      // was legal at the old height can now pull the content's bottom edge inside the viewport
+      // and show black. The keyboard shortens this box every time it opens.
+      const { w, h } = size();
+      transform = clampPan(transform, w, h);
       applyPuckOffset(false);
       apply();
     };
@@ -800,6 +806,11 @@ export function TileViewport({
     frame.addEventListener("pointerup", up);
     frame.addEventListener("pointercancel", cancel);
     window.addEventListener("resize", handleResize);
+    // The window listener alone is not enough: the viewer shortens this box for the keyboard
+    // accessory, which changes no window dimension and would otherwise leave the transform and the
+    // cursor overlay measured against a viewport that no longer exists.
+    const frameResize = new ResizeObserver(handleResize);
+    frameResize.observe(frame);
     puck?.addEventListener("pointerdown", puckDown);
     puck?.addEventListener("pointermove", puckMove);
     puck?.addEventListener("pointerup", puckUp);
@@ -816,6 +827,7 @@ export function TileViewport({
       frame.removeEventListener("pointercancel", cancel);
       frame.removeEventListener("wheel", wheel);
       window.removeEventListener("resize", handleResize);
+      frameResize.disconnect();
       puck?.removeEventListener("pointerdown", puckDown);
       puck?.removeEventListener("pointermove", puckMove);
       puck?.removeEventListener("pointerup", puckUp);
