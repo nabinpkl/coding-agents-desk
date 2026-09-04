@@ -27,11 +27,49 @@ enum CanvasFocus {
     /// the spot is bare desktop, so the display still becomes the active one.
     static func activate(at point: CGPoint) {
         let own = ProcessInfo.processInfo.processIdentifier
-        let target = topmostOwner(at: point, in: onScreenWindows(), excluding: own)
-            .flatMap { NSRunningApplication(processIdentifier: $0) }
-            ?? finder
-        guard let target, !target.isActive else { return }
-        hand(to: target)
+        guard topmostOwner(at: point, in: onScreenWindows(), excluding: own) != nil else {
+            activateFinder()
+            return
+        }
+        guard focusWindow(at: point) else { activateFinder(); return }
+    }
+
+    /// Focuses the actual window under the point, not just its application. Making an app frontmost leaves
+    /// the active Space where it was, so a display whose window merely belongs to the frontmost app does not
+    /// become the display macOS opens new windows on. Raising and focusing the specific window is what moves
+    /// the Space. Returns false when nothing focusable is there.
+    private static func focusWindow(at point: CGPoint) -> Bool {
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
+              let hit, let window = enclosingWindow(of: hit)
+        else { return false }
+
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window, &pid) == .success else { return true }
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        return true
+    }
+
+    /// The element under the pointer is usually a button or a text area; walk up to the window that owns it.
+    private static func enclosingWindow(of element: AXUIElement) -> AXUIElement? {
+        var current = element
+        for _ in 0..<12 {
+            var role: CFTypeRef?
+            if AXUIElementCopyAttributeValue(current, kAXRoleAttribute as CFString, &role) == .success,
+               (role as? String) == (kAXWindowRole as String) {
+                return current
+            }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
+                  let parent, CFGetTypeID(parent) == AXUIElementGetTypeID()
+            else { return nil }
+            current = parent as! AXUIElement
+        }
+        return nil
     }
 
     /// The Finder owns the desktop, so making it frontmost is the neutral way to hand a display focus
