@@ -99,11 +99,12 @@ final class DisplayCapture {
         // The viewer draws the cursor itself from the live mouse position; a captured cursor lags a frame or two.
         config.showsCursor = false
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        // The view holds the frame it is displaying so the IOSurface underneath it is not recycled, so the
-        // pool needs spares to render the next one into. At a depth of 1 the stream delivered exactly one
-        // frame and then froze forever. Stale frames are not a concern here: each stream carries its own
-        // region, so a frame can never be attributed to the wrong one.
-        config.queueDepth = 3
+        // Frames stop arriving entirely once the pool has no free buffer, and the symptom is a viewer that
+        // silently freezes rather than any error. The view therefore does not hold the sample buffer: the
+        // surface it displays is retained by CoreAnimation for as long as it is on screen, which is enough.
+        // Stale frames are not a concern here: each stream carries its own region, so a frame can never be
+        // attributed to the wrong one.
+        config.queueDepth = 6
         return config
     }
 }

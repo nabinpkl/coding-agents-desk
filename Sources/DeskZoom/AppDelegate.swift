@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureUpdateInFlight = false
     private var captureUpdateQueued = false
     private var cursorOnCanvas = false
+    private var frameCount = 0
     private var screenRecordingDenied = false
     private var zoomControls: ZoomControls?
     private var inputTap: CanvasInputTap?
@@ -159,8 +160,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startCapture(for display: VirtualDisplay) async {
         guard let view = canvasView else { return }
         let capture = DisplayCapture(displayID: display.displayID)
-        capture.onFrame = { [weak view] frame, region in
-            MainActor.assumeIsolated { view?.show(frame: frame, region: region) }
+        capture.onFrame = { [weak self, weak view] frame, region in
+            MainActor.assumeIsolated {
+                view?.show(frame: frame, region: region)
+                guard let self else { return }
+                self.frameCount += 1
+                // Cheap liveness readout. A stalled capture is otherwise silent: the picture simply stops,
+                // with no error, and it took two rounds of guessing before this made it obvious.
+                if self.frameCount % 30 == 0 { self.updateTitle() }
+            }
         }
         capture.onStop = { error in fail("\(error)") }
         // The first launch has no Screen Recording grant: ScreenCaptureKit reports "declined" while the
@@ -287,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             state = "click to move the cursor here"
         }
-        window?.title = "DeskZoom \(config.width)×\(config.height) · \(state)"
+        window?.title = "DeskZoom \(config.width)×\(config.height) · \(frameCount) frames · \(state)"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "dev"
         window?.contentView?.toolTip = "DeskZoom build \(build)"
     }

@@ -17,7 +17,6 @@ final class CanvasView: NSView {
         }
     }
     private let displayID: CGDirectDisplayID
-    private var currentFrame: CMSampleBuffer?
     /// The region of the virtual display the frame on screen actually covers.
     private var frameRegion: CGRect?
     private var cursorPollTimer: Timer?
@@ -73,7 +72,6 @@ final class CanvasView: NSView {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(frame),
               let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue()
         else { return }
-        currentFrame = frame
         frameRegion = region
         contentLayer.contents = surface
         placeContent()

@@ -75,9 +75,13 @@ can be entered this way; once across, drag it anywhere.
   a display is idle, so on a static desktop a reconfigured stream never repaints and zoom
   looks broken. DeskZoom starts a new stream per region and crops the frame already on
   screen with `CALayer.contentsRect` in the meantime.
-- `queueDepth` must leave spare buffers. The view holds the frame it is showing so the
-  IOSurface under it is not recycled, so a depth of 1 delivered exactly one frame and then
-  froze forever. Three works.
+- Never hold on to a capture's `CMSampleBuffer`. Retaining the displayed frame pins a buffer
+  from the stream's pool, and once the pool has no free buffer ScreenCaptureKit stops
+  delivering, silently: the picture just stops, with no error and no callback. The surface on
+  screen is retained by CoreAnimation for as long as it is displayed, which is enough. Raising
+  `queueDepth` only postpones the freeze; it was set to 1, then 3, and still froze after a few
+  frames. The window title carries a frame counter now, because a stalled capture is otherwise
+  indistinguishable from a canvas where nothing is happening.
 - Do not combine `contentsGravity` with a clamped `contentsRect`. Clamping the crop to stay
   inside the frame changes its aspect ratio, and the gravity then letterboxes the picture into
   black bars. Positioning a content layer by frame is exact and cannot letterbox.
