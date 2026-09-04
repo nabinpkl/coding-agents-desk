@@ -4,9 +4,9 @@ Zoom your Mac desktop out. DeskZoom adds a huge virtual display (7680x4800 at 1x
 default, room for about 100 mid-sized windows) and shows it in a window on your main
 display that you can pinch-zoom and pan like a canvas.
 
-- Title bar: zoom out, zoom in, and Fit, with the current magnification shown. These work
+- Title bar: zoom out, zoom in, 1:1 and Fit, with the current magnification shown. These work
   wherever the cursor is, which trackpad gestures cannot, so they are the reliable surface.
-- ⌘= / ⌘- / ⌘0: zoom in, zoom out, fit.
+- ⌘= / ⌘- / ⌘1 / ⌘0: zoom in, zoom out, actual size, fit.
 - While zoomed in, the view follows the cursor: reach the edge of the frame and it pans to
   keep the pointer on screen, so you can walk across the whole canvas magnified.
 - Pinch: zooms the canvas around the pointer, wherever the pointer is. While it sits on the
@@ -164,6 +164,13 @@ would not fit the viewer.
 
 At 1x the viewer runs out of detail around 237% zoom, where its window has as many physical
 pixels as the region shows canvas points. At 2x that ceiling is twice as far in.
+
+**Fit is not the sharpest view, and cannot be.** Fitting a canvas wider than the window shrinks
+everything on it, and shrunk text is soft however many pixels back it. A 1920x1200 canvas in a
+1674-point-wide window is displayed at 87% size. **1:1** (⌘1) sets the zoom so one canvas point
+covers one window point, which on that canvas is 115%: text is then exactly the size and
+sharpness it has on the display itself, matching the built-in screen. Use the slider to pick a
+canvas whose 1:1 view frames what you want to work on.
 
 A HiDPI mode is a *pair*. macOS makes one only when the display declares both the pixel-size
 mode and the point-size mode that is exactly half of it, which is why the whole ladder is

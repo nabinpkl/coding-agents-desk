@@ -160,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controls = ZoomControls()
         controls.onZoom = { [weak view] factor in view?.zoomAroundCenter(by: factor) }
         controls.onFit = { [weak view] in view?.fit() }
+        controls.onActualSize = { [weak view] in view?.actualSize() }
         controls.setLadder(display.ladder, current: display.size.width)
         controls.onCanvasChange = { [weak self] canvas in self?.selectCanvas(canvas) }
         controls.update(with: view.viewport)
@@ -361,6 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "Zoom In", action: #selector(zoomIn), keyEquivalent: "=")
         appMenu.addItem(withTitle: "Zoom Out", action: #selector(zoomOut), keyEquivalent: "-")
+        appMenu.addItem(withTitle: "Actual Size", action: #selector(actualSize), keyEquivalent: "1")
         appMenu.addItem(withTitle: "Fit Whole Display", action: #selector(fitWholeDisplay), keyEquivalent: "0")
         appMenu.addItem(withTitle: "Bring Cursor Back", action: #selector(bringCursorBack), keyEquivalent: "b")
         appMenu.addItem(.separator())
@@ -378,6 +380,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func zoomOut() {
         canvasView?.zoomAroundCenter(by: 1 / 1.25)
+    }
+
+    @objc private func actualSize() {
+        canvasView?.actualSize()
     }
 
     @objc private func fitWholeDisplay() {

@@ -213,6 +213,14 @@ final class CanvasView: NSView {
 
     /// Zoom driven by something other than the pointer (title bar buttons, menu shortcuts),
     /// so it keeps whatever is in the middle of the view in the middle.
+    /// Shows the canvas at its own size: one canvas point per window point. Text is then exactly the size
+    /// and sharpness it has on the display itself. Fitting the whole canvas cannot match that, because a
+    /// canvas wider than the window is shrunk to fit, and shrunk text is soft however many pixels back it.
+    func actualSize() {
+        guard contentRect.width > 0, viewport.visible.width > 0 else { return }
+        viewport.zoom(by: viewport.visible.width / contentRect.width, anchor: viewport.center)
+    }
+
     func zoomAroundCenter(by factor: CGFloat) {
         viewport.zoom(by: factor, anchor: viewport.center)
     }

@@ -13,6 +13,7 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
     private let stepper = NSSegmentedControl()
     private let readout = NSTextField(labelWithString: "100%")
     private let fitButton = NSButton()
+    private let actualSizeButton = NSButton()
     private let canvasSlider = NSSlider()
     private let canvasLabel = NSTextField(labelWithString: "")
     private var ladder: [VirtualDisplay.Canvas] = []
@@ -20,6 +21,7 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
     /// Called with the zoom factor to apply around the canvas center. > 1 zooms in.
     var onZoom: ((CGFloat) -> Void)?
     var onFit: (() -> Void)?
+    var onActualSize: (() -> Void)?
     /// Called with the canvas the slider was moved to.
     var onCanvasChange: ((VirtualDisplay.Canvas) -> Void)?
 
@@ -75,7 +77,15 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
         canvasLabel.setAccessibilityIdentifier("canvas-label")
         canvasLabel.widthAnchor.constraint(equalToConstant: 122).isActive = true
 
-        let stack = NSStackView(views: [canvasLabel, canvasSlider, readout, stepper, fitButton])
+        actualSizeButton.title = "1:1"
+        actualSizeButton.bezelStyle = .rounded
+        actualSizeButton.controlSize = .small
+        actualSizeButton.target = self
+        actualSizeButton.action = #selector(actualSizeFired)
+        actualSizeButton.toolTip = "Show the canvas at its own size, one canvas point per screen point (⌘1)"
+        actualSizeButton.setAccessibilityIdentifier("zoom-actual-size")
+
+        let stack = NSStackView(views: [canvasLabel, canvasSlider, readout, stepper, actualSizeButton, fitButton])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 8
@@ -125,5 +135,9 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
 
     @objc private func fitFired() {
         onFit?()
+    }
+
+    @objc private func actualSizeFired() {
+        onActualSize?()
     }
 }
