@@ -19,8 +19,9 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
 
 ## v0 scope (literal)
 
-- One virtual display, framebuffer size from `--width/--height`. 1x by default; `--hidpi 1`
-  halves the canvas in points and renders text at two pixels per point.
+- One virtual display whose framebuffer size comes from `--width/--height`. It declares a
+  ladder of canvases underneath that, and a title bar slider moves between them while running:
+  small canvases are backed at two pixels per point, large ones at one.
 - Viewer window: aspect-locked, pinch zoom, scroll pan, click teleports cursor, ⌘B brings
   the cursor back to the main display.
 - Zoom lives in the title bar (out / in / Fit plus a magnification readout) and on ⌘= ⌘- ⌘0,

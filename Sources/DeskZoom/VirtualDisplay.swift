@@ -37,13 +37,22 @@ final class VirtualDisplay {
     /// This is the ceiling on how sharp a capture of it can ever be.
     private(set) var pixelsPerPoint: CGFloat
     private let pixelSize: CGSize
-    private var wantsHiDPI = false
     private let display: CGVirtualDisplay
+    /// Every canvas the display can be switched to at runtime, widest points last.
+    private(set) var ladder: [Canvas] = []
 
-    /// `width` and `height` are framebuffer pixels, which is what the hardware caps. With `hiDPI` the canvas
-    /// is half that in points and text renders at two pixels per point; without it the canvas is the full
-    /// size at one. Points and detail come out of the same budget.
-    init(width: Int, height: Int, hiDPI: Bool, name: String) throws {
+    /// One rung: a canvas size in points and how much detail backs it.
+    struct Canvas: Equatable {
+        let size: CGSize
+        let pixelsPerPoint: CGFloat
+        var label: String { "\(Int(size.width))×\(Int(size.height)) @\(Int(pixelsPerPoint))x" }
+    }
+
+    /// `width` and `height` are the largest framebuffer to ask for, which is what the hardware caps.
+    /// A ladder of canvases is declared underneath it, and the display can be moved between them while
+    /// running: small canvases are backed at two pixels per point, large ones at one, because points and
+    /// detail come out of the same framebuffer budget.
+    init(width: Int, height: Int, name: String) throws {
         let descriptor = CGVirtualDisplayDescriptor()
         descriptor.setDispatchQueue(.main)
         descriptor.name = name
@@ -60,17 +69,14 @@ final class VirtualDisplay {
 
         let display = CGVirtualDisplay(descriptor: descriptor)
         let settings = CGVirtualDisplaySettings()
-        self.wantsHiDPI = hiDPI
         // A HiDPI mode is a *pair*: macOS makes one only when it is given both the pixel-size mode and the
         // point-size mode that is exactly half of it. Declaring one mode and setting the flag produces a
         // plain 1x display, which is what an earlier attempt measured and wrongly concluded from.
-        settings.hiDPI = hiDPI ? 1 : 0
-        settings.modes = hiDPI
-            ? [
-                CGVirtualDisplayMode(width: UInt(width), height: UInt(height), refreshRate: 60),
-                CGVirtualDisplayMode(width: UInt(width / 2), height: UInt(height / 2), refreshRate: 60),
-            ]
-            : [CGVirtualDisplayMode(width: UInt(width), height: UInt(height), refreshRate: 60)]
+        // So the framebuffer sizes below are declared as a set, and macOS pairs each with its half.
+        settings.hiDPI = 1
+        settings.modes = Self.declaredPixelSizes(maxWidth: width, maxHeight: height).map {
+            CGVirtualDisplayMode(width: UInt($0.width), height: UInt($0.height), refreshRate: 60)
+        }
         guard display.apply(settings) else {
             throw DeskZoomError.virtualDisplayRejected(width: width, height: height)
         }
@@ -83,21 +89,61 @@ final class VirtualDisplay {
         self.pixelsPerPoint = 1
     }
 
+    /// Framebuffer sizes to declare, as fractions of the largest asked for. Halves are included so macOS can
+    /// pair them into HiDPI modes, which is what puts sharp rungs at the small end of the ladder.
+    static func declaredPixelSizes(maxWidth: Int, maxHeight: Int) -> [CGSize] {
+        let fractions: [Double] = [0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.8, 1.0]
+        var sizes: Set<CGSize> = []
+        for fraction in fractions {
+            let width = (Double(maxWidth) * fraction / 2).rounded() * 2
+            let height = (Double(maxHeight) * fraction / 2).rounded() * 2
+            guard width >= 640 else { continue }
+            sizes.insert(CGSize(width: width, height: height))
+            let doubled = CGSize(width: width * 2, height: height * 2)
+            if Int(doubled.width) <= maxWidth { sizes.insert(doubled) }
+        }
+        return sizes.sorted { $0.width < $1.width }
+    }
+
+    /// The rungs the display actually offers, one per canvas size, each backed by the sharpest mode
+    /// available for it. Read from the display rather than assumed: macOS decides what it will pair.
+    static func ladder(from modes: [CGDisplayMode]) -> [Canvas] {
+        var best: [CGFloat: CGDisplayMode] = [:]
+        for mode in modes where mode.isUsableForDesktopGUI() && mode.width >= 640 {
+            let width = CGFloat(mode.width)
+            if let existing = best[width], existing.pixelWidth >= mode.pixelWidth { continue }
+            best[width] = mode
+        }
+        return best.values
+            .sorted { $0.width < $1.width }
+            .map { Canvas(size: CGSize(width: $0.width, height: $0.height),
+                          pixelsPerPoint: CGFloat($0.pixelWidth) / CGFloat($0.width)) }
+    }
+
     /// macOS 26 brings the display up at a default it picks itself (1920x1200 observed), even when only
     /// one mode was declared. Select the declared mode explicitly. Returns immediately if already active.
     func selectDeclaredMode() throws {
-        let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-        let width = Int(pixelSize.width), height = Int(pixelSize.height)
-        // Both the 1x and the HiDPI mode report the same pixel size; they differ in how many points those
-        // pixels are spread over, so the point width is what tells them apart.
-        let candidates = (CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode] ?? [])
-            .filter { $0.pixelWidth == width && $0.pixelHeight == height }
-        guard let mode = wantsHiDPI ? candidates.min(by: { $0.width < $1.width })
-                                    : candidates.max(by: { $0.width < $1.width })
-        else { throw DeskZoomError.modeMissing(width: width, height: height) }
+        let modes = availableModes()
+        ladder = Self.ladder(from: modes)
+        guard let widest = ladder.last else {
+            throw DeskZoomError.modeMissing(width: Int(pixelSize.width), height: Int(pixelSize.height))
+        }
+        try select(canvas: widest)
+    }
+
+    /// Switches the running display to another rung. The windows on it are rearranged by macOS, and the
+    /// canvas is measured in points, so every caller has to re-read `size` afterwards.
+    func select(canvas: Canvas) throws {
+        guard let mode = availableModes().first(where: {
+            CGFloat($0.width) == canvas.size.width
+                && CGFloat($0.height) == canvas.size.height
+                && CGFloat($0.pixelWidth) / CGFloat($0.width) == canvas.pixelsPerPoint
+        }) else {
+            throw DeskZoomError.modeMissing(width: Int(canvas.size.width), height: Int(canvas.size.height))
+        }
         adopt(mode)
         if let current = CGDisplayCopyDisplayMode(displayID),
-           current.pixelWidth == width, current.pixelHeight == height, current.width == mode.width {
+           current.width == mode.width, current.pixelWidth == mode.pixelWidth {
             return
         }
         var configuration: CGDisplayConfigRef?
@@ -110,6 +156,11 @@ final class VirtualDisplay {
         }
         status = CGCompleteDisplayConfiguration(configuration, .forSession)
         guard status == .success else { throw DeskZoomError.modeChangeFailed(status) }
+    }
+
+    private func availableModes() -> [CGDisplayMode] {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
+        return CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode] ?? []
     }
 
     /// The mode is the authority on how the display is measured, not what was asked for.

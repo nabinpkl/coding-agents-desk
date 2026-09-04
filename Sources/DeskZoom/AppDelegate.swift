@@ -8,25 +8,21 @@ struct DeskZoomConfig {
     var pointerGain: Double = 3
     /// Whether pinch gestures made on the virtual display are taken over to zoom the canvas.
     var pinchZoom = true
-    /// Render at two pixels per point: sharper text, a canvas half as wide and half as tall, because the
-    /// framebuffer size is what the hardware caps and points and detail share it.
-    var hiDPI = false
 
-    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1 --hidpi 0|1`.
+    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1`.
     /// Anything else is a hard error: no silent defaults on typos.
     static func parse(_ arguments: [String]) -> DeskZoomConfig {
         var config = DeskZoomConfig()
         var rest = arguments.dropFirst()
         while let flag = rest.popFirst() {
             guard let value = rest.popFirst(), let number = Double(value) else {
-                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1] [--hidpi 0|1]")
+                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1]")
             }
             switch flag {
             case "--width": config.width = Int(number)
             case "--height": config.height = Int(number)
             case "--pointer-gain": config.pointerGain = number
             case "--pinch-zoom": config.pinchZoom = number != 0
-            case "--hidpi": config.hiDPI = number != 0
             default: fail("unknown flag \(flag)")
             }
         }
@@ -65,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureUpdateQueued = false
     private var lastRegionChange = Date.distantPast
     private let viewportStore = ViewportStore()
+    private static let canvasDefaultsKey = "canvasWidth"
     private var pendingViewportSave: DispatchWorkItem?
     private var cursorOnCanvas = false
     private var frameCount = 0
@@ -81,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installMenu()
         let display: VirtualDisplay
         do {
-            display = try VirtualDisplay(width: config.width, height: config.height, hiDPI: config.hiDPI, name: "DeskZoom \(config.width)x\(config.height)")
+            display = try VirtualDisplay(width: config.width, height: config.height, name: "DeskZoom \(config.width)x\(config.height)")
         } catch {
             fail("\(error)")
         }
@@ -97,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 fail("\(error)")
             }
             await self.waitForScreenSize(display)
+            if let remembered = self.rememberedCanvas(in: display.ladder) {
+                try? display.select(canvas: remembered)
+                await self.waitForScreenSize(display)
+            }
             self.openWindow(for: display)
             await self.startCapture(for: display)
             // Leave the canvas belonging to the Finder rather than to DeskZoom: DeskZoom is a window on the
@@ -153,6 +154,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controls = ZoomControls()
         controls.onZoom = { [weak view] factor in view?.zoomAroundCenter(by: factor) }
         controls.onFit = { [weak view] in view?.fit() }
+        controls.setLadder(display.ladder, current: display.size.width)
+        controls.onCanvasChange = { [weak self] canvas in self?.selectCanvas(canvas) }
         controls.update(with: view.viewport)
         window.addTitlebarAccessoryViewController(controls)
         self.zoomControls = controls
@@ -286,6 +289,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.captureUpdateQueued = false
                 self.applyCaptureUpdate()
             }
+        }
+    }
+
+    private func rememberedCanvas(in ladder: [VirtualDisplay.Canvas]) -> VirtualDisplay.Canvas? {
+        let width = UserDefaults.standard.double(forKey: Self.canvasDefaultsKey)
+        guard width > 0 else { return nil }
+        return ladder.first { $0.size.width == CGFloat(width) }
+    }
+
+    /// Moves the display to another rung of the ladder while running: the canvas changes size in points,
+    /// so the view starts again on the new canvas and both captures are re-aimed at it.
+    private func selectCanvas(_ canvas: VirtualDisplay.Canvas) {
+        guard let display = virtualDisplay, let view = canvasView, canvas.size != view.viewport.canvas else { return }
+        zoomControls?.setCanvasEnabled(false)
+        Task {
+            do {
+                try display.select(canvas: canvas)
+            } catch {
+                fail("\(error)")
+            }
+            await self.waitForScreenSize(display)
+            UserDefaults.standard.set(Double(canvas.size.width), forKey: Self.canvasDefaultsKey)
+            view.adopt(canvas: display.size, pixelsPerPoint: display.pixelsPerPoint)
+            self.window?.contentAspectRatio = display.size
+            await self.capture?.stop()
+            await self.overviewCapture?.stop()
+            self.capture = nil
+            self.overviewCapture = nil
+            await self.startCapture(for: display)
+            self.zoomControls?.update(with: view.viewport)
+            self.zoomControls?.setCanvasEnabled(true)
+            self.updateTitle()
         }
     }
 

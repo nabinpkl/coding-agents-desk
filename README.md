@@ -136,27 +136,33 @@ iteration puts you back where you were looking rather than at the whole canvas.
 - A title bar accessory is positioned from its view's frame. An autolayout-only view comes up
   zero-width and the whole accessory silently fails to appear.
 
-## Sharpness
+## Desk size and sharpness
 
-By default the virtual display is 7680x4800 points with one framebuffer pixel per point, so
-one captured pixel per point is all the detail that exists. The viewer reaches that ceiling
-around 237% zoom, where its window has as many physical pixels as the region shows canvas
-points, and zooming further only magnifies 1x pixels.
+These are one axis, not two, and the title bar slider walks it while the app runs. No restart,
+and the choice is remembered.
 
-`--hidpi 1` lifts the ceiling. The framebuffer stays 7680x4800 pixels, the canvas becomes
-3840x2400 points, and text is rendered at two pixels per point, so it stays sharp roughly
-twice as far in. The trade is a canvas a quarter of the area: room for perhaps thirty windows
-rather than a hundred. Framebuffer width is capped near 7680 on Apple Silicon, so points and
-detail come out of the same budget and one is always bought with the other.
+The framebuffer is fixed at what the hardware allows, around 7680 pixels wide on Apple
+Silicon, and points and detail come out of it together. A canvas small enough that twice its
+points still fit is drawn at two pixels per point and text stays sharp; a larger canvas is
+drawn at one and holds more windows. On a 7680x4800 framebuffer the rungs come out as:
 
-```bash
-just dev-hidpi
-```
+| Canvas | Backing | Room for |
+|---|---|---|
+| 7680x4800 | 1x | about 100 windows, softest |
+| 6144x3840 | 1x | about 65 |
+| 5120x3200 | 1x | about 45 |
+| 3840x2400 | 2x | about 25, sharp text |
+| 2560x1600 | 2x | about 11, sharp text |
+| 1920x1200 | 2x | about 6, sharp text |
+
+At 1x the viewer runs out of detail around 237% zoom, where its window has as many physical
+pixels as the region shows canvas points. At 2x that ceiling is twice as far in.
 
 A HiDPI mode is a *pair*. macOS makes one only when the display declares both the pixel-size
-mode and the point-size mode that is exactly half of it. Setting the flag with a single mode
-declared produces a plain 1x display of that size, silently, which is what an earlier attempt
-here measured and wrongly concluded from.
+mode and the point-size mode that is exactly half of it, which is why the whole ladder is
+declared up front. Setting the HiDPI flag with a single mode declared produces a plain 1x
+display of that size, silently, which is what an earlier attempt here measured and wrongly
+concluded from.
 
 Separately, the capture is re-aimed once it is within 8% of the detail the window can show,
 where it previously tolerated being 35% short. That is visibly soft text at rest for no reason.

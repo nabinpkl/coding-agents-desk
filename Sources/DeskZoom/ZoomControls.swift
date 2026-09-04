@@ -13,10 +13,15 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
     private let stepper = NSSegmentedControl()
     private let readout = NSTextField(labelWithString: "100%")
     private let fitButton = NSButton()
+    private let canvasSlider = NSSlider()
+    private let canvasLabel = NSTextField(labelWithString: "")
+    private var ladder: [VirtualDisplay.Canvas] = []
 
     /// Called with the zoom factor to apply around the canvas center. > 1 zooms in.
     var onZoom: ((CGFloat) -> Void)?
     var onFit: (() -> Void)?
+    /// Called with the canvas the slider was moved to.
+    var onCanvasChange: ((VirtualDisplay.Canvas) -> Void)?
 
     init() {
         super.init(nibName: nil, bundle: nil)
@@ -51,7 +56,24 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
         fitButton.toolTip = "Show the whole virtual display (⌘0)"
         fitButton.setAccessibilityIdentifier("zoom-fit")
 
-        let stack = NSStackView(views: [readout, stepper, fitButton])
+        // Desk size and sharpness are one axis, not two: a canvas small enough to be backed at two pixels
+        // per point is sharp, a larger one is not, and the slider walks that trade rather than hiding it
+        // behind a 1x/2x switch that says nothing about what it costs.
+        canvasSlider.controlSize = .small
+        canvasSlider.allowsTickMarkValuesOnly = true
+        canvasSlider.sliderType = .linear
+        canvasSlider.target = self
+        canvasSlider.action = #selector(canvasSliderMoved)
+        canvasSlider.isContinuous = false
+        canvasSlider.setAccessibilityIdentifier("canvas-slider")
+        canvasSlider.widthAnchor.constraint(equalToConstant: 110).isActive = true
+
+        canvasLabel.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        canvasLabel.textColor = .labelColor
+        canvasLabel.setAccessibilityIdentifier("canvas-label")
+        canvasLabel.widthAnchor.constraint(equalToConstant: 122).isActive = true
+
+        let stack = NSStackView(views: [canvasLabel, canvasSlider, readout, stepper, fitButton])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 8
@@ -61,6 +83,33 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
         stack.translatesAutoresizingMaskIntoConstraints = true
         stack.frame = NSRect(origin: .zero, size: CGSize(width: stack.fittingSize.width, height: max(28, stack.fittingSize.height)))
         view = stack
+    }
+
+    /// The rungs the display offers, and which one it is on now.
+    func setLadder(_ ladder: [VirtualDisplay.Canvas], current width: CGFloat) {
+        loadViewIfNeeded()
+        self.ladder = ladder
+        canvasSlider.minValue = 0
+        canvasSlider.maxValue = Double(max(0, ladder.count - 1))
+        canvasSlider.numberOfTickMarks = ladder.count
+        canvasSlider.isEnabled = ladder.count > 1
+        let index = ladder.firstIndex { $0.size.width == width } ?? max(0, ladder.count - 1)
+        canvasSlider.doubleValue = Double(index)
+        canvasLabel.stringValue = ladder.indices.contains(index) ? ladder[index].label : ""
+        canvasLabel.toolTip = "Desk size and sharpness. Smaller canvases are drawn at two pixels per point."
+    }
+
+    /// Switching rungs takes a moment and must not be re-entered while it runs.
+    func setCanvasEnabled(_ enabled: Bool) {
+        loadViewIfNeeded()
+        canvasSlider.isEnabled = enabled && ladder.count > 1
+    }
+
+    @objc private func canvasSliderMoved() {
+        let index = Int(canvasSlider.doubleValue.rounded())
+        guard ladder.indices.contains(index) else { return }
+        canvasLabel.stringValue = ladder[index].label
+        onCanvasChange?(ladder[index])
     }
 
     /// Enablement is the one state AppKit cannot infer: a disabled segment leaves the tab order

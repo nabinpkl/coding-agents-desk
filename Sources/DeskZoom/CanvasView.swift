@@ -199,6 +199,18 @@ final class CanvasView: NSView {
         viewport.fit()
     }
 
+    /// Starts again on a canvas of a different size, after the display has been moved to another rung.
+    /// The pictures on screen belong to the old canvas and would be placed wrongly on the new one, so they
+    /// go, and the viewer shows the whole of the new canvas until the captures catch up.
+    func adopt(canvas: CGSize, pixelsPerPoint: CGFloat) {
+        maxPixelsPerPoint = pixelsPerPoint
+        detailRegion = nil
+        overviewRegion = nil
+        detailLayer.contents = nil
+        overviewLayer.contents = nil
+        viewport = Viewport(canvas: canvas)
+    }
+
     /// Zoom driven by something other than the pointer (title bar buttons, menu shortcuts),
     /// so it keeps whatever is in the middle of the view in the middle.
     func zoomAroundCenter(by factor: CGFloat) {

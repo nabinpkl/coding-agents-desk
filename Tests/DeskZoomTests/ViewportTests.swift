@@ -245,3 +245,20 @@ final class ViewportStoreTests: XCTestCase {
         XCTAssertEqual(viewport.visible.width / viewport.visible.height, canvas.width / canvas.height, accuracy: 0.001)
     }
 }
+
+final class VirtualDisplayLadderTests: XCTestCase {
+    func testDeclaredSizesIncludeHalvesSoMacOSCanPairThemIntoHiDPI() {
+        let sizes = VirtualDisplay.declaredPixelSizes(maxWidth: 7680, maxHeight: 4800)
+        XCTAssertTrue(sizes.contains(CGSize(width: 7680, height: 4800)))
+        XCTAssertTrue(sizes.contains(CGSize(width: 3840, height: 2400)), "the half of the largest, so it can be paired")
+        XCTAssertTrue(sizes.allSatisfy { $0.width <= 7680 }, "nothing may exceed the framebuffer asked for")
+        XCTAssertEqual(sizes, sizes.sorted { $0.width < $1.width })
+    }
+
+    func testACanvasLabelSaysBothSizeAndSharpness() {
+        let sharp = VirtualDisplay.Canvas(size: CGSize(width: 3840, height: 2400), pixelsPerPoint: 2)
+        let wide = VirtualDisplay.Canvas(size: CGSize(width: 7680, height: 4800), pixelsPerPoint: 1)
+        XCTAssertEqual(sharp.label, "3840×2400 @2x")
+        XCTAssertEqual(wide.label, "7680×4800 @1x")
+    }
+}
