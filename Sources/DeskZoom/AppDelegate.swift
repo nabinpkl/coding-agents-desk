@@ -62,6 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRegionChange = Date.distantPast
     private let viewportStore = ViewportStore()
     private static let canvasDefaultsKey = "canvasWidth"
+    /// How long the slider must sit still before the display is actually reconfigured. Short enough to feel
+    /// immediate, long enough that dragging across the ladder does not reconfigure at every rung it passes.
+    private static let canvasSettleDelay: TimeInterval = 0.2
+    private var pendingCanvas: DispatchWorkItem?
+    private var canvasChangeInFlight = false
+    private var queuedCanvas: VirtualDisplay.Canvas?
     private var pendingViewportSave: DispatchWorkItem?
     private var cursorOnCanvas = false
     private var frameCount = 0
@@ -298,11 +304,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return ladder.first { $0.size.width == CGFloat(width) }
     }
 
+    /// The slider reports every rung it passes over, and reconfiguring a display takes a second or so, so
+    /// the last one wins rather than every one being applied in turn.
+    private func selectCanvas(_ canvas: VirtualDisplay.Canvas) {
+        pendingCanvas?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.applyCanvas(canvas) }
+        pendingCanvas = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.canvasSettleDelay, execute: work)
+    }
+
     /// Moves the display to another rung of the ladder while running: the canvas changes size in points,
     /// so the view starts again on the new canvas and both captures are re-aimed at it.
-    private func selectCanvas(_ canvas: VirtualDisplay.Canvas) {
+    private func applyCanvas(_ canvas: VirtualDisplay.Canvas) {
         guard let display = virtualDisplay, let view = canvasView, canvas.size != view.viewport.canvas else { return }
-        zoomControls?.setCanvasEnabled(false)
+        guard !canvasChangeInFlight else {
+            queuedCanvas = canvas
+            return
+        }
+        canvasChangeInFlight = true
         Task {
             do {
                 try display.select(canvas: canvas)
@@ -319,8 +338,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.overviewCapture = nil
             await self.startCapture(for: display)
             self.zoomControls?.update(with: view.viewport)
-            self.zoomControls?.setCanvasEnabled(true)
             self.updateTitle()
+            self.canvasChangeInFlight = false
+            if let queued = self.queuedCanvas {
+                self.queuedCanvas = nil
+                self.applyCanvas(queued)
+            }
         }
     }
 

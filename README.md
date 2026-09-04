@@ -138,8 +138,10 @@ iteration puts you back where you were looking rather than at the whole canvas.
 
 ## Desk size and sharpness
 
-These are one axis, not two, and the title bar slider walks it while the app runs. No restart,
-and the choice is remembered.
+These are one axis, not two, and the title bar slider walks it while the app runs. The label
+follows the knob as you drag; the display itself is reconfigured once you pause, since a mode
+change takes about a second and dragging across the ladder would otherwise reconfigure at every
+rung it passed. No restart, and the choice is remembered.
 
 The framebuffer is fixed at what the hardware allows, around 7680 pixels wide on Apple
 Silicon, and points and detail come out of it together. A canvas small enough that twice its
@@ -152,8 +154,13 @@ drawn at one and holds more windows. On a 7680x4800 framebuffer the rungs come o
 | 6144x3840 | 1x | about 65 |
 | 5120x3200 | 1x | about 45 |
 | 3840x2400 | 2x | about 25, sharp text |
+| 3072x1920 | 2x | about 16, sharp text |
 | 2560x1600 | 2x | about 11, sharp text |
 | 1920x1200 | 2x | about 6, sharp text |
+
+A virtual display also advertises a pile of small legacy modes of its own, including 4:3 ones.
+Those are filtered out: a 1024x640 canvas is not a desk, and a canvas of a different shape
+would not fit the viewer.
 
 At 1x the viewer runs out of detail around 237% zoom, where its window has as many physical
 pixels as the region shows canvas points. At 2x that ceiling is twice as far in.

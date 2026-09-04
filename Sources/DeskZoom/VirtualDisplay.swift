@@ -105,14 +105,26 @@ final class VirtualDisplay {
         return sizes.sorted { $0.width < $1.width }
     }
 
-    /// The rungs the display actually offers, one per canvas size, each backed by the sharpest mode
-    /// available for it. Read from the display rather than assumed: macOS decides what it will pair.
-    static func ladder(from modes: [CGDisplayMode]) -> [Canvas] {
-        var best: [CGFloat: CGDisplayMode] = [:]
-        for mode in modes where mode.isUsableForDesktopGUI() && mode.width >= 640 {
-            let width = CGFloat(mode.width)
-            if let existing = best[width], existing.pixelWidth >= mode.pixelWidth { continue }
-            best[width] = mode
+    /// A canvas the display offers, before the ladder decides whether to keep it.
+    struct Rung: Equatable {
+        let width: Int
+        let height: Int
+        let pixelWidth: Int
+    }
+
+    /// The rungs worth offering, one per canvas size, each backed by the sharpest mode available for it.
+    ///
+    /// A virtual display always advertises a pile of small legacy modes of its own, including 4:3 ones.
+    /// Those are not desks: a 1024x640 canvas holds nothing, and a canvas of a different shape would not
+    /// even fit the viewer. So the list is filtered to the requested shape and to sizes worth switching to.
+    static func ladder(from rungs: [Rung], aspect: CGFloat, minimumWidth: Int) -> [Canvas] {
+        var best: [Int: Rung] = [:]
+        for rung in rungs {
+            guard rung.width >= minimumWidth, rung.height > 0 else { continue }
+            let shape = CGFloat(rung.width) / CGFloat(rung.height)
+            guard abs(shape - aspect) <= aspect * 0.01 else { continue }
+            if let existing = best[rung.width], existing.pixelWidth >= rung.pixelWidth { continue }
+            best[rung.width] = rung
         }
         return best.values
             .sorted { $0.width < $1.width }
@@ -123,8 +135,15 @@ final class VirtualDisplay {
     /// macOS 26 brings the display up at a default it picks itself (1920x1200 observed), even when only
     /// one mode was declared. Select the declared mode explicitly. Returns immediately if already active.
     func selectDeclaredMode() throws {
-        let modes = availableModes()
-        ladder = Self.ladder(from: modes)
+        let rungs = availableModes()
+            .filter { $0.isUsableForDesktopGUI() }
+            .map { Rung(width: $0.width, height: $0.height, pixelWidth: $0.pixelWidth) }
+        ladder = Self.ladder(
+            from: rungs,
+            aspect: pixelSize.width / pixelSize.height,
+            // Anything under a quarter of the framebuffer is too small to be a desk worth switching to.
+            minimumWidth: Int(pixelSize.width) / 4
+        )
         guard let widest = ladder.last else {
             throw DeskZoomError.modeMissing(width: Int(pixelSize.width), height: Int(pixelSize.height))
         }

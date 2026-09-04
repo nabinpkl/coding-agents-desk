@@ -255,6 +255,22 @@ final class VirtualDisplayLadderTests: XCTestCase {
         XCTAssertEqual(sizes, sizes.sorted { $0.width < $1.width })
     }
 
+    func testTheLadderKeepsTheSharpestModeAndDropsWhatIsNotADesk() {
+        let rungs = [
+            VirtualDisplay.Rung(width: 1024, height: 640, pixelWidth: 1024),   // too small
+            VirtualDisplay.Rung(width: 2560, height: 1920, pixelWidth: 2560),  // 4:3, wrong shape
+            VirtualDisplay.Rung(width: 3840, height: 2400, pixelWidth: 3840),  // same canvas, less detail
+            VirtualDisplay.Rung(width: 3840, height: 2400, pixelWidth: 7680),  // same canvas, more detail
+            VirtualDisplay.Rung(width: 7680, height: 4800, pixelWidth: 7680),
+        ]
+        let ladder = VirtualDisplay.ladder(from: rungs, aspect: 1.6, minimumWidth: 1920)
+        XCTAssertEqual(ladder.count, 2)
+        XCTAssertEqual(ladder.first?.size.width, 3840)
+        XCTAssertEqual(ladder.first?.pixelsPerPoint, 2, "the sharper of two modes for the same canvas wins")
+        XCTAssertEqual(ladder.last?.size.width, 7680)
+        XCTAssertEqual(ladder.last?.pixelsPerPoint, 1)
+    }
+
     func testACanvasLabelSaysBothSizeAndSharpness() {
         let sharp = VirtualDisplay.Canvas(size: CGSize(width: 3840, height: 2400), pixelsPerPoint: 2)
         let wide = VirtualDisplay.Canvas(size: CGSize(width: 7680, height: 4800), pixelsPerPoint: 1)

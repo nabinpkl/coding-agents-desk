@@ -64,7 +64,9 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
         canvasSlider.sliderType = .linear
         canvasSlider.target = self
         canvasSlider.action = #selector(canvasSliderMoved)
-        canvasSlider.isContinuous = false
+        // Live: the label follows the knob as it moves, and the display change behind it is debounced by
+        // the delegate. Waiting for the knob to be released made choosing a rung a guess-and-check.
+        canvasSlider.isContinuous = true
         canvasSlider.setAccessibilityIdentifier("canvas-slider")
         canvasSlider.widthAnchor.constraint(equalToConstant: 110).isActive = true
 
@@ -99,15 +101,9 @@ final class ZoomControls: NSTitlebarAccessoryViewController {
         canvasLabel.toolTip = "Desk size and sharpness. Smaller canvases are drawn at two pixels per point."
     }
 
-    /// Switching rungs takes a moment and must not be re-entered while it runs.
-    func setCanvasEnabled(_ enabled: Bool) {
-        loadViewIfNeeded()
-        canvasSlider.isEnabled = enabled && ladder.count > 1
-    }
-
     @objc private func canvasSliderMoved() {
         let index = Int(canvasSlider.doubleValue.rounded())
-        guard ladder.indices.contains(index) else { return }
+        guard ladder.indices.contains(index), ladder[index].label != canvasLabel.stringValue else { return }
         canvasLabel.stringValue = ladder[index].label
         onCanvasChange?(ladder[index])
     }
