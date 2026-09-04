@@ -4,8 +4,9 @@ import CoreMedia
 /// Shows the captured virtual display. Pinch zooms, two-finger scroll pans, click teleports the cursor
 /// to the clicked spot on the virtual display so the real windows there receive the following input.
 final class CanvasView: NSView {
-    /// Extra margin captured around the visible rect, as a fraction of it, so short pans stay on real pixels.
-    private static let capturePadding: CGFloat = 0.1
+    /// Extra margin captured around the visible rect, as a fraction of it, so ordinary panning stays inside
+    /// what is already captured and needs no new stream. Costs pixels as the square, so it stays modest.
+    private static let capturePadding: CGFloat = 0.2
     /// How close to the edge the cursor may get before the view pans to keep up, as a fraction of the view.
     private static let followMargin: CGFloat = 0.18
 

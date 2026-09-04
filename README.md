@@ -48,6 +48,10 @@ can be entered this way; once across, drag it anywhere.
 - `Sources/CGVirtualDisplayPrivate`: header for the private CoreGraphics virtual display
   classes (the same ones BetterDisplay and DeskPad use).
 - `VirtualDisplay.swift`: creates the display with one 1x mode.
+- Re-aiming the sharp capture is rate limited to roughly three times a second. Every re-aim
+  swaps the sharp picture for the blurred overview until the new stream delivers, so re-aiming
+  on every pointer move reads as the windows flickering. Measured over a five second sweep of
+  the whole canvas at 23x zoom: two re-aims, against well over a hundred before the limit.
 - Two captures run: a permanent low-resolution one of the whole canvas, and a sharp one of
   the region being looked at. Panning and zooming outrun a capture stream, and the first fix
   for black bars only stopped the picture being letterboxed, not the area the sharp capture

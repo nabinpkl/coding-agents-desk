@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingCaptureUpdate: DispatchWorkItem?
     private var captureUpdateInFlight = false
     private var captureUpdateQueued = false
+    private var lastRegionChange = Date.distantPast
     private var cursorOnCanvas = false
     private var frameCount = 0
     private var screenRecordingDenied = false
@@ -230,14 +231,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Capture region follows the viewport, coalesced so pinch gestures do not flood the stream
 
-    private func scheduleCaptureUpdate() {
+    /// Longest a viewport change waits before the sharp capture is re-aimed at it.
+    private static let captureSettleDelay: TimeInterval = 0.15
+    /// Shortest gap between two re-aims. Every re-aim swaps the sharp picture for the blurred overview for
+    /// as long as the new stream takes to deliver, so re-aiming on every pointer move reads as flicker.
+    /// The overview is what makes waiting acceptable: nothing goes black in the meantime.
+    private static let minimumRegionInterval: TimeInterval = 0.35
+
+    private func scheduleCaptureUpdate(after delay: TimeInterval = captureSettleDelay) {
         pendingCaptureUpdate?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.applyCaptureUpdate() }
         pendingCaptureUpdate = work
-        // Aiming a fresh stream is expensive, so normally wait for movement to settle. But once the view
-        // has moved off what was captured, the uncovered part is showing background, so go at once.
-        let uncovered = canvasView.map { !$0.isServed(by: capture?.plan) } ?? false
-        DispatchQueue.main.asyncAfter(deadline: .now() + (uncovered ? 0.03 : 0.25), execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func applyCaptureUpdate() {
@@ -249,6 +254,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Panning inside the padded region already on screen needs no new stream, and starting one per
         // mouse move is what made the machine crawl.
         guard !view.isServed(by: capture.plan) else { return }
+        let sinceLastChange = Date().timeIntervalSince(lastRegionChange)
+        guard sinceLastChange >= Self.minimumRegionInterval else {
+            scheduleCaptureUpdate(after: Self.minimumRegionInterval - sinceLastChange)
+            return
+        }
+        lastRegionChange = Date()
         captureUpdateInFlight = true
         let plan = view.capturePlan
         Task {
