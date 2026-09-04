@@ -201,6 +201,64 @@ export function zoomAt(
   );
 }
 
+/**
+ * Fill the viewport with the picture and put the remote cursor at its centre.
+ *
+ * `object-contain` leaves the unconstrained axis letterboxed, which is harmless on a full-height
+ * viewer and is the whole picture when the keyboard has taken half the box: what is left is a thin
+ * strip of desktop floating in black. Covering removes the bars by scaling until both axes are
+ * filled, and centring on the cursor decides which part of the now-larger picture the strip shows,
+ * which is the part being typed into.
+ *
+ * `followRemoteCursor` cannot express this. It keeps an existing pan inside an edge band and bails
+ * out on any axis the scale has not already overflowed, which is exactly the axis a cover fit
+ * lands flush against.
+ */
+export function coverOnRemoteCursor(
+  cursor: ViewportPoint,
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): ViewportTransform {
+  const picture = aspectFitPicture(
+    sourceWidth,
+    sourceHeight,
+    viewportWidth,
+    viewportHeight,
+  );
+  if (!picture) return IDENTITY;
+  const scale = Math.min(MAX_SCALE, Math.max(
+    MIN_SCALE,
+    Math.max(viewportWidth / picture.width, viewportHeight / picture.height),
+  ));
+
+  const centreAxis = (
+    sourcePosition: number,
+    sourceExtent: number,
+    pictureNear: number,
+    pictureExtent: number,
+    viewportExtent: number,
+  ) => {
+    // Where the cursor sits in untransformed content pixels, then the translation that puts it at
+    // the middle of the viewport, then the range that keeps both content edges outside it.
+    const cursorContent = pictureNear + sourcePosition * (pictureExtent / sourceExtent);
+    const centred = viewportExtent / 2 - cursorContent * scale;
+    const maximum = -pictureNear * scale;
+    const minimum = viewportExtent - (pictureExtent + pictureNear) * scale;
+    const clamped = Math.min(maximum, Math.max(minimum, centred));
+    // A picture already flush against the near edge clamps to negative zero, which would reach the
+    // transform string as "-0px" and read as a different translation to anything comparing values.
+    return clamped === 0 ? 0 : clamped;
+  };
+
+  return {
+    scale,
+    tx: centreAxis(cursor.x, sourceWidth, picture.x, picture.width, viewportWidth),
+    ty: centreAxis(cursor.y, sourceHeight, picture.y, picture.height, viewportHeight),
+  };
+}
+
 /** Translate by a gesture delta, clamped. A no-op at scale 1 by construction. */
 export function panBy(
   transform: ViewportTransform,

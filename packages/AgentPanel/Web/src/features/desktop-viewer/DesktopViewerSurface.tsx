@@ -137,10 +137,9 @@ export function DesktopViewerSurface({
     <main className="relative h-full overflow-hidden bg-black text-white">
       {/*
         The video's own box, so it can end above the keyboard rather than run full height under it.
-        The picture is `object-contain`, so a shorter box re-fits and re-centres it upward and the
-        whole Mac stays visible instead of its bottom band living behind the accessory. In portrait
-        that costs nothing until the box drops below the picture's fitted height, because the
-        picture is width-constrained and already floating in black.
+        Shortening it is only half the answer: `object-contain` would re-centre the picture in the
+        strip and spend most of it on black. The viewport covers the strip and aims it at the remote
+        cursor for as long as the keyboard occludes this box.
       */}
       <div data-testid="desktop-video-box" className="absolute inset-x-0 top-0"
         style={{ bottom: keyboard.occludedBottom }}>

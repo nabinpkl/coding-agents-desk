@@ -996,12 +996,18 @@ The video box ends at the accessory's top edge rather than running full height b
 is one measured number, the accessory's observed height plus its own offset from the layout viewport's
 bottom, which covers the keyboard too because the accessory is drawn on top of it: the offset is zero
 when the WKWebView's layout viewport has already shrunk to the keyboard-free area and the keyboard's
-height when it has not, so the visible band is the same either way. The picture is `object-contain`,
-so a shorter box re-fits and re-centres it upward and the whole Mac stays visible instead of its
-bottom band living behind the bar being typed into. The accessory's height is measured, never assumed,
-because its bottom padding follows the safe area until the software keyboard owns it. The viewport
-observes its own frame and re-clamps the pan on any resize, since a shorter box narrows the legal
-pan range and a window-resize listener never sees this change.
+height when it has not, so the visible band is the same either way. The accessory's height is
+measured, never assumed, because its bottom padding follows the safe area until the software
+keyboard owns it.
+
+Shortening the box alone would only move the problem: `object-contain` re-centres the picture in the
+strip that is left, so the desktop shrinks and floats in black bars. While the keyboard occludes the
+box the viewport instead covers it, scaling until both axes are filled and translating so the remote
+cursor sits at the strip's centre, clamped so no content edge pulls inside the viewport. The view
+held before the keyboard is restored when it leaves, because the cover is the viewer's decision and
+not the user's. The viewport observes its own frame rather than the window, which never sees a box
+the page shortened itself, and re-clamps the pan on every other resize, since a shorter box narrows
+the legal pan range.
 The keyboard chrome uses a 32 px echo field and one 36 px key rail with an inverted-T arrow cluster.
 Auto and Hide sit in the echo line; acknowledged event history stays screen-reader-accessible without
 a second visible receipt row. The software keyboard already owns the bottom safe area, so the web

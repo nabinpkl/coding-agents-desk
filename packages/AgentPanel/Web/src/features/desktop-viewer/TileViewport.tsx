@@ -6,6 +6,7 @@ import {
   IDENTITY,
   advanceRemoteCursor,
   clampPan,
+  coverOnRemoteCursor,
   followRemoteCursor,
   panBy,
   pointerAccelerationGain,
@@ -129,6 +130,7 @@ export function TileViewport({
   const sendPointerInputRef = useRef(sendPointerInput);
   const pointerGestureStartRef = useRef(onPointerGestureStart);
   const beforeRemoteClickRef = useRef(onBeforeRemoteClick);
+  const keyboardPresentedRef = useRef(keyboardPresented);
   const gestureTelemetryRef = useRef(onGestureTelemetry);
   const cursorRevision = useRef(0);
   const acknowledgedCursorRevision = useRef(0);
@@ -152,6 +154,12 @@ export function TileViewport({
     beforeRemoteClickRef.current = onBeforeRemoteClick;
   }, [onBeforeRemoteClick]);
 
+  // Read at resize time rather than in the layout effect's deps, which would rebind every pointer
+  // listener and reset the view each time the keyboard came and went.
+  useEffect(() => {
+    keyboardPresentedRef.current = keyboardPresented;
+  }, [keyboardPresented]);
+
   useEffect(() => {
     gestureTelemetryRef.current = onGestureTelemetry;
   }, [onGestureTelemetry]);
@@ -167,6 +175,8 @@ export function TileViewport({
     if (!pointerMode && scrollEngagedRef.current) setScrollEngaged(false);
 
     let transform: ViewportTransform = IDENTITY;
+    /** The view to put back when the keyboard stops occluding the box, or null when it is not. */
+    let viewBeforeKeyboard: ViewportTransform | null = null;
     let remoteCursor = advanceRemoteCursor(
       initialCursor ?? { x: sourceWidth / 2, y: sourceHeight / 2 },
       0,
@@ -792,11 +802,24 @@ export function TileViewport({
     const puckUp = (event: PointerEvent) => finishPuckPointer(event, false);
     const puckCancel = (event: PointerEvent) => finishPuckPointer(event, true);
     const handleResize = () => {
-      // Clamping, not just re-applying: a shorter box narrows `clampPan`'s range, so a pan that
-      // was legal at the old height can now pull the content's bottom edge inside the viewport
-      // and show black. The keyboard shortens this box every time it opens.
       const { w, h } = size();
-      transform = clampPan(transform, w, h);
+      if (keyboardPresentedRef.current) {
+        // The keyboard leaves a strip, and `object-contain` would spend most of it on black bars
+        // around a shrunken desktop. Fill the strip instead and aim it at the cursor, which is
+        // where the typing is going. Recomputed on every resize while typing so an accessory that
+        // changes height re-aims rather than drifting.
+        if (viewBeforeKeyboard === null) viewBeforeKeyboard = transform;
+        transform = coverOnRemoteCursor(remoteCursor, sourceWidth, sourceHeight, w, h);
+      } else if (viewBeforeKeyboard !== null) {
+        // The cover was this viewer's doing, not the user's, so leaving the keyboard leaves it.
+        transform = clampPan(viewBeforeKeyboard, w, h);
+        viewBeforeKeyboard = null;
+      } else {
+        // Clamping, not just re-applying: a shorter box narrows `clampPan`'s range, so a pan that
+        // was legal at the old height can now pull the content's bottom edge inside the viewport
+        // and show black.
+        transform = clampPan(transform, w, h);
+      }
       applyPuckOffset(false);
       apply();
     };

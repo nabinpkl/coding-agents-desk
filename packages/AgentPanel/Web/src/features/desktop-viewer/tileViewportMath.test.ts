@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceRemoteCursor,
   clampPan,
+  coverOnRemoteCursor,
   followRemoteCursor,
   IDENTITY,
   panBy,
@@ -148,5 +149,35 @@ describe("toContentPoint", () => {
     // the same viewport pixel.
     expect(point.x * W * zoomed.scale + zoomed.tx).toBeCloseTo(600);
     expect(point.y * H * zoomed.scale + zoomed.ty).toBeCloseTo(300);
+  });
+});
+
+describe("coverOnRemoteCursor", () => {
+  it("fills a letterboxed strip and centres the cursor in what is left", () => {
+    // 800x500 source in a tall 800x1000 box: contain fits by width and leaves 250px of black
+    // above and below. Covering doubles it so the picture is exactly as tall as the box.
+    const centred = coverOnRemoteCursor({ x: 200, y: 250 }, 800, 500, 800, 1000);
+    expect(centred).toEqual({ scale: 2, tx: 0, ty: -500 });
+    // The cursor lands on the viewport's middle on the axis that has room to pan.
+    expect(200 * 2 + centred.tx).toBe(400);
+
+    // A wide 1000x200 strip, the shape the keyboard leaves in landscape: contain fits by height
+    // and pillarboxes instead, so covering scales on the other axis.
+    const strip = coverOnRemoteCursor({ x: 400, y: 250 }, 800, 500, 1000, 200);
+    expect(strip.scale).toBeCloseTo(3.125);
+    expect(strip.tx).toBeCloseTo(-1062.5);
+    expect(strip.ty).toBeCloseTo(-212.5);
+  });
+
+  it("never pans a content edge inside the viewport to obey the cursor", () => {
+    const atLeftEdge = coverOnRemoteCursor({ x: 0, y: 250 }, 800, 500, 800, 1000);
+    expect(atLeftEdge.tx).toBe(0);
+    const atRightEdge = coverOnRemoteCursor({ x: 800, y: 250 }, 800, 500, 800, 1000);
+    expect(atRightEdge.tx).toBe(-800);
+  });
+
+  it("returns identity when there is no picture to cover", () => {
+    expect(coverOnRemoteCursor({ x: 0, y: 0 }, 0, 0, 800, 500)).toBe(IDENTITY);
+    expect(coverOnRemoteCursor({ x: 0, y: 0 }, 800, 500, 0, 0)).toBe(IDENTITY);
   });
 });

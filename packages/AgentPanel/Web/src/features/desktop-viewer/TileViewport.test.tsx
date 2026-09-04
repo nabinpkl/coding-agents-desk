@@ -321,6 +321,48 @@ describe("TileViewport pointer mode", () => {
     expect(surface.contains(overlay)).toBe(true);
   });
 
+  it("fills the strip the keyboard leaves and aims it at the cursor, then puts the view back", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const surfaceFor = (keyboardPresented: boolean) => (
+      <TileViewport pointerMode keyboardPresented={keyboardPresented}
+        sourceWidth={800} sourceHeight={500} initialCursor={{ x: 200, y: 250 }}>
+        <div data-testid="content" />
+      </TileViewport>
+    );
+    const { rerender } = render(surfaceFor(false));
+    const content = screen.getByTestId("content").parentElement!;
+    const frame = content.parentElement!;
+    Object.defineProperties(frame, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 1000 },
+    });
+    expect(content.style.transform).toBe("translate(0px, 0px) scale(1)");
+
+    // The keyboard flag lands before the box changes, exactly as the surface drives it: the
+    // accessory has to mount and be measured before the video's box knows how short to be.
+    rerender(surfaceFor(true));
+    Object.defineProperty(frame, "clientHeight", { configurable: true, value: 500 });
+    act(() => frameObservers.get(frame)!());
+
+    // 800x500 in an 800x500 box already fills it, so covering asks for no zoom and the cursor
+    // cannot be centred on an axis with nothing to pan.
+    expect(content.style.transform).toBe("translate(0px, 0px) scale(1)");
+
+    // A taller strip does letterbox, and that is the case the cover exists for.
+    Object.defineProperty(frame, "clientHeight", { configurable: true, value: 1000 });
+    rerender(surfaceFor(false));
+    Object.defineProperty(frame, "clientHeight", { configurable: true, value: 800 });
+    rerender(surfaceFor(true));
+    act(() => frameObservers.get(frame)!());
+    expect(content.style.transform).toBe("translate(0px, -240px) scale(1.6)");
+
+    Object.defineProperty(frame, "clientHeight", { configurable: true, value: 1000 });
+    rerender(surfaceFor(false));
+    act(() => frameObservers.get(frame)!());
+    expect(content.style.transform).toBe("translate(0px, 0px) scale(1)");
+  });
+
   it("re-clamps a zoomed pan when the keyboard shortens the box", () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
