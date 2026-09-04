@@ -17,14 +17,19 @@ final class CanvasView: NSView {
         }
     }
     private let displayID: CGDirectDisplayID
-    /// The region of the virtual display the frame on screen actually covers.
-    private var frameRegion: CGRect?
+    /// The region of the virtual display each layer's picture covers.
+    private var detailRegion: CGRect?
+    private var overviewRegion: CGRect?
     private var cursorPollTimer: Timer?
     private var mouseMonitor: Any?
-    /// The captured frame lives in its own layer, positioned by frame rather than drawn with
-    /// `contentsGravity`. Gravity plus a clamped `contentsRect` letterboxed the picture into black bars
-    /// whenever the view moved outside the captured region; placing the layer geometrically cannot.
-    private let contentLayer = CALayer()
+    /// A permanent low-resolution picture of the whole canvas, sitting under the sharp one. Panning and
+    /// zooming move faster than a capture stream can be re-aimed, and without something underneath, the
+    /// area the sharp capture has not reached yet is bare background: the black the viewer used to show.
+    private let overviewLayer = CALayer()
+    /// The sharp capture of the region currently being looked at, positioned by frame rather than drawn
+    /// with `contentsGravity`. Gravity plus a clamped `contentsRect` letterboxed the picture into black
+    /// bars whenever the view moved outside the captured region; placing a layer geometrically cannot.
+    private let detailLayer = CALayer()
     private let cursorLayer = CALayer()
     private var cursorOnCanvas = false
 
@@ -40,12 +45,14 @@ final class CanvasView: NSView {
         layer?.masksToBounds = true
         layer?.borderWidth = 0
         layer?.borderColor = NSColor.systemBlue.cgColor
-        // The layer's frame is set to exactly the region the pixels cover, so the contents fill it.
-        contentLayer.contentsGravity = .resize
-        contentLayer.magnificationFilter = .linear
-        contentLayer.minificationFilter = .trilinear
-        contentLayer.anchorPoint = .zero
-        layer?.addSublayer(contentLayer)
+        // Each layer's frame is set to exactly the region its pixels cover, so the contents fill it.
+        for sublayer in [overviewLayer, detailLayer] {
+            sublayer.contentsGravity = .resize
+            sublayer.magnificationFilter = .linear
+            sublayer.minificationFilter = .trilinear
+            sublayer.anchorPoint = .zero
+            layer?.addSublayer(sublayer)
+        }
         installCursorOverlay()
         startCursorTracking()
     }
@@ -69,29 +76,44 @@ final class CanvasView: NSView {
     // MARK: Frames
 
     func show(frame: CMSampleBuffer, region: CGRect) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(frame),
-              let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue()
-        else { return }
-        frameRegion = region
-        contentLayer.contents = surface
+        guard let surface = Self.surface(of: frame) else { return }
+        detailRegion = region
+        detailLayer.contents = surface
         placeContent()
+    }
+
+    /// The whole-canvas picture that fills in wherever the sharp one has not caught up.
+    func showOverview(frame: CMSampleBuffer, region: CGRect) {
+        guard let surface = Self.surface(of: frame) else { return }
+        overviewRegion = region
+        overviewLayer.contents = surface
+        placeContent()
+    }
+
+    private static func surface(of frame: CMSampleBuffer) -> IOSurface? {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(frame) else { return nil }
+        return CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue()
     }
 
     /// Puts the frame already on screen exactly where the current viewport says it belongs, so a zoom or a
     /// pan shows immediately instead of waiting for the capture stream to be re-aimed, which on an idle
     /// display could be never. Anything the frame does not cover stays background rather than being faked.
     private func placeContent() {
-        guard let region = frameRegion, viewport.visible.width > 0 else { return }
+        guard viewport.visible.width > 0 else { return }
         let content = contentRect
         let scale = content.width / viewport.visible.width
+        func rect(for region: CGRect) -> CGRect {
+            CGRect(
+                x: content.minX + (region.minX - viewport.visible.minX) * scale,
+                y: content.minY + (region.minY - viewport.visible.minY) * scale,
+                width: region.width * scale,
+                height: region.height * scale
+            )
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        contentLayer.frame = CGRect(
-            x: content.minX + (region.minX - viewport.visible.minX) * scale,
-            y: content.minY + (region.minY - viewport.visible.minY) * scale,
-            width: region.width * scale,
-            height: region.height * scale
-        )
+        if let overviewRegion { overviewLayer.frame = rect(for: overviewRegion) }
+        if let detailRegion { detailLayer.frame = rect(for: detailRegion) }
         CATransaction.commit()
     }
 
@@ -104,6 +126,12 @@ final class CanvasView: NSView {
             width: max(1, (region.width * detail).rounded()),
             height: max(1, (region.height * detail).rounded())
         ))
+    }
+
+    /// Pixel size for the whole-canvas overview: a quarter of the canvas in each direction, which is
+    /// enough to stand in for the sharp picture for the moment it takes to re-aim, and cheap to keep running.
+    static func overviewPixelSize(for canvas: CGSize) -> CGSize {
+        CGSize(width: (canvas.width / 4).rounded(), height: (canvas.height / 4).rounded())
     }
 
     /// Capture pixels per canvas point: what the window can actually show, capped at the source's own

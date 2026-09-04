@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config: DeskZoomConfig
     private var virtualDisplay: VirtualDisplay?
     private var capture: DisplayCapture?
+    private var overviewCapture: DisplayCapture?
     private var window: NSWindow?
     private var canvasView: CanvasView?
     private var pendingCaptureUpdate: DispatchWorkItem?
@@ -188,7 +189,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         screenRecordingDenied = false
         self.capture = capture
+        await startOverviewCapture(for: display, view: view)
         updateTitle()
+    }
+
+    /// A second, permanent stream of the whole canvas at low resolution. It never moves, so it is always
+    /// there to draw under the sharp capture while that one is being re-aimed.
+    private func startOverviewCapture(for display: VirtualDisplay, view: CanvasView) async {
+        let overview = DisplayCapture(displayID: display.displayID)
+        overview.onFrame = { [weak view] frame, region in
+            MainActor.assumeIsolated { view?.showOverview(frame: frame, region: region) }
+        }
+        overview.onStop = { error in fail("\(error)") }
+        let whole = CGRect(origin: .zero, size: display.size)
+        do {
+            try await overview.setRegion(sourceRect: whole, outputPixelSize: CanvasView.overviewPixelSize(for: display.size))
+        } catch {
+            fail("\(error)")
+        }
+        overviewCapture = overview
     }
 
     /// The event tap needs the Accessibility grant. Prompt once, then keep trying until it lands.

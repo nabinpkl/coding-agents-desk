@@ -48,6 +48,10 @@ can be entered this way; once across, drag it anywhere.
 - `Sources/CGVirtualDisplayPrivate`: header for the private CoreGraphics virtual display
   classes (the same ones BetterDisplay and DeskPad use).
 - `VirtualDisplay.swift`: creates the display with one 1x mode.
+- Two captures run: a permanent low-resolution one of the whole canvas, and a sharp one of
+  the region being looked at. Panning and zooming outrun a capture stream, and the first fix
+  for black bars only stopped the picture being letterboxed, not the area the sharp capture
+  had not reached. That area now shows the overview, blurred, instead of background.
 - `DisplayCapture.swift`: ScreenCaptureKit stream limited to the visible `sourceRect`, so
   zooming in never captures more pixels than the window can show. Re-aiming starts a fresh
   stream and keeps the old one painting until the new one delivers.
