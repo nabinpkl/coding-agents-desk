@@ -203,3 +203,38 @@ final class CapturePlanTests: XCTestCase {
         XCTAssertTrue(plan(pixelsPerPoint: 0.5).satisfies(visible: inside, pixelsPerPoint: 0.6, tolerance: 0.35))
     }
 }
+
+final class CanvasFocusTests: XCTestCase {
+    private func window(_ pid: pid_t, _ layer: Int, _ frame: CGRect) -> CanvasFocus.Window {
+        CanvasFocus.Window(pid: pid, layer: layer, frame: frame)
+    }
+
+    func testPicksTheFrontmostOrdinaryWindowUnderThePoint() {
+        let windows = [
+            window(11, 0, CGRect(x: 2000, y: 500, width: 800, height: 600)),
+            window(22, 0, CGRect(x: 1900, y: 400, width: 2000, height: 1500)),
+        ]
+        XCTAssertEqual(CanvasFocus.topmostOwner(at: CGPoint(x: 2100, y: 600), in: windows, excluding: 99), 11)
+        XCTAssertEqual(CanvasFocus.topmostOwner(at: CGPoint(x: 3500, y: 1500), in: windows, excluding: 99), 22)
+    }
+
+    func testIgnoresNonApplicationLayers() {
+        // The Dock, menu bar, overlays and wallpaper all cover the point but must never take focus.
+        let windows = [
+            window(11, 25, CGRect(x: 1800, y: 0, width: 7680, height: 4800)),
+            window(22, -2_147_483_603, CGRect(x: 1800, y: 0, width: 7680, height: 4800)),
+            window(33, 0, CGRect(x: 2000, y: 500, width: 800, height: 600)),
+        ]
+        XCTAssertEqual(CanvasFocus.topmostOwner(at: CGPoint(x: 2100, y: 600), in: windows, excluding: 99), 33)
+    }
+
+    func testBareDesktopHasNoOwner() {
+        let windows = [window(11, 0, CGRect(x: 2000, y: 500, width: 800, height: 600))]
+        XCTAssertNil(CanvasFocus.topmostOwner(at: CGPoint(x: 6000, y: 3000), in: windows, excluding: 99))
+    }
+
+    func testNeverPicksDeskZoomItself() {
+        let windows = [window(42, 0, CGRect(x: 2000, y: 500, width: 800, height: 600))]
+        XCTAssertNil(CanvasFocus.topmostOwner(at: CGPoint(x: 2100, y: 600), in: windows, excluding: 42))
+    }
+}

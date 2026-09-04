@@ -14,7 +14,8 @@ display that you can pinch-zoom and pan like a canvas.
   the app underneath. Disable with `--pinch-zoom 0`.
 - Two-finger scroll pans, but only while the DeskZoom window is focused and the pointer is
   over it.
-- Click: move the cursor to that spot on the virtual display. Whatever window is there now
+- Click: move the cursor to that spot on the virtual display, and hand keyboard focus to the
+  app under it, so the canvas becomes the active display and Spotlight opens things there. Whatever window is there now
   receives your clicks and typing. Move the mouse back across the display edge, or press
   ⌘B, to return.
 - ⌘0: fit the whole display.
@@ -50,6 +51,7 @@ manager; the display sits to the right of the main one in the arrangement.
   stream and keeps the old one painting until the new one delivers.
 - `CanvasInputTap.swift`: event taps that boost pointer travel and take over pinch gestures
   while the pointer is on the canvas.
+- `CanvasFocus.swift`: hands keyboard focus to whatever the teleported pointer lands on.
 - `ZoomControls.swift`: the title bar accessory.
 - `Viewport.swift`: pure zoom, pan, cursor-following and crop math, unit tested.
 - `CanvasView.swift`: gestures, click-to-teleport, cursor presence highlight.
@@ -74,6 +76,13 @@ manager; the display sits to the right of the main one in the arrangement.
 - `queueDepth` must leave spare buffers. The view holds the frame it is showing so the
   IOSurface under it is not recycled, so a depth of 1 delivered exactly one frame and then
   froze forever. Three works.
+- macOS decides where a new window opens from the display holding the focused window, and
+  focus follows clicks, never the pointer. Teleporting the pointer is not enough on its own.
+- An inactive app cannot activate another one: `NSRunningApplication.activate()` is ignored,
+  and so is activating ourselves first and then calling `activate(from:)`. Setting the
+  Accessibility frontmost attribute works from an inactive app.
+- `acceptsFirstMouse` matters here. AppKit spends the first click on an inactive app's window
+  activating the app, so without it every click into the canvas was swallowed.
 - Trackpad gestures reach an event tap as type 29, not the type 30 that AppKit reports to a
   focused app. Worse, a tap asking only for bit 29 receives nothing: only a tap requesting
   every event is given gestures at all. Both were measured with listen-only probes; the

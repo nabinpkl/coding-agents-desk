@@ -25,6 +25,8 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
 - Zoom lives in the title bar (out / in / Fit plus a magnification readout) and on ⌘= ⌘- ⌘0,
   because gestures only reach DeskZoom while its window is focused.
 - While zoomed in the view follows the cursor, panning to keep it inside a margin.
+- Clicking into the canvas hands keyboard focus to the app under the pointer, falling back to
+  the Finder, so the virtual display becomes the display macOS opens new windows on.
 - Capture follows the viewport by starting a fresh stream per region, 60 fps cap, with
   `CALayer.contentsRect` cropping the current frame until the new stream delivers.
 - Pointer travel on the canvas is boosted with a speed-dependent gain (`--pointer-gain`,

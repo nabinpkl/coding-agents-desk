@@ -87,6 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             await self.waitForScreenSize(display)
             await self.startCapture(for: display)
+            // Leave the canvas belonging to the Finder rather than to DeskZoom: DeskZoom is a window on the
+            // built-in screen, and a display whose menu bar says DeskZoom is a display nothing will open on.
+            CanvasFocus.activateFinder()
             await self.startInputTap(for: display)
         }
     }

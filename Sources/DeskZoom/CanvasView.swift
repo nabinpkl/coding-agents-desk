@@ -54,6 +54,11 @@ final class CanvasView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    /// AppKit swallows the first click on an inactive app's window, using it only to activate the app.
+    /// Since entering the canvas hands focus away, DeskZoom is usually inactive, and without this every
+    /// click into the canvas would be spent on activation and the pointer would not move.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     // MARK: Frames
 
     func show(frame: CMSampleBuffer, region: CGRect) {
@@ -136,6 +141,11 @@ final class CanvasView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let point = canvasPoint(at: convert(event.locationInWindow, from: nil)) else { return }
         CGDisplayMoveCursorToPoint(displayID, point)
+        // Clicking this window has just made DeskZoom the active app, on the built-in screen, which is
+        // where macOS would then open anything launched from Spotlight. Hand focus to whatever the pointer
+        // now sits on instead, so the canvas becomes the active display.
+        let origin = CGDisplayBounds(displayID).origin
+        CanvasFocus.activate(at: CGPoint(x: origin.x + point.x, y: origin.y + point.y))
     }
 
     func fit() {
