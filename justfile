@@ -32,6 +32,11 @@ dev: bundle
     pkill -x DeskZoom || true
     open {{app}} --stdout build/deskzoom.log --stderr build/deskzoom.log
 
+# Launch with a HiDPI canvas: sharper text, a quarter of the area.
+dev-hidpi: bundle
+    pkill -x DeskZoom || true
+    open {{app}} --stdout build/deskzoom.log --stderr build/deskzoom.log --args --hidpi 1
+
 # Launch with a custom virtual display size, e.g. `just dev-size 5120 3200`.
 dev-size width height: bundle
     pkill -x DeskZoom || true

@@ -138,19 +138,28 @@ iteration puts you back where you were looking rather than at the whole canvas.
 
 ## Sharpness
 
-The virtual display is 7680x4800 points with one framebuffer pixel per point, so one captured
-pixel per point is all the detail that exists. The viewer reaches that ceiling at about 237%
-zoom, where its window has as many physical pixels as the region shows canvas points. Zooming
-past that magnifies 1x pixels and cannot make text sharper.
+By default the virtual display is 7680x4800 points with one framebuffer pixel per point, so
+one captured pixel per point is all the detail that exists. The viewer reaches that ceiling
+around 237% zoom, where its window has as many physical pixels as the region shows canvas
+points, and zooming further only magnifies 1x pixels.
 
-Asking the virtual display for HiDPI does not help: measured on macOS 26.4 and an M2 Pro, it
-came up at one pixel per point either way, only smaller. Framebuffer width is capped around
-7680 on this hardware, so more points and more pixels per point trade directly against each
-other regardless.
+`--hidpi 1` lifts the ceiling. The framebuffer stays 7680x4800 pixels, the canvas becomes
+3840x2400 points, and text is rendered at two pixels per point, so it stays sharp roughly
+twice as far in. The trade is a canvas a quarter of the area: room for perhaps thirty windows
+rather than a hundred. Framebuffer width is capped near 7680 on Apple Silicon, so points and
+detail come out of the same budget and one is always bought with the other.
 
-What did help is not settling for less than the ceiling. The capture is re-aimed once it is
-within 8% of the detail the window can show, where it previously tolerated being 35% short,
-which is visibly soft text at rest for no reason.
+```bash
+just dev-hidpi
+```
+
+A HiDPI mode is a *pair*. macOS makes one only when the display declares both the pixel-size
+mode and the point-size mode that is exactly half of it. Setting the flag with a single mode
+declared produces a plain 1x display of that size, silently, which is what an earlier attempt
+here measured and wrongly concluded from.
+
+Separately, the capture is re-aimed once it is within 8% of the detail the window can show,
+where it previously tolerated being 35% short. That is visibly soft text at rest for no reason.
 
 ## Limits
 

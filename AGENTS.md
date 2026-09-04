@@ -19,7 +19,8 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
 
 ## v0 scope (literal)
 
-- One virtual display, size from `--width/--height`, 1x only.
+- One virtual display, framebuffer size from `--width/--height`. 1x by default; `--hidpi 1`
+  halves the canvas in points and renders text at two pixels per point.
 - Viewer window: aspect-locked, pinch zoom, scroll pan, click teleports cursor, ⌘B brings
   the cursor back to the main display.
 - Zoom lives in the title bar (out / in / Fit plus a magnification readout) and on ⌘= ⌘- ⌘0,

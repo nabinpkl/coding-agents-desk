@@ -37,9 +37,13 @@ final class VirtualDisplay {
     /// This is the ceiling on how sharp a capture of it can ever be.
     private(set) var pixelsPerPoint: CGFloat
     private let pixelSize: CGSize
+    private var wantsHiDPI = false
     private let display: CGVirtualDisplay
 
-    init(width: Int, height: Int, name: String) throws {
+    /// `width` and `height` are framebuffer pixels, which is what the hardware caps. With `hiDPI` the canvas
+    /// is half that in points and text renders at two pixels per point; without it the canvas is the full
+    /// size at one. Points and detail come out of the same budget.
+    init(width: Int, height: Int, hiDPI: Bool, name: String) throws {
         let descriptor = CGVirtualDisplayDescriptor()
         descriptor.setDispatchQueue(.main)
         descriptor.name = name
@@ -56,11 +60,17 @@ final class VirtualDisplay {
 
         let display = CGVirtualDisplay(descriptor: descriptor)
         let settings = CGVirtualDisplaySettings()
-        // Asking for HiDPI here does not produce a 2x display: measured on macOS 26.4 / M2 Pro, the display
-        // came up at one pixel per point either way, just smaller. There is no way from here to give the
-        // capture more detail to read than the framebuffer holds.
-        settings.hiDPI = 0
-        settings.modes = [CGVirtualDisplayMode(width: UInt(width), height: UInt(height), refreshRate: 60)]
+        self.wantsHiDPI = hiDPI
+        // A HiDPI mode is a *pair*: macOS makes one only when it is given both the pixel-size mode and the
+        // point-size mode that is exactly half of it. Declaring one mode and setting the flag produces a
+        // plain 1x display, which is what an earlier attempt measured and wrongly concluded from.
+        settings.hiDPI = hiDPI ? 1 : 0
+        settings.modes = hiDPI
+            ? [
+                CGVirtualDisplayMode(width: UInt(width), height: UInt(height), refreshRate: 60),
+                CGVirtualDisplayMode(width: UInt(width / 2), height: UInt(height / 2), refreshRate: 60),
+            ]
+            : [CGVirtualDisplayMode(width: UInt(width), height: UInt(height), refreshRate: 60)]
         guard display.apply(settings) else {
             throw DeskZoomError.virtualDisplayRejected(width: width, height: height)
         }
@@ -78,11 +88,16 @@ final class VirtualDisplay {
     func selectDeclaredMode() throws {
         let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
         let width = Int(pixelSize.width), height = Int(pixelSize.height)
-        guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
-              let mode = modes.first(where: { $0.pixelWidth == width && $0.pixelHeight == height })
+        // Both the 1x and the HiDPI mode report the same pixel size; they differ in how many points those
+        // pixels are spread over, so the point width is what tells them apart.
+        let candidates = (CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode] ?? [])
+            .filter { $0.pixelWidth == width && $0.pixelHeight == height }
+        guard let mode = wantsHiDPI ? candidates.min(by: { $0.width < $1.width })
+                                    : candidates.max(by: { $0.width < $1.width })
         else { throw DeskZoomError.modeMissing(width: width, height: height) }
         adopt(mode)
-        if let current = CGDisplayCopyDisplayMode(displayID), current.pixelWidth == width, current.pixelHeight == height {
+        if let current = CGDisplayCopyDisplayMode(displayID),
+           current.pixelWidth == width, current.pixelHeight == height, current.width == mode.width {
             return
         }
         var configuration: CGDisplayConfigRef?

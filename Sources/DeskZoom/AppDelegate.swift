@@ -8,21 +8,25 @@ struct DeskZoomConfig {
     var pointerGain: Double = 3
     /// Whether pinch gestures made on the virtual display are taken over to zoom the canvas.
     var pinchZoom = true
+    /// Render at two pixels per point: sharper text, a canvas half as wide and half as tall, because the
+    /// framebuffer size is what the hardware caps and points and detail share it.
+    var hiDPI = false
 
-    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1`.
+    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1 --hidpi 0|1`.
     /// Anything else is a hard error: no silent defaults on typos.
     static func parse(_ arguments: [String]) -> DeskZoomConfig {
         var config = DeskZoomConfig()
         var rest = arguments.dropFirst()
         while let flag = rest.popFirst() {
             guard let value = rest.popFirst(), let number = Double(value) else {
-                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1]")
+                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1] [--hidpi 0|1]")
             }
             switch flag {
             case "--width": config.width = Int(number)
             case "--height": config.height = Int(number)
             case "--pointer-gain": config.pointerGain = number
             case "--pinch-zoom": config.pinchZoom = number != 0
+            case "--hidpi": config.hiDPI = number != 0
             default: fail("unknown flag \(flag)")
             }
         }
@@ -77,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installMenu()
         let display: VirtualDisplay
         do {
-            display = try VirtualDisplay(width: config.width, height: config.height, name: "DeskZoom \(config.width)x\(config.height)")
+            display = try VirtualDisplay(width: config.width, height: config.height, hiDPI: config.hiDPI, name: "DeskZoom \(config.width)x\(config.height)")
         } catch {
             fail("\(error)")
         }
