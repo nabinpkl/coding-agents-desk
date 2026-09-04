@@ -1,19 +1,23 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { DesktopControlInput } from "@agentdesk/agent-feed-wire";
+import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "./TileStreamRtc";
-import { useDesktopKeyboard } from "./useDesktopKeyboard";
+import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "./useDesktopKeyboard";
 
 type Controller = ReturnType<typeof useDesktopKeyboard>;
 
 function Harness({
   transport,
+  cursorKind,
+  report,
   expose,
 }: {
   transport: DesktopControlTransport | null;
+  cursorKind: () => DesktopCursorKind;
+  report: (event: DesktopKeyboardTelemetry) => void;
   expose: (controller: Controller) => void;
 }) {
-  const controller = useDesktopKeyboard({ transport, report: vi.fn() });
+  const controller = useDesktopKeyboard({ transport, cursorKind, report });
   expose(controller);
   return (
     <textarea
@@ -24,7 +28,8 @@ function Harness({
   );
 }
 
-function setup() {
+/** Every test but the prime gate's own taps an I-beam, which is the case that opens a keyboard. */
+function setup(cursorKind: () => DesktopCursorKind = () => "ibeam") {
   const sent: DesktopControlInput[] = [];
   const transport: DesktopControlTransport = {
     send(input) {
@@ -32,9 +37,15 @@ function setup() {
       return "sent";
     },
   };
+  const report = vi.fn();
   let controller!: Controller;
-  render(<Harness transport={transport} expose={(next) => { controller = next; }} />);
-  return { sent, transport, get controller() { return controller; }, capture: screen.getByLabelText("capture") };
+  render(<Harness transport={transport} cursorKind={cursorKind} report={report}
+    expose={(next) => { controller = next; }} />);
+  return {
+    sent, transport, report,
+    get controller() { return controller; },
+    capture: screen.getByLabelText("capture"),
+  };
 }
 
 function editableFocus(controller: Controller, focusRequestId: string, secure = false) {
@@ -309,5 +320,39 @@ describe("useDesktopKeyboard", () => {
     } finally {
       Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
     }
+  });
+
+  it("leaves the keyboard alone when the tap lands under a non-text cursor", () => {
+    const harness = setup(() => "arrow");
+    let requestID: string | undefined;
+    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    // No request id means the click still reaches the Mac but carries no focus correlation, so the
+    // helper never probes and nothing here has to be undone a moment later.
+    expect(requestID).toBeUndefined();
+    expect(document.activeElement).not.toBe(harness.capture);
+    expect(harness.controller.presentation.presentation).toBe("hidden");
+    // The phase has to be one the sidecar's telemetry allowlist already accepts, or the record is
+    // a 400 on every tap instead of a diagnostic.
+    expect(harness.report).toHaveBeenCalledWith({
+      phase: "keyboard-state",
+      detail: { event: "prime-skipped", cursorKind: "arrow" },
+    });
+  });
+
+  it("still primes before the cursor mirror has named a shape", () => {
+    const harness = setup(() => "unknown");
+    let requestID: string | undefined;
+    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    expect(requestID).toBeTruthy();
+    expect(document.activeElement).toBe(harness.capture);
+    expect(harness.controller.presentation.presentation).toBe("pending");
+  });
+
+  it("opens on request even under a non-text cursor", () => {
+    const harness = setup(() => "arrow");
+    act(() => harness.controller.showManually());
+    // The gate is a guess about an unasked-for keyboard. The Keyboard button is the ask.
+    expect(document.activeElement).toBe(harness.capture);
+    expect(harness.controller.presentation.presentation).toBe("shown");
   });
 });

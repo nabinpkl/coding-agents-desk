@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type {
   DesktopControlEvent,
+  DesktopCursorKind,
   WebrtcCursorEvent,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
@@ -64,8 +65,15 @@ export function DesktopViewerSurface({
     }, transport);
   }, [transport]);
   const compatibleControlTransport = source?.desktopControlVersion === 2 && interactive ? controlTransport : null;
+  // Read at tap time rather than tracked in state: the shape changes with every hover on the Mac,
+  // and nothing on this surface should re-render for a value only the keyboard's prime consults.
+  const cursorKind = useCallback((): DesktopCursorKind => {
+    const latest = latestCursorEvents.current.get("cursor-image");
+    return latest?.type === "cursor-image" ? latest.cursorKind : "unknown";
+  }, []);
   const keyboard = useDesktopKeyboard({
     transport: compatibleControlTransport,
+    cursorKind,
     report: reportKeyboardTelemetry,
   });
   useEffect(() => { onKeyboard?.(keyboard.keyboardPresented); }, [keyboard.keyboardPresented, onKeyboard]);

@@ -974,9 +974,12 @@ control/navigation keys. There is no pointer-v1 fallback or second keyboard tran
 AgentPanel TypeScript owns the keyboard state machine (`unavailable`, `hidden`, `pending`, `shown`),
 the hidden 16 px textarea, DOM `beforeinput`/composition/paste/physical-key capture, ANSI conversion,
 sticky modifiers, Auto preference, secure metadata, pending input, acknowledged receipts, accessory
-chrome, visual-viewport placement, dismissal, and telemetry. A confirmed pointer tap focuses the
-textarea synchronously, replaces any prior pending request, and waits at most 700 ms for its correlated
-focus result. Pending input is capped at 32 normalized events and is discarded on replacement,
+chrome, visual-viewport placement, dismissal, and telemetry. A confirmed pointer tap primes only when
+the mirrored remote cursor is `ibeam` or `unknown`; any other shape sends the click with no focus
+correlation, so the helper never probes and the keyboard is never raised to be withdrawn. A prime
+focuses the textarea synchronously, replaces any prior pending request, and waits at most 700 ms for
+its correlated focus result. The Keyboard button is an explicit request and ignores the cursor gate.
+Pending input is capped at 32 normalized events and is discarded on replacement,
 timeout, rejection, channel close, revocation, or reconnect. Paste, dictation insertion, and composition
 commit are prevalidated atomically. The last 64 acknowledged events form a non-editable receipt;
 secure printable events become bullets and plaintext is not retained.

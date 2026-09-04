@@ -4,7 +4,12 @@ import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTra
 import { desktopDocumentFallbackHeight, DesktopViewer } from "./DesktopViewer";
 import type { DesktopControlEvent, DesktopControlInput } from "@agentdesk/agent-feed-wire";
 
-const tileMock = vi.hoisted(() => ({ publishSource: true, controlVersion: 2, navigation: false }));
+const tileMock = vi.hoisted(() => ({
+  publishSource: true,
+  controlVersion: 2,
+  navigation: false,
+  emit: null as ((event: DesktopControlEvent) => void) | null,
+}));
 
 vi.mock("./TileStreamRtc", async (importOriginal) => {
   const React = await import("react");
@@ -18,6 +23,7 @@ vi.mock("./TileStreamRtc", async (importOriginal) => {
       onControlEvent?: (event: DesktopControlEvent) => void;
     }) => {
       React.useEffect(() => {
+        tileMock.emit = (event: DesktopControlEvent) => onControlEvent?.(event);
         if (tileMock.publishSource) {
           onSourceMetadata?.({
             width: 1800,
@@ -45,6 +51,7 @@ vi.mock("./TileStreamRtc", async (importOriginal) => {
 
 beforeEach(() => {
   tileMock.navigation = false;
+  tileMock.emit = null;
   localStorage.clear();
 });
 
@@ -186,5 +193,41 @@ describe("DesktopViewer", () => {
 
     expect(await screen.findByTestId("desktop-video")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Control v1 unsupported" })).toBeDisabled();
+  });
+
+  it("summons the keyboard from the mirrored cursor shape at the moment of the tap", async () => {
+    tileMock.publishSource = true;
+    tileMock.controlVersion = 2;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    render(<DesktopViewer transport={transport()} />);
+
+    const video = await screen.findByTestId("desktop-video");
+    const surface = video.parentElement!.parentElement!;
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    const capture = screen.getByLabelText("Remote Mac keyboard input");
+    const tap = () => act(() => {
+      for (const type of ["pointerdown", "pointerup"] as const) {
+        const event = new MouseEvent(type, { bubbles: true, clientX: 400, clientY: 250 });
+        Object.defineProperty(event, "pointerId", { value: 1 });
+        surface.dispatchEvent(event);
+      }
+    });
+    const cursor = (cursorKind: "arrow" | "ibeam") => act(() => tileMock.emit!({
+      type: "cursor-image", hash: cursorKind, hotspotXFrac: 0, hotspotYFrac: 0,
+      widthPoints: 16, heightPoints: 16, hidden: false, cursorKind,
+    }));
+
+    cursor("arrow");
+    tap();
+    expect(document.activeElement).not.toBe(capture);
+
+    // Read live, not captured at mount: the same surface, the same tap, one hover apart.
+    cursor("ibeam");
+    tap();
+    expect(document.activeElement).toBe(capture);
   });
 });

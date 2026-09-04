@@ -1,4 +1,5 @@
 import type {
+  DesktopCursorKind,
   DesktopTextFocusEvent,
   RemoteKeyCode,
   RemoteKeyEvent,
@@ -37,6 +38,28 @@ export const INITIAL_KEYBOARD_PRESENTATION: KeyboardPresentationState = {
   secure: false,
   editability: null,
 };
+
+/**
+ * Whether a tap under this remote cursor shape is worth summoning the keyboard for.
+ *
+ * WebKit only raises the software keyboard from a focus inside the tap's own gesture, and whether
+ * the tap landed on a text field is only knowable from the Mac, one round trip too late. So the
+ * page has to guess before it asks, and the cursor shape is the guess: macOS is already drawing an
+ * I-beam over the target, the mirror streams that shape on the same channel, and in relative
+ * pointer mode a tap does not move the cursor, so the shape settled long before the finger landed.
+ *
+ * `unknown` primes. A cursor the classifier could not name, or a stream that has not sent its first
+ * shape yet, must not be the reason a text field refuses to open its keyboard; a wrong prime costs
+ * a keyboard flash, a wrong refusal costs the feature.
+ *
+ * The Mac already trusts this shape for the same question at the other end: its probe coordinator
+ * refuses to sample Accessibility at all unless the cursor is an I-beam
+ * (`HostTextInputFocusProbeCoordinator`). This gate asks it one round trip earlier, where the answer
+ * is still in time to decide whether to raise a keyboard rather than to withdraw one.
+ */
+export function shouldPrimeKeyboard(cursorKind: DesktopCursorKind): boolean {
+  return cursorKind === "ibeam" || cursorKind === "unknown";
+}
 
 export function keyboardPresentationReducer(
   state: KeyboardPresentationState,

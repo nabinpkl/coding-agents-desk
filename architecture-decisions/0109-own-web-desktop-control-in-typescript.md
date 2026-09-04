@@ -47,9 +47,22 @@ lookup, direct modifier flags, serial key-down/key-up posting, pointer injection
 results. Capability metadata requires `desktopControlVersion: 2`; mismatch leaves video viewable but
 disables control loudly. There is no pointer-v1 or native-keyboard compatibility fallback.
 
-The synchronous pre-arm may briefly show the iOS keyboard after a non-text tap. This is accepted
-because a later asynchronous focus callback normally cannot summon it. If that flash is unacceptable,
-the alternative is a one-time native focus portal without changing the rest of this ownership model.
+The synchronous pre-arm may briefly show the iOS keyboard after a non-text tap, because a later
+asynchronous focus callback normally cannot summon it. Measured on device, that flash was a full
+show-and-hide rather than a flicker: the standalone helper answers an editable target in about
+80 ms but pays a further 160 ms settle on any non-editable sample, which is well past the point iOS
+commits the presentation animation.
+
+The prime is therefore gated on the mirrored remote cursor shape. Only `ibeam` and `unknown` prime;
+`unknown` fails open so an unclassified cursor, or a stream that has not sent its first shape, can
+never be the reason a real text field refuses to open. This is a page-side decision using data
+already on the control channel and already drawn on screen, so it needs no rebuild of either app or
+of the helper. It also converges the two desktop surfaces: the Mac's own probe coordinator has always
+refused to sample Accessibility unless the cursor is an I-beam.
+
+What remains is an I-beam over non-editable text, a static label or a web paragraph, which still
+primes and still withdraws. Closing that needs the target's role before the gesture ends, which means
+an Accessibility hit test at the cursor from the helper, not a native focus portal in either app.
 
 The accessory distinguishes immediate local typing echo from acknowledged delivery. The echo is a
 bounded local line, not remote text or caret synchronization; Backspace edits it and Return clears it.
@@ -68,7 +81,8 @@ does not move input, focus arbitration, or accessory rendering out of TypeScript
   replay across reconnect or ownership loss.
 - Good, because Bun and Swift consume one golden control fixture and native key batches are
   prevalidated before any event is posted.
-- Bad, because a rejected non-text tap can briefly flash the system keyboard.
+- Bad, because a tap on non-editable text under an I-beam can still briefly flash the system keyboard,
+  and a text field that does not set an I-beam on hover no longer opens one without the Keyboard button.
 - Neutral, because changing AX or `CGEvent` behavior still requires rebuilding the standalone helper
   and reopening the stream, but does not change either app bundle.
 

@@ -11,6 +11,7 @@ import {
 import type {
   DesktopControlEvent,
   DesktopControlInput,
+  DesktopCursorKind,
   RemoteKeyCode,
   RemoteKeyEvent,
   RemoteModifier,
@@ -36,6 +37,7 @@ import {
   REMOTE_MODIFIER_ORDER,
   remoteKeyForCharacter,
   remoteKeysForText,
+  shouldPrimeKeyboard,
   type KeyboardPresentationAction,
   type KeyboardPresentationState,
   type ModifierState,
@@ -68,9 +70,12 @@ interface PendingDelivery {
 
 export function useDesktopKeyboard({
   transport,
+  cursorKind,
   report,
 }: {
   transport: DesktopControlTransport | null;
+  /** Reads the remote cursor's current shape at tap time; see `shouldPrimeKeyboard`. */
+  cursorKind: () => DesktopCursorKind;
   report: (event: DesktopKeyboardTelemetry) => void;
 }) {
   const captureRef = useRef<HTMLTextAreaElement>(null);
@@ -289,6 +294,17 @@ export function useDesktopKeyboard({
 
   const beforeRemoteClick = useCallback((): string | undefined => {
     if (!autoKeyboard || !transportRef.current) return undefined;
+    // Refusing here is the whole point: focusing to find out costs a visible show-and-hide of the
+    // iOS keyboard on every tap that was never going to type. Without a request id the click still
+    // goes to the Mac, the helper never probes, and nothing on this surface moves.
+    const kind = cursorKind();
+    if (!shouldPrimeKeyboard(kind)) {
+      // Reported under `keyboard-state` rather than a phase of its own: the sidecar's telemetry
+      // allowlist is a closed contract, and a refusal to change presentation is a presentation
+      // record like any other.
+      report({ phase: "keyboard-state", detail: { event: "prime-skipped", cursorKind: kind } });
+      return undefined;
+    }
     const focusRequestId = crypto.randomUUID();
     clearFocusTimer();
     pendingKeys.current = [];
@@ -314,7 +330,7 @@ export function useDesktopKeyboard({
       clearLocalState("hide", "focus-timeout");
     }, KEYBOARD_FOCUS_TIMEOUT_MS);
     return focusRequestId;
-  }, [autoKeyboard, clearFocusTimer, clearLocalState, prepareCapture, report, updatePresentation]);
+  }, [autoKeyboard, clearFocusTimer, clearLocalState, cursorKind, prepareCapture, report, updatePresentation]);
 
   const consumePointerGesture = useCallback(() => {
     if (presentationRef.current.presentation !== "shown") return false;

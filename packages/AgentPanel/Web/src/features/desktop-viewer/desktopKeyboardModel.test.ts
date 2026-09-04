@@ -9,6 +9,7 @@ import {
   keyboardPresentationReducer,
   receiptToken,
   remoteKeysForText,
+  shouldPrimeKeyboard,
 } from "./desktopKeyboardModel";
 
 const requestA = "5f03b272-2922-4ca1-93ee-82d902fdbe21";
@@ -91,5 +92,15 @@ describe("desktop keyboard model", () => {
     expect(appendLocalEcho(["a"], [{ code: "return", modifiers: [] }], false)).toEqual([]);
     expect(appendLocalEcho([], remoteKeysForText("a".repeat(100))!, false)).toHaveLength(64);
     expect(appendLocalEcho([], [{ code: "ansi-A", modifiers: ["cmd"] }], false)).toEqual([]);
+  });
+
+  test("primes only under an I-beam or an unnamed cursor", () => {
+    expect(shouldPrimeKeyboard("ibeam")).toBe(true);
+    // Fail open: a shape the classifier could not name, or a stream that has not sent one yet,
+    // must never be the reason a real text field refuses to raise its keyboard.
+    expect(shouldPrimeKeyboard("unknown")).toBe(true);
+    expect(shouldPrimeKeyboard("arrow")).toBe(false);
+    expect(shouldPrimeKeyboard("pointingHand")).toBe(false);
+    expect(shouldPrimeKeyboard("resize")).toBe(false);
   });
 });
