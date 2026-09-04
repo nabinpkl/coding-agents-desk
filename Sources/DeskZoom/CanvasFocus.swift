@@ -23,15 +23,29 @@ enum CanvasFocus {
         windows.first { $0.layer == 0 && $0.pid != excluded && $0.frame.contains(point) }?.pid
     }
 
-    /// Gives focus to whatever is at `point` in global screen coordinates, falling back to the Finder when
-    /// the spot is bare desktop, so the display still becomes the active one.
+    /// Gives focus to whatever is at `point` in global screen coordinates, so the display becomes the one
+    /// macOS opens new windows on.
+    ///
+    /// Over a window, Accessibility does it without pressing anything: raising and focusing the specific
+    /// window moves the active Space, where merely making its application frontmost does not.
+    ///
+    /// Over bare desktop there is no window to focus, and making the Finder frontmost is the app-level move
+    /// that measurably does not move the Space. A click is what macOS acts on, and on empty desktop there is
+    /// nothing it can press, so that is what this sends. It is the same click the user would make by hand.
     static func activate(at point: CGPoint) {
         let own = ProcessInfo.processInfo.processIdentifier
         guard topmostOwner(at: point, in: onScreenWindows(), excluding: own) != nil else {
-            activateFinder()
+            click(at: point)
             return
         }
-        guard focusWindow(at: point) else { activateFinder(); return }
+        _ = focusWindow(at: point)
+    }
+
+    private static func click(at point: CGPoint) {
+        for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
+                .post(tap: .cghidEventTap)
+        }
     }
 
     /// Focuses the actual window under the point, not just its application. Making an app frontmost leaves
@@ -72,9 +86,8 @@ enum CanvasFocus {
         return nil
     }
 
-    /// The Finder owns the desktop, so making it frontmost is the neutral way to hand a display focus
-    /// without borrowing somebody's window. Used at launch so the canvas does not start out owned by
-    /// DeskZoom, and whenever a click lands on empty desktop.
+    /// The Finder owns the desktop, so making it frontmost is the neutral way to stop the canvas starting
+    /// out owned by DeskZoom. Launch only: this is app-level and does not move the active Space.
     static func activateFinder() {
         guard let finder, !finder.isActive else { return }
         hand(to: finder)

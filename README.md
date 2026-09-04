@@ -105,7 +105,12 @@ iteration puts you back where you were looking rather than at the whole canvas.
   focus follows clicks, never the pointer. Teleporting the pointer is not enough on its own.
 - An inactive app cannot activate another one: `NSRunningApplication.activate()` is ignored,
   and so is activating ourselves first and then calling `activate(from:)`. Setting the
-  Accessibility frontmost attribute works from an inactive app.
+  Accessibility frontmost attribute works from an inactive app, but making an application
+  frontmost does not move the active Space, so the display still is not the one new windows
+  open on. Raising and focusing the specific *window* does move it, and that is enough on its
+  own: verified with the click fallback switched off. Bare desktop has no window to focus, so
+  entering the canvas there sends a plain click, which presses nothing and is the same thing
+  a person would do.
 - `acceptsFirstMouse` matters here. AppKit spends the first click on an inactive app's window
   activating the app, so without it every click into the canvas was swallowed.
 - Trackpad gestures reach an event tap as type 29, not the type 30 that AppKit reports to a
