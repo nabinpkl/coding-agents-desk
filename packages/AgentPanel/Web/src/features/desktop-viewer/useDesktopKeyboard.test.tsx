@@ -118,6 +118,37 @@ describe("useDesktopKeyboard", () => {
     }]);
   });
 
+  it("puts the clipboard on the Mac from a button, with no field taking focus", async () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    harness.sent.length = 0;
+    vi.stubGlobal("navigator", { clipboard: { readText: async () => "caf\u00e9 \u2014 \ud83d\udc4b" } });
+
+    await act(async () => { await harness.controller.pasteFromClipboard(); });
+
+    expect(harness.sent).toEqual([
+      { type: "text", sequence: 1, text: "caf\u00e9 \u2014 \ud83d\udc4b" },
+    ]);
+    expect(document.activeElement).not.toBe(null);
+  });
+
+  it("says so when the clipboard read is refused or unavailable", async () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    harness.sent.length = 0;
+
+    vi.stubGlobal("navigator", { clipboard: { readText: async () => { throw new Error("denied"); } } });
+    await act(async () => { await harness.controller.pasteFromClipboard(); });
+    expect(harness.controller.deliveryStatus).toBe("Paste not allowed: nothing was read");
+
+    vi.stubGlobal("navigator", {});
+    await act(async () => { await harness.controller.pasteFromClipboard(); });
+    expect(harness.controller.deliveryStatus)
+      .toBe("Paste unavailable: this browser will not read the clipboard");
+
+    expect(harness.sent).toEqual([]);
+  });
+
   it("pastes as characters, including ones no key code can express", () => {
     const harness = setup();
     let requestID: string | undefined;

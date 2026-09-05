@@ -262,6 +262,38 @@ export function useDesktopKeyboard({
     return true;
   }, [report, sendControl]);
 
+  /**
+   * Put the clipboard on the Mac without any field here taking focus.
+   *
+   * The obvious shape -- a text box you paste into -- cannot work in a browser tab. WebKit draws
+   * its form-navigation strip whenever a field big enough to tap holds focus, that strip lands on
+   * top of the panel's own key rail, and no web API removes it; the native containers suppress it
+   * with `inputAccessoryView`, and a browser has no such lever. Reading the clipboard on a button
+   * press needs no focused field, so the strip never appears. iOS answers the read with its own
+   * paste confirmation, which is the platform's own privacy prompt and not something to route
+   * around.
+   */
+  const pasteFromClipboard = useCallback(async (): Promise<void> => {
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.readText) {
+      setDeliveryStatus("Paste unavailable: this browser will not read the clipboard");
+      return;
+    }
+    let text: string;
+    try {
+      text = await clipboard.readText();
+    } catch {
+      // Denied, dismissed, or read outside the gesture. All three are the same to the viewer.
+      setDeliveryStatus("Paste not allowed: nothing was read");
+      return;
+    }
+    if (text.length === 0) {
+      setDeliveryStatus("Clipboard is empty: nothing was sent");
+      return;
+    }
+    sendText(text);
+  }, [sendText]);
+
   const decorateWithStickyModifiers = useCallback((keys: RemoteKeyEvent[]): RemoteKeyEvent[] => {
     let states = modifiersRef.current;
     return keys.map((key) => {
@@ -694,6 +726,7 @@ export function useDesktopKeyboard({
     showManually,
     hide,
     sendChromeKey,
+    pasteFromClipboard,
     tapModifier,
     setAutoKeyboard,
     captureProps: {

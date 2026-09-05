@@ -1,5 +1,4 @@
 import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
-import { useLayoutEffect, useRef } from "react";
 import type { RefObject, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
@@ -15,17 +14,6 @@ const MODIFIERS: Array<{ label: string; modifier: RemoteModifier }> = [
   { label: "Ctrl", modifier: "ctrl" },
   { label: "Opt", modifier: "option" },
 ];
-
-/** Give the capture back the corner it lives in when it is not standing in for the echo. */
-function clear(capture: HTMLTextAreaElement) {
-  const properties = [
-    "left", "top", "width", "height", "pointerEvents", "zIndex",
-    "opacity", "background", "color", "caretColor", "padding",
-  ] as const;
-  for (const property of properties) {
-    capture.style[property] = "";
-  }
-}
 
 export function DesktopKeyboardChrome({
   captureRef,
@@ -45,6 +33,7 @@ export function DesktopKeyboardChrome({
   onAutoChange,
   onKey,
   onModifier,
+  onPasteToMac,
 }: {
   captureRef: RefObject<HTMLTextAreaElement | null>;
   /** Measured by the keyboard hook so the viewer can end the video above this bar. */
@@ -64,68 +53,9 @@ export function DesktopKeyboardChrome({
   onAutoChange: (enabled: boolean) => void;
   onKey: (code: RemoteKeyCode) => void;
   onModifier: (modifier: RemoteModifier) => void;
+  /** Reads the clipboard and sends it, without any field on this page taking focus. */
+  onPasteToMac: () => void;
 }) {
-  const echo = useRef<HTMLOutputElement>(null);
-  /**
-   * Lay the capture textarea over the echo, so the echo is the input.
-   *
-   * The capture is the element the whole keyboard machinery focuses, and moving focus anywhere
-   * else costs a second software keyboard and a hidden accessory. It also cannot move in the DOM:
-   * it is portaled to the body so it stays mounted while the accessory does not exist, and
-   * re-parenting it would destroy the node holding focus. So it stays where it is and is given the
-   * echo's box instead: on top, catching the tap and the paste, with the echo showing through
-   * underneath as the label.
-   *
-   * It is opaque enough to behave like a field and transparent enough not to draw twice. The
-   * background and the text stay invisible -- the field's value is only ever a sentinel, since
-   * every keystroke is sent and cleared as it is typed -- but the element itself is not, because
-   * an `opacity: 0` field draws no caret and offers no long-press callout, which is what made the
-   * strip read as dead rather than editable. The caret is painted explicitly for the same reason:
-   * it is the only thing that says a tap landed somewhere that takes text.
-   *
-   * The echo alone, not the whole row: the delivery status and the Auto and Hide buttons share
-   * that row and have to stay tappable. And measured rather than computed from the accessory's
-   * padding, because the key rail below changes height and a guessed offset would put the tap
-   * target somewhere near the echo instead of on it.
-   */
-  useLayoutEffect(() => {
-    const capture = captureRef.current;
-    const row = echo.current;
-    if (!capture) return undefined;
-    if (!shown || !row) {
-      clear(capture);
-      return undefined;
-    }
-    // Only the properties this needs, cleared individually on the way out: the element's own
-    // inline style carries `bottom` and the 16px font size that stops iOS zooming on focus, and
-    // clearing the whole style attribute would take those with it.
-    const place = () => {
-      const box = row.getBoundingClientRect();
-      capture.style.left = `${box.left}px`;
-      capture.style.top = `${box.top}px`;
-      capture.style.width = `${box.width}px`;
-      capture.style.height = `${box.height}px`;
-      capture.style.pointerEvents = "auto";
-      capture.style.zIndex = "51";
-      capture.style.opacity = "1";
-      capture.style.background = "transparent";
-      capture.style.color = "transparent";
-      capture.style.caretColor = "currentColor";
-      capture.style.padding = "0 0.5rem";
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(row);
-    window.visualViewport?.addEventListener("resize", place);
-    window.visualViewport?.addEventListener("scroll", place);
-    return () => {
-      observer.disconnect();
-      window.visualViewport?.removeEventListener("resize", place);
-      window.visualViewport?.removeEventListener("scroll", place);
-      clear(capture);
-    };
-  }, [captureRef, shown, bottom]);
-
   const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
@@ -140,9 +70,11 @@ export function DesktopKeyboardChrome({
         inputMode="text"
         {...captureProps}
         tabIndex={-1}
-        // At rest it is a 4x4 nothing in the corner, focused programmatically to raise the
-        // keyboard. While the accessory is up the effect above lays it over the echo strip, which
-        // is what makes that strip tappable and pasteable.
+        // A 4x4 nothing in the corner, focused programmatically to raise the keyboard and never
+        // touched directly. It stays that way on purpose: WebKit draws its form-navigation strip
+        // over the panel's own key rail for any field big enough to tap, and in a browser tab
+        // nothing can remove that strip. Pasting goes through the Paste button instead, which
+        // needs no focused field at all.
         style={{ bottom: `${bottom + 8}px`, fontSize: 16 }}
         className="fixed left-2 h-4 w-4 opacity-0 pointer-events-none"
       />, document.body)}
@@ -181,7 +113,6 @@ export function DesktopKeyboardChrome({
         >
           <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
             <output
-              ref={echo}
               aria-label="Local typing echo"
               className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
             >
@@ -199,6 +130,13 @@ export function DesktopKeyboardChrome({
               {deliveryStatus ?? "Ready"}
             </span>
             {deliveryPending ? <span aria-hidden className="text-xs text-muted-foreground">…</span> : null}
+            <button
+              type="button"
+              onClick={onPasteToMac}
+              className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+            >
+              Paste
+            </button>
             <button
               type="button"
               aria-label="Auto keyboard"

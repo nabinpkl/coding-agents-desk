@@ -290,6 +290,7 @@ export function DesktopViewerSurface({
             onAutoChange={keyboard.setAutoKeyboard}
             onKey={keyboard.sendChromeKey}
             onModifier={keyboard.tapModifier}
+            onPasteToMac={() => { void keyboard.pasteFromClipboard(); }}
           />
           {!keyboard.keyboardPresented ? (
             <>
