@@ -64,6 +64,10 @@ export type DesktopControlInput =
   // position to honour; touch has none and keeps the relative path above.
   | { type: "pointer-warp"; revision: number; x: number; y: number }
   | { type: "click"; button: "left" | "right"; focusRequestId?: string }
+  // A drag, which `click` cannot express: press, move, release. A mouse has real buttons to hold;
+  // a tap has none, so touch keeps sending `click`.
+  | { type: "mouse-down"; button: "left" | "right" }
+  | { type: "mouse-up"; button: "left" | "right" }
   | { type: "scroll"; dx: number; dy: number; phase: DesktopScrollPhase }
   | { type: "key-batch"; sequence: number; keys: RemoteKeyEvent[] }
   | { type: "focus-query"; focusRequestId: string }
@@ -71,7 +75,7 @@ export type DesktopControlInput =
 
 export type DesktopPointerInput = Extract<
   DesktopControlInput,
-  { type: "pointer-move" | "pointer-warp" | "click" | "scroll" }
+  { type: "pointer-move" | "pointer-warp" | "click" | "mouse-down" | "mouse-up" | "scroll" }
 >;
 
 export type TextInputEditability = "editable" | "non-editable" | "ambiguous";

@@ -124,6 +124,11 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
         button: input.button,
         ...(typeof input.focusRequestId === "string" ? { focusRequestId: input.focusRequestId } : {}),
       };
+    case "mouse-down":
+    case "mouse-up":
+      return input.button === "left" || input.button === "right"
+        ? { type: input.type, button: input.button }
+        : null;
     case "scroll":
       return boundedDelta(input.dx)
         && boundedDelta(input.dy)

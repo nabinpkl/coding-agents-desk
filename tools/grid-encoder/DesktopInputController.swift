@@ -22,6 +22,11 @@ final class DesktopInputController: @unchecked Sendable {
     private let cursorKindProvider: CursorKindProvider
     private let focusSampler: FocusSampler
     private let source: CGEventSource?
+    /// The button currently held by a remote press, if any. A drag is a press, a run of moves, and
+    /// a release; while it is held, movement has to be reported as a drag rather than a plain move
+    /// or nothing tracks it.
+    private var heldButton: CGMouseButton?
+    private var heldClickState: Int64 = 1
     private let cursorActivityLock = NSLock()
     private let focusLock = NSLock()
     private var cursorPosition: CGPoint?
@@ -137,6 +142,15 @@ final class DesktopInputController: @unchecked Sendable {
                     scheduleFocusProbe(requestID: requestID)
                 }
             }
+        case "mouse-down", "mouse-up":
+            guard command.button == "left" || command.button == "right" else {
+                reject(reason: "malformed")
+                return
+            }
+            let button: CGMouseButton = command.button == "left" ? .left : .right
+            withTrust {
+                if command.type == "mouse-down" { press(button) } else { release(button) }
+            }
         case "scroll":
             guard let dx = bounded(command.dx), let dy = bounded(command.dy),
                   let phase = command.phase.flatMap(ScrollPhase.init(rawValue:)) else {
@@ -245,15 +259,22 @@ final class DesktopInputController: @unchecked Sendable {
         cursorActivityLock.lock()
         lastCursorMoveTime = CACurrentMediaTime()
         cursorActivityLock.unlock()
+        // A held button turns movement into a drag. AppKit tracks a drag from these events alone;
+        // sending .mouseMoved while the button is down looks to the app like the pointer teleported
+        // with nothing pressed, and selections and window drags simply do not happen.
+        let held = heldButton
+        let moveType: CGEventType = held == .left ? .leftMouseDragged
+            : held == .right ? .rightMouseDragged : .mouseMoved
         guard let event = CGEvent(
             mouseEventSource: source,
-            mouseType: .mouseMoved,
+            mouseType: moveType,
             mouseCursorPosition: next,
-            mouseButton: .left
+            mouseButton: held ?? .left
         ) else {
             reject(reason: "helper-unavailable")
             return
         }
+        if held != nil { event.setIntegerValueField(.mouseEventClickState, value: heldClickState) }
         event.flags = []
         eventPoster(event)
         emitJSON([
@@ -281,6 +302,33 @@ final class DesktopInputController: @unchecked Sendable {
             postClick(.rightMouseDown, at: location, button: .right, clickState: 1)
             postClick(.rightMouseUp, at: location, button: .right, clickState: 1)
         }
+    }
+
+    /// Hold a button down at the cursor, and let go of it. Split from `click` so a drag can exist:
+    /// press, move, release. `click` stays the single-shot a tap wants.
+    private func press(_ button: CGMouseButton) {
+        guard heldButton == nil else { return }
+        let location = cursorBase()
+        let state = button == .left ? nextLeftClickState(at: location) : 1
+        heldButton = button
+        heldClickState = state
+        postClick(button == .left ? .leftMouseDown : .rightMouseDown,
+                  at: location, button: button, clickState: state)
+    }
+
+    private func release(_ button: CGMouseButton) {
+        guard heldButton == button else { return }
+        let location = cursorBase()
+        let state = heldClickState
+        heldButton = nil
+        postClick(button == .left ? .leftMouseUp : .rightMouseUp,
+                  at: location, button: button, clickState: state)
+    }
+
+    /// Let go of anything still held. A viewer that vanishes mid-drag must not leave the Mac with a
+    /// button stuck down, which is indistinguishable from a wedged mouse and ruins the desktop.
+    func releaseHeldButton() {
+        if let held = heldButton { release(held) }
     }
 
     private func postClick(
@@ -464,6 +512,9 @@ final class DesktopInputController: @unchecked Sendable {
     }
 
     private func reset() {
+        // Before anything else: a viewer that hands back control mid-drag must not leave a button
+        // stuck down on the Mac.
+        releaseHeldButton()
         if scrollActive { scroll(dx: 0, dy: 0, phase: .ended) }
         scrollActive = false
         scrollRemainderX = 0

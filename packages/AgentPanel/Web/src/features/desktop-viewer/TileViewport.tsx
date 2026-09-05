@@ -199,6 +199,7 @@ export function TileViewport({
     let lastTapY = 0;
     let didCrossPointerSlop = false;
     let hadMultiplePointers = false;
+    let pressedMouseButton: "left" | "right" | null = null;
     let pendingPointerDx = 0;
     let pendingPointerDy = 0;
     let pointerFrame = 0;
@@ -434,6 +435,8 @@ export function TileViewport({
      * plain hover too -- a mouse moves without a button held, and that is exactly when the cursor
      * should follow.
      */
+    const absoluteMouse = (event: PointerEvent) =>
+      pointerMode && absolutePointerRef.current && event.pointerType === "mouse";
     const warpRemoteCursor = (screen: ViewportPoint) => {
       if (sourceWidth <= 0 || sourceHeight <= 0) return;
       const { w, h } = size();
@@ -564,8 +567,13 @@ export function TileViewport({
       const at = local(event);
       // A press can arrive without a hover first (entering the window already clicking), so put the
       // cursor under it now: the click that follows on release fires wherever the cursor is.
-      if (pointerMode && absolutePointerRef.current && event.pointerType === "mouse") {
+      if (absoluteMouse(event)) {
+        // Land the cursor first, then hold the button: a drag is press, move, release, and the
+        // press has to happen where the pointer actually is.
         warpRemoteCursor(at);
+        send({ type: "mouse-down", button: event.button === 2 ? "right" : "left" });
+        pressedMouseButton = event.button === 2 ? "right" : "left";
+        return;
       }
       const countBefore = pointers.size;
       if (countBefore === 0) {
@@ -610,7 +618,7 @@ export function TileViewport({
     const move = (event: PointerEvent) => {
       // Before the tracking guard on purpose: a hovering mouse has no pointerdown behind it, and
       // hover is precisely when an absolute cursor should follow.
-      if (pointerMode && absolutePointerRef.current && event.pointerType === "mouse") {
+      if (absoluteMouse(event)) {
         const samples = event.getCoalescedEvents?.() ?? [event];
         warpRemoteCursor(local(samples[samples.length - 1] ?? event));
         return;
@@ -687,6 +695,13 @@ export function TileViewport({
 
     const up = (event: PointerEvent) => {
       const at = pointers.get(event.pointerId);
+      if (pressedMouseButton !== null && event.pointerType === "mouse") {
+        // The whole mouse sequence is press/release; the tap-to-click path below is for fingers.
+        pointers.delete(event.pointerId);
+        send({ type: "mouse-up", button: pressedMouseButton });
+        pressedMouseButton = null;
+        return;
+      }
       const countBefore = pointers.size;
       pointers.delete(event.pointerId);
       if (!at) return;
@@ -743,6 +758,12 @@ export function TileViewport({
 
     const cancel = (event: PointerEvent) => {
       pointers.delete(event.pointerId);
+      if (pressedMouseButton !== null && event.pointerType === "mouse") {
+        // A cancelled drag still has to let go, or the Mac is left with a button held down.
+        send({ type: "mouse-up", button: pressedMouseButton });
+        pressedMouseButton = null;
+        return;
+      }
       if (pointerSequenceConsumed) {
         if (pointers.size === 0) pointerSequenceConsumed = false;
         return;
