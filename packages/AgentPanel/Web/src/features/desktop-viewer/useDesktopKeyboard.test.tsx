@@ -55,6 +55,14 @@ function setup(cursorKind: () => DesktopCursorKind = () => "ibeam") {
   };
 }
 
+/** React's synthetic paste, driven directly: jsdom has no clipboard to put data on. */
+function paste(controller: Controller, text: string) {
+  controller.captureProps.onPaste({
+    preventDefault() {},
+    clipboardData: { getData: () => text },
+  } as never);
+}
+
 function editableFocus(controller: Controller, focusRequestId: string, secure = false) {
   controller.handleControlEvent({
     type: "text-focus",
@@ -110,54 +118,28 @@ describe("useDesktopKeyboard", () => {
     }]);
   });
 
-  it("stays open when focus moves to a control inside its own accessory", () => {
-    vi.useFakeTimers();
-    const harness = setup();
-    let requestID: string | undefined;
-    act(() => { requestID = harness.controller.beforeRemoteClick(); });
-    act(() => editableFocus(harness.controller, requestID!));
-    expect(harness.controller.presentation.presentation).toBe("shown");
-
-    // The paste field lives in the accessory and has to take focus; the capture textarea blurs
-    // when it does, and that blur must not be read as the user dismissing the keyboard.
-    const accessory = screen.getByLabelText("accessory");
-    const field = document.createElement("textarea");
-    accessory.appendChild(field);
-    act(() => {
-      field.focus();
-      harness.capture.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
-      vi.advanceTimersByTime(1);
-    });
-
-    expect(harness.controller.presentation.presentation).toBe("shown");
-    vi.useRealTimers();
-  });
-
-  it("sends pasted text as characters, including ones no key code can express", () => {
+  it("pastes as characters, including ones no key code can express", () => {
     const harness = setup();
     let requestID: string | undefined;
     act(() => { requestID = harness.controller.beforeRemoteClick(); });
     act(() => editableFocus(harness.controller, requestID!));
 
-    let accepted = false;
-    act(() => { accepted = harness.controller.sendText("caf\u00e9 \u2014 \ud83d\udc4b"); });
+    act(() => paste(harness.controller, "caf\u00e9 \u2014 \ud83d\udc4b"));
 
-    expect(accepted).toBe(true);
+    // The key-position encoder would have refused this whole insertion at the em dash.
     expect(harness.sent).toEqual([
       { type: "text", sequence: 1, text: "caf\u00e9 \u2014 \ud83d\udc4b" },
     ]);
   });
 
-  it("refuses a string too long for one send rather than truncating it", () => {
+  it("refuses a paste too long for one send rather than truncating it", () => {
     const harness = setup();
     let requestID: string | undefined;
     act(() => { requestID = harness.controller.beforeRemoteClick(); });
     act(() => editableFocus(harness.controller, requestID!));
 
-    let accepted = true;
-    act(() => { accepted = harness.controller.sendText("a".repeat(DESKTOP_CONTROL_MAX_TEXT_UNITS + 1)); });
+    act(() => paste(harness.controller, "a".repeat(DESKTOP_CONTROL_MAX_TEXT_UNITS + 1)));
 
-    expect(accepted).toBe(false);
     expect(harness.sent).toEqual([]);
     expect(harness.controller.deliveryStatus).toBe("Text not sent: too long for one send");
   });
@@ -355,9 +337,13 @@ describe("useDesktopKeyboard", () => {
     fireEvent.paste(harness.capture, { clipboardData: { getData: () => "abc" } });
     fireEvent.input(harness.capture, { target: { value: "dictated words" }, inputType: "insertText", data: null });
     expect(harness.sent).toHaveLength(2);
-    expect(harness.sent[0]).toMatchObject({ type: "key-batch", keys: expect.any(Array) });
+    // A paste is one text message; dictation arrives as an insertion and is still keyed.
+    expect(harness.sent[0]).toMatchObject({ type: "text", text: "abc" });
+    expect(harness.sent[1]).toMatchObject({ type: "key-batch", keys: expect.any(Array) });
+    // An emoji used to sink the entire paste, because no US key position can express it.
     fireEvent.paste(harness.capture, { clipboardData: { getData: () => "ok😀bad" } });
-    expect(harness.sent).toHaveLength(2);
+    expect(harness.sent).toHaveLength(3);
+    expect(harness.sent[2]).toMatchObject({ type: "text", text: "ok😀bad" });
   });
 
   it("handles hardware backspace and return as single control keys while retaining focus", () => {

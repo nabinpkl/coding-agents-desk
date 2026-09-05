@@ -125,11 +125,12 @@ describe("DesktopViewer", () => {
     expect(chrome.parentElement).toBe(document.body);
     expect(capture.parentElement).toBe(document.body);
     expect(container).not.toContainElement(chrome);
+    // The capture stands in for the echo while the bar is up: it has to take taps there, and it
+    // has to keep the 16px that stops iOS zooming when it is focused.
     expect(capture).toHaveStyle({ fontSize: "16px" });
-    // Twelve rail-and-chrome controls plus the paste composer's Send.
-    expect(within(chrome).getAllByRole("button")).toHaveLength(13);
-    expect(within(chrome).getByLabelText("Text to send to the Mac")).toBeVisible();
-    expect(within(chrome).getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(capture.style.pointerEvents).toBe("auto");
+    expect(capture.style.zIndex).toBe("51");
+    expect(within(chrome).getAllByRole("button")).toHaveLength(12);
     const rail = within(chrome).getByLabelText("Remote key rail");
     expect(within(rail).getAllByRole("button").map((button) => button.textContent))
       .toEqual(["Esc", "Tab", "⇧", "↑", "←", "↓", "→", "Cmd", "Ctrl", "Opt"]);

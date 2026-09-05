@@ -547,11 +547,20 @@ export function useDesktopKeyboard({
     } else if (text) acceptText(text);
   }, [acceptEncodedKeys, acceptText, resetCapture]);
 
+  /**
+   * A paste goes as characters, not as key presses.
+   *
+   * Typing one character at a time can encode it as a US key position and carry modifiers with it.
+   * A paste can do neither usefully: it has no modifiers, and iOS has already turned the quotes
+   * curly and the double hyphen into an em dash before the clipboard is read, so the key-position
+   * encoder refuses the whole insertion. Sending the string itself is the only route that works,
+   * and it is also the only one that can carry an emoji or a non-Latin script.
+   */
   const onPaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => {
     event.preventDefault();
-    acceptText(event.clipboardData.getData("text/plain"));
+    sendText(event.clipboardData.getData("text/plain"));
     resetCapture();
-  }, [acceptText, resetCapture]);
+  }, [resetCapture, sendText]);
 
   const onCompositionStart = useCallback(() => {
     composing.current = true;
@@ -597,11 +606,7 @@ export function useDesktopKeyboard({
     if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
     blurTimer.current = window.setTimeout(() => {
       blurTimer.current = null;
-      // Focus landing on a control inside our own accessory is not the user leaving. Everything
-      // else in that bar refuses focus so the capture keeps it, but the paste field has to take
-      // it, and hiding the bar out from under a half-typed paste is the bug that causes.
       if (document.activeElement !== captureRef.current
-          && !accessoryRef.current?.contains(document.activeElement)
           && (presentationRef.current.presentation === "shown"
             || presentationRef.current.presentation === "pending")) clearLocalState("hide", "dom-blur");
     }, 0);
@@ -689,7 +694,6 @@ export function useDesktopKeyboard({
     showManually,
     hide,
     sendChromeKey,
-    sendText,
     tapModifier,
     setAutoKeyboard,
     captureProps: {

@@ -290,7 +290,6 @@ export function DesktopViewerSurface({
             onAutoChange={keyboard.setAutoKeyboard}
             onKey={keyboard.sendChromeKey}
             onModifier={keyboard.tapModifier}
-            onSendText={keyboard.sendText}
           />
           {!keyboard.keyboardPresented ? (
             <>

@@ -1,5 +1,5 @@
 import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
-import { useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { RefObject, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
@@ -15,6 +15,13 @@ const MODIFIERS: Array<{ label: string; modifier: RemoteModifier }> = [
   { label: "Ctrl", modifier: "ctrl" },
   { label: "Opt", modifier: "option" },
 ];
+
+/** Give the capture back the corner it lives in when it is not standing in for the echo. */
+function clear(capture: HTMLTextAreaElement) {
+  for (const property of ["left", "top", "width", "height", "pointerEvents", "zIndex"] as const) {
+    capture.style[property] = "";
+  }
+}
 
 export function DesktopKeyboardChrome({
   captureRef,
@@ -34,7 +41,6 @@ export function DesktopKeyboardChrome({
   onAutoChange,
   onKey,
   onModifier,
-  onSendText,
 }: {
   captureRef: RefObject<HTMLTextAreaElement | null>;
   /** Measured by the keyboard hook so the viewer can end the video above this bar. */
@@ -54,10 +60,56 @@ export function DesktopKeyboardChrome({
   onAutoChange: (enabled: boolean) => void;
   onKey: (code: RemoteKeyCode) => void;
   onModifier: (modifier: RemoteModifier) => void;
-  /** Sends a whole string as characters. True when it went, which is what clears the field. */
-  onSendText: (text: string) => boolean;
 }) {
-  const [draft, setDraft] = useState("");
+  const echo = useRef<HTMLOutputElement>(null);
+  /**
+   * Lay the capture textarea over the echo, so the echo is the input.
+   *
+   * The capture is the element the whole keyboard machinery focuses, and moving focus anywhere
+   * else costs a second software keyboard and a hidden accessory. It also cannot move in the DOM:
+   * it is portaled to the body so it stays mounted while the accessory does not exist, and
+   * re-parenting it would destroy the node holding focus. So it stays where it is and is given the
+   * echo's box instead -- transparent, on top, catching the tap and the paste, with the echo
+   * showing through underneath as the affordance.
+   *
+   * The echo alone, not the whole row: the delivery status and the Auto and Hide buttons share
+   * that row and have to stay tappable. And measured rather than computed from the accessory's
+   * padding, because the key rail below changes height and a guessed offset would put the tap
+   * target somewhere near the echo instead of on it.
+   */
+  useLayoutEffect(() => {
+    const capture = captureRef.current;
+    const row = echo.current;
+    if (!capture) return undefined;
+    if (!shown || !row) {
+      clear(capture);
+      return undefined;
+    }
+    // Only the properties this needs, cleared individually on the way out: the element's own
+    // inline style carries `bottom` and the 16px font size that stops iOS zooming on focus, and
+    // clearing the whole style attribute would take those with it.
+    const place = () => {
+      const box = row.getBoundingClientRect();
+      capture.style.left = `${box.left}px`;
+      capture.style.top = `${box.top}px`;
+      capture.style.width = `${box.width}px`;
+      capture.style.height = `${box.height}px`;
+      capture.style.pointerEvents = "auto";
+      capture.style.zIndex = "51";
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(row);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+      clear(capture);
+    };
+  }, [captureRef, shown, bottom]);
+
   const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
@@ -72,6 +124,9 @@ export function DesktopKeyboardChrome({
         inputMode="text"
         {...captureProps}
         tabIndex={-1}
+        // At rest it is a 4x4 nothing in the corner, focused programmatically to raise the
+        // keyboard. While the accessory is up the effect above lays it over the echo strip, which
+        // is what makes that strip tappable and pasteable.
         style={{ bottom: `${bottom + 8}px`, fontSize: 16 }}
         className="fixed left-2 h-4 w-4 opacity-0 pointer-events-none"
       />, document.body)}
@@ -108,44 +163,9 @@ export function DesktopKeyboardChrome({
           onMouseDown={(event) => event.preventDefault()}
           className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background px-1.5 pt-1 text-foreground"
         >
-          {/*
-            * A field to paste into, because the keystroke path cannot be pasted into on a phone.
-            * The capture textarea that carries live typing is invisible by design -- it exists to
-            * summon the software keyboard, not to be read -- so there was nowhere to put a
-            * clipboard. This one is visible, holds the text until Send, and delivers it as
-            * characters, which is also the only route for anything a US key cannot produce.
-            */}
-          <form
-            className="mb-1 flex items-start gap-1"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (draft.length === 0) return;
-              if (onSendText(draft)) setDraft("");
-            }}
-          >
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.currentTarget.value)}
-              // The accessory refuses focus so the capture textarea keeps it and the software
-              // keyboard stays up. This field is the one thing in here that has to take focus, so
-              // it stops that refusal from reaching it.
-              onPointerDown={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-              rows={1}
-              placeholder="Paste text to send to the Mac"
-              aria-label="Text to send to the Mac"
-              className="min-h-8 max-h-24 flex-1 resize-y rounded-lg border border-border bg-muted px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
-            />
-            <button
-              type="submit"
-              disabled={draft.length === 0}
-              className="h-8 shrink-0 cursor-pointer rounded-lg bg-foreground px-3 text-[11px] text-background disabled:cursor-default disabled:opacity-40"
-            >
-              Send
-            </button>
-          </form>
           <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
             <output
+              ref={echo}
               aria-label="Local typing echo"
               className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
             >
