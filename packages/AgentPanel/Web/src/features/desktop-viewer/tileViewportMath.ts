@@ -100,6 +100,33 @@ export function projectRemoteCursor(
  * the inner safe band, and clamp only axes where zoom leaves more video to
  * reveal. Scale is copied through unchanged.
  */
+/**
+ * The exact inverse of `projectRemoteCursor`: a point in the transformed viewport back to the
+ * source display's coordinates.
+ *
+ * This is what absolute pointing needs -- "the mouse is here on screen, so put the remote cursor
+ * at the matching pixel of the desktop" -- and it has to undo the same two steps the projection
+ * applies, in reverse: the pan/zoom transform first, then the aspect-fit letterbox. Clamped to the
+ * source, so a pointer over the letterbox bars lands on the nearest edge rather than off-display.
+ */
+export function unprojectRemoteCursor(
+  transform: ViewportTransform,
+  point: ViewportPoint,
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): ViewportPoint | null {
+  const picture = aspectFitPicture(sourceWidth, sourceHeight, viewportWidth, viewportHeight);
+  if (!picture || transform.scale === 0 || picture.width === 0 || picture.height === 0) return null;
+  const contentX = (point.x - transform.tx) / transform.scale - picture.x;
+  const contentY = (point.y - transform.ty) / transform.scale - picture.y;
+  return {
+    x: Math.min(Math.max(0, contentX * (sourceWidth / picture.width)), Math.max(0, sourceWidth - 1)),
+    y: Math.min(Math.max(0, contentY * (sourceHeight / picture.height)), Math.max(0, sourceHeight - 1)),
+  };
+}
+
 export function followRemoteCursor(
   transform: ViewportTransform,
   cursor: ViewportPoint,

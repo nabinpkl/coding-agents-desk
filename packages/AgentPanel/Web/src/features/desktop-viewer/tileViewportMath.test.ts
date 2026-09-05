@@ -8,6 +8,7 @@ import {
   panBy,
   pointerAccelerationGain,
   projectRemoteCursor,
+  unprojectRemoteCursor,
   scrollAccelerationGain,
   toContentPoint,
   zoomAt,
@@ -179,5 +180,31 @@ describe("coverOnRemoteCursor", () => {
   it("returns identity when there is no picture to cover", () => {
     expect(coverOnRemoteCursor({ x: 0, y: 0 }, 0, 0, 800, 500)).toBe(IDENTITY);
     expect(coverOnRemoteCursor({ x: 0, y: 0 }, 800, 500, 0, 0)).toBe(IDENTITY);
+  });
+});
+
+describe("unprojectRemoteCursor", () => {
+  it("is the exact inverse of the projection, so a mouse lands on the pixel it points at", () => {
+    const transform = { scale: 1.7, tx: -120, ty: -75 };
+    const source = { w: 7680, h: 4320 };
+    const viewport = { w: 1604, h: 952 };
+    for (const cursor of [{ x: 0, y: 0 }, { x: 3840, y: 2160 }, { x: 7679, y: 4319 }]) {
+      const screen = projectRemoteCursor(transform, cursor, source.w, source.h, viewport.w, viewport.h)!;
+      const back = unprojectRemoteCursor(transform, screen, source.w, source.h, viewport.w, viewport.h)!;
+      expect(back.x).toBeCloseTo(cursor.x, 6);
+      expect(back.y).toBeCloseTo(cursor.y, 6);
+    }
+  });
+
+  it("clamps a pointer over the letterbox bars onto the nearest edge of the display", () => {
+    // 16:9 source in a 1:1 viewport leaves bars top and bottom; y well above the picture.
+    const back = unprojectRemoteCursor({ scale: 1, tx: 0, ty: 0 }, { x: 500, y: 0 }, 1920, 1080, 1000, 1000)!;
+    expect(back.y).toBe(0);
+    expect(back.x).toBeGreaterThan(0);
+    expect(back.x).toBeLessThanOrEqual(1919);
+  });
+
+  it("has no answer without a viewport to map into", () => {
+    expect(unprojectRemoteCursor({ scale: 1, tx: 0, ty: 0 }, { x: 1, y: 1 }, 1920, 1080, 0, 0)).toBeNull();
   });
 });

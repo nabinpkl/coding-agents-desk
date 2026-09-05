@@ -11,6 +11,7 @@ import {
   panBy,
   pointerAccelerationGain,
   projectRemoteCursor,
+  unprojectRemoteCursor,
   scrollAccelerationGain,
   zoomAt,
   type ViewportPoint,
@@ -95,6 +96,7 @@ export function TileViewport({
   children,
   className = "",
   pointerMode = false,
+  absolutePointer = false,
   sendPointerInput,
   keyboardPresented = false,
   onPointerGestureStart,
@@ -108,6 +110,8 @@ export function TileViewport({
   children: ReactNode;
   className?: string;
   pointerMode?: boolean;
+  /** Mouse only: put the remote cursor where the pointer is, instead of nudging it by deltas. */
+  absolutePointer?: boolean;
   sendPointerInput?: (input: DesktopPointerInput) => boolean;
   keyboardPresented?: boolean;
   /** Returns true when the keyboard consumed the entire new pointer sequence. */
@@ -133,6 +137,7 @@ export function TileViewport({
   const keyboardPresentedRef = useRef(keyboardPresented);
   const gestureTelemetryRef = useRef(onGestureTelemetry);
   const cursorRevision = useRef(0);
+  const absolutePointerRef = useRef(absolutePointer);
   const acknowledgedCursorRevision = useRef(0);
   const scrollEngagedRef = useRef(false);
   const [scrollEngaged, setScrollEngagedState] = useState(false);
@@ -145,6 +150,9 @@ export function TileViewport({
   useEffect(() => {
     sendPointerInputRef.current = sendPointerInput;
   }, [sendPointerInput]);
+  useEffect(() => {
+    absolutePointerRef.current = absolutePointer;
+  }, [absolutePointer]);
 
   useEffect(() => {
     pointerGestureStartRef.current = onPointerGestureStart;
@@ -420,6 +428,25 @@ export function TileViewport({
       }
       apply();
     };
+    /**
+     * Absolute pointing for a mouse: the pointer has a position on the picture, so the remote
+     * cursor is placed at the matching source pixel rather than walked there by deltas. Runs on
+     * plain hover too -- a mouse moves without a button held, and that is exactly when the cursor
+     * should follow.
+     */
+    const warpRemoteCursor = (screen: ViewportPoint) => {
+      if (sourceWidth <= 0 || sourceHeight <= 0) return;
+      const { w, h } = size();
+      const target = unprojectRemoteCursor(transform, screen, sourceWidth, sourceHeight, w, h);
+      if (!target) return;
+      if (Math.round(target.x) === Math.round(remoteCursor.x)
+          && Math.round(target.y) === Math.round(remoteCursor.y)) return;
+      const revision = cursorRevision.current + 1;
+      if (!send({ type: "pointer-warp", revision, x: target.x, y: target.y })) return;
+      cursorRevision.current = revision;
+      remoteCursor = target;
+      apply();
+    };
     const flushPointer = (now = performance.now()) => {
       pointerFrame = 0;
       if (pendingPointerDx === 0 && pendingPointerDy === 0) return;
@@ -535,6 +562,11 @@ export function TileViewport({
         // losing capture only costs tracking outside the element.
       }
       const at = local(event);
+      // A press can arrive without a hover first (entering the window already clicking), so put the
+      // cursor under it now: the click that follows on release fires wherever the cursor is.
+      if (pointerMode && absolutePointerRef.current && event.pointerType === "mouse") {
+        warpRemoteCursor(at);
+      }
       const countBefore = pointers.size;
       if (countBefore === 0) {
         pointerSequenceConsumed = pointerGestureStartRef.current?.() === true;
@@ -576,6 +608,13 @@ export function TileViewport({
     };
 
     const move = (event: PointerEvent) => {
+      // Before the tracking guard on purpose: a hovering mouse has no pointerdown behind it, and
+      // hover is precisely when an absolute cursor should follow.
+      if (pointerMode && absolutePointerRef.current && event.pointerType === "mouse") {
+        const samples = event.getCoalescedEvents?.() ?? [event];
+        warpRemoteCursor(local(samples[samples.length - 1] ?? event));
+        return;
+      }
       const previous = pointers.get(event.pointerId);
       if (!previous) return;
       if (pointerSequenceConsumed) return;

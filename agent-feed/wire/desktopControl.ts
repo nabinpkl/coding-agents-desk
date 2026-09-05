@@ -59,6 +59,10 @@ export type DesktopControlInput =
   | DesktopNavigationInput
   | DesktopControlConfiguration
   | { type: "pointer-move"; revision: number; dx: number; dy: number }
+  // Absolute pointing: x/y are the source display's own coordinates, so the cursor lands where the
+  // viewer is pointing rather than drifting by accumulated deltas. Used for a mouse, which has a
+  // position to honour; touch has none and keeps the relative path above.
+  | { type: "pointer-warp"; revision: number; x: number; y: number }
   | { type: "click"; button: "left" | "right"; focusRequestId?: string }
   | { type: "scroll"; dx: number; dy: number; phase: DesktopScrollPhase }
   | { type: "key-batch"; sequence: number; keys: RemoteKeyEvent[] }
@@ -67,7 +71,7 @@ export type DesktopControlInput =
 
 export type DesktopPointerInput = Extract<
   DesktopControlInput,
-  { type: "pointer-move" | "click" | "scroll" }
+  { type: "pointer-move" | "pointer-warp" | "click" | "scroll" }
 >;
 
 export type TextInputEditability = "editable" | "non-editable" | "ambiguous";

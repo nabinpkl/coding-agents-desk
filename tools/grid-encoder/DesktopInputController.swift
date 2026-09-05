@@ -114,6 +114,14 @@ final class DesktopInputController: @unchecked Sendable {
                 return
             }
             withTrust { move(revision: revision, dx: dx, dy: dy) }
+        case "pointer-warp":
+            guard let revision = command.revision, revision > 0, revision <= UInt32.max,
+                  let x = command.x, x.isFinite, x >= 0,
+                  let y = command.y, y.isFinite, y >= 0 else {
+                reject(reason: "malformed")
+                return
+            }
+            withTrust { warp(revision: revision, x: CGFloat(x), y: CGFloat(y)) }
         case "click":
             guard command.button == "left" || command.button == "right" else {
                 reject(reason: "malformed")
@@ -220,9 +228,19 @@ final class DesktopInputController: @unchecked Sendable {
         return CGEvent(source: nil)?.location ?? bounds.origin
     }
 
+    /// Absolute pointing: place the cursor at a point given in the captured display's own
+    /// coordinates. `move` walks from wherever the cursor already is; this ignores that and honours
+    /// the position the viewer is pointing at, which is what a mouse (unlike a finger) supplies.
+    private func warp(revision: UInt64, x: CGFloat, y: CGFloat) {
+        place(revision: revision, at: clamp(CGPoint(x: bounds.minX + x, y: bounds.minY + y)))
+    }
+
     private func move(revision: UInt64, dx: CGFloat, dy: CGFloat) {
         let base = cursorBase()
-        let next = clamp(CGPoint(x: base.x + dx, y: base.y + dy))
+        place(revision: revision, at: clamp(CGPoint(x: base.x + dx, y: base.y + dy)))
+    }
+
+    private func place(revision: UInt64, at next: CGPoint) {
         cursorPosition = next
         cursorActivityLock.lock()
         lastCursorMoveTime = CACurrentMediaTime()
@@ -481,6 +499,8 @@ private struct DesktopControlCommand: Decodable {
     let revision: UInt64?
     let dx: Double?
     let dy: Double?
+    let x: Double?
+    let y: Double?
     let button: String?
     let focusRequestId: String?
     let phase: String?

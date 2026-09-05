@@ -7,7 +7,7 @@ import type {
   WebrtcCursorEvent,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import { Hand, MousePointer2 } from "lucide-react";
+import { Crosshair, Hand, MousePointer2 } from "lucide-react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
 import {
@@ -20,6 +20,8 @@ import {
 import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
 import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
 import { useDesktopKeyboard } from "./useDesktopKeyboard";
+
+const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
@@ -46,6 +48,26 @@ export function DesktopViewerSurface({
   const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
   const [controlTransport, setControlTransport] = useState<DesktopControlTransport | null>(null);
   const [pointerMode, setPointerMode] = useState(true);
+  // Mouse only. A finger has no position to honour between taps, so touch keeps the relative
+  // trackpad path regardless of this; it decides what a MOUSE does, and defaults to following.
+  const [absolutePointer, setAbsolutePointer] = useState(() => {
+    try {
+      return localStorage.getItem(ABSOLUTE_POINTER_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const toggleAbsolutePointer = useCallback(() => {
+    setAbsolutePointer((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(ABSOLUTE_POINTER_KEY, String(next));
+      } catch {
+        // a private window still gets the choice for this session
+      }
+      return next;
+    });
+  }, []);
   const chromeRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const chrome = chromeRef.current;
@@ -151,6 +173,7 @@ export function DesktopViewerSurface({
         <TileViewport
           className="size-full"
           pointerMode={pointerMode && source !== null}
+          absolutePointer={absolutePointer}
           sendPointerInput={sendPointerInput}
           keyboardPresented={keyboard.keyboardPresented}
           onPointerGestureStart={keyboard.consumePointerGesture}
@@ -217,6 +240,13 @@ export function DesktopViewerSurface({
                 label="View"
                 icon={<Hand className="size-3.5" aria-hidden />}
                 onClick={() => setPointerMode(false)}
+              />
+              <ModeButton
+                active={absolutePointer}
+                disabled={!pointerReady}
+                label={absolutePointer ? "Follow" : "Trackpad"}
+                icon={<Crosshair className="size-3.5" aria-hidden />}
+                onClick={toggleAbsolutePointer}
               />
               <ModeButton
                 active={pointerMode}

@@ -14,6 +14,9 @@ import {
 export const MAX_DESKTOP_CONTROL_MESSAGE_BYTES = DESKTOP_CONTROL_MAX_MESSAGE_BYTES;
 export const MAX_DESKTOP_KEY_BATCH = DESKTOP_CONTROL_MAX_KEY_BATCH;
 const MAX_DELTA = 10_000;
+// Wide enough for any display this can capture, including an 8K virtual one, without accepting a
+// coordinate that could only be a bug.
+const MAX_COORDINATE = 32_768;
 const MAX_SEQUENCE = 0xffff_ffff;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -39,6 +42,11 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function boundedDelta(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= MAX_DELTA;
+}
+
+/** An absolute source-display coordinate. Non-negative and inside any display this can capture. */
+function boundedCoordinate(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_COORDINATE;
 }
 
 function positiveUint32(value: unknown): value is number {
@@ -103,6 +111,10 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
     case "pointer-move":
       return positiveUint32(input.revision) && boundedDelta(input.dx) && boundedDelta(input.dy)
         ? { type: "pointer-move", revision: input.revision, dx: input.dx, dy: input.dy }
+        : null;
+    case "pointer-warp":
+      return positiveUint32(input.revision) && boundedCoordinate(input.x) && boundedCoordinate(input.y)
+        ? { type: "pointer-warp", revision: input.revision, x: input.x, y: input.y }
         : null;
     case "click":
       if (input.button !== "left" && input.button !== "right") return null;
