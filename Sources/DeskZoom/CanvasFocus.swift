@@ -106,10 +106,27 @@ enum CanvasFocus {
         var actions: CFArray?
         AXUIElementCopyActionNames(element, &actions)
         let available = (actions as? [String]) ?? []
-        var pid: pid_t = 0
-        AXUIElementGetPid(element, &pid)
-        let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
+        let app = owner(of: element)?.name ?? "?"
         return "\(app) \(role)\(name.isEmpty ? "" : " \"\(name)\"") actions=[\(available.joined(separator: ","))]"
+    }
+
+    /// The process an element belongs to, with a name fit for a report.
+    static func owner(of element: AXUIElement) -> (pid: pid_t, name: String)? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        return (pid, NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)")
+    }
+
+    /// Gives an element keyboard focus within its own application, as a click on it would, without making
+    /// that application frontmost. False when the element does not take focus; keystrokes then land on
+    /// whatever the application already had focused.
+    @discardableResult
+    static func focus(_ element: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXFocusedAttribute as CFString, &settable) == .success,
+              settable.boolValue
+        else { return false }
+        return AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
     }
 
     /// Performs an element's press action. True when it had one and it succeeded.
@@ -145,10 +162,21 @@ enum CanvasFocus {
         return nil
     }
 
-    /// How far down a scroll area is, from 0 to 1, read off its vertical scroll bar. Nil when it has none,
-    /// which is what an area with nothing to scroll looks like.
-    static func verticalScroll(of area: AXUIElement) -> CGFloat? {
-        guard let bar = verticalBar(of: area) else { return nil }
+    enum ScrollAxis: String {
+        case vertical, horizontal
+
+        var barAttribute: String {
+            switch self {
+            case .vertical: return kAXVerticalScrollBarAttribute as String
+            case .horizontal: return kAXHorizontalScrollBarAttribute as String
+            }
+        }
+    }
+
+    /// How far along a scroll area is on one axis, from 0 to 1, read off that scroll bar. Nil when it has
+    /// none, which is what an area with nothing to scroll that way looks like.
+    static func scroll(of area: AXUIElement, along axis: ScrollAxis) -> CGFloat? {
+        guard let bar = bar(of: area, along: axis) else { return nil }
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &value) == .success,
               let number = value as? NSNumber
@@ -156,19 +184,19 @@ enum CanvasFocus {
         return CGFloat(number.doubleValue)
     }
 
-    /// Moves a scroll area to a fraction of its length. This is the scroll bar's own value, so it is
-    /// absolute positioning, the equivalent of dragging the bar rather than turning a wheel. Scroll wheel
-    /// events cannot serve here: posted to a process they are ignored, exactly as clicks are.
+    /// Moves a scroll area to a fraction of its length on one axis. This is the scroll bar's own value, so
+    /// it is absolute positioning, the equivalent of dragging the bar rather than turning a wheel. Scroll
+    /// wheel events cannot serve here: posted to a process they are ignored, exactly as clicks are.
     @discardableResult
-    static func setVerticalScroll(of area: AXUIElement, to fraction: CGFloat) -> Bool {
-        guard let bar = verticalBar(of: area) else { return false }
+    static func setScroll(of area: AXUIElement, along axis: ScrollAxis, to fraction: CGFloat) -> Bool {
+        guard let bar = bar(of: area, along: axis) else { return false }
         let clamped = min(max(0, fraction), 1)
         return AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: Double(clamped))) == .success
     }
 
-    private static func verticalBar(of area: AXUIElement) -> AXUIElement? {
+    private static func bar(of area: AXUIElement, along axis: ScrollAxis) -> AXUIElement? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(area, kAXVerticalScrollBarAttribute as CFString, &value) == .success,
+        guard AXUIElementCopyAttributeValue(area, axis.barAttribute as CFString, &value) == .success,
               let value, CFGetTypeID(value) == AXUIElementGetTypeID()
         else { return nil }
         return (value as! AXUIElement)

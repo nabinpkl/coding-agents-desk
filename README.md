@@ -59,15 +59,21 @@ points, and pressing what sits under it goes through Accessibility, which hit-te
 coordinate and needs no pointer and no focus. The real cursor stays wherever you left it and
 the target app is not activated.
 
-It is driven over a Unix socket, one line in and one line out:
+It is driven over a Unix socket at `/tmp/deskzoom.sock` (`--socket PATH` moves it), one line in
+and one line out. `bin/deskzoom` wraps that, so put `bin` on your PATH:
 
 ```bash
-echo "move 688 1165" | nc -U /tmp/deskzoom.sock   # canvas points, from the top-left
-echo "describe"      | nc -U /tmp/deskzoom.sock   # -> ok Calculator AXButton "5" actions=[AXPress]
-echo "press"         | nc -U /tmp/deskzoom.sock   # -> ok pressed ...
-echo "status"        | nc -U /tmp/deskzoom.sock   # -> ok canvas 2560x1600 cursor 688,1165 zoom 140%
-echo "hide"          | nc -U /tmp/deskzoom.sock
+deskzoom move 688 1165   # canvas points, from the top-left
+deskzoom describe        # -> ok Calculator AXButton "5" actions=[AXPress]
+deskzoom press           # -> ok pressed ...
+deskzoom status          # -> ok canvas 2560x1600 cursor 688,1165 zoom 140%
+deskzoom hide
+deskzoom                 # the command list
 ```
+
+The reply is printed, and one that starts with `error` exits non-zero so a script stops at the
+first thing that did not happen. Under the hood it is `echo "move 688 1165" | nc -U
+/tmp/deskzoom.sock`, and `DESKZOOM_SOCKET` follows a custom `--socket`.
 
 `move-fraction 0.5 0.25` aims without knowing the canvas size. Moving the fake cursor pans the
 view to keep it visible, the same way the real one does.
@@ -75,10 +81,11 @@ view to keep it visible, the same way the real one does.
 Windows and scrolling, so a script can aim without coordinates and read while it does:
 
 ```bash
-echo "windows"       | nc -U /tmp/deskzoom.sock   # 0 TextEdit "Untitled" at 1400,300 900x650 ...
-echo "move-window 0" | nc -U /tmp/deskzoom.sock   # cursor to the middle of that window
-echo "scroll 0"      | nc -U /tmp/deskzoom.sock   # to the top of whatever is under the cursor
-echo "scroll-by 0.3" | nc -U /tmp/deskzoom.sock   # down by 30% of its length; negative goes up
+deskzoom windows           # 0 TextEdit "Untitled" at 1400,300 900x650 ...
+deskzoom move-window 0     # cursor to the middle of that window
+deskzoom scroll 0          # to the top of whatever is under the cursor
+deskzoom scroll-by 0.3     # down by 30% of its length; negative goes up
+deskzoom scroll-x 1        # all the way right; scroll-x-by for a step
 ```
 
 Scrolling is the scroll bar's own value, from 0 to 1, so it is absolute positioning rather than
@@ -88,12 +95,33 @@ like. Scroll wheel events posted to a process are ignored just as clicks are, an
 actions a scroll area advertises returned "unsupported" in TextEdit, so the bar value is the
 one mechanism relied on.
 
+Typing goes to the application under the fake cursor, which is not activated: the real keyboard
+keeps going wherever it was going.
+
+```bash
+deskzoom type hello world        # the rest of the line, as written
+deskzoom key return              # one key; newlines inside type are sent as return too
+deskzoom key cmd+a               # modifiers cmd shift alt ctrl, joined by +
+deskzoom key cmd+shift+period    # punctuation by name, since + is the separator
+```
+
+The element under the cursor is given focus first, as a click there would have done, and the
+keystrokes are posted to the process. Key names are US keyboard positions and `type` carries
+the characters themselves, so text is layout-independent and `key` is not.
+
+One limit: a chord with `cmd` only reaches the active application. Key equivalents and menu
+actions travel the key window's responder chain, and an inactive app has no key window, so
+`cmd+a` posted to it is dropped while `a`, `return` and `delete` land. Pressing the menu item
+through Accessibility instead reports success and does the same nothing, apart from app-level
+items such as Quit. `key` refuses a cmd chord unless the target is active, rather than report a
+keystroke that went nowhere.
+
 What this can and cannot do follows from Accessibility, not from DeskZoom. Buttons, menu items,
 checkboxes and anything else that publishes a press action work. Hovering, dragging, and apps
 that draw their own content without publishing elements do not, because there is nothing to
 press. Mouse events cannot substitute: `CGEventPostToPid` delivers them without moving the
 cursor, but AppKit ignores them, since hit-testing is the window server's job and posting to a
-process bypasses it. Measured both ways on 2026-09-04.
+process bypasses it. Keyboard events posted the same way are honoured. Measured 2026-09-04.
 
 ## How it works
 
@@ -122,7 +150,8 @@ process bypasses it. Measured both ways on 2026-09-04.
   while the pointer is on the canvas.
 - `CanvasFocus.swift`: hands keyboard focus to whatever the teleported pointer lands on, and
   hit-tests and presses elements for the fake cursor.
-- `ControlSocket.swift` and `ControlCommand.swift`: the shell-facing control channel.
+- `ControlSocket.swift` and `ControlCommand.swift`: the shell-facing control channel;
+  `Keystrokes.swift` is the keyboard side of it. `bin/deskzoom` is the shell end.
 - `ZoomControls.swift`: the title bar accessory.
 - `Viewport.swift`: pure zoom, pan, cursor-following and capture-region math, unit tested.
 - `CanvasView.swift`: gestures, click-to-teleport, cursor presence highlight.

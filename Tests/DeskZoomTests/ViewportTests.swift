@@ -340,8 +340,10 @@ extension ControlCommandTests {
     func testParsesWindowAndScrollCommands() {
         XCTAssertEqual(ControlCommand.parse("windows"), .windows)
         XCTAssertEqual(ControlCommand.parse("move-window 2"), .moveWindow(2))
-        XCTAssertEqual(ControlCommand.parse("scroll 0.4"), .scroll(0.4))
-        XCTAssertEqual(ControlCommand.parse("scroll-by -0.1"), .scrollBy(-0.1))
+        XCTAssertEqual(ControlCommand.parse("scroll 0.4"), .scroll(.vertical, 0.4))
+        XCTAssertEqual(ControlCommand.parse("scroll-by -0.1"), .scrollBy(.vertical, -0.1))
+        XCTAssertEqual(ControlCommand.parse("scroll-x 1"), .scroll(.horizontal, 1))
+        XCTAssertEqual(ControlCommand.parse("scroll-x-by 0.25"), .scrollBy(.horizontal, 0.25))
         XCTAssertNil(ControlCommand.parse("scroll"), "a scroll with no target is meaningless")
         XCTAssertNil(ControlCommand.parse("move-window"), "a window move needs to say which")
     }
@@ -369,5 +371,43 @@ final class CanvasWindowListTests: XCTestCase {
         let listed = CanvasFocus.onDisplay([window("Calculator", CGRect(x: 1700, y: 300, width: 300, height: 400))], bounds: display)
         XCTAssertEqual(listed.count, 1)
         XCTAssertEqual(listed.first?.frame.minX, -100)
+    }
+}
+
+extension ControlCommandTests {
+    func testTypeKeepsTheLineAsWritten() {
+        XCTAssertEqual(ControlCommand.parse("type hello world"), .type("hello world"))
+        XCTAssertEqual(ControlCommand.parse("type two  spaces"), .type("two  spaces"))
+        XCTAssertEqual(ControlCommand.parse("type 1 2"), .type("1 2"), "numbers are text here, not arguments")
+        XCTAssertNil(ControlCommand.parse("type"), "nothing to type")
+        XCTAssertNil(ControlCommand.parse("type   "))
+    }
+
+    func testKeyTakesOneChord() {
+        XCTAssertEqual(ControlCommand.parse("key cmd+a"), .key(KeyChord(keyCode: 0, flags: .maskCommand)))
+        XCTAssertEqual(ControlCommand.parse("help"), .help)
+        XCTAssertNil(ControlCommand.parse("key"), "which key?")
+        XCTAssertNil(ControlCommand.parse("key return tab"), "one key per command; type handles sequences")
+        XCTAssertNil(ControlCommand.parse("key hyper+a"))
+    }
+}
+
+final class KeyChordTests: XCTestCase {
+    func testNamesTheKeysAScriptReachesFor() {
+        XCTAssertEqual(KeyChord.parse("return"), KeyChord(keyCode: 36, flags: []))
+        XCTAssertEqual(KeyChord.parse("Return"), KeyChord(keyCode: 36, flags: []), "case is not meaning")
+        XCTAssertEqual(KeyChord.parse("tab"), KeyChord(keyCode: 48, flags: []))
+        XCTAssertEqual(KeyChord.parse("cmd+a"), KeyChord(keyCode: 0, flags: .maskCommand))
+        XCTAssertEqual(KeyChord.parse("cmd+shift+z"), KeyChord(keyCode: 6, flags: [.maskCommand, .maskShift]))
+        XCTAssertEqual(KeyChord.parse("option+left"), KeyChord(keyCode: 123, flags: .maskAlternate))
+        XCTAssertEqual(KeyChord.parse("cmd+shift+period"), KeyChord(keyCode: 47, flags: [.maskCommand, .maskShift]),
+                       "punctuation is named, since + is the chord separator")
+    }
+
+    func testRefusesWhatItCannotSend() {
+        XCTAssertNil(KeyChord.parse(""))
+        XCTAssertNil(KeyChord.parse("cmd+"), "a modifier alone presses nothing")
+        XCTAssertNil(KeyChord.parse("hyper+a"))
+        XCTAssertNil(KeyChord.parse("é"), "characters go through type, which carries them as text")
     }
 }

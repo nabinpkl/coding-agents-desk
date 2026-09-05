@@ -8,21 +8,28 @@ struct DeskZoomConfig {
     var pointerGain: Double = 3
     /// Whether pinch gestures made on the virtual display are taken over to zoom the canvas.
     var pinchZoom = true
+    /// Where a script reaches the fake cursor. `bin/deskzoom` reads the same path from DESKZOOM_SOCKET.
+    var socketPath = "/tmp/deskzoom.sock"
 
-    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1`.
+    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1 --socket PATH`.
     /// Anything else is a hard error: no silent defaults on typos.
     static func parse(_ arguments: [String]) -> DeskZoomConfig {
         var config = DeskZoomConfig()
         var rest = arguments.dropFirst()
         while let flag = rest.popFirst() {
-            guard let value = rest.popFirst(), let number = Double(value) else {
-                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1]")
+            guard let value = rest.popFirst() else {
+                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1] [--socket PATH]")
+            }
+            func number() -> Double {
+                guard let number = Double(value) else { fail("\(flag) needs a number, got \(value)") }
+                return number
             }
             switch flag {
-            case "--width": config.width = Int(number)
-            case "--height": config.height = Int(number)
-            case "--pointer-gain": config.pointerGain = number
-            case "--pinch-zoom": config.pinchZoom = number != 0
+            case "--width": config.width = Int(number())
+            case "--height": config.height = Int(number())
+            case "--pointer-gain": config.pointerGain = number()
+            case "--pinch-zoom": config.pinchZoom = number() != 0
+            case "--socket": config.socketPath = value
             default: fail("unknown flag \(flag)")
             }
         }
@@ -62,9 +69,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRegionChange = Date.distantPast
     private let viewportStore = ViewportStore()
     private var controlSocket: ControlSocket?
-    /// Where a script reaches the fake cursor. One literal in one place; it moves to config if a second
-    /// reader ever appears.
-    static let controlSocketPath = "/tmp/deskzoom.sock"
     private static let canvasDefaultsKey = "canvasWidth"
     /// How long the slider must sit still before the display is actually reconfigured. Short enough to feel
     /// immediate, long enough that dragging across the ladder does not reconfigure at every rung it passes.
@@ -371,7 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startControlSocket() {
         guard controlSocket == nil else { return }
-        let socket = ControlSocket(path: Self.controlSocketPath) { [weak self] line in
+        let socket = ControlSocket(path: config.socketPath) { [weak self] line in
             self?.runControl(line) ?? "error: not ready"
         }
         do {
@@ -419,7 +423,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = windows[index]
             view.setFakeCursor(CGPoint(x: window.frame.midX, y: window.frame.midY))
             return "ok \(describeCursor(view.fakeCursor!)) in \(window.owner)"
-        case .describe, .press, .scroll, .scrollBy:
+        case .help:
+            return ControlCommand.usage
+        case .describe, .press, .scroll, .scrollBy, .type, .key:
             break
         }
 
@@ -434,24 +440,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return CanvasFocus.press(element)
                 ? "ok pressed \(CanvasFocus.describe(element))"
                 : "error: no press action on \(CanvasFocus.describe(element))"
-        case let .scroll(fraction):
-            return scroll(at: point) { _ in fraction }
-        case let .scrollBy(delta):
-            return scroll(at: point) { current in current + delta }
+        case let .scroll(axis, fraction):
+            return scroll(at: point, along: axis) { _ in fraction }
+        case let .scrollBy(axis, delta):
+            return scroll(at: point, along: axis) { current in current + delta }
+        case let .type(text):
+            guard let (pid, name) = target(at: point) else { return "error: nothing at \(describeCursor(cursor))" }
+            Keystrokes.type(text, into: pid)
+            return "ok typed \(text.count) characters into \(name)"
+        case let .key(chord):
+            guard let (pid, name) = target(at: point) else { return "error: nothing at \(describeCursor(cursor))" }
+            // Key equivalents are dispatched through the key window's responder chain, which an inactive
+            // application does not have, so a cmd chord posted to one is dropped. Refusing is better than
+            // reporting a keystroke that went nowhere.
+            if chord.flags.contains(.maskCommand), NSRunningApplication(processIdentifier: pid)?.isActive != true {
+                return "error: \(name) is not the active app, and cmd shortcuts only reach the active one; type and plain keys do work"
+            }
+            Keystrokes.press(chord, in: pid)
+            return "ok key sent to \(name)"
         default:
             return "ok"
         }
     }
 
+    /// The process to type into: the one owning what is under the fake cursor, with that element given
+    /// focus first, as a click there would have done. The application itself is not activated, so the real
+    /// keyboard keeps going wherever it was going.
+    private func target(at point: CGPoint) -> (pid: pid_t, name: String)? {
+        guard let element = CanvasFocus.element(at: point), let owner = CanvasFocus.owner(of: element) else { return nil }
+        CanvasFocus.focus(element)
+        return owner
+    }
+
     /// Scrolls the area under a point to whatever `target` makes of its current position, and reports
     /// where it ended up. The fake cursor is the anchor: what scrolls is whatever it is over, and it
     /// stays put on screen while the content moves under it, like a real pointer would.
-    private func scroll(at point: CGPoint, to target: (CGFloat) -> CGFloat) -> String {
+    private func scroll(at point: CGPoint, along axis: CanvasFocus.ScrollAxis, to target: (CGFloat) -> CGFloat) -> String {
         guard let area = CanvasFocus.scrollArea(at: point) else { return "error: nothing scrollable here" }
-        guard let current = CanvasFocus.verticalScroll(of: area) else { return "error: nothing to scroll here" }
+        guard let current = CanvasFocus.scroll(of: area, along: axis) else { return "error: nothing to scroll \(axis.rawValue)ly here" }
         let wanted = min(max(0, target(current)), 1)
-        guard CanvasFocus.setVerticalScroll(of: area, to: wanted) else { return "error: scroll refused" }
-        let landed = CanvasFocus.verticalScroll(of: area) ?? wanted
+        guard CanvasFocus.setScroll(of: area, along: axis, to: wanted) else { return "error: scroll refused" }
+        let landed = CanvasFocus.scroll(of: area, along: axis) ?? wanted
         return String(format: "ok scrolled %.2f -> %.2f", current, landed)
     }
 
