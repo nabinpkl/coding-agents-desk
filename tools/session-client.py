@@ -181,6 +181,19 @@ class Session:
     def request(self, x, y, w, h, incremental=False):
         self.sock.sendall(struct.pack(">BBHHHH", 3, 1 if incremental else 0, x, y, w, h))
 
+    def wait_pixels(self, timeout=10):
+        """Block until the server serves a framebuffer, which is proof the pixel stream is live.
+
+        A non-incremental request for a single pixel forces an immediate update rather than waiting
+        for the screen to change, so this returns as soon as the server is answering at all. It is
+        the connection-established event; input readiness is a separate, later thing this cannot see
+        (the server accepts no input for ~2s after connect and echoes no pointer position to say
+        when that ends), so a caller that needs input proven has to observe an effect."""
+        self.sock.settimeout(timeout)
+        self.request(0, 0, 1, 1)
+        self.update()
+        self.sock.settimeout(30)
+
     def update(self):
         """One FramebufferUpdate as a list of (x, y, w, h, encoding, payload)."""
         while True:

@@ -10,15 +10,34 @@ struct DeskZoomConfig {
     var pinchZoom = true
     /// Where a script reaches the fake cursor. `bin/deskzoom` reads the same path from DESKZOOM_SOCKET.
     var socketPath = "/tmp/deskzoom.sock"
+    /// Create the display and nothing else: no window, no capture, no event taps.
+    ///
+    /// A display is useful on its own. Another login session can hold one and put windows on it
+    /// while something else entirely does the viewing, so the viewer is not a requirement of the
+    /// display, and starting one here would only take a desktop nobody asked it to take.
+    var displayOnly = false
+    /// Print the displays this session can see, then exit. The one thing a headless session can be
+    /// asked from a shell, and the only way to learn what Screen Sharing synthesised for it.
+    var listDisplays = false
 
-    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1 --socket PATH`.
-    /// Anything else is a hard error: no silent defaults on typos.
+    /// Parses `--width N --height N --pointer-gain X --pinch-zoom 0|1 --socket PATH --display-only
+    /// --list-displays`. Anything else is a hard error: no silent defaults on typos.
     static func parse(_ arguments: [String]) -> DeskZoomConfig {
         var config = DeskZoomConfig()
         var rest = arguments.dropFirst()
         while let flag = rest.popFirst() {
+            // The flags that take no value, answered before one is demanded.
+            if flag == "--display-only" {
+                config.displayOnly = true
+                continue
+            }
+            if flag == "--list-displays" {
+                config.listDisplays = true
+                continue
+            }
             guard let value = rest.popFirst() else {
-                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1] [--socket PATH]")
+                fail("usage: DeskZoom [--width N] [--height N] [--pointer-gain X] [--pinch-zoom 0|1]"
+                    + " [--socket PATH] [--display-only] [--list-displays]")
             }
             func number() -> Double {
                 guard let number = Double(value) else { fail("\(flag) needs a number, got \(value)") }
