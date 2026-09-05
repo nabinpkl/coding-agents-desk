@@ -68,7 +68,7 @@ function diag(line: string) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     require("node:fs").appendFileSync(
-      "/tmp/agentdesk-webrtc-diag.log",
+      `/tmp/agentdesk-webrtc-diag-${require("node:os").userInfo().username}.log`,
       `${new Date().toISOString()} ${line}\n`,
     );
   } catch {
@@ -1443,6 +1443,9 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   // skipped.
   let appliedBitrate = 0;
   let lastEstimateAt = Date.now();
+  // Declared with the budget it is judged against, and above the subscription that reads it: an
+  // RTCP report arriving before this line ran would otherwise throw on an unreachable binding.
+  let bytesSinceEstimate = 0;
   /**
    * The most this picture is worth spending, from its own pixel count rather than a fixed number.
    *
@@ -1518,9 +1521,6 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   let sequence = randomStart[0]! & 0xffff;
   const timestampOffset = randomStart[1]!;
   let sentAccessUnits = 0;
-  // Bytes the encoder has actually produced since the budget was last revised. An estimate can
-  // only be read as a limit if the encoder was pressing against the limit.
-  let bytesSinceEstimate = 0;
   let transportReady = false;
   const subscriber: EncoderSubscriber = {
     inputOwner,
