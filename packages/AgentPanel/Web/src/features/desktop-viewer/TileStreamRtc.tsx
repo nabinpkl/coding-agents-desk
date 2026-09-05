@@ -629,17 +629,21 @@ export function TileStreamRtc({
     };
 
     const captureSize = () => {
-      const shown = frame.current?.clientWidth ?? 0;
+      // A frame that has no width yet (a display handover mounts the new stream before its box is
+      // laid out) must still size the offer: unsized, the sidecar encodes the whole display, and
+      // on the 8K one that is a 7680-wide stream a phone never decodes, so the switch times out.
+      const shown = frame.current?.clientWidth || window.innerWidth;
       if (capturePlan) {
         // Bitrate follows the pixels actually encoded, at the rate the whole display would get,
-        // rather than shrinking with the region: the region is the part being read.
+        // rather than shrinking with the region: the region is the part being read. The plan
+        // already fixed the pixels; the resolution knob has nothing to add here.
         const share = width && height
           ? Math.min(1, (capturePlan.pixelWidth * capturePlan.pixelHeight) / (width * height))
           : 1;
         return {
           width: capturePlan.pixelWidth,
           height: capturePlan.pixelHeight,
-          bitrate: Math.max(300_000, Math.round(bitrate * Math.max(share, 0.25) * captureScale)),
+          bitrate: Math.max(300_000, Math.round(bitrate * Math.max(share, 0.25))),
         };
       }
       return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate, captureScale);

@@ -420,7 +420,10 @@ function DesktopStream(
 function OverviewStream(
   props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan" | "control">,
 ) {
-  return <TileStreamRtc {...props} captureScale={useCaptureScale()} capturePlan={null} />;
+  // Viewport-sized, as DeskZoom's overview is its window's backing size: the resolution knob is
+  // for a single stream. Applied here it sent a phone a 3858-wide overview beside the sharp
+  // stream, and the link dropped both.
+  return <TileStreamRtc {...props} captureScale={1} capturePlan={null} />;
 }
 
 /**
