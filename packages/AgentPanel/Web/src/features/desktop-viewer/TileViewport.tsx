@@ -310,10 +310,13 @@ export function TileViewport({
         view.settle(w, h);
       }, wait);
     };
-    // A requested plan is now on screen: the frame covers its region, so place it by that.
+    // A requested plan is now on screen: the frame covers its region, so place it by that. Then
+    // settle again, because the view may have moved while that plan was being negotiated and the
+    // model holds one re-aim at a time; if it did not move, the plan serves and nothing happens.
     const stopWatchingCrop = onCaptureCropApplied((plan) => {
       view.applied(plan);
       apply();
+      scheduleSettle();
     });
     const apply = () => {
       const { w, h } = size();

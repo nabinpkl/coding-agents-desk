@@ -53,10 +53,32 @@ describe("crop zoom view", () => {
     view.zoomAt(3, 100, 100, W, H);
     view.settle(W, H);
     expect(getCaptureCrop()).not.toBeNull();
+    view.applied(getCaptureCrop());
     view.reset();
     view.settle(W, H);
     expect(getCaptureCrop()).toBeNull();
     expect(view.isZoomed()).toBe(false);
+  });
+
+  it("holds one re-aim in flight and honours the latest view once it lands", () => {
+    // A second request during a negotiation would tear the first down before it painted, which
+    // is the teardown race ScreenCaptureKit starves on. So the second waits for the first.
+    const view = createZoomView("crop", DISPLAY);
+    view.zoomAt(2, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    const first = getCaptureCrop();
+    view.zoomAt(2, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    expect(getCaptureCrop()).toBe(first);
+    view.applied(first);
+    // Zoomed further in, the first plan still covers the view at the display's own detail, so it
+    // is kept; that is the surplus tolerance, not the hold. Leaving its region is what re-aims.
+    view.settle(W, H);
+    expect(getCaptureCrop()).toBe(first);
+    view.panBy(800, 0, W, H);
+    view.settle(W, H);
+    expect(getCaptureCrop()).not.toBe(first);
+    expect(getCaptureCrop()!.region.x).toBeLessThan(first!.region.x);
   });
 
   it("pans in display points against the gesture's pixels, so a drag moves the view the other way", () => {

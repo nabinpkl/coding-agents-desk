@@ -52,6 +52,8 @@ export const FIRST_FRAME_TIMEOUT_MS = 12_000;
 // does. Bits follow pixels via the scale-squared bitrate, so the cost lands
 // only where the density exists.
 const CAPTURE_PIXEL_RATIO_CAP = 3;
+/** How long a replaced session's picture is kept when nothing comes along to replace it. */
+const RETIRE_TIMEOUT_MS = 4_000;
 const MAX_SOURCE_EXTENT = 100_000;
 const CONTROL_CHANNEL_LABEL = "agentdesk-control-v2";
 const CONTROL_BUFFER_LIMIT = 64 * 1024;
@@ -340,6 +342,17 @@ export function TileStreamRtc({
   const onSourceMetadataRef = useRef(onSourceMetadata);
   const onFirstFrameRef = useRef(onFirstFrame);
   onFirstFrameRef.current = onFirstFrame;
+  /**
+   * The previous session's peer, kept alive until the next session has painted.
+   *
+   * A renegotiation -- a new capture region, a resolution change -- replaces the session, and the
+   * old one used to be closed first, which blanked the video for as long as the new one took to
+   * deliver a frame. The DeskZoom viewer keeps the old stream painting until the new one has
+   * produced a frame and only then stops it; this is that. The timer is the safety net for a
+   * successor that never paints, or for there being no successor at all.
+   */
+  const retiring = useRef<{ peer: RTCPeerConnection; timer: number } | null>(null);
+  const [hasPicture, setHasPicture] = useState(false);
   const onDisplayUnavailableRef = useRef(onDisplayUnavailable);
   onDisplayUnavailableRef.current = onDisplayUnavailable;
 
@@ -371,6 +384,24 @@ export function TileStreamRtc({
     // Resolve the initial main alias once; reconnect must retain the same physical screen.
     let resolvedDisplayId = displayId;
     let activePeer: RTCPeerConnection | null = null;
+    const retirePrevious = () => {
+      const previous = retiring.current;
+      if (!previous) return;
+      retiring.current = null;
+      window.clearTimeout(previous.timer);
+      previous.peer.close();
+    };
+    const retire = (peer: RTCPeerConnection) => {
+      // One retiree at a time: a second handover before the first painted closes the older one.
+      retirePrevious();
+      retiring.current = {
+        peer,
+        timer: window.setTimeout(() => {
+          if (retiring.current?.peer === peer) retiring.current = null;
+          peer.close();
+        }, RETIRE_TIMEOUT_MS),
+      };
+    };
     let cancelActiveSession: (() => void) | null = null;
     let wake: (() => void) | null = null;
     let activeControlTransport: DesktopControlTransport | null = null;
@@ -856,7 +887,11 @@ export function TileStreamRtc({
           if (cancelActiveSession === cancelSession) cancelActiveSession = null;
           clearControlTransport();
           inputChannel.close();
-          peer.close();
+          // Cancelled means replaced or unmounted, and either way the picture it is painting is
+          // worth keeping until whatever comes next has one of its own. Anything else is a dead
+          // peer with nothing to keep.
+          if (outcome === "cancelled") retire(peer);
+          else peer.close();
           resolve(outcome);
         };
         cancelSession = () => finish("cancelled");
@@ -869,6 +904,28 @@ export function TileStreamRtc({
         peer.addTransceiver("video", { direction: "recvonly" });
         peer.ontrack = (event) => {
           report("track-received", event.track.kind);
+          const stream = event.streams[0] ?? new MediaStream([event.track]);
+          // The incoming stream decodes off screen until it has a frame. Attaching it to the
+          // visible element straight away would replace the previous session's picture with
+          // black for the whole negotiation; this is the DeskZoom viewer's promote step, where the
+          // incoming stream becomes current only once it has produced a frame.
+          const probe = document.createElement("video");
+          probe.muted = true;
+          probe.playsInline = true;
+          probe.srcObject = stream;
+          const promote = () => {
+            probe.srcObject = null;
+            if (cancelled || finished) return;
+            retirePrevious();
+            attach(stream);
+          };
+          probe.addEventListener("loadeddata", promote, { once: true });
+          void probe.play().catch(() => {
+            // Autoplay policy cannot refuse a muted video, and a decode failure surfaces on the
+            // visible element's own path once attached; nothing to do here.
+          });
+        };
+        const attach = (stream: MediaStream) => {
           const previousOwner = videoOwner;
           if (
             previousOwner
@@ -889,7 +946,8 @@ export function TileStreamRtc({
             lastGapReportAt: null,
             lastGapClassification: null,
           };
-          element.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+          element.srcObject = stream;
+          setHasPicture(true);
           videoPresentationDetail("owner-assigned", {
             previousOwner: previousOwner?.attempt ?? null,
           });
@@ -1089,9 +1147,9 @@ export function TileStreamRtc({
       }
       wake?.();
       cancelActiveSession?.();
-      activePeer?.close();
+      // Not closed and not blanked: the picture stays until the next session has painted, or the
+      // retiree's timer runs out. cancelActiveSession has already retired the peer.
       publishControlTransport(null);
-      element.srcObject = null;
     };
   }, [
     windowID,
@@ -1121,7 +1179,7 @@ export function TileStreamRtc({
         playsInline
         className="size-full object-contain"
       />
-      {state.kind === "connecting" || state.kind === "unsupported" || state.kind === "error" ? (
+      {(state.kind === "connecting" && !hasPicture) || state.kind === "unsupported" || state.kind === "error" ? (
         <p
           className={`absolute inset-0 grid place-items-center px-3 text-center font-mono text-[11px]
             ${state.kind === "connecting" ? "text-muted-foreground" : "text-destructive"}`}

@@ -118,6 +118,14 @@ function cropZoomView(display: DisplaySize): ZoomView {
   let region: DisplayRect = getCaptureCrop()?.region ?? wholeDisplay(display);
   /** Keyboard cover: the box covers the viewport instead of fitting it, shifted to centre the cursor. */
   let coverShift: ViewportPoint | null = null;
+  /**
+   * A plan has been requested and its first frame has not arrived. One re-aim in flight at a
+   * time, as in DeskZoom's applyCaptureUpdate: a second request during a negotiation would tear
+   * the first down before it painted, and a capture racing another's teardown is the one thing
+   * ScreenCaptureKit is known to starve on. The viewport settles again once the plan lands, so a
+   * view that moved meanwhile is served then.
+   */
+  let awaitingApply = false;
 
   const box = (w: number, h: number): DisplayRect => {
     if (!coverShift) return contentRect(display, w, h);
@@ -176,17 +184,24 @@ function cropZoomView(display: DisplaySize): ZoomView {
       inner.style.height = `${placed.height}px`;
     },
     settle: (w, h) => {
+      if (awaitingApply) return;
+      const before = getCaptureCrop();
       if (isWholeDisplay(visible, display)) {
         setCaptureCrop(null);
-        return;
+      } else {
+        const content = box(w, h);
+        const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
+        const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
+        if (planServes(before, visible, wanted)) return;
+        setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT));
       }
-      const content = box(w, h);
-      const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
-      const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
-      if (planServes(getCaptureCrop(), visible, wanted)) return;
-      setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT));
+      // Only a change is in flight; an equal plan never left the store and nothing will answer it.
+      awaitingApply = getCaptureCrop() !== before;
     },
-    applied: (plan) => { region = plan?.region ?? wholeDisplay(display); },
+    applied: (plan) => {
+      awaitingApply = false;
+      region = plan?.region ?? wholeDisplay(display);
+    },
     telemetry: () => ({ scale: magnification(visible, display), tx: visible.x, ty: visible.y }),
     dispose: (inner) => {
       for (const key of ["position", "left", "top", "width", "height", "transform"] as const) {
