@@ -48,6 +48,12 @@ final class DesktopInputController: @unchecked Sendable {
     private static let maximumDelta: CGFloat = 10_000
     private static let maximumKeyBatch = 256
     static let maximumCommandBytes = 16 * 1_024
+    /// The line types this controller owns. `ControlRouter` consults this instead of letting the
+    /// controller claim every JSON line and leaving the rest to whoever ran next.
+    static let types: Set<String> = [
+        "configure", "pointer-move", "click", "mouse-down", "mouse-up",
+        "scroll", "key-batch", "focus-query", "release-control",
+    ]
 
     init(
         bounds: CGRect,
@@ -207,6 +213,13 @@ final class DesktopInputController: @unchecked Sendable {
 
     func rejectOversized() {
         reject(reason: "oversized")
+    }
+
+    /// A capture command that could not be obeyed. Shares the input rejection channel because the
+    /// transport already listens there, and because a command that is dropped without a word is the
+    /// failure this whole protocol change exists to prevent.
+    func reject(captureReason: String) {
+        reject(reason: captureReason)
     }
 
     private static func validModifier(_ value: String) -> Bool {

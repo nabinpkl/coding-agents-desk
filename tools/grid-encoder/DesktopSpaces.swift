@@ -151,6 +151,9 @@ final class DesktopSpacesController {
     }
 
     /// False leaves keyboard/capture commands with their existing dispatcher.
+    /// The line types this controller owns.
+    static let types: Set<String> = ["desktop-refresh", "space-select", "space-gesture"]
+
     func handle(_ line: String) -> Bool {
         guard let data = line.data(using: .utf8),
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
