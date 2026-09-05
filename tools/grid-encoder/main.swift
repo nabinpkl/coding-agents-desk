@@ -693,20 +693,19 @@ Task {
             guard !clipped.isNull, clipped.width >= 2, clipped.height >= 2 else {
                 fail("--source-rect \(rect) does not overlap display \(display.width)x\(display.height)")
             }
-            // The crop becomes the source as far as everything downstream is concerned: the output
-            // defaults to its size rather than the display's, and input coordinates map into it.
-            // Leaving inputBounds as the whole display would land every click at a fraction of where
-            // the viewer aimed it, in proportion to how far the crop is zoomed in.
+            // The crop sizes the OUTPUT and nothing else. Input and the cursor stay in the display's
+            // own coordinates, because the viewer treats the crop as a capture detail, not as a
+            // change of desktop: it keeps the whole display as its coordinate system and asks for
+            // regions of it, exactly as the DeskZoom viewer does. Making inputBounds the crop would
+            // shift that system under the viewer with every re-aim -- and since the answer reports
+            // inputBounds as the source size, would make the viewer rebuild its view each time.
             sourceWidth = Int(clipped.width)
             sourceHeight = Int(clipped.height)
-            inputBounds = CGRect(x: displayBounds.origin.x + clipped.origin.x,
-                                 y: displayBounds.origin.y + clipped.origin.y,
-                                 width: clipped.width, height: clipped.height)
         } else {
             sourceWidth = display.width
             sourceHeight = display.height
-            inputBounds = displayBounds
         }
+        inputBounds = displayBounds
         openMeta = ["type": "open", "display": Int(display.displayID),
                     "displayId": CFUUIDCreateString(nil, uuid) as String,
                     "desktopNavigationVersion": 1]
