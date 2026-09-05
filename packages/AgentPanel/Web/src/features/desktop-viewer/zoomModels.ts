@@ -1,0 +1,197 @@
+// The two ways the viewer can zoom, behind one interface so the gesture code does not care which.
+//
+// `css` is the model the viewer has always had: the picture of the whole display, magnified with
+// a transform. `crop` is the DeskZoom viewer's: the state is which part of the display is on
+// screen, the capture is re-aimed at it, and the frame is placed geometrically. They are kept
+// side by side, switchable at runtime, so they can be compared on the same desk.
+
+import { getCaptureCrop, setCaptureCrop } from "./captureCrop";
+import {
+  MAX_PIXELS_PER_POINT,
+  capturePlanFor,
+  planServes,
+  wantedPixelsPerPoint,
+  type CapturePlan,
+} from "./tileCapturePlan";
+import {
+  IDENTITY,
+  clampPan,
+  coverOnRemoteCursor,
+  followRemoteCursor,
+  panBy,
+  projectRemoteCursor,
+  unprojectRemoteCursor,
+  zoomAt,
+  type ViewportPoint,
+  type ViewportTransform,
+} from "./tileViewportMath";
+import {
+  clampVisible,
+  contentRect,
+  coverRect,
+  followVisible,
+  isWholeDisplay,
+  magnification,
+  panVisible,
+  placeRegion,
+  projectPoint,
+  unprojectPoint,
+  wholeDisplay,
+  zoomVisible,
+  type DisplayRect,
+  type DisplaySize,
+} from "./visibleRect";
+import type { ZoomMode } from "./zoomMode";
+
+/** How close to the edge the remote cursor may get before the view pans, as a fraction of it. */
+const FOLLOW_MARGIN = 0.12;
+
+export interface ZoomView {
+  readonly kind: ZoomMode;
+  /** Each returns whether the view actually changed. */
+  zoomAt(factor: number, cx: number, cy: number, w: number, h: number): boolean;
+  panBy(dx: number, dy: number, w: number, h: number): boolean;
+  reset(): void;
+  isZoomed(): boolean;
+  /** Keep the remote cursor inside the edge band; true when the view moved to do so. */
+  follow(cursor: ViewportPoint, w: number, h: number): boolean;
+  /** Fill the strip above the keyboard and aim it at the cursor. */
+  cover(cursor: ViewportPoint, w: number, h: number): void;
+  /** The view to put back when the keyboard goes, and putting it back. */
+  snapshot(): unknown;
+  restore(snapshot: unknown, w: number, h: number): void;
+  /** The viewport changed size; keep the view legal for the new one. */
+  reclamp(w: number, h: number): void;
+  project(cursor: ViewportPoint, w: number, h: number): ViewportPoint | null;
+  unproject(point: ViewportPoint, w: number, h: number): ViewportPoint | null;
+  /** Put the view onto the content element. */
+  paint(inner: HTMLElement, w: number, h: number): void;
+  /** The gesture has settled: ask for a capture if the running one no longer serves the view. */
+  settle(w: number, h: number): void;
+  /** A stream's first frame arrived: the frame on screen now covers this plan's region. */
+  applied(plan: CapturePlan | null): void;
+  telemetry(): { scale: number; tx: number; ty: number };
+  /** Leave the content element as it was found. */
+  dispose(inner: HTMLElement): void;
+}
+
+export function createZoomView(mode: ZoomMode, display: DisplaySize): ZoomView {
+  return mode === "crop" ? cropZoomView(display) : cssZoomView(display);
+}
+
+function cssZoomView(display: DisplaySize): ZoomView {
+  let transform: ViewportTransform = IDENTITY;
+  const changed = (next: ViewportTransform) => {
+    const moved = next.scale !== transform.scale || next.tx !== transform.tx || next.ty !== transform.ty;
+    transform = next;
+    return moved;
+  };
+  return {
+    kind: "css",
+    zoomAt: (factor, cx, cy, w, h) => changed(zoomAt(transform, factor, cx, cy, w, h)),
+    panBy: (dx, dy, w, h) => changed(panBy(transform, dx, dy, w, h)),
+    reset: () => { transform = IDENTITY; },
+    isZoomed: () => transform.scale > 1,
+    follow: (cursor, w, h) =>
+      changed(followRemoteCursor(transform, cursor, display.width, display.height, w, h)),
+    cover: (cursor, w, h) => {
+      transform = coverOnRemoteCursor(cursor, display.width, display.height, w, h);
+    },
+    snapshot: () => transform,
+    restore: (snapshot, w, h) => { transform = clampPan(snapshot as ViewportTransform, w, h); },
+    reclamp: (w, h) => { transform = clampPan(transform, w, h); },
+    project: (cursor, w, h) => projectRemoteCursor(transform, cursor, display.width, display.height, w, h),
+    unproject: (point, w, h) => unprojectRemoteCursor(transform, point, display.width, display.height, w, h),
+    paint: (inner) => {
+      inner.style.transform = `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`;
+    },
+    settle: () => {},
+    applied: () => {},
+    telemetry: () => ({ scale: transform.scale, tx: transform.tx, ty: transform.ty }),
+    dispose: (inner) => { inner.style.transform = ""; },
+  };
+}
+
+function cropZoomView(display: DisplaySize): ZoomView {
+  let visible: DisplayRect = wholeDisplay(display);
+  /** What the frame on screen covers. The whole display until a plan's first frame says otherwise. */
+  let region: DisplayRect = getCaptureCrop()?.region ?? wholeDisplay(display);
+  /** Keyboard cover: the box covers the viewport instead of fitting it, shifted to centre the cursor. */
+  let coverShift: ViewportPoint | null = null;
+
+  const box = (w: number, h: number): DisplayRect => {
+    if (!coverShift) return contentRect(display, w, h);
+    const base = coverRect(display, w, h);
+    return { ...base, x: base.x + coverShift.x, y: base.y + coverShift.y };
+  };
+  const changed = (next: DisplayRect) => {
+    const moved = next.x !== visible.x || next.y !== visible.y || next.width !== visible.width;
+    visible = next;
+    return moved;
+  };
+  const anchorAt = (cx: number, cy: number, w: number, h: number) =>
+    unprojectPoint({ x: cx, y: cy }, visible, box(w, h), display) ?? { x: visible.x + visible.width / 2, y: visible.y + visible.height / 2 };
+  const pointsPerPixel = (w: number, h: number) => {
+    const content = box(w, h);
+    return content.width > 0 ? visible.width / content.width : 0;
+  };
+
+  return {
+    kind: "crop",
+    zoomAt: (factor, cx, cy, w, h) => changed(zoomVisible(visible, display, factor, anchorAt(cx, cy, w, h))),
+    // Gesture deltas arrive in viewport pixels; the view moves the other way in display points.
+    panBy: (dx, dy, w, h) => {
+      const k = pointsPerPixel(w, h);
+      return changed(panVisible(visible, display, -dx * k, -dy * k));
+    },
+    reset: () => { visible = wholeDisplay(display); coverShift = null; },
+    isZoomed: () => !isWholeDisplay(visible, display),
+    follow: (cursor) => changed(followVisible(visible, display, cursor, FOLLOW_MARGIN)),
+    cover: (cursor, w, h) => {
+      // Show the whole display in a box that covers the strip, then slide the box so the cursor
+      // sits mid-strip, as far as the box's overflow allows: the same intent as the CSS cover.
+      visible = wholeDisplay(display);
+      const base = coverRect(display, w, h);
+      const at = projectPoint(cursor, visible, base);
+      if (!at) { coverShift = { x: 0, y: 0 }; return; }
+      coverShift = {
+        x: Math.min(-base.x, Math.max(w - (base.x + base.width), w / 2 - at.x)),
+        y: Math.min(-base.y, Math.max(h - (base.y + base.height), h / 2 - at.y)),
+      };
+    },
+    snapshot: () => visible,
+    restore: (snapshot) => { visible = clampVisible(snapshot as DisplayRect, display); coverShift = null; },
+    reclamp: () => { visible = clampVisible(visible, display); },
+    project: (cursor, w, h) => projectPoint(cursor, visible, box(w, h)),
+    unproject: (point, w, h) => unprojectPoint(point, visible, box(w, h), display),
+    paint: (inner, w, h) => {
+      // DeskZoom's placeContent: the frame covers `region`, the view shows `visible`, and the
+      // element is put where those agree. The viewport clips whatever the frame holds beyond it.
+      const placed = placeRegion(region, visible, box(w, h));
+      inner.style.transform = "";
+      inner.style.position = "absolute";
+      inner.style.left = `${placed.x}px`;
+      inner.style.top = `${placed.y}px`;
+      inner.style.width = `${placed.width}px`;
+      inner.style.height = `${placed.height}px`;
+    },
+    settle: (w, h) => {
+      if (isWholeDisplay(visible, display)) {
+        setCaptureCrop(null);
+        return;
+      }
+      const content = box(w, h);
+      const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
+      const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
+      if (planServes(getCaptureCrop(), visible, wanted)) return;
+      setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT));
+    },
+    applied: (plan) => { region = plan?.region ?? wholeDisplay(display); },
+    telemetry: () => ({ scale: magnification(visible, display), tx: visible.x, ty: visible.y }),
+    dispose: (inner) => {
+      for (const key of ["position", "left", "top", "width", "height", "transform"] as const) {
+        inner.style[key] = "";
+      }
+    },
+  };
+}

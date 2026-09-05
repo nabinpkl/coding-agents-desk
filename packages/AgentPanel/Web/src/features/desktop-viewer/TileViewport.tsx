@@ -3,20 +3,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
 import {
-  IDENTITY,
   advanceRemoteCursor,
-  clampPan,
-  coverOnRemoteCursor,
-  followRemoteCursor,
-  panBy,
   pointerAccelerationGain,
-  projectRemoteCursor,
-  unprojectRemoteCursor,
   scrollAccelerationGain,
-  zoomAt,
   type ViewportPoint,
-  type ViewportTransform,
 } from "./tileViewportMath";
+import { createZoomView } from "./zoomModels";
+import { onCaptureCropApplied } from "./captureCrop";
+import { useZoomMode } from "./zoomMode";
 import { CursorImageCache } from "./cursorImageCache";
 
 export type ViewportGestureKind = "pointer" | "scroll" | "view-pan" | "pinch-pan";
@@ -45,6 +39,10 @@ export interface ViewportGestureTelemetry {
 }
 
 const CURSOR_MIRROR_RENDER_SCALE = 0.7;
+/** How long after the last zoom or pan before the capture is re-aimed. DeskZoom's settle delay. */
+const VIEW_SETTLE_MS = 150;
+/** Shortest gap between two re-aims; each one swaps the picture while the new stream negotiates. */
+const VIEW_REAIM_INTERVAL_MS = 350;
 const POINTER_SLOP = 3;
 const SCROLL_SLOP = 10;
 const SCROLL_MOMENTUM_FLICK_THRESHOLD = 200;
@@ -124,6 +122,7 @@ export function TileViewport({
   initialCursor?: ViewportPoint;
   subscribeCursorEvents?: (listener: (event: WebrtcCursorEvent) => void) => () => void;
 }) {
+  const zoomMode = useZoomMode();
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const scrollPuck = useRef<HTMLButtonElement>(null);
@@ -182,9 +181,9 @@ export function TileViewport({
     if (!frame || !inner || !overlay || !fallback || !image) return undefined;
     if (!pointerMode && scrollEngagedRef.current) setScrollEngaged(false);
 
-    let transform: ViewportTransform = IDENTITY;
+    const view = createZoomView(zoomMode, { width: sourceWidth, height: sourceHeight });
     /** The view to put back when the keyboard stops occluding the box, or null when it is not. */
-    let viewBeforeKeyboard: ViewportTransform | null = null;
+    let viewBeforeKeyboard: unknown = null;
     let remoteCursor = advanceRemoteCursor(
       initialCursor ?? { x: sourceWidth / 2, y: sourceHeight / 2 },
       0,
@@ -242,9 +241,9 @@ export function TileViewport({
     const rounded = (value: number) => Math.round(value * 1_000) / 1_000;
     const gestureDetail = (outcome?: ViewportGestureOutcome) => ({
       kind: activeGesture!.kind,
-      scale: rounded(transform.scale),
-      tx: rounded(transform.tx),
-      ty: rounded(transform.ty),
+      scale: rounded(view.telemetry().scale),
+      tx: rounded(view.telemetry().tx),
+      ty: rounded(view.telemetry().ty),
       ...(outcome ? { outcome } : {}),
       ...((activeGesture!.kind === "pointer" || activeGesture!.kind === "scroll") && outcome
         ? {
@@ -294,17 +293,32 @@ export function TileViewport({
     };
 
     const size = () => ({ w: frame.clientWidth, h: frame.clientHeight });
+    let settleTimer = 0;
+    let lastReaimAt = Number.NEGATIVE_INFINITY;
+    /**
+     * One capture request per settled gesture, and never two within the re-aim interval. A pinch
+     * rewrites the view every animation frame and each re-aim costs a renegotiation, so the
+     * request waits for the hand to stop and then for the last re-aim to be old enough.
+     */
+    const scheduleSettle = () => {
+      if (settleTimer !== 0) window.clearTimeout(settleTimer);
+      const wait = Math.max(VIEW_SETTLE_MS, VIEW_REAIM_INTERVAL_MS - (performance.now() - lastReaimAt));
+      settleTimer = window.setTimeout(() => {
+        settleTimer = 0;
+        lastReaimAt = performance.now();
+        const { w, h } = size();
+        view.settle(w, h);
+      }, wait);
+    };
+    // A requested plan is now on screen: the frame covers its region, so place it by that.
+    const stopWatchingCrop = onCaptureCropApplied((plan) => {
+      view.applied(plan);
+      apply();
+    });
     const apply = () => {
-      inner.style.transform = `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`;
       const { w, h } = size();
-      const projected = projectRemoteCursor(
-        transform,
-        remoteCursor,
-        sourceWidth,
-        sourceHeight,
-        w,
-        h,
-      );
+      view.paint(inner, w, h);
+      const projected = view.project(remoteCursor, w, h);
       overlay.hidden = !pointerMode || cursorHidden || projected === null;
       if (projected) {
         // The overlay origin is the hotspot. The glyph supplies its own offset and stays
@@ -337,17 +351,10 @@ export function TileViewport({
     };
     const toggleZoomAtPointer = () => {
       const { w, h } = size();
-      const projected = projectRemoteCursor(
-        transform,
-        remoteCursor,
-        sourceWidth,
-        sourceHeight,
-        w,
-        h,
-      ) ?? { x: w / 2, y: h / 2 };
-      transform = transform.scale > 1
-        ? IDENTITY
-        : zoomAt(transform, 2.5, projected.x, projected.y, w, h);
+      const projected = view.project(remoteCursor, w, h) ?? { x: w / 2, y: h / 2 };
+      if (view.isZoomed()) view.reset();
+      else view.zoomAt(2.5, projected.x, projected.y, w, h);
+      scheduleSettle();
       apply();
     };
     const applyCursorEvent = (event: WebrtcCursorEvent) => {
@@ -360,14 +367,7 @@ export function TileViewport({
         remoteCursor = advanceRemoteCursor(event, 0, 0, sourceWidth, sourceHeight);
         if (pointers.size < 2) {
           const { w, h } = size();
-          transform = followRemoteCursor(
-            transform,
-            remoteCursor,
-            sourceWidth,
-            sourceHeight,
-            w,
-            h,
-          );
+          if (view.follow(remoteCursor, w, h)) scheduleSettle();
         }
         apply();
         return;
@@ -377,14 +377,7 @@ export function TileViewport({
         remoteCursor = advanceRemoteCursor(event, 0, 0, sourceWidth, sourceHeight);
         if (pointers.size < 2) {
           const { w, h } = size();
-          transform = followRemoteCursor(
-            transform,
-            remoteCursor,
-            sourceWidth,
-            sourceHeight,
-            w,
-            h,
-          );
+          if (view.follow(remoteCursor, w, h)) scheduleSettle();
         }
         apply();
         return;
@@ -414,17 +407,9 @@ export function TileViewport({
       remoteCursor = advanceRemoteCursor(remoteCursor, dx, dy, sourceWidth, sourceHeight);
       if (pointers.size < 2) {
         const { w, h } = size();
-        const followed = followRemoteCursor(
-          transform,
-          remoteCursor,
-          sourceWidth,
-          sourceHeight,
-          w,
-          h,
-        );
-        if (followed.tx !== transform.tx || followed.ty !== transform.ty) {
-          transform = followed;
+        if (view.follow(remoteCursor, w, h)) {
           gestureEdgeFollowed = true;
+          scheduleSettle();
         }
       }
       apply();
@@ -440,7 +425,7 @@ export function TileViewport({
     const warpRemoteCursor = (screen: ViewportPoint) => {
       if (sourceWidth <= 0 || sourceHeight <= 0) return;
       const { w, h } = size();
-      const target = unprojectRemoteCursor(transform, screen, sourceWidth, sourceHeight, w, h);
+      const target = view.unproject(screen, w, h);
       if (!target) return;
       if (Math.round(target.x) === Math.round(remoteCursor.x)
           && Math.round(target.y) === Math.round(remoteCursor.y)) return;
@@ -673,22 +658,16 @@ export function TileViewport({
         const distance = Math.hypot(otherPrevious.x - now.x, otherPrevious.y - now.y);
         const cx = (otherPrevious.x + now.x) / 2;
         const cy = (otherPrevious.y + now.y) / 2;
-        const before = transform;
         if (previousDistance > 0 && distance > 0) {
-          transform = zoomAt(transform, distance / previousDistance, cx, cy, w, h);
+          gestureTransformed = view.zoomAt(distance / previousDistance, cx, cy, w, h) || gestureTransformed;
         }
-        transform = panBy(transform, (now.x - previous.x) / 2, (now.y - previous.y) / 2, w, h);
-        gestureTransformed ||= transform.scale !== before.scale
-          || transform.tx !== before.tx
-          || transform.ty !== before.ty;
+        gestureTransformed = view.panBy((now.x - previous.x) / 2, (now.y - previous.y) / 2, w, h) || gestureTransformed;
         apply();
         return;
       }
-      if (!pointerMode && pointers.size === 1 && transform.scale > 1) {
-        const before = transform;
+      if (!pointerMode && pointers.size === 1 && view.isZoomed()) {
         reportGestureStart();
-        transform = panBy(transform, now.x - previous.x, now.y - previous.y, w, h);
-        gestureTransformed ||= transform.tx !== before.tx || transform.ty !== before.ty;
+        gestureTransformed = view.panBy(now.x - previous.x, now.y - previous.y, w, h) || gestureTransformed;
         apply();
       }
     };
@@ -704,6 +683,7 @@ export function TileViewport({
       }
       const countBefore = pointers.size;
       pointers.delete(event.pointerId);
+      if (pointers.size === 0 && gestureTransformed) scheduleSettle();
       if (!at) return;
       if (pointerSequenceConsumed) {
         if (pointers.size === 0) pointerSequenceConsumed = false;
@@ -742,7 +722,9 @@ export function TileViewport({
       const nowMs = performance.now();
       if (nowMs - lastTapAt < 300 && Math.hypot(at.x - lastTapX, at.y - lastTapY) < 24) {
         const { w, h } = size();
-        transform = transform.scale > 1 ? IDENTITY : zoomAt(transform, 2.5, at.x, at.y, w, h);
+        if (view.isZoomed()) view.reset();
+        else view.zoomAt(2.5, at.x, at.y, w, h);
+        scheduleSettle();
         apply();
         lastTapAt = 0;
         finishGesture("transformed");
@@ -785,12 +767,14 @@ export function TileViewport({
       event.preventDefault();
       const { w, h } = size();
       const at = local(event);
+      let moved = false;
       if (event.ctrlKey || event.metaKey) {
-        transform = zoomAt(transform, Math.exp(-event.deltaY * 0.01), at.x, at.y, w, h);
-      } else if (transform.scale > 1) {
-        transform = panBy(transform, -event.deltaX, -event.deltaY, w, h);
+        moved = view.zoomAt(Math.exp(-event.deltaY * 0.01), at.x, at.y, w, h);
+      } else if (view.isZoomed()) {
+        moved = view.panBy(-event.deltaX, -event.deltaY, w, h);
       }
       apply();
+      if (moved) scheduleSettle();
     };
 
     const puckDown = (event: PointerEvent) => {
@@ -868,18 +852,19 @@ export function TileViewport({
         // around a shrunken desktop. Fill the strip instead and aim it at the cursor, which is
         // where the typing is going. Recomputed on every resize while typing so an accessory that
         // changes height re-aims rather than drifting.
-        if (viewBeforeKeyboard === null) viewBeforeKeyboard = transform;
-        transform = coverOnRemoteCursor(remoteCursor, sourceWidth, sourceHeight, w, h);
+        if (viewBeforeKeyboard === null) viewBeforeKeyboard = view.snapshot();
+        view.cover(remoteCursor, w, h);
       } else if (viewBeforeKeyboard !== null) {
         // The cover was this viewer's doing, not the user's, so leaving the keyboard leaves it.
-        transform = clampPan(viewBeforeKeyboard, w, h);
+        view.restore(viewBeforeKeyboard, w, h);
         viewBeforeKeyboard = null;
       } else {
-        // Clamping, not just re-applying: a shorter box narrows `clampPan`'s range, so a pan that
+        // Clamping, not just re-applying: a shorter box narrows the legal range, so a pan that
         // was legal at the old height can now pull the content's bottom edge inside the viewport
         // and show black.
-        transform = clampPan(transform, w, h);
+        view.reclamp(w, h);
       }
+      scheduleSettle();
       applyPuckOffset(false);
       apply();
     };
@@ -906,6 +891,9 @@ export function TileViewport({
     return () => {
       frame.removeEventListener("pointerdown", down);
       frame.removeEventListener("pointermove", move);
+      if (settleTimer !== 0) window.clearTimeout(settleTimer);
+      stopWatchingCrop();
+      view.dispose(inner);
       frame.removeEventListener("pointerup", up);
       frame.removeEventListener("pointercancel", cancel);
       frame.removeEventListener("wheel", wheel);
@@ -928,6 +916,7 @@ export function TileViewport({
     sourceHeight,
     sourceWidth,
     subscribeCursorEvents,
+    zoomMode,
   ]);
 
   return (

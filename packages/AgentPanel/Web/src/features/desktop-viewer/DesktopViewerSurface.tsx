@@ -7,7 +7,7 @@ import type {
   WebrtcCursorEvent,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import { Crosshair, Hand, MousePointer2 } from "lucide-react";
+import { Crop, Crosshair, Hand, MousePointer2 } from "lucide-react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
 import {
@@ -18,6 +18,8 @@ import {
   type DesktopControlTransport,
 } from "./TileStreamRtc";
 import { getCaptureScale, setCaptureScale, useCaptureScale } from "./captureScale";
+import { captureCropApplied, setCaptureCrop, useCaptureCrop } from "./captureCrop";
+import { setZoomMode, useZoomMode } from "./zoomMode";
 import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
 import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
 import { useDesktopKeyboard } from "./useDesktopKeyboard";
@@ -175,6 +177,14 @@ export function DesktopViewerSurface({
     && source !== null
     && compatibleControlTransport !== null
     && tile.kind === "playing";
+  const zoomMode = useZoomMode();
+  // A plan is a rectangle on one particular desktop. Carrying it to another display would open the
+  // new one zoomed into coordinates that mean nothing there, so a switch starts whole again. The
+  // same holds for leaving crop mode: the CSS model expects a whole-display stream underneath it.
+  useEffect(() => {
+    setCaptureCrop(null);
+    return () => setCaptureCrop(null);
+  }, [displayId, zoomMode]);
   return (
     <main className="relative h-full overflow-hidden bg-black text-white">
       {/*
@@ -243,6 +253,15 @@ export function DesktopViewerSurface({
           {!keyboard.keyboardPresented ? (
             <>
               <ResolutionSlider sourceWidth={source?.width} sourceHeight={source?.height} />
+              {/* The two zoom models side by side, so they can be compared on the same desk:
+                  CSS magnifies the whole-display picture, Crop re-aims the capture at what is
+                  being looked at. */}
+              <ModeButton
+                active={zoomMode === "crop"}
+                label={zoomMode === "crop" ? "Crop zoom" : "CSS zoom"}
+                icon={<Crop className="size-3.5" aria-hidden />}
+                onClick={() => setZoomMode(zoomMode === "crop" ? "css" : "crop")}
+              />
               <ModeButton
                 active={!pointerMode}
                 label="View"
@@ -317,15 +336,33 @@ function encodedCaptureSize(sourceWidth: number, sourceHeight: number, scale: nu
 }
 
 /**
- * The stream, subscribed to the capture multiplier.
+ * The stream, subscribed to the capture multiplier and the capture plan.
  *
- * This exists so the subscription lives BELOW the viewport rather than above it. Reading the value
- * in the surface would re-render the surface, which rebuilds the element handed to `TileViewport`
- * as `children` and disturbs the effect holding its zoom, pan and cursor. Here, a resolution change
- * re-renders this component alone and the view around it does not move.
+ * This exists so the subscriptions live BELOW the viewport rather than above it. Reading either
+ * value in the surface would re-render the surface, which rebuilds the element handed to
+ * `TileViewport` as `children` and disturbs the effect holding its view and cursor. Here, a
+ * resolution or plan change re-renders this component alone and the view around it does not move.
+ * That matters more for the plan than for the multiplier, because the plan is produced by that
+ * very effect: routing it upwards would let each settled zoom reset the view it came from.
  */
-function DesktopStream(props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale">) {
-  return <TileStreamRtc {...props} captureScale={useCaptureScale()} />;
+function DesktopStream(
+  props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan">,
+) {
+  const { onFirstFrame, ...rest } = props;
+  return (
+    <TileStreamRtc
+      {...rest}
+      captureScale={useCaptureScale()}
+      capturePlan={useCaptureCrop()}
+      // The stream is what knows when a requested plan became visible, and the viewport is what
+      // has to start placing the frame by that plan's region at that instant. Announcing it here
+      // keeps those two from having to know about each other.
+      onFirstFrame={() => {
+        captureCropApplied();
+        onFirstFrame?.();
+      }}
+    />
+  );
 }
 
 function ResolutionSlider({

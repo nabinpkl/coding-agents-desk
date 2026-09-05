@@ -10,6 +10,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
+import type { CapturePlan } from "./tileCapturePlan";
 
 /**
  * One window, live, as a `<video>` fed by WebRTC. The transport-only variant.
@@ -285,6 +286,7 @@ export function TileStreamRtc({
   fps = 15,
   bitrate = 1_200_000,
   captureScale = 1,
+  capturePlan = null,
   fill = false,
   onState,
   onControlTransport,
@@ -304,6 +306,12 @@ export function TileStreamRtc({
   bitrate?: number;
   /** User-chosen multiplier on the automatic capture resolution. 1 is the display-fit default. */
   captureScale?: number;
+  /**
+   * A region of the display to capture, and the pixels to spend on it, or null for the whole
+   * display at the automatic size. Decided by the viewer from what is on screen and what the
+   * display holds; re-deriving a size here from the whole display would undo exactly that.
+   */
+  capturePlan?: CapturePlan | null;
   /** Fill the parent instead of imposing the source's aspect ratio. */
   fill?: boolean;
   onState?: (state: DesktopStreamState) => void;
@@ -319,6 +327,13 @@ export function TileStreamRtc({
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
+  // The plan by value: a new one must renegotiate, an equal one must not, and display points are
+  // whole, so rounding keeps sub-pixel gesture arithmetic from restarting the stream.
+  const capturePlanKey = capturePlan
+    ? `${Math.round(capturePlan.region.x)},${Math.round(capturePlan.region.y)},`
+      + `${Math.round(capturePlan.region.width)},${Math.round(capturePlan.region.height)}`
+      + `@${capturePlan.pixelWidth}x${capturePlan.pixelHeight}`
+    : "";
   const [state, setState] = useState<DesktopStreamState>({ kind: "connecting" });
   const onControlTransportRef = useRef(onControlTransport);
   const onControlEventRef = useRef(onControlEvent);
@@ -553,6 +568,18 @@ export function TileStreamRtc({
 
     const captureSize = () => {
       const shown = frame.current?.clientWidth ?? 0;
+      if (capturePlan) {
+        // Bitrate follows the pixels actually encoded, at the rate the whole display would get,
+        // rather than shrinking with the region: the region is the part being read.
+        const share = width && height
+          ? Math.min(1, (capturePlan.pixelWidth * capturePlan.pixelHeight) / (width * height))
+          : 1;
+        return {
+          width: capturePlan.pixelWidth,
+          height: capturePlan.pixelHeight,
+          bitrate: Math.max(300_000, Math.round(bitrate * Math.max(share, 0.25) * captureScale)),
+        };
+      }
       return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate, captureScale);
     };
 
@@ -955,6 +982,7 @@ export function TileStreamRtc({
               ...(resolvedDisplayId === undefined ? {} : { displayId: resolvedDisplayId }),
               ...(capture.width === undefined ? {} : { width: capture.width }),
               ...(capture.height === undefined ? {} : { height: capture.height }),
+              ...(capturePlan === null ? {} : { sourceRect: capturePlan.region }),
               fps,
               bitrate: capture.bitrate,
             };
@@ -1073,6 +1101,7 @@ export function TileStreamRtc({
     fps,
     bitrate,
     captureScale,
+    capturePlanKey,
     httpTransport,
     VIDEO_DIAGNOSTIC_REVISION,
   ]);
