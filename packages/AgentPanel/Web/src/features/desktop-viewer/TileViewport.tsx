@@ -18,6 +18,7 @@ export type ViewportGestureKind = "pointer" | "scroll" | "view-pan" | "pinch-pan
 export type ViewportGestureOutcome =
   | "click"
   | "move"
+  | "drag"
   | "scroll"
   | "transformed"
   | "unchanged"
@@ -50,6 +51,8 @@ const VIEW_SETTLE_MS = 150;
 /** Shortest gap between two re-aims; each one swaps the picture while the new stream negotiates. */
 const VIEW_REAIM_INTERVAL_MS = 350;
 const POINTER_SLOP = 3;
+/** How long one finger stays still before it becomes a held button. */
+const TOUCH_DRAG_HOLD_MS = 500;
 const SCROLL_SLOP = 10;
 const SCROLL_MOMENTUM_FLICK_THRESHOLD = 200;
 const SCROLL_MOMENTUM_STOP_THRESHOLD = 30;
@@ -143,6 +146,7 @@ export function TileViewport({
   const cursorOverlay = useRef<HTMLDivElement>(null);
   const cursorFallback = useRef<SVGSVGElement>(null);
   const cursorImage = useRef<HTMLImageElement>(null);
+  const dragHalo = useRef<HTMLSpanElement>(null);
   const cursorImageCache = useRef(new CursorImageCache());
   const sendPointerInputRef = useRef(sendPointerInput);
   const pointerGestureStartRef = useRef(onPointerGestureStart);
@@ -226,6 +230,8 @@ export function TileViewport({
     let didCrossPointerSlop = false;
     let hadMultiplePointers = false;
     let pressedMouseButton: "left" | "right" | null = null;
+    let touchHoldTimer = 0;
+    let touchDragHeld = false;
     let pendingPointerDx = 0;
     let pendingPointerDy = 0;
     let pointerFrame = 0;
@@ -372,6 +378,51 @@ export function TileViewport({
       return { x: event.clientX - box.left, y: event.clientY - box.top };
     };
     const send = (input: DesktopPointerInput) => sendPointerInputRef.current?.(input) ?? false;
+    /**
+     * A finger held still becomes a held mouse button, so a drag can be carried and dropped.
+     *
+     * A phone has no button to hold: a tap is a whole click and a moving finger walks the cursor,
+     * which between them cannot drag a title bar, a slider, a file, or a text selection. Holding
+     * presses, moving carries, lifting drops. Nothing native was needed for it -- the helper
+     * already reports movement as a drag whenever a button is down -- so this only decides when to
+     * press and when to let go.
+     *
+     * Letting go is the part that matters. A button left down on the far Mac outlives the gesture,
+     * the viewer, and the page, so every exit releases: the lift, a cancelled pointer, a second
+     * finger arriving, and the effect's own teardown.
+     */
+    const cancelTouchHold = () => {
+      if (touchHoldTimer === 0) return;
+      window.clearTimeout(touchHoldTimer);
+      touchHoldTimer = 0;
+    };
+    const showDragHeld = (held: boolean) => {
+      const halo = dragHalo.current;
+      if (halo) halo.hidden = !held;
+    };
+    /** True when a held button was actually let go, which is what suppresses the tap-click. */
+    const releaseTouchDrag = () => {
+      if (!touchDragHeld) return false;
+      touchDragHeld = false;
+      showDragHeld(false);
+      gestureInputAccepted = send({ type: "mouse-up", button: "left" }) && gestureInputAccepted;
+      return true;
+    };
+    const armTouchHold = () => {
+      cancelTouchHold();
+      touchHoldTimer = window.setTimeout(() => {
+        touchHoldTimer = 0;
+        // The finger has to still be down, alone, and to have stayed inside the slop. Any of those
+        // failing means this was a move, a pinch, or a tap that already ended.
+        if (didCrossPointerSlop || hadMultiplePointers || pointers.size !== 1) return;
+        if (!send({ type: "mouse-down", button: "left" })) {
+          gestureInputAccepted = false;
+          return;
+        }
+        touchDragHeld = true;
+        showDragHeld(true);
+      }, TOUCH_DRAG_HOLD_MS);
+    };
     const applyPuckOffset = (persist: boolean) => {
       if (!puck) return;
       const { w, h } = size();
@@ -635,7 +686,12 @@ export function TileViewport({
         startGesture(pointerMode
           ? (scrollEngagedRef.current ? "scroll" : "pointer")
           : "view-pan");
+        // Only a lone finger meant for the remote pointer can become a held button. A scrolling
+        // finger already means something else, and view-pan never touches the far Mac.
+        if (pointerMode && !scrollEngagedRef.current) armTouchHold();
       } else if (countBefore === 1) {
+        cancelTouchHold();
+        releaseTouchDrag();
         finishGesture("superseded");
         startGesture("pinch-pan");
       }
@@ -663,6 +719,7 @@ export function TileViewport({
           if (!didCrossPointerSlop) {
             const slop = scrollEngagedRef.current ? SCROLL_SLOP : POINTER_SLOP;
             if (Math.hypot(now.x - before.startX, now.y - before.startY) < slop) continue;
+            cancelTouchHold();
             didCrossPointerSlop = true;
             reportGestureStart();
           }
@@ -739,7 +796,9 @@ export function TileViewport({
           } else {
             flushPointer();
           }
-          if (!hadMultiplePointers && !didCrossPointerSlop) {
+          cancelTouchHold();
+          const dropped = releaseTouchDrag();
+          if (!dropped && !hadMultiplePointers && !didCrossPointerSlop) {
             const focusRequestId = beforeRemoteClickRef.current?.();
             gestureInputAccepted = send({
               type: "click",
@@ -750,6 +809,8 @@ export function TileViewport({
           }
           if (activeGesture?.kind === "pinch-pan") {
             finishGesture(gestureTransformed ? "transformed" : "unchanged");
+          } else if (dropped) {
+            finishGesture("drag");
           } else {
             finishGesture(didCrossPointerSlop
               ? (scrollEngagedRef.current ? "scroll" : "move")
@@ -787,6 +848,8 @@ export function TileViewport({
         pressedMouseButton = null;
         return;
       }
+      cancelTouchHold();
+      releaseTouchDrag();
       if (pointerSequenceConsumed) {
         if (pointers.size === 0) pointerSequenceConsumed = false;
         return;
@@ -950,6 +1013,8 @@ export function TileViewport({
       if (scrollFrame !== 0 || scrollActive) endScroll(false);
       stopMomentum(true);
       if (pendingPuckTap !== 0) window.clearTimeout(pendingPuckTap);
+      cancelTouchHold();
+      releaseTouchDrag();
     };
   }, [
     initialCursor?.x,
@@ -1036,6 +1101,11 @@ export function TileViewport({
         className="pointer-events-none absolute left-0 top-0 size-0 will-change-transform"
         aria-hidden="true"
       >
+        <span
+          ref={dragHalo}
+          hidden
+          className="absolute -left-2.5 -top-2.5 size-5 rounded-full border-2 border-blue-400 bg-blue-400/25"
+        />
         <svg
           ref={cursorFallback}
           viewBox="0 0 11 18"

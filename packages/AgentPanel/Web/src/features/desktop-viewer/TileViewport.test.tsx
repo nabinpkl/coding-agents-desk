@@ -113,6 +113,75 @@ describe("TileViewport pointer mode", () => {
     expect(inputs).toEqual([{ type: "click", button: "left" }]);
   });
 
+  it("holds a still finger into a pressed button, carries it, and drops it where it is lifted", () => {
+    vi.useFakeTimers();
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    });
+
+    pointer(surface, "pointerdown", 1, 80, 50);
+    act(() => vi.advanceTimersByTime(600));
+    expect(inputs).toEqual([{ type: "mouse-down", button: "left" }]);
+
+    pointer(surface, "pointermove", 1, 140, 90);
+    act(() => animationFrames.shift()?.(performance.now() + 16));
+    expect(inputs.some((input) => input.type === "pointer-move")).toBe(true);
+
+    pointer(surface, "pointerup", 1, 140, 90);
+    expect(inputs.at(-1)).toEqual({ type: "mouse-up", button: "left" });
+    // The lift ends a drag, so it must not also be read as a tap.
+    expect(inputs.some((input) => input.type === "click")).toBe(false);
+  });
+
+  it("does not press when the finger travels before the hold completes", () => {
+    vi.useFakeTimers();
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    });
+
+    pointer(surface, "pointerdown", 1, 80, 50);
+    pointer(surface, "pointermove", 1, 120, 70);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(surface, "pointerup", 1, 120, 70);
+
+    expect(inputs.some((input) => input.type === "mouse-down")).toBe(false);
+    expect(inputs.some((input) => input.type === "mouse-up")).toBe(false);
+  });
+
+  it("lets go of a held button when the pointer is cancelled", () => {
+    vi.useFakeTimers();
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    });
+
+    pointer(surface, "pointerdown", 1, 80, 50);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(surface, "pointercancel", 1, 80, 50);
+
+    expect(inputs.at(-1)).toEqual({ type: "mouse-up", button: "left" });
+  });
+
+  it("lets go of a held button when a second finger arrives", () => {
+    vi.useFakeTimers();
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    });
+
+    pointer(surface, "pointerdown", 1, 80, 50);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(surface, "pointerdown", 2, 300, 200);
+
+    expect(inputs.at(-1)).toEqual({ type: "mouse-up", button: "left" });
+  });
+
   it("dismisses and consumes the entire first pointer sequence while typing", () => {
     const inputs: DesktopPointerInput[] = [];
     const consume = vi.fn(() => true);
