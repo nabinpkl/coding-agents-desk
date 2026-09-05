@@ -22,6 +22,15 @@ import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
 import { useDesktopKeyboard } from "./useDesktopKeyboard";
 
 const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
+/**
+ * How long the resolution knob has to sit still before the stream is asked to change.
+ *
+ * A range input reports every step it passes through, and each distinct value renegotiates the
+ * connection and replaces the encoder behind it. Dragging from one end to the other would otherwise
+ * spawn and retire a capture per step, which is both wasteful and the surest way to provoke the
+ * teardown race. The label still follows the thumb; only the request waits.
+ */
+const CAPTURE_SCALE_SETTLE_MS = 400;
 
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
@@ -87,6 +96,12 @@ export function DesktopViewerSurface({
     observer.observe(chrome);
     return () => observer.disconnect();
   }, [onChromeHeight]);
+  // What the stream has actually been asked for, as opposed to where the thumb is right now.
+  const [appliedCaptureScale, setAppliedCaptureScale] = useState(captureScale);
+  useEffect(() => {
+    const settle = setTimeout(() => setAppliedCaptureScale(captureScale), CAPTURE_SCALE_SETTLE_MS);
+    return () => clearTimeout(settle);
+  }, [captureScale]);
   const applyTileState = useCallback((state: DesktopStreamState) => { setTile(state); onState?.(state); }, [onState]);
   const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
   const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
@@ -196,7 +211,7 @@ export function DesktopViewerSurface({
             windowID="display"
             displayId={displayId}
             fill
-            captureScale={captureScale}
+            captureScale={appliedCaptureScale}
             httpTransport={transport}
             onState={applyTileState}
             onControlTransport={setControlTransport}
