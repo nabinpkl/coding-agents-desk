@@ -152,10 +152,16 @@ function cssZoomView(display: DisplaySize): ZoomView {
   };
 }
 
+/** The stored plan if it was made for this display, else null. */
+function planFor(display: DisplaySize, plan: CapturePlan | null): CapturePlan | null {
+  if (!plan) return null;
+  return plan.display.width === display.width && plan.display.height === display.height ? plan : null;
+}
+
 function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
   let visible: DisplayRect = wholeDisplay(display);
   /** What the frame on screen covers. The whole display until a plan's first frame says otherwise. */
-  let region: DisplayRect = getCaptureCrop()?.region ?? wholeDisplay(display);
+  let region: DisplayRect = planFor(display, getCaptureCrop())?.region ?? wholeDisplay(display);
   /**
    * A plan has been requested and its first frame has not arrived. One re-aim in flight at a
    * time, as in DeskZoom's applyCaptureUpdate: a second request during a negotiation would tear
@@ -261,7 +267,16 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
         setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT, padding));
       }
       // Only a change is in flight; an equal plan never left the store and nothing will answer it.
-      awaitingApply = getCaptureCrop() !== before;
+      // And under an overview, no plan is answered by no stream: the overview is the picture, so
+      // there is nothing to wait for. Waiting anyway left the view frozen: every later settle
+      // returned early and the sharp stream never came back after a zoom out.
+      const after = getCaptureCrop();
+      if (overview && after === null) {
+        awaitingApply = false;
+        region = wholeDisplay(display);
+      } else {
+        awaitingApply = after !== before;
+      }
     },
     applied: (plan) => {
       awaitingApply = false;

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { captureCropApplied, getCaptureCrop, onCaptureCropApplied, setCaptureCrop } from "./captureCrop";
 
-const plan = (x: number) => ({ region: { x, y: 20, width: 640, height: 480 }, pixelWidth: 640, pixelHeight: 480 });
+const plan = (x: number) => ({ display: { width: 1920, height: 1080 }, region: { x, y: 20, width: 640, height: 480 }, pixelWidth: 640, pixelHeight: 480 });
 
 describe("captureCrop", () => {
   beforeEach(() => setCaptureCrop(null));

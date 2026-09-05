@@ -134,6 +134,37 @@ describe("crop zoom view with an overview underneath", () => {
     expect(getCaptureCrop()).not.toBeNull();
   });
 
+  it("comes back sharp after a zoom out: a null plan under the overview waits for nothing", () => {
+    const view = createZoomView("crop", DISPLAY, { overview: true });
+    markOverviewReady(performance.now() - 1000);
+    view.zoomAt(3, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    view.applied(getCaptureCrop());
+    view.reset();
+    view.settle(W, H);
+    expect(getCaptureCrop()).toBeNull();
+    // Nothing answers a null plan, so the next settle must not be held waiting for it.
+    view.zoomAt(3, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    expect(getCaptureCrop()).not.toBeNull();
+  });
+
+  it("ignores a plan the store still holds for another display", () => {
+    setCaptureCrop({
+      display: { width: 4000, height: 3000 },
+      region: { x: 0, y: 500, width: 600, height: 400 },
+      pixelWidth: 600,
+      pixelHeight: 400,
+    });
+    const view = createZoomView("crop", DISPLAY, { overview: true });
+    const content = box();
+    const underlay = box();
+    view.paint({ content, underlay }, W, H);
+    // Placed as the whole display, not as the other display's crop.
+    expect(content.style.width).toBe("800px");
+    expect(content.style.left).toBe("0px");
+  });
+
   it("shows the sharp frame only when it covers the view, and the coarse one always", () => {
     const view = createZoomView("crop", DISPLAY, { overview: true });
     markOverviewReady(performance.now() - 1000);

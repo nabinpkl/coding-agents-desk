@@ -25,6 +25,8 @@ export function getCaptureCrop(): CapturePlan | null {
 /** Same plan means same object, so a subscriber never re-renders, or renegotiates, for no change. */
 export function setCaptureCrop(next: CapturePlan | null): void {
   if (next === null ? current === null : current !== null
+    && next.display.width === current.display.width
+    && next.display.height === current.display.height
     && Math.round(next.region.x) === Math.round(current.region.x)
     && Math.round(next.region.y) === Math.round(current.region.y)
     && Math.round(next.region.width) === Math.round(current.region.width)

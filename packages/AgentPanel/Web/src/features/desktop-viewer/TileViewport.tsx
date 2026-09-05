@@ -9,7 +9,7 @@ import {
   type ViewportPoint,
 } from "./tileViewportMath";
 import { createZoomView } from "./zoomModels";
-import { onCaptureCropApplied, onOverviewReady } from "./captureCrop";
+import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "./captureCrop";
 import { useZoomMode } from "./zoomMode";
 import { useOverviewLayer } from "./overviewLayer";
 import { CursorImageCache } from "./cursorImageCache";
@@ -191,6 +191,14 @@ export function TileViewport({
     if (!pointerMode && scrollEngagedRef.current) setScrollEngaged(false);
 
     const layers = { content: inner, underlay: underlayContent.current };
+    // A plan the previous display's view settled after the switch is a request for the wrong
+    // screen; the streams beneath would send it to the new one.
+    if (zoomMode === "crop") {
+      const stored = getCaptureCrop();
+      if (stored && (stored.display.width !== sourceWidth || stored.display.height !== sourceHeight)) {
+        setCaptureCrop(null);
+      }
+    }
     const view = createZoomView(
       zoomMode,
       { width: sourceWidth, height: sourceHeight },

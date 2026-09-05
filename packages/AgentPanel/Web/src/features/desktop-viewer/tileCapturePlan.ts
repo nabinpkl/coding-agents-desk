@@ -21,6 +21,9 @@ export interface CaptureRegion {
 }
 
 export interface CapturePlan {
+  /** The display the plan was made for. A plan outlives a display switch in the store for a
+   *  moment; one that names another display's size is stale, not a request. */
+  readonly display: { readonly width: number; readonly height: number };
   /** The region to capture, in display points. */
   readonly region: CaptureRegion;
   /** The pixels to capture it at. */
@@ -125,6 +128,7 @@ export function capturePlanFor(
   const region = paddedRegion(visible, displayWidth, displayHeight, padding);
   const detail = wantedPixelsPerPoint(visible.width, viewportPixelWidth, maxPixelsPerPoint);
   return {
+    display: { width: displayWidth, height: displayHeight },
     region,
     // Even numbers: the encoder rejects odd ones for 4:2:0 chroma, and rounding here rather than
     // three layers down keeps the size the viewer asked for the size it gets.
