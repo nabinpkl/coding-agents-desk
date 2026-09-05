@@ -7,7 +7,7 @@ import type {
   WebrtcCursorEvent,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import { Crop, Crosshair, Hand, MousePointer2 } from "lucide-react";
+import { Crop, Crosshair, Hand, Layers, MousePointer2 } from "lucide-react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
 import {
@@ -18,8 +18,18 @@ import {
   type DesktopControlTransport,
 } from "./TileStreamRtc";
 import { getCaptureScale, setCaptureScale, useCaptureScale } from "./captureScale";
-import { captureCropApplied, setCaptureCrop, useCaptureCrop } from "./captureCrop";
+import {
+  captureCropApplied,
+  clearOverviewReady,
+  markOverviewReady,
+  setCaptureCrop,
+  useCaptureCrop,
+} from "./captureCrop";
 import { setZoomMode, useZoomMode } from "./zoomMode";
+import { setOverviewLayer, useOverviewLayer } from "./overviewLayer";
+
+/** The coarse stream only has to fill gaps and be panned over; it is not what is read. */
+const OVERVIEW_FPS = 8;
 import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
 import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
 import { useDesktopKeyboard } from "./useDesktopKeyboard";
@@ -178,13 +188,19 @@ export function DesktopViewerSurface({
     && compatibleControlTransport !== null
     && tile.kind === "playing";
   const zoomMode = useZoomMode();
+  const overviewLayer = useOverviewLayer();
+  const twoStreams = zoomMode === "crop" && overviewLayer;
   // A plan is a rectangle on one particular desktop. Carrying it to another display would open the
   // new one zoomed into coordinates that mean nothing there, so a switch starts whole again. The
-  // same holds for leaving crop mode: the CSS model expects a whole-display stream underneath it.
+  // same holds for changing zoom model or layering: each expects to start from one whole stream.
   useEffect(() => {
     setCaptureCrop(null);
-    return () => setCaptureCrop(null);
-  }, [displayId, zoomMode]);
+    clearOverviewReady();
+    return () => {
+      setCaptureCrop(null);
+      clearOverviewReady();
+    };
+  }, [displayId, zoomMode, overviewLayer]);
   return (
     <main className="relative h-full overflow-hidden bg-black text-white">
       {/*
@@ -208,19 +224,44 @@ export function DesktopViewerSurface({
           sourceHeight={source?.height}
           initialCursor={source?.cursor}
           subscribeCursorEvents={subscribeCursorEvents}
+          underlay={twoStreams ? (
+            // The coarse whole display. It owns input and the cursor, and it is what the chrome
+            // reports on, because it is the stream that is always there.
+            <OverviewStream
+              windowID="display"
+              displayId={displayId}
+              fill
+              fps={OVERVIEW_FPS}
+              httpTransport={transport}
+              onState={applyTileState}
+              onControlTransport={setControlTransport}
+              onControlEvent={publishControlEvent}
+              onSourceMetadata={applySourceMetadata}
+              onFirstFrame={() => {
+                markOverviewReady();
+                onFirstFrame?.();
+              }}
+              onDisplayUnavailable={onDisplayUnavailable}
+            />
+          ) : undefined}
         >
-          <DesktopStream
-            windowID="display"
-            displayId={displayId}
-            fill
-            httpTransport={transport}
-            onState={applyTileState}
-            onControlTransport={setControlTransport}
-            onControlEvent={publishControlEvent}
-            onSourceMetadata={applySourceMetadata}
-            onFirstFrame={onFirstFrame}
-            onDisplayUnavailable={onDisplayUnavailable}
-          />
+          {twoStreams ? (
+            // The sharp crop, present only while the view wants more than the overview has.
+            <DetailStream windowID="display" displayId={displayId} fill httpTransport={transport} />
+          ) : (
+            <DesktopStream
+              windowID="display"
+              displayId={displayId}
+              fill
+              httpTransport={transport}
+              onState={applyTileState}
+              onControlTransport={setControlTransport}
+              onControlEvent={publishControlEvent}
+              onSourceMetadata={applySourceMetadata}
+              onFirstFrame={onFirstFrame}
+              onDisplayUnavailable={onDisplayUnavailable}
+            />
+          )}
         </TileViewport>
       </div>
 
@@ -262,6 +303,16 @@ export function DesktopViewerSurface({
                 icon={<Crop className="size-3.5" aria-hidden />}
                 onClick={() => setZoomMode(zoomMode === "crop" ? "css" : "crop")}
               />
+              {zoomMode === "crop" ? (
+                // The coarse layer under the crop, switchable so its second stream's cost can be
+                // measured against the bare edge it removes.
+                <ModeButton
+                  active={overviewLayer}
+                  label={overviewLayer ? "Overview on" : "Overview off"}
+                  icon={<Layers className="size-3.5" aria-hidden />}
+                  onClick={() => setOverviewLayer(!overviewLayer)}
+                />
+              ) : null}
               <ModeButton
                 active={!pointerMode}
                 label="View"
@@ -361,6 +412,33 @@ function DesktopStream(
         captureCropApplied();
         onFirstFrame?.();
       }}
+    />
+  );
+}
+
+/** The coarse whole-display stream: no plan, ever, and the ordinary control owner. */
+function OverviewStream(
+  props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan" | "control">,
+) {
+  return <TileStreamRtc {...props} captureScale={useCaptureScale()} capturePlan={null} />;
+}
+
+/**
+ * The sharp cropped stream: the store's plan, mounted only while there is one, and never the
+ * control owner, since the overview beneath it already is. Its first frame is the swap signal.
+ */
+function DetailStream(
+  props: Pick<Parameters<typeof TileStreamRtc>[0], "windowID" | "displayId" | "fill" | "httpTransport">,
+) {
+  const plan = useCaptureCrop();
+  if (!plan) return null;
+  return (
+    <TileStreamRtc
+      {...props}
+      captureScale={useCaptureScale()}
+      capturePlan={plan}
+      control={false}
+      onFirstFrame={captureCropApplied}
     />
   );
 }

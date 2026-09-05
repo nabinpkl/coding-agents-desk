@@ -9,8 +9,9 @@ import {
   type ViewportPoint,
 } from "./tileViewportMath";
 import { createZoomView } from "./zoomModels";
-import { onCaptureCropApplied } from "./captureCrop";
+import { onCaptureCropApplied, onOverviewReady } from "./captureCrop";
 import { useZoomMode } from "./zoomMode";
+import { useOverviewLayer } from "./overviewLayer";
 import { CursorImageCache } from "./cursorImageCache";
 
 export type ViewportGestureKind = "pointer" | "scroll" | "view-pan" | "pinch-pan";
@@ -103,6 +104,7 @@ export function TileViewport({
   sourceWidth = 0,
   sourceHeight = 0,
   initialCursor,
+  underlay,
   subscribeCursorEvents,
 }: {
   children: ReactNode;
@@ -119,12 +121,19 @@ export function TileViewport({
   onGestureTelemetry?: (event: ViewportGestureTelemetry) => void;
   sourceWidth?: number;
   sourceHeight?: number;
+  /**
+   * A coarse picture of the whole display, drawn under `children`. Crop mode places it by the whole
+   * display and the sharp picture by its region, so wherever the sharp one is not, this one is.
+   */
+  underlay?: ReactNode;
   initialCursor?: ViewportPoint;
   subscribeCursorEvents?: (listener: (event: WebrtcCursorEvent) => void) => () => void;
 }) {
   const zoomMode = useZoomMode();
+  const overviewLayer = useOverviewLayer();
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const underlayContent = useRef<HTMLDivElement>(null);
   const scrollPuck = useRef<HTMLButtonElement>(null);
   const cursorOverlay = useRef<HTMLDivElement>(null);
   const cursorFallback = useRef<SVGSVGElement>(null);
@@ -181,7 +190,12 @@ export function TileViewport({
     if (!frame || !inner || !overlay || !fallback || !image) return undefined;
     if (!pointerMode && scrollEngagedRef.current) setScrollEngaged(false);
 
-    const view = createZoomView(zoomMode, { width: sourceWidth, height: sourceHeight });
+    const layers = { content: inner, underlay: underlayContent.current };
+    const view = createZoomView(
+      zoomMode,
+      { width: sourceWidth, height: sourceHeight },
+      { overview: zoomMode === "crop" && overviewLayer },
+    );
     /** The view to put back when the keyboard stops occluding the box, or null when it is not. */
     let viewBeforeKeyboard: unknown = null;
     let remoteCursor = advanceRemoteCursor(
@@ -318,9 +332,11 @@ export function TileViewport({
       apply();
       scheduleSettle();
     });
+    // The overview has painted: a sharp request that was waiting on it can go out now.
+    const stopWatchingOverview = onOverviewReady(() => scheduleSettle());
     const apply = () => {
       const { w, h } = size();
-      view.paint(inner, w, h);
+      view.paint(layers, w, h);
       const projected = view.project(remoteCursor, w, h);
       overlay.hidden = !pointerMode || cursorHidden || projected === null;
       if (projected) {
@@ -896,7 +912,8 @@ export function TileViewport({
       frame.removeEventListener("pointermove", move);
       if (settleTimer !== 0) window.clearTimeout(settleTimer);
       stopWatchingCrop();
-      view.dispose(inner);
+      stopWatchingOverview();
+      view.dispose(layers);
       frame.removeEventListener("pointerup", up);
       frame.removeEventListener("pointercancel", cancel);
       frame.removeEventListener("wheel", wheel);
@@ -920,6 +937,7 @@ export function TileViewport({
     sourceWidth,
     subscribeCursorEvents,
     zoomMode,
+    overviewLayer,
   ]);
 
   return (
@@ -928,6 +946,10 @@ export function TileViewport({
       className={`relative overflow-hidden select-none ${className}`}
       style={{ touchAction: "none", WebkitTouchCallout: "none" } as React.CSSProperties}
     >
+      {/* Underneath, so the sharp picture above it wins wherever both are drawn. */}
+      <div ref={underlayContent} className="absolute inset-0">
+        {underlay}
+      </div>
       <div ref={content} className="h-full origin-top-left will-change-transform">
         {children}
       </div>

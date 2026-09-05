@@ -5,7 +5,7 @@
 // screen, the capture is re-aimed at it, and the frame is placed geometrically. They are kept
 // side by side, switchable at runtime, so they can be compared on the same desk.
 
-import { getCaptureCrop, setCaptureCrop } from "./captureCrop";
+import { getCaptureCrop, overviewReady, setCaptureCrop } from "./captureCrop";
 import {
   CAPTURE_PADDING,
   MAX_PIXELS_PER_POINT,
@@ -38,6 +38,7 @@ import {
   panVisible,
   placeRegion,
   projectPoint,
+  regionCovers,
   unprojectPoint,
   wholeDisplay,
   zoomVisible,
@@ -50,6 +51,21 @@ import type { ZoomMode } from "./zoomMode";
 const FOLLOW_MARGIN = 0.18;
 /** A pan this recent still says which way the view is going when the capture is re-aimed. */
 const PAN_LEAD_WINDOW_MS = 400;
+/** How long the overview must have been painting before a sharp capture is asked for beside it. */
+const OVERVIEW_HEAD_START_MS = 300;
+/** Ask for a sharp capture only once the view wants this much more detail than the overview has. */
+const DETAIL_OVER_OVERVIEW = 1.08;
+
+/** The elements a view paints: the sharp picture, and the coarse one underneath it when there is one. */
+export interface ViewLayers {
+  readonly content: HTMLElement;
+  readonly underlay: HTMLElement | null;
+}
+
+export interface ZoomViewOptions {
+  /** A coarse whole-display stream is running under the sharp one. Crop mode only. */
+  readonly overview?: boolean;
+}
 
 export interface ZoomView {
   readonly kind: ZoomMode;
@@ -69,19 +85,34 @@ export interface ZoomView {
   reclamp(w: number, h: number): void;
   project(cursor: ViewportPoint, w: number, h: number): ViewportPoint | null;
   unproject(point: ViewportPoint, w: number, h: number): ViewportPoint | null;
-  /** Put the view onto the content element. */
-  paint(inner: HTMLElement, w: number, h: number): void;
+  /** Put the view onto the layers. */
+  paint(layers: ViewLayers, w: number, h: number): void;
   /** The gesture has settled: ask for a capture if the running one no longer serves the view. */
   settle(w: number, h: number): void;
   /** A stream's first frame arrived: the frame on screen now covers this plan's region. */
   applied(plan: CapturePlan | null): void;
   telemetry(): { scale: number; tx: number; ty: number };
-  /** Leave the content element as it was found. */
-  dispose(inner: HTMLElement): void;
+  /** Leave the elements as they were found. */
+  dispose(layers: ViewLayers): void;
 }
 
-export function createZoomView(mode: ZoomMode, display: DisplaySize): ZoomView {
-  return mode === "crop" ? cropZoomView(display) : cssZoomView(display);
+export function createZoomView(mode: ZoomMode, display: DisplaySize, options: ZoomViewOptions = {}): ZoomView {
+  return mode === "crop" ? cropZoomView(display, options.overview === true) : cssZoomView(display);
+}
+
+const PLACED_STYLES = ["position", "left", "top", "width", "height", "transform", "visibility"] as const;
+function clearPlaced(element: HTMLElement | null) {
+  if (!element) return;
+  for (const key of PLACED_STYLES) element.style[key] = "";
+}
+function place(element: HTMLElement, rect: DisplayRect, shown: boolean) {
+  element.style.transform = "";
+  element.style.position = "absolute";
+  element.style.left = `${rect.x}px`;
+  element.style.top = `${rect.y}px`;
+  element.style.width = `${rect.width}px`;
+  element.style.height = `${rect.height}px`;
+  element.style.visibility = shown ? "" : "hidden";
 }
 
 function cssZoomView(display: DisplaySize): ZoomView {
@@ -107,17 +138,21 @@ function cssZoomView(display: DisplaySize): ZoomView {
     reclamp: (w, h) => { transform = clampPan(transform, w, h); },
     project: (cursor, w, h) => projectRemoteCursor(transform, cursor, display.width, display.height, w, h),
     unproject: (point, w, h) => unprojectRemoteCursor(transform, point, display.width, display.height, w, h),
-    paint: (inner) => {
-      inner.style.transform = `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`;
+    paint: ({ content, underlay }) => {
+      content.style.transform = `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`;
+      if (underlay) underlay.style.visibility = "hidden";
     },
     settle: () => {},
     applied: () => {},
     telemetry: () => ({ scale: transform.scale, tx: transform.tx, ty: transform.ty }),
-    dispose: (inner) => { inner.style.transform = ""; },
+    dispose: ({ content, underlay }) => {
+      content.style.transform = "";
+      if (underlay) underlay.style.visibility = "";
+    },
   };
 }
 
-function cropZoomView(display: DisplaySize): ZoomView {
+function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
   let visible: DisplayRect = wholeDisplay(display);
   /** What the frame on screen covers. The whole display until a plan's first frame says otherwise. */
   let region: DisplayRect = getCaptureCrop()?.region ?? wholeDisplay(display);
@@ -186,26 +221,37 @@ function cropZoomView(display: DisplaySize): ZoomView {
     reclamp: (w, h) => reshape(w, h),
     project: (cursor, w, h) => projectPoint(cursor, visible, box(w, h)),
     unproject: (point, w, h) => unprojectPoint(point, visible, box(w, h), display),
-    paint: (inner, w, h) => {
-      // DeskZoom's placeContent: the frame covers `region`, the view shows `visible`, and the
-      // element is put where those agree. The viewport clips whatever the frame holds beyond it.
-      const placed = placeRegion(region, visible, box(w, h));
-      inner.style.transform = "";
-      inner.style.position = "absolute";
-      inner.style.left = `${placed.x}px`;
-      inner.style.top = `${placed.y}px`;
-      inner.style.width = `${placed.width}px`;
-      inner.style.height = `${placed.height}px`;
+    paint: ({ content, underlay }, w, h) => {
+      // DeskZoom's placeContent: each frame covers a region, the view shows `visible`, and each
+      // element is put where those agree; the viewport clips whatever a frame holds beyond it.
+      // With the overview underneath, the sharp frame is shown only when it covers all of the
+      // view: half sharp and half coarse with the boundary sweeping across is what flicker is.
+      // Without one there is nothing else to show, so a partial sharp frame beats bare edge.
+      const shown = box(w, h);
+      if (underlay) {
+        place(underlay, placeRegion(wholeDisplay(display), visible, shown), true);
+        place(content, placeRegion(region, visible, shown), regionCovers(region, visible));
+      } else {
+        place(content, placeRegion(region, visible, shown), true);
+      }
     },
     settle: (w, h) => {
       if (awaitingApply) return;
       const before = getCaptureCrop();
-      if (isWholeDisplay(visible, display)) {
+      const content = box(w, h);
+      const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
+      const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
+      // DeskZoom's needsDetailCapture: while the coarse stream already carries the detail the view
+      // can show, a sharp one would only add something to swap to and from while panning.
+      const overviewDetail = Math.min(MAX_PIXELS_PER_POINT, viewportPixels / display.width);
+      const servedByOverview = overview && wanted <= overviewDetail * DETAIL_OVER_OVERVIEW;
+      if (isWholeDisplay(visible, display) || servedByOverview) {
         setCaptureCrop(null);
+      } else if (overview && !overviewReady(OVERVIEW_HEAD_START_MS)) {
+        // Not yet: the sharp capture must not start beside an overview that has not proven it is
+        // running. The viewport settles again when it has.
+        return;
       } else {
-        const content = box(w, h);
-        const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
-        const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
         if (planServes(before, visible, wanted)) return;
         // Lean the padding the way the view was last going, while that is still recent enough
         // to mean anything; a still view gets it evenly.
@@ -222,10 +268,9 @@ function cropZoomView(display: DisplaySize): ZoomView {
       region = plan?.region ?? wholeDisplay(display);
     },
     telemetry: () => ({ scale: magnification(visible, display), tx: visible.x, ty: visible.y }),
-    dispose: (inner) => {
-      for (const key of ["position", "left", "top", "width", "height", "transform"] as const) {
-        inner.style[key] = "";
-      }
+    dispose: ({ content, underlay }) => {
+      clearPlaced(content);
+      clearPlaced(underlay);
     },
   };
 }

@@ -289,6 +289,7 @@ export function TileStreamRtc({
   bitrate = 1_200_000,
   captureScale = 1,
   capturePlan = null,
+  control = true,
   fill = false,
   onState,
   onControlTransport,
@@ -314,6 +315,12 @@ export function TileStreamRtc({
    * display holds; re-deriving a size here from the whole display would undo exactly that.
    */
   capturePlan?: CapturePlan | null;
+  /**
+   * Whether this stream carries the desktop control channel. One stream of a display owns input
+   * and the cursor; a second stream of the same display, the sharp crop above the coarse whole,
+   * must not, or the two would report the cursor twice and both would try to place it.
+   */
+  control?: boolean;
   /** Fill the parent instead of imposing the source's aspect ratio. */
   fill?: boolean;
   onState?: (state: DesktopStreamState) => void;
@@ -634,8 +641,11 @@ export function TileStreamRtc({
             elapsedMs: Math.round(performance.now() - started),
           }, httpTransport);
         };
+        // A stream without control still negotiates the channel, so the sidecar's protocol check
+        // is unchanged, but never opens it for input and never publishes a transport.
         const inputChannel = peer.createDataChannel(CONTROL_CHANNEL_LABEL, { ordered: true });
         inputChannel.onmessage = (message) => {
+          if (!control) return;
           if (typeof message.data !== "string") return;
           try {
             const event = JSON.parse(message.data) as Partial<DesktopControlEvent>;
@@ -659,6 +669,10 @@ export function TileStreamRtc({
           if (activeControlTransport === controlTransport) publishControlTransport(null);
         };
         inputChannel.onopen = () => {
+          if (!control) {
+            inputChannel.close();
+            return;
+          }
           if (!controlCompatible) {
             report("control-channel-state", "protocol-mismatch client=2");
             inputChannel.close();

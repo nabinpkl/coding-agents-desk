@@ -69,3 +69,36 @@ export function onCaptureCropApplied(listener: (plan: CapturePlan | null) => voi
 export function captureCropApplied(): void {
   for (const listener of appliedListeners) listener(current);
 }
+
+/**
+ * When the coarse whole-display stream first painted, or null while it has not.
+ *
+ * The sharp stream's first request waits on this: the encoder pool measured that two captures of
+ * one display started within about 300ms starve one of them, so the second must not start until
+ * the first is demonstrably running. The viewer settles again when this fires, which is what
+ * turns "not yet" into the request it was holding.
+ */
+let overviewReadyAt: number | null = null;
+const overviewListeners = new Set<() => void>();
+
+export function markOverviewReady(at = performance.now()): void {
+  if (overviewReadyAt !== null) return;
+  overviewReadyAt = at;
+  for (const listener of overviewListeners) listener();
+}
+
+export function clearOverviewReady(): void {
+  overviewReadyAt = null;
+}
+
+/** True once the overview has been painting for at least `forMs`. */
+export function overviewReady(forMs: number): boolean {
+  return overviewReadyAt !== null && performance.now() - overviewReadyAt >= forMs;
+}
+
+export function onOverviewReady(listener: () => void): () => void {
+  overviewListeners.add(listener);
+  return () => {
+    overviewListeners.delete(listener);
+  };
+}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getCaptureCrop, setCaptureCrop } from "./captureCrop";
+import { clearOverviewReady, getCaptureCrop, markOverviewReady, setCaptureCrop } from "./captureCrop";
 import { createZoomView } from "./zoomModels";
 
 const DISPLAY = { width: 1600, height: 1000 };
@@ -10,19 +10,23 @@ function box() {
   const inner = document.createElement("div");
   return inner;
 }
+const layers = (content: HTMLElement) => ({ content, underlay: null });
 
 describe("crop zoom view", () => {
-  beforeEach(() => setCaptureCrop(null));
+  beforeEach(() => {
+    setCaptureCrop(null);
+    clearOverviewReady();
+  });
 
   it("re-places the frame already on screen the moment the view zooms, before any new capture", () => {
     const view = createZoomView("crop", DISPLAY);
     const inner = box();
-    view.paint(inner, W, H);
+    view.paint(layers(inner), W, H);
     expect(inner.style.width).toBe("800px");
     // Zoom 2x about the top-left corner: the same whole-display frame is now drawn twice as large,
     // anchored there, so what the viewport shows is the top-left quarter -- sharp arrives later.
     view.zoomAt(2, 0, 0, W, H);
-    view.paint(inner, W, H);
+    view.paint(layers(inner), W, H);
     expect(inner.style.left).toBe("0px");
     expect(inner.style.width).toBe("1600px");
     expect(inner.style.height).toBe("1000px");
@@ -40,10 +44,10 @@ describe("crop zoom view", () => {
     // Until the plan's first frame lands, the frame on screen still covers the whole display and
     // is placed as such; afterwards it covers the region and is placed to match.
     const inner = box();
-    view.paint(inner, W, H);
+    view.paint(layers(inner), W, H);
     expect(inner.style.width).toBe("1600px");
     view.applied(plan);
-    view.paint(inner, W, H);
+    view.paint(layers(inner), W, H);
     expect(inner.style.width).toBe("1120px");
     expect(inner.style.left).toBe("-160px");
   });
@@ -96,10 +100,56 @@ describe("css zoom view", () => {
     const view = createZoomView("css", DISPLAY);
     const inner = box();
     view.zoomAt(2, 0, 0, W, H);
-    view.paint(inner, W, H);
+    view.paint(layers(inner), W, H);
     expect(inner.style.transform).toContain("scale(2)");
     expect(inner.style.position).toBe("");
-    view.dispose(inner);
+    view.dispose(layers(inner));
     expect(inner.style.transform).toBe("");
+  });
+});
+
+describe("crop zoom view with an overview underneath", () => {
+  beforeEach(() => {
+    setCaptureCrop(null);
+    clearOverviewReady();
+  });
+
+  it("asks for no sharp capture while the overview already has the detail the view can show", () => {
+    // In an 800px-wide viewport the overview of a 1600-point display holds 0.5 px/pt. Zoomed to
+    // 1500 points wide the view wants 0.53, within 8% of that: no second stream.
+    const view = createZoomView("crop", DISPLAY, { overview: true });
+    markOverviewReady(performance.now() - 1000);
+    view.zoomAt(1600 / 1500, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    expect(getCaptureCrop()).toBeNull();
+  });
+
+  it("holds the sharp request until the overview has been painting for a moment", () => {
+    const view = createZoomView("crop", DISPLAY, { overview: true });
+    view.zoomAt(3, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    expect(getCaptureCrop()).toBeNull();
+    markOverviewReady(performance.now() - 1000);
+    view.settle(W, H);
+    expect(getCaptureCrop()).not.toBeNull();
+  });
+
+  it("shows the sharp frame only when it covers the view, and the coarse one always", () => {
+    const view = createZoomView("crop", DISPLAY, { overview: true });
+    markOverviewReady(performance.now() - 1000);
+    const content = box();
+    const underlay = box();
+    view.zoomAt(3, W / 2, H / 2, W, H);
+    view.settle(W, H);
+    view.applied(getCaptureCrop());
+    view.paint({ content, underlay }, W, H);
+    expect(content.style.visibility).toBe("");
+    expect(underlay.style.visibility).toBe("");
+    // Pan well past the padded region: the sharp frame no longer covers the view, so it is
+    // hidden and the coarse one is what shows, rather than a seam sweeping across.
+    view.panBy(-2000, 0, W, H);
+    view.paint({ content, underlay }, W, H);
+    expect(content.style.visibility).toBe("hidden");
+    expect(underlay.style.visibility).toBe("");
   });
 });
