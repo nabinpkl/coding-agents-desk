@@ -595,16 +595,20 @@ describe("TileViewport pointer mode", () => {
     act(() => animationFrames.shift()?.(performance.now() + 16));
     pointer(surface, "pointerup", 3, 112, 106);
 
-    expect(telemetry.map(({ phase, detail }) => [phase, detail.kind, detail.outcome])).toEqual([
+    const gestures = telemetry.filter(
+      (event): event is Exclude<ViewportGestureTelemetry, { phase: "viewport-settle" }> =>
+        event.phase !== "viewport-settle",
+    );
+    expect(gestures.map(({ phase, detail }) => [phase, detail.kind, detail.outcome])).toEqual([
       ["viewport-gesture-start", "pinch-pan", undefined],
       ["viewport-gesture-end", "pinch-pan", "transformed"],
       ["viewport-gesture-start", "pointer", undefined],
       ["viewport-gesture-end", "pointer", "move"],
     ]);
-    expect(telemetry[1]?.detail.scale).toBeCloseTo(1.25);
-    expect(telemetry[3]?.detail.scale).toBeCloseTo(1.25);
-    expect(telemetry[3]?.detail.inputAccepted).toBe(true);
-    expect(telemetry[3]?.detail.edgeFollowed).toBe(false);
+    expect(gestures[1]?.detail.scale).toBeCloseTo(1.25);
+    expect(gestures[3]?.detail.scale).toBeCloseTo(1.25);
+    expect(gestures[3]?.detail.inputAccepted).toBe(true);
+    expect(gestures[3]?.detail.edgeFollowed).toBe(false);
     expect(telemetry.every(({ gestureId }) => /^[0-9a-f-]{36}$/.test(gestureId))).toBe(true);
   });
 });

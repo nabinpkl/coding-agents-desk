@@ -88,7 +88,7 @@ export interface ZoomView {
   /** Put the view onto the layers. */
   paint(layers: ViewLayers, w: number, h: number): void;
   /** The gesture has settled: ask for a capture if the running one no longer serves the view. */
-  settle(w: number, h: number): void;
+  settle(w: number, h: number): SettleOutcome;
   /** A stream's first frame arrived: the frame on screen now covers this plan's region. */
   applied(plan: CapturePlan | null): void;
   telemetry(): { scale: number; tx: number; ty: number };
@@ -142,7 +142,7 @@ function cssZoomView(display: DisplaySize): ZoomView {
       content.style.transform = `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`;
       if (underlay) underlay.style.visibility = "hidden";
     },
-    settle: () => {},
+    settle: () => ({ outcome: "css" }),
     applied: () => {},
     telemetry: () => ({ scale: transform.scale, tx: transform.tx, ty: transform.ty }),
     dispose: ({ content, underlay }) => {
@@ -150,6 +150,16 @@ function cssZoomView(display: DisplaySize): ZoomView {
       if (underlay) underlay.style.visibility = "";
     },
   };
+}
+
+/** What a settle decided, for the diagnostics log: the one place a phone's view can be read from. */
+export interface SettleOutcome {
+  outcome: "css" | "awaiting" | "whole" | "overview-serves" | "overview-not-ready" | "served" | "planned";
+  visible?: { x: number; y: number; w: number; h: number };
+  viewportPixels?: number;
+  wanted?: number;
+  overviewDetail?: number;
+  plan?: string | null;
 }
 
 /** The stored plan if it was made for this display, else null. */
@@ -242,23 +252,36 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
       }
     },
     settle: (w, h) => {
-      if (awaitingApply) return;
-      const before = getCaptureCrop();
       const content = box(w, h);
       const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
       const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
       // DeskZoom's needsDetailCapture: while the coarse stream already carries the detail the view
       // can show, a sharp one would only add something to swap to and from while panning.
       const overviewDetail = Math.min(MAX_PIXELS_PER_POINT, viewportPixels / display.width);
+      const facts = {
+        visible: { x: Math.round(visible.x), y: Math.round(visible.y), w: Math.round(visible.width), h: Math.round(visible.height) },
+        viewportPixels: Math.round(viewportPixels),
+        wanted: Number(wanted.toFixed(3)),
+        overviewDetail: Number(overviewDetail.toFixed(3)),
+      };
+      const done = (outcome: SettleOutcome["outcome"]): SettleOutcome => {
+        const plan = getCaptureCrop();
+        return { outcome, ...facts, plan: plan ? `${Math.round(plan.region.x)},${Math.round(plan.region.y)},${Math.round(plan.region.width)},${Math.round(plan.region.height)}@${plan.pixelWidth}x${plan.pixelHeight}` : null };
+      };
+      if (awaitingApply) return done("awaiting");
+      const before = getCaptureCrop();
       const servedByOverview = overview && wanted <= overviewDetail * DETAIL_OVER_OVERVIEW;
+      let outcome: SettleOutcome["outcome"];
       if (isWholeDisplay(visible, display) || servedByOverview) {
         setCaptureCrop(null);
+        outcome = servedByOverview ? "overview-serves" : "whole";
       } else if (overview && !overviewReady(OVERVIEW_HEAD_START_MS)) {
         // Not yet: the sharp capture must not start beside an overview that has not proven it is
         // running. The viewport settles again when it has.
-        return;
+        return done("overview-not-ready");
       } else {
-        if (planServes(before, visible, wanted)) return;
+        if (planServes(before, visible, wanted)) return done("served");
+        outcome = "planned";
         // Lean the padding the way the view was last going, while that is still recent enough
         // to mean anything; a still view gets it evenly.
         const padding = lastPan && performance.now() - lastPan.at < PAN_LEAD_WINDOW_MS
@@ -277,6 +300,7 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
       } else {
         awaitingApply = after !== before;
       }
+      return done(outcome);
     },
     applied: (plan) => {
       awaitingApply = false;

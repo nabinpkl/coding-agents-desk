@@ -8,7 +8,7 @@ import {
   scrollAccelerationGain,
   type ViewportPoint,
 } from "./tileViewportMath";
-import { createZoomView } from "./zoomModels";
+import { createZoomView, type SettleOutcome } from "./zoomModels";
 import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "./captureCrop";
 import { useZoomMode } from "./zoomMode";
 import { useOverviewLayer } from "./overviewLayer";
@@ -24,7 +24,7 @@ export type ViewportGestureOutcome =
   | "superseded"
   | "cancelled";
 
-export interface ViewportGestureTelemetry {
+export type ViewportGestureTelemetry = {
   gestureId: string;
   phase: "viewport-gesture-start" | "viewport-gesture-end";
   elapsedMs: number;
@@ -37,7 +37,12 @@ export interface ViewportGestureTelemetry {
     inputAccepted?: boolean;
     edgeFollowed?: boolean;
   };
-}
+} | {
+  gestureId: string;
+  phase: "viewport-settle";
+  elapsedMs: number;
+  detail: SettleOutcome;
+};
 
 const CURSOR_MIRROR_RENDER_SCALE = 0.7;
 /** How long after the last zoom or pan before the capture is re-aimed. DeskZoom's settle delay. */
@@ -329,7 +334,16 @@ export function TileViewport({
         settleTimer = 0;
         lastReaimAt = performance.now();
         const { w, h } = size();
-        view.settle(w, h);
+        const decided = view.settle(w, h);
+        // The one trace of what a phone's view decided; the sidecar log is where it can be read.
+        if (decided.outcome !== "css") {
+          gestureTelemetryRef.current?.({
+            gestureId: activeGesture?.id ?? "settle",
+            phase: "viewport-settle",
+            elapsedMs: 0,
+            detail: decided,
+          });
+        }
       }, wait);
     };
     // A requested plan is now on screen: the frame covers its region, so place it by that. Then
