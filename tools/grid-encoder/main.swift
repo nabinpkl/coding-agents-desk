@@ -336,10 +336,6 @@ enum RawAnnexBCodec {
 /// encoded frames to packetize itself. The codec is selected from the browser's
 /// SDP answer. Parameter sets ride in front of every keyframe, which lets a
 /// receiver join or recover mid-stream without out-of-band decoder state.
-/// Worst quantisation a frame may use. Lower spends more bits and keeps fine detail; text is the
-/// first thing to go above roughly this. 51 is the codec's maximum and means "spend nothing".
-private let maxFrameQP: Int32 = 28
-
 final class RawAnnexBEncoder: NSObject {
     private var session: VTCompressionSession?
     private var firstPTS: CMTime?
@@ -443,22 +439,6 @@ final class RawAnnexBEncoder: NSObject {
                              value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitrate))
-        // A quality floor, because the bitrate is not what has been limiting the picture.
-        //
-        // Low-latency rate control caps what any single frame may cost, so that a keyframe cannot
-        // stall the stream. On a desktop that has stopped moving, though, one keyframe IS the
-        // picture, and that cap decides how it looks for as long as nothing moves. Measured on an
-        // 8K capture: raising the budget from 10.8 to 76 Mbit/s moved the keyframe from 144KB to
-        // 162KB and changed nothing on screen -- the encoder was declining the bits, not short of
-        // them. Small text was the first thing quantisation discarded.
-        //
-        // Bounding QP asks for the opposite: hold this quality, and spend what that costs. The
-        // budget above remains the ceiling, so a link that cannot carry it still degrades, by
-        // dropping frames on a screen where nothing is happening anyway.
-        if #available(macOS 13.0, *) {
-            VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxAllowedFrameQP,
-                                 value: NSNumber(value: maxFrameQP))
-        }
         VTCompressionSessionPrepareToEncodeFrames(created)
     }
 
