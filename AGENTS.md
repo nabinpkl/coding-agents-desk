@@ -42,6 +42,8 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
   not reach it; measured every focus-free route on 2026-09-04, none works.
   `shot <n>` captures one canvas window by id, `shot` alone the overview frame in memory, and
   `find <text>` aims the cursor by element name.
+- `--display-only` creates the display and nothing else, and `just display-install` puts that
+  under a launchd Aqua agent with KeepAlive, so the display survives a crash and a login.
 - Fail loud: any capture or display error shows an alert and exits.
 
 `tools/session-client.py` is an experiment beside the app, not part of it: it drives a second,

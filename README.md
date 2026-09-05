@@ -43,6 +43,27 @@ display sits immediately to the right in the arrangement, so the window crosses 
 appears in the viewer. Only the top-left band of the canvas, as tall as your physical screen,
 can be entered this way; once across, drag it anywhere.
 
+### A display with no viewer, kept alive
+
+`--display-only` creates the display and nothing else: no window, no capture, no event taps.
+The display is useful on its own, because another login session can put windows on it and
+something else entirely can do the viewing.
+
+A virtual display belongs to the process that created it, so one started from a terminal lives
+as long as that terminal does. `just display-install` hands the job to launchd instead: a
+LaunchAgent in the console GUI session (`Aqua`, which is the only session where CoreGraphics
+will accept a display at all), `KeepAlive` so a crash costs about a second, `RunAtLoad` so it
+comes back at login. Size comes from `DESKZOOM_DISPLAY_WIDTH`/`DESKZOOM_DISPLAY_HEIGHT`,
+default 7680x4320. `just display-status` shows what launchd is running next to what the window
+server actually has, `just display-uninstall` removes it, and the log is at
+`~/Library/Logs/DeskZoom/display.log`.
+
+Only one virtual display exists at a time. `CGVirtualDisplay.apply` returns false for a second
+one whatever its size, measured at both 7680x4320 and 1440x900, so this is a limit on virtual
+displays and not on how much framebuffer they ask for. Handing an already-running display over
+to launchd therefore means stopping the old process first, and the agent fails on its ten-second
+respawn until the old one lets go.
+
 ## Iterating
 
 `just dev` takes about 2.7 seconds from command to live picture: 0.8s to compile, bundle and
