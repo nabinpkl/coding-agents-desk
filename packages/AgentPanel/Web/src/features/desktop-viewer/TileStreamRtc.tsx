@@ -141,6 +141,8 @@ export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
  * which is soft no matter how many pixels it contains.
  */
 export const TARGET_BITS_PER_PIXEL = 0.12;
+/** What the sender can actually carry; see `pixelBitrate`. */
+export const TRANSPORT_SAFE_BITRATE = 20_000_000;
 
 export const CAPTURE_SCALE_MIN = 0.5;
 export const CAPTURE_SCALE_MAX = 3;
@@ -192,7 +194,13 @@ export function tileCaptureSize(
 
 /** What a picture of this size needs per second to hold an edge at this frame rate. */
 export function pixelBitrate(width: number, height: number, fps: number): number {
-  return Math.max(300_000, Math.round(width * height * fps * TARGET_BITS_PER_PIXEL));
+  // Capped, because the far end is a pure-TypeScript WebRTC stack on one event loop: asked for
+  // more than it can push, it starves its own consent checks and the connection fails outright
+  // instead of looking worse. A picture too large to fund at this cap is better made smaller.
+  return Math.min(
+    TRANSPORT_SAFE_BITRATE,
+    Math.max(300_000, Math.round(width * height * fps * TARGET_BITS_PER_PIXEL)),
+  );
 }
 
 /**

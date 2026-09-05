@@ -321,6 +321,15 @@ const ENCODER_LINGER_MS = 3_000;
  */
 const TARGET_BITS_PER_PIXEL = 0.12;
 /**
+ * The most this transport carries before it stops being a transport.
+ *
+ * The sender is a pure-TypeScript WebRTC stack sharing one event loop with everything else here.
+ * Pushed past roughly this, it starves its own STUN and RTCP consent checks and ICE fails -- the
+ * connection dies rather than degrading, which is worse than any picture. Measured at 76 Mbit/s:
+ * eleven consecutive connections failed, each after producing frames.
+ */
+const TRANSPORT_SAFE_BITRATE = 20_000_000;
+/**
  * How far the budget must recover before the picture is worth asking for again. Keyframes are
  * expensive and unrequested ones burst a metered link, so this refreshes on a real change of
  * circumstance rather than on every fluctuation.
@@ -1458,7 +1467,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   const bitrateCeiling = () => {
     const pixels = (shared.captureWidth ?? 1_920) * (shared.captureHeight ?? 1_080);
     const wanted = pixels * (fps || 15) * TARGET_BITS_PER_PIXEL;
-    return Math.round(Math.max(20_000_000, Math.min(200_000_000, wanted)));
+    return Math.round(Math.max(20_000_000, Math.min(TRANSPORT_SAFE_BITRATE, wanted)));
   };
   const applyEstimate = (estimate: number) => {
     if (!Number.isFinite(estimate) || estimate <= 0) return;
