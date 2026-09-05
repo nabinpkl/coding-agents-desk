@@ -82,24 +82,18 @@ describe("receiver diagnostic cadence", () => {
 });
 
 describe("tileCaptureSize", () => {
-  it("prices a width-only request too, which is every desktop capture", () => {
-    // A display carries no size until its answer arrives, so this branch is what actually reaches
-    // the encoder for a desktop. Height is left to the helper, and the cost is estimated against
-    // the widescreen shape, so 1170 wide is priced as 1170x658 at 15fps.
+  it("uses a width-only request before display aspect metadata exists", () => {
     expect(tileCaptureSize(390, undefined, undefined, 3, 1_200_000)).toEqual({
       width: 1170,
-      bitrate: 1_385_748,
+      bitrate: 1_200_000,
     });
   });
 
-  it("prices the request from the picture it asks for, not from the multiplier", () => {
-    // 1170x760 at 15fps and 0.12 bits per pixel. Scaling a fixed budget by the multiplier instead
-    // made every extra pixel share the same bits, so raising the resolution softened a still
-    // desktop rather than sharpening it.
+  it("preserves the existing two-dimensional request for known windows", () => {
     expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000)).toEqual({
       width: 1170,
       height: 760,
-      bitrate: 1_600_560,
+      bitrate: 507_000,
     });
   });
 
@@ -108,15 +102,15 @@ describe("tileCaptureSize", () => {
     expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000, 2)).toEqual({
       width: 1800,
       height: 1169,
-      bitrate: 3_787_560,
+      bitrate: 1_200_000,
     });
   });
 
-  it("lets the knob trade resolution for a thinner stream, priced down with it", () => {
+  it("lets the knob trade resolution for a thinner stream, with a bitrate floor", () => {
     expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000, 0.5)).toEqual({
       width: 585,
       height: 380,
-      bitrate: 400_140,
+      bitrate: 300_000,
     });
   });
 });

@@ -339,12 +339,8 @@ enum RawAnnexBCodec {
 final class RawAnnexBEncoder: NSObject {
     private var session: VTCompressionSession?
     private var firstPTS: CMTime?
-    private var width: Int, height: Int, bitrate: Int
+    private let width: Int, height: Int, bitrate: Int
     private let codec: RawAnnexBCodec
-    /// Guards the compression session. Frames arrive on the capture queue while bitrate and the
-    /// size change that follows a resize arrive on the control reader; invalidating a session
-    /// underneath an encode is not a subtle failure.
-    private let sessionLock = NSLock()
     private let forceKeyLock = NSLock()
     private var forceKeyframe = false
     private var loggedForcedEncodeStatus = false
@@ -368,47 +364,12 @@ final class RawAnnexBEncoder: NSObject {
     /// more. This is the whole congestion response: the estimator decides, the
     /// encoder obeys, nothing in between holds an opinion.
     func setBitrate(_ bitsPerSecond: Int) {
-        sessionLock.lock(); defer { sessionLock.unlock() }
         guard let session, bitsPerSecond > 0 else { return }
-        bitrate = bitsPerSecond
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitsPerSecond))
     }
 
-    /// Rebuild for a frame size this session was not made for.
-    ///
-    /// Driven by the frames rather than by the resize command: the stream and the session cannot
-    /// change in the same instant, so adapting on arrival makes the order irrelevant, and covers a
-    /// stream that hands back a size nobody asked for. The next frame is forced to a keyframe,
-    /// because a decoder cannot read the new size until it has the parameter sets describing it.
-    /// The caller holds `sessionLock`.
-    private func adaptSession(toWidth newWidth: Int, height newHeight: Int) {
-        guard newWidth > 0, newHeight > 0 else { return }
-        if let session {
-            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
-            VTCompressionSessionInvalidate(session)
-        }
-        session = nil
-        width = newWidth
-        height = newHeight
-        createSession()
-        forceKeyLock.lock()
-        forceKeyframe = true
-        forceKeyLock.unlock()
-        // Announced so "did the resize land" is answerable from a log rather than inferred from
-        // process arguments, which only ever show what the child was spawned with.
-        emitMeta(["type": "resized", "width": newWidth, "height": newHeight])
-    }
-
     func start() {
-        sessionLock.lock()
-        createSession()
-        sessionLock.unlock()
-        emitMeta(["type": "codec", "codec": codec.metadataName, "derived": false])
-    }
-
-    /// Builds the compression session for the current size. The caller holds `sessionLock`.
-    private func createSession() {
         var created: VTCompressionSession?
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
@@ -440,17 +401,11 @@ final class RawAnnexBEncoder: NSObject {
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitrate))
         VTCompressionSessionPrepareToEncodeFrames(created)
+        emitMeta(["type": "codec", "codec": codec.metadataName, "derived": false])
     }
 
     func submit(_ sample: CMSampleBuffer) {
-        sessionLock.lock(); defer { sessionLock.unlock() }
-        guard let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
-        let frameWidth = CVPixelBufferGetWidth(pixels)
-        let frameHeight = CVPixelBufferGetHeight(pixels)
-        if frameWidth != width || frameHeight != height {
-            adaptSession(toWidth: frameWidth, height: frameHeight)
-        }
-        guard let session else { return }
+        guard let session, let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
         if firstPTS == nil { firstPTS = pts }
         submitted += 1
@@ -664,9 +619,6 @@ _ = NSApplication.shared
 // held only by a local stops delivering the moment that scope returns, which
 // looks exactly like a capture that produced one frame and then hung.
 nonisolated(unsafe) var liveStream: SCStream?
-// Retained so a resize can hand the same object back with new dimensions; SCStreamConfiguration is
-// a class, and `updateConfiguration` takes the whole thing rather than a delta.
-nonisolated(unsafe) var liveConfiguration: SCStreamConfiguration?
 nonisolated(unsafe) var liveCapturer: Capturer?
 nonisolated(unsafe) var liveMuxer: EncodingMuxer?
 nonisolated(unsafe) var liveRawEncoder: RawAnnexBEncoder?
@@ -718,10 +670,7 @@ Task {
         inputBounds = CGDisplayBounds(display.displayID)
         openMeta = ["type": "open", "display": Int(display.displayID),
                     "displayId": CFUUIDCreateString(nil, uuid) as String,
-                    "desktopNavigationVersion": 1,
-                    // Says which capture commands this child understands, so the transport can
-                    // choose between resizing it and replacing it instead of assuming.
-                    "captureControlVersion": 1]
+                    "desktopNavigationVersion": 1]
     }
 
     let desktopInput = DesktopInputController(
@@ -816,36 +765,23 @@ Task {
                     let rawLine = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
                     let line = rawLine.last == "\r" ? String(rawLine.dropLast()) : rawLine
                     buffer.removeSubrange(buffer.startIndex...newline)
-                    // Routed on the declared type, not on which handler happens to claim it first.
-                    guard let object = ControlRouter.object(of: line),
-                          let type = object["type"] as? String else {
-                        desktopInput.rejectMalformed()
+                    let navigationHandled = navigation.map { nav in
+                        DispatchQueue.main.sync { nav.handle(line) }
+                    } ?? false
+                    if navigationHandled || desktopInput.handle(line) {
                         continue
-                    }
-                    if ControlRouter.sharedWithNavigation.contains(type), let nav = navigation {
-                        _ = DispatchQueue.main.sync { nav.handle(line) }
-                    }
-                    switch ControlRouter.owner(of: type) {
-                    case .navigation:
-                        if let nav = navigation { _ = DispatchQueue.main.sync { nav.handle(line) } }
-                    case .input:
-                        _ = desktopInput.handle(line)
-                    case .capture:
-                        switch CaptureControlCommand.parse(object) {
-                        case .success(.keyframe): encoder.requestKeyframe()
-                        case .success(.bitrate(let bits)): encoder.setBitrate(bits)
-                        case .success(.resize(let newWidth, let newHeight)):
-                            resizeCapture(width: newWidth, height: newHeight)
-                        case .failure(let rejection): desktopInput.reject(captureReason: rejection.rawValue)
-                        case .none: desktopInput.reject(captureReason: "malformed")
+                    } else if let capture = CaptureControlCommand.parse(line) {
+                        switch capture {
+                        case .keyframe: encoder.requestKeyframe()
+                        case .bitrate(let bits): encoder.setBitrate(bits)
                         }
-                    case .unknown:
-                        // Said out loud. A command the helper does not know used to be
-                        // indistinguishable from one it had obeyed.
-                        desktopInput.reject(captureReason: "unknown-command")
                     }
                 }
-                if buffer.count > DesktopInputController.maximumCommandBytes {
+                // A bare "K" with no newline still works: flush it eagerly.
+                if buffer == Data([0x4B]) {
+                    encoder.requestKeyframe()
+                    buffer.removeAll()
+                } else if buffer.count > DesktopInputController.maximumCommandBytes {
                     buffer.removeAll(keepingCapacity: true)
                     desktopInput.rejectOversized()
                 }
@@ -871,24 +807,6 @@ Task {
         }
         countersLock.unlock()
     }
-    /// Ask the running capture for a new size.
-    ///
-    /// Only the stream is told. The compression session follows the frames it is actually handed,
-    /// so the two never have to agree at the same instant -- whichever were told first, there would
-    /// be a window where the other disagreed, and a session encoding buffers of the wrong
-    /// dimensions is not worth leaving to chance.
-    func resizeCapture(width newWidth: Int, height newHeight: Int) {
-        guard let configuration = liveConfiguration, let stream = liveStream else { return }
-        configuration.width = newWidth
-        configuration.height = newHeight
-        stream.updateConfiguration(configuration) { error in
-            if let error {
-                FileHandle.standardError.write(Data(
-                    "grid-encoder: resize to \(newWidth)x\(newHeight) failed: \(error.localizedDescription)\n".utf8))
-            }
-        }
-    }
-
     let capturer = Capturer(muxer: sink)
     liveCapturer = capturer
     let configuration = SCStreamConfiguration()
@@ -904,7 +822,6 @@ Task {
     configuration.colorSpaceName = CGColorSpace.sRGB
     let stream = SCStream(filter: filter, configuration: configuration, delegate: capturer)
     liveStream = stream
-    liveConfiguration = configuration
     do {
         try stream.addStreamOutput(capturer, type: .screen, sampleHandlerQueue: DispatchQueue(label: "grid-encoder"))
         try await stream.startCapture()

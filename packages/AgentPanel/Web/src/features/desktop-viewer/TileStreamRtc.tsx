@@ -134,16 +134,6 @@ export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
 }
 
 /** The slider's range: a multiplier on the auto-chosen capture scale, capped at source-native. */
-/**
- * Bits per pixel per second to ask for. `AverageBitRate` is a rate over time, so at a given frame
- * rate this decides how many bytes a single frame may cost -- and on a desktop that has stopped
- * moving, one keyframe is the entire picture. Ask for too few and an 8K frame arrives in 144KB,
- * which is soft no matter how many pixels it contains.
- */
-export const TARGET_BITS_PER_PIXEL = 0.12;
-/** What the sender can actually carry; see `pixelBitrate`. */
-export const TRANSPORT_SAFE_BITRATE = 20_000_000;
-
 export const CAPTURE_SCALE_MIN = 0.5;
 export const CAPTURE_SCALE_MAX = 3;
 
@@ -154,7 +144,6 @@ export function tileCaptureSize(
   devicePixelRatio: number,
   bitrate: number,
   captureScale = 1,
-  fps = 15,
 ): { width?: number; height?: number; bitrate: number } {
   const ratio = Math.min(devicePixelRatio || 1, CAPTURE_PIXEL_RATIO_CAP);
   // The user's knob multiplies the automatic scale. At 1 it is exactly the display-fit default;
@@ -169,38 +158,18 @@ export function tileCaptureSize(
     || !Number.isFinite(sourceHeight)
     || sourceHeight <= 0
   ) {
-    // A display does not carry its size until the answer comes back, so this branch runs for every
-    // desktop capture, first offer and every renegotiation after it. Pricing it by the multiplier
-    // was therefore what actually reached the encoder, however the branch below was written.
-    // Height is not being requested here -- the helper derives it from the display's own aspect --
-    // so the cost is estimated against the widescreen shape every display this captures has had.
-    const requested = shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio * quality)) : undefined;
     return {
-      width: requested,
-      bitrate: requested === undefined
-        ? Math.max(300_000, Math.round(bitrate * quality * quality))
-        : pixelBitrate(requested, Math.round((requested * 9) / 16), fps),
+      width: shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio * quality)) : undefined,
+      bitrate: Math.max(300_000, Math.round(bitrate * quality * quality)),
     };
   }
   const visibleWidth = shownWidth > 0 ? shownWidth : sourceWidth;
   const scale = Math.min(1, (visibleWidth * ratio * quality) / sourceWidth);
-  const width = Math.max(16, Math.round(sourceWidth * scale));
-  const height = Math.max(16, Math.round(sourceHeight * scale));
-  // Derived from the picture being asked for, not from the multiplier that produced it. Scaling a
-  // fixed budget by the multiplier meant more pixels always shared the same bits, so raising the
-  // resolution made a still desktop softer -- the opposite of what the control appears to promise.
-  return { width, height, bitrate: pixelBitrate(width, height, fps) };
-}
-
-/** What a picture of this size needs per second to hold an edge at this frame rate. */
-export function pixelBitrate(width: number, height: number, fps: number): number {
-  // Capped, because the far end is a pure-TypeScript WebRTC stack on one event loop: asked for
-  // more than it can push, it starves its own consent checks and the connection fails outright
-  // instead of looking worse. A picture too large to fund at this cap is better made smaller.
-  return Math.min(
-    TRANSPORT_SAFE_BITRATE,
-    Math.max(300_000, Math.round(width * height * fps * TARGET_BITS_PER_PIXEL)),
-  );
+  return {
+    width: Math.max(16, Math.round(sourceWidth * scale)),
+    height: Math.max(16, Math.round(sourceHeight * scale)),
+    bitrate: Math.max(300_000, Math.round(bitrate * scale * scale)),
+  };
 }
 
 /**
@@ -582,27 +551,10 @@ export function TileStreamRtc({
       onControlTransportRef.current?.(transport);
     };
 
-    /**
-     * How wide the picture is on screen, which decides how much of the source is worth encoding.
-     *
-     * Measured through a chain rather than from one element, because a zero here is not harmless:
-     * with no width to offer, the helper falls back to capturing the display at its native size
-     * while the bitrate still describes the much smaller picture that was asked for. An 8K desktop
-     * then arrives starved of bits and looks worse than the half-size capture it replaced. A
-     * measurement that failed must not read as "give me everything".
-     */
-    const shownWidth = () => {
-      const candidates = [
-        frame.current?.clientWidth ?? 0,
-        video.current?.clientWidth ?? 0,
-        frame.current?.parentElement?.clientWidth ?? 0,
-        window.innerWidth,
-      ];
-      return candidates.find((candidate) => candidate > 0) ?? 0;
+    const captureSize = () => {
+      const shown = frame.current?.clientWidth ?? 0;
+      return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate, captureScale);
     };
-    const captureSize = () => tileCaptureSize(
-      shownWidth(), width, height, window.devicePixelRatio, bitrate, captureScale, fps,
-    );
 
     /** Resolves "ended" on peer death, "failed" when setup itself broke. */
     const session = (firstEver: boolean): Promise<"ended" | "cancelled" | string> =>

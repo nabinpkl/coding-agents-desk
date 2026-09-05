@@ -68,7 +68,7 @@ function diag(line: string) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     require("node:fs").appendFileSync(
-      `/tmp/agentdesk-webrtc-diag-${require("node:os").userInfo().username}.log`,
+      "/tmp/agentdesk-webrtc-diag.log",
       `${new Date().toISOString()} ${line}\n`,
     );
   } catch {
@@ -76,7 +76,7 @@ function diag(line: string) {
   }
 }
 
-type KeyframeRequestReason = "pli" | "bootstrap" | "bitrate-recovery";
+type KeyframeRequestReason = "pli" | "bootstrap";
 
 /**
  * Bounded sender-side evidence for the question receiver stats cannot answer:
@@ -260,9 +260,6 @@ interface SharedEncoder {
    * appeared to happen -- the helper takes --width and --height only at spawn.
    */
   identity: string;
-  /** Size it is currently encoding at, which a resize can move without replacing the child. */
-  captureWidth?: number;
-  captureHeight?: number;
   /**
    * Installed stamp of the binary this child was spawned from. Reuse is keyed on the window, so
    * without this an updated helper would be shadowed by the previous process for
@@ -315,31 +312,6 @@ const controlOwners = new Map<symbol, { encoder: SharedEncoder; revoke: (epoch: 
 const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
 const ENCODER_METADATA_TIMEOUT_MS = 5_000;
 const ENCODER_LINGER_MS = 3_000;
-/**
- * Bits per pixel per second the encoder is allowed to reach for. Around this, H.265 keeps small
- * text readable; well under it, edges turn to mush no matter how many pixels are being sent.
- */
-const TARGET_BITS_PER_PIXEL = 0.12;
-/**
- * The most this transport carries before it stops being a transport.
- *
- * The sender is a pure-TypeScript WebRTC stack sharing one event loop with everything else here.
- * Pushed past roughly this, it starves its own STUN and RTCP consent checks and ICE fails -- the
- * connection dies rather than degrading, which is worse than any picture. Measured at 76 Mbit/s:
- * eleven consecutive connections failed, each after producing frames.
- */
-const TRANSPORT_SAFE_BITRATE = 20_000_000;
-/**
- * How far the budget must recover before the picture is worth asking for again. Keyframes are
- * expensive and unrequested ones burst a metered link, so this refreshes on a real change of
- * circumstance rather than on every fluctuation.
- */
-const KEYFRAME_ON_RECOVERY_FACTOR = 1.8;
-/**
- * How much of the budget the encoder must actually be using before a lower estimate is read as a
- * limit rather than as an idle screen with nothing to send.
- */
-const BUDGET_PRESSURE_FRACTION = 0.6;
 /**
  * Children killed but not yet reaped.
  *
@@ -401,13 +373,8 @@ function encoderStdin(shared: SharedEncoder, line: string) {
 /**
  * What a running child cannot be re-tasked to do.
  *
- * Bitrate is excluded because the control channel adjusts it live. Size is NOT, though the helper
- * can be resized in place: a compression session is built with whatever bitrate the encoder holds,
- * and on an idle desktop the estimator has already walked that down to its floor, so a session
- * rebuilt at a new size encodes its keyframe at the floor and an infinite GOP leaves that picture
- * on screen. A replacement child starts from the offer's bitrate instead and encodes a generous
- * keyframe. Replacing therefore looks markedly better on a still desktop, and it costs one
- * reconnect, so size stays part of what makes a child the wrong child.
+ * Bitrate is excluded on purpose: the control channel adjusts it live, and folding it in here would
+ * retire the encoder every time the receiver's bandwidth estimate moved.
  */
 function captureIdentity(args: readonly string[]): string {
   const kept: string[] = [];
@@ -419,17 +386,6 @@ function captureIdentity(args: readonly string[]): string {
     kept.push(args[index]!);
   }
   return kept.join(" ");
-}
-
-/** The encoded size these arguments ask for, if they name one. Sizes the bitrate ceiling. */
-function captureSize(args: readonly string[]): { width?: number; height?: number } {
-  const read = (flag: string) => {
-    const at = args.indexOf(flag);
-    if (at < 0) return undefined;
-    const value = Number(args[at + 1]);
-    return Number.isSafeInteger(value) && value > 0 ? value : undefined;
-  };
-  return { width: read("--width"), height: read("--height") };
 }
 
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
@@ -545,12 +501,9 @@ async function acquireSharedEncoder(
   }
   const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
   const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
-  const spawnedSize = captureSize(args);
   const shared: SharedEncoder = {
     key: windowID,
     identity,
-    captureWidth: spawnedSize.width,
-    captureHeight: spawnedSize.height,
     binaryMtimeMs,
     codec,
     child,
@@ -587,12 +540,6 @@ async function acquireSharedEncoder(
           if (meta.type === "error") {
             stopReason = `encoder-error-${String(meta.message)}`;
             break;
-          }
-          if (meta.type === "resized") {
-            // The child confirming a size it actually applied, so this is answerable from the log
-            // rather than inferred from spawn arguments that never change.
-            diag(`encoder key=${windowID} resized ${String(meta.width)}x${String(meta.height)}`);
-            continue;
           }
           if (meta.type === "open") {
             const metadata = gridEncoderSourceMetadata(meta);
@@ -690,7 +637,7 @@ function primeSubscriber(shared: SharedEncoder, subscriber: EncoderSubscriber) {
   // produce one, which is why replaying the retained keyframe above is the
   // joining viewer's authoritative bootstrap.
   shared.videoDiagnostics.recordKeyframeRequest("bootstrap");
-  encoderStdin(shared, `${JSON.stringify({ type: "keyframe" })}\n`);
+  encoderStdin(shared, "K\n");
 }
 
 interface TileOffer {
@@ -1105,20 +1052,6 @@ function bounded(value: unknown, min: number, max: number): number | undefined {
   return value >= min && value <= max ? Math.round(value) : undefined;
 }
 
-/**
- * A capture parameter, held inside the range the helper accepts.
- *
- * Asking for more than the maximum is asking for the maximum, not asking for nothing. These were
- * validated with `bounded`, which drops an out-of-range number, and dropping one is not neutral:
- * omit `--width` and the helper captures the display at its native size while the bitrate in the
- * same offer still describes the smaller picture that was requested. Raising the resolution far
- * enough therefore stopped raising it and quietly made the image worse instead.
- */
-function clampedCaptureParameter(value: unknown, min: number, max: number): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-  return Math.round(Math.min(max, Math.max(min, value)));
-}
-
 async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): Promise<Response> {
   const { path: binary, mtimeMs: binaryMtimeMs, exists } = helperBinary();
   if (!exists) {
@@ -1383,10 +1316,10 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     // because periodic keyframes only create unrequested LTE bursts.
   ];
   if (choice.kind === "h264") args.push("--profile", profile);
-  const width = clampedCaptureParameter(offer.width, 16, 7680);
-  const height = clampedCaptureParameter(offer.height, 16, 4320);
-  const fps = clampedCaptureParameter(offer.fps, 1, 60);
-  const bitrate = clampedCaptureParameter(offer.bitrate, 100_000, 200_000_000);
+  const width = bounded(offer.width, 16, 7680);
+  const height = bounded(offer.height, 16, 4320);
+  const fps = bounded(offer.fps, 1, 60);
+  const bitrate = bounded(offer.bitrate, 100_000, 40_000_000);
   if (width) args.push("--width", String(width));
   if (height) args.push("--height", String(height));
   if (fps) args.push("--fps", String(fps));
@@ -1441,7 +1374,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   transceiver.sender.onPictureLossIndication.subscribe(() => {
     connectionDiagnostic.pliRequests += 1;
     shared.videoDiagnostics.recordKeyframeRequest("pli");
-    encoderStdin(shared, `${JSON.stringify({ type: "keyframe" })}\n`);
+    encoderStdin(shared, "K\n");
   });
   // The receiver's bandwidth estimate drives the encoder's bitrate, which
   // retires the last hand-set number in this path: the page's request is only
@@ -1451,24 +1384,6 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   // grid. Updates under a tenth of the last applied value are noise and
   // skipped.
   let appliedBitrate = 0;
-  let lastEstimateAt = Date.now();
-  // Declared with the budget it is judged against, and above the subscription that reads it: an
-  // RTCP report arriving before this line ran would otherwise throw on an unreachable binding.
-  let bytesSinceEstimate = 0;
-  /**
-   * The most this picture is worth spending, from its own pixel count rather than a fixed number.
-   *
-   * A flat 20 Mbit ceiling was set when a capture meant roughly a 1080p screen. It is a third of a
-   * bit per pixel there, and four hundredths of one across an 8K desktop -- far below what H.265
-   * needs to keep text legible, so raising the resolution made the picture worse and no amount of
-   * available bandwidth was allowed to help. The estimator still decides what the link can carry;
-   * this only stops the ceiling from being the binding constraint on a large capture.
-   */
-  const bitrateCeiling = () => {
-    const pixels = (shared.captureWidth ?? 1_920) * (shared.captureHeight ?? 1_080);
-    const wanted = pixels * (fps || 15) * TARGET_BITS_PER_PIXEL;
-    return Math.round(Math.max(20_000_000, Math.min(TRANSPORT_SAFE_BITRATE, wanted)));
-  };
   const applyEstimate = (estimate: number) => {
     if (!Number.isFinite(estimate) || estimate <= 0) return;
     // The floor matters more than it looks: a quiet window sends almost
@@ -1477,46 +1392,10 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     // link, and obeying it would start every burst of motion at slideshow
     // quality. From the floor, GCC's multiplicative ramp recovers the real
     // capacity within seconds of traffic flowing.
-    const clamped = Math.max(300_000, Math.min(bitrateCeiling(), Math.round(estimate)));
+    const clamped = Math.max(300_000, Math.min(20_000_000, Math.round(estimate)));
     if (appliedBitrate > 0 && Math.abs(clamped - appliedBitrate) / appliedBitrate < 0.1) return;
-    // A falling estimate is only evidence when the encoder was actually spending the budget.
-    //
-    // REMB measures the traffic there is. A still desktop sends almost nothing, so the estimate
-    // collapses to the floor -- and obeying that rebuilds the picture at the floor, where an
-    // infinite GOP leaves it until something moves. The screen then looks worst precisely because
-    // nothing was happening, which is the opposite of a congestion signal. So a decrease is
-    // believed only when recent output came close to the budget it is said to exceed.
-    const elapsedMs = Date.now() - lastEstimateAt;
-    const producedBitsPerSecond = elapsedMs > 0 ? (bytesSinceEstimate * 8_000) / elapsedMs : 0;
-    const pressing = appliedBitrate === 0
-      || producedBitsPerSecond >= appliedBitrate * BUDGET_PRESSURE_FRACTION;
-    if (clamped < appliedBitrate && !pressing) {
-      diag(
-        `c${connection} estimate-ignored ${appliedBitrate} -> ${clamped}`
-          + ` produced=${Math.round(producedBitsPerSecond)} idle`,
-      );
-      lastEstimateAt = Date.now();
-      bytesSinceEstimate = 0;
-      return;
-    }
-    lastEstimateAt = Date.now();
-    bytesSinceEstimate = 0;
-    const previous = appliedBitrate;
     appliedBitrate = clamped;
-    encoderStdin(shared, `${JSON.stringify({ type: "bitrate", bits: clamped })}\n`);
-    // A raised budget does not improve a picture that has stopped changing.
-    //
-    // The GOP is infinite, so the last keyframe is what a still desktop is made of, and the
-    // estimator can only measure traffic that exists: an idle screen sends almost nothing, the
-    // estimate falls to the floor, and whatever keyframe was encoded in that window becomes the
-    // image indefinitely. Deltas cannot repair it, because nothing is moving to carry them. When
-    // the budget recovers, the picture has to be asked for again to benefit -- otherwise quality
-    // improves only by the accident of someone dragging a window.
-    if (previous > 0 && clamped >= previous * KEYFRAME_ON_RECOVERY_FACTOR) {
-      diag(`c${connection} keyframe-on-recovery ${previous} -> ${clamped}`);
-      shared.videoDiagnostics.recordKeyframeRequest("bitrate-recovery");
-      encoderStdin(shared, `${JSON.stringify({ type: "keyframe" })}\n`);
-    }
+    encoderStdin(shared, `B${clamped}\n`);
   };
   transceiver.sender.onRtcp.subscribe((rtcp) => {
     const feedback = (rtcp as { feedback?: { bitrate?: bigint } }).feedback;
@@ -1536,7 +1415,6 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     onAccessUnit: (payload) => {
       if (dead || !transportReady) return;
       sentAccessUnits += 1;
-      bytesSinceEstimate += payload.length;
       connectionDiagnostic.sentAccessUnits = sentAccessUnits;
       if (sentAccessUnits === 1) {
         diag(`c${connection} first-access-unit bytes=${payload.length} keyframe=${payload[8] === 1}`);

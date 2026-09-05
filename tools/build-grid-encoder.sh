@@ -34,7 +34,6 @@ swiftc -O \
   "$root/tools/grid-encoder/ComposerVerbs.swift" \
   "$root/tools/grid-encoder/DesktopInputController.swift" \
   "$root/tools/grid-encoder/CaptureControlCommand.swift" \
-  "$root/tools/grid-encoder/ControlRouter.swift" \
   "$root/tools/grid-encoder/CursorMirror.swift" \
   "$root/host/AgentDeskHost/SkyLightSymbols.swift" \
   "$root/host/AgentDeskHost/DockSwipeEvent.swift" \

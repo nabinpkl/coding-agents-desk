@@ -6,7 +6,6 @@ import Foundation
 struct DesktopInputControllerTests {
     static func main() {
         testCaptureCommandsAreExact()
-        testEveryTypeHasExactlyOneOwner()
         testFocusClassification()
         testInjectedFocusProbe()
         testIBeamFallback()
@@ -23,61 +22,12 @@ struct DesktopInputControllerTests {
     }
 
     private static func testCaptureCommandsAreExact() {
-        func parse(_ object: [String: Any]) -> CaptureControlCommand? {
-            guard case .success(let command)? = CaptureControlCommand.parse(object) else { return nil }
-            return command
-        }
-        func rejection(_ object: [String: Any]) -> CaptureControlCommand.Rejection? {
-            guard case .failure(let reason)? = CaptureControlCommand.parse(object) else { return nil }
-            return reason
-        }
-        expect(parse(["type": "keyframe"]) == .keyframe, "keyframe was not parsed")
-        expect(parse(["type": "bitrate", "bits": 1_200_000]) == .bitrate(1_200_000), "bitrate failed")
-        expect(
-            parse(["type": "resize", "width": 1_920, "height": 1_080]) == .resize(width: 1_920, height: 1_080),
-            "resize failed"
-        )
-
-        // Every command is reachable: the previous encoding routed on a leading letter, and the
-        // last command's validation doubled as the gate that rejected everything else, so a command
-        // added after it parsed as nil forever without one line of evidence that it existed.
-        for type in CaptureControlCommand.types {
-            let object: [String: Any] = [
-                "type": type, "bits": 1_200_000, "width": 1_920, "height": 1_080,
-            ]
-            expect(CaptureControlCommand.parse(object) != nil, "\(type) was not routed to this command set")
-            expect(parse(object) != nil, "\(type) was owned but did not parse")
-        }
-
-        // A line this set does not own is not its business to reject; the router reports it.
-        expect(CaptureControlCommand.parse(["type": "pointer-move"]) == nil, "a foreign type was claimed")
-        expect(CaptureControlCommand.parse([:]) == nil, "a line with no type was claimed")
-
-        // Owned but unusable is a rejection, never silence.
-        expect(rejection(["type": "bitrate"]) == .malformed, "bitrate without bits was not rejected")
-        expect(rejection(["type": "bitrate", "bits": 1]) == .outOfRange, "tiny bitrate was accepted")
-        expect(rejection(["type": "resize", "width": 1_920]) == .malformed, "resize without height was not rejected")
-        expect(rejection(["type": "resize", "width": 8, "height": 1_080]) == .outOfRange, "tiny width was accepted")
-        expect(rejection(["type": "resize", "width": 99_999, "height": 1_080]) == .outOfRange, "huge width was accepted")
-    }
-
-    private static func testEveryTypeHasExactlyOneOwner() {
-        let sets: [(String, Set<String>)] = [
-            ("capture", CaptureControlCommand.types),
-            ("navigation", DesktopSpacesController.types),
-            ("input", DesktopInputController.types),
-        ]
-        for (name, types) in sets {
-            for type in types {
-                for (otherName, otherTypes) in sets where otherName != name {
-                    expect(!otherTypes.contains(type), "\(type) is owned by both \(name) and \(otherName)")
-                }
-                expect(ControlRouter.owner(of: type) != .unknown, "\(type) routed nowhere")
-            }
-        }
-        expect(ControlRouter.owner(of: "not-a-command") == .unknown, "an unknown type found an owner")
-        expect(ControlRouter.type(of: "K") == nil, "a bare opcode was read as a typed line")
-        expect(ControlRouter.type(of: #"{"type":"keyframe"}"#) == "keyframe", "a typed line did not decode")
+        expect(CaptureControlCommand.parse("K") == .keyframe, "exact K was not parsed")
+        expect(CaptureControlCommand.parse("KEY") == nil, "K prefix was accepted")
+        expect(CaptureControlCommand.parse(" K ") == nil, "spaced K was accepted")
+        expect(CaptureControlCommand.parse("B1200000") == .bitrate(1_200_000), "bitrate failed")
+        expect(CaptureControlCommand.parse("B-1") == nil, "negative bitrate was accepted")
+        expect(CaptureControlCommand.parse("B1200000x") == nil, "bitrate suffix was accepted")
     }
 
     private static func testFocusClassification() {
