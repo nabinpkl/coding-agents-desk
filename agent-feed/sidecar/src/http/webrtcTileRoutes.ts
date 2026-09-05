@@ -324,6 +324,11 @@ const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
 const ENCODER_METADATA_TIMEOUT_MS = 5_000;
 const ENCODER_LINGER_MS = 3_000;
 /**
+ * Bits per pixel per second the encoder is allowed to reach for. Around this, H.265 keeps small
+ * text readable; well under it, edges turn to mush no matter how many pixels are being sent.
+ */
+const TARGET_BITS_PER_PIXEL = 0.12;
+/**
  * Children killed but not yet reaped.
  *
  * ScreenCaptureKit starves a capture that starts while another is tearing down: it delivers zero
@@ -1452,6 +1457,20 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   // grid. Updates under a tenth of the last applied value are noise and
   // skipped.
   let appliedBitrate = 0;
+  /**
+   * The most this picture is worth spending, from its own pixel count rather than a fixed number.
+   *
+   * A flat 20 Mbit ceiling was set when a capture meant roughly a 1080p screen. It is a third of a
+   * bit per pixel there, and four hundredths of one across an 8K desktop -- far below what H.265
+   * needs to keep text legible, so raising the resolution made the picture worse and no amount of
+   * available bandwidth was allowed to help. The estimator still decides what the link can carry;
+   * this only stops the ceiling from being the binding constraint on a large capture.
+   */
+  const bitrateCeiling = () => {
+    const pixels = (shared.captureWidth ?? 1_920) * (shared.captureHeight ?? 1_080);
+    const wanted = pixels * (fps || 15) * TARGET_BITS_PER_PIXEL;
+    return Math.round(Math.max(20_000_000, Math.min(120_000_000, wanted)));
+  };
   const applyEstimate = (estimate: number) => {
     if (!Number.isFinite(estimate) || estimate <= 0) return;
     // The floor matters more than it looks: a quiet window sends almost
@@ -1460,7 +1479,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     // link, and obeying it would start every burst of motion at slideshow
     // quality. From the floor, GCC's multiplicative ramp recovers the real
     // capacity within seconds of traffic flowing.
-    const clamped = Math.max(300_000, Math.min(20_000_000, Math.round(estimate)));
+    const clamped = Math.max(300_000, Math.min(bitrateCeiling(), Math.round(estimate)));
     if (appliedBitrate > 0 && Math.abs(clamped - appliedBitrate) / appliedBitrate < 0.1) return;
     appliedBitrate = clamped;
     encoderStdin(shared, `${JSON.stringify({ type: "bitrate", bits: clamped })}\n`);
