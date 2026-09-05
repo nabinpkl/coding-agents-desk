@@ -965,6 +965,7 @@ export function TileViewport({
   return (
     <div
       ref={viewport}
+      data-desktop-viewport=""
       className={`relative overflow-hidden select-none ${className}`}
       style={{ touchAction: "none", WebkitTouchCallout: "none" } as React.CSSProperties}
     >

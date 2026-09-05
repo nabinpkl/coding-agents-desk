@@ -1061,6 +1061,7 @@ const CLIENT_PHASES = new Set([
   "first-frame-timeout",
   "viewport-gesture-start",
   "viewport-gesture-end",
+  "viewport-settle",
 ]);
 
 function recordClientTelemetry(

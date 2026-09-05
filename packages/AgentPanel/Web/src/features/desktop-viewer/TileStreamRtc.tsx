@@ -629,10 +629,15 @@ export function TileStreamRtc({
     };
 
     const captureSize = () => {
-      // A frame that has no width yet (a display handover mounts the new stream before its box is
-      // laid out) must still size the offer: unsized, the sidecar encodes the whole display, and
-      // on the 8K one that is a 7680-wide stream a phone never decodes, so the switch times out.
-      const shown = frame.current?.clientWidth || window.innerWidth;
+      // Sized by the viewport, not by this stream's own box: under crop zoom the box is placed at
+      // the zoom's scale, so at 11x on the 8K display it measured 16983 pixels wide, the sidecar
+      // dropped the out-of-range width and encoded the whole display, and the phone timed out on
+      // every 476 KB keyframe and reconnected every twelve seconds. A frame with no width yet (a
+      // display handover mounts the new stream before its box is laid out) falls back to the
+      // window for the same reason: an unsized offer is the whole display.
+      const shown = frame.current?.closest<HTMLElement>("[data-desktop-viewport]")?.clientWidth
+        || frame.current?.clientWidth
+        || window.innerWidth;
       if (capturePlan) {
         // Bitrate follows the pixels actually encoded, at the rate the whole display would get,
         // rather than shrinking with the region: the region is the part being read. The plan
