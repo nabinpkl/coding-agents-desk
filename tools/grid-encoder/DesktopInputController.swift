@@ -47,6 +47,11 @@ final class DesktopInputController: @unchecked Sendable {
     private static let doubleClickRadius: CGFloat = 5
     private static let maximumDelta: CGFloat = 10_000
     private static let maximumKeyBatch = 256
+    /// UTF-16 units one `text` command may carry. Mirrors DESKTOP_CONTROL_MAX_TEXT_UNITS.
+    private static let maximumTextUnits = 4_096
+    /// UTF-16 units per posted event. `keyboardSetUnicodeString` writes into a fixed buffer on the
+    /// event, so a long string is posted as a run of events rather than one oversized one.
+    private static let unicodeChunkUnits = 20
     static let maximumCommandBytes = 16 * 1_024
 
     init(
@@ -184,6 +189,23 @@ final class DesktopInputController: @unchecked Sendable {
                         reject(sequence: sequence, reason: "helper-unavailable")
                         return
                     }
+                }
+                emitJSON(["type": "input-applied", "sequence": sequence])
+            }
+        case "text":
+            guard let sequence = command.sequence, sequence > 0,
+                  let text = command.text, !text.isEmpty else {
+                reject(sequence: command.sequence, reason: "malformed")
+                return
+            }
+            guard text.utf16.count <= Self.maximumTextUnits else {
+                reject(sequence: sequence, reason: "oversized")
+                return
+            }
+            withTrust(sequence: sequence) {
+                guard typeText(text) else {
+                    reject(sequence: sequence, reason: "helper-unavailable")
+                    return
                 }
                 emitJSON(["type": "input-applied", "sequence": sequence])
             }
@@ -415,6 +437,51 @@ final class DesktopInputController: @unchecked Sendable {
         }
     }
 
+    /// Type a string as its own characters rather than as key positions.
+    ///
+    /// `key-batch` posts virtual key codes, which are places on a US keyboard: they can only say
+    /// what that layout has a key for, and what they produce depends on the layout the Mac is
+    /// actually using. A pasted string is characters, so it travels and arrives as characters.
+    /// `keyboardSetUnicodeString` puts them on a key event whose key code is then irrelevant,
+    /// which is layout independent and covers everything Unicode has.
+    ///
+    /// Newlines are the exception and are pressed as Return. A unicode payload carrying a newline
+    /// inserts nothing in most fields, where Return is what a person pressing enter produces, and
+    /// a pasted paragraph is mostly newlines.
+    private func typeText(_ text: String) -> Bool {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            if index > 0 {
+                guard let returnKey = KeyCodeMap.lookup("return"),
+                      postKey(virtualKey: returnKey, keyDown: true, flags: []),
+                      postKey(virtualKey: returnKey, keyDown: false, flags: []) else { return false }
+            }
+            guard postUnicode(String(line)) else { return false }
+        }
+        return true
+    }
+
+    private func postUnicode(_ text: String) -> Bool {
+        let units = Array(text.utf16)
+        guard !units.isEmpty else { return true }
+        var start = units.startIndex
+        while start < units.endIndex {
+            let end = min(start + Self.unicodeChunkUnits, units.endIndex)
+            let chunk = Array(units[start..<end])
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            else { return false }
+            down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+            up.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+            eventPoster(down)
+            eventPoster(up)
+            start = end
+        }
+        return true
+    }
+
     private func postKey(virtualKey: CGKeyCode, keyDown: Bool, flags: CGEventFlags) -> Bool {
         guard let event = CGEvent(
             keyboardEventSource: source,
@@ -557,6 +624,7 @@ private struct DesktopControlCommand: Decodable {
     let phase: String?
     let sequence: UInt32?
     let keys: [Key]?
+    let text: String?
     let initialFocusDelayMs: Int?
     let settleFocusDelayMs: Int?
 }

@@ -7,6 +7,7 @@ import {
   desktopControlRejectionReason,
   MAX_DESKTOP_CONTROL_MESSAGE_BYTES,
   MAX_DESKTOP_KEY_BATCH,
+  MAX_DESKTOP_TEXT_UNITS,
 } from "./webrtcDesktopControl.ts";
 
 describe("desktop control v2 input", () => {
@@ -44,6 +45,22 @@ describe("desktop control v2 input", () => {
     )).toBe("oversized");
     expect(desktopControlRejectionReason(JSON.stringify({
       type: "key-batch", sequence: 1, keys: Array(MAX_DESKTOP_KEY_BATCH + 1).fill(key),
+    }))).toBe("oversized");
+  });
+
+  test("passes text through by length alone, since the helper types whatever it is given", () => {
+    // No character vocabulary is enforced here on purpose: the point of this input is to carry
+    // what a key code cannot, so an em dash and an emoji have to survive validation unchanged.
+    expect(desktopControlInput(JSON.stringify({
+      type: "text", sequence: 4, text: "caf\u00e9 \u2014 \ud83d\udc4b",
+    }))).toEqual({ type: "text", sequence: 4, text: "caf\u00e9 \u2014 \ud83d\udc4b" });
+    expect(desktopControlInput(JSON.stringify({ type: "text", sequence: 4, text: "" }))).toBeNull();
+    expect(desktopControlInput(JSON.stringify({ type: "text", sequence: 0, text: "hi" }))).toBeNull();
+    expect(desktopControlInput(JSON.stringify({ type: "text", sequence: 4, text: 12 }))).toBeNull();
+    const tooLong = "a".repeat(MAX_DESKTOP_TEXT_UNITS + 1);
+    expect(desktopControlInput(JSON.stringify({ type: "text", sequence: 4, text: tooLong }))).toBeNull();
+    expect(desktopControlRejectionReason(JSON.stringify({
+      type: "text", sequence: 4, text: tooLong,
     }))).toBe("oversized");
   });
 });

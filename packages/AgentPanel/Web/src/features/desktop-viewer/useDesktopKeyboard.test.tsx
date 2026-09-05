@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DESKTOP_CONTROL_MAX_TEXT_UNITS } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "./TileStreamRtc";
 import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "./useDesktopKeyboard";
@@ -107,6 +108,58 @@ describe("useDesktopKeyboard", () => {
         { code: "ansi-B", modifiers: [] },
       ],
     }]);
+  });
+
+  it("stays open when focus moves to a control inside its own accessory", () => {
+    vi.useFakeTimers();
+    const harness = setup();
+    let requestID: string | undefined;
+    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => editableFocus(harness.controller, requestID!));
+    expect(harness.controller.presentation.presentation).toBe("shown");
+
+    // The paste field lives in the accessory and has to take focus; the capture textarea blurs
+    // when it does, and that blur must not be read as the user dismissing the keyboard.
+    const accessory = screen.getByLabelText("accessory");
+    const field = document.createElement("textarea");
+    accessory.appendChild(field);
+    act(() => {
+      field.focus();
+      harness.capture.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(harness.controller.presentation.presentation).toBe("shown");
+    vi.useRealTimers();
+  });
+
+  it("sends pasted text as characters, including ones no key code can express", () => {
+    const harness = setup();
+    let requestID: string | undefined;
+    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => editableFocus(harness.controller, requestID!));
+
+    let accepted = false;
+    act(() => { accepted = harness.controller.sendText("caf\u00e9 \u2014 \ud83d\udc4b"); });
+
+    expect(accepted).toBe(true);
+    expect(harness.sent).toEqual([
+      { type: "text", sequence: 1, text: "caf\u00e9 \u2014 \ud83d\udc4b" },
+    ]);
+  });
+
+  it("refuses a string too long for one send rather than truncating it", () => {
+    const harness = setup();
+    let requestID: string | undefined;
+    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => editableFocus(harness.controller, requestID!));
+
+    let accepted = true;
+    act(() => { accepted = harness.controller.sendText("a".repeat(DESKTOP_CONTROL_MAX_TEXT_UNITS + 1)); });
+
+    expect(accepted).toBe(false);
+    expect(harness.sent).toEqual([]);
+    expect(harness.controller.deliveryStatus).toBe("Text not sent: too long for one send");
   });
 
   it("replaces a pending tap, discards its keys, and ignores its focus result", () => {

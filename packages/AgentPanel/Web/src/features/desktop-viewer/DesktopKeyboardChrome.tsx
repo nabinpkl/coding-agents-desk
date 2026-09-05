@@ -1,4 +1,5 @@
 import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
+import { useState } from "react";
 import type { RefObject, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
@@ -33,6 +34,7 @@ export function DesktopKeyboardChrome({
   onAutoChange,
   onKey,
   onModifier,
+  onSendText,
 }: {
   captureRef: RefObject<HTMLTextAreaElement | null>;
   /** Measured by the keyboard hook so the viewer can end the video above this bar. */
@@ -52,7 +54,10 @@ export function DesktopKeyboardChrome({
   onAutoChange: (enabled: boolean) => void;
   onKey: (code: RemoteKeyCode) => void;
   onModifier: (modifier: RemoteModifier) => void;
+  /** Sends a whole string as characters. True when it went, which is what clears the field. */
+  onSendText: (text: string) => boolean;
 }) {
+  const [draft, setDraft] = useState("");
   const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
@@ -103,6 +108,42 @@ export function DesktopKeyboardChrome({
           onMouseDown={(event) => event.preventDefault()}
           className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background px-1.5 pt-1 text-foreground"
         >
+          {/*
+            * A field to paste into, because the keystroke path cannot be pasted into on a phone.
+            * The capture textarea that carries live typing is invisible by design -- it exists to
+            * summon the software keyboard, not to be read -- so there was nowhere to put a
+            * clipboard. This one is visible, holds the text until Send, and delivers it as
+            * characters, which is also the only route for anything a US key cannot produce.
+            */}
+          <form
+            className="mb-1 flex items-start gap-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (draft.length === 0) return;
+              if (onSendText(draft)) setDraft("");
+            }}
+          >
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.currentTarget.value)}
+              // The accessory refuses focus so the capture textarea keeps it and the software
+              // keyboard stays up. This field is the one thing in here that has to take focus, so
+              // it stops that refusal from reaching it.
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              rows={1}
+              placeholder="Paste text to send to the Mac"
+              aria-label="Text to send to the Mac"
+              className="min-h-8 max-h-24 flex-1 resize-y rounded-lg border border-border bg-muted px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
+            />
+            <button
+              type="submit"
+              disabled={draft.length === 0}
+              className="h-8 shrink-0 cursor-pointer rounded-lg bg-foreground px-3 text-[11px] text-background disabled:cursor-default disabled:opacity-40"
+            >
+              Send
+            </button>
+          </form>
           <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
             <output
               aria-label="Local typing echo"

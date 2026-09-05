@@ -73,6 +73,7 @@ export type {
 export {
   DESKTOP_CONTROL_MAX_KEY_BATCH,
   DESKTOP_CONTROL_MAX_MESSAGE_BYTES,
+  DESKTOP_CONTROL_MAX_TEXT_UNITS,
 } from "./desktopControl.ts";
 
 export type {

@@ -126,7 +126,10 @@ describe("DesktopViewer", () => {
     expect(capture.parentElement).toBe(document.body);
     expect(container).not.toContainElement(chrome);
     expect(capture).toHaveStyle({ fontSize: "16px" });
-    expect(within(chrome).getAllByRole("button")).toHaveLength(12);
+    // Twelve rail-and-chrome controls plus the paste composer's Send.
+    expect(within(chrome).getAllByRole("button")).toHaveLength(13);
+    expect(within(chrome).getByLabelText("Text to send to the Mac")).toBeVisible();
+    expect(within(chrome).getByRole("button", { name: "Send" })).toBeDisabled();
     const rail = within(chrome).getByLabelText("Remote key rail");
     expect(within(rail).getAllByRole("button").map((button) => button.textContent))
       .toEqual(["Esc", "Tab", "⇧", "↑", "←", "↓", "→", "Cmd", "Ctrl", "Opt"]);

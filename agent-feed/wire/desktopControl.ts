@@ -3,6 +3,13 @@ import type { DesktopNavigationEvent, DesktopNavigationInput } from "./desktopNa
 
 export const DESKTOP_CONTROL_MAX_MESSAGE_BYTES = 16 * 1024;
 export const DESKTOP_CONTROL_MAX_KEY_BATCH = 256;
+/**
+ * How much text one `text` command may carry, in UTF-16 units.
+ *
+ * Generous enough for a pasted paragraph and bounded well inside the message cap, since the text
+ * is JSON-escaped on the way and a single emoji can cost a dozen bytes.
+ */
+export const DESKTOP_CONTROL_MAX_TEXT_UNITS = 4096;
 
 export type DesktopScrollPhase =
   | "began"
@@ -70,6 +77,12 @@ export type DesktopControlInput =
   | { type: "mouse-up"; button: "left" | "right" }
   | { type: "scroll"; dx: number; dy: number; phase: DesktopScrollPhase }
   | { type: "key-batch"; sequence: number; keys: RemoteKeyEvent[] }
+  // Characters rather than key positions, which is what a paste actually is. `key-batch` sends
+  // virtual key codes: they carry modifiers, which this cannot, but they can only express what a
+  // US layout has a key for and they produce whatever the Mac's current layout puts there. Pasted
+  // text routinely contains neither -- a curly quote, an em dash, an accent, an emoji -- so it
+  // goes as itself and is typed as itself on the other side.
+  | { type: "text"; sequence: number; text: string }
   | { type: "focus-query"; focusRequestId: string }
   | { type: "release-control" };
 

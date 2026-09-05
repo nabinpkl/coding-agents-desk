@@ -12,6 +12,8 @@ struct DesktopInputControllerTests {
         testTrustRevocationDuringFocusProbe()
         testEveryAnsiKeyAndModifierFlags()
         testBatchPrevalidationIsAtomic()
+        testTextTypesItsOwnCharacters()
+        testOversizedTextIsRejected()
         testAccessibilityDenial()
         testMalformedCommands()
         print("DesktopInputControllerTests: PASS")
@@ -79,6 +81,57 @@ struct DesktopInputControllerTests {
         }
         expect(emitted.last?["type"] as? String == "input-applied", "batch was not acknowledged")
         expect(emitted.last?["sequence"] as? Int == 7, "ack sequence differed")
+    }
+
+    /// A pasted string arrives as characters, including ones no US key can produce, and its
+    /// newlines arrive as Return.
+    private static func testTextTypesItsOwnCharacters() {
+        var posted: [CGEvent] = []
+        var emitted: [[String: Any]] = []
+        let controller = DesktopInputController(
+            bounds: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            emit: { emitted.append(json($0)) },
+            eventPoster: { posted.append($0.copy()!) },
+            trustProvider: { true }
+        )
+        expect(controller.handle(jsonLine([
+            "type": "text", "sequence": 9, "text": "h\u{e9}llo \u{2014} \u{1f44b}\nsecond",
+        ])), "JSON command was not consumed")
+        let typed = posted.filter { $0.type == .keyDown }.map(unicodeText).joined()
+        expect(typed.contains("h\u{e9}llo"), "an accented character did not survive: \(typed)")
+        expect(typed.contains("\u{2014}"), "an em dash did not survive: \(typed)")
+        expect(typed.contains("\u{1f44b}"), "an emoji did not survive: \(typed)")
+        expect(typed.contains("second"), "text after the newline was not typed: \(typed)")
+        // A Return key event reads back as a carriage return, which is how the newline shows up
+        // here. Asserting its payload rather than its key code keeps the test off the file-private
+        // key table, and proves it landed between the two lines rather than merely existing.
+        expect(typed.contains("\u{d}second"), "the newline did not become a Return press: \(typed.debugDescription)")
+        expect(emitted.last?["type"] as? String == "input-applied", "text was not acknowledged")
+        expect(emitted.last?["sequence"] as? Int == 9, "ack sequence differed")
+    }
+
+    private static func testOversizedTextIsRejected() {
+        var posted: [CGEvent] = []
+        var emitted: [[String: Any]] = []
+        let controller = DesktopInputController(
+            bounds: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            emit: { emitted.append(json($0)) },
+            eventPoster: { posted.append($0.copy()!) },
+            trustProvider: { true }
+        )
+        expect(controller.handle(jsonLine([
+            "type": "text", "sequence": 11, "text": String(repeating: "a", count: 5_000),
+        ])), "JSON command was not consumed")
+        expect(posted.isEmpty, "an oversized paste typed something anyway")
+        expect(emitted.last?["type"] as? String == "input-rejected", "oversized text was accepted")
+        expect(emitted.last?["reason"] as? String == "oversized", "rejection reason differed")
+    }
+
+    private static func unicodeText(_ event: CGEvent) -> String {
+        var length = 0
+        var buffer = [UniChar](repeating: 0, count: 64)
+        event.keyboardGetUnicodeString(maxStringLength: 64, actualStringLength: &length, unicodeString: &buffer)
+        return String(utf16CodeUnits: buffer, count: length)
     }
 
     private static func testInjectedFocusProbe() {

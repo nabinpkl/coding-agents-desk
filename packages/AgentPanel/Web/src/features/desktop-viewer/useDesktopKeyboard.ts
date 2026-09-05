@@ -19,6 +19,7 @@ import type {
 import {
   DESKTOP_CONTROL_MAX_KEY_BATCH,
   DESKTOP_CONTROL_MAX_MESSAGE_BYTES,
+  DESKTOP_CONTROL_MAX_TEXT_UNITS,
 } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "./TileStreamRtc";
 import {
@@ -214,6 +215,46 @@ export function useDesktopKeyboard({
       report({
         phase: "keyboard-input-rejected",
         detail: { sequence, count: keys.length, reason: lastSendFailure.current, secure },
+      });
+      return false;
+    }
+    setDeliveryStatus("Delivering…");
+    return true;
+  }, [report, sendControl]);
+
+  /**
+   * Send a whole string at once, as characters rather than as key presses.
+   *
+   * The per-keystroke path encodes each character as a US key position, and rejects the entire
+   * insertion when one character has no such position: a pasted paragraph from a phone, where iOS
+   * has already turned the quotes curly and the double hyphen into an em dash, fails as a whole.
+   * This path carries the characters themselves, so what can be pasted is whatever Unicode has.
+   *
+   * It does not carry modifiers, which is the trade: a chord is still a key-batch.
+   */
+  const sendText = useCallback((text: string): boolean => {
+    if (text.length === 0) return false;
+    const secure = presentationRef.current.secure;
+    const sequence = nextInputSequence();
+    const input: DesktopControlInput = { type: "text", sequence, text };
+    if (text.length > DESKTOP_CONTROL_MAX_TEXT_UNITS
+        || new TextEncoder().encode(JSON.stringify(input)).byteLength > DESKTOP_CONTROL_MAX_MESSAGE_BYTES) {
+      setDeliveryStatus("Text not sent: too long for one send");
+      report({
+        phase: "keyboard-input-rejected",
+        detail: { sequence, count: text.length, reason: "oversized", secure },
+      });
+      return false;
+    }
+    // No receipt tokens: the echo strip mirrors keystrokes, and a paste is not keystrokes. Its
+    // delivery is reported by the status line instead.
+    pendingDeliveries.current.set(sequence, { tokens: [], secure });
+    if (!sendControl(input)) {
+      pendingDeliveries.current.delete(sequence);
+      setDeliveryStatus("Text not sent: control channel unavailable");
+      report({
+        phase: "keyboard-input-rejected",
+        detail: { sequence, count: text.length, reason: lastSendFailure.current, secure },
       });
       return false;
     }
@@ -556,7 +597,11 @@ export function useDesktopKeyboard({
     if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
     blurTimer.current = window.setTimeout(() => {
       blurTimer.current = null;
+      // Focus landing on a control inside our own accessory is not the user leaving. Everything
+      // else in that bar refuses focus so the capture keeps it, but the paste field has to take
+      // it, and hiding the bar out from under a half-typed paste is the bug that causes.
       if (document.activeElement !== captureRef.current
+          && !accessoryRef.current?.contains(document.activeElement)
           && (presentationRef.current.presentation === "shown"
             || presentationRef.current.presentation === "pending")) clearLocalState("hide", "dom-blur");
     }, 0);
@@ -644,6 +689,7 @@ export function useDesktopKeyboard({
     showManually,
     hide,
     sendChromeKey,
+    sendText,
     tapModifier,
     setAutoKeyboard,
     captureProps: {

@@ -8,11 +8,13 @@ import type {
 import {
   DESKTOP_CONTROL_MAX_KEY_BATCH,
   DESKTOP_CONTROL_MAX_MESSAGE_BYTES,
+  DESKTOP_CONTROL_MAX_TEXT_UNITS,
   desktopNavigationInput,
 } from "@agentdesk/agent-feed-wire";
 
 export const MAX_DESKTOP_CONTROL_MESSAGE_BYTES = DESKTOP_CONTROL_MAX_MESSAGE_BYTES;
 export const MAX_DESKTOP_KEY_BATCH = DESKTOP_CONTROL_MAX_KEY_BATCH;
+export const MAX_DESKTOP_TEXT_UNITS = DESKTOP_CONTROL_MAX_TEXT_UNITS;
 const MAX_DELTA = 10_000;
 // Wide enough for any display this can capture, including an 8K virtual one, without accepting a
 // coordinate that could only be a bug.
@@ -147,6 +149,15 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
       }
       return { type: "key-batch", sequence: input.sequence, keys };
     }
+    case "text":
+      // Only the length is checked. Which characters are typeable is not this layer's business:
+      // the helper types the string as itself, so there is no vocabulary here to validate against.
+      return positiveUint32(input.sequence)
+        && typeof input.text === "string"
+        && input.text.length > 0
+        && input.text.length <= MAX_DESKTOP_TEXT_UNITS
+        ? { type: "text", sequence: input.sequence, text: input.text }
+        : null;
     case "focus-query":
       return focusRequestId(input.focusRequestId)
         ? { type: "focus-query", focusRequestId: input.focusRequestId }
@@ -163,10 +174,13 @@ export function desktopControlRejectionReason(
 ): "malformed" | "oversized" {
   if (Buffer.byteLength(data) > MAX_DESKTOP_CONTROL_MESSAGE_BYTES) return "oversized";
   try {
-    const value = JSON.parse(data.toString()) as { type?: unknown; keys?: unknown };
+    const value = JSON.parse(data.toString()) as { type?: unknown; keys?: unknown; text?: unknown };
     if (value.type === "key-batch"
         && Array.isArray(value.keys)
         && value.keys.length > MAX_DESKTOP_KEY_BATCH) return "oversized";
+    if (value.type === "text"
+        && typeof value.text === "string"
+        && value.text.length > MAX_DESKTOP_TEXT_UNITS) return "oversized";
   } catch {
     return "malformed";
   }
