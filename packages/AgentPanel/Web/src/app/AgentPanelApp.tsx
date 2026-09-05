@@ -154,6 +154,16 @@ interface SelectedThread {
 interface Props {
   feed: SidecarDataSource;
   host: HostActionsClient;
+  /**
+   * Fill the parent rather than the viewport.
+   *
+   * The default is `h-dvh` because this app is normally the whole page, and on mobile Safari the
+   * dynamic viewport is the only height that tracks the browser chrome as it hides. Inside another
+   * layout -- the browser tab shell, which puts a tab bar above it -- that same class overflows and
+   * pushes the chrome above it off screen, so an embedder asks for the parent's height instead.
+   * #root already has a definite height (styles.css), so `h-full` resolves the same chain.
+   */
+  fill?: boolean;
 }
 
 type TerminalState =
@@ -167,7 +177,7 @@ interface AgentTerminalComposer {
   send: (text: string) => Promise<void>;
 }
 
-export function App({ feed, host }: Props) {
+export function App({ feed, host, fill = false }: Props) {
   const [selectedThread, setSelectedThread] = useState<SelectedThread | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   // Every expanded project's sessions, owned here because they arrive on the same
@@ -783,7 +793,7 @@ export function App({ feed, host }: Props) {
           rather than reserving (see index.html's `viewport-fit=cover`). The drawer is the one
           surface this cannot reach -- it renders in the top layer, outside this tree, and pays its
           own. */}
-      <div className="relative flex h-dvh min-w-0 bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
+      <div className={`relative flex ${fill ? "h-full" : "h-dvh"} min-w-0 bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground`}>
         <FontSizeRoot />
         <BotCreatorDialog
           open={botCreatorOpen}

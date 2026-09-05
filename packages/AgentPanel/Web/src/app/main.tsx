@@ -15,6 +15,7 @@ import { installFixture } from "./fixture";
 import { installPagehideLifecycle } from "./pageLifecycle";
 import { installWindowDrag } from "./windowDrag";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
+import { BrowserSurfaces } from "./BrowserSurfaces";
 
 declare global {
   interface Window {
@@ -74,9 +75,16 @@ if (panelEntry() === "desktop") {
   // dies fails its request and the panel re-opens it. WebPanelKit's call is guarded by a typeof
   // check, so its absence is a no-op rather than an error.
 
+  // A native container chooses its surface and owns visibility, so it is handed that surface and
+  // nothing else. A browser tab has no chooser, so it gets both behind a tab bar and opens on the
+  // desktop viewer: the feed is reachable from every shell, the desktop from none of them.
   createRoot(root).render(
     <StrictMode>
-      <App feed={feed} host={host} />
+      {hasNativeHost() ? (
+        <App feed={feed} host={host} />
+      ) : (
+        <BrowserSurfaces transport={transport} feed={feed} host={host} />
+      )}
     </StrictMode>,
   );
 
