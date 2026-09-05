@@ -305,6 +305,31 @@ const controlOwners = new Map<symbol, { encoder: SharedEncoder; revoke: (epoch: 
 const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
 const ENCODER_METADATA_TIMEOUT_MS = 5_000;
 const ENCODER_LINGER_MS = 3_000;
+/**
+ * Children killed but not yet reaped.
+ *
+ * ScreenCaptureKit starves a capture that starts while another is tearing down: it delivers zero
+ * frames and never recovers, which grid-encoder can only discover by dying ten seconds later --
+ * long after the viewer switching monitors has given up. So a spawn waits for the previous
+ * teardown instead of racing it. Bounded, because a child that will not exit must not become a
+ * reason no capture can ever start.
+ */
+const encoderTeardowns = new Set<Promise<unknown>>();
+const TEARDOWN_DRAIN_TIMEOUT_MS = 2_000;
+
+function trackEncoderTeardown(child: { exited: Promise<unknown> }): void {
+  const settled = child.exited.catch(() => undefined);
+  encoderTeardowns.add(settled);
+  void settled.finally(() => encoderTeardowns.delete(settled));
+}
+
+async function drainEncoderTeardowns(): Promise<void> {
+  if (encoderTeardowns.size === 0) return;
+  await Promise.race([
+    Promise.allSettled([...encoderTeardowns]),
+    Bun.sleep(TEARDOWN_DRAIN_TIMEOUT_MS),
+  ]);
+}
 const MAX_PENDING_CURSOR_ACKS = 2_048;
 
 interface EncoderControlSink {
@@ -356,6 +381,7 @@ function killSharedEncoder(shared: SharedEncoder, reason: string) {
   shared.metadataWaiters.clear();
   try {
     shared.child.kill();
+    trackEncoderTeardown(shared.child);
   } catch {
     // Already gone.
   }
@@ -406,13 +432,13 @@ function rememberCursorAck(shared: SharedEncoder, revision: number, ack: Pending
   if (oldest !== undefined) shared.pendingCursorAcks.delete(oldest);
 }
 
-function acquireSharedEncoder(
+async function acquireSharedEncoder(
   windowID: string,
   binary: string,
   binaryMtimeMs: number,
   args: string[],
   codec: TileVideoCodec,
-): SharedEncoder {
+): Promise<SharedEncoder> {
   const existing = sharedEncoders.get(windowID);
   // A rebuild retires the running child rather than joining it. The viewer pays one reconnect,
   // which is the cost the tile pool already accepts for the same reason, and in exchange an edit
@@ -432,6 +458,15 @@ function acquireSharedEncoder(
     return existing;
   }
 
+  // Never start a capture on top of one that is still dying; see `encoderTeardowns`.
+  await drainEncoderTeardowns();
+  // Another offer may have created this encoder while we waited, and a second child for the same
+  // key would orphan the first.
+  const raced = sharedEncoders.get(windowID);
+  if (raced && !raced.dead && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
+    diag(`encoder key=${windowID} adopted after teardown drain subscribers=${raced.subscribers.size}`);
+    return raced;
+  }
   const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
   const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
   const shared: SharedEncoder = {
@@ -1257,20 +1292,36 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   if (fps) args.push("--fps", String(fps));
   if (bitrate) args.push("--bitrate", String(bitrate));
 
-  const shared = acquireSharedEncoder(captureKey, binary, binaryMtimeMs, args, choice.kind);
-  inputEncoder = shared;
-  connectionDiagnostic.encoder = shared;
-  let source: WebrtcTileSourceMetadata;
-  try {
-    source = await waitForEncoderMetadata(shared);
-    if (captureDisplayId && source.displayId !== captureDisplayId) {
-      throw new Error("capture display identity does not match the requested monitor");
+  // One retry, because a wedged capture is recoverable and a viewer switching monitors is not
+  // patient. Draining teardowns before a spawn makes the starve rare, but ScreenCaptureKit can
+  // still hand back a stream that never produces a frame; the helper only reports that by dying,
+  // and by then the offer is already lost. A second attempt starts from a settled machine, so it
+  // either works or fails for a reason worth surfacing.
+  let shared!: SharedEncoder;
+  let source!: WebrtcTileSourceMetadata;
+  for (let attempt = 1; ; attempt += 1) {
+    shared = await acquireSharedEncoder(captureKey, binary, binaryMtimeMs, args, choice.kind);
+    inputEncoder = shared;
+    connectionDiagnostic.encoder = shared;
+    try {
+      source = await waitForEncoderMetadata(shared);
+      if (captureDisplayId && source.displayId !== captureDisplayId) {
+        throw new Error("capture display identity does not match the requested monitor");
+      }
+      break;
+    } catch (error) {
+      killSharedEncoder(shared, "source-metadata-unavailable");
+      // Only a capture that never spoke is worth starting again. A display that answered with the
+      // wrong identity, or a cancelled offer, would fail the same way twice.
+      const retryable = attempt === 1 && !signal.aborted && !(error instanceof Error
+        && error.message.startsWith("capture display identity"));
+      if (!retryable) {
+        closeConnectionDiagnostic();
+        void peer.close();
+        throw error;
+      }
+      diag(`c${connection} encoder key=${captureKey} retrying after ${error instanceof Error ? error.message : String(error)}`);
     }
-  } catch (error) {
-    closeConnectionDiagnostic();
-    killSharedEncoder(shared, "source-metadata-unavailable");
-    void peer.close();
-    throw error;
   }
   let dead = false;
   let release: () => void = () => {};
