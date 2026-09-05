@@ -76,7 +76,7 @@ function diag(line: string) {
   }
 }
 
-type KeyframeRequestReason = "pli" | "bootstrap";
+type KeyframeRequestReason = "pli" | "bootstrap" | "bitrate-recovery";
 
 /**
  * Bounded sender-side evidence for the question receiver stats cannot answer:
@@ -328,6 +328,12 @@ const ENCODER_LINGER_MS = 3_000;
  * text readable; well under it, edges turn to mush no matter how many pixels are being sent.
  */
 const TARGET_BITS_PER_PIXEL = 0.12;
+/**
+ * How far the budget must recover before the picture is worth asking for again. Keyframes are
+ * expensive and unrequested ones burst a metered link, so this refreshes on a real change of
+ * circumstance rather than on every fluctuation.
+ */
+const KEYFRAME_ON_RECOVERY_FACTOR = 1.8;
 /**
  * Children killed but not yet reaped.
  *
@@ -1495,8 +1501,22 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     // capacity within seconds of traffic flowing.
     const clamped = Math.max(300_000, Math.min(bitrateCeiling(), Math.round(estimate)));
     if (appliedBitrate > 0 && Math.abs(clamped - appliedBitrate) / appliedBitrate < 0.1) return;
+    const previous = appliedBitrate;
     appliedBitrate = clamped;
     encoderStdin(shared, `${JSON.stringify({ type: "bitrate", bits: clamped })}\n`);
+    // A raised budget does not improve a picture that has stopped changing.
+    //
+    // The GOP is infinite, so the last keyframe is what a still desktop is made of, and the
+    // estimator can only measure traffic that exists: an idle screen sends almost nothing, the
+    // estimate falls to the floor, and whatever keyframe was encoded in that window becomes the
+    // image indefinitely. Deltas cannot repair it, because nothing is moving to carry them. When
+    // the budget recovers, the picture has to be asked for again to benefit -- otherwise quality
+    // improves only by the accident of someone dragging a window.
+    if (previous > 0 && clamped >= previous * KEYFRAME_ON_RECOVERY_FACTOR) {
+      diag(`c${connection} keyframe-on-recovery ${previous} -> ${clamped}`);
+      shared.videoDiagnostics.recordKeyframeRequest("bitrate-recovery");
+      encoderStdin(shared, `${JSON.stringify({ type: "keyframe" })}\n`);
+    }
   };
   transceiver.sender.onRtcp.subscribe((rtcp) => {
     const feedback = (rtcp as { feedback?: { bitrate?: bigint } }).feedback;
