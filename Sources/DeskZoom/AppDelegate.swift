@@ -182,26 +182,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTitle()
     }
 
+    /// Starts the whole-canvas capture, which always runs, and the sharp one only if the overview is not
+    /// already detailed enough. Permission is waited on here because this is the first stream to start.
     private func startCapture(for display: VirtualDisplay) async {
-        guard let view = canvasView else { return }
-        let capture = DisplayCapture(displayID: display.displayID)
-        capture.onFrame = { [weak self, weak view] frame, region in
+        let overview = DisplayCapture(displayID: display.displayID)
+        overview.onFrame = { [weak self] frame, region in
             MainActor.assumeIsolated {
-                view?.show(frame: frame, region: region)
-                guard let self else { return }
-                self.frameCount += 1
-                // Cheap liveness readout. A stalled capture is otherwise silent: the picture simply stops,
-                // with no error, and it took two rounds of guessing before this made it obvious.
-                if self.frameCount % 30 == 0 { self.updateTitle() }
+                self?.canvasView?.showOverview(frame: frame, region: region)
+                self?.countFrame()
             }
         }
-        capture.onStop = { error in fail("\(error)") }
+        overview.onStop = { error in fail("\(error)") }
+
+        let whole = CGRect(origin: .zero, size: display.size)
+        let pixels = CanvasView.overviewPixelSize(for: display.size, pixelsPerPoint: display.pixelsPerPoint)
         // The first launch has no Screen Recording grant: ScreenCaptureKit reports "declined" while the
         // system prompt is still up. Keep retrying so an Allow in System Settings takes effect without a relaunch.
         while true {
             do {
-                let plan = view.capturePlan
-                try await capture.setRegion(sourceRect: plan.region, outputPixelSize: plan.pixelSize)
+                try await overview.setRegion(sourceRect: whole, outputPixelSize: pixels)
                 break
             } catch let error as SCStreamError where error.code == .userDeclined {
                 screenRecordingDenied = true
@@ -212,26 +211,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         screenRecordingDenied = false
-        self.capture = capture
-        await startOverviewCapture(for: display, view: view)
+        overviewCapture = overview
         updateTitle()
+        scheduleCaptureUpdate(after: 0)
     }
 
-    /// A second, permanent stream of the whole canvas at low resolution. It never moves, so it is always
-    /// there to draw under the sharp capture while that one is being re-aimed.
-    private func startOverviewCapture(for display: VirtualDisplay, view: CanvasView) async {
-        let overview = DisplayCapture(displayID: display.displayID)
-        overview.onFrame = { [weak view] frame, region in
-            MainActor.assumeIsolated { view?.showOverview(frame: frame, region: region) }
+    /// The sharp capture of whatever region is being looked at. Created on demand, and torn down again
+    /// whenever the overview alone can serve the view.
+    private func startDetailCapture() -> DisplayCapture? {
+        guard virtualDisplay != nil else { return nil }
+        let detail = DisplayCapture(displayID: virtualDisplay!.displayID)
+        detail.onFrame = { [weak self] frame, region in
+            MainActor.assumeIsolated {
+                self?.canvasView?.show(frame: frame, region: region)
+                self?.countFrame()
+            }
         }
-        overview.onStop = { error in fail("\(error)") }
-        let whole = CGRect(origin: .zero, size: display.size)
-        do {
-            try await overview.setRegion(sourceRect: whole, outputPixelSize: CanvasView.overviewPixelSize(for: display.size))
-        } catch {
-            fail("\(error)")
-        }
-        overviewCapture = overview
+        detail.onStop = { error in fail("\(error)") }
+        capture = detail
+        return detail
+    }
+
+    /// Cheap liveness readout. A stalled capture is otherwise silent: the picture simply stops, with no
+    /// error, and it took two rounds of guessing before this made it obvious.
+    private func countFrame() {
+        frameCount += 1
+        if frameCount % 30 == 0 { updateTitle() }
     }
 
     /// The event tap needs the Accessibility grant. Prompt once, then keep trying until it lands.
@@ -269,7 +274,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyCaptureUpdate() {
-        guard let capture, let view = canvasView else { return }
+        guard let view = canvasView else { return }
+        // When the overview already carries the detail the window can show, a second stream would only add
+        // something to swap to and from while panning.
+        guard view.needsDetailCapture else {
+            if let running = capture {
+                capture = nil
+                Task { await running.stop() }
+                view.clearDetail()
+            }
+            return
+        }
+        guard let capture = capture ?? startDetailCapture() else { return }
         if captureUpdateInFlight {
             captureUpdateQueued = true
             return
@@ -401,7 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state: String
         if screenRecordingDenied {
             state = "allow Screen Recording"
-        } else if capture == nil {
+        } else if overviewCapture == nil {
             state = "choose Extended Display"
         } else if accessibilityMissing {
             state = "allow Accessibility"

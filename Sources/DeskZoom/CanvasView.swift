@@ -87,6 +87,13 @@ final class CanvasView: NSView {
         placeContent()
     }
 
+    /// Drops the sharp picture, leaving the overview alone on screen. Used when the overview turns out to
+    /// carry all the detail the window can show, so the sharp stream is stopped.
+    func clearDetail() {
+        detailRegion = nil
+        detailLayer.contents = nil
+    }
+
     /// The whole-canvas picture that fills in wherever the sharp one has not caught up.
     func showOverview(frame: CMSampleBuffer, region: CGRect) {
         guard let surface = Self.surface(of: frame) else { return }
@@ -133,10 +140,18 @@ final class CanvasView: NSView {
         ))
     }
 
-    /// Pixel size for the whole-canvas overview: a quarter of the canvas in each direction, which is
-    /// enough to stand in for the sharp picture for the moment it takes to re-aim, and cheap to keep running.
-    static func overviewPixelSize(for canvas: CGSize) -> CGSize {
-        CGSize(width: (canvas.width / 4).rounded(), height: (canvas.height / 4).rounded())
+    /// How many pixels the whole-canvas capture may use. Generous on purpose: whenever the overview is
+    /// already as detailed as the view needs, the sharp capture is not started at all, and panning cannot
+    /// flicker because there is nothing to swap between.
+    static let overviewPixelBudget: CGFloat = 10_000_000
+
+    /// Pixel size for the whole-canvas overview: as much detail as the budget allows, never more than the
+    /// display itself holds.
+    static func overviewPixelSize(for canvas: CGSize, pixelsPerPoint: CGFloat) -> CGSize {
+        guard canvas.width > 0, canvas.height > 0 else { return CGSize(width: 1, height: 1) }
+        let full = CGSize(width: canvas.width * pixelsPerPoint, height: canvas.height * pixelsPerPoint)
+        let scale = min(1, (overviewPixelBudget / (full.width * full.height)).squareRoot())
+        return CGSize(width: (full.width * scale).rounded(), height: (full.height * scale).rounded())
     }
 
     /// Capture pixels per canvas point: what the window can actually show, capped at the source's own
@@ -144,6 +159,19 @@ final class CanvasView: NSView {
     var wantedPixelsPerPoint: CGFloat {
         let scale = window?.backingScaleFactor ?? 2
         return min(contentRect.width * scale / max(1, viewport.visible.width), maxPixelsPerPoint)
+    }
+
+    /// Detail the whole-canvas capture provides, per canvas point.
+    var overviewPixelsPerPoint: CGFloat {
+        let size = Self.overviewPixelSize(for: viewport.canvas, pixelsPerPoint: maxPixelsPerPoint)
+        return viewport.canvas.width > 0 ? size.width / viewport.canvas.width : 0
+    }
+
+    /// Whether a second, sharper capture of the visible region is worth running at all. When the overview
+    /// already carries the detail the window can show, it is not: one stream covers everything, no region
+    /// is ever re-aimed, and panning has nothing to swap between.
+    var needsDetailCapture: Bool {
+        wantedPixelsPerPoint > overviewPixelsPerPoint * 1.08
     }
 
     /// Whether a running capture still serves the current viewport, so the app can skip the expensive

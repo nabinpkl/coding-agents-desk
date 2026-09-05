@@ -278,3 +278,24 @@ final class VirtualDisplayLadderTests: XCTestCase {
         XCTAssertEqual(wide.label, "7680×4800 @1x")
     }
 }
+
+final class OverviewCaptureTests: XCTestCase {
+    func testASmallCanvasIsCapturedWholeAtFullDetail() {
+        // 1920x1200 at 2x is 3840x2400 pixels, comfortably inside the budget, so nothing is given up.
+        let size = CanvasView.overviewPixelSize(for: CGSize(width: 1920, height: 1200), pixelsPerPoint: 2)
+        XCTAssertEqual(size, CGSize(width: 3840, height: 2400))
+    }
+
+    func testALargeCanvasIsCapturedWholeWithinTheBudget() {
+        let canvas = CGSize(width: 7680, height: 4800)
+        let size = CanvasView.overviewPixelSize(for: canvas, pixelsPerPoint: 1)
+        XCTAssertLessThanOrEqual(size.width * size.height, CanvasView.overviewPixelBudget * 1.001)
+        XCTAssertEqual(size.width / size.height, canvas.width / canvas.height, accuracy: 0.01)
+        XCTAssertGreaterThan(size.width, canvas.width / 3, "still far more detail than a thumbnail")
+    }
+
+    func testTheOverviewIsNeverAskedForMoreThanTheDisplayHolds() {
+        let size = CanvasView.overviewPixelSize(for: CGSize(width: 1280, height: 800), pixelsPerPoint: 1)
+        XCTAssertEqual(size, CGSize(width: 1280, height: 800))
+    }
+}

@@ -56,14 +56,17 @@ iteration puts you back where you were looking rather than at the whole canvas.
 - `Sources/CGVirtualDisplayPrivate`: header for the private CoreGraphics virtual display
   classes (the same ones BetterDisplay and DeskPad use).
 - `VirtualDisplay.swift`: creates the display with one 1x mode.
+- The overview alone serves 1920x1200 @2x completely, and serves every rung at Fit. The sharp
+  capture only appears when zoomed in on a large canvas.
 - Re-aiming the sharp capture is rate limited to roughly three times a second. Every re-aim
   swaps the sharp picture for the blurred overview until the new stream delivers, so re-aiming
   on every pointer move reads as the windows flickering. Measured over a five second sweep of
   the whole canvas at 23x zoom: two re-aims, against well over a hundred before the limit.
-- Two captures run: a permanent low-resolution one of the whole canvas, and a sharp one of
-  the region being looked at. Panning and zooming outrun a capture stream, and the first fix
-  for black bars only stopped the picture being letterboxed, not the area the sharp capture
-  had not reached. That area now shows the overview, blurred, instead of background.
+- The whole canvas is captured continuously, at as much detail as a 10 megapixel budget
+  allows. A second, sharper capture of just the visible region runs only when that is not
+  already enough, which on the small rungs and at Fit is never. Panning then has nothing to
+  swap between, which is what flicker was: the picture alternating between the sharp region
+  and the coarse stand-in as the view outran the re-aiming.
 - `DisplayCapture.swift`: ScreenCaptureKit stream limited to the visible `sourceRect`, so
   zooming in never captures more pixels than the window can show. Re-aiming starts a fresh
   stream and keeps the old one painting until the new one delivers.
