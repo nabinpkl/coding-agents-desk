@@ -17,6 +17,7 @@ import {
   TileStreamRtc,
   type DesktopControlTransport,
 } from "./TileStreamRtc";
+import { getCaptureScale, setCaptureScale, useCaptureScale } from "./captureScale";
 import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
 import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
 import { useDesktopKeyboard } from "./useDesktopKeyboard";
@@ -35,7 +36,6 @@ const CAPTURE_SCALE_SETTLE_MS = 400;
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
   transport, displayId, interactive = true, navigation, onChromeHeight,
-  captureScale = 1, onCaptureScale,
   onSource, onTransport, onEvent, onFirstFrame, onKeyboard, onState, onDisplayUnavailable,
 }: {
   transport: AgentHttpTransport;
@@ -43,8 +43,6 @@ export function DesktopViewerSurface({
   interactive?: boolean;
   navigation?: ReactNode;
   onChromeHeight?: (height: number) => void;
-  captureScale?: number;
-  onCaptureScale?: (value: number) => void;
   onSource?: (source: WebrtcTileSourceMetadata) => void;
   onTransport?: (transport: DesktopControlTransport | null) => void;
   onEvent?: (event: DesktopControlEvent) => void;
@@ -201,11 +199,10 @@ export function DesktopViewerSurface({
           initialCursor={source?.cursor}
           subscribeCursorEvents={subscribeCursorEvents}
         >
-          <TileStreamRtc
+          <DesktopStream
             windowID="display"
             displayId={displayId}
             fill
-            captureScale={captureScale}
             httpTransport={transport}
             onState={applyTileState}
             onControlTransport={setControlTransport}
@@ -245,14 +242,7 @@ export function DesktopViewerSurface({
           />
           {!keyboard.keyboardPresented ? (
             <>
-              {onCaptureScale ? (
-                <ResolutionSlider
-                  value={captureScale}
-                  onChange={onCaptureScale}
-                  sourceWidth={source?.width}
-                  sourceHeight={source?.height}
-                />
-              ) : null}
+              <ResolutionSlider sourceWidth={source?.width} sourceHeight={source?.height} />
               <ModeButton
                 active={!pointerMode}
                 label="View"
@@ -282,7 +272,7 @@ export function DesktopViewerSurface({
           style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
           className="truncate px-1 font-mono text-[10px] leading-3 text-white/70">
           {tile.kind === "playing" && source
-            ? `${source.width}×${source.height} · ${captureScale.toFixed(2)}× · ${tile.codec}`
+            ? `${source.width}×${source.height} · ${tile.codec}`
             : tile.kind}
         </p>
       </div>
@@ -326,14 +316,22 @@ function encodedCaptureSize(sourceWidth: number, sourceHeight: number, scale: nu
   return `${Math.round(sourceWidth * capped)}×${Math.round(sourceHeight * capped)}`;
 }
 
+/**
+ * The stream, subscribed to the capture multiplier.
+ *
+ * This exists so the subscription lives BELOW the viewport rather than above it. Reading the value
+ * in the surface would re-render the surface, which rebuilds the element handed to `TileViewport`
+ * as `children` and disturbs the effect holding its zoom, pan and cursor. Here, a resolution change
+ * re-renders this component alone and the view around it does not move.
+ */
+function DesktopStream(props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale">) {
+  return <TileStreamRtc {...props} captureScale={useCaptureScale()} />;
+}
+
 function ResolutionSlider({
-  value,
-  onChange,
   sourceWidth,
   sourceHeight,
 }: {
-  value: number;
-  onChange: (value: number) => void;
   sourceWidth?: number;
   sourceHeight?: number;
 }) {
@@ -344,22 +342,15 @@ function ResolutionSlider({
   // pointer: React writes a now-stale value back into the DOM mid-drag and the thumb snaps, usually
   // toward whichever end the drag was heading for. Keeping the drag local means one cheap re-render
   // per step here, and one renegotiation when it settles.
-  const [draft, setDraft] = useState(value);
-  const settling = useRef(false);
-  // Follow the value when it changes from outside -- a restore, or another surface -- but never
-  // yank the thumb out from under a drag in progress.
+  // Seeded from the store and owned here while it moves; the store hears only where it came to
+  // rest. Deliberately not subscribed: this control is the one writing, and re-rendering it from
+  // its own write would fight the pointer mid-drag.
+  const [draft, setDraft] = useState(getCaptureScale);
   useEffect(() => {
-    if (!settling.current) setDraft(value);
-  }, [value]);
-  useEffect(() => {
-    if (draft === value) {
-      settling.current = false;
-      return;
-    }
-    settling.current = true;
-    const settle = setTimeout(() => onChange(draft), CAPTURE_SCALE_SETTLE_MS);
+    if (draft === getCaptureScale()) return;
+    const settle = setTimeout(() => setCaptureScale(draft), CAPTURE_SCALE_SETTLE_MS);
     return () => clearTimeout(settle);
-  }, [draft, value, onChange]);
+  }, [draft]);
   const encoded = sourceWidth && sourceHeight
     ? encodedCaptureSize(sourceWidth, sourceHeight, draft)
     : null;

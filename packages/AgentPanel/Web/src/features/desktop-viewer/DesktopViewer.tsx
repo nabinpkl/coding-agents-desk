@@ -7,15 +7,13 @@ import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTra
 import { DesktopViewerSurface } from "./DesktopViewerSurface";
 import { DesktopNavigationChrome } from "./DesktopNavigationChrome";
 import { useDesktopNavigation } from "./useDesktopNavigation";
-import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN, postTileTelemetry, type DesktopControlTransport } from "./TileStreamRtc";
+import { postTileTelemetry, type DesktopControlTransport } from "./TileStreamRtc";
 import type { DesktopStreamState } from "./DesktopStreamState";
 
 export function desktopDocumentFallbackHeight(viewportHeight: number, screenHeight: number): number | null {
   if (viewportHeight > 0 || !Number.isFinite(screenHeight) || screenHeight <= 0) return null;
   return Math.round(screenHeight);
 }
-
-const CAPTURE_SCALE_STORAGE_KEY = "agentdesk.desktop.captureScale";
 
 /**
  * Which monitor this session was last looking at, remembered per session because display ids belong
@@ -35,10 +33,6 @@ function rememberedDisplay(scope: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function clampCaptureScale(value: number): number {
-  return Math.min(CAPTURE_SCALE_MAX, Math.max(CAPTURE_SCALE_MIN, value));
 }
 
 interface ViewerSlotState {
@@ -84,26 +78,6 @@ export function DesktopViewer({ transport, scope = "default" }: {
   viewerRef.current = viewer;
   const sequence = useRef(1);
   const [chromeHeight, setChromeHeight] = useState(0);
-  // The capture-resolution knob lives here, above the slots, so it survives a monitor handover and
-  // is remembered between visits. Clamped on the way in and out so a hand-edited value cannot push
-  // the encoder past its bounds.
-  const [captureScale, setCaptureScaleState] = useState<number>(() => {
-    try {
-      const stored = Number.parseFloat(localStorage.getItem(CAPTURE_SCALE_STORAGE_KEY) ?? "");
-      return Number.isFinite(stored) ? clampCaptureScale(stored) : 1;
-    } catch {
-      return 1;
-    }
-  });
-  const setCaptureScale = useCallback((value: number) => {
-    const clamped = clampCaptureScale(value);
-    setCaptureScaleState(clamped);
-    try {
-      localStorage.setItem(CAPTURE_SCALE_STORAGE_KEY, String(clamped));
-    } catch {
-      // a private window without storage still gets the live value for this session
-    }
-  }, []);
   const active = viewer.slots.find((slot) => slot.id === viewer.active)!;
   const activeDisplayId = active.source?.displayId;
   const report = useCallback((phase: string, detail: Record<string, unknown>) => {
@@ -221,7 +195,6 @@ export function DesktopViewer({ transport, scope = "default" }: {
           <ViewerSlot slot={slot} transport={transport} interactive={slot.id === viewer.active && canInteract}
             navigation={slot.id === viewer.active ? navigationChrome : null}
             onChromeHeight={slot.id === viewer.active ? setChromeHeight : undefined}
-            captureScale={captureScale} onCaptureScale={setCaptureScale}
             patch={patchSlot} event={event} displayUnavailable={displayUnavailable} />
         </div>
       ))}
@@ -238,12 +211,10 @@ export function DesktopViewer({ transport, scope = "default" }: {
   );
 }
 
-function ViewerSlot({ slot, transport, interactive, navigation, onChromeHeight, captureScale, onCaptureScale, patch, event, displayUnavailable }: {
+function ViewerSlot({ slot, transport, interactive, navigation, onChromeHeight, patch, event, displayUnavailable }: {
   slot: ViewerSlotState; transport: AgentHttpTransport; interactive: boolean;
   navigation: ReactNode;
   onChromeHeight?: (height: number) => void;
-  captureScale: number;
-  onCaptureScale: (value: number) => void;
   patch: (id: number, patch: Partial<ViewerSlotState>) => void;
   event: (id: number, event: DesktopControlEvent) => void;
   displayUnavailable: (id: number, replacement: string) => void;
@@ -259,7 +230,6 @@ function ViewerSlot({ slot, transport, interactive, navigation, onChromeHeight, 
   }, [slot.id, patch]);
   return <DesktopViewerSurface transport={transport} displayId={slot.displayId} interactive={interactive}
     navigation={navigation} onChromeHeight={onChromeHeight}
-    captureScale={captureScale} onCaptureScale={onCaptureScale}
     onSource={source} onTransport={control} onEvent={onEvent} onFirstFrame={ready} onKeyboard={keyboard}
     onState={state} onDisplayUnavailable={unavailable} />;
 }
