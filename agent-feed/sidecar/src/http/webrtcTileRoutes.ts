@@ -403,6 +403,39 @@ function captureIdentity(args: readonly string[]): string {
   return kept.join(" ");
 }
 
+/**
+ * One encoder per (target, geometry), not per target.
+ *
+ * Two geometries of one display run at once by design: the viewer's coarse whole-display stream
+ * underneath its cropped sharp one, so a pan past the sharp region shows the coarse picture rather
+ * than nothing. And a re-aim no longer kills the encoder the viewer is still painting from; that
+ * one lingers for its last subscriber and dies on its own, which is also what keeps a new capture
+ * from starting on top of an old one's teardown.
+ */
+function encoderMapKey(windowID: string, identity: string): string {
+  return `${windowID}|${identity}`;
+}
+
+function liveEncodersFor(windowID: string): SharedEncoder[] {
+  const prefix = `${windowID}|`;
+  const live: SharedEncoder[] = [];
+  for (const [key, shared] of sharedEncoders) {
+    if (key.startsWith(prefix) && !shared.dead) live.push(shared);
+  }
+  return live;
+}
+
+/** A short name for a geometry, for the diagnostics log; the identity is too long to read there. */
+function geometryTag(args: readonly string[]): string {
+  const after = (flag: string) => {
+    const index = args.indexOf(flag);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  const rect = after("--source-rect") ?? "whole";
+  const size = `${after("--width") ?? "auto"}x${after("--height") ?? "auto"}`;
+  return `${rect}@${size}`;
+}
+
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
   if (shared.dead) return;
   diag(
@@ -480,27 +513,24 @@ async function acquireSharedEncoder(
   codec: TileVideoCodec,
 ): Promise<SharedEncoder> {
   const identity = captureIdentity(args);
-  const existing = sharedEncoders.get(windowID);
-  // A rebuild retires the running child rather than joining it. The viewer pays one reconnect,
-  // which is the cost the tile pool already accepts for the same reason, and in exchange an edit
-  // to the helper is visible on the next offer instead of whenever the last viewer happens to
-  // leave.
-  if (existing && !existing.dead && existing.binaryMtimeMs !== binaryMtimeMs) {
-    diag(`encoder key=${windowID} retired stale binary mtime=${existing.binaryMtimeMs} -> ${binaryMtimeMs}`);
-    killSharedEncoder(existing, "stale-binary");
+  const mapKey = encoderMapKey(windowID, identity);
+  // A rebuild retires every running child for this target rather than joining any of them. The
+  // viewer pays one reconnect, which is the cost the tile pool already accepts for the same
+  // reason, and in exchange an edit to the helper is visible on the next offer instead of
+  // whenever the last viewer happens to leave.
+  for (const running of liveEncodersFor(windowID)) {
+    if (running.binaryMtimeMs !== binaryMtimeMs) {
+      diag(`encoder key=${running.key} retired stale binary mtime=${running.binaryMtimeMs} -> ${binaryMtimeMs}`);
+      killSharedEncoder(running, "stale-binary");
+    }
   }
-  // A new capture size means a new child: the helper reads --width and --height once, at spawn.
-  // The viewer pays one reconnect, the same trade the stale-binary retirement already makes.
-  if (existing && !existing.dead && existing.identity !== identity) {
-    diag(`encoder key=${windowID} retired capture change "${existing.identity}" -> "${identity}"`);
-    killSharedEncoder(existing, "capture-args-changed");
-  }
-  if (existing && !existing.dead && existing.identity === identity && existing.binaryMtimeMs === binaryMtimeMs) {
+  const existing = sharedEncoders.get(mapKey);
+  if (existing && !existing.dead && existing.binaryMtimeMs === binaryMtimeMs) {
     if (existing.codec !== codec) {
       throw new Error(`shared encoder codec changed from ${existing.codec} to ${codec}`);
     }
     diag(
-      `encoder key=${windowID} reuse accessUnits=${existing.accessUnits} subscribers=${existing.subscribers.size} cachedKeyframe=${existing.latestKeyframe !== null}`,
+      `encoder key=${existing.key} reuse accessUnits=${existing.accessUnits} subscribers=${existing.subscribers.size} cachedKeyframe=${existing.latestKeyframe !== null}`,
     );
     return existing;
   }
@@ -509,15 +539,15 @@ async function acquireSharedEncoder(
   await drainEncoderTeardowns();
   // Another offer may have created this encoder while we waited, and a second child for the same
   // key would orphan the first.
-  const raced = sharedEncoders.get(windowID);
-  if (raced && !raced.dead && raced.identity === identity && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
-    diag(`encoder key=${windowID} adopted after teardown drain subscribers=${raced.subscribers.size}`);
+  const raced = sharedEncoders.get(mapKey);
+  if (raced && !raced.dead && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
+    diag(`encoder key=${raced.key} adopted after teardown drain subscribers=${raced.subscribers.size}`);
     return raced;
   }
   const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
-  const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
+  const videoDiagnostics = new WebrtcEncoderDiagnostics(`${windowID}|${geometryTag(args)}`);
   const shared: SharedEncoder = {
-    key: windowID,
+    key: mapKey,
     identity,
     binaryMtimeMs,
     codec,
@@ -537,8 +567,8 @@ async function acquireSharedEncoder(
     videoDiagnostics,
     videoDiagnosticsTimer: setInterval(() => videoDiagnostics.flush(), 10_000),
   };
-  sharedEncoders.set(windowID, shared);
-  diag(`encoder key=${windowID} spawn pid=${child.pid}`);
+  sharedEncoders.set(mapKey, shared);
+  diag(`encoder key=${mapKey} spawn pid=${child.pid}`);
   shared.firstAccessUnitDeadline = setTimeout(() => {
     killSharedEncoder(shared, "first-access-unit-timeout");
   }, FIRST_ACCESS_UNIT_TIMEOUT_MS);
@@ -1295,7 +1325,9 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   diag(`c${connection} offered-codecs=${transceiver.codecs.map(
     (codec) => `${codec.mimeType}:${codec.payloadType}:${codec.parameters ?? ""}`,
   ).join(" | ")}`);
-  const activeCodec = sharedEncoders.get(captureKey)?.codec;
+  // Every encoder of one target shares a codec: the hardware encoder is one resource, and a
+  // viewer running a coarse and a sharp stream of the same display should not pay for two.
+  const activeCodec = liveEncodersFor(captureKey)[0]?.codec;
   let choice = chooseTileVideoCodec(transceiver.codecs, activeCodec);
   if (!choice) {
     closeConnectionDiagnostic();
@@ -1326,7 +1358,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   // Another offer can finish while certificates and ICE are being prepared.
   // Re-check synchronously before acquiring so both connections cannot create
   // different codecs for the one-window/one-capture authority.
-  const nowActiveCodec = sharedEncoders.get(captureKey)?.codec;
+  const nowActiveCodec = liveEncodersFor(captureKey)[0]?.codec;
   if (nowActiveCodec && nowActiveCodec !== choice.kind) {
     const activeChoice = chooseTileVideoCodec(transceiver.codecs, nowActiveCodec);
     if (!activeChoice) {
