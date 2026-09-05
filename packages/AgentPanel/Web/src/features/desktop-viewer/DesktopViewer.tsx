@@ -136,12 +136,34 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
       selectDisplay(replacement.id, `Monitor disconnected. Now viewing ${replacement.label || "Main"}.`);
     }
   }, [activeDisplayId, displaySnapshot, displays, viewer.pending, selectDisplay]);
+  /**
+   * Give up on a monitor switch and go back to the one that still works.
+   *
+   * Abandoning has to clear `pending`, not just record an error: interactivity is gated on
+   * `pending === null`, so a handover left in flight takes the input controls away with it and
+   * strands the viewer with no way to click -- including no way to retry, or to take back input
+   * ownership, which the sidecar hands to whoever acts next.
+   */
+  const abandonHandover = useCallback((id: number, notice: string) => {
+    setViewer((current) => {
+      if (current.pending !== id) return current;
+      return {
+        active: current.active,
+        pending: null,
+        slots: current.slots.filter((slot) => slot.id === current.active),
+        notice,
+      };
+    });
+  }, []);
   useEffect(() => {
     const id = viewer.pending;
     if (id === null) return;
-    const timeout = setTimeout(() => patchSlot(id, { error: "Display handover timed out" }), 15_000);
+    const timeout = setTimeout(
+      () => abandonHandover(id, "Could not switch monitor. Still showing the previous one."),
+      15_000,
+    );
     return () => clearTimeout(timeout);
-  }, [viewer.pending, patchSlot]);
+  }, [viewer.pending, abandonHandover]);
   const pending = viewer.slots.find((slot) => slot.id === viewer.pending);
   const error = pending?.error ?? active.error
     ?? (missingDisplay && displays.length === 0 ? "No monitor is available" : undefined)
