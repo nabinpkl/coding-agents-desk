@@ -260,17 +260,9 @@ interface SharedEncoder {
    * appeared to happen -- the helper takes --width and --height only at spawn.
    */
   identity: string;
-  /** Exactly what this child was started with, so a later request can be compared against it. */
-  spawnArgs: readonly string[];
   /** Size it is currently encoding at, which a resize can move without replacing the child. */
   captureWidth?: number;
   captureHeight?: number;
-  /**
-   * Which capture commands this child understands, as it declared on opening. Absent means a helper
-   * that predates the capability, and every such command is silently ignored by it -- so the
-   * transport replaces it rather than talking to it.
-   */
-  captureControlVersion?: number;
   /**
    * Installed stamp of the binary this child was spawned from. Reuse is keyed on the window, so
    * without this an updated helper would be shadowed by the previous process for
@@ -392,20 +384,21 @@ function encoderStdin(shared: SharedEncoder, line: string) {
   });
 }
 
-/** Size is negotiable, but only with a child that says it can be resized; see `resizeInPlace`. */
-const SIZE_ARGUMENTS: ReadonlySet<string> = new Set(["--width", "--height"]);
-
 /**
  * What a running child cannot be re-tasked to do.
  *
- * Bitrate is excluded on purpose: the control channel adjusts it live, and folding it in here would
- * retire the encoder every time the receiver's bandwidth estimate moved. Pass `SIZE_ARGUMENTS` to
- * ask the narrower question -- is everything except the size the same?
+ * Bitrate is excluded because the control channel adjusts it live. Size is NOT, though the helper
+ * can be resized in place: a compression session is built with whatever bitrate the encoder holds,
+ * and on an idle desktop the estimator has already walked that down to its floor, so a session
+ * rebuilt at a new size encodes its keyframe at the floor and an infinite GOP leaves that picture
+ * on screen. A replacement child starts from the offer's bitrate instead and encodes a generous
+ * keyframe. Replacing therefore looks markedly better on a still desktop, and it costs one
+ * reconnect, so size stays part of what makes a child the wrong child.
  */
-function captureIdentity(args: readonly string[], ignoring: ReadonlySet<string> = new Set()): string {
+function captureIdentity(args: readonly string[]): string {
   const kept: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--bitrate" || ignoring.has(args[index]!)) {
+    if (args[index] === "--bitrate") {
       index += 1;
       continue;
     }
@@ -414,7 +407,7 @@ function captureIdentity(args: readonly string[], ignoring: ReadonlySet<string> 
   return kept.join(" ");
 }
 
-/** The encoded size these arguments ask for, if they name one. */
+/** The encoded size these arguments ask for, if they name one. Sizes the bitrate ceiling. */
 function captureSize(args: readonly string[]): { width?: number; height?: number } {
   const read = (flag: string) => {
     const at = args.indexOf(flag);
@@ -423,49 +416,6 @@ function captureSize(args: readonly string[]): { width?: number; height?: number
     return Number.isSafeInteger(value) && value > 0 ? value : undefined;
   };
   return { width: read("--width"), height: read("--height") };
-}
-
-/**
- * Move a running child to a new size, when the size is all that changed and the child declared it
- * can. Returns false when it has to be replaced instead.
- *
- * Replacing is the default deliberately. A child that does not understand the command ignores it
- * without complaint, which from here is indistinguishable from having obeyed -- so this asks only
- * children that advertised the capability, and lets every other request retire the child.
- */
-function resizeInPlace(existing: SharedEncoder, args: readonly string[], identity: string): boolean {
-  if ((existing.captureControlVersion ?? 0) < 1) return false;
-  if (captureIdentity(args, SIZE_ARGUMENTS)
-    !== captureIdentity(existing.spawnArgs, SIZE_ARGUMENTS)) return false;
-  const wanted = captureSize(args);
-  if (!wanted.width || !wanted.height) return false;
-  if (existing.captureWidth !== wanted.width || existing.captureHeight !== wanted.height) {
-    diag(
-      `encoder key=${existing.key} resize ${existing.captureWidth}x${existing.captureHeight}`
-        + ` -> ${wanted.width}x${wanted.height}`,
-    );
-    // Seed the budget for the new picture BEFORE asking for it, and this ordering is the whole
-    // difference between resizing and replacing a child.
-    //
-    // A compression session is built with whatever bitrate the encoder is holding, and on an idle
-    // desktop the estimator has long since walked that down to its floor -- there is no traffic to
-    // measure, so there is nothing to justify more. A replacement child never saw that: it started
-    // from the offer's bitrate, encoded its first keyframe generously, and an infinite GOP kept
-    // that good frame on screen indefinitely. Resizing into the collapsed value froze the opposite
-    // picture just as permanently. Same code, opposite outcome, decided entirely by which number
-    // the session happened to be born with.
-    const seed = Number(args[args.indexOf("--bitrate") + 1]);
-    if (Number.isFinite(seed) && seed > 0) {
-      encoderStdin(existing, `${JSON.stringify({ type: "bitrate", bits: Math.round(seed) })}\n`);
-    }
-    encoderStdin(existing, `${JSON.stringify({
-      type: "resize", width: wanted.width, height: wanted.height,
-    })}\n`);
-    existing.captureWidth = wanted.width;
-    existing.captureHeight = wanted.height;
-  }
-  existing.identity = identity;
-  return true;
 }
 
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
@@ -556,8 +506,7 @@ async function acquireSharedEncoder(
   }
   // A new capture size means a new child: the helper reads --width and --height once, at spawn.
   // The viewer pays one reconnect, the same trade the stale-binary retirement already makes.
-  if (existing && !existing.dead && existing.identity !== identity
-      && !resizeInPlace(existing, args, identity)) {
+  if (existing && !existing.dead && existing.identity !== identity) {
     diag(`encoder key=${windowID} retired capture change "${existing.identity}" -> "${identity}"`);
     killSharedEncoder(existing, "capture-args-changed");
   }
@@ -586,7 +535,6 @@ async function acquireSharedEncoder(
   const shared: SharedEncoder = {
     key: windowID,
     identity,
-    spawnArgs: [...args],
     captureWidth: spawnedSize.width,
     captureHeight: spawnedSize.height,
     binaryMtimeMs,
@@ -633,8 +581,6 @@ async function acquireSharedEncoder(
             continue;
           }
           if (meta.type === "open") {
-            const version = (meta as Record<string, unknown>).captureControlVersion;
-            if (typeof version === "number") shared.captureControlVersion = version;
             const metadata = gridEncoderSourceMetadata(meta);
             if (!metadata) {
               stopReason = "invalid-open-metadata";
