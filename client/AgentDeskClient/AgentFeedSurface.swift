@@ -93,7 +93,12 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         do {
             let controller = try AgentPanelWebViewController(
                 transport: self,
-                additionalUserScripts: [AgentPanelAccessibility.userScript]
+                additionalUserScripts: [AgentPanelAccessibility.userScript],
+                // Same reason the desktop surface hides it: this webview reaches the desktop
+                // viewer through its own Desktop tab, whose keyboard bar is the panel's own key
+                // rail. WebKit's form-navigation strip lands on top of that, costs a row of a
+                // phone screen, and its Done would dismiss a keyboard the panel is still using.
+                hidesSystemKeyboardAccessory: true
             )
             panelController = controller
             panelContentView = controller.webView
