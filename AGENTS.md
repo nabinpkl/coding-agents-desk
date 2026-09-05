@@ -5,14 +5,31 @@
 - **`PRD.md`** what we are building and why. Source of truth for scope, non-goals, and the v0 acceptance test.
 - **`SPEC.md`** how v0 is built. Stack, module boundaries, wire shapes, performance budgets.
 - **`AGENTS.md`** (this file) how to work in the repo.
+- **`FEATURE-MAP.md`** which parts of the tree are the current path, which are dormant, and which solve one problem two ways. Read it before deciding where a change belongs.
 
-Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on purpose.
+Before doing project work, read `FEATURE-MAP.md` first, then `PRD.md` and `SPEC.md` once. They are short on purpose.
+
+Two things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
+infer backwards from the shape of the tree:
+
+- **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
+  of them, but the working loop is TypeScript: the Vite-served panel in `packages/AgentPanel/Web/`
+  and the `bun --watch` sidecar in `agent-feed/sidecar/src/`, with `tools/grid-encoder` as the
+  native helper behind them. An edit reaches the running system by a page reload, not a rebuild.
+  This repo began as a Swift host plus a Swift iOS client and moved off that path because compiling
+  and reinstalling dominated iteration; the Swift that remains is lifecycle, transport, security
+  boundaries, and OS capabilities.
+- **Several approaches to one problem are checked in at once, and the code does not say which is
+  current.** A superseded pipeline still compiles and still passes its tests. Do not extend one
+  because you found it first, and do not merge two in your head across a compaction: check the map,
+  and check `git log` for the directory you are about to edit.
 
 # Repository layout
 
 - `AGENTS.md` this file. Operating rules.
 - `PRD.md` product intent.
 - `SPEC.md` technical shape for v0.
+- `FEATURE-MAP.md` what is live, dormant, or superseded, and the parallel approaches that must not be conflated. Dated; re-derive it rather than trusting an old date (it carries the commands).
 - `README.md` external-facing one-pager. Points at `PRD.md`.
 - `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
 - `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
