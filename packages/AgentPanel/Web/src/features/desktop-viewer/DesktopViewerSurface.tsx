@@ -69,11 +69,19 @@ export function DesktopViewerSurface({
     });
   }, []);
   const chromeRef = useRef<HTMLDivElement>(null);
+  // The dock's own height, kept here as well as reported upward, because the video box ends above
+  // it: the monitor switcher and controls sit BESIDE the picture rather than on top of it, so the
+  // bottom of the remote desktop (its own Dock, most visibly) is never covered by our chrome.
+  const [chromeHeight, setChromeHeight] = useState(0);
   useLayoutEffect(() => {
     const chrome = chromeRef.current;
-    if (!chrome || !onChromeHeight) return;
+    if (!chrome) return;
     // Observe the entire dock: monitor rows, errors, wrapping, and safe-area padding.
-    const measure = () => onChromeHeight(Math.ceil(chrome.getBoundingClientRect().height));
+    const measure = () => {
+      const height = Math.ceil(chrome.getBoundingClientRect().height);
+      setChromeHeight(height);
+      onChromeHeight?.(height);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(chrome);
@@ -169,7 +177,7 @@ export function DesktopViewerSurface({
         cursor for as long as the keyboard occludes this box.
       */}
       <div data-testid="desktop-video-box" className="absolute inset-x-0 top-0"
-        style={{ bottom: keyboard.occludedBottom }}>
+        style={{ bottom: Math.max(keyboard.occludedBottom, chromeHeight) }}>
         <TileViewport
           className="size-full"
           pointerMode={pointerMode && source !== null}
@@ -202,7 +210,7 @@ export function DesktopViewerSurface({
 
       <div ref={chromeRef} data-testid="desktop-bottom-chrome"
         className={`pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col
-          ${keyboard.keyboardPresented ? "" : "gap-1 bg-gradient-to-t from-black/65 to-transparent px-2 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"}`}>
+          ${keyboard.keyboardPresented ? "" : "gap-1 px-2 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"}`}>
         {navigation}
         <div role="group" aria-label="Desktop input controls"
           style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
