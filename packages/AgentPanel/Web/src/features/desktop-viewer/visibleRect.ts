@@ -88,7 +88,13 @@ function shaped(area: number, display: DisplaySize, viewportAspect: number): Dis
     width *= grow;
     height *= grow;
   }
-  return { width: Math.min(display.width, width), height: Math.min(display.height, height) };
+  // Scaled to fit, never clamped per axis. Clamping one axis alone leaves a rect of the display's
+  // aspect rather than the viewport's, and the box then letterboxes inside the viewport: on a
+  // portrait phone over a landscape display that was black bands across a quarter of the screen at
+  // every zoom deep enough to reach the display's full height. Scaling both keeps the viewport's
+  // aspect, so the picture fills it, and caps the view at `largestFitting`.
+  const fit = Math.min(1, display.width / width, display.height / height);
+  return { width: width * fit, height: height * fit };
 }
 
 /**
@@ -105,7 +111,21 @@ export function zoomVisible(
   if (display.width <= 0 || display.height <= 0 || visible.width <= 0 || visible.height <= 0 || !(factor > 0)) {
     return visible;
   }
-  const size = shaped((visible.width * visible.height) / (factor * factor), display, viewport.width / viewport.height);
+  const aspect = viewport.width / viewport.height;
+  // Zooming out from the largest rect that fills the viewport has nowhere to go but the whole
+  // display, letterboxed. Without this the pinch would stop there and the overview of everything
+  // would be reachable only by the reset gesture.
+  if (factor < 1) {
+    // Nothing lies further out than the whole display, and a request for more area than the
+    // viewport's aspect can hold would otherwise come back as the largest fitting rect, turning a
+    // pinch out into a zoom in.
+    if (isWholeDisplay(visible, display)) return visible;
+    const largest = largestFitting(display, aspect);
+    if (visible.width >= largest.width - 1e-6 && visible.height >= largest.height - 1e-6) {
+      return wholeDisplay(display);
+    }
+  }
+  const size = shaped((visible.width * visible.height) / (factor * factor), display, aspect);
   const ratioX = size.width / visible.width;
   const ratioY = size.height / visible.height;
   return clampVisible({

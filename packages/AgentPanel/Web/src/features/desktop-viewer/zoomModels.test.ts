@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearOverviewReady, getCaptureCrop, markOverviewReady, setCaptureCrop } from "./captureCrop";
 import { createZoomView } from "./zoomModels";
 
@@ -163,6 +163,26 @@ describe("crop zoom view with an overview underneath", () => {
     // Placed as the whole display, not as the other display's crop.
     expect(content.style.width).toBe("800px");
     expect(content.style.left).toBe("0px");
+  });
+
+  it("stops waiting on a plan whose stream never paints, so the view can aim somewhere useful", () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    try {
+      const view = createZoomView("crop", DISPLAY, { overview: true });
+      markOverviewReady(performance.now() - 1000);
+      view.zoomAt(3, W / 2, H / 2, W, H);
+      view.settle(W, H);
+      const requested = getCaptureCrop();
+      expect(requested).not.toBeNull();
+      // The stream for it never arrives, and the view moves off the region it would have covered.
+      view.panBy(-2000, 0, W, H);
+      expect(view.settle(W, H).outcome).toBe("awaiting");
+      vi.advanceTimersByTime(3_000);
+      expect(view.settle(W, H).outcome).toBe("planned");
+      expect(getCaptureCrop()).not.toBe(requested);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the sharp frame only when it covers the view, and the coarse one always", () => {

@@ -55,6 +55,14 @@ const PAN_LEAD_WINDOW_MS = 400;
 const OVERVIEW_HEAD_START_MS = 300;
 /** Ask for a sharp capture only once the view wants this much more detail than the overview has. */
 const DETAIL_OVER_OVERVIEW = 1.08;
+/**
+ * How long a requested plan may stay unanswered before the view may ask for another.
+ *
+ * A local capture answers in one frame; a stream to a phone answers in a second or two, and
+ * sometimes not at all. Past this the view is free to re-aim, which is what it wants anyway: the
+ * only settle that reaches here is one the running region no longer serves.
+ */
+const PLAN_APPLY_TIMEOUT_MS = 2_500;
 
 /** The elements a view paints: the sharp picture, and the coarse one underneath it when there is one. */
 export interface ViewLayers {
@@ -180,6 +188,8 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
    * view that moved meanwhile is served then.
    */
   let awaitingApply = false;
+  /** When the plan now in flight was asked for, so a stream that never paints cannot freeze the view. */
+  let awaitingSince = 0;
   /** The last movement of the view, in display points, so a re-aim can lead it. */
   let lastPan: { x: number; y: number; at: number } | null = null;
   const moved = (next: DisplayRect) => {
@@ -195,6 +205,9 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
   const centre = () => ({ x: visible.x + visible.width / 2, y: visible.y + visible.height / 2 });
   /** Re-shape to the viewport at the same area: what a resize, or a restore, has to do. */
   const reshape = (w: number, h: number) => {
+    // The whole display is already the one view that does not take the viewport's aspect; re-shaping
+    // it would zoom into a slice of itself on every resize.
+    if (isWholeDisplay(visible, display)) return;
     visible = zoomVisible(visible, display, 1, centre(), { width: w, height: h });
   };
   const changed = (next: DisplayRect) => {
@@ -268,7 +281,10 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
         const plan = getCaptureCrop();
         return { outcome, ...facts, plan: plan ? `${Math.round(plan.region.x)},${Math.round(plan.region.y)},${Math.round(plan.region.width)},${Math.round(plan.region.height)}@${plan.pixelWidth}x${plan.pixelHeight}` : null };
       };
-      if (awaitingApply) return done("awaiting");
+      // A re-aim in flight blocks the next one, but only for as long as one can plausibly take.
+      // A sharp stream that never delivers a frame used to hold the view for its full connection
+      // timeout, and a view outside the running region shows the coarse layer for all of it.
+      if (awaitingApply && performance.now() - awaitingSince < PLAN_APPLY_TIMEOUT_MS) return done("awaiting");
       const before = getCaptureCrop();
       const servedByOverview = overview && wanted <= overviewDetail * DETAIL_OVER_OVERVIEW;
       let outcome: SettleOutcome["outcome"];
@@ -299,6 +315,7 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
         region = wholeDisplay(display);
       } else {
         awaitingApply = after !== before;
+        if (awaitingApply) awaitingSince = performance.now();
       }
       return done(outcome);
     },

@@ -192,3 +192,35 @@ describe("regionCovers", () => {
     expect(regionCovers({ x: 500, y: 150, width: 1120, height: 700 }, visible)).toBe(false);
   });
 });
+
+describe("a viewport whose aspect the display cannot hold at that size", () => {
+  // A phone held upright, looking at a 16:9 desk.
+  const desk = { width: 7680, height: 4320 };
+  const phone = { width: 440, height: 878 };
+  const aspect = phone.width / phone.height;
+
+  it("keeps the viewport's aspect rather than filling one axis and letterboxing the other", () => {
+    const zoomed = zoomVisible(wholeDisplay(desk), desk, 1.4, { x: 3840, y: 2160 }, phone);
+    expect(zoomed.width / zoomed.height).toBeCloseTo(aspect, 3);
+    expect(zoomed.height).toBeLessThanOrEqual(desk.height);
+    const largest = largestFitting(desk, aspect);
+    expect(zoomed.width).toBeCloseTo(largest.width, 6);
+    expect(zoomed.height).toBeCloseTo(largest.height, 6);
+  });
+
+  it("goes from the largest rect that fills the viewport to the whole display, and no further", () => {
+    const filling = zoomVisible(wholeDisplay(desk), desk, 1.4, { x: 3840, y: 2160 }, phone);
+    const out = zoomVisible(filling, desk, 0.7, { x: 3840, y: 2160 }, phone);
+    expect(isWholeDisplay(out, desk)).toBe(true);
+    // And a pinch out from there stays there rather than coming back as a zoom in.
+    expect(zoomVisible(out, desk, 0.7, { x: 3840, y: 2160 }, phone)).toEqual(out);
+  });
+
+  it("fills the viewport at every zoom deeper than that", () => {
+    let visible = zoomVisible(wholeDisplay(desk), desk, 1.4, { x: 3840, y: 2160 }, phone);
+    for (let step = 0; step < 6; step += 1) {
+      visible = zoomVisible(visible, desk, 1.4, { x: visible.x, y: visible.y }, phone);
+      expect(visible.width / visible.height).toBeCloseTo(aspect, 3);
+    }
+  });
+});
