@@ -3,3 +3,9 @@ build/
 .DS_Store
 *.xcodeproj
 .swiftpm/
+
+*.env
+
+# Python bytecode from the tools/ scripts
+__pycache__/
+*.pyc

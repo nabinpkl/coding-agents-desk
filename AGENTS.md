@@ -44,6 +44,10 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
   `find <text>` aims the cursor by element name.
 - Fail loud: any capture or display error shows an alert and exits.
 
+`tools/session-client.py` is an experiment beside the app, not part of it: it drives a second,
+concurrent login session over this Mac's own Screen Sharing, where command shortcuts do work.
+README has the measured protocol details.
+
 Deferred (propose in one line, do not build): multiple virtual displays, remembered window
 layouts, overview labels per window, HiDPI modes, menu bar mode, preferences UI.
 

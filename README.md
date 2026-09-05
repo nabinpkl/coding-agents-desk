@@ -146,6 +146,43 @@ press. Mouse events cannot substitute: `CGEventPostToPid` delivers them without 
 cursor, but AppKit ignores them, since hit-testing is the window server's job and posting to a
 process bypasses it. Keyboard events posted the same way are honoured. Measured 2026-09-04.
 
+## Driving a second login session
+
+An experiment, not part of the app. `tools/session-client.py` logs in to this Mac's own Screen
+Sharing as a different user and drives that session. macOS starts a separate, concurrent login
+session when a client authenticates as someone who is not the user at the console, and that
+session has its own display, its own active application and its own keyboard focus. That is the
+one thing the fake cursor cannot have: a command shortcut sent there reaches the active app
+without moving the console user's focus. Verified 2026-09-04 end to end, with the console user
+logged in and working the whole time: `cmd+space` opened Spotlight, TextEdit launched, text was
+typed into it, and `cmd+a` selected it.
+
+Apple's own client refuses to connect to the Mac it runs on, so this speaks RFB directly with
+Apple's Diffie-Hellman and AES credential exchange, security type 30. Four things cost real time
+to find:
+
+- Command is `Super_L`. `Meta_L` and `Control_L` do nothing at all.
+- The server discards input for roughly two seconds after a connection opens. Events sent
+  immediately were dropped every time; the same events after a settle landed every time.
+- A press needs a duration. Button down and up in the same instant is not a click a menu
+  recognises, and the same is true of a keystroke.
+- No special negotiation asks for the second session. Authenticating as a non-console user is
+  the whole of it.
+
+On pixels, VNC is the weaker path and is only worth it for crossing a session boundary.
+ScreenCaptureKit hands over an IOSurface with no copy, which is what the viewer above uses. RFB
+serialises pixels for a CPU to decode. Over loopback, measured on one 1920x1200 region:
+
+| Encoding | Bytes | Time |
+|---|---|---|
+| Raw | 9.24 MB | 0.56 s |
+| ZRLE | 1.78 MB | 0.88 s |
+
+Compression is a net loss there, because loopback bandwidth is free and the server pays to
+compress. Hardware decoding is not the question worth asking: an idle desktop sends nothing at
+all, since an incremental update request simply blocks until something changes. Only motion
+costs anything, and that is where a video codec, not a faster pixel decoder, would be the answer.
+
 ## How it works
 
 - `Sources/CGVirtualDisplayPrivate`: header for the private CoreGraphics virtual display
