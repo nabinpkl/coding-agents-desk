@@ -254,6 +254,13 @@ const H264 = new RTCRtpCodecParameters({
 interface SharedEncoder {
   key: string;
   /**
+   * The spawn arguments that decide what this child captures and at what size, minus the ones it
+   * can be told to change while running. Reuse is keyed on the display, so without this a viewer
+   * asking for a new capture resolution was handed the encoder started at the old one and nothing
+   * appeared to happen -- the helper takes --width and --height only at spawn.
+   */
+  identity: string;
+  /**
    * Installed stamp of the binary this child was spawned from. Reuse is keyed on the window, so
    * without this an updated helper would be shadowed by the previous process for
    * as long as one viewer stayed connected, and `just grid-encoder-install` would look like it
@@ -363,6 +370,24 @@ function encoderStdin(shared: SharedEncoder, line: string) {
   });
 }
 
+/**
+ * What a running child cannot be re-tasked to do.
+ *
+ * Bitrate is excluded on purpose: the control channel adjusts it live, and folding it in here would
+ * retire the encoder every time the receiver's bandwidth estimate moved.
+ */
+function captureIdentity(args: readonly string[]): string {
+  const kept: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--bitrate") {
+      index += 1;
+      continue;
+    }
+    kept.push(args[index]!);
+  }
+  return kept.join(" ");
+}
+
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
   if (shared.dead) return;
   diag(
@@ -439,6 +464,7 @@ async function acquireSharedEncoder(
   args: string[],
   codec: TileVideoCodec,
 ): Promise<SharedEncoder> {
+  const identity = captureIdentity(args);
   const existing = sharedEncoders.get(windowID);
   // A rebuild retires the running child rather than joining it. The viewer pays one reconnect,
   // which is the cost the tile pool already accepts for the same reason, and in exchange an edit
@@ -448,7 +474,13 @@ async function acquireSharedEncoder(
     diag(`encoder key=${windowID} retired stale binary mtime=${existing.binaryMtimeMs} -> ${binaryMtimeMs}`);
     killSharedEncoder(existing, "stale-binary");
   }
-  if (existing && !existing.dead && existing.binaryMtimeMs === binaryMtimeMs) {
+  // A new capture size means a new child: the helper reads --width and --height once, at spawn.
+  // The viewer pays one reconnect, the same trade the stale-binary retirement already makes.
+  if (existing && !existing.dead && existing.identity !== identity) {
+    diag(`encoder key=${windowID} retired capture change "${existing.identity}" -> "${identity}"`);
+    killSharedEncoder(existing, "capture-args-changed");
+  }
+  if (existing && !existing.dead && existing.identity === identity && existing.binaryMtimeMs === binaryMtimeMs) {
     if (existing.codec !== codec) {
       throw new Error(`shared encoder codec changed from ${existing.codec} to ${codec}`);
     }
@@ -463,7 +495,7 @@ async function acquireSharedEncoder(
   // Another offer may have created this encoder while we waited, and a second child for the same
   // key would orphan the first.
   const raced = sharedEncoders.get(windowID);
-  if (raced && !raced.dead && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
+  if (raced && !raced.dead && raced.identity === identity && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
     diag(`encoder key=${windowID} adopted after teardown drain subscribers=${raced.subscribers.size}`);
     return raced;
   }
@@ -471,6 +503,7 @@ async function acquireSharedEncoder(
   const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
   const shared: SharedEncoder = {
     key: windowID,
+    identity,
     binaryMtimeMs,
     codec,
     child,
