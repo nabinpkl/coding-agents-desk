@@ -69,8 +69,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRegionChange = Date.distantPast
     private let viewportStore = ViewportStore()
     private var controlSocket: ControlSocket?
-    /// What was active before the last `activate`, so `deactivate` can hand focus back.
-    private var appBeforeActivate: NSRunningApplication?
     /// What the last `find` landed on, kept while the fake cursor stays there. A hit-test at an element's
     /// own centre does not always return it (Chrome answers with a container for a button), and `find`
     /// knows exactly what it found, so the commands that act under the cursor use that instead.
@@ -456,18 +454,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             return
-        case .deactivate:
-            guard let app = appBeforeActivate else { return reply("error: nothing to go back to; activate first") }
-            appBeforeActivate = nil
-            CanvasFocus.hand(to: app)
-            return reply("ok back to \(app.localizedName ?? "pid \(app.processIdentifier)")")
         case .help:
             return reply(ControlCommand.usage)
-        case .describe, .press, .scroll, .scrollBy, .type, .key, .activate, .find:
+        case .describe, .press, .scroll, .scrollBy, .type, .key, .find:
             break
         }
 
-        guard let cursor = view.fakeCursor else { return reply("error: cursor hidden; move it first") }
+        // find needs no cursor: with it hidden the whole canvas is searched.
+        guard let cursor = view.fakeCursor else {
+            if case let .find(text) = command { return find(text, near: nil, bounds: bounds, view: view, reply: reply) }
+            return reply("error: cursor hidden; move it first")
+        }
         let point = onScreen(cursor)
         let elementUnderCursor: AXUIElement? = found?.cursor == cursor ? found?.element : CanvasFocus.element(at: point)
         switch command {
@@ -479,31 +476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             reply(CanvasFocus.press(element)
                 ? "ok pressed \(CanvasFocus.describe(element))"
                 : "error: no press action on \(CanvasFocus.describe(element))")
-        case .activate:
-            let name = elementUnderCursor.flatMap(CanvasFocus.owner)?.name ?? "?"
-            let before = NSWorkspace.shared.frontmostApplication
-            guard CanvasFocus.activateWindow(at: point) else { return reply("error: no window at \(describeCursor(cursor)) to activate") }
-            appBeforeActivate = before
-            reply("ok activated \(name); it is the active app now, so cmd shortcuts reach it")
         case let .find(text):
-            // The window under the cursor first, then the rest of the canvas front to back.
-            var roots: [(window: AXUIElement, owner: String)] = []
-            if let element = elementUnderCursor, let window = CanvasFocus.enclosingWindow(of: element) {
-                roots.append((window, CanvasFocus.owner(of: element)?.name ?? "?"))
-            }
-            for window in CanvasFocus.windows(onDisplayWithBounds: bounds) {
-                guard let axWindow = CanvasFocus.axWindow(for: window, displayBounds: bounds),
-                      !roots.contains(where: { CFEqual($0.window, axWindow) })
-                else { continue }
-                roots.append((axWindow, window.owner))
-            }
-            for root in roots {
-                guard let element = CanvasFocus.find(text, under: root.window), let frame = CanvasFocus.frame(of: element) else { continue }
-                view.setFakeCursor(CGPoint(x: frame.midX - bounds.minX, y: frame.midY - bounds.minY))
-                found = (view.fakeCursor!, element)
-                return reply("ok \(describeCursor(view.fakeCursor!)) on \(CanvasFocus.describe(element))")
-            }
-            reply(roots.isEmpty ? "error: no window to search" : "error: nothing named \"\(text)\" in \(roots.map(\.owner).joined(separator: ", "))")
+            find(text, near: elementUnderCursor, bounds: bounds, view: view, reply: reply)
         case let .scroll(axis, fraction):
             reply(scroll(at: point, along: axis) { _ in fraction })
         case let .scrollBy(axis, delta):
@@ -533,16 +507,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             CanvasFocus.focus(element)
             // Key equivalents are dispatched through the key window's responder chain, which an inactive
-            // application does not have, so a cmd chord posted to one is dropped. Refusing is better than
-            // reporting a keystroke that went nowhere.
+            // application does not have, so a cmd chord posted to one is dropped. Making the window main and
+            // key through Accessibility, setting the app's focused window, pressing the menu item, and a
+            // chord carrying its character all measured the same nothing on 2026-09-04. The fake cursor does
+            // not change the user's focus, so this is refused rather than reported as sent.
             if chord.flags.contains(.maskCommand), NSRunningApplication(processIdentifier: pid)?.isActive != true {
-                return reply("error: \(name) is not the active app, and cmd shortcuts only reach the active one; run activate first, or use type and plain keys")
+                return reply("error: \(name) is not the active app, and cmd shortcuts only reach the active one; DeskZoom does not change it, so use type and plain keys, or the app's own controls with find and press")
             }
             Keystrokes.press(chord, in: pid)
             reply("ok key sent to \(name)")
         default:
             reply("ok")
         }
+    }
+
+    /// Moves the fake cursor onto the element named by `text`, searching the window holding `near` first
+    /// and then the rest of the canvas front to back.
+    private func find(_ text: String, near element: AXUIElement?, bounds: CGRect, view: CanvasView, reply: (String) -> Void) {
+        var roots: [(window: AXUIElement, owner: String)] = []
+        if let element, let window = CanvasFocus.enclosingWindow(of: element) {
+            roots.append((window, CanvasFocus.owner(of: element)?.name ?? "?"))
+        }
+        for window in CanvasFocus.windows(onDisplayWithBounds: bounds) {
+            guard let axWindow = CanvasFocus.axWindow(for: window, displayBounds: bounds),
+                  !roots.contains(where: { CFEqual($0.window, axWindow) })
+            else { continue }
+            roots.append((axWindow, window.owner))
+        }
+        for root in roots {
+            guard let element = CanvasFocus.find(text, under: root.window), let frame = CanvasFocus.frame(of: element) else { continue }
+            view.setFakeCursor(CGPoint(x: frame.midX - bounds.minX, y: frame.midY - bounds.minY))
+            found = (view.fakeCursor!, element)
+            let cursor = view.fakeCursor!
+            return reply("ok cursor \(Int(cursor.x)),\(Int(cursor.y)) on \(CanvasFocus.describe(element))")
+        }
+        reply(roots.isEmpty ? "error: no window to search" : "error: nothing named \"\(text)\" in \(roots.map(\.owner).joined(separator: ", "))")
     }
 
     /// Scrolls the area under a point to whatever `target` makes of its current position, and reports

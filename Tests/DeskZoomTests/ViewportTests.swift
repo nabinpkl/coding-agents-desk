@@ -383,9 +383,8 @@ extension ControlCommandTests {
         XCTAssertNil(ControlCommand.parse("type   "))
     }
 
-    func testActivateAndShot() {
-        XCTAssertEqual(ControlCommand.parse("activate"), .activate)
-        XCTAssertEqual(ControlCommand.parse("deactivate"), .deactivate)
+    func testShotAndFind() {
+        XCTAssertNil(ControlCommand.parse("activate"), "the fake cursor never changes the active app")
         XCTAssertEqual(ControlCommand.parse("shot 2"), .shot(2, nil))
         XCTAssertEqual(ControlCommand.parse("shot 0 /tmp/win.png"), .shot(0, "/tmp/win.png"))
         XCTAssertEqual(ControlCommand.parse("shot"), .shot(nil, nil), "no index means the whole canvas")

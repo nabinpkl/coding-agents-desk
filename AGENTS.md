@@ -38,7 +38,8 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
   virtual display and would otherwise interrupt whatever was being worked on.
 - A fake cursor drawn in the viewer, driven over a Unix socket (`bin/deskzoom`, `--socket`),
   pressing and scrolling through Accessibility and typing by posting keystrokes to the process,
-  so the real pointer never moves and the active app changes only on an explicit `activate`.
+  so the real pointer never moves and the active app never changes. cmd shortcuts therefore do
+  not reach it; measured every focus-free route on 2026-09-04, none works.
   `shot <n>` captures one canvas window by id, `shot` alone the overview frame in memory, and
   `find <text>` aims the cursor by element name.
 - Fail loud: any capture or display error shows an alert and exits.

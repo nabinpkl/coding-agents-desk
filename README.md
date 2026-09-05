@@ -114,16 +114,15 @@ actions travel the key window's responder chain, and an inactive app has no key 
 `cmd+a` posted to it is dropped while `a`, `return` and `delete` land. Pressing the menu item
 through Accessibility instead reports success and does the same nothing, apart from app-level
 items such as Quit. `key` refuses a cmd chord unless the target is active, rather than report a
-keystroke that went nowhere. `deskzoom activate` makes the window under the fake cursor the
-active one, the same focus hand-off a click on the canvas does; it is the one command that
-changes your active app, and after it cmd shortcuts reach the window.
+keystroke that went nowhere. There is no way around this that keeps your focus where it is:
+making the window main and key through Accessibility, setting the app's focused window, pressing
+the menu item, and a chord carrying its character all measured the same nothing. DeskZoom does
+not change your active app, so cmd shortcuts are simply not available to the fake cursor; what a
+menu does is usually reachable as a control with `find` and `press`.
 
 `type` reads the element's text back after posting. When nothing changed, the app dropped the
 keystrokes, and the text goes in through the Accessibility selected-text attribute instead, which
 text fields and areas accept without any keystroke at all. The reply says which route was taken.
-
-`deskzoom deactivate` hands focus back to whatever was active before, so a script can run a
-shortcut and give your focus straight back.
 
 `deskzoom find Press me` moves the fake cursor onto the element whose title, description or text
 contains the words, searching the window under the cursor first and then the rest of the canvas

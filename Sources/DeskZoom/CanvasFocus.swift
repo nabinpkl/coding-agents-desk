@@ -33,8 +33,11 @@ enum CanvasFocus {
             }
     }
 
+    /// The viewer's own window is left out even when it overlaps the display: a script means the windows
+    /// it is looking at, never the window it is looking through.
     static func windows(onDisplayWithBounds bounds: CGRect) -> [Window] {
-        onDisplay(onScreenWindows(), bounds: bounds)
+        let own = ProcessInfo.processInfo.processIdentifier
+        return onDisplay(onScreenWindows().filter { $0.pid != own }, bounds: bounds)
     }
 
     /// The application owning the frontmost ordinary window at `point`. `windows` must be front-to-back,
@@ -71,8 +74,8 @@ enum CanvasFocus {
     /// Focuses the actual window under the point, not just its application. Making an app frontmost leaves
     /// the active Space where it was, so a display whose window merely belongs to the frontmost app does not
     /// become the display macOS opens new windows on. Raising and focusing the specific window is what moves
-    /// the Space. Returns false when nothing focusable is there. This is the one control path that changes
-    /// the active app, and it is also what lets cmd shortcuts reach the window afterwards.
+    /// the Space. Returns false when nothing focusable is there. Only a real click on the canvas reaches
+    /// this; the fake cursor never changes the active app.
     static func activateWindow(at point: CGPoint) -> Bool {
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
@@ -309,7 +312,7 @@ enum CanvasFocus {
     /// ourselves first and then calling `activate(from:)`, because our own activation had not landed yet.
     /// Setting the Accessibility frontmost attribute does not depend on who is active. It needs the same
     /// Accessibility grant the event taps already require, so it adds no new permission.
-    static func hand(to app: NSRunningApplication) {
+    private static func hand(to app: NSRunningApplication) {
         let element = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetAttributeValue(element, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     }
