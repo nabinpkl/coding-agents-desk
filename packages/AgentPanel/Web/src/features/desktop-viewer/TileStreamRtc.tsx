@@ -134,6 +134,14 @@ export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
 }
 
 /** The slider's range: a multiplier on the auto-chosen capture scale, capped at source-native. */
+/**
+ * Bits per pixel per second to ask for. `AverageBitRate` is a rate over time, so at a given frame
+ * rate this decides how many bytes a single frame may cost -- and on a desktop that has stopped
+ * moving, one keyframe is the entire picture. Ask for too few and an 8K frame arrives in 144KB,
+ * which is soft no matter how many pixels it contains.
+ */
+export const TARGET_BITS_PER_PIXEL = 0.12;
+
 export const CAPTURE_SCALE_MIN = 0.5;
 export const CAPTURE_SCALE_MAX = 3;
 
@@ -144,6 +152,7 @@ export function tileCaptureSize(
   devicePixelRatio: number,
   bitrate: number,
   captureScale = 1,
+  fps = 15,
 ): { width?: number; height?: number; bitrate: number } {
   const ratio = Math.min(devicePixelRatio || 1, CAPTURE_PIXEL_RATIO_CAP);
   // The user's knob multiplies the automatic scale. At 1 it is exactly the display-fit default;
@@ -165,11 +174,17 @@ export function tileCaptureSize(
   }
   const visibleWidth = shownWidth > 0 ? shownWidth : sourceWidth;
   const scale = Math.min(1, (visibleWidth * ratio * quality) / sourceWidth);
-  return {
-    width: Math.max(16, Math.round(sourceWidth * scale)),
-    height: Math.max(16, Math.round(sourceHeight * scale)),
-    bitrate: Math.max(300_000, Math.round(bitrate * scale * scale)),
-  };
+  const width = Math.max(16, Math.round(sourceWidth * scale));
+  const height = Math.max(16, Math.round(sourceHeight * scale));
+  // Derived from the picture being asked for, not from the multiplier that produced it. Scaling a
+  // fixed budget by the multiplier meant more pixels always shared the same bits, so raising the
+  // resolution made a still desktop softer -- the opposite of what the control appears to promise.
+  return { width, height, bitrate: pixelBitrate(width, height, fps) };
+}
+
+/** What a picture of this size needs per second to hold an edge at this frame rate. */
+export function pixelBitrate(width: number, height: number, fps: number): number {
+  return Math.max(300_000, Math.round(width * height * fps * TARGET_BITS_PER_PIXEL));
 }
 
 /**
@@ -570,7 +585,7 @@ export function TileStreamRtc({
       return candidates.find((candidate) => candidate > 0) ?? 0;
     };
     const captureSize = () => tileCaptureSize(
-      shownWidth(), width, height, window.devicePixelRatio, bitrate, captureScale,
+      shownWidth(), width, height, window.devicePixelRatio, bitrate, captureScale, fps,
     );
 
     /** Resolves "ended" on peer death, "failed" when setup itself broke. */

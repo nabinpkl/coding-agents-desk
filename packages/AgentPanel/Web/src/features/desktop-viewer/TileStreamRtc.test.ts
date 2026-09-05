@@ -89,11 +89,14 @@ describe("tileCaptureSize", () => {
     });
   });
 
-  it("preserves the existing two-dimensional request for known windows", () => {
+  it("prices the request from the picture it asks for, not from the multiplier", () => {
+    // 1170x760 at 15fps and 0.12 bits per pixel. Scaling a fixed budget by the multiplier instead
+    // made every extra pixel share the same bits, so raising the resolution softened a still
+    // desktop rather than sharpening it.
     expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000)).toEqual({
       width: 1170,
       height: 760,
-      bitrate: 507_000,
+      bitrate: 1_600_560,
     });
   });
 
@@ -102,15 +105,15 @@ describe("tileCaptureSize", () => {
     expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000, 2)).toEqual({
       width: 1800,
       height: 1169,
-      bitrate: 1_200_000,
+      bitrate: 3_787_560,
     });
   });
 
-  it("lets the knob trade resolution for a thinner stream, with a bitrate floor", () => {
+  it("lets the knob trade resolution for a thinner stream, priced down with it", () => {
     expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000, 0.5)).toEqual({
       width: 585,
       height: 380,
-      bitrate: 300_000,
+      bitrate: 400_140,
     });
   });
 });
