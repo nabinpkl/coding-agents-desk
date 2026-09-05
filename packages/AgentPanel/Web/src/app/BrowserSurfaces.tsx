@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { App } from "./AgentPanelApp";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "../features/screen-viewer/ScreenViewer";
@@ -72,6 +72,26 @@ function useSessions(): PanelSessionRef[] {
   return sessions;
 }
 
+const SESSION_STORAGE_KEY = "agentdesk.panel.session";
+/** Matches the ids the server will route; a hand-edited value must not reshape a path. */
+const SESSION_ID = /^[a-z0-9-]+$/i;
+
+/**
+ * The session this panel was last showing, restored optimistically.
+ *
+ * Optimistic because the live list arrives over the stream a moment later, and waiting for it would
+ * open every reload on the default session and then jump. If the remembered session turns out not
+ * to be running, `BrowserSurfaces` drops back to the default once the list says so.
+ */
+export function rememberedSession(): string | undefined {
+  try {
+    const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+    return stored && SESSION_ID.test(stored) ? stored : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Keeps the address bar honest, so a reload returns to the surface you were on. */
 function remember(surface: BrowserSurface): void {
   const url = new URL(window.location.href);
@@ -99,7 +119,22 @@ export function BrowserSurfaces({
   const [surface, setSurface] = useState<BrowserSurface>(initialSurface);
   const sessions = useSessions();
   // undefined is the default session, the one this origin proxies on `/api`.
-  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [sessionId, setSessionId] = useState<string | undefined>(rememberedSession);
+  const selectSession = useCallback((next: string | undefined) => {
+    setSessionId(next);
+    try {
+      if (next) localStorage.setItem(SESSION_STORAGE_KEY, next);
+      else localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      // a private window still gets the choice for this session
+    }
+  }, []);
+  // A remembered session that is no longer announced would proxy to nothing, so fall back once the
+  // live list has actually arrived. An empty list means "not known yet", not "gone".
+  useEffect(() => {
+    if (sessionId === undefined || sessions.length === 0) return;
+    if (!sessions.some((session) => session.id === sessionId)) selectSession(undefined);
+  }, [sessionId, sessions, selectSession]);
 
   function select(next: BrowserSurface): void {
     if (next === surface) return;
@@ -145,7 +180,7 @@ export function BrowserSurfaces({
                 key={session.id ?? "default"}
                 type="button"
                 aria-pressed={session.id === sessionId}
-                onClick={() => setSessionId(session.id)}
+                onClick={() => selectSession(session.id)}
                 className={`rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
                   session.id === sessionId
                     ? "bg-muted text-foreground"
@@ -165,6 +200,7 @@ export function BrowserSurfaces({
           // survive a move to another desktop.
           <DesktopViewer
             key={sessionId ?? "default"}
+            scope={sessionId ?? "default"}
             transport={sessionTransport(transport, sessionId)}
           />
         ) : surface === "screen" ? (

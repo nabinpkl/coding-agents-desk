@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialSurface } from "./BrowserSurfaces";
+import { initialSurface, rememberedSession } from "./BrowserSurfaces";
 
 describe("initialSurface", () => {
   it("opens a browser tab on the desktop viewer, the surface it could not otherwise reach", () => {
@@ -21,5 +21,24 @@ describe("initialSurface", () => {
   it("treats an entry it does not serve as no request at all", () => {
     expect(initialSurface("?entry=park")).toBe("desktop");
     expect(initialSurface("?entry=")).toBe("desktop");
+  });
+});
+
+describe("rememberedSession", () => {
+  it("reopens on the session the panel was last showing", () => {
+    localStorage.setItem("agentdesk.panel.session", "agent");
+    expect(rememberedSession()).toBe("agent");
+  });
+
+  it("treats no memory as the default session", () => {
+    localStorage.removeItem("agentdesk.panel.session");
+    expect(rememberedSession()).toBeUndefined();
+  });
+
+  it("refuses a stored id that could reshape the path it becomes", () => {
+    localStorage.setItem("agentdesk.panel.session", "../api");
+    expect(rememberedSession()).toBeUndefined();
+    localStorage.setItem("agentdesk.panel.session", "a/b");
+    expect(rememberedSession()).toBeUndefined();
   });
 });

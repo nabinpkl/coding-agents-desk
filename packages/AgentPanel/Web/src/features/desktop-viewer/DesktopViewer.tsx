@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
+import { desktopDisplayId, desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
   type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import { DesktopViewerSurface } from "./DesktopViewerSurface";
@@ -16,6 +16,26 @@ export function desktopDocumentFallbackHeight(viewportHeight: number, screenHeig
 }
 
 const CAPTURE_SCALE_STORAGE_KEY = "agentdesk.desktop.captureScale";
+
+/**
+ * Which monitor this session was last looking at, remembered per session because display ids belong
+ * to the session that owns them: the console's monitors and a Screen Sharing session's synthesised
+ * ones are different sets, and restoring one into the other would ask for a monitor that is not
+ * there. A remembered id that has since gone answers 409 with a replacement, which the viewer
+ * already knows how to adopt, so a stale value costs one redirect rather than a dead screen.
+ */
+function displayStorageKey(scope: string): string {
+  return `agentdesk.desktop.display:${scope}`;
+}
+
+function rememberedDisplay(scope: string): string | undefined {
+  try {
+    const stored = localStorage.getItem(displayStorageKey(scope));
+    return desktopDisplayId(stored) ? stored : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function clampCaptureScale(value: number): number {
   return Math.min(CAPTURE_SCALE_MAX, Math.max(CAPTURE_SCALE_MIN, value));
@@ -34,7 +54,11 @@ interface ViewerSlotState {
 interface ViewerState { active: number; pending: number | null; slots: ViewerSlotState[]; notice: string | null }
 
 /** A monitor handover replaces one source, never the identity of an in-flight source. */
-export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) {
+export function DesktopViewer({ transport, scope = "default" }: {
+  transport: AgentHttpTransport;
+  /** Names the login session, so a remembered monitor is restored into the session it belongs to. */
+  scope?: string;
+}) {
   useLayoutEffect(() => {
     const root = document.documentElement;
     const previous = root.style.height;
@@ -51,9 +75,11 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
       root.style.height = previous;
     };
   }, []);
-  const [viewer, setViewer] = useState<ViewerState>({
-    active: 1, pending: null, slots: [{ id: 1 }], notice: null,
-  });
+  // Seeded rather than switched into after connecting: opening straight onto the remembered
+  // monitor is one negotiation, where selecting it afterwards would be a visible handover.
+  const [viewer, setViewer] = useState<ViewerState>(() => ({
+    active: 1, pending: null, slots: [{ id: 1, displayId: rememberedDisplay(scope) }], notice: null,
+  }));
   const viewerRef = useRef(viewer);
   viewerRef.current = viewer;
   const sequence = useRef(1);
@@ -113,11 +139,17 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
     if (displayId && old?.source?.displayId === displayId && current.pending === null && old.ready) return;
     navigationRef.current.cancel();
     old?.control?.send({ type: "release-control" });
+    try {
+      if (displayId) localStorage.setItem(displayStorageKey(scope), displayId);
+      else localStorage.removeItem(displayStorageKey(scope));
+    } catch {
+      // a private window still gets the choice for this session
+    }
     const id = ++sequence.current;
     report("navigation-display", { phase: "requested", displayId: displayId ?? "main", generation: id });
     setViewer({ active: current.active, pending: id,
       slots: [...current.slots.filter((slot) => slot.id === current.active), { id, displayId }], notice });
-  }, [report]);
+  }, [report, scope]);
   const displaySnapshot = active.snapshot ?? navigation.model.snapshot;
   const displays = displaySnapshot?.displays ?? [];
   const missingDisplay = !!activeDisplayId && !!displaySnapshot
