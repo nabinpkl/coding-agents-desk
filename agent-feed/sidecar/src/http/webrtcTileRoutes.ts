@@ -260,6 +260,9 @@ interface SharedEncoder {
    * appeared to happen -- the helper takes --width and --height only at spawn.
    */
   identity: string;
+  /** The size it is currently encoding at, which a resize command can move without a respawn. */
+  captureWidth?: number;
+  captureHeight?: number;
   /**
    * Installed stamp of the binary this child was spawned from. Reuse is keyed on the window, so
    * without this an updated helper would be shadowed by the previous process for
@@ -371,21 +374,35 @@ function encoderStdin(shared: SharedEncoder, line: string) {
 }
 
 /**
- * What a running child cannot be re-tasked to do.
+ * What a running child cannot be re-tasked to do: its target, codec and profile.
  *
- * Bitrate is excluded on purpose: the control channel adjusts it live, and folding it in here would
- * retire the encoder every time the receiver's bandwidth estimate moved.
+ * Everything the control channel can change while it runs is excluded, or the encoder would be
+ * retired for a request it could simply have been told about -- bitrate every time the receiver's
+ * bandwidth estimate moved, and size every time the resolution slider did.
  */
+const LIVE_ADJUSTABLE = new Set(["--bitrate", "--width", "--height"]);
+
 function captureIdentity(args: readonly string[]): string {
   const kept: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--bitrate") {
+    if (LIVE_ADJUSTABLE.has(args[index]!)) {
       index += 1;
       continue;
     }
     kept.push(args[index]!);
   }
   return kept.join(" ");
+}
+
+/** The encoded size these arguments ask for, if they name one. */
+function captureSize(args: readonly string[]): { width?: number; height?: number } {
+  const read = (flag: string) => {
+    const at = args.indexOf(flag);
+    if (at < 0) return undefined;
+    const value = Number(args[at + 1]);
+    return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+  };
+  return { width: read("--width"), height: read("--height") };
 }
 
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
@@ -484,6 +501,16 @@ async function acquireSharedEncoder(
     if (existing.codec !== codec) {
       throw new Error(`shared encoder codec changed from ${existing.codec} to ${codec}`);
     }
+    const wanted = captureSize(args);
+    if (wanted.width && wanted.height
+        && (existing.captureWidth !== wanted.width || existing.captureHeight !== wanted.height)) {
+      diag(
+        `encoder key=${windowID} resize ${existing.captureWidth}x${existing.captureHeight} -> ${wanted.width}x${wanted.height}`,
+      );
+      encoderStdin(existing, `R${wanted.width}x${wanted.height}\n`);
+      existing.captureWidth = wanted.width;
+      existing.captureHeight = wanted.height;
+    }
     diag(
       `encoder key=${windowID} reuse accessUnits=${existing.accessUnits} subscribers=${existing.subscribers.size} cachedKeyframe=${existing.latestKeyframe !== null}`,
     );
@@ -501,9 +528,12 @@ async function acquireSharedEncoder(
   }
   const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
   const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
+  const spawnedSize = captureSize(args);
   const shared: SharedEncoder = {
     key: windowID,
     identity,
+    captureWidth: spawnedSize.width,
+    captureHeight: spawnedSize.height,
     binaryMtimeMs,
     codec,
     child,

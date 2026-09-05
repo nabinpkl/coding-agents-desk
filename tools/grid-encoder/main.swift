@@ -339,8 +339,11 @@ enum RawAnnexBCodec {
 final class RawAnnexBEncoder: NSObject {
     private var session: VTCompressionSession?
     private var firstPTS: CMTime?
-    private let width: Int, height: Int, bitrate: Int
+    private var width: Int, height: Int, bitrate: Int
     private let codec: RawAnnexBCodec
+    /// Guards the compression session. Frames arrive on the capture queue while resize and bitrate
+    /// arrive on the control reader, and a session invalidated underneath an encode would crash.
+    private let sessionLock = NSLock()
     private let forceKeyLock = NSLock()
     private var forceKeyframe = false
     private var loggedForcedEncodeStatus = false
@@ -364,12 +367,46 @@ final class RawAnnexBEncoder: NSObject {
     /// more. This is the whole congestion response: the estimator decides, the
     /// encoder obeys, nothing in between holds an opinion.
     func setBitrate(_ bitsPerSecond: Int) {
+        sessionLock.lock(); defer { sessionLock.unlock() }
         guard let session, bitsPerSecond > 0 else { return }
+        bitrate = bitsPerSecond
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitsPerSecond))
     }
 
+    /// Rebuild the compression session for a frame size that is not the one it was made for.
+    ///
+    /// Driven by the frames rather than by the resize command, because the stream and the session
+    /// cannot change size in the same instant: whichever is told first, there is a window where the
+    /// other disagrees, and a session encoding a buffer of the wrong dimensions is not something to
+    /// leave to chance. Adapting on arrival makes the order irrelevant. The next frame is forced to
+    /// a keyframe -- the receiver cannot decode the new size until it has fresh parameter sets.
+    /// The caller holds `sessionLock`.
+    private func adaptSession(toWidth newWidth: Int, height newHeight: Int) {
+        guard newWidth > 0, newHeight > 0 else { return }
+        if let session {
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+            VTCompressionSessionInvalidate(session)
+        }
+        session = nil
+        width = newWidth
+        height = newHeight
+        createSession()
+        forceKeyLock.lock()
+        forceKeyframe = true
+        forceKeyLock.unlock()
+        emitMeta(["type": "resized", "width": newWidth, "height": newHeight])
+    }
+
     func start() {
+        sessionLock.lock()
+        createSession()
+        sessionLock.unlock()
+        emitMeta(["type": "codec", "codec": codec.metadataName, "derived": false])
+    }
+
+    /// Builds the compression session for the current size. The caller holds `sessionLock`.
+    private func createSession() {
         var created: VTCompressionSession?
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
@@ -401,11 +438,17 @@ final class RawAnnexBEncoder: NSObject {
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitrate))
         VTCompressionSessionPrepareToEncodeFrames(created)
-        emitMeta(["type": "codec", "codec": codec.metadataName, "derived": false])
     }
 
     func submit(_ sample: CMSampleBuffer) {
-        guard let session, let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
+        sessionLock.lock(); defer { sessionLock.unlock() }
+        guard let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
+        let frameWidth = CVPixelBufferGetWidth(pixels)
+        let frameHeight = CVPixelBufferGetHeight(pixels)
+        if frameWidth != width || frameHeight != height {
+            adaptSession(toWidth: frameWidth, height: frameHeight)
+        }
+        guard let session else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
         if firstPTS == nil { firstPTS = pts }
         submitted += 1
@@ -619,6 +662,9 @@ _ = NSApplication.shared
 // held only by a local stops delivering the moment that scope returns, which
 // looks exactly like a capture that produced one frame and then hung.
 nonisolated(unsafe) var liveStream: SCStream?
+// Retained so a resize can hand the same object back with new dimensions; SCStreamConfiguration is
+// a class, and `updateConfiguration` wants the whole thing, not a delta.
+nonisolated(unsafe) var liveConfiguration: SCStreamConfiguration?
 nonisolated(unsafe) var liveCapturer: Capturer?
 nonisolated(unsafe) var liveMuxer: EncodingMuxer?
 nonisolated(unsafe) var liveRawEncoder: RawAnnexBEncoder?
@@ -774,6 +820,20 @@ Task {
                         switch capture {
                         case .keyframe: encoder.requestKeyframe()
                         case .bitrate(let bits): encoder.setBitrate(bits)
+                        case .resize(let newWidth, let newHeight):
+                            // Only the stream is told. The encoder rebuilds itself when a frame of
+                            // the new size actually arrives, so the two never have to agree at the
+                            // same instant.
+                            if let configuration = liveConfiguration, let stream = liveStream {
+                                configuration.width = newWidth
+                                configuration.height = newHeight
+                                stream.updateConfiguration(configuration) { error in
+                                    if let error {
+                                        FileHandle.standardError.write(Data(
+                                            "grid-encoder: resize to \(newWidth)x\(newHeight) failed: \(error.localizedDescription)\n".utf8))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -822,6 +882,7 @@ Task {
     configuration.colorSpaceName = CGColorSpace.sRGB
     let stream = SCStream(filter: filter, configuration: configuration, delegate: capturer)
     liveStream = stream
+    liveConfiguration = configuration
     do {
         try stream.addStreamOutput(capturer, type: .screen, sampleHandlerQueue: DispatchQueue(label: "grid-encoder"))
         try await stream.startCapture()
