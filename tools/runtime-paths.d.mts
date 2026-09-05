@@ -1,6 +1,7 @@
 export interface RuntimePaths {
   root: string;
   gridEncoder: string;
+  gridEncoderSlots: string;
   panelTlsDirectory: string;
   panelControlTokenFile: string;
   parkDevControlTokenFile: string;

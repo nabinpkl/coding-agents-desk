@@ -378,6 +378,7 @@ export const config = {
   // Build outputs are disposable. Both the live and compiled sidecar spawn the
   // installed helper, whose location is shared with the deployment recipes.
   gridEncoderPath: runtimePaths().gridEncoder,
+  gridEncoderSlotsDirectory: runtimePaths().gridEncoderSlots,
   // Claude Desktop's main binary. The parent chain of a `--resume` child reaching THIS path is what
   // identifies the window that owns a session; a chain that stops at a shell or tmux is a terminal
   // session with no window to write into. Env-overridable so a non-default install location does not

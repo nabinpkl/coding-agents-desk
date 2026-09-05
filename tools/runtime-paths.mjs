@@ -15,6 +15,10 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     root,
     gridEncoder: absoluteEnvironmentPath(environment, "AGENT_FEED_GRID_ENCODER_PATH",
       join(root, "bin", "grid-encoder")),
+    // Per-encoder copies of the helper; see agent-feed/sidecar/src/desktop/encoderSlots.ts for why
+    // two encoders must never run from one executable path. Per user, not shared: two sidecars
+    // refreshing one copy would race each other.
+    gridEncoderSlots: join(root, "bin", "grid-encoder-slots"),
     panelTlsDirectory: join(root, "agent-panel", "tls"),
     panelControlTokenFile: join(root, "agent-panel", "control-token"),
     parkDevControlTokenFile: join(root, "park-dev", "control-token"),
@@ -48,6 +52,7 @@ if (import.meta.main) {
   const named = {
     root: paths.root,
     "grid-encoder": paths.gridEncoder,
+    "grid-encoder-slots": paths.gridEncoderSlots,
     "panel-tls": paths.panelTlsDirectory,
     "panel-token": paths.panelControlTokenFile,
     "park-token": paths.parkDevControlTokenFile,
@@ -59,6 +64,6 @@ if (import.meta.main) {
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|panel-tls|panel-token|park-token|sidecar-registry|webrtc-diag-log|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|panel-token|park-token|sidecar-registry|webrtc-diag-log|host-app <bundle-id>");
   }
 }

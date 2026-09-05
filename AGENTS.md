@@ -173,6 +173,23 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
   state, and a second isolated browser both fails to load it the same way and disturbs the
   owner's own stream by making the sidecar cycle encoders underneath it.
 
+## Display capture
+
+- **Two grid-encoders must never run from one executable path.** replayd, the daemon behind
+  ScreenCaptureKit, files every stream client that runs from one path under a single RPClient
+  and, when any one of those processes disconnects, stops all of that client's streams ("Stream
+  was stopped by the system" / "application connection being interrupted"). Measured 2026-09-05
+  with two encoders on one display: SIGTERM to one ended the other within 100 ms; a byte-identical
+  copy at another path was untouched. The sidecar therefore spawns each encoder from its own
+  numbered copy under the runtime `bin/grid-encoder-slots/` (see
+  `agent-feed/sidecar/src/desktop/encoderSlots.ts`). A probe encoder started by hand from the
+  installed binary kills the sidecar's live capture the moment it exits; run probes from a copy.
+- **See who is streaming before blaming the stream.** `just webrtc-sessions [user]` lists live
+  viewers and encoders for that login session's sidecar; `just webrtc-close [user]` ends them
+  all, or one with `attempt=` / `pid=`. The diagnostics log for a session is
+  `/Users/Shared/agentdesk/logs/<user>-webrtc-diag.log`; encoder lines carry a geometry tag
+  (`whole@…` or `x,y,w,h@WxH`) and the slot the encoder ran from.
+
 ## Commits and PRs
 
 - Small, scoped commits. One slice per PR where possible.
