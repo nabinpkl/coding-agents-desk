@@ -13,6 +13,11 @@ describe("initialSurface", () => {
     expect(initialSurface("?entry=feed&fixture")).toBe("feed");
   });
 
+  it("opens on the screen when asked, which is the surface a locked-out Mac needs", () => {
+    expect(initialSurface("?entry=screen")).toBe("screen");
+    expect(initialSurface("?entry=screen&fixture")).toBe("screen");
+  });
+
   it("treats an entry it does not serve as no request at all", () => {
     expect(initialSurface("?entry=park")).toBe("desktop");
     expect(initialSurface("?entry=")).toBe("desktop");

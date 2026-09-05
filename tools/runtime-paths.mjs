@@ -18,6 +18,12 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     panelTlsDirectory: join(root, "agent-panel", "tls"),
     panelControlTokenFile: join(root, "agent-panel", "control-token"),
     parkDevControlTokenFile: join(root, "park-dev", "control-token"),
+    // The rendezvous board every sidecar announces itself on. Fixed under /Users/Shared, NOT the
+    // per-user runtime root, because a panel in one login session has to read descriptors written
+    // by a sidecar in another, and ~/Library is 0700. /Users/Shared is the one place every session
+    // can write. Overridable so a test can point it at a scratch dir.
+    sidecarRegistry: absoluteEnvironmentPath(environment, "AGENTDESK_SIDECAR_REGISTRY",
+      "/Users/Shared/agentdesk/sidecars"),
   };
 }
 
@@ -37,12 +43,13 @@ if (import.meta.main) {
     "panel-tls": paths.panelTlsDirectory,
     "panel-token": paths.panelControlTokenFile,
     "park-token": paths.parkDevControlTokenFile,
+    "sidecar-registry": paths.sidecarRegistry,
   };
   if (key === "host-app" && bundleId && extra.length === 0) {
     process.stdout.write(`${installedHostAppPath(bundleId, paths)}\n`);
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|panel-tls|panel-token|park-token|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|panel-tls|panel-token|park-token|sidecar-registry|host-app <bundle-id>");
   }
 }

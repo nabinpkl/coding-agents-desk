@@ -1,11 +1,11 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "./config.ts";
+import { announceSidecar } from "./sidecarRegistry.ts";
 import {
   BYE_BYTES,
   jsonResponse,
 } from "./http/httpResponses.ts";
-import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { createBotRoutes } from "./http/botRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
@@ -141,10 +141,9 @@ const server = Bun.serve<undefined>({
   idleTimeout: 0,
   fetch(request, bunServer) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/api/")) {
-      const denied = authorizeApiRequest(request, config.controlToken);
-      if (denied) return denied;
-    }
+    // The control API is unauthenticated on purpose: the sidecar binds to loopback, the tailnet
+    // reaches only the panel in front of it, and the tailnet is the trust boundary. There is no
+    // token to mint, plumb, or type in to add a session.
     if (request.method === "GET" && url.pathname === "/api/config") {
       const body: SidecarConfig = {
         staleThresholdMs: config.staleThresholdMs,
@@ -179,6 +178,9 @@ const server = Bun.serve<undefined>({
 });
 
 console.log(`agent feed sidecar listening on http://${config.host}:${server.port}`);
+// Announce on the shared board so any panel on the machine can offer this session with no port
+// hand-fed to it. Withdrawn in shutdown; a crash leaves a descriptor that ages out on its own.
+const announcement = announceSidecar(config.port);
 void startCatalog()
   .then(async () => {
     await claudeLive.start();
@@ -208,6 +210,7 @@ async function shutdown(signal: string): Promise<void> {
   }
   await Bun.sleep(SHUTDOWN_GRACE_MS);
   for (const stream of [...state.openStreams]) stream.teardown();
+  announcement.stop();
   await stopCatalog();
   agentTerminals.stop();
   try {

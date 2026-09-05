@@ -4,6 +4,7 @@ export interface RuntimePaths {
   panelTlsDirectory: string;
   panelControlTokenFile: string;
   parkDevControlTokenFile: string;
+  sidecarRegistry: string;
 }
 
 export function runtimePaths(

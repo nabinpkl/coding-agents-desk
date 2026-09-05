@@ -1,27 +1,75 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { App } from "./AgentPanelApp";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
+import { ScreenViewer } from "../features/screen-viewer/ScreenViewer";
 import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "../features/activity-feed/transport/AgentHttpTransport";
+import { sessionTransport } from "../features/activity-feed/transport/SessionTransport";
+import { parseSessionIndex, type PanelSessionRef } from "./panelSessions";
 
-export type BrowserSurface = "desktop" | "feed";
+export type BrowserSurface = "desktop" | "feed" | "screen";
 
 const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
   { name: "desktop", label: "Desktop" },
   { name: "feed", label: "Feed" },
+  { name: "screen", label: "Screen" },
 ];
+
+const NAMED = new Set<string>(SURFACES.map((surface) => surface.name));
 
 /**
  * Which surface a plain browser opens on.
  *
- * The desktop viewer is the default here, which is the opposite of every native container: a shell
- * opens the webview it wants, so the feed is reachable from anywhere, while the desktop was
- * reachable from nowhere but inside the iOS app. `?entry=feed` asks for the other one, and the
- * value is the same vocabulary `panelEntry` reads, so one parameter means one thing everywhere.
+ * The desktop viewer is the default, which is the opposite of every native container: a shell opens
+ * the webview it wants, so the feed is reachable from anywhere, while the desktop was reachable from
+ * nowhere but inside the iOS app. `?entry=` asks for another, and the value is the same vocabulary
+ * `panelEntry` reads, so one parameter means one thing everywhere.
  */
 export function initialSurface(search: string = window.location.search): BrowserSurface {
-  return new URLSearchParams(search).get("entry") === "feed" ? "feed" : "desktop";
+  const asked = new URLSearchParams(search).get("entry") ?? "";
+  return NAMED.has(asked) ? (asked as BrowserSurface) : "desktop";
+}
+
+/**
+ * The login sessions this origin can reach, or none when it does not say.
+ *
+ * An origin that serves no index is one that proxies a single sidecar, which is every origin until
+ * a second session is configured, and is also what the host's webview looks like. No index means no
+ * picker, and the viewer behaves exactly as it did before there was such a thing.
+ */
+function useSessions(): PanelSessionRef[] {
+  const [sessions, setSessions] = useState<PanelSessionRef[]>([]);
+  useEffect(() => {
+    // Subscribe, do not poll: the dev server pushes the live set whenever a sidecar announces itself
+    // or goes silent, so a desktop that comes up while the page is open appears in the picker on its
+    // own. The stream sends the current set on connect and reconnects itself if it drops, so this is
+    // both the initial load and the live update. A one-shot fetch is the fallback for a transport
+    // that cannot open an EventSource at all.
+    const apply = (value: unknown) => setSessions(parseSessionIndex(value));
+    let source: EventSource | undefined;
+    const abort = new AbortController();
+    try {
+      source = new EventSource("/session/stream");
+      source.onmessage = (event) => {
+        try {
+          apply(JSON.parse(event.data));
+        } catch {
+          // keep the last good set rather than blanking the picker on one bad frame
+        }
+      };
+    } catch {
+      fetch("/session/index.json", { signal: abort.signal })
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+        .then(apply)
+        .catch(() => undefined);
+    }
+    return () => {
+      source?.close();
+      abort.abort();
+    };
+  }, []);
+  return sessions;
 }
 
 /** Keeps the address bar honest, so a reload returns to the surface you were on. */
@@ -49,6 +97,9 @@ export function BrowserSurfaces({
   host: HostActionsClient;
 }) {
   const [surface, setSurface] = useState<BrowserSurface>(initialSurface);
+  const sessions = useSessions();
+  // undefined is the default session, the one this origin proxies on `/api`.
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 
   function select(next: BrowserSurface): void {
     if (next === surface) return;
@@ -80,10 +131,44 @@ export function BrowserSurfaces({
             {label}
           </button>
         ))}
+        {/* The picker rides with the desktop only. The feed reads whatever sessions the sidecar it
+            was built against can see, and moving it would mean rebuilding its data source, which is
+            a larger change than switching a video stream. */}
+        {surface === "desktop" && sessions.length > 1 ? (
+          <div
+            role="group"
+            aria-label="Desktop session"
+            className="ml-auto flex items-center gap-1 self-center"
+          >
+            {sessions.map((session) => (
+              <button
+                key={session.id ?? "default"}
+                type="button"
+                aria-pressed={session.id === sessionId}
+                onClick={() => setSessionId(session.id)}
+                className={`rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+                  session.id === sessionId
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                }`}
+              >
+                {session.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1">
         {surface === "desktop" ? (
-          <DesktopViewer transport={transport} />
+          // Keyed by session so a switch tears the old viewer down. Its WebRTC track, its encoder
+          // and its display selection all belong to the session that answered, and none of them
+          // survive a move to another desktop.
+          <DesktopViewer
+            key={sessionId ?? "default"}
+            transport={sessionTransport(transport, sessionId)}
+          />
+        ) : surface === "screen" ? (
+          <ScreenViewer />
         ) : (
           <App feed={feed} host={host} fill />
         )}
