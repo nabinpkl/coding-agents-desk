@@ -431,11 +431,14 @@ function DetailStream(
   props: Pick<Parameters<typeof TileStreamRtc>[0], "windowID" | "displayId" | "fill" | "httpTransport">,
 ) {
   const plan = useCaptureCrop();
+  // Both hooks before the early return: a hook that runs only once a plan exists changes the
+  // hook count between renders, and React answers that by unmounting the whole tree to white.
+  const captureScale = useCaptureScale();
   if (!plan) return null;
   return (
     <TileStreamRtc
       {...props}
-      captureScale={useCaptureScale()}
+      captureScale={captureScale}
       capturePlan={plan}
       control={false}
       onFirstFrame={captureCropApplied}
