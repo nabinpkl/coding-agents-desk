@@ -675,7 +675,13 @@ Task {
 
     let desktopInput = DesktopInputController(
         bounds: inputBounds,
-        emit: { emit(.control, $0) }
+        emit: { emit(.control, $0) },
+        // Post to the caller's own login session, not the HID stream. HID events are delivered to
+        // whichever session holds the console, so an off-console sidecar (the agent session) posting
+        // HID would drive the console desktop instead of its own. The session tap targets this
+        // process's session, which is correct on the console and the only thing that works off it.
+        // Space-switching (DesktopSpacesController) already posts this way for the same reason.
+        eventPoster: { $0.post(tap: .cgSessionEventTap) }
     )
     let navigation = (openMeta["displayId"] as? String).map { displayID in
         DesktopSpacesController(captureDisplayID: displayID,
