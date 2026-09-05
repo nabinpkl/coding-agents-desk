@@ -82,10 +82,13 @@ describe("receiver diagnostic cadence", () => {
 });
 
 describe("tileCaptureSize", () => {
-  it("uses a width-only request before display aspect metadata exists", () => {
+  it("prices a width-only request too, which is every desktop capture", () => {
+    // A display carries no size until its answer arrives, so this branch is what actually reaches
+    // the encoder for a desktop. Height is left to the helper, and the cost is estimated against
+    // the widescreen shape, so 1170 wide is priced as 1170x658 at 15fps.
     expect(tileCaptureSize(390, undefined, undefined, 3, 1_200_000)).toEqual({
       width: 1170,
-      bitrate: 1_200_000,
+      bitrate: 1_385_748,
     });
   });
 

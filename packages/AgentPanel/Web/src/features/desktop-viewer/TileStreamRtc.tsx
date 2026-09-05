@@ -167,9 +167,17 @@ export function tileCaptureSize(
     || !Number.isFinite(sourceHeight)
     || sourceHeight <= 0
   ) {
+    // A display does not carry its size until the answer comes back, so this branch runs for every
+    // desktop capture, first offer and every renegotiation after it. Pricing it by the multiplier
+    // was therefore what actually reached the encoder, however the branch below was written.
+    // Height is not being requested here -- the helper derives it from the display's own aspect --
+    // so the cost is estimated against the widescreen shape every display this captures has had.
+    const requested = shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio * quality)) : undefined;
     return {
-      width: shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio * quality)) : undefined,
-      bitrate: Math.max(300_000, Math.round(bitrate * quality * quality)),
+      width: requested,
+      bitrate: requested === undefined
+        ? Math.max(300_000, Math.round(bitrate * quality * quality))
+        : pixelBitrate(requested, Math.round((requested * 9) / 16), fps),
     };
   }
   const visibleWidth = shownWidth > 0 ? shownWidth : sourceWidth;
