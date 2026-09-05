@@ -7,8 +7,10 @@
 
 import { getCaptureCrop, setCaptureCrop } from "./captureCrop";
 import {
+  CAPTURE_PADDING,
   MAX_PIXELS_PER_POINT,
   capturePlanFor,
+  leadPadding,
   planServes,
   wantedPixelsPerPoint,
   type CapturePlan,
@@ -46,6 +48,8 @@ import type { ZoomMode } from "./zoomMode";
 
 /** How close to the edge the remote cursor may get before the view pans, as a fraction of it. DeskZoom's value. */
 const FOLLOW_MARGIN = 0.18;
+/** A pan this recent still says which way the view is going when the capture is re-aimed. */
+const PAN_LEAD_WINDOW_MS = 400;
 
 export interface ZoomView {
   readonly kind: ZoomMode;
@@ -125,6 +129,14 @@ function cropZoomView(display: DisplaySize): ZoomView {
    * view that moved meanwhile is served then.
    */
   let awaitingApply = false;
+  /** The last movement of the view, in display points, so a re-aim can lead it. */
+  let lastPan: { x: number; y: number; at: number } | null = null;
+  const moved = (next: DisplayRect) => {
+    if (next.x !== visible.x || next.y !== visible.y) {
+      lastPan = { x: next.x - visible.x, y: next.y - visible.y, at: performance.now() };
+    }
+    return changed(next);
+  };
 
   // The box is `visible` fitted to the viewport: the whole viewport while there is more display
   // to show, the letterbox only once all of it is showing.
@@ -153,11 +165,11 @@ function cropZoomView(display: DisplaySize): ZoomView {
     // Gesture deltas arrive in viewport pixels; the view moves the other way in display points.
     panBy: (dx, dy, w, h) => {
       const k = pointsPerPixel(w, h);
-      return changed(panVisible(visible, display, -dx * k, -dy * k));
+      return moved(panVisible(visible, display, -dx * k, -dy * k));
     },
     reset: () => { visible = wholeDisplay(display); },
     isZoomed: () => !isWholeDisplay(visible, display),
-    follow: (cursor) => changed(followVisible(visible, display, cursor, FOLLOW_MARGIN)),
+    follow: (cursor) => moved(followVisible(visible, display, cursor, FOLLOW_MARGIN)),
     cover: (cursor, w, h) => {
       // The strip above the keyboard is just a viewport of another aspect. Show the most of the
       // display that fills it, centred on the cursor, which is where the typing is going.
@@ -195,7 +207,12 @@ function cropZoomView(display: DisplaySize): ZoomView {
         const viewportPixels = content.width * Math.min(window.devicePixelRatio || 1, 3);
         const wanted = wantedPixelsPerPoint(visible.width, viewportPixels, MAX_PIXELS_PER_POINT);
         if (planServes(before, visible, wanted)) return;
-        setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT));
+        // Lean the padding the way the view was last going, while that is still recent enough
+        // to mean anything; a still view gets it evenly.
+        const padding = lastPan && performance.now() - lastPan.at < PAN_LEAD_WINDOW_MS
+          ? leadPadding(lastPan)
+          : CAPTURE_PADDING;
+        setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT, padding));
       }
       // Only a change is in flight; an equal plan never left the store and nothing will answer it.
       awaitingApply = getCaptureCrop() !== before;

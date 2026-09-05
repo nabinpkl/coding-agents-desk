@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   capturePlanFor,
+  leadPadding,
   paddedRegion,
   planServes,
   wantedPixelsPerPoint,
@@ -78,5 +79,28 @@ describe("planServes", () => {
 
   it("has nothing to serve with before a first capture", () => {
     expect(planServes(null, visible, 1)).toBe(false);
+  });
+});
+
+describe("leadPadding", () => {
+  const visible = { x: 3000, y: 2000, width: 1000, height: 1000 };
+
+  it("spends the padding ahead of the motion and little behind", () => {
+    const region = paddedRegion(visible, DISPLAY.width, DISPLAY.height, leadPadding({ x: 1, y: 0 }));
+    // Moving right: 60% ahead on the right, 10% behind on the left, base on the still axis.
+    expect(region.x).toBe(2900);
+    expect(region.x + region.width).toBe(4600);
+    expect(region.y).toBe(1800);
+    expect(region.y + region.height).toBe(3200);
+  });
+
+  it("leans the other way for the other direction, on either axis", () => {
+    const up = paddedRegion(visible, DISPLAY.width, DISPLAY.height, leadPadding({ x: 0, y: -1 }));
+    expect(up.y).toBe(1400);
+    expect(up.y + up.height).toBe(3100);
+  });
+
+  it("is plain symmetric padding when nothing is moving", () => {
+    expect(leadPadding({ x: 0, y: 0 })).toEqual({ left: 0.2, top: 0.2, right: 0.2, bottom: 0.2 });
   });
 });

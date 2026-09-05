@@ -59,17 +59,58 @@ export function wantedPixelsPerPoint(
   return Math.min(viewportPixelWidth / visibleWidth, maxPixelsPerPoint);
 }
 
+/** Padding per side, each a fraction of the visible size on that axis. */
+export interface PaddingSides {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** Ahead of a pan, as a fraction of the visible size. Costs pixels only on the side that needs them. */
+export const LEAD_PADDING = 0.6;
+/** Behind a pan. Little, because the view is leaving it. */
+export const TRAIL_PADDING = 0.1;
+
+/**
+ * Padding that leans in the direction the view is moving.
+ *
+ * A pan spends symmetric padding in one gesture and then shows the viewport's bare edge until
+ * the re-aim lands. Spending the same pixels ahead of the motion instead keeps the edge covered
+ * for longer, at no cost behind, where the view is leaving anyway. A stopgap for the absence of a
+ * coarse whole-display layer underneath, which is what actually removes the bare edge.
+ */
+export function leadPadding(
+  direction: { x: number; y: number },
+  ahead = LEAD_PADDING,
+  behind = TRAIL_PADDING,
+  base = CAPTURE_PADDING,
+): PaddingSides {
+  const axis = (v: number): [number, number] =>
+    v > 0 ? [behind, ahead] : v < 0 ? [ahead, behind] : [base, base];
+  const [left, right] = axis(direction.x);
+  const [top, bottom] = axis(direction.y);
+  return { left, top, right, bottom };
+}
+
+function sides(padding: number | PaddingSides): PaddingSides {
+  return typeof padding === "number"
+    ? { left: padding, top: padding, right: padding, bottom: padding }
+    : padding;
+}
+
 /** The padded region, clipped to the display: never asks for points outside it. */
 export function paddedRegion(
   visible: CaptureRegion,
   displayWidth: number,
   displayHeight: number,
-  padding = CAPTURE_PADDING,
+  padding: number | PaddingSides = CAPTURE_PADDING,
 ): CaptureRegion {
-  const left = Math.max(0, visible.x - visible.width * padding);
-  const top = Math.max(0, visible.y - visible.height * padding);
-  const right = Math.min(displayWidth, visible.x + visible.width * (1 + padding));
-  const bottom = Math.min(displayHeight, visible.y + visible.height * (1 + padding));
+  const pad = sides(padding);
+  const left = Math.max(0, visible.x - visible.width * pad.left);
+  const top = Math.max(0, visible.y - visible.height * pad.top);
+  const right = Math.min(displayWidth, visible.x + visible.width * (1 + pad.right));
+  const bottom = Math.min(displayHeight, visible.y + visible.height * (1 + pad.bottom));
   return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
 }
 
@@ -79,7 +120,7 @@ export function capturePlanFor(
   displayHeight: number,
   viewportPixelWidth: number,
   maxPixelsPerPoint = 1,
-  padding = CAPTURE_PADDING,
+  padding: number | PaddingSides = CAPTURE_PADDING,
 ): CapturePlan {
   const region = paddedRegion(visible, displayWidth, displayHeight, padding);
   const detail = wantedPixelsPerPoint(visible.width, viewportPixelWidth, maxPixelsPerPoint);
