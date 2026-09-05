@@ -18,7 +18,11 @@ const MODIFIERS: Array<{ label: string; modifier: RemoteModifier }> = [
 
 /** Give the capture back the corner it lives in when it is not standing in for the echo. */
 function clear(capture: HTMLTextAreaElement) {
-  for (const property of ["left", "top", "width", "height", "pointerEvents", "zIndex"] as const) {
+  const properties = [
+    "left", "top", "width", "height", "pointerEvents", "zIndex",
+    "opacity", "background", "color", "caretColor", "padding",
+  ] as const;
+  for (const property of properties) {
     capture.style[property] = "";
   }
 }
@@ -69,8 +73,15 @@ export function DesktopKeyboardChrome({
    * else costs a second software keyboard and a hidden accessory. It also cannot move in the DOM:
    * it is portaled to the body so it stays mounted while the accessory does not exist, and
    * re-parenting it would destroy the node holding focus. So it stays where it is and is given the
-   * echo's box instead -- transparent, on top, catching the tap and the paste, with the echo
-   * showing through underneath as the affordance.
+   * echo's box instead: on top, catching the tap and the paste, with the echo showing through
+   * underneath as the label.
+   *
+   * It is opaque enough to behave like a field and transparent enough not to draw twice. The
+   * background and the text stay invisible -- the field's value is only ever a sentinel, since
+   * every keystroke is sent and cleared as it is typed -- but the element itself is not, because
+   * an `opacity: 0` field draws no caret and offers no long-press callout, which is what made the
+   * strip read as dead rather than editable. The caret is painted explicitly for the same reason:
+   * it is the only thing that says a tap landed somewhere that takes text.
    *
    * The echo alone, not the whole row: the delivery status and the Auto and Hide buttons share
    * that row and have to stay tappable. And measured rather than computed from the accessory's
@@ -96,6 +107,11 @@ export function DesktopKeyboardChrome({
       capture.style.height = `${box.height}px`;
       capture.style.pointerEvents = "auto";
       capture.style.zIndex = "51";
+      capture.style.opacity = "1";
+      capture.style.background = "transparent";
+      capture.style.color = "transparent";
+      capture.style.caretColor = "currentColor";
+      capture.style.padding = "0 0.5rem";
     };
     place();
     const observer = new ResizeObserver(place);
