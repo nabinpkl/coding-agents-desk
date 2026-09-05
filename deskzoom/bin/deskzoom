@@ -1,0 +1,27 @@
+#!/bin/sh
+# Drive the DeskZoom fake cursor from a shell:
+#
+#     deskzoom windows
+#     deskzoom move-window 0
+#     deskzoom type hello world
+#     deskzoom key cmd+a
+#
+# One command per run, over the Unix socket the app listens on. The reply is printed, and a reply
+# that starts with "error" exits non-zero so a script stops at the first thing that did not happen.
+# The socket path follows the app's --socket flag; set DESKZOOM_SOCKET to match a custom one.
+set -u
+socket="${DESKZOOM_SOCKET:-/tmp/deskzoom.sock}"
+if [ ! -S "$socket" ]; then
+    echo "deskzoom: no socket at $socket; is DeskZoom running? (just dev)" >&2
+    exit 2
+fi
+[ $# -eq 0 ] && set -- help
+if ! reply=$(printf '%s\n' "$*" | nc -U "$socket"); then
+    # The socket file outlives a quit or crashed app; nc fails to connect and prints nothing.
+    echo "deskzoom: nothing is listening at $socket; DeskZoom has quit (just dev)" >&2
+    exit 2
+fi
+printf '%s\n' "$reply"
+case "$reply" in
+    error*) exit 1 ;;
+esac
