@@ -327,6 +327,11 @@ const TARGET_BITS_PER_PIXEL = 0.12;
  */
 const KEYFRAME_ON_RECOVERY_FACTOR = 1.8;
 /**
+ * How much of the budget the encoder must actually be using before a lower estimate is read as a
+ * limit rather than as an idle screen with nothing to send.
+ */
+const BUDGET_PRESSURE_FRACTION = 0.6;
+/**
  * Children killed but not yet reaped.
  *
  * ScreenCaptureKit starves a capture that starts while another is tearing down: it delivers zero
@@ -1372,7 +1377,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   const width = clampedCaptureParameter(offer.width, 16, 7680);
   const height = clampedCaptureParameter(offer.height, 16, 4320);
   const fps = clampedCaptureParameter(offer.fps, 1, 60);
-  const bitrate = clampedCaptureParameter(offer.bitrate, 100_000, 40_000_000);
+  const bitrate = clampedCaptureParameter(offer.bitrate, 100_000, 200_000_000);
   if (width) args.push("--width", String(width));
   if (height) args.push("--height", String(height));
   if (fps) args.push("--fps", String(fps));
@@ -1437,6 +1442,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   // grid. Updates under a tenth of the last applied value are noise and
   // skipped.
   let appliedBitrate = 0;
+  let lastEstimateAt = Date.now();
   /**
    * The most this picture is worth spending, from its own pixel count rather than a fixed number.
    *
@@ -1449,7 +1455,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   const bitrateCeiling = () => {
     const pixels = (shared.captureWidth ?? 1_920) * (shared.captureHeight ?? 1_080);
     const wanted = pixels * (fps || 15) * TARGET_BITS_PER_PIXEL;
-    return Math.round(Math.max(20_000_000, Math.min(120_000_000, wanted)));
+    return Math.round(Math.max(20_000_000, Math.min(200_000_000, wanted)));
   };
   const applyEstimate = (estimate: number) => {
     if (!Number.isFinite(estimate) || estimate <= 0) return;
@@ -1461,6 +1467,28 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     // capacity within seconds of traffic flowing.
     const clamped = Math.max(300_000, Math.min(bitrateCeiling(), Math.round(estimate)));
     if (appliedBitrate > 0 && Math.abs(clamped - appliedBitrate) / appliedBitrate < 0.1) return;
+    // A falling estimate is only evidence when the encoder was actually spending the budget.
+    //
+    // REMB measures the traffic there is. A still desktop sends almost nothing, so the estimate
+    // collapses to the floor -- and obeying that rebuilds the picture at the floor, where an
+    // infinite GOP leaves it until something moves. The screen then looks worst precisely because
+    // nothing was happening, which is the opposite of a congestion signal. So a decrease is
+    // believed only when recent output came close to the budget it is said to exceed.
+    const elapsedMs = Date.now() - lastEstimateAt;
+    const producedBitsPerSecond = elapsedMs > 0 ? (bytesSinceEstimate * 8_000) / elapsedMs : 0;
+    const pressing = appliedBitrate === 0
+      || producedBitsPerSecond >= appliedBitrate * BUDGET_PRESSURE_FRACTION;
+    if (clamped < appliedBitrate && !pressing) {
+      diag(
+        `c${connection} estimate-ignored ${appliedBitrate} -> ${clamped}`
+          + ` produced=${Math.round(producedBitsPerSecond)} idle`,
+      );
+      lastEstimateAt = Date.now();
+      bytesSinceEstimate = 0;
+      return;
+    }
+    lastEstimateAt = Date.now();
+    bytesSinceEstimate = 0;
     const previous = appliedBitrate;
     appliedBitrate = clamped;
     encoderStdin(shared, `${JSON.stringify({ type: "bitrate", bits: clamped })}\n`);
@@ -1490,12 +1518,16 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   let sequence = randomStart[0]! & 0xffff;
   const timestampOffset = randomStart[1]!;
   let sentAccessUnits = 0;
+  // Bytes the encoder has actually produced since the budget was last revised. An estimate can
+  // only be read as a limit if the encoder was pressing against the limit.
+  let bytesSinceEstimate = 0;
   let transportReady = false;
   const subscriber: EncoderSubscriber = {
     inputOwner,
     onAccessUnit: (payload) => {
       if (dead || !transportReady) return;
       sentAccessUnits += 1;
+      bytesSinceEstimate += payload.length;
       connectionDiagnostic.sentAccessUnits = sentAccessUnits;
       if (sentAccessUnits === 1) {
         diag(`c${connection} first-access-unit bytes=${payload.length} keyframe=${payload[8] === 1}`);

@@ -25,7 +25,7 @@ enum CaptureControlCommand: Equatable {
         case outOfRange = "out-of-range"
     }
 
-    static let bitrateRange = 100_000...40_000_000
+    static let bitrateRange = 100_000...200_000_000
     static let widthRange = 16...7_680
     static let heightRange = 16...4_320
 
