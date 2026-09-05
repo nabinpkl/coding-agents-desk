@@ -341,11 +341,15 @@ function ResolutionSlider({
   encoded: string | null;
 }) {
   return (
-    <label
+    // Deliberately not a <label> wrapping the input. A label forwards a press anywhere inside it to
+    // the control, so pressing the word or the readout dispatched a click on the range -- and the
+    // readout sits at the right end, so it landed on the maximum every time. It read as the slider
+    // jumping to 3x instead of sliding. The input carries its own accessible name instead.
+    <div
       className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-white/75"
       title={encoded ? `Capture resolution ${encoded} (${value.toFixed(2)}×)` : "Capture resolution"}
     >
-      <span className="tabular-nums text-white/60">Res</span>
+      <span aria-hidden className="text-white/60">Res</span>
       <input
         type="range"
         min={CAPTURE_SCALE_MIN}
@@ -355,10 +359,17 @@ function ResolutionSlider({
         onChange={(event) => onChange(Number.parseFloat(event.target.value))}
         aria-label="Capture resolution"
         aria-valuetext={encoded ? `${encoded}, ${value.toFixed(2)} times` : `${value.toFixed(2)} times`}
-        className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/25 accent-white
-          outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        // Wide enough to actually aim: ten stops across 80px left every step inside a thumb's width.
+        // `appearance-none` also removes the thumb, so it is drawn back explicitly -- without it
+        // there is no grab target and the only way to change the value is to click the track.
+        className="h-1 w-32 cursor-pointer appearance-none rounded-full bg-white/25 outline-none
+          focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white
+          [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none
+          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
+          [&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full
+          [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white"
       />
       <span className="w-9 tabular-nums text-right text-white/60">{value.toFixed(2)}×</span>
-    </label>
+    </div>
   );
 }
