@@ -1125,6 +1125,20 @@ function bounded(value: unknown, min: number, max: number): number | undefined {
   return value >= min && value <= max ? Math.round(value) : undefined;
 }
 
+/**
+ * A capture parameter, held inside the range the helper accepts.
+ *
+ * Asking for more than the maximum is asking for the maximum, not asking for nothing. These were
+ * validated with `bounded`, which drops an out-of-range number, and dropping one is not neutral:
+ * omit `--width` and the helper captures the display at its native size while the bitrate in the
+ * same offer still describes the smaller picture that was requested. Raising the resolution far
+ * enough therefore stopped raising it and quietly made the image worse instead.
+ */
+function clampedCaptureParameter(value: unknown, min: number, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return Math.round(Math.min(max, Math.max(min, value)));
+}
+
 async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): Promise<Response> {
   const { path: binary, mtimeMs: binaryMtimeMs, exists } = helperBinary();
   if (!exists) {
@@ -1389,10 +1403,10 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     // because periodic keyframes only create unrequested LTE bursts.
   ];
   if (choice.kind === "h264") args.push("--profile", profile);
-  const width = bounded(offer.width, 16, 7680);
-  const height = bounded(offer.height, 16, 4320);
-  const fps = bounded(offer.fps, 1, 60);
-  const bitrate = bounded(offer.bitrate, 100_000, 40_000_000);
+  const width = clampedCaptureParameter(offer.width, 16, 7680);
+  const height = clampedCaptureParameter(offer.height, 16, 4320);
+  const fps = clampedCaptureParameter(offer.fps, 1, 60);
+  const bitrate = clampedCaptureParameter(offer.bitrate, 100_000, 40_000_000);
   if (width) args.push("--width", String(width));
   if (height) args.push("--height", String(height));
   if (fps) args.push("--fps", String(fps));
