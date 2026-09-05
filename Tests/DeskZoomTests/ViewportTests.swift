@@ -385,10 +385,14 @@ extension ControlCommandTests {
 
     func testActivateAndShot() {
         XCTAssertEqual(ControlCommand.parse("activate"), .activate)
+        XCTAssertEqual(ControlCommand.parse("deactivate"), .deactivate)
         XCTAssertEqual(ControlCommand.parse("shot 2"), .shot(2, nil))
         XCTAssertEqual(ControlCommand.parse("shot 0 /tmp/win.png"), .shot(0, "/tmp/win.png"))
-        XCTAssertNil(ControlCommand.parse("shot"), "which window?")
-        XCTAssertNil(ControlCommand.parse("shot two"))
+        XCTAssertEqual(ControlCommand.parse("shot"), .shot(nil, nil), "no index means the whole canvas")
+        XCTAssertEqual(ControlCommand.parse("shot /tmp/desk.png"), .shot(nil, "/tmp/desk.png"))
+        XCTAssertNil(ControlCommand.parse("shot two /tmp/x.png"))
+        XCTAssertEqual(ControlCommand.parse("find Select All"), .find("Select All"))
+        XCTAssertNil(ControlCommand.parse("find"), "nothing to look for")
     }
 
     func testKeyTakesOneChord() {

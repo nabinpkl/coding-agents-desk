@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import CoreMedia
 
 /// Shows the captured virtual display. Pinch zooms, two-finger scroll pans, click teleports the cursor
@@ -162,6 +163,15 @@ final class CanvasView: NSView {
         overviewRegion = region
         overviewLayer.contents = surface
         placeContent()
+    }
+
+    /// The overview picture as it stands, for a script that wants the whole canvas without waiting on
+    /// another capture. It is whatever frame last arrived, so it is at the overview's resolution and up to
+    /// a frame old, which is what "what does the desk look like" needs.
+    func overviewImage() -> CGImage? {
+        guard overviewRegion != nil, let surface = overviewLayer.contents else { return nil }
+        let image = CIImage(ioSurface: surface as! IOSurface)
+        return CIContext(options: nil).createCGImage(image, from: image.extent)
     }
 
     private static func surface(of frame: CMSampleBuffer) -> IOSurface? {

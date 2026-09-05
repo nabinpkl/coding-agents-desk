@@ -19,6 +19,10 @@ enum WindowShot {
         configuration.captureResolution = .best
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration)
+        try write(image, to: file)
+    }
+
+    static func write(_ image: CGImage, to file: URL) throws {
         guard let destination = CGImageDestinationCreateWithURL(file as CFURL, UTType.png.identifier as CFString, 1, nil) else {
             throw DeskZoomError.shotNotWritten(file.path)
         }

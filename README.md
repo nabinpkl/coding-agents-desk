@@ -122,9 +122,23 @@ changes your active app, and after it cmd shortcuts reach the window.
 keystrokes, and the text goes in through the Accessibility selected-text attribute instead, which
 text fields and areas accept without any keystroke at all. The reply says which route was taken.
 
+`deskzoom deactivate` hands focus back to whatever was active before, so a script can run a
+shortcut and give your focus straight back.
+
+`deskzoom find Press me` moves the fake cursor onto the element whose title, description or text
+contains the words, searching the window under the cursor first and then the rest of the canvas
+front to back. Among matches it prefers the shortest name, so a button called "Press me" wins over
+a page whose URL happens to contain the words. It replies with where it landed and what that is,
+and the commands that act under the cursor act on that element for as long as the cursor stays
+there, since a hit-test at an element's own centre does not always return it (Chrome answers with
+a container for a button). The walk is bounded, since a web page can publish tens of thousands of
+elements.
+
 `deskzoom shot 0` writes a PNG of window 0, captured by window id through ScreenCaptureKit at the
 canvas's pixel density, to `/tmp/deskzoom-0.png` or the file named after the index. A script can
-read what it did from that without a screenshot of the whole screen.
+read what it did from that without a screenshot of the whole screen. `deskzoom shot` alone writes
+the whole canvas from the overview frame the viewer already holds, at the overview's resolution,
+to `/tmp/deskzoom-canvas.png`, with no capture round trip.
 
 What this can and cannot do follows from Accessibility, not from DeskZoom. Buttons, menu items,
 checkboxes and anything else that publishes a press action work. Hovering, dragging, and apps

@@ -69,6 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRegionChange = Date.distantPast
     private let viewportStore = ViewportStore()
     private var controlSocket: ControlSocket?
+    /// What was active before the last `activate`, so `deactivate` can hand focus back.
+    private var appBeforeActivate: NSRunningApplication?
+    /// What the last `find` landed on, kept while the fake cursor stays there. A hit-test at an element's
+    /// own centre does not always return it (Chrome answers with a container for a button), and `find`
+    /// knows exactly what it found, so the commands that act under the cursor use that instead.
+    private var found: (cursor: CGPoint, element: AXUIElement)?
     private static let canvasDefaultsKey = "canvasWidth"
     /// How long the slider must sit still before the display is actually reconfigured. Short enough to feel
     /// immediate, long enough that dragging across the ladder does not reconfigure at every rung it passes.
@@ -428,7 +434,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let window = window(index) else { return reply("error: no window \(index); run windows") }
             view.setFakeCursor(CGPoint(x: window.frame.midX, y: window.frame.midY))
             return reply("ok \(describeCursor(view.fakeCursor!)) in \(window.owner)")
-        case let .shot(index, path):
+        case let .shot(nil, path):
+            let file = URL(fileURLWithPath: path ?? "/tmp/deskzoom-canvas.png")
+            guard let image = view.overviewImage() else { return reply("error: no frame yet") }
+            do {
+                try WindowShot.write(image, to: file)
+                return reply("ok canvas \(image.width)x\(image.height) -> \(file.path)")
+            } catch {
+                return reply("error: \(error)")
+            }
+        case let .shot(index?, path):
             guard let window = window(index) else { return reply("error: no window \(index); run windows") }
             let file = URL(fileURLWithPath: path ?? "/tmp/deskzoom-\(index).png")
             let pixelsPerPoint = display.pixelsPerPoint
@@ -441,33 +456,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             return
+        case .deactivate:
+            guard let app = appBeforeActivate else { return reply("error: nothing to go back to; activate first") }
+            appBeforeActivate = nil
+            CanvasFocus.hand(to: app)
+            return reply("ok back to \(app.localizedName ?? "pid \(app.processIdentifier)")")
         case .help:
             return reply(ControlCommand.usage)
-        case .describe, .press, .scroll, .scrollBy, .type, .key, .activate:
+        case .describe, .press, .scroll, .scrollBy, .type, .key, .activate, .find:
             break
         }
 
         guard let cursor = view.fakeCursor else { return reply("error: cursor hidden; move it first") }
         let point = onScreen(cursor)
+        let elementUnderCursor: AXUIElement? = found?.cursor == cursor ? found?.element : CanvasFocus.element(at: point)
         switch command {
         case .describe:
-            guard let element = CanvasFocus.element(at: point) else { return reply("ok nothing at \(describeCursor(cursor))") }
+            guard let element = elementUnderCursor else { return reply("ok nothing at \(describeCursor(cursor))") }
             reply("ok \(CanvasFocus.describe(element))")
         case .press:
-            guard let element = CanvasFocus.element(at: point) else { return reply("error: nothing at \(describeCursor(cursor))") }
+            guard let element = elementUnderCursor else { return reply("error: nothing at \(describeCursor(cursor))") }
             reply(CanvasFocus.press(element)
                 ? "ok pressed \(CanvasFocus.describe(element))"
                 : "error: no press action on \(CanvasFocus.describe(element))")
         case .activate:
-            let name = CanvasFocus.element(at: point).flatMap(CanvasFocus.owner)?.name ?? "?"
+            let name = elementUnderCursor.flatMap(CanvasFocus.owner)?.name ?? "?"
+            let before = NSWorkspace.shared.frontmostApplication
             guard CanvasFocus.activateWindow(at: point) else { return reply("error: no window at \(describeCursor(cursor)) to activate") }
+            appBeforeActivate = before
             reply("ok activated \(name); it is the active app now, so cmd shortcuts reach it")
+        case let .find(text):
+            // The window under the cursor first, then the rest of the canvas front to back.
+            var roots: [(window: AXUIElement, owner: String)] = []
+            if let element = elementUnderCursor, let window = CanvasFocus.enclosingWindow(of: element) {
+                roots.append((window, CanvasFocus.owner(of: element)?.name ?? "?"))
+            }
+            for window in CanvasFocus.windows(onDisplayWithBounds: bounds) {
+                guard let axWindow = CanvasFocus.axWindow(for: window, displayBounds: bounds),
+                      !roots.contains(where: { CFEqual($0.window, axWindow) })
+                else { continue }
+                roots.append((axWindow, window.owner))
+            }
+            for root in roots {
+                guard let element = CanvasFocus.find(text, under: root.window), let frame = CanvasFocus.frame(of: element) else { continue }
+                view.setFakeCursor(CGPoint(x: frame.midX - bounds.minX, y: frame.midY - bounds.minY))
+                found = (view.fakeCursor!, element)
+                return reply("ok \(describeCursor(view.fakeCursor!)) on \(CanvasFocus.describe(element))")
+            }
+            reply(roots.isEmpty ? "error: no window to search" : "error: nothing named \"\(text)\" in \(roots.map(\.owner).joined(separator: ", "))")
         case let .scroll(axis, fraction):
             reply(scroll(at: point, along: axis) { _ in fraction })
         case let .scrollBy(axis, delta):
             reply(scroll(at: point, along: axis) { current in current + delta })
         case let .type(text):
-            guard let element = CanvasFocus.element(at: point), let (pid, name) = CanvasFocus.owner(of: element) else {
+            guard let element = elementUnderCursor, let (pid, name) = CanvasFocus.owner(of: element) else {
                 return reply("error: nothing at \(describeCursor(cursor))")
             }
             CanvasFocus.focus(element)
@@ -486,7 +528,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 reply("ok inserted \(text.count) characters into \(name) through accessibility; it ignored the keystrokes")
             }
         case let .key(chord):
-            guard let (pid, name) = target(at: point) else { return reply("error: nothing at \(describeCursor(cursor))") }
+            guard let element = elementUnderCursor, let (pid, name) = CanvasFocus.owner(of: element) else {
+                return reply("error: nothing at \(describeCursor(cursor))")
+            }
+            CanvasFocus.focus(element)
             // Key equivalents are dispatched through the key window's responder chain, which an inactive
             // application does not have, so a cmd chord posted to one is dropped. Refusing is better than
             // reporting a keystroke that went nowhere.
@@ -498,15 +543,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             reply("ok")
         }
-    }
-
-    /// The process to type into: the one owning what is under the fake cursor, with that element given
-    /// focus first, as a click there would have done. The application itself is not activated, so the real
-    /// keyboard keeps going wherever it was going.
-    private func target(at point: CGPoint) -> (pid: pid_t, name: String)? {
-        guard let element = CanvasFocus.element(at: point), let owner = CanvasFocus.owner(of: element) else { return nil }
-        CanvasFocus.focus(element)
-        return owner
     }
 
     /// Scrolls the area under a point to whatever `target` makes of its current position, and reports

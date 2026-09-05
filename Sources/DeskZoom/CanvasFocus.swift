@@ -165,6 +165,63 @@ enum CanvasFocus {
         return text
     }
 
+    // MARK: Finding elements
+
+    /// The element under `root` whose title, description or text contains `text`, case-insensitively,
+    /// preferring the one whose name is shortest: that is the element that *is* the thing asked for, where
+    /// a page or an address bar merely mentions it inside a URL. Ties go to the one found first, front to
+    /// back. The walk is bounded because a page can publish tens of thousands of elements, and a search
+    /// that never comes back is worse than one that says "not here".
+    static func find(_ text: String, under root: AXUIElement, budget: Int = 3000) -> AXUIElement? {
+        var remaining = budget
+        var best: (element: AXUIElement, length: Int)?
+        walk(root, depth: 0, remaining: &remaining) { element in
+            let names = [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
+                .compactMap { string(element, $0 as String) }
+                .filter { $0.localizedCaseInsensitiveContains(text) }
+            guard let length = names.map(\.count).min(), length < (best?.length ?? .max) else { return }
+            best = (element, length)
+        }
+        return best?.element
+    }
+
+    private static func walk(_ element: AXUIElement, depth: Int, remaining: inout Int, visit: (AXUIElement) -> Void) {
+        guard depth < 24, remaining > 0 else { return }
+        remaining -= 1
+        if depth > 0 { visit(element) }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
+              let children = value as? [AnyObject]
+        else { return }
+        for child in children {
+            walk(child as! AXUIElement, depth: depth + 1, remaining: &remaining, visit: visit)
+        }
+    }
+
+    /// Where an element is on screen, in global top-left coordinates, or nil for one that has no frame.
+    static func frame(of element: AXUIElement) -> CGRect? {
+        var positionValue: CFTypeRef?, sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue, let sizeValue
+        else { return nil }
+        var position = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        else { return nil }
+        return CGRect(origin: position, size: size)
+    }
+
+    /// The Accessibility window behind a listed window, reached the way the cursor reaches one: by
+    /// hit-testing its middle. Nil when another window covers that spot.
+    static func axWindow(for window: Window, displayBounds: CGRect) -> AXUIElement? {
+        let center = CGPoint(x: displayBounds.minX + window.frame.midX, y: displayBounds.minY + window.frame.midY)
+        guard let hit = element(at: center), let axWindow = enclosingWindow(of: hit) else { return nil }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(axWindow, &pid) == .success, pid == window.pid else { return nil }
+        return axWindow
+    }
+
     // MARK: Scrolling
 
     /// The scroll area containing a point, if there is one. Scrolling is a property of the container, not
@@ -223,7 +280,7 @@ enum CanvasFocus {
     }
 
     /// The element under the pointer is usually a button or a text area; walk up to the window that owns it.
-    private static func enclosingWindow(of element: AXUIElement) -> AXUIElement? {
+    static func enclosingWindow(of element: AXUIElement) -> AXUIElement? {
         var current = element
         for _ in 0..<12 {
             var role: CFTypeRef?
@@ -252,7 +309,7 @@ enum CanvasFocus {
     /// ourselves first and then calling `activate(from:)`, because our own activation had not landed yet.
     /// Setting the Accessibility frontmost attribute does not depend on who is active. It needs the same
     /// Accessibility grant the event taps already require, so it adds no new permission.
-    private static func hand(to app: NSRunningApplication) {
+    static func hand(to app: NSRunningApplication) {
         let element = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetAttributeValue(element, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     }

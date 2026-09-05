@@ -29,21 +29,32 @@ enum ControlCommand: Equatable {
     /// Make the window under the fake cursor the active one. The one command that changes the active app;
     /// it is what lets cmd shortcuts reach the window.
     case activate
-    /// Write a PNG of window n, by window id, to a file: the default is /tmp/deskzoom-<n>.png.
-    case shot(Int, String?)
+    /// Hand focus back to whatever was active before `activate`.
+    case deactivate
+    /// Write a PNG of window n, by window id, or of the whole canvas from the frame the viewer already
+    /// holds, to a file: the default is /tmp/deskzoom-<n>.png or /tmp/deskzoom-canvas.png.
+    case shot(Int?, String?)
+    /// Move the fake cursor onto the first element whose name contains the text, in the window under the
+    /// cursor, or across the canvas windows front to back when it is over none.
+    case find(String)
     case help
 
     static func parse(_ line: String) -> ControlCommand? {
         let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
         guard let verb = fields.first?.lowercased() else { return nil }
-        if verb == "type" {
+        if verb == "type" || verb == "find" {
             // The text is the rest of the line as written, inner spaces included; only the verb is a field.
-            let text = line.drop(while: \.isWhitespace).dropFirst(fields[0].count).drop(while: \.isWhitespace)
-            return text.isEmpty ? nil : .type(String(text))
+            let text = String(line.drop(while: \.isWhitespace).dropFirst(fields[0].count).drop(while: \.isWhitespace))
+            guard !text.isEmpty else { return nil }
+            return verb == "type" ? .type(text) : .find(text)
         }
         if verb == "shot" {
-            guard fields.count == 2 || fields.count == 3, let index = Int(fields[1]) else { return nil }
-            return .shot(index, fields.count == 3 ? fields[2] : nil)
+            switch fields.count {
+            case 1: return .shot(nil, nil)
+            case 2: return Int(fields[1]).map { .shot($0, nil) } ?? .shot(nil, fields[1])
+            case 3: return Int(fields[1]).map { .shot($0, fields[2]) }
+            default: return nil
+            }
         }
         if verb == "key" {
             guard fields.count == 2, let chord = KeyChord.parse(fields[1]) else { return nil }
@@ -64,6 +75,7 @@ enum ControlCommand: Equatable {
         case ("scroll-x", 1): return .scroll(.horizontal, CGFloat(numbers[0]))
         case ("scroll-x-by", 1): return .scrollBy(.horizontal, CGFloat(numbers[0]))
         case ("activate", 0): return .activate
+        case ("deactivate", 0): return .deactivate
         case ("help", 0): return .help
         default: return nil
         }
@@ -72,7 +84,7 @@ enum ControlCommand: Equatable {
     static let usage = """
         commands: move <x> <y> | move-fraction <fx> <fy> | move-window <n> | windows | describe | press \
         | scroll <fraction> | scroll-by <delta> | scroll-x <fraction> | scroll-x-by <delta> \
-        | type <text> | key <chord> | activate | shot <n> [file] | hide | status | help
+        | type <text> | key <chord> | find <text> | activate | deactivate | shot [n] [file] | hide | status | help
         keys: a-z 0-9 return tab space delete forward-delete escape up down left right home end \
         page-up page-down f1-f12 period comma minus equal slash backslash semicolon quote grave \
         left-bracket right-bracket, with modifiers cmd shift alt ctrl joined by +, as in cmd+shift+z
