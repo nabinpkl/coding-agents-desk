@@ -96,12 +96,6 @@ export function DesktopViewerSurface({
     observer.observe(chrome);
     return () => observer.disconnect();
   }, [onChromeHeight]);
-  // What the stream has actually been asked for, as opposed to where the thumb is right now.
-  const [appliedCaptureScale, setAppliedCaptureScale] = useState(captureScale);
-  useEffect(() => {
-    const settle = setTimeout(() => setAppliedCaptureScale(captureScale), CAPTURE_SCALE_SETTLE_MS);
-    return () => clearTimeout(settle);
-  }, [captureScale]);
   const applyTileState = useCallback((state: DesktopStreamState) => { setTile(state); onState?.(state); }, [onState]);
   const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
   const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
@@ -211,7 +205,7 @@ export function DesktopViewerSurface({
             windowID="display"
             displayId={displayId}
             fill
-            captureScale={appliedCaptureScale}
+            captureScale={captureScale}
             httpTransport={transport}
             onState={applyTileState}
             onControlTransport={setControlTransport}
@@ -255,7 +249,8 @@ export function DesktopViewerSurface({
                 <ResolutionSlider
                   value={captureScale}
                   onChange={onCaptureScale}
-                  encoded={source ? encodedCaptureSize(source.width, source.height, captureScale) : null}
+                  sourceWidth={source?.width}
+                  sourceHeight={source?.height}
                 />
               ) : null}
               <ModeButton
@@ -334,20 +329,47 @@ function encodedCaptureSize(sourceWidth: number, sourceHeight: number, scale: nu
 function ResolutionSlider({
   value,
   onChange,
-  encoded,
+  sourceWidth,
+  sourceHeight,
 }: {
   value: number;
   onChange: (value: number) => void;
-  encoded: string | null;
+  sourceWidth?: number;
+  sourceHeight?: number;
 }) {
+  // The slider owns the value while it is being moved, and reports only where it came to rest.
+  //
+  // Lifting every intermediate step re-rendered the whole viewer -- video element included -- once
+  // per step, and a controlled range whose parent re-renders that heavily loses the race with the
+  // pointer: React writes a now-stale value back into the DOM mid-drag and the thumb snaps, usually
+  // toward whichever end the drag was heading for. Keeping the drag local means one cheap re-render
+  // per step here, and one renegotiation when it settles.
+  const [draft, setDraft] = useState(value);
+  const settling = useRef(false);
+  // Follow the value when it changes from outside -- a restore, or another surface -- but never
+  // yank the thumb out from under a drag in progress.
+  useEffect(() => {
+    if (!settling.current) setDraft(value);
+  }, [value]);
+  useEffect(() => {
+    if (draft === value) {
+      settling.current = false;
+      return;
+    }
+    settling.current = true;
+    const settle = setTimeout(() => onChange(draft), CAPTURE_SCALE_SETTLE_MS);
+    return () => clearTimeout(settle);
+  }, [draft, value, onChange]);
+  const encoded = sourceWidth && sourceHeight
+    ? encodedCaptureSize(sourceWidth, sourceHeight, draft)
+    : null;
   return (
     // Deliberately not a <label> wrapping the input. A label forwards a press anywhere inside it to
     // the control, so pressing the word or the readout dispatched a click on the range -- and the
-    // readout sits at the right end, so it landed on the maximum every time. It read as the slider
-    // jumping to 3x instead of sliding. The input carries its own accessible name instead.
+    // readout sits at the right end, so it landed on the maximum every time.
     <div
       className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-white/75"
-      title={encoded ? `Capture resolution ${encoded} (${value.toFixed(2)}×)` : "Capture resolution"}
+      title={encoded ? `Capture resolution ${encoded} (${draft.toFixed(2)}×)` : "Capture resolution"}
     >
       <span aria-hidden className="text-white/60">Res</span>
       <input
@@ -355,11 +377,10 @@ function ResolutionSlider({
         min={CAPTURE_SCALE_MIN}
         max={CAPTURE_SCALE_MAX}
         step={0.25}
-        value={value}
-        onChange={(event) => onChange(Number.parseFloat(event.target.value))}
+        value={draft}
+        onChange={(event) => setDraft(Number.parseFloat(event.target.value))}
         aria-label="Capture resolution"
-        aria-valuetext={encoded ? `${encoded}, ${value.toFixed(2)} times` : `${value.toFixed(2)} times`}
-        // Wide enough to actually aim: ten stops across 80px left every step inside a thumb's width.
+        aria-valuetext={encoded ? `${encoded}, ${draft.toFixed(2)} times` : `${draft.toFixed(2)} times`}
         // `appearance-none` also removes the thumb, so it is drawn back explicitly -- without it
         // there is no grab target and the only way to change the value is to click the track.
         className="h-1 w-32 cursor-pointer appearance-none rounded-full bg-white/25 outline-none
@@ -369,7 +390,7 @@ function ResolutionSlider({
           [&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full
           [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white"
       />
-      <span className="w-9 tabular-nums text-right text-white/60">{value.toFixed(2)}×</span>
+      <span className="w-9 tabular-nums text-right text-white/60">{draft.toFixed(2)}×</span>
     </div>
   );
 }
