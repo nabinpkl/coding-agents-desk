@@ -785,10 +785,19 @@ agent-panel-web-check:
     bun run typecheck
     bun run test
 
-build-tools-check:
+# The JS that builds and publishes every generated tree in this repo. On the current path,
+# so it stays in the fast gate.
+build-system-check:
     #!/usr/bin/env bash
     set -euo pipefail
     node --test tools/build-system/*.test.mjs
+
+# The Swift capture-and-input helper the sidecar spawns for every desktop stream. It is compiled,
+# but it is on the current path, so unlike the rest of the Swift in this repo it belongs in the
+# fast gate. Compiles the helper and runs its input-controller and navigation suites.
+grid-encoder:
+    #!/usr/bin/env bash
+    set -euo pipefail
     sh tools/test-desktop-input-controller.sh
     sh tools/test-desktop-navigation.sh
     sh tools/build-grid-encoder.sh
@@ -1131,11 +1140,25 @@ dom-mirror-e2e: ext-stamp
       exit 1
     fi
 
-# Fast correctness gate: guard scripts plus the host build and tests. Excludes
-# the client simulator tests, which need a booted simulator and dominate the
-# wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
-# everything with `just check-all`.
-check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness build-tools-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-check
+# The gate for the current path: the TypeScript panel and sidecar, the JS that builds them, and
+# the one native helper that path spawns. Run it after an ordinary change.
+#
+# It deliberately does NOT compile the Mac host, the iOS client, or the Swift packages behind
+# them. That is minutes of compiling for code the working loop does not touch; see FEATURE-MAP.md
+# for which parts of the tree are current. When a change reaches native code, run `just
+# swift-check` as well -- and note that the auto-commit rule in AGENTS.md means green there too,
+# not just here. `just voice-check` covers the dormant voice arc, `just sim-test` the iOS
+# simulator suite, and `just check-all` runs the lot.
+check: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder
+
+# The native apps and the machinery that launches them: the Swift packages, the Rust PTY manager,
+# the whole Xcode host test suite, and the shell tests covering host-run and client-install
+# lifecycle, launch env, telemetry summaries and TestFlight upload.
+#
+# Split out of `just check` because compiling it dominates the wall clock of a gate that most
+# changes do not need. Run it when you edit host/, client/, terminal/, packages/*/Sources, or the
+# Justfile recipes that launch either app.
+swift-check variant="stable": ensure-agent-feed-sidecar-placeholder ensure-pty-runtime-placeholder workspace-ide-fitness
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -1147,10 +1170,6 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/host-client-telemetry-tests.sh
-    /usr/bin/python3 tools/voice-phone-evidence-summary-tests.py
-    (cd gesture-agent && uv run python -m unittest discover -s tests)
-    /usr/bin/python3 tools/generate-voice-phone-mapping.py --check
-    /usr/bin/python3 tools/voice-phone-calibration-contract-check.py
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
     (cd packages/KeyboardDictation && swift test)
@@ -1166,6 +1185,17 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} -collect-test-diagnostics never test
 
+# The voice arc's own gates: the phone-model mapping and calibration contracts, the evidence
+# summariser, and the gesture-agent Python suite. Dormant since 2026-08-14, and nothing on the
+# current path imports any of it, so it is not in `just check`. Run it if voice work resumes.
+voice-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/python3 tools/voice-phone-evidence-summary-tests.py
+    (cd gesture-agent && uv run python -m unittest discover -s tests)
+    /usr/bin/python3 tools/generate-voice-phone-mapping.py --check
+    /usr/bin/python3 tools/voice-phone-calibration-contract-check.py
+
 # Real coordinator-to-pty-manager lifecycle smoke on an isolated temporary socket.
 # This builds the test daemon in place and never launches either app.
 agent-terminal-integration-test:
@@ -1177,12 +1207,12 @@ agent-terminal-integration-test:
         -only-testing:AgentDeskHostTests/AgentSessionTerminalIntegrationTests
 
 # AgentDeskWire package unit tests: the shared wire contract's authoritative
-# round-trip suite (ADR-0050). Also run as the first leg of `check`.
+# round-trip suite (ADR-0050). Also run as a leg of `swift-check`.
 wire-test:
     cd packages/AgentDeskWire && swift test
 
-# Client simulator tests. Boots the iPhone simulator and is the slow leg split
-# out of `check`. Run before committing client-side changes.
+# Client simulator tests. Boots the iPhone simulator and is the slowest leg of all, split out of
+# both `check` and `swift-check`. Run before committing client-side changes.
 #
 # Builds into {{sim_test_derived_data}}, not the shared tree, so it can run concurrently with a
 # device or host build instead of losing a race for build.db. The cost is one cold build the
@@ -1194,8 +1224,9 @@ wire-test:
 sim-test: ensure-webview-placeholder voice-assets-stage-tests
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{sim_test_derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
-# Full gate: the fast host-side check plus the client simulator tests.
-check-all: check sim-test
+# Everything: the current-path gate, the native apps, the voice arc, and the client simulator
+# tests. Minutes, not seconds.
+check-all: check swift-check voice-check sim-test
 
 # Reproduce the pinned R130 Core ML phone model and stage its coupled manifest
 # and vocabulary under the client synchronized resource root. The large source

@@ -6,7 +6,9 @@ Runtime update, 2026-08-28: the build-path instructions below are historical. AD
 the helper with `just grid-encoder-install` into the durable Application Support runtime; compiling
 to `.build` alone no longer updates it. Host launch recipes likewise use an installed app copy.
 Plain `just host-run` includes live panel recovery, live agent sidecar setup and helper installation.
-Read the current `AGENTS.md` runtime section and `TASKS.md` D277/R278/D279 before deployment.
+Read the current `AGENTS.md` runtime section and D277/R278/D279 in
+`tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md` (the retired root
+ledger) before deployment.
 
 Read `AGENTS.md` first for how to work in this repo. This file covers only the
 arc that just happened and what it left behind. Previous handovers are preserved

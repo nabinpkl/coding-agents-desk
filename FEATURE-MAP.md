@@ -28,10 +28,14 @@ Four pieces, and only four, carry the current path:
 The loop is: edit TypeScript, reload the page. Neither the Mac host app nor the iPhone app needs
 rebuilding for it, which is the entire point of the shape the repo is in.
 
-Swift has not gone away. `just check` still runs six Swift package test suites, a Rust crate, and
-the whole Xcode host test suite, and that gate is real. But it is a gate, not a workbench. Reach for Swift
-only when a change needs a native capability TypeScript cannot have; `AGENTS.md`
-("TypeScript-first WebView glue") states the bar.
+Swift has not gone away, but as of 2026-09-05 it is not in the default gate either. `just check`
+covers the current path: the sidecar and panel TypeScript, the JS build system, and `just
+grid-encoder` for the one native helper that path spawns. Everything else native -- the Swift
+packages, the Rust PTY manager, the Xcode host suite, and the shell tests of the launch machinery --
+moved behind `just swift-check`, and the dormant voice arc behind `just voice-check`. `just
+check-all` still runs everything. Reach for Swift only when a change needs a native capability
+TypeScript cannot have; `AGENTS.md` ("TypeScript-first WebView glue") states the bar, and run
+`swift-check` when you do.
 
 ## How it got this shape
 
@@ -104,8 +108,10 @@ app. The panel picks its transport by whether a native message handler is presen
 
 **Stale documents that read as current, and are not:**
 
-- `TASKS.md` heads a v15 pronunciation gap-finder arc from July. That is not what anyone is doing.
 - `HANDOVER.md` is the 2026-08-25 desktop-park arc, already carrying a 2026-08-28 correction.
+- There is no root `TASKS.md`. The one that headed a July voice arc was retired on 2026-09-05 to
+  `tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md`, which names the single
+  task still open (R278, a post-approval `just host-run` deployment check).
 
 When a ledger and `git log` disagree, `git log` wins.
 
@@ -116,7 +122,7 @@ and none of them should be extended without deciding which one you are in.
 
 | Problem | Current approach | Also present | Note |
 |---|---|---|---|
-| Show a Mac display | sidecar WebRTC, `tools/grid-encoder` + werift | owned-media pipeline in `host/` + `client/`: libwebrtc, `OwnedTileCodec`, copyRect scroll prediction (ADR-0022/0023/0024) | the second is the iPhone-native path and is still built and tested by `just check`; new work is on the first |
+| Show a Mac display | sidecar WebRTC, `tools/grid-encoder` + werift | owned-media pipeline in `host/` + `client/`: libwebrtc, `OwnedTileCodec`, copyRect scroll prediction (ADR-0022/0023/0024) | the second is the iPhone-native path and is still built and tested, now by `just swift-check`; new work is on the first |
 | Reach a session that is locked or at the login window | noVNC on the Screen surface | nothing; the capture path structurally cannot | complementary, not competing |
 | Zoom the desktop view | `crop`, re-aiming the capture (ported from DeskZoom) | `css`, transforming the picture | both live behind a switch in `zoomMode.ts`, deliberately, so they can be compared on one desk |
 | Drive the desktop | sidecar HTTP plus the standalone helper (ADR-0109, ADR-0113) | the host's native lane | moved on purpose; the reasoning is at the top of `agent-feed/sidecar/src/http/windowRoutes.ts` |
@@ -163,6 +169,6 @@ git log --since="60 days ago" --name-only --format= | awk -F/ 'NF{print $1}' | s
 for d in */; do printf "%-24s %s\n" "$d" "$(git log -1 --format='%ad %s' --date=short -- "$d")"; done
 ```
 
-Then read what `just check` runs and what `just host-run` launches. Those two answer "what is still
+Then read what `just check` and `just swift-check` run, and what `just host-run` launches. Those two answer "what is still
 wired up" where the commit dates answer "what is still being worked on"; a directory needs both to
 count as live.

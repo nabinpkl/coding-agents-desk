@@ -89,7 +89,10 @@ just fresh-release-diagnostic-run
 - `AGENTS.md` how to operate in this repo (conventions, voice, ADR process, work-breakdown rules). Read this if you are coding here, human or agent.
 - `architecture-decisions/` one ADR per locked-in decision. ADR-0001 will record the stack.
 - `mock-design/` design handoff bundle for visual reference only.
-- `TASKS.md` current owned-media iteration ledger, with closed ledgers under `tasks/archive/`.
+- `FEATURE-MAP.md` which parts of the tree are the current path, which are dormant, and which
+  solve one problem two ways. Read before deciding where a change belongs.
+- `TASKS.md` the iteration ledger, when one is open. Retired ledgers live in `tasks/archive/`;
+  none is open as of 2026-09-05.
 
 ## License
 

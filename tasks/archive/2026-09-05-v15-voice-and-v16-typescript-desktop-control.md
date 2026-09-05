@@ -1,5 +1,20 @@
 # TASKS: v15 pronunciation gap finder
 
+> Retired 2026-09-05. This was the root `TASKS.md` and had stopped describing the work: it opens on
+> a voice arc from July and ends on TypeScript desktop control and durable runtime installation in
+> late August, while every commit since has been the desktop stream. It is archived whole rather
+> than summarised, because its promotion log and phase notes are the record of how those arcs
+> actually went.
+>
+> **One task was still open when this was retired: R278**, the post-approval `just host-run` that
+> verifies the host executes from its durable home, the sidecar finds the installed helper, the TCC
+> grants survived, and the installed iPhone WebView reconnects. It needs the owner's go-ahead per
+> the device-run rule in `AGENTS.md`, and it carries its ID with it: if it is picked up again, it
+> stays R278 rather than being renumbered into a new ledger.
+>
+> No successor ledger was opened. `AGENTS.md` says one is created when the next iteration opens.
+
+
 `R<N>` = remaining. Flip to `D<N>` only after the complete slice has landed and its tests are green.
 This ledger starts after R127, the highest task ID in the retained task ledgers. Archived checkpoints
 remain incomplete unless their own ledgers record otherwise.

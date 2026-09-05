@@ -1161,4 +1161,5 @@ TypeScript-only. Rebuilding this helper and reopening a stream does not rebuild 
 - Product intent: `PRD.md`
 - Operating rules: `AGENTS.md`
 - ADRs: `architecture-decisions/`
-- Execution: `TASKS.md`
+- Execution: `TASKS.md` when a ledger is open, otherwise the retired ones under `tasks/archive/`
+- What is live vs dormant in the tree: `FEATURE-MAP.md`

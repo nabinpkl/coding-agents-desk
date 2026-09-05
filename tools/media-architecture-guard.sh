@@ -41,7 +41,6 @@ if rg -n "${args[@]}" \
   SPEC.md \
   PRD.md \
   README.md \
-  TASKS.md \
   Justfile \
   .env.example \
   tools \
