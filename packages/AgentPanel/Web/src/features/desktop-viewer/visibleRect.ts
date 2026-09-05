@@ -7,8 +7,17 @@
 // rectangle, and is placed geometrically so that the visible part lands where it belongs; the
 // viewport clips the rest. That is how a capture padded beyond the view shows exactly the view.
 //
-// Two invariants make the projection a single uniform scale and keep every axis honest:
-// `visible` always has the display's aspect ratio, and it always lies inside the display.
+// One departure from DeskZoom, forced by the viewport. DeskZoom locks its window to the canvas's
+// aspect ratio, so keeping `visible` at that aspect costs nothing: the picture always fills the
+// window. This viewer's box is whatever the chrome and the keyboard leave, so a visible rect held
+// at the display's aspect would sit letterboxed inside it at every zoom, leaving bars black above
+// and below a picture that could have filled them. Instead `visible` takes the VIEWPORT's aspect
+// while zoomed in, and is bounded by the display on each axis independently; zooming out, one axis
+// reaches the display first, and when both have, it is the whole display and the bars are the
+// letterbox of showing all of it. The box on screen is `visible` aspect-fitted into the viewport,
+// so it is the whole viewport whenever there is more display to show and the letterbox only when
+// there is not. The invariant that matters survives: visible and its box always share an aspect,
+// so every projection is one uniform scale on both axes.
 
 export interface DisplayRect {
   readonly x: number;
@@ -22,8 +31,8 @@ export interface DisplaySize {
   readonly height: number;
 }
 
-/** Narrowest the visible rect may get, in display points: caps how far in you can zoom. */
-export const MIN_VISIBLE_WIDTH = 320;
+/** Narrowest the visible rect's shorter axis may get, in display points: caps how far in you can zoom. */
+export const MIN_VISIBLE_SIDE = 320;
 
 export function wholeDisplay(display: DisplaySize): DisplayRect {
   return { x: 0, y: 0, width: display.width, height: display.height };
@@ -39,33 +48,71 @@ export function clampVisible(rect: DisplayRect, display: DisplaySize): DisplayRe
   };
 }
 
-/** 1 when the whole display is visible, larger when zoomed in. */
+/** 1 when the whole display is visible, larger when zoomed in on either axis. */
 export function magnification(visible: DisplayRect, display: DisplaySize): number {
-  return visible.width > 0 ? display.width / visible.width : 1;
+  if (visible.width <= 0 || visible.height <= 0) return 1;
+  return Math.max(display.width / visible.width, display.height / visible.height);
 }
 
 export function isWholeDisplay(visible: DisplayRect, display: DisplaySize): boolean {
-  return visible.width >= display.width - 1e-6;
+  return visible.width >= display.width - 1e-6 && visible.height >= display.height - 1e-6;
 }
 
 /**
- * factor > 1 zooms in. `anchor` is a display point that stays under the same screen spot.
- * The width is bounded on both ends; the height follows from the display's aspect.
+ * The largest rect of the viewport's aspect that fits inside the display: the most that can be
+ * shown without bars. What zoom settles to just before the letterbox, and what the keyboard cover
+ * wants outright.
+ */
+export function largestFitting(display: DisplaySize, viewportAspect: number): DisplaySize {
+  if (display.width <= 0 || display.height <= 0 || !(viewportAspect > 0)) return display;
+  const width = Math.min(display.width, display.height * viewportAspect);
+  return { width, height: width / viewportAspect };
+}
+
+/**
+ * The visible rect's size at a new area, shaped to the viewport and bounded by the display.
+ *
+ * Shaping by area rather than by either axis keeps a zoom factor meaning the same thing whether
+ * or not the rect is currently clamped: factor 2 always shows a quarter of the area. Each axis then
+ * clamps to the display on its own, which is the transition from viewport aspect to letterbox.
+ */
+function shaped(area: number, display: DisplaySize, viewportAspect: number): DisplaySize {
+  const aspect = viewportAspect > 0 ? viewportAspect : display.width / Math.max(1, display.height);
+  let height = Math.sqrt(area / aspect);
+  let width = height * aspect;
+  // The floor applies to the shorter axis, so a tall viewport cannot zoom into a sliver either.
+  const shorter = Math.min(width, height);
+  const floor = Math.min(MIN_VISIBLE_SIDE, Math.min(display.width, display.height));
+  if (shorter < floor) {
+    const grow = floor / shorter;
+    width *= grow;
+    height *= grow;
+  }
+  return { width: Math.min(display.width, width), height: Math.min(display.height, height) };
+}
+
+/**
+ * factor > 1 zooms in. `anchor` is a display point that stays under the same screen spot. The
+ * viewport's size is what the rect is shaped to; pass the same viewport the rect is shown in.
  */
 export function zoomVisible(
   visible: DisplayRect,
   display: DisplaySize,
   factor: number,
   anchor: { x: number; y: number },
+  viewport: DisplaySize,
 ): DisplayRect {
-  if (display.width <= 0 || display.height <= 0 || visible.width <= 0 || factor <= 0) return visible;
-  const width = Math.min(display.width, Math.max(Math.min(MIN_VISIBLE_WIDTH, display.width), visible.width / factor));
-  const ratio = width / visible.width;
+  if (display.width <= 0 || display.height <= 0 || visible.width <= 0 || visible.height <= 0 || !(factor > 0)) {
+    return visible;
+  }
+  const size = shaped((visible.width * visible.height) / (factor * factor), display, viewport.width / viewport.height);
+  const ratioX = size.width / visible.width;
+  const ratioY = size.height / visible.height;
   return clampVisible({
-    x: anchor.x - (anchor.x - visible.x) * ratio,
-    y: anchor.y - (anchor.y - visible.y) * ratio,
-    width,
-    height: width * display.height / display.width,
+    x: anchor.x - (anchor.x - visible.x) * ratioX,
+    y: anchor.y - (anchor.y - visible.y) * ratioY,
+    width: size.width,
+    height: size.height,
   }, display);
 }
 
@@ -76,13 +123,14 @@ export function panVisible(
   dx: number,
   dy: number,
 ): DisplayRect {
-  return clampVisible({ ...visible, x: visible.x + dx, y: visible.y + dy }, display);
+  const next = clampVisible({ ...visible, x: visible.x + dx, y: visible.y + dy }, display);
+  return next.x === visible.x && next.y === visible.y ? visible : next;
 }
 
 /**
  * Pans the least amount that brings `point` back inside the visible rect, keeping a margin
  * expressed as a fraction of the visible size. This is what makes the view follow the cursor
- * while zoomed in. A no-op when the whole display is visible.
+ * while zoomed in. On an axis showing the whole display the clamp makes it a no-op.
  */
 export function followVisible(
   visible: DisplayRect,
@@ -90,7 +138,6 @@ export function followVisible(
   point: { x: number; y: number },
   margin: number,
 ): DisplayRect {
-  if (isWholeDisplay(visible, display)) return visible;
   const innerX = visible.x + visible.width * margin;
   const innerY = visible.y + visible.height * margin;
   const innerRight = visible.x + visible.width * (1 - margin);
@@ -105,35 +152,33 @@ export function followVisible(
   return panVisible(visible, display, dx, dy);
 }
 
+/** Pans so `point` sits at the middle of the visible rect, as far as the display allows. */
+export function centreVisible(
+  visible: DisplayRect,
+  display: DisplaySize,
+  point: { x: number; y: number },
+): DisplayRect {
+  return clampVisible({
+    ...visible,
+    x: point.x - visible.width / 2,
+    y: point.y - visible.height / 2,
+  }, display);
+}
+
 /**
- * The part of the viewport the aspect-fitted display occupies: the display's aspect, centred,
- * letterboxed on the axis with room to spare. Because `visible` shares that aspect, the map from
- * visible to this box is one uniform scale on both axes.
+ * A size aspect-fitted into the viewport, centred: the box the visible rect is shown in. The
+ * whole viewport when the size has the viewport's aspect; letterboxed on one axis when it does
+ * not, which is only ever the display's own edge showing.
  */
-export function contentRect(display: DisplaySize, viewportWidth: number, viewportHeight: number): DisplayRect {
-  if (display.width <= 0 || display.height <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
+export function fitRect(size: DisplaySize, viewportWidth: number, viewportHeight: number): DisplayRect {
+  if (size.width <= 0 || size.height <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
     return { x: 0, y: 0, width: 0, height: 0 };
   }
-  const aspect = display.width / display.height;
+  const aspect = size.width / size.height;
   let width = viewportWidth;
   let height = viewportHeight;
   if (width / height > aspect) width = height * aspect;
   else height = width / aspect;
-  return { x: (viewportWidth - width) / 2, y: (viewportHeight - height) / 2, width, height };
-}
-
-/**
- * The display-aspect box that COVERS the viewport rather than fitting inside it: no letterbox,
- * with the overflow on one axis clipped. What the keyboard-cover view wants, where the strip left
- * above the keyboard would otherwise be mostly bars.
- */
-export function coverRect(display: DisplaySize, viewportWidth: number, viewportHeight: number): DisplayRect {
-  if (display.width <= 0 || display.height <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
-    return { x: 0, y: 0, width: 0, height: 0 };
-  }
-  const scale = Math.max(viewportWidth / display.width, viewportHeight / display.height);
-  const width = display.width * scale;
-  const height = display.height * scale;
   return { x: (viewportWidth - width) / 2, y: (viewportHeight - height) / 2, width, height };
 }
 

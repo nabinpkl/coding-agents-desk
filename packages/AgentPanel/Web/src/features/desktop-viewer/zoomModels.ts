@@ -26,11 +26,12 @@ import {
   type ViewportTransform,
 } from "./tileViewportMath";
 import {
+  centreVisible,
   clampVisible,
-  contentRect,
-  coverRect,
+  fitRect,
   followVisible,
   isWholeDisplay,
+  largestFitting,
   magnification,
   panVisible,
   placeRegion,
@@ -43,8 +44,8 @@ import {
 } from "./visibleRect";
 import type { ZoomMode } from "./zoomMode";
 
-/** How close to the edge the remote cursor may get before the view pans, as a fraction of it. */
-const FOLLOW_MARGIN = 0.12;
+/** How close to the edge the remote cursor may get before the view pans, as a fraction of it. DeskZoom's value. */
+const FOLLOW_MARGIN = 0.18;
 
 export interface ZoomView {
   readonly kind: ZoomMode;
@@ -116,8 +117,6 @@ function cropZoomView(display: DisplaySize): ZoomView {
   let visible: DisplayRect = wholeDisplay(display);
   /** What the frame on screen covers. The whole display until a plan's first frame says otherwise. */
   let region: DisplayRect = getCaptureCrop()?.region ?? wholeDisplay(display);
-  /** Keyboard cover: the box covers the viewport instead of fitting it, shifted to centre the cursor. */
-  let coverShift: ViewportPoint | null = null;
   /**
    * A plan has been requested and its first frame has not arrived. One re-aim in flight at a
    * time, as in DeskZoom's applyCaptureUpdate: a second request during a negotiation would tear
@@ -127,10 +126,13 @@ function cropZoomView(display: DisplaySize): ZoomView {
    */
   let awaitingApply = false;
 
-  const box = (w: number, h: number): DisplayRect => {
-    if (!coverShift) return contentRect(display, w, h);
-    const base = coverRect(display, w, h);
-    return { ...base, x: base.x + coverShift.x, y: base.y + coverShift.y };
+  // The box is `visible` fitted to the viewport: the whole viewport while there is more display
+  // to show, the letterbox only once all of it is showing.
+  const box = (w: number, h: number): DisplayRect => fitRect(visible, w, h);
+  const centre = () => ({ x: visible.x + visible.width / 2, y: visible.y + visible.height / 2 });
+  /** Re-shape to the viewport at the same area: what a resize, or a restore, has to do. */
+  const reshape = (w: number, h: number) => {
+    visible = zoomVisible(visible, display, 1, centre(), { width: w, height: h });
   };
   const changed = (next: DisplayRect) => {
     const moved = next.x !== visible.x || next.y !== visible.y || next.width !== visible.width;
@@ -146,30 +148,30 @@ function cropZoomView(display: DisplaySize): ZoomView {
 
   return {
     kind: "crop",
-    zoomAt: (factor, cx, cy, w, h) => changed(zoomVisible(visible, display, factor, anchorAt(cx, cy, w, h))),
+    zoomAt: (factor, cx, cy, w, h) =>
+      changed(zoomVisible(visible, display, factor, anchorAt(cx, cy, w, h), { width: w, height: h })),
     // Gesture deltas arrive in viewport pixels; the view moves the other way in display points.
     panBy: (dx, dy, w, h) => {
       const k = pointsPerPixel(w, h);
       return changed(panVisible(visible, display, -dx * k, -dy * k));
     },
-    reset: () => { visible = wholeDisplay(display); coverShift = null; },
+    reset: () => { visible = wholeDisplay(display); },
     isZoomed: () => !isWholeDisplay(visible, display),
     follow: (cursor) => changed(followVisible(visible, display, cursor, FOLLOW_MARGIN)),
     cover: (cursor, w, h) => {
-      // Show the whole display in a box that covers the strip, then slide the box so the cursor
-      // sits mid-strip, as far as the box's overflow allows: the same intent as the CSS cover.
-      visible = wholeDisplay(display);
-      const base = coverRect(display, w, h);
-      const at = projectPoint(cursor, visible, base);
-      if (!at) { coverShift = { x: 0, y: 0 }; return; }
-      coverShift = {
-        x: Math.min(-base.x, Math.max(w - (base.x + base.width), w / 2 - at.x)),
-        y: Math.min(-base.y, Math.max(h - (base.y + base.height), h / 2 - at.y)),
-      };
+      // The strip above the keyboard is just a viewport of another aspect. Show the most of the
+      // display that fills it, centred on the cursor, which is where the typing is going.
+      const size = largestFitting(display, w / h);
+      visible = centreVisible({ x: 0, y: 0, ...size }, display, cursor);
     },
     snapshot: () => visible,
-    restore: (snapshot) => { visible = clampVisible(snapshot as DisplayRect, display); coverShift = null; },
-    reclamp: () => { visible = clampVisible(visible, display); },
+    restore: (snapshot, w, h) => {
+      visible = clampVisible(snapshot as DisplayRect, display);
+      reshape(w, h);
+    },
+    // A resize changes the viewport's aspect, and a rect shaped to the old one would sit
+    // letterboxed in the new: re-shape at the same area rather than merely re-clamp.
+    reclamp: (w, h) => reshape(w, h),
     project: (cursor, w, h) => projectPoint(cursor, visible, box(w, h)),
     unproject: (point, w, h) => unprojectPoint(point, visible, box(w, h), display),
     paint: (inner, w, h) => {

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  MIN_VISIBLE_WIDTH,
-  contentRect,
+  MIN_VISIBLE_SIDE,
+  centreVisible,
+  fitRect,
   followVisible,
   isWholeDisplay,
+  largestFitting,
   magnification,
   panVisible,
   placeRegion,
@@ -15,41 +17,73 @@ import {
 } from "./visibleRect";
 
 const DISPLAY = { width: 1600, height: 1000 };
+/** Same aspect as the display: the DeskZoom case, where nothing is ever letterboxed. */
+const SAME = { width: 800, height: 500 };
+/** Wider than the display, like a panel with chrome above and below the picture. */
+const WIDE = { width: 1000, height: 400 };
 
 describe("zoomVisible", () => {
   it("keeps the anchor under the same screen spot", () => {
     // Zoom 2x about (400, 250): that point is a quarter of the way in on each axis, and it must
     // still be a quarter of the way into the new, half-sized rect.
-    const zoomed = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 2, { x: 400, y: 250 });
-    expect(zoomed.width).toBe(800);
-    expect(zoomed.height).toBe(500);
+    const zoomed = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 2, { x: 400, y: 250 }, SAME);
+    expect(zoomed.width).toBeCloseTo(800, 9);
+    expect(zoomed.height).toBeCloseTo(500, 9);
     expect((400 - zoomed.x) / zoomed.width).toBeCloseTo(0.25, 9);
     expect((250 - zoomed.y) / zoomed.height).toBeCloseTo(0.25, 9);
   });
 
-  it("keeps the display's aspect, which is what makes projection one uniform scale", () => {
-    const zoomed = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 3.3, { x: 1000, y: 700 });
-    expect(zoomed.width / zoomed.height).toBeCloseTo(DISPLAY.width / DISPLAY.height, 9);
+  it("takes the viewport's aspect when zoomed in, so the picture fills the viewport", () => {
+    const zoomed = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 3, { x: 800, y: 500 }, WIDE);
+    expect(zoomed.width / zoomed.height).toBeCloseTo(WIDE.width / WIDE.height, 9);
+    // ...and the box it is shown in is then the whole viewport: no bars.
+    const box = fitRect(zoomed, WIDE.width, WIDE.height);
+    expect(box.x).toBeCloseTo(0, 6);
+    expect(box.y).toBeCloseTo(0, 6);
+    expect(box.width).toBeCloseTo(1000, 6);
+    expect(box.height).toBeCloseTo(400, 6);
   });
 
-  it("stays inside the display when the anchor is near an edge", () => {
-    const zoomed = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 4, { x: 1590, y: 990 });
-    expect(zoomed.x + zoomed.width).toBeLessThanOrEqual(DISPLAY.width);
-    expect(zoomed.y + zoomed.height).toBeLessThanOrEqual(DISPLAY.height);
-    expect(zoomed.x).toBeGreaterThanOrEqual(0);
+  it("means the same zoom factor whether or not an axis is clamped: a quarter of the area", () => {
+    const whole = wholeDisplay(DISPLAY);
+    const zoomed = zoomVisible(whole, DISPLAY, 2, { x: 800, y: 500 }, WIDE);
+    expect(zoomed.width * zoomed.height).toBeCloseTo((whole.width * whole.height) / 4, 6);
   });
 
-  it("stops at the minimum width and at the whole display", () => {
-    const deep = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 1000, { x: 800, y: 500 });
-    expect(deep.width).toBe(MIN_VISIBLE_WIDTH);
-    const out = zoomVisible(deep, DISPLAY, 0.0001, { x: 800, y: 500 });
+  it("reaches the whole display, and the letterbox, only once both axes are bounded", () => {
+    // Zooming out in a wide viewport: width hits the display first, height keeps growing.
+    const deep = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 4, { x: 800, y: 500 }, WIDE);
+    const partly = zoomVisible(deep, DISPLAY, 1 / 3, { x: 800, y: 500 }, WIDE);
+    expect(partly.width).toBe(DISPLAY.width);
+    expect(partly.height).toBeLessThan(DISPLAY.height);
+    expect(isWholeDisplay(partly, DISPLAY)).toBe(false);
+    const out = zoomVisible(partly, DISPLAY, 1 / 100, { x: 800, y: 500 }, WIDE);
     expect(out).toEqual(wholeDisplay(DISPLAY));
   });
 
-  it("reports magnification against the whole display", () => {
+  it("stays inside the display when the anchor is near an edge", () => {
+    const zoomed = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 4, { x: 1590, y: 990 }, WIDE);
+    expect(zoomed.x + zoomed.width).toBeLessThanOrEqual(DISPLAY.width + 1e-9);
+    expect(zoomed.y + zoomed.height).toBeLessThanOrEqual(DISPLAY.height + 1e-9);
+    expect(zoomed.x).toBeGreaterThanOrEqual(0);
+  });
+
+  it("stops at the floor on the shorter axis", () => {
+    const deep = zoomVisible(wholeDisplay(DISPLAY), DISPLAY, 1000, { x: 800, y: 500 }, WIDE);
+    expect(Math.min(deep.width, deep.height)).toBeCloseTo(MIN_VISIBLE_SIDE, 6);
+  });
+
+  it("reports magnification against the whole display on the more zoomed axis", () => {
     expect(magnification(wholeDisplay(DISPLAY), DISPLAY)).toBe(1);
     expect(magnification({ x: 0, y: 0, width: 400, height: 250 }, DISPLAY)).toBe(4);
-    expect(isWholeDisplay(wholeDisplay(DISPLAY), DISPLAY)).toBe(true);
+    expect(magnification({ x: 0, y: 0, width: 1600, height: 500 }, DISPLAY)).toBe(2);
+  });
+});
+
+describe("largestFitting", () => {
+  it("is the most of the display that fills a viewport of that aspect without bars", () => {
+    expect(largestFitting(DISPLAY, 2.5)).toEqual({ width: 1600, height: 640 });
+    expect(largestFitting(DISPLAY, 1)).toEqual({ width: 1000, height: 1000 });
   });
 });
 
@@ -59,9 +93,14 @@ describe("panVisible", () => {
     expect(panVisible(zoomed, DISPLAY, 50, -30)).toEqual({ x: 150, y: 70, width: 800, height: 500 });
     expect(panVisible(zoomed, DISPLAY, 5000, 5000)).toEqual({ x: 800, y: 500, width: 800, height: 500 });
   });
+
+  it("returns the same rect when nothing could move, so nothing downstream re-runs", () => {
+    const whole = wholeDisplay(DISPLAY);
+    expect(panVisible(whole, DISPLAY, 10, 10)).toBe(whole);
+  });
 });
 
-describe("followVisible", () => {
+describe("followVisible and centreVisible", () => {
   const zoomed = { x: 400, y: 250, width: 800, height: 500 };
 
   it("does nothing while the cursor is inside the safe band", () => {
@@ -73,18 +112,25 @@ describe("followVisible", () => {
     expect(followVisible(zoomed, DISPLAY, { x: 500, y: 500 }, 0.18)).toEqual({ ...zoomed, x: 356 });
   });
 
-  it("does nothing at all when the whole display is already visible", () => {
-    const whole = wholeDisplay(DISPLAY);
-    expect(followVisible(whole, DISPLAY, { x: 1, y: 1 }, 0.18)).toBe(whole);
+  it("is a no-op on an axis already showing the whole display", () => {
+    const wide = { x: 0, y: 200, width: 1600, height: 400 };
+    // Off to the left: nothing to pan to on that axis. Below the band: pans vertically only.
+    expect(followVisible(wide, DISPLAY, { x: -50, y: 400 }, 0.18)).toBe(wide);
+    expect(followVisible(wide, DISPLAY, { x: 800, y: 700 }, 0.18)).toEqual({ ...wide, y: 372 });
+  });
+
+  it("centres on a point as far as the display allows", () => {
+    expect(centreVisible(zoomed, DISPLAY, { x: 800, y: 500 })).toEqual({ ...zoomed, x: 400, y: 250 });
+    expect(centreVisible(zoomed, DISPLAY, { x: 10, y: 10 })).toEqual({ ...zoomed, x: 0, y: 0 });
   });
 });
 
-describe("contentRect", () => {
-  it("letterboxes to the display's aspect, centred", () => {
-    // 16:10 display in a square viewport: full width, bars top and bottom.
-    expect(contentRect(DISPLAY, 800, 800)).toEqual({ x: 0, y: 150, width: 800, height: 500 });
-    // ...and in a very wide viewport: full height, bars left and right.
-    expect(contentRect(DISPLAY, 2000, 500)).toEqual({ x: 600, y: 0, width: 800, height: 500 });
+describe("fitRect", () => {
+  it("letterboxes only when the size and the viewport disagree, which is the display's own edge", () => {
+    // The whole 16:10 display in a square viewport: full width, bars top and bottom.
+    expect(fitRect(DISPLAY, 800, 800)).toEqual({ x: 0, y: 150, width: 800, height: 500 });
+    // A visible rect shaped to the viewport: the whole viewport.
+    expect(fitRect({ width: 500, height: 200 }, 1000, 400)).toEqual({ x: 0, y: 0, width: 1000, height: 400 });
   });
 });
 
@@ -114,8 +160,8 @@ describe("placeRegion", () => {
 });
 
 describe("project and unproject", () => {
-  const content = contentRect(DISPLAY, 800, 800);
   const visible = { x: 400, y: 250, width: 800, height: 500 };
+  const content = fitRect(visible, 800, 800);
 
   it("round-trips a display point through the screen", () => {
     const point = { x: 1000, y: 600 };
@@ -133,7 +179,8 @@ describe("project and unproject", () => {
   });
 
   it("clamps a pointer over the letterbox onto the display's edge", () => {
-    const back = unprojectPoint({ x: 400, y: 0 }, wholeDisplay(DISPLAY), content, DISPLAY)!;
+    const whole = wholeDisplay(DISPLAY);
+    const back = unprojectPoint({ x: 400, y: 0 }, whole, fitRect(whole, 800, 800), DISPLAY)!;
     expect(back.y).toBe(0);
   });
 });
