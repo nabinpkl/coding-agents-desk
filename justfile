@@ -96,8 +96,14 @@ display-install: build
     PLIST
     plutil -lint '{{display_plist}}'
     # Replace rather than reload: bootstrap on an already-loaded label is an error, and a plist
-    # edited under a loaded job is not read until the job is booted out.
+    # edited under a loaded job is not read until the job is booted out. bootout returns before
+    # launchd has finished unloading, so bootstrap has to wait for the label to actually go or it
+    # races and fails with a bare exit code 5, leaving no display at all.
     launchctl bootout "gui/$UID/{{display_label}}" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+      launchctl print "gui/$UID/{{display_label}}" >/dev/null 2>&1 || break
+      sleep 0.2
+    done
     launchctl bootstrap "gui/$UID" '{{display_plist}}'
     echo "installed {{display_label}} ({{display_width}}x{{display_height}}); log: {{display_log}}"
 

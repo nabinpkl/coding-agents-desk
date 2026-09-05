@@ -288,12 +288,39 @@ def main():
         x, y, w, h = (int(v) for v in (rest[1:5] or (0, 0, 800, 500)))
         session.set_encodings([RAW])
         session.request(x, y, w, h)
-        for rx, ry, rw, rh, _, data in session.update():
-            rows = [bytes(b for i in range(0, rw * 4, 4)
-                          for b in (data[r * rw * 4 + i + 2], data[r * rw * 4 + i + 1], data[r * rw * 4 + i]))
-                    for r in range(rh)]
-            write_png(out, rw, rh, rows)
-            print(f"wrote {rw}x{rh} from ({rx},{ry}) to {out}")
+        # An update message carries as many rectangles as the server felt like sending, and the
+        # first message to arrive is not necessarily the answer to this request: one queued before
+        # it, such as the single pixel that proved the stream live, arrives first and covers almost
+        # nothing. So rectangles are painted into a canvas the size that was asked for and messages
+        # are drained until the region is covered, rather than trusting one message or one
+        # rectangle. Anything the server never sends stays black, and the count below says so.
+        canvas = [bytearray(w * 3) for _ in range(h)]
+        covered, rectangles = 0, 0
+        while covered < w * h and rectangles < 64:
+            for rx, ry, rw, rh, _, data in session.update():
+                # Clipped: a rectangle is not promised to sit inside what was asked for, and an
+                # unclipped write walks off the canvas.
+                for r in range(rh):
+                    row_index = ry - y + r
+                    if not 0 <= row_index < h:
+                        continue
+                    row = canvas[row_index]
+                    base = r * rw * 4
+                    for column in range(rw):
+                        at = rx - x + column
+                        if not 0 <= at < w:
+                            continue
+                        i = base + column * 4
+                        row[at * 3] = data[i + 2]
+                        row[at * 3 + 1] = data[i + 1]
+                        row[at * 3 + 2] = data[i]
+                        covered += 1
+                rectangles += 1
+            if covered < w * h:
+                session.request(x, y, w, h)
+        write_png(out, w, h, [bytes(row) for row in canvas])
+        print(f"wrote {w}x{h} from ({x},{y}): {rectangles} rectangle(s), "
+              f"{100 * covered / (w * h):.0f}% covered, to {out}")
 
     elif command == "encodings":
         x, y, w, h = (int(v) for v in (rest[0:4] or (0, 0, 1920, 1200)))
