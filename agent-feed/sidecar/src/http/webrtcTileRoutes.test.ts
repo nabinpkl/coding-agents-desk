@@ -17,6 +17,7 @@ import {
   type WebrtcDeliveryServerSample,
   writeEncoderControl,
   encoderSourceRect,
+  webrtcSessionsSnapshot,
 } from "./webrtcTileRoutes.ts";
 
 const server = undefined as never;
@@ -448,5 +449,38 @@ describe("encoderSourceRect", () => {
     expect(encoderSourceRect(undefined)).toBeUndefined();
     expect(encoderSourceRect(null)).toBeUndefined();
     expect(encoderSourceRect("2400,1200,1920,1080")).toBeUndefined();
+  });
+});
+
+describe("WebRTC sessions", () => {
+  function sessions(method: "GET" | "POST", path: string, body?: unknown): Promise<Response> {
+    const url = new URL(`http://127.0.0.1${path}`);
+    const request = new Request(url.toString(), {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return Promise.resolve(route(request, url, server)!);
+  }
+
+  test("lists nothing while no viewer or encoder is live", async () => {
+    const response = await sessions("GET", "/api/park/webrtc/sessions");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ connections: [], encoders: [] });
+    expect(webrtcSessionsSnapshot()).toEqual({ connections: [], encoders: [] });
+  });
+
+  test("closing is idempotent and reports what it found", async () => {
+    const response = await sessions("POST", "/api/park/webrtc/sessions/close", { attempt: "no-such-attempt" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ closedConnections: [], stoppedEncoders: [] });
+    const all = await sessions("POST", "/api/park/webrtc/sessions/close", { all: true });
+    expect(await all.json()).toEqual({ closedConnections: [], stoppedEncoders: [] });
+  });
+
+  test("a close that names nothing, or names it badly, is refused", async () => {
+    expect((await sessions("POST", "/api/park/webrtc/sessions/close", {})).status).toBe(400);
+    expect((await sessions("POST", "/api/park/webrtc/sessions/close", { attempt: "bad attempt!" })).status).toBe(400);
+    expect((await sessions("POST", "/api/park/webrtc/sessions/close", { encoderPid: "12" })).status).toBe(400);
   });
 });

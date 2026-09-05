@@ -39,6 +39,8 @@ import {
 } from "werift";
 import { config } from "../config.ts";
 import { helperBinary, missingHelperMessage } from "../desktop/helperBinary.ts";
+import { acquireEncoderSlot } from "../desktop/encoderSlots.ts";
+import { basename } from "node:path";
 import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 import { frames, KIND_META } from "./tileEncoderPool.ts";
@@ -58,6 +60,14 @@ import { gridEncoderSourceMetadata } from "./webrtcTileMetadata.ts";
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;
 const WEBRTC_TILE_TELEMETRY_ROUTE =
   /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc\/telemetry$/;
+// Who is watching and what is capturing, and a way to end either. `GET` lists, `POST .../close`
+// takes `{attempt}`, `{encoderPid}` or `{all: true}`. The viewer posts its own attempt here when
+// it closes a peer: a browser-side close sends nothing on the wire, so without it the sidecar
+// learns of the departure only when ICE consent expires thirty seconds later, and the capture
+// keeps running for a viewer that has gone.
+const WEBRTC_SESSIONS_ROUTE = "/api/park/webrtc/sessions";
+const WEBRTC_SESSIONS_CLOSE_ROUTE = "/api/park/webrtc/sessions/close";
+const ATTEMPT_PATTERN = /^[a-zA-Z0-9-]{1,80}$/;
 
 export function isTerminalWebrtcConnectionState(state: string): boolean {
   return state === "failed" || state === "closed";
@@ -282,6 +292,8 @@ interface SharedEncoder {
    * had done nothing.
    */
   binaryMtimeMs: number;
+  /** The slot copy this child runs from; see `acquireEncoderSlot`. */
+  binary: string;
   codec: TileVideoCodec;
   child: ReturnType<typeof Bun.spawn>;
   subscribers: Set<EncoderSubscriber>;
@@ -321,6 +333,12 @@ interface EncoderSubscriber {
 }
 
 const sharedEncoders = new Map<string, SharedEncoder>();
+/** Which child last ran from each slot copy; a slot is free again once that child has exited. */
+const encoderSlotHolders = new Map<string, ReturnType<typeof Bun.spawn>>();
+function encoderSlotOccupied(path: string): boolean {
+  const holder = encoderSlotHolders.get(path);
+  return holder !== undefined && holder.exitCode === null && holder.signalCode === null;
+}
 // Input affects the whole Mac, even when two peers capture different monitors.
 const controlOwnership = new DesktopControlOwnership<symbol>();
 const controlOwners = new Map<symbol, { encoder: SharedEncoder; revoke: (epoch: number) => void }>();
@@ -544,12 +562,19 @@ async function acquireSharedEncoder(
     diag(`encoder key=${raced.key} adopted after teardown drain subscribers=${raced.subscribers.size}`);
     return raced;
   }
-  const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
+  const slot = acquireEncoderSlot(
+    { path: binary, mtimeMs: binaryMtimeMs, exists: true },
+    config.gridEncoderSlotsDirectory,
+    encoderSlotOccupied,
+  );
+  const child = Bun.spawn([slot, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
+  encoderSlotHolders.set(slot, child);
   const videoDiagnostics = new WebrtcEncoderDiagnostics(`${windowID}|${geometryTag(args)}`);
   const shared: SharedEncoder = {
     key: mapKey,
     identity,
     binaryMtimeMs,
+    binary: slot,
     codec,
     child,
     subscribers: new Set(),
@@ -568,7 +593,7 @@ async function acquireSharedEncoder(
     videoDiagnosticsTimer: setInterval(() => videoDiagnostics.flush(), 10_000),
   };
   sharedEncoders.set(mapKey, shared);
-  diag(`encoder key=${mapKey} spawn pid=${child.pid}`);
+  diag(`encoder key=${mapKey} spawn pid=${child.pid} binary=${basename(slot)}`);
   shared.firstAccessUnitDeadline = setTimeout(() => {
     killSharedEncoder(shared, "first-access-unit-timeout");
   }, FIRST_ACCESS_UNIT_TIMEOUT_MS);
@@ -931,6 +956,8 @@ interface ConnectionDiagnostic {
   deliveryDiagnostics: WebrtcDeliveryDiagnostics;
   pliRequests: number;
   encoder: SharedEncoder | null;
+  /** Ends the peer; null until the answer has built one. */
+  shutdown: ((reason: string) => void) | null;
 }
 
 const connectionDiagnostics = new Map<string, ConnectionDiagnostic>();
@@ -1150,10 +1177,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
           ? { replacementDisplayId: error.replacementDisplayId } : {}) }, 409);
     }
   }
-  if (
-    offer.attempt !== undefined
-    && !/^[a-zA-Z0-9-]{1,80}$/.test(offer.attempt)
-  ) {
+  if (offer.attempt !== undefined && !ATTEMPT_PATTERN.test(offer.attempt)) {
     return jsonResponse({ code: "webrtc-bad-offer", message: "attempt was invalid" }, 400);
   }
 
@@ -1186,6 +1210,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     deliveryDiagnostics: new WebrtcDeliveryDiagnostics(),
     pliRequests: 0,
     encoder: null,
+    shutdown: null,
   };
   connectionDiagnostics.set(attempt, connectionDiagnostic);
   pruneConnectionDiagnostics();
@@ -1441,6 +1466,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
     release();
     void peer.close();
   };
+  connectionDiagnostic.shutdown = shutdown;
 
   // NACK is the delta-preserving repair path. The patched sender owns exact
   // cache hit, miss, pending-send, high-water, and failure counters; snapshots
@@ -1573,11 +1599,126 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   return jsonResponse(response);
 }
 
+export interface WebrtcSessionsSnapshot {
+  connections: Array<{
+    attempt: string;
+    connection: number;
+    windowID: string;
+    ageMs: number;
+    iceState: string;
+    connectionState: string;
+    transportReady: boolean;
+    sentAccessUnits: number;
+    lastSentAgeMs: number | null;
+    encoder: string | null;
+  }>;
+  encoders: Array<{
+    key: string;
+    pid: number;
+    binary: string;
+    codec: TileVideoCodec;
+    subscribers: number;
+    accessUnits: number;
+    lastAccessUnitAgeMs: number | null;
+    lingering: boolean;
+  }>;
+}
+
+export function webrtcSessionsSnapshot(nowMs = Date.now()): WebrtcSessionsSnapshot {
+  const connections: WebrtcSessionsSnapshot["connections"] = [];
+  for (const c of connectionDiagnostics.values()) {
+    if (c.closedAtMs !== null) continue;
+    connections.push({
+      attempt: c.attempt,
+      connection: c.connection,
+      windowID: c.windowID,
+      ageMs: nowMs - c.createdAtMs,
+      iceState: c.iceState,
+      connectionState: c.connectionState,
+      transportReady: c.transportReady,
+      sentAccessUnits: c.sentAccessUnits,
+      lastSentAgeMs: c.lastSentAtMs === null ? null : nowMs - c.lastSentAtMs,
+      encoder: c.encoder?.key ?? null,
+    });
+  }
+  const encoders: WebrtcSessionsSnapshot["encoders"] = [];
+  for (const e of sharedEncoders.values()) {
+    if (e.dead) continue;
+    encoders.push({
+      key: e.key,
+      pid: e.child.pid,
+      binary: basename(e.binary),
+      codec: e.codec,
+      subscribers: e.subscribers.size,
+      accessUnits: e.accessUnits,
+      lastAccessUnitAgeMs: e.lastAccessUnitAtMs === null ? null : nowMs - e.lastAccessUnitAtMs,
+      lingering: e.linger !== null,
+    });
+  }
+  return { connections, encoders };
+}
+
+export interface WebrtcSessionsClose {
+  attempt?: string;
+  encoderPid?: number;
+  all?: boolean;
+}
+
+/** Closes what the request names. Idempotent: a viewer reports every close, including of peers already gone. */
+export function closeWebrtcSessions(request: WebrtcSessionsClose, reason: string): {
+  closedConnections: string[];
+  stoppedEncoders: string[];
+} {
+  const closedConnections: string[] = [];
+  const stoppedEncoders: string[] = [];
+  for (const c of connectionDiagnostics.values()) {
+    if (c.closedAtMs !== null || c.shutdown === null) continue;
+    if (request.all === true || c.attempt === request.attempt) {
+      c.shutdown(reason);
+      closedConnections.push(c.attempt);
+    }
+  }
+  for (const e of [...sharedEncoders.values()]) {
+    if (e.dead) continue;
+    if (request.all === true || e.child.pid === request.encoderPid) {
+      killSharedEncoder(e, reason);
+      stoppedEncoders.push(e.key);
+    }
+  }
+  return { closedConnections, stoppedEncoders };
+}
+
 export function createWebrtcTileRoutes(
   recordClientDiagnostic: (line: string) => void = diag,
 ): RouteHandler {
   return (request, url) => {
+    if (request.method === "GET" && url.pathname === WEBRTC_SESSIONS_ROUTE) {
+      return jsonResponse(webrtcSessionsSnapshot());
+    }
     if (request.method !== "POST") return undefined;
+    if (url.pathname === WEBRTC_SESSIONS_CLOSE_ROUTE) {
+      return (async () => {
+        let body: WebrtcSessionsClose;
+        try {
+          body = (await request.json()) as WebrtcSessionsClose;
+        } catch {
+          return jsonResponse({ code: "webrtc-bad-close", message: "body was not JSON" }, 400);
+        }
+        const named = body.attempt !== undefined || body.encoderPid !== undefined || body.all === true;
+        if (
+          !named
+          || (body.attempt !== undefined && !ATTEMPT_PATTERN.test(String(body.attempt)))
+          || (body.encoderPid !== undefined && !Number.isInteger(body.encoderPid))
+        ) {
+          return jsonResponse(
+            { code: "webrtc-bad-close", message: "body must name an attempt, an encoderPid, or all" },
+            400,
+          );
+        }
+        const reason = body.all === true ? "closed-all" : body.attempt !== undefined ? "viewer-closed" : "encoder-closed";
+        return jsonResponse(closeWebrtcSessions(body, reason));
+      })();
+    }
     const telemetry = WEBRTC_TILE_TELEMETRY_ROUTE.exec(url.pathname);
     if (telemetry) {
       return (async () => {

@@ -179,6 +179,25 @@ export function tileCaptureSize(
  * Sends WebView-authored evidence through the same authenticated control path
  * as the rest of the panel. The page never receives the sidecar token.
  */
+/**
+ * Tells the sidecar a peer is gone. Closing an RTCPeerConnection sends nothing the sidecar can
+ * see, so without this it keeps the capture running until ICE consent expires thirty seconds
+ * later; with two captures on one display that is a second whole-display capture nobody watches.
+ */
+export function postWebrtcClose(attempt: string, httpTransport?: Pick<AgentHttpTransport, "request">) {
+  const body = { attempt };
+  const request = httpTransport
+    ? httpTransport.request("POST", "/api/park/webrtc/sessions/close", { body })
+    : fetch("/api/park/webrtc/sessions/close", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+  void request.catch(() => {
+    // Best effort; the sidecar's consent timeout is the fallback.
+  });
+}
+
 export function postTileTelemetry(
   windowID: number | "display",
   event: TileTelemetryEvent,
@@ -358,7 +377,7 @@ export function TileStreamRtc({
    * produced a frame and only then stops it; this is that. The timer is the safety net for a
    * successor that never paints, or for there being no successor at all.
    */
-  const retiring = useRef<{ peer: RTCPeerConnection; timer: number } | null>(null);
+  const retiring = useRef<{ peer: RTCPeerConnection; attempt: string; timer: number } | null>(null);
   const [hasPicture, setHasPicture] = useState(false);
   const onDisplayUnavailableRef = useRef(onDisplayUnavailable);
   onDisplayUnavailableRef.current = onDisplayUnavailable;
@@ -391,21 +410,26 @@ export function TileStreamRtc({
     // Resolve the initial main alias once; reconnect must retain the same physical screen.
     let resolvedDisplayId = displayId;
     let activePeer: RTCPeerConnection | null = null;
+    const closePeer = (peer: RTCPeerConnection, attempt: string) => {
+      peer.close();
+      postWebrtcClose(attempt, httpTransport);
+    };
     const retirePrevious = () => {
       const previous = retiring.current;
       if (!previous) return;
       retiring.current = null;
       window.clearTimeout(previous.timer);
-      previous.peer.close();
+      closePeer(previous.peer, previous.attempt);
     };
-    const retire = (peer: RTCPeerConnection) => {
+    const retire = (peer: RTCPeerConnection, attempt: string) => {
       // One retiree at a time: a second handover before the first painted closes the older one.
       retirePrevious();
       retiring.current = {
         peer,
+        attempt,
         timer: window.setTimeout(() => {
           if (retiring.current?.peer === peer) retiring.current = null;
-          peer.close();
+          closePeer(peer, attempt);
         }, RETIRE_TIMEOUT_MS),
       };
     };
@@ -904,8 +928,8 @@ export function TileStreamRtc({
           // Cancelled means replaced or unmounted, and either way the picture it is painting is
           // worth keeping until whatever comes next has one of its own. Anything else is a dead
           // peer with nothing to keep.
-          if (outcome === "cancelled") retire(peer);
-          else peer.close();
+          if (outcome === "cancelled") retire(peer, attempt);
+          else closePeer(peer, attempt);
           resolve(outcome);
         };
         cancelSession = () => finish("cancelled");

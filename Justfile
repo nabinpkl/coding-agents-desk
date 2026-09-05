@@ -1459,6 +1459,23 @@ host-debug:
 grid-encoder-install:
     sh tools/install-grid-encoder.sh
 
+# Who is watching a sidecar's displays and which grid-encoders are capturing for them. One login
+# session per sidecar; the registry entry names its port.
+webrtc-sessions user=env_var_or_default("USER", "dev"):
+    curl -sf "http://127.0.0.1:$(jq -r .port /Users/Shared/agentdesk/sidecars/{{user}}.json)/api/park/webrtc/sessions" | jq .
+
+# End viewers and captures: everything by default, one viewer with `attempt=<id>`, one capture
+# with `pid=<pid>` (ids and pids from `just webrtc-sessions`). A viewer whose peer is closed
+# reconnects on its own; this is for a stuck stream, not a logout.
+webrtc-close user=env_var_or_default("USER", "dev") attempt="" pid="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PORT=$(jq -r .port /Users/Shared/agentdesk/sidecars/{{user}}.json)
+    if [ -n "{{attempt}}" ]; then BODY='{"attempt":"{{attempt}}"}'
+    elif [ -n "{{pid}}" ]; then BODY='{"encoderPid":{{pid}}}'
+    else BODY='{"all":true}'; fi
+    curl -sf -X POST -H 'content-type: application/json' -d "$BODY" "http://127.0.0.1:$PORT/api/park/webrtc/sessions/close" | jq .
+
 host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
