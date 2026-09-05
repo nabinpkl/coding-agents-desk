@@ -125,7 +125,15 @@ final class CanvasView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let overviewRegion { overviewLayer.frame = rect(for: overviewRegion) }
-        if let detailRegion { detailLayer.frame = rect(for: detailRegion) }
+        if let detailRegion {
+            detailLayer.frame = rect(for: detailRegion)
+            // A sharp picture covering only part of the view is what flicker is: half the window sharp and
+            // half of it the overview, the boundary sweeping across as you pan. Either it covers everything
+            // being looked at or it is not shown, so the picture always has one sharpness.
+            detailLayer.isHidden = !detailRegion.contains(viewport.visible)
+        } else {
+            detailLayer.isHidden = true
+        }
         CATransaction.commit()
     }
 
@@ -143,7 +151,9 @@ final class CanvasView: NSView {
     /// How many pixels the whole-canvas capture may use. Generous on purpose: whenever the overview is
     /// already as detailed as the view needs, the sharp capture is not started at all, and panning cannot
     /// flicker because there is nothing to swap between.
-    static let overviewPixelBudget: CGFloat = 10_000_000
+    /// 17 megapixels covers 2560x1600 at two pixels per point, and 5120x3200 at one, entirely: those rungs
+    /// then never start a second stream at all. It is about what capturing a 5K display natively costs.
+    static let overviewPixelBudget: CGFloat = 17_000_000
 
     /// Pixel size for the whole-canvas overview: as much detail as the budget allows, never more than the
     /// display itself holds.

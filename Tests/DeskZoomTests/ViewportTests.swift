@@ -299,3 +299,15 @@ final class OverviewCaptureTests: XCTestCase {
         XCTAssertEqual(size, CGSize(width: 1280, height: 800))
     }
 }
+
+extension OverviewCaptureTests {
+    func testTheSharpRungsAreCoveredWholeByTheOverview() {
+        // No second stream is needed on these, so panning them cannot flicker.
+        for canvas in [CGSize(width: 1920, height: 1200), CGSize(width: 2560, height: 1600)] {
+            let size = CanvasView.overviewPixelSize(for: canvas, pixelsPerPoint: 2)
+            XCTAssertEqual(size.width / canvas.width, 2, accuracy: 0.001, "\(canvas) should be captured at full detail")
+        }
+        let wide = CGSize(width: 5120, height: 3200)
+        XCTAssertEqual(CanvasView.overviewPixelSize(for: wide, pixelsPerPoint: 1).width / wide.width, 1, accuracy: 0.001)
+    }
+}
