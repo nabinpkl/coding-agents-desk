@@ -157,6 +157,14 @@ without moving the console user's focus. Verified 2026-09-04 end to end, with th
 logged in and working the whole time: `cmd+space` opened Spotlight, TextEdit launched, text was
 typed into it, and `cmd+a` selected it.
 
+`tools/session-drive.py USER 'command'` runs one shell command in that session without a blind
+sleep anywhere. Two things have to be true before typing is worth anything, and both are waited
+for by observation rather than by a guessed interval: the pixel stream has to be live (a 1x1
+update request that returns), and input has to be accepted (a `: > /Users/Shared/.vnc-ready-NNNN`
+line retyped until the marker file appears here). Both sessions see /Users/Shared, so a marker
+file is the only return path a keyboard-only channel has. The real command carries its own marker
+so completion is observed the same way.
+
 Apple's own client refuses to connect to the Mac it runs on, so this speaks RFB directly with
 Apple's Diffie-Hellman and AES credential exchange, security type 30. Four things cost real time
 to find:
