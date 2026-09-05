@@ -551,10 +551,27 @@ export function TileStreamRtc({
       onControlTransportRef.current?.(transport);
     };
 
-    const captureSize = () => {
-      const shown = frame.current?.clientWidth ?? 0;
-      return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate, captureScale);
+    /**
+     * How wide the picture is on screen, which decides how much of the source is worth encoding.
+     *
+     * Measured through a chain rather than from one element, because a zero here is not harmless:
+     * with no width to offer, the helper falls back to capturing the display at its native size
+     * while the bitrate still describes the much smaller picture that was asked for. An 8K desktop
+     * then arrives starved of bits and looks worse than the half-size capture it replaced. A
+     * measurement that failed must not read as "give me everything".
+     */
+    const shownWidth = () => {
+      const candidates = [
+        frame.current?.clientWidth ?? 0,
+        video.current?.clientWidth ?? 0,
+        frame.current?.parentElement?.clientWidth ?? 0,
+        window.innerWidth,
+      ];
+      return candidates.find((candidate) => candidate > 0) ?? 0;
     };
+    const captureSize = () => tileCaptureSize(
+      shownWidth(), width, height, window.devicePixelRatio, bitrate, captureScale,
+    );
 
     /** Resolves "ended" on peer death, "failed" when setup itself broke. */
     const session = (firstEver: boolean): Promise<"ended" | "cancelled" | string> =>
