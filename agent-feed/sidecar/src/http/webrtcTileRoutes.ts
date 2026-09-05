@@ -444,6 +444,20 @@ function resizeInPlace(existing: SharedEncoder, args: readonly string[], identit
       `encoder key=${existing.key} resize ${existing.captureWidth}x${existing.captureHeight}`
         + ` -> ${wanted.width}x${wanted.height}`,
     );
+    // Seed the budget for the new picture BEFORE asking for it, and this ordering is the whole
+    // difference between resizing and replacing a child.
+    //
+    // A compression session is built with whatever bitrate the encoder is holding, and on an idle
+    // desktop the estimator has long since walked that down to its floor -- there is no traffic to
+    // measure, so there is nothing to justify more. A replacement child never saw that: it started
+    // from the offer's bitrate, encoded its first keyframe generously, and an infinite GOP kept
+    // that good frame on screen indefinitely. Resizing into the collapsed value froze the opposite
+    // picture just as permanently. Same code, opposite outcome, decided entirely by which number
+    // the session happened to be born with.
+    const seed = Number(args[args.indexOf("--bitrate") + 1]);
+    if (Number.isFinite(seed) && seed > 0) {
+      encoderStdin(existing, `${JSON.stringify({ type: "bitrate", bits: Math.round(seed) })}\n`);
+    }
     encoderStdin(existing, `${JSON.stringify({
       type: "resize", width: wanted.width, height: wanted.height,
     })}\n`);
