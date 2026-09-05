@@ -114,7 +114,17 @@ actions travel the key window's responder chain, and an inactive app has no key 
 `cmd+a` posted to it is dropped while `a`, `return` and `delete` land. Pressing the menu item
 through Accessibility instead reports success and does the same nothing, apart from app-level
 items such as Quit. `key` refuses a cmd chord unless the target is active, rather than report a
-keystroke that went nowhere.
+keystroke that went nowhere. `deskzoom activate` makes the window under the fake cursor the
+active one, the same focus hand-off a click on the canvas does; it is the one command that
+changes your active app, and after it cmd shortcuts reach the window.
+
+`type` reads the element's text back after posting. When nothing changed, the app dropped the
+keystrokes, and the text goes in through the Accessibility selected-text attribute instead, which
+text fields and areas accept without any keystroke at all. The reply says which route was taken.
+
+`deskzoom shot 0` writes a PNG of window 0, captured by window id through ScreenCaptureKit at the
+canvas's pixel density, to `/tmp/deskzoom-0.png` or the file named after the index. A script can
+read what it did from that without a screenshot of the whole screen.
 
 What this can and cannot do follows from Accessibility, not from DeskZoom. Buttons, menu items,
 checkboxes and anything else that publishes a press action work. Hovering, dragging, and apps

@@ -38,7 +38,8 @@ owner considers it dead). Verified by reading DeskPad's source on 2026-09-04.
   virtual display and would otherwise interrupt whatever was being worked on.
 - A fake cursor drawn in the viewer, driven over a Unix socket (`bin/deskzoom`, `--socket`),
   pressing and scrolling through Accessibility and typing by posting keystrokes to the process,
-  so the real pointer never moves and the active app never changes.
+  so the real pointer never moves and the active app changes only on an explicit `activate`.
+  `shot <n>` captures one canvas window by id.
 - Fail loud: any capture or display error shows an alert and exits.
 
 Deferred (propose in one line, do not build): multiple virtual displays, remembered window

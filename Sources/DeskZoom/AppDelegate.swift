@@ -375,8 +375,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startControlSocket() {
         guard controlSocket == nil else { return }
-        let socket = ControlSocket(path: config.socketPath) { [weak self] line in
-            self?.runControl(line) ?? "error: not ready"
+        let socket = ControlSocket(path: config.socketPath) { [weak self] line, reply in
+            guard let self else { return reply("error: not ready") }
+            self.runControl(line, reply: reply)
         }
         do {
             try socket.start()
@@ -387,79 +388,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Answers one control line. Kept to plain text both ways so a shell can drive it with nc. Most
-    /// replies are one line; `windows` is one line per window.
-    private func runControl(_ line: String) -> String {
-        guard let view = canvasView, let display = virtualDisplay else { return "error: not ready" }
-        guard let command = ControlCommand.parse(line) else { return "error: \(ControlCommand.usage)" }
+    /// replies are one line; `windows` is one line per window. `reply` is called exactly once, and not
+    /// always before this returns: typing waits to see whether the keystrokes landed, and a screenshot is
+    /// taken asynchronously.
+    private func runControl(_ line: String, reply: @escaping (String) -> Void) {
+        guard let view = canvasView, let display = virtualDisplay else { return reply("error: not ready") }
+        guard let command = ControlCommand.parse(line) else { return reply("error: \(ControlCommand.usage)") }
         let canvas = view.viewport.canvas
         let bounds = CGDisplayBounds(display.displayID)
         func onScreen(_ point: CGPoint) -> CGPoint { CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y) }
         func describeCursor(_ cursor: CGPoint) -> String { "cursor \(Int(cursor.x)),\(Int(cursor.y))" }
+        func window(_ index: Int) -> CanvasFocus.Window? {
+            let windows = CanvasFocus.windows(onDisplayWithBounds: bounds)
+            return windows.indices.contains(index) ? windows[index] : nil
+        }
 
         switch command {
         case let .move(point):
             view.setFakeCursor(point)
-            return "ok \(describeCursor(view.fakeCursor!))"
+            return reply("ok \(describeCursor(view.fakeCursor!))")
         case let .moveFraction(fraction):
             view.setFakeCursor(CGPoint(x: fraction.x * canvas.width, y: fraction.y * canvas.height))
-            return "ok \(describeCursor(view.fakeCursor!))"
+            return reply("ok \(describeCursor(view.fakeCursor!))")
         case .hide:
             view.setFakeCursor(nil)
-            return "ok hidden"
+            return reply("ok hidden")
         case .status:
             let cursor = view.fakeCursor.map(describeCursor) ?? "cursor none"
-            return "ok canvas \(Int(canvas.width))x\(Int(canvas.height)) \(cursor) zoom \(Int(view.viewport.magnification * 100))%"
+            return reply("ok canvas \(Int(canvas.width))x\(Int(canvas.height)) \(cursor) zoom \(Int(view.viewport.magnification * 100))%")
         case .windows:
             let windows = CanvasFocus.windows(onDisplayWithBounds: bounds)
-            guard !windows.isEmpty else { return "ok no windows on the canvas" }
-            return windows.enumerated().map { index, window in
+            guard !windows.isEmpty else { return reply("ok no windows on the canvas") }
+            return reply(windows.enumerated().map { index, window in
                 let f = window.frame
                 let title = window.title.isEmpty ? "" : " \"\(window.title)\""
                 return "\(index) \(window.owner)\(title) at \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))"
-            }.joined(separator: "\n")
+            }.joined(separator: "\n"))
         case let .moveWindow(index):
-            let windows = CanvasFocus.windows(onDisplayWithBounds: bounds)
-            guard windows.indices.contains(index) else { return "error: no window \(index); run windows" }
-            let window = windows[index]
+            guard let window = window(index) else { return reply("error: no window \(index); run windows") }
             view.setFakeCursor(CGPoint(x: window.frame.midX, y: window.frame.midY))
-            return "ok \(describeCursor(view.fakeCursor!)) in \(window.owner)"
+            return reply("ok \(describeCursor(view.fakeCursor!)) in \(window.owner)")
+        case let .shot(index, path):
+            guard let window = window(index) else { return reply("error: no window \(index); run windows") }
+            let file = URL(fileURLWithPath: path ?? "/tmp/deskzoom-\(index).png")
+            let pixelsPerPoint = display.pixelsPerPoint
+            Task {
+                do {
+                    try await WindowShot.capture(windowID: window.id, pixelsPerPoint: pixelsPerPoint, to: file)
+                    reply("ok \(window.owner) \(Int(window.frame.width))x\(Int(window.frame.height)) at \(Int(pixelsPerPoint))x -> \(file.path)")
+                } catch {
+                    reply("error: \(error)")
+                }
+            }
+            return
         case .help:
-            return ControlCommand.usage
-        case .describe, .press, .scroll, .scrollBy, .type, .key:
+            return reply(ControlCommand.usage)
+        case .describe, .press, .scroll, .scrollBy, .type, .key, .activate:
             break
         }
 
-        guard let cursor = view.fakeCursor else { return "error: cursor hidden; move it first" }
+        guard let cursor = view.fakeCursor else { return reply("error: cursor hidden; move it first") }
         let point = onScreen(cursor)
         switch command {
         case .describe:
-            guard let element = CanvasFocus.element(at: point) else { return "ok nothing at \(describeCursor(cursor))" }
-            return "ok \(CanvasFocus.describe(element))"
+            guard let element = CanvasFocus.element(at: point) else { return reply("ok nothing at \(describeCursor(cursor))") }
+            reply("ok \(CanvasFocus.describe(element))")
         case .press:
-            guard let element = CanvasFocus.element(at: point) else { return "error: nothing at \(describeCursor(cursor))" }
-            return CanvasFocus.press(element)
+            guard let element = CanvasFocus.element(at: point) else { return reply("error: nothing at \(describeCursor(cursor))") }
+            reply(CanvasFocus.press(element)
                 ? "ok pressed \(CanvasFocus.describe(element))"
-                : "error: no press action on \(CanvasFocus.describe(element))"
+                : "error: no press action on \(CanvasFocus.describe(element))")
+        case .activate:
+            let name = CanvasFocus.element(at: point).flatMap(CanvasFocus.owner)?.name ?? "?"
+            guard CanvasFocus.activateWindow(at: point) else { return reply("error: no window at \(describeCursor(cursor)) to activate") }
+            reply("ok activated \(name); it is the active app now, so cmd shortcuts reach it")
         case let .scroll(axis, fraction):
-            return scroll(at: point, along: axis) { _ in fraction }
+            reply(scroll(at: point, along: axis) { _ in fraction })
         case let .scrollBy(axis, delta):
-            return scroll(at: point, along: axis) { current in current + delta }
+            reply(scroll(at: point, along: axis) { current in current + delta })
         case let .type(text):
-            guard let (pid, name) = target(at: point) else { return "error: nothing at \(describeCursor(cursor))" }
+            guard let element = CanvasFocus.element(at: point), let (pid, name) = CanvasFocus.owner(of: element) else {
+                return reply("error: nothing at \(describeCursor(cursor))")
+            }
+            CanvasFocus.focus(element)
+            let before = CanvasFocus.value(of: element)
             Keystrokes.type(text, into: pid)
-            return "ok typed \(text.count) characters into \(name)"
+            guard before != nil else { return reply("ok typed \(text.count) characters into \(name)") }
+            // Posted events land asynchronously. Look again once they have had time to, and if the text is
+            // as it was, the app dropped them: put the text in through Accessibility instead and say so.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if CanvasFocus.value(of: element) != before {
+                    return reply("ok typed \(text.count) characters into \(name)")
+                }
+                guard CanvasFocus.insert(text, into: element) else {
+                    return reply("error: \(name) ignored the keystrokes and the element takes no text through accessibility")
+                }
+                reply("ok inserted \(text.count) characters into \(name) through accessibility; it ignored the keystrokes")
+            }
         case let .key(chord):
-            guard let (pid, name) = target(at: point) else { return "error: nothing at \(describeCursor(cursor))" }
+            guard let (pid, name) = target(at: point) else { return reply("error: nothing at \(describeCursor(cursor))") }
             // Key equivalents are dispatched through the key window's responder chain, which an inactive
             // application does not have, so a cmd chord posted to one is dropped. Refusing is better than
             // reporting a keystroke that went nowhere.
             if chord.flags.contains(.maskCommand), NSRunningApplication(processIdentifier: pid)?.isActive != true {
-                return "error: \(name) is not the active app, and cmd shortcuts only reach the active one; type and plain keys do work"
+                return reply("error: \(name) is not the active app, and cmd shortcuts only reach the active one; run activate first, or use type and plain keys")
             }
             Keystrokes.press(chord, in: pid)
-            return "ok key sent to \(name)"
+            reply("ok key sent to \(name)")
         default:
-            return "ok"
+            reply("ok")
         }
     }
 

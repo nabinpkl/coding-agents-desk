@@ -9,14 +9,20 @@ import Foundation
 /// A connection carries one command and is closed, so there is no session state to get wrong, and a
 /// script that dies mid-command leaves nothing behind.
 final class ControlSocket {
+    typealias Reply = (String) -> Void
+
     private let path: String
-    private let handle: (String) -> String
+    private let handle: (String, @escaping Reply) -> Void
     private var listener: CInt = -1
     private var source: DispatchSourceRead?
     private let queue = DispatchQueue(label: "deskzoom.control")
+    /// A command that has not answered by then is reported as such, so a wedged one cannot hold the
+    /// connection, and the ones behind it, forever.
+    private static let replyTimeout: TimeInterval = 15
 
-    /// `handle` is called on the main thread and returns the reply line.
-    init(path: String, handle: @escaping (String) -> String) {
+    /// `handle` is called on the main thread with the command and a reply callback, which it calls once,
+    /// from any thread, and not necessarily before returning: some commands have to wait for something.
+    init(path: String, handle: @escaping (String, @escaping Reply) -> Void) {
         self.path = path
         self.handle = handle
     }
@@ -72,9 +78,40 @@ final class ControlSocket {
 
         var reply = ""
         for line in text.split(whereSeparator: \.isNewline) {
-            let command = String(line)
-            reply += DispatchQueue.main.sync { self.handle(command) } + "\n"
+            reply += answer(String(line)) + "\n"
         }
         _ = reply.withCString { write(client, $0, strlen($0)) }
+    }
+
+    /// Runs one command on the main thread and waits here, on the socket's own thread, for its reply.
+    private func answer(_ command: String) -> String {
+        let done = DispatchSemaphore(value: 0)
+        let box = ReplyBox()
+        DispatchQueue.main.async {
+            self.handle(command) { reply in
+                box.set(reply)
+                done.signal()
+            }
+        }
+        guard done.wait(timeout: .now() + Self.replyTimeout) == .success else {
+            return "error: no reply within \(Int(Self.replyTimeout))s"
+        }
+        return box.get()
+    }
+}
+
+/// One reply crossing from whichever thread produced it to the socket thread waiting on it.
+private final class ReplyBox {
+    private var value = ""
+    private let lock = NSLock()
+
+    func set(_ reply: String) {
+        lock.lock(); defer { lock.unlock() }
+        value = reply
+    }
+
+    func get() -> String {
+        lock.lock(); defer { lock.unlock() }
+        return value
     }
 }

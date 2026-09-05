@@ -11,6 +11,8 @@ enum DeskZoomError: Error, CustomStringConvertible {
     case captureDisplayNotShareable(CGDirectDisplayID)
     case captureStopped(Error)
     case controlSocketFailed(String, Int32)
+    case windowGone(CGWindowID)
+    case shotNotWritten(String)
 
     var description: String {
         switch self {
@@ -26,6 +28,10 @@ enum DeskZoomError: Error, CustomStringConvertible {
             return "ScreenCaptureKit does not list display \(id). Screen Recording permission missing?"
         case let .captureStopped(err):
             return "Capture stream stopped: \(err)"
+        case let .windowGone(id):
+            return "Window \(id) is no longer on screen."
+        case let .shotNotWritten(path):
+            return "Could not write the screenshot to \(path)."
         case let .controlSocketFailed(path, code):
             return "Could not open the control socket at \(path): \(String(cString: strerror(code)))"
         }

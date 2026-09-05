@@ -10,6 +10,7 @@ import ApplicationServices
 enum CanvasFocus {
     /// One on-screen window, reduced to what choosing between them needs.
     struct Window: Equatable {
+        var id: CGWindowID = 0
         let pid: pid_t
         /// Window server layer. Ordinary application windows are layer 0; menus, the Dock, overlays and
         /// the desktop itself all sit on other layers and must not take focus.
@@ -26,7 +27,7 @@ enum CanvasFocus {
         windows
             .filter { $0.layer == 0 && $0.frame.width > 1 && $0.frame.height > 1 && bounds.intersects($0.frame) }
             .map {
-                Window(pid: $0.pid, layer: $0.layer,
+                Window(id: $0.id, pid: $0.pid, layer: $0.layer,
                        frame: $0.frame.offsetBy(dx: -bounds.minX, dy: -bounds.minY),
                        owner: $0.owner, title: $0.title)
             }
@@ -57,7 +58,7 @@ enum CanvasFocus {
             click(at: point)
             return
         }
-        _ = focusWindow(at: point)
+        _ = activateWindow(at: point)
     }
 
     private static func click(at point: CGPoint) {
@@ -70,8 +71,9 @@ enum CanvasFocus {
     /// Focuses the actual window under the point, not just its application. Making an app frontmost leaves
     /// the active Space where it was, so a display whose window merely belongs to the frontmost app does not
     /// become the display macOS opens new windows on. Raising and focusing the specific window is what moves
-    /// the Space. Returns false when nothing focusable is there.
-    private static func focusWindow(at point: CGPoint) -> Bool {
+    /// the Space. Returns false when nothing focusable is there. This is the one control path that changes
+    /// the active app, and it is also what lets cmd shortcuts reach the window afterwards.
+    static func activateWindow(at point: CGPoint) -> Bool {
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
               let hit, let window = enclosingWindow(of: hit)
@@ -127,6 +129,24 @@ enum CanvasFocus {
               settable.boolValue
         else { return false }
         return AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
+    }
+
+    /// An element's text, when it has any. What a script reads back after typing to see whether the
+    /// keystrokes arrived.
+    static func value(of element: AXUIElement) -> String? {
+        string(element, kAXValueAttribute as String)
+    }
+
+    /// Puts text at the element's insertion point, replacing any selection, through Accessibility rather
+    /// than keystrokes. Text fields and areas accept this even from an application that drops posted key
+    /// events. False when the element has no settable selected text, which is what a non-text element
+    /// looks like.
+    static func insert(_ text: String, into element: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
+              settable.boolValue
+        else { return false }
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
     }
 
     /// Performs an element's press action. True when it had one and it succeeded.
@@ -250,6 +270,7 @@ enum CanvasFocus {
                   let x = bounds["X"], let y = bounds["Y"], let width = bounds["Width"], let height = bounds["Height"]
             else { return nil }
             return Window(
+                id: entry[kCGWindowNumber as String] as? CGWindowID ?? 0,
                 pid: pid, layer: layer,
                 frame: CGRect(x: x, y: y, width: width, height: height),
                 owner: entry[kCGWindowOwnerName as String] as? String ?? "",

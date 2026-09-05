@@ -383,6 +383,14 @@ extension ControlCommandTests {
         XCTAssertNil(ControlCommand.parse("type   "))
     }
 
+    func testActivateAndShot() {
+        XCTAssertEqual(ControlCommand.parse("activate"), .activate)
+        XCTAssertEqual(ControlCommand.parse("shot 2"), .shot(2, nil))
+        XCTAssertEqual(ControlCommand.parse("shot 0 /tmp/win.png"), .shot(0, "/tmp/win.png"))
+        XCTAssertNil(ControlCommand.parse("shot"), "which window?")
+        XCTAssertNil(ControlCommand.parse("shot two"))
+    }
+
     func testKeyTakesOneChord() {
         XCTAssertEqual(ControlCommand.parse("key cmd+a"), .key(KeyChord(keyCode: 0, flags: .maskCommand)))
         XCTAssertEqual(ControlCommand.parse("help"), .help)
