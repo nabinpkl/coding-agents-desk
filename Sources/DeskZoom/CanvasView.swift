@@ -32,6 +32,11 @@ final class CanvasView: NSView {
     /// bars whenever the view moved outside the captured region; placing a layer geometrically cannot.
     private let detailLayer = CALayer()
     private let cursorLayer = CALayer()
+    /// A pointer that is not the system's. Nothing on the Mac moves it, so it is drawn here and driven
+    /// through the control socket; pressing what sits under it goes through Accessibility, which needs no
+    /// pointer at all. That is the only way to point at two places at once on a Mac.
+    private let fakeCursorLayer = CAShapeLayer()
+    private(set) var fakeCursor: CGPoint?
     private var cursorOnCanvas = false
 
     var onViewportChange: ((Viewport) -> Void)?
@@ -59,6 +64,7 @@ final class CanvasView: NSView {
             layer?.addSublayer(sublayer)
         }
         installCursorOverlay()
+        installFakeCursor()
         startCursorTracking()
     }
 
@@ -85,6 +91,62 @@ final class CanvasView: NSView {
         detailRegion = region
         detailLayer.contents = surface
         placeContent()
+    }
+
+    // MARK: Fake cursor
+
+    /// Filled in a colour the system cursor never is, so which of the two is which is never in question.
+    private func installFakeCursor() {
+        let arrow = CGMutablePath()
+        arrow.addLines(between: [
+            CGPoint(x: 0, y: 0), CGPoint(x: 0, y: 17), CGPoint(x: 4.4, y: 13.2),
+            CGPoint(x: 7.2, y: 19.6), CGPoint(x: 10.4, y: 18.2), CGPoint(x: 7.6, y: 12),
+            CGPoint(x: 12.6, y: 11.6),
+        ])
+        arrow.closeSubpath()
+        fakeCursorLayer.path = arrow
+        fakeCursorLayer.fillColor = NSColor.systemPink.cgColor
+        fakeCursorLayer.strokeColor = NSColor.white.cgColor
+        fakeCursorLayer.lineWidth = 1.5
+        fakeCursorLayer.lineJoin = .round
+        fakeCursorLayer.anchorPoint = .zero
+        fakeCursorLayer.bounds = CGRect(x: 0, y: 0, width: 14, height: 20)
+        fakeCursorLayer.shadowColor = NSColor.black.cgColor
+        fakeCursorLayer.shadowOpacity = 0.35
+        fakeCursorLayer.shadowRadius = 2
+        fakeCursorLayer.shadowOffset = CGSize(width: 0, height: 1)
+        fakeCursorLayer.isHidden = true
+        fakeCursorLayer.zPosition = 2
+        layer?.addSublayer(fakeCursorLayer)
+    }
+
+    /// Moves the fake cursor to a canvas point, bringing it into view if it is off screen, since a pointer
+    /// you cannot see is not a pointer.
+    func setFakeCursor(_ point: CGPoint?) {
+        fakeCursor = point.map {
+            CGPoint(x: min(max(0, $0.x), viewport.canvas.width), y: min(max(0, $0.y), viewport.canvas.height))
+        }
+        if let fakeCursor { viewport.follow(fakeCursor, margin: Self.followMargin) }
+        placeFakeCursor()
+    }
+
+    private func placeFakeCursor() {
+        guard let fakeCursor else {
+            fakeCursorLayer.isHidden = true
+            return
+        }
+        let content = contentRect
+        let scale = content.width / viewport.visible.width
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // Drawn at a constant size on screen, like a real pointer: it marks a place, it is not part of
+        // the picture and must not grow with the zoom.
+        fakeCursorLayer.position = CGPoint(
+            x: content.minX + (fakeCursor.x - viewport.visible.minX) * scale,
+            y: content.minY + (fakeCursor.y - viewport.visible.minY) * scale
+        )
+        fakeCursorLayer.isHidden = false
+        CATransaction.commit()
     }
 
     /// Drops the sharp picture, leaving the overview alone on screen. Used when the overview turns out to
@@ -124,6 +186,7 @@ final class CanvasView: NSView {
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        placeFakeCursor()
         if let overviewRegion { overviewLayer.frame = rect(for: overviewRegion) }
         if let detailRegion {
             detailLayer.frame = rect(for: detailRegion)

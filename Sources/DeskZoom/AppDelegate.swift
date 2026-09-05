@@ -61,6 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureUpdateQueued = false
     private var lastRegionChange = Date.distantPast
     private let viewportStore = ViewportStore()
+    private var controlSocket: ControlSocket?
+    /// Where a script reaches the fake cursor. One literal in one place; it moves to config if a second
+    /// reader ever appears.
+    static let controlSocketPath = "/tmp/deskzoom.sock"
     private static let canvasDefaultsKey = "canvasWidth"
     /// How long the slider must sit still before the display is actually reconfigured. Short enough to feel
     /// immediate, long enough that dragging across the ladder does not reconfigure at every rung it passes.
@@ -179,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.window = window
         self.canvasView = view
+        startControlSocket()
         updateTitle()
     }
 
@@ -361,6 +366,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.queuedCanvas = nil
                 self.applyCanvas(queued)
             }
+        }
+    }
+
+    private func startControlSocket() {
+        guard controlSocket == nil else { return }
+        let socket = ControlSocket(path: Self.controlSocketPath) { [weak self] line in
+            self?.runControl(line) ?? "error: not ready"
+        }
+        do {
+            try socket.start()
+        } catch {
+            fail("\(error)")
+        }
+        controlSocket = socket
+    }
+
+    /// Answers one control line. Kept to plain text both ways so a shell can drive it with nc.
+    private func runControl(_ line: String) -> String {
+        guard let view = canvasView, let display = virtualDisplay else { return "error: not ready" }
+        guard let command = ControlCommand.parse(line) else { return "error: \(ControlCommand.usage)" }
+        let canvas = view.viewport.canvas
+        let origin = CGDisplayBounds(display.displayID).origin
+
+        switch command {
+        case let .move(point):
+            view.setFakeCursor(point)
+        case let .moveFraction(fraction):
+            view.setFakeCursor(CGPoint(x: fraction.x * canvas.width, y: fraction.y * canvas.height))
+        case .hide:
+            view.setFakeCursor(nil)
+            return "ok hidden"
+        case .describe, .press:
+            break
+        case .status:
+            break
+        }
+
+        guard let cursor = view.fakeCursor else {
+            return command == .status ? "ok canvas \(Int(canvas.width))x\(Int(canvas.height)) cursor none" : "ok hidden"
+        }
+        let onScreen = CGPoint(x: origin.x + cursor.x, y: origin.y + cursor.y)
+        switch command {
+        case .describe:
+            guard let element = CanvasFocus.element(at: onScreen) else { return "ok nothing at \(Int(cursor.x)),\(Int(cursor.y))" }
+            return "ok \(CanvasFocus.describe(element))"
+        case .press:
+            guard let element = CanvasFocus.element(at: onScreen) else { return "error: nothing at \(Int(cursor.x)),\(Int(cursor.y))" }
+            return CanvasFocus.press(element) ? "ok pressed \(CanvasFocus.describe(element))" : "error: no press action on \(CanvasFocus.describe(element))"
+        case .status:
+            return "ok canvas \(Int(canvas.width))x\(Int(canvas.height)) cursor \(Int(cursor.x)),\(Int(cursor.y)) zoom \(Int(view.viewport.magnification * 100))%"
+        default:
+            return "ok cursor \(Int(cursor.x)),\(Int(cursor.y))"
         }
     }
 

@@ -51,6 +51,34 @@ clean build 9.5s. Every rebuild kills the app, which destroys the virtual displa
 a new one, so the zoom level and the window's position are remembered and restored: an
 iteration puts you back where you were looking rather than at the whole canvas.
 
+## Fake cursor
+
+A Mac has exactly one pointer and no way to make a second, so DeskZoom draws its own and never
+asks the system to move anything. It is a pink arrow in the viewer, positioned in canvas
+points, and pressing what sits under it goes through Accessibility, which hit-tests by
+coordinate and needs no pointer and no focus. The real cursor stays wherever you left it and
+the target app is not activated.
+
+It is driven over a Unix socket, one line in and one line out:
+
+```bash
+echo "move 688 1165" | nc -U /tmp/deskzoom.sock   # canvas points, from the top-left
+echo "describe"      | nc -U /tmp/deskzoom.sock   # -> ok Calculator AXButton "5" actions=[AXPress]
+echo "press"         | nc -U /tmp/deskzoom.sock   # -> ok pressed ...
+echo "status"        | nc -U /tmp/deskzoom.sock   # -> ok canvas 2560x1600 cursor 688,1165 zoom 140%
+echo "hide"          | nc -U /tmp/deskzoom.sock
+```
+
+`move-fraction 0.5 0.25` aims without knowing the canvas size. Moving the fake cursor pans the
+view to keep it visible, the same way the real one does.
+
+What this can and cannot do follows from Accessibility, not from DeskZoom. Buttons, menu items,
+checkboxes and anything else that publishes a press action work. Hovering, dragging, and apps
+that draw their own content without publishing elements do not, because there is nothing to
+press. Mouse events cannot substitute: `CGEventPostToPid` delivers them without moving the
+cursor, but AppKit ignores them, since hit-testing is the window server's job and posting to a
+process bypasses it. Measured both ways on 2026-09-04.
+
 ## How it works
 
 - `Sources/CGVirtualDisplayPrivate`: header for the private CoreGraphics virtual display
@@ -76,7 +104,9 @@ iteration puts you back where you were looking rather than at the whole canvas.
   stream and keeps the old one painting until the new one delivers.
 - `CanvasInputTap.swift`: event taps that boost pointer travel and take over pinch gestures
   while the pointer is on the canvas.
-- `CanvasFocus.swift`: hands keyboard focus to whatever the teleported pointer lands on.
+- `CanvasFocus.swift`: hands keyboard focus to whatever the teleported pointer lands on, and
+  hit-tests and presses elements for the fake cursor.
+- `ControlSocket.swift` and `ControlCommand.swift`: the shell-facing control channel.
 - `ZoomControls.swift`: the title bar accessory.
 - `Viewport.swift`: pure zoom, pan, cursor-following and capture-region math, unit tested.
 - `CanvasView.swift`: gestures, click-to-teleport, cursor presence highlight.

@@ -311,3 +311,27 @@ extension OverviewCaptureTests {
         XCTAssertEqual(CanvasView.overviewPixelSize(for: wide, pixelsPerPoint: 1).width / wide.width, 1, accuracy: 0.001)
     }
 }
+
+final class ControlCommandTests: XCTestCase {
+    func testParsesTheCommandsAScriptSends() {
+        XCTAssertEqual(ControlCommand.parse("move 1200 800"), .move(CGPoint(x: 1200, y: 800)))
+        XCTAssertEqual(ControlCommand.parse("move-fraction 0.5 0.25"), .moveFraction(CGPoint(x: 0.5, y: 0.25)))
+        XCTAssertEqual(ControlCommand.parse("press"), .press)
+        XCTAssertEqual(ControlCommand.parse("describe"), .describe)
+        XCTAssertEqual(ControlCommand.parse("status"), .status)
+        XCTAssertEqual(ControlCommand.parse("hide"), .hide)
+    }
+
+    func testToleratesTheShapeOfRealShellInput() {
+        XCTAssertEqual(ControlCommand.parse("  MOVE   1200   800  "), .move(CGPoint(x: 1200, y: 800)))
+        XCTAssertEqual(ControlCommand.parse("move 1200.5 800.25"), .move(CGPoint(x: 1200.5, y: 800.25)))
+    }
+
+    func testRefusesWhatItCannotActOn() {
+        XCTAssertNil(ControlCommand.parse(""))
+        XCTAssertNil(ControlCommand.parse("move"), "a move without a point would aim at nothing")
+        XCTAssertNil(ControlCommand.parse("move 1200"))
+        XCTAssertNil(ControlCommand.parse("move left right"))
+        XCTAssertNil(ControlCommand.parse("click 10 20"))
+    }
+}

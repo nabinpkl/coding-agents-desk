@@ -1,5 +1,6 @@
 import CGVirtualDisplayPrivate
 import CoreGraphics
+import Darwin
 import Foundation
 
 enum DeskZoomError: Error, CustomStringConvertible {
@@ -9,6 +10,7 @@ enum DeskZoomError: Error, CustomStringConvertible {
     case modeChangeFailed(CGError)
     case captureDisplayNotShareable(CGDirectDisplayID)
     case captureStopped(Error)
+    case controlSocketFailed(String, Int32)
 
     var description: String {
         switch self {
@@ -24,6 +26,8 @@ enum DeskZoomError: Error, CustomStringConvertible {
             return "ScreenCaptureKit does not list display \(id). Screen Recording permission missing?"
         case let .captureStopped(err):
             return "Capture stream stopped: \(err)"
+        case let .controlSocketFailed(path, code):
+            return "Could not open the control socket at \(path): \(String(cString: strerror(code)))"
         }
     }
 }

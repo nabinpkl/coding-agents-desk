@@ -68,6 +68,44 @@ enum CanvasFocus {
         return true
     }
 
+    /// What sits at a point on screen, for the fake cursor to report or press. No pointer is involved:
+    /// Accessibility hit-tests by coordinate, so this works while the real cursor is somewhere else
+    /// entirely and without the target application being activated.
+    static func element(at point: CGPoint) -> AXUIElement? {
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success else { return nil }
+        return hit
+    }
+
+    /// A short description of an element, for reporting what the fake cursor is over.
+    static func describe(_ element: AXUIElement) -> String {
+        let role = string(element, kAXRoleAttribute) ?? "?"
+        let name = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute) ?? string(element, kAXValueAttribute) ?? ""
+        var actions: CFArray?
+        AXUIElementCopyActionNames(element, &actions)
+        let available = (actions as? [String]) ?? []
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
+        return "\(app) \(role)\(name.isEmpty ? "" : " \"\(name)\"") actions=[\(available.joined(separator: ","))]"
+    }
+
+    /// Performs an element's press action. True when it had one and it succeeded.
+    static func press(_ element: AXUIElement) -> Bool {
+        var actions: CFArray?
+        AXUIElementCopyActionNames(element, &actions)
+        guard ((actions as? [String]) ?? []).contains(kAXPressAction as String) else { return false }
+        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+    }
+
+    private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let text = value as? String, !text.isEmpty
+        else { return nil }
+        return text
+    }
+
     /// The element under the pointer is usually a button or a text area; walk up to the window that owns it.
     private static func enclosingWindow(of element: AXUIElement) -> AXUIElement? {
         var current = element
