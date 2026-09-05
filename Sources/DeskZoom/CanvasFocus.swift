@@ -15,6 +15,25 @@ enum CanvasFocus {
         /// the desktop itself all sit on other layers and must not take focus.
         let layer: Int
         let frame: CGRect
+        var owner: String = ""
+        var title: String = ""
+    }
+
+    /// The ordinary windows sitting on a display, front to back, with their frames moved into that
+    /// display's own coordinates so a caller can aim at them without knowing where the display starts.
+    /// Overlays, the Dock and wallpaper are not windows anyone means when they say "the windows here".
+    static func onDisplay(_ windows: [Window], bounds: CGRect) -> [Window] {
+        windows
+            .filter { $0.layer == 0 && $0.frame.width > 1 && $0.frame.height > 1 && bounds.intersects($0.frame) }
+            .map {
+                Window(pid: $0.pid, layer: $0.layer,
+                       frame: $0.frame.offsetBy(dx: -bounds.minX, dy: -bounds.minY),
+                       owner: $0.owner, title: $0.title)
+            }
+    }
+
+    static func windows(onDisplayWithBounds bounds: CGRect) -> [Window] {
+        onDisplay(onScreenWindows(), bounds: bounds)
     }
 
     /// The application owning the frontmost ordinary window at `point`. `windows` must be front-to-back,
@@ -80,7 +99,10 @@ enum CanvasFocus {
     /// A short description of an element, for reporting what the fake cursor is over.
     static func describe(_ element: AXUIElement) -> String {
         let role = string(element, kAXRoleAttribute) ?? "?"
-        let name = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute) ?? string(element, kAXValueAttribute) ?? ""
+        // A text area's value is its whole document; a report of what is under the cursor wants a glimpse.
+        let raw = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute) ?? string(element, kAXValueAttribute) ?? ""
+        let firstLine = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? raw
+        let name = firstLine.count > 60 ? String(firstLine.prefix(57)) + "..." : firstLine
         var actions: CFArray?
         AXUIElementCopyActionNames(element, &actions)
         let available = (actions as? [String]) ?? []
@@ -104,6 +126,52 @@ enum CanvasFocus {
               let text = value as? String, !text.isEmpty
         else { return nil }
         return text
+    }
+
+    // MARK: Scrolling
+
+    /// The scroll area containing a point, if there is one. Scrolling is a property of the container, not
+    /// of whatever small thing the point happens to land on, so this walks up to find it.
+    static func scrollArea(at point: CGPoint) -> AXUIElement? {
+        guard var current = element(at: point) else { return nil }
+        for _ in 0..<12 {
+            if string(current, kAXRoleAttribute as String) == (kAXScrollAreaRole as String) { return current }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
+                  let parent, CFGetTypeID(parent) == AXUIElementGetTypeID()
+            else { return nil }
+            current = parent as! AXUIElement
+        }
+        return nil
+    }
+
+    /// How far down a scroll area is, from 0 to 1, read off its vertical scroll bar. Nil when it has none,
+    /// which is what an area with nothing to scroll looks like.
+    static func verticalScroll(of area: AXUIElement) -> CGFloat? {
+        guard let bar = verticalBar(of: area) else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &value) == .success,
+              let number = value as? NSNumber
+        else { return nil }
+        return CGFloat(number.doubleValue)
+    }
+
+    /// Moves a scroll area to a fraction of its length. This is the scroll bar's own value, so it is
+    /// absolute positioning, the equivalent of dragging the bar rather than turning a wheel. Scroll wheel
+    /// events cannot serve here: posted to a process they are ignored, exactly as clicks are.
+    @discardableResult
+    static func setVerticalScroll(of area: AXUIElement, to fraction: CGFloat) -> Bool {
+        guard let bar = verticalBar(of: area) else { return false }
+        let clamped = min(max(0, fraction), 1)
+        return AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: Double(clamped))) == .success
+    }
+
+    private static func verticalBar(of area: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(area, kAXVerticalScrollBarAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID()
+        else { return nil }
+        return (value as! AXUIElement)
     }
 
     /// The element under the pointer is usually a button or a text area; walk up to the window that owns it.
@@ -153,7 +221,12 @@ enum CanvasFocus {
                   let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat],
                   let x = bounds["X"], let y = bounds["Y"], let width = bounds["Width"], let height = bounds["Height"]
             else { return nil }
-            return Window(pid: pid, layer: layer, frame: CGRect(x: x, y: y, width: width, height: height))
+            return Window(
+                pid: pid, layer: layer,
+                frame: CGRect(x: x, y: y, width: width, height: height),
+                owner: entry[kCGWindowOwnerName as String] as? String ?? "",
+                title: entry[kCGWindowName as String] as? String ?? ""
+            )
         }
     }
 }

@@ -72,6 +72,22 @@ echo "hide"          | nc -U /tmp/deskzoom.sock
 `move-fraction 0.5 0.25` aims without knowing the canvas size. Moving the fake cursor pans the
 view to keep it visible, the same way the real one does.
 
+Windows and scrolling, so a script can aim without coordinates and read while it does:
+
+```bash
+echo "windows"       | nc -U /tmp/deskzoom.sock   # 0 TextEdit "Untitled" at 1400,300 900x650 ...
+echo "move-window 0" | nc -U /tmp/deskzoom.sock   # cursor to the middle of that window
+echo "scroll 0"      | nc -U /tmp/deskzoom.sock   # to the top of whatever is under the cursor
+echo "scroll-by 0.3" | nc -U /tmp/deskzoom.sock   # down by 30% of its length; negative goes up
+```
+
+Scrolling is the scroll bar's own value, from 0 to 1, so it is absolute positioning rather than
+a wheel: the equivalent of dragging the bar. The fake cursor is the anchor, and it stays put on
+screen while the content moves under it, which is what a pointer over a scrolling view looks
+like. Scroll wheel events posted to a process are ignored just as clicks are, and the page
+actions a scroll area advertises returned "unsupported" in TextEdit, so the bar value is the
+one mechanism relied on.
+
 What this can and cannot do follows from Accessibility, not from DeskZoom. Buttons, menu items,
 checkboxes and anything else that publishes a press action work. Hovering, dragging, and apps
 that draw their own content without publishing elements do not, because there is nothing to

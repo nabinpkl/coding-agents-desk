@@ -335,3 +335,39 @@ final class ControlCommandTests: XCTestCase {
         XCTAssertNil(ControlCommand.parse("click 10 20"))
     }
 }
+
+extension ControlCommandTests {
+    func testParsesWindowAndScrollCommands() {
+        XCTAssertEqual(ControlCommand.parse("windows"), .windows)
+        XCTAssertEqual(ControlCommand.parse("move-window 2"), .moveWindow(2))
+        XCTAssertEqual(ControlCommand.parse("scroll 0.4"), .scroll(0.4))
+        XCTAssertEqual(ControlCommand.parse("scroll-by -0.1"), .scrollBy(-0.1))
+        XCTAssertNil(ControlCommand.parse("scroll"), "a scroll with no target is meaningless")
+        XCTAssertNil(ControlCommand.parse("move-window"), "a window move needs to say which")
+    }
+}
+
+final class CanvasWindowListTests: XCTestCase {
+    private let display = CGRect(x: 1800, y: 0, width: 2560, height: 1600)
+
+    private func window(_ owner: String, layer: Int = 0, _ frame: CGRect) -> CanvasFocus.Window {
+        CanvasFocus.Window(pid: 1, layer: layer, frame: frame, owner: owner, title: "")
+    }
+
+    func testKeepsOrdinaryWindowsOnTheDisplayInDisplayCoordinates() {
+        let listed = CanvasFocus.onDisplay([
+            window("TextEdit", CGRect(x: 2200, y: 400, width: 1000, height: 700)),
+            window("Finder", CGRect(x: 100, y: 100, width: 800, height: 600)),      // on the built-in screen
+            window("Dock", layer: 20, CGRect(x: 1800, y: 0, width: 2560, height: 1600)),
+            window("Overlay", layer: 2_147_483_629, CGRect(x: 1800, y: 0, width: 2560, height: 1600)),
+        ], bounds: display)
+        XCTAssertEqual(listed.map(\.owner), ["TextEdit"])
+        XCTAssertEqual(listed.first?.frame, CGRect(x: 400, y: 400, width: 1000, height: 700), "moved into the display's own coordinates")
+    }
+
+    func testAWindowStraddlingTheEdgeStillCounts() {
+        let listed = CanvasFocus.onDisplay([window("Calculator", CGRect(x: 1700, y: 300, width: 300, height: 400))], bounds: display)
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(listed.first?.frame.minX, -100)
+    }
+}

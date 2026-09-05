@@ -14,6 +14,14 @@ enum ControlCommand: Equatable {
     case press
     case hide
     case status
+    /// The ordinary windows on the canvas, numbered, so a script can aim without knowing coordinates.
+    case windows
+    /// Put the fake cursor in the middle of one of those windows.
+    case moveWindow(Int)
+    /// Scroll what is under the fake cursor to a fraction of its length.
+    case scroll(CGFloat)
+    /// Scroll it by a fraction of its length, positive downwards.
+    case scrollBy(CGFloat)
 
     static func parse(_ line: String) -> ControlCommand? {
         let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
@@ -26,9 +34,16 @@ enum ControlCommand: Equatable {
         case ("press", 0): return .press
         case ("hide", 0): return .hide
         case ("status", 0): return .status
+        case ("windows", 0): return .windows
+        case ("move-window", 1): return .moveWindow(Int(numbers[0]))
+        case ("scroll", 1): return .scroll(CGFloat(numbers[0]))
+        case ("scroll-by", 1): return .scrollBy(CGFloat(numbers[0]))
         default: return nil
         }
     }
 
-    static let usage = "commands: move <x> <y> | move-fraction <fx> <fy> | describe | press | hide | status"
+    static let usage = """
+        commands: move <x> <y> | move-fraction <fx> <fy> | move-window <n> | windows \
+        | describe | press | scroll <fraction> | scroll-by <delta> | hide | status
+        """
 }

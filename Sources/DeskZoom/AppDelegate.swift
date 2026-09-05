@@ -382,43 +382,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controlSocket = socket
     }
 
-    /// Answers one control line. Kept to plain text both ways so a shell can drive it with nc.
+    /// Answers one control line. Kept to plain text both ways so a shell can drive it with nc. Most
+    /// replies are one line; `windows` is one line per window.
     private func runControl(_ line: String) -> String {
         guard let view = canvasView, let display = virtualDisplay else { return "error: not ready" }
         guard let command = ControlCommand.parse(line) else { return "error: \(ControlCommand.usage)" }
         let canvas = view.viewport.canvas
-        let origin = CGDisplayBounds(display.displayID).origin
+        let bounds = CGDisplayBounds(display.displayID)
+        func onScreen(_ point: CGPoint) -> CGPoint { CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y) }
+        func describeCursor(_ cursor: CGPoint) -> String { "cursor \(Int(cursor.x)),\(Int(cursor.y))" }
 
         switch command {
         case let .move(point):
             view.setFakeCursor(point)
+            return "ok \(describeCursor(view.fakeCursor!))"
         case let .moveFraction(fraction):
             view.setFakeCursor(CGPoint(x: fraction.x * canvas.width, y: fraction.y * canvas.height))
+            return "ok \(describeCursor(view.fakeCursor!))"
         case .hide:
             view.setFakeCursor(nil)
             return "ok hidden"
-        case .describe, .press:
-            break
         case .status:
+            let cursor = view.fakeCursor.map(describeCursor) ?? "cursor none"
+            return "ok canvas \(Int(canvas.width))x\(Int(canvas.height)) \(cursor) zoom \(Int(view.viewport.magnification * 100))%"
+        case .windows:
+            let windows = CanvasFocus.windows(onDisplayWithBounds: bounds)
+            guard !windows.isEmpty else { return "ok no windows on the canvas" }
+            return windows.enumerated().map { index, window in
+                let f = window.frame
+                let title = window.title.isEmpty ? "" : " \"\(window.title)\""
+                return "\(index) \(window.owner)\(title) at \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))"
+            }.joined(separator: "\n")
+        case let .moveWindow(index):
+            let windows = CanvasFocus.windows(onDisplayWithBounds: bounds)
+            guard windows.indices.contains(index) else { return "error: no window \(index); run windows" }
+            let window = windows[index]
+            view.setFakeCursor(CGPoint(x: window.frame.midX, y: window.frame.midY))
+            return "ok \(describeCursor(view.fakeCursor!)) in \(window.owner)"
+        case .describe, .press, .scroll, .scrollBy:
             break
         }
 
-        guard let cursor = view.fakeCursor else {
-            return command == .status ? "ok canvas \(Int(canvas.width))x\(Int(canvas.height)) cursor none" : "ok hidden"
-        }
-        let onScreen = CGPoint(x: origin.x + cursor.x, y: origin.y + cursor.y)
+        guard let cursor = view.fakeCursor else { return "error: cursor hidden; move it first" }
+        let point = onScreen(cursor)
         switch command {
         case .describe:
-            guard let element = CanvasFocus.element(at: onScreen) else { return "ok nothing at \(Int(cursor.x)),\(Int(cursor.y))" }
+            guard let element = CanvasFocus.element(at: point) else { return "ok nothing at \(describeCursor(cursor))" }
             return "ok \(CanvasFocus.describe(element))"
         case .press:
-            guard let element = CanvasFocus.element(at: onScreen) else { return "error: nothing at \(Int(cursor.x)),\(Int(cursor.y))" }
-            return CanvasFocus.press(element) ? "ok pressed \(CanvasFocus.describe(element))" : "error: no press action on \(CanvasFocus.describe(element))"
-        case .status:
-            return "ok canvas \(Int(canvas.width))x\(Int(canvas.height)) cursor \(Int(cursor.x)),\(Int(cursor.y)) zoom \(Int(view.viewport.magnification * 100))%"
+            guard let element = CanvasFocus.element(at: point) else { return "error: nothing at \(describeCursor(cursor))" }
+            return CanvasFocus.press(element)
+                ? "ok pressed \(CanvasFocus.describe(element))"
+                : "error: no press action on \(CanvasFocus.describe(element))"
+        case let .scroll(fraction):
+            return scroll(at: point) { _ in fraction }
+        case let .scrollBy(delta):
+            return scroll(at: point) { current in current + delta }
         default:
-            return "ok cursor \(Int(cursor.x)),\(Int(cursor.y))"
+            return "ok"
         }
+    }
+
+    /// Scrolls the area under a point to whatever `target` makes of its current position, and reports
+    /// where it ended up. The fake cursor is the anchor: what scrolls is whatever it is over, and it
+    /// stays put on screen while the content moves under it, like a real pointer would.
+    private func scroll(at point: CGPoint, to target: (CGFloat) -> CGFloat) -> String {
+        guard let area = CanvasFocus.scrollArea(at: point) else { return "error: nothing scrollable here" }
+        guard let current = CanvasFocus.verticalScroll(of: area) else { return "error: nothing to scroll here" }
+        let wanted = min(max(0, target(current)), 1)
+        guard CanvasFocus.setVerticalScroll(of: area, to: wanted) else { return "error: scroll refused" }
+        let landed = CanvasFocus.verticalScroll(of: area) ?? wanted
+        return String(format: "ok scrolled %.2f -> %.2f", current, landed)
     }
 
     /// Written after movement settles rather than on every pan, since this runs on every pointer move.
