@@ -133,14 +133,23 @@ export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
   } as WebrtcTileAnswer;
 }
 
+/** The slider's range: a multiplier on the auto-chosen capture scale, capped at source-native. */
+export const CAPTURE_SCALE_MIN = 0.5;
+export const CAPTURE_SCALE_MAX = 3;
+
 export function tileCaptureSize(
   shownWidth: number,
   sourceWidth: number | undefined,
   sourceHeight: number | undefined,
   devicePixelRatio: number,
   bitrate: number,
+  captureScale = 1,
 ): { width?: number; height?: number; bitrate: number } {
   const ratio = Math.min(devicePixelRatio || 1, CAPTURE_PIXEL_RATIO_CAP);
+  // The user's knob multiplies the automatic scale. At 1 it is exactly the display-fit default;
+  // above 1 it captures sharper than the picture is shown, up to source-native, so zooming in stays
+  // crisp at the cost of bitrate; below 1 it trades sharpness for a thinner stream.
+  const quality = Math.min(Math.max(captureScale, CAPTURE_SCALE_MIN), CAPTURE_SCALE_MAX);
   if (
     typeof sourceWidth !== "number"
     || !Number.isFinite(sourceWidth)
@@ -150,12 +159,12 @@ export function tileCaptureSize(
     || sourceHeight <= 0
   ) {
     return {
-      width: shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio)) : undefined,
-      bitrate,
+      width: shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio * quality)) : undefined,
+      bitrate: Math.max(300_000, Math.round(bitrate * quality * quality)),
     };
   }
   const visibleWidth = shownWidth > 0 ? shownWidth : sourceWidth;
-  const scale = Math.min(1, (visibleWidth * ratio) / sourceWidth);
+  const scale = Math.min(1, (visibleWidth * ratio * quality) / sourceWidth);
   return {
     width: Math.max(16, Math.round(sourceWidth * scale)),
     height: Math.max(16, Math.round(sourceHeight * scale)),
@@ -275,6 +284,7 @@ export function TileStreamRtc({
   height,
   fps = 15,
   bitrate = 1_200_000,
+  captureScale = 1,
   fill = false,
   onState,
   onControlTransport,
@@ -292,6 +302,8 @@ export function TileStreamRtc({
   height?: number;
   fps?: number;
   bitrate?: number;
+  /** User-chosen multiplier on the automatic capture resolution. 1 is the display-fit default. */
+  captureScale?: number;
   /** Fill the parent instead of imposing the source's aspect ratio. */
   fill?: boolean;
   onState?: (state: DesktopStreamState) => void;
@@ -541,7 +553,7 @@ export function TileStreamRtc({
 
     const captureSize = () => {
       const shown = frame.current?.clientWidth ?? 0;
-      return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate);
+      return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate, captureScale);
     };
 
     /** Resolves "ended" on peer death, "failed" when setup itself broke. */
@@ -1060,6 +1072,7 @@ export function TileStreamRtc({
     height,
     fps,
     bitrate,
+    captureScale,
     httpTransport,
     VIDEO_DIAGNOSTIC_REVISION,
   ]);

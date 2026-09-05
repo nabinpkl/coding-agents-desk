@@ -11,6 +11,8 @@ import { Hand, MousePointer2 } from "lucide-react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
 import {
+  CAPTURE_SCALE_MAX,
+  CAPTURE_SCALE_MIN,
   postTileTelemetry,
   TileStreamRtc,
   type DesktopControlTransport,
@@ -22,6 +24,7 @@ import { useDesktopKeyboard } from "./useDesktopKeyboard";
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
   transport, displayId, interactive = true, navigation, onChromeHeight,
+  captureScale = 1, onCaptureScale,
   onSource, onTransport, onEvent, onFirstFrame, onKeyboard, onState, onDisplayUnavailable,
 }: {
   transport: AgentHttpTransport;
@@ -29,6 +32,8 @@ export function DesktopViewerSurface({
   interactive?: boolean;
   navigation?: ReactNode;
   onChromeHeight?: (height: number) => void;
+  captureScale?: number;
+  onCaptureScale?: (value: number) => void;
   onSource?: (source: WebrtcTileSourceMetadata) => void;
   onTransport?: (transport: DesktopControlTransport | null) => void;
   onEvent?: (event: DesktopControlEvent) => void;
@@ -160,6 +165,7 @@ export function DesktopViewerSurface({
             windowID="display"
             displayId={displayId}
             fill
+            captureScale={captureScale}
             httpTransport={transport}
             onState={applyTileState}
             onControlTransport={setControlTransport}
@@ -199,6 +205,13 @@ export function DesktopViewerSurface({
           />
           {!keyboard.keyboardPresented ? (
             <>
+              {onCaptureScale ? (
+                <ResolutionSlider
+                  value={captureScale}
+                  onChange={onCaptureScale}
+                  encoded={source ? encodedCaptureSize(source.width, source.height, captureScale) : null}
+                />
+              ) : null}
               <ModeButton
                 active={!pointerMode}
                 label="View"
@@ -221,7 +234,7 @@ export function DesktopViewerSurface({
           style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
           className="truncate px-1 font-mono text-[10px] leading-3 text-white/70">
           {tile.kind === "playing" && source
-            ? `${source.width}×${source.height} · ${tile.codec}`
+            ? `${source.width}×${source.height} · ${captureScale.toFixed(2)}× · ${tile.codec}`
             : tile.kind}
         </p>
       </div>
@@ -256,5 +269,43 @@ function ModeButton({
       {icon}
       {label}
     </button>
+  );
+}
+
+/** Best-effort readout of what the current knob asks the encoder for, capped at source-native. */
+function encodedCaptureSize(sourceWidth: number, sourceHeight: number, scale: number): string {
+  const capped = Math.min(1, scale);
+  return `${Math.round(sourceWidth * capped)}×${Math.round(sourceHeight * capped)}`;
+}
+
+function ResolutionSlider({
+  value,
+  onChange,
+  encoded,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  encoded: string | null;
+}) {
+  return (
+    <label
+      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-white/75"
+      title={encoded ? `Capture resolution ${encoded} (${value.toFixed(2)}×)` : "Capture resolution"}
+    >
+      <span className="tabular-nums text-white/60">Res</span>
+      <input
+        type="range"
+        min={CAPTURE_SCALE_MIN}
+        max={CAPTURE_SCALE_MAX}
+        step={0.25}
+        value={value}
+        onChange={(event) => onChange(Number.parseFloat(event.target.value))}
+        aria-label="Capture resolution"
+        aria-valuetext={encoded ? `${encoded}, ${value.toFixed(2)} times` : `${value.toFixed(2)} times`}
+        className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/25 accent-white
+          outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+      />
+      <span className="w-9 tabular-nums text-right text-white/60">{value.toFixed(2)}×</span>
+    </label>
   );
 }

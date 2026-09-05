@@ -96,6 +96,23 @@ describe("tileCaptureSize", () => {
       bitrate: 507_000,
     });
   });
+
+  it("lets the resolution knob push capture toward source-native, but no further", () => {
+    // 2x the auto scale would exceed the source, so it clamps at native and the bitrate with it.
+    expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000, 2)).toEqual({
+      width: 1800,
+      height: 1169,
+      bitrate: 1_200_000,
+    });
+  });
+
+  it("lets the knob trade resolution for a thinner stream, with a bitrate floor", () => {
+    expect(tileCaptureSize(390, 1800, 1169, 3, 1_200_000, 0.5)).toEqual({
+      width: 585,
+      height: 380,
+      bitrate: 300_000,
+    });
+  });
 });
 
 describe("parseWebrtcTileAnswer", () => {
