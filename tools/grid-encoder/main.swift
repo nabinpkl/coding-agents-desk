@@ -587,10 +587,31 @@ let windowArgument = argument("window").flatMap(UInt32.init)
 let displayArgument = argument("display")
 guard windowArgument != nil || displayArgument != nil else {
     fail("usage: grid-encoder (--window <id> | --display <id|main>) [--width N] [--height N] "
-        + "[--fps N] [--bitrate BPS] [--segment SECONDS] [--verbose]")
+        + "[--source-rect X,Y,W,H] [--fps N] [--bitrate BPS] [--segment SECONDS] [--verbose]")
 }
 let requestedWidth = argument("width").flatMap(Int.init)
 let requestedHeight = argument("height").flatMap(Int.init)
+/// A sub-rectangle of the display to capture, in display points with the display's own top-left as
+/// the origin, which is the coordinate space `SCStreamConfiguration.sourceRect` uses.
+///
+/// The point is detail, not framing. Fitting a 7680-wide display into a viewport-sized picture is a
+/// five-fold downscale, and text does not survive it; sending the whole thing at native size instead
+/// spends the entire budget on desktop nobody is reading. Capturing just the part being looked at,
+/// at its own pixels, is the third option: measured on an off-console login session, a 1920x1080
+/// crop of an 8K display ran at the full requested frame rate with the encoder never falling behind
+/// (submitted == encoded throughout), while the same display whole ran a little slower and much
+/// blurrier. Same trick as the DeskZoom viewer, which follows the cursor around a canvas this size
+/// by re-aiming the region rather than scaling the whole thing down.
+let requestedSourceRect: CGRect? = argument("source-rect").map { text in
+    let parts = text.split(separator: ",").compactMap { Double($0) }
+    guard parts.count == 4, parts[2] > 0, parts[3] > 0 else {
+        fail("--source-rect wants X,Y,W,H in display points, got \(text)")
+    }
+    return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+}
+if requestedSourceRect != nil && windowArgument != nil {
+    fail("--source-rect applies to a display capture; a window capture is already one rectangle")
+}
 let fps = argument("fps").flatMap(Int32.init) ?? 30
 let bitrate = argument("bitrate").flatMap(Int.init) ?? 4_000_000
 // One segment per GOP, so this is the latency floor the muxer imposes. MSE adds
@@ -665,9 +686,27 @@ Task {
               let uuid = CGDisplayCreateUUIDFromDisplayID(display.displayID)?.takeRetainedValue()
         else { fail("selected display is unavailable") }
         filter = SCContentFilter(display: display, excludingWindows: [])
-        sourceWidth = display.width
-        sourceHeight = display.height
-        inputBounds = CGDisplayBounds(display.displayID)
+        let displayBounds = CGDisplayBounds(display.displayID)
+        if let rect = requestedSourceRect {
+            let whole = CGRect(x: 0, y: 0, width: CGFloat(display.width), height: CGFloat(display.height))
+            let clipped = rect.intersection(whole)
+            guard !clipped.isNull, clipped.width >= 2, clipped.height >= 2 else {
+                fail("--source-rect \(rect) does not overlap display \(display.width)x\(display.height)")
+            }
+            // The crop becomes the source as far as everything downstream is concerned: the output
+            // defaults to its size rather than the display's, and input coordinates map into it.
+            // Leaving inputBounds as the whole display would land every click at a fraction of where
+            // the viewer aimed it, in proportion to how far the crop is zoomed in.
+            sourceWidth = Int(clipped.width)
+            sourceHeight = Int(clipped.height)
+            inputBounds = CGRect(x: displayBounds.origin.x + clipped.origin.x,
+                                 y: displayBounds.origin.y + clipped.origin.y,
+                                 width: clipped.width, height: clipped.height)
+        } else {
+            sourceWidth = display.width
+            sourceHeight = display.height
+            inputBounds = displayBounds
+        }
         openMeta = ["type": "open", "display": Int(display.displayID),
                     "displayId": CFUUIDCreateString(nil, uuid) as String,
                     "desktopNavigationVersion": 1]
@@ -812,6 +851,7 @@ Task {
     let configuration = SCStreamConfiguration()
     configuration.width = width
     configuration.height = height
+    if let rect = requestedSourceRect { configuration.sourceRect = rect }
     configuration.minimumFrameInterval = CMTime(value: 1, timescale: fps)
     configuration.queueDepth = 5
     // The cursor belongs to a screen, not to a document: a display capture
