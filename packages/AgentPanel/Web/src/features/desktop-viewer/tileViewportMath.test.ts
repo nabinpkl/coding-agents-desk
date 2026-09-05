@@ -9,6 +9,7 @@ import {
   pointerAccelerationGain,
   projectRemoteCursor,
   unprojectRemoteCursor,
+  visibleSourceRect,
   scrollAccelerationGain,
   toContentPoint,
   zoomAt,
@@ -206,5 +207,45 @@ describe("unprojectRemoteCursor", () => {
 
   it("has no answer without a viewport to map into", () => {
     expect(unprojectRemoteCursor({ scale: 1, tx: 0, ty: 0 }, { x: 1, y: 1 }, 1920, 1080, 0, 0)).toBeNull();
+  });
+});
+
+describe("visibleSourceRect", () => {
+  // A 16:10 source in a 16:10 viewport: no letterbox, so the arithmetic is easy to read.
+  const source = { width: 1600, height: 1000 };
+
+  it("shows the whole display when nothing is zoomed", () => {
+    expect(visibleSourceRect(IDENTITY, source.width, source.height, 800, 500)).toEqual({
+      x: 0, y: 0, width: 1600, height: 1000,
+    });
+  });
+
+  it("shows a quarter of the area at double zoom, anchored where the pan puts it", () => {
+    expect(visibleSourceRect({ scale: 2, tx: 0, ty: 0 }, source.width, source.height, 800, 500))
+      .toEqual({ x: 0, y: 0, width: 800, height: 500 });
+    // Panned fully to the far corner: clampPan's limit for scale 2 is -viewport.
+    expect(visibleSourceRect({ scale: 2, tx: -800, ty: -500 }, source.width, source.height, 800, 500))
+      .toEqual({ x: 800, y: 500, width: 800, height: 500 });
+  });
+
+  it("never asks for the letterbox bars, which are viewport and not display", () => {
+    // A 16:10 source in a square viewport letterboxes top and bottom; the visible source is still
+    // the whole display, not something taller than it.
+    const rect = visibleSourceRect(IDENTITY, source.width, source.height, 800, 800);
+    expect(rect).toEqual({ x: 0, y: 0, width: 1600, height: 1000 });
+  });
+
+  it("agrees with the cursor projection it inverts", () => {
+    const transform = zoomAt(IDENTITY, 4, 200, 125, 800, 500);
+    const rect = visibleSourceRect(transform, source.width, source.height, 800, 500)!;
+    // The source point under the viewport's top-left corner is the rect's own origin.
+    const corner = unprojectRemoteCursor(transform, { x: 0, y: 0 }, source.width, source.height, 800, 500)!;
+    expect(corner.x).toBeCloseTo(rect.x, 6);
+    expect(corner.y).toBeCloseTo(rect.y, 6);
+  });
+
+  it("refuses degenerate geometry rather than returning an empty crop", () => {
+    expect(visibleSourceRect(IDENTITY, 0, 1000, 800, 500)).toBeNull();
+    expect(visibleSourceRect(IDENTITY, source.width, source.height, 0, 0)).toBeNull();
   });
 });

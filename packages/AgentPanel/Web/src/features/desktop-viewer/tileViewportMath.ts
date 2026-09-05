@@ -318,3 +318,39 @@ export function toContentPoint(
     y: (y - transform.ty) / transform.scale / viewportHeight,
   };
 }
+
+/**
+ * The part of the source display the viewport is currently showing, in source coordinates.
+ *
+ * The inverse of `projectRemoteCursor` applied to the viewport's own corners rather than to the
+ * cursor, so it undoes the same two steps: the pan/zoom transform, then the aspect-fit letterbox.
+ * Clamped to the source, which is what makes the letterbox disappear from the answer -- the bars
+ * are viewport, not display, and a capture must not be asked for pixels that do not exist.
+ *
+ * This is what a cropped capture needs. Zooming in currently magnifies a picture that was already
+ * scaled down to fit, so detail that was thrown away at capture time cannot come back; asking the
+ * encoder for exactly this rectangle at its own pixels is how the detail survives instead. Returns
+ * null when the geometry is degenerate or the visible region has collapsed below a pixel.
+ */
+export function visibleSourceRect(
+  transform: ViewportTransform,
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): { x: number; y: number; width: number; height: number } | null {
+  const picture = aspectFitPicture(sourceWidth, sourceHeight, viewportWidth, viewportHeight);
+  if (!picture || transform.scale === 0 || picture.width === 0 || picture.height === 0) return null;
+  const toSource = (viewportX: number, viewportY: number) => ({
+    x: ((viewportX - transform.tx) / transform.scale - picture.x) * (sourceWidth / picture.width),
+    y: ((viewportY - transform.ty) / transform.scale - picture.y) * (sourceHeight / picture.height),
+  });
+  const near = toSource(0, 0);
+  const far = toSource(viewportWidth, viewportHeight);
+  const left = Math.max(0, Math.min(near.x, far.x));
+  const top = Math.max(0, Math.min(near.y, far.y));
+  const right = Math.min(sourceWidth, Math.max(near.x, far.x));
+  const bottom = Math.min(sourceHeight, Math.max(near.y, far.y));
+  if (right - left < 1 || bottom - top < 1) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}

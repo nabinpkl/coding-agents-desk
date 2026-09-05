@@ -16,6 +16,7 @@ import {
   type WebrtcDeliveryClientSample,
   type WebrtcDeliveryServerSample,
   writeEncoderControl,
+  encoderSourceRect,
 } from "./webrtcTileRoutes.ts";
 
 const server = undefined as never;
@@ -420,5 +421,32 @@ describe("WebRTC connection lifecycle", () => {
     expect(isTerminalWebrtcConnectionState("disconnected")).toBe(false);
     expect(isTerminalWebrtcConnectionState("failed")).toBe(true);
     expect(isTerminalWebrtcConnectionState("closed")).toBe(true);
+  });
+});
+
+describe("encoderSourceRect", () => {
+  test("formats a usable crop the way the helper parses it", () => {
+    expect(encoderSourceRect({ x: 2400, y: 1200, width: 1920, height: 1080 }))
+      .toBe("2400,1200,1920,1080");
+  });
+
+  test("rounds, because the viewport's arithmetic is fractional and display points are not", () => {
+    expect(encoderSourceRect({ x: 100.4, y: 200.6, width: 640.5, height: 480.2 }))
+      .toBe("100,201,641,480");
+  });
+
+  test("drops the whole crop when any part of it is unusable", () => {
+    // A half-applied crop is a stream pointed confidently at the wrong part of the desktop.
+    expect(encoderSourceRect({ x: 0, y: 0, width: 1920 })).toBeUndefined();
+    expect(encoderSourceRect({ x: -1, y: 0, width: 1920, height: 1080 })).toBeUndefined();
+    expect(encoderSourceRect({ x: 0, y: 0, width: 8, height: 1080 })).toBeUndefined();
+    expect(encoderSourceRect({ x: 0, y: 0, width: 1920, height: 99999 })).toBeUndefined();
+    expect(encoderSourceRect({ x: 0, y: 0, width: Number.NaN, height: 1080 })).toBeUndefined();
+  });
+
+  test("treats a missing or non-object crop as no crop at all", () => {
+    expect(encoderSourceRect(undefined)).toBeUndefined();
+    expect(encoderSourceRect(null)).toBeUndefined();
+    expect(encoderSourceRect("2400,1200,1920,1080")).toBeUndefined();
   });
 });
