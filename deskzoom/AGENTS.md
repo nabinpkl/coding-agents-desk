@@ -1,5 +1,11 @@
 # DeskZoom
 
+> Absorbed into agent-desk on 2026-09-05: this is a subdirectory of that repo now, not a
+> standalone project. What agent-desk depends on is the virtual display alone -- `--display-only`
+> and the launchd recipes in `justfile` -- and the rules governing it are in the root `AGENTS.md`
+> under "The virtual display". The viewer, the fake cursor and the control socket described below
+> are the original standalone tool; nothing in agent-desk uses them.
+
 A zoomable canvas of real macOS windows. The app creates a large 1x virtual display
 (default 7680x4800), captures only the visible region of it with ScreenCaptureKit, and shows
 that in a window on the main display. Pinch zooms, two-finger scroll pans, a click teleports

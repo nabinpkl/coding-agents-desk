@@ -173,6 +173,41 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
   state, and a second isolated browser both fails to load it the same way and disturbs the
   owner's own stream by making the sidecar cycle encoders underneath it.
 
+## The virtual display
+
+- **The 8K desk is a process, and it lives in `deskzoom/`.** `deskzoom/.build/release/DeskZoom
+  --display-only` creates one `CGVirtualDisplay` and holds it open; the display exists exactly as
+  long as that process does. `~/Library/LaunchAgents/com.example.deskzoom.display.plist` supervises it
+  (`Aqua` session type, `KeepAlive`, `RunAtLoad`), installed by `just display-install` from
+  `deskzoom/justfile`. Nothing else in this repo creates a display: end that process and every
+  desktop stream has nothing left to show.
+- **Only the session at the console can create a display, whoever the user is.** One WindowServer
+  serves every login session, and displays are a single global arrangement owned by whichever
+  session is physically on the Mac. `CGVirtualDisplay` adds to that arrangement and takes no session
+  argument; it cannot. Measured 2026-09-05 from both sides: called by `agent` off-console, the
+  display landed on the console user's desktop with 29 modes and `agent` never saw it; called by the
+  console user it works. Both accounts are admin and in `staff`, so permissions never entered into
+  it. Put `agent` on the console and the roles flip exactly. The LaunchAgent therefore belongs to
+  whoever holds the console (today `dev`), not to the session that uses the desk.
+- **An off-console session gets a frozen copy, taken when the session was created.** Screen Sharing
+  hands a non-console session synthesised displays: copies of the console arrangement as it stood at
+  session creation, one fixed mode each. Nothing added to the real arrangement later reaches it, and
+  the copy is not linked to its original, so it survives the original being destroyed. That is why
+  the current route works at all: the 8K was created on the console, recreating the agent session
+  snapshotted it, and the copy outlived the console original.
+- **Changing the agent session's desk is a sequence, not a setting.** The copy is frozen at one mode,
+  so reconfiguring the console 8K does not reach it and DeskZoom's runtime mode ladder is
+  unreachable from there. Set the console display to the mode you want, log the agent session out,
+  reconnect over Screen Sharing to recreate it, then confirm with `--list-displays` run *inside that
+  session*, which is the only way to see what Screen Sharing synthesised: System Settings is a GUI
+  and `system_profiler` reports hardware, neither answers for a session.
+- **Only one virtual display exists at a time.** `CGVirtualDisplay.apply` returns false for a second
+  one whatever its size, measured at both 7680x4320 and 1440x900. Handing the display from one
+  holder to another means the old one lets go first, so there is a gap with no desk at all.
+- Open, not settled: whether ScreenCaptureKit in an off-console session can capture a synthesised
+  display that is not that session's main one. If it cannot, the console's main display has to be
+  the 8K at agent-session-creation time.
+
 ## Display capture
 
 - **Two grid-encoders must never run from one executable path.** replayd, the daemon behind
