@@ -165,6 +165,14 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
 - Reading the host log (subsystem `com.example.agentdesk.AgentDeskHost`, category `owned-media`): `acceptedBy=damage` with `commands=2` and a small payload is a copyRect scroll frame (copyRect plus exposed strip); `acceptedBy=damage-tiles` is a small non-scroll change; `acceptedBy=damage-fullframe-tiles` is a whole-surface resend (multi-MB) and is the bandwidth signal to watch.
 - Policy: run the simulator drive and the physical-device run ONLY when the user explicitly asks. Do not fire a manual simulator drive or a physical launch for every small change. Default to `just check` for correctness. Reach for the simulator or physical feel runs only on explicit request, or for a media, scroll, decode, or gesture regression that unit tests cannot judge.
 
+## Browser testing
+
+- **Test the panel in the owner's real Chrome, never the in-app browser.** Use the Chrome
+  extension tools (`mcp__claude-in-chrome__*`); the in-app preview browser does not reproduce what
+  the owner sees. The panel is a tailnet HTTPS origin holding a WebRTC session with logged-in
+  state, and a second isolated browser both fails to load it the same way and disturbs the
+  owner's own stream by making the sidecar cycle encoders underneath it.
+
 ## Commits and PRs
 
 - Small, scoped commits. One slice per PR where possible.
