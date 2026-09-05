@@ -21,6 +21,10 @@ import type {
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
 import { networkInterfaces } from "node:os";
+import { appendFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { runtimePaths } from "../../../../tools/runtime-paths.mjs";
+import { ensureCrossSessionDirectory } from "../crossSessionDirectory.ts";
 import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
 import { controlHelper } from "../desktop/controlHelper.ts";
 import { resolveDisplayTarget, DisplayTargetUnavailable } from "./webrtcDisplayTarget.ts";
@@ -64,15 +68,26 @@ export function isTerminalWebrtcConnectionState(state: string): boolean {
 // offer SDP carries every ICE candidate the remote webview gathered, which is
 // the question that decides whether a path can exist at all.
 let diagSequence = 0;
+/** Reported once, not per line: a broken log must not become a flood of its own. */
+let diagFailureReported = false;
+/** Resolved once; the path cannot change under a running sidecar and the chmod is not free. */
+let diagFile: string | undefined;
 function diag(line: string) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require("node:fs").appendFileSync(
-      "/tmp/agentdesk-webrtc-diag.log",
-      `${new Date().toISOString()} ${line}\n`,
-    );
-  } catch {
-    // Diagnostics never take the path down.
+    if (diagFile === undefined) {
+      const file = runtimePaths().webrtcDiagLog;
+      ensureCrossSessionDirectory(dirname(file));
+      diagFile = file;
+    }
+    appendFileSync(diagFile, `${new Date().toISOString()} ${line}\n`);
+  } catch (error) {
+    // Diagnostics never take the media path down, but a silent failure here is worse than it
+    // looks: the session goes on serving video while leaving no evidence at all, and its numbers
+    // then get read off whichever session does own the file. Say so once, on the way past.
+    if (!diagFailureReported) {
+      diagFailureReported = true;
+      process.stderr.write(`webrtc diagnostics unavailable: ${String(error)}\n`);
+    }
   }
 }
 

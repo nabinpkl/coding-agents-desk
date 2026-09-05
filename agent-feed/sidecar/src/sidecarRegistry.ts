@@ -1,7 +1,8 @@
-import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { runtimePaths } from "../../../tools/runtime-paths.mjs";
+import { ensureCrossSessionDirectory } from "./crossSessionDirectory.ts";
 
 /** How often the descriptor's heartbeat is refreshed. A reader ages entries out at three misses. */
 const HEARTBEAT_MS = 5_000;
@@ -41,7 +42,7 @@ export function announceSidecar(port: number, options?: { dir?: string; label?: 
   const file = join(dir, `${user}.json`);
   const startedAt = Date.now();
 
-  ensureBoard(dir);
+  ensureCrossSessionDirectory(dir);
 
   const write = () => {
     const descriptor: SidecarDescriptor = { user, label, port, pid: process.pid, startedAt, heartbeat: Date.now() };
@@ -67,18 +68,4 @@ export function announceSidecar(port: number, options?: { dir?: string; label?: 
       }
     },
   };
-}
-
-function ensureBoard(dir: string): void {
-  mkdirSync(dir, { recursive: true });
-  // Force world-writable-sticky even if a prior run or another user created these with a tighter
-  // umask. chmod only works on a directory this user owns; when another session made it, the throw
-  // is expected and means it is already theirs to keep permissive.
-  for (const directory of [dirname(dir), dir]) {
-    try {
-      chmodSync(directory, 0o1777);
-    } catch {
-      // owned by another session; assume already permissive
-    }
-  }
 }

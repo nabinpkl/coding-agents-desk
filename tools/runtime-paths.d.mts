@@ -5,6 +5,7 @@ export interface RuntimePaths {
   panelControlTokenFile: string;
   parkDevControlTokenFile: string;
   sidecarRegistry: string;
+  webrtcDiagLog: string;
 }
 
 export function runtimePaths(

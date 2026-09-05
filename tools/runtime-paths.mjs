@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 function absoluteEnvironmentPath(environment, name, fallback) {
@@ -24,6 +24,14 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // can write. Overridable so a test can point it at a scratch dir.
     sidecarRegistry: absoluteEnvironmentPath(environment, "AGENTDESK_SIDECAR_REGISTRY",
       "/Users/Shared/agentdesk/sidecars"),
+    // One diagnostics log per login session, named after the user. A single fixed path belongs to
+    // whichever session created it first, and every later session's appends fail on permissions --
+    // silently, since diagnostics must never take the media path down. That is not a cosmetic loss:
+    // it is the session running blind while its own numbers are read off another session's file.
+    // Beside the registry, and for the same reason: evidence written by one session has to be
+    // readable from another, and ~/Library is 0700.
+    webrtcDiagLog: absoluteEnvironmentPath(environment, "AGENTDESK_WEBRTC_DIAG_LOG",
+      join("/Users/Shared/agentdesk/logs", `${userInfo().username}-webrtc-diag.log`)),
   };
 }
 
@@ -44,12 +52,13 @@ if (import.meta.main) {
     "panel-token": paths.panelControlTokenFile,
     "park-token": paths.parkDevControlTokenFile,
     "sidecar-registry": paths.sidecarRegistry,
+    "webrtc-diag-log": paths.webrtcDiagLog,
   };
   if (key === "host-app" && bundleId && extra.length === 0) {
     process.stdout.write(`${installedHostAppPath(bundleId, paths)}\n`);
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|panel-tls|panel-token|park-token|sidecar-registry|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|panel-tls|panel-token|park-token|sidecar-registry|webrtc-diag-log|host-app <bundle-id>");
   }
 }
