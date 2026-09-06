@@ -7,12 +7,15 @@ import {
 } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
 import { terminalContextLabel } from "./terminalContext";
+import { TerminalKeyRail } from "./TerminalKeyRail";
 import { useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
 const BAND_TERMINAL_SHARE = 0.42;
+
 
 /**
  * The height a band pane is a share of: what is actually visible.
@@ -57,7 +60,19 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column" }:
   );
   // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
   const [viewport, setViewport] = useState(viewportHeight);
-  const { mountRef, labels } = useAgentTerminal({ feed, context, sizing: { kind: "fit" }, onState });
+  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
+    feed,
+    context,
+    sizing: { kind: "fit" },
+    onState,
+  });
+  // Read once per pane rather than at import: a browser does not grow a software keyboard part way
+  // through a session, but a test has to be able to say which kind of browser it is.
+  const [softwareKeyboard] = useState(drawsOwnKeyboard);
+  // Only where the keyboard is missing these keys, and only while that keyboard is up: a desktop
+  // browser has Esc and Ctrl already, and a rail standing there permanently would spend height on
+  // a terminal nobody is typing into.
+  const showsKeyRail = focused && softwareKeyboard;
 
   useEffect(() => {
     if (!band) return;
@@ -146,6 +161,9 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column" }:
       {/* Scrolls rather than clips: a tmux attach renders at the pane's geometry, which is not
           this pane's, and clipping it hid the part of the screen the cursor was on. */}
       <div ref={mountRef} className="min-h-0 flex-1 overflow-auto px-1 pb-1" />
+      {showsKeyRail ? (
+        <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
+      ) : null}
       <footer className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span>{labels.sync}</span>
         {labels.ownership ? <span>{labels.ownership}</span> : null}

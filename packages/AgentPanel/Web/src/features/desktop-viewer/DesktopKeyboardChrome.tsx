@@ -2,6 +2,7 @@ import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
 import { useEffect, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
+import { KeyRailButton as KeyboardButton } from "../keyboard/KeyRailButton";
 import { KeyboardDeck } from "./KeyboardDeck";
 import { deckMetricsForViewportHeight } from "./keyboardDeckMetrics";
 
@@ -287,35 +288,4 @@ function useDeckMetrics() {
     };
   }, []);
   return metrics;
-}
-
-function KeyboardButton({
-  label,
-  state = "off",
-  onClick,
-  className = "text-xs",
-}: {
-  label: string;
-  state?: ModifierState;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label === "⇧" ? "Shift modifier" : label}
-      aria-pressed={state === "off" ? undefined : true}
-      data-state={state}
-      onClick={onClick}
-      className={`min-h-0 min-w-0 cursor-pointer rounded border px-1 focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${className} ${
-        state === "locked"
-          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-          : state === "armed"
-            ? "border-primary bg-accent text-accent-foreground hover:bg-muted"
-            : "border-border bg-muted text-foreground hover:bg-accent"
-      }`}
-    >
-      {label}
-    </button>
-  );
 }

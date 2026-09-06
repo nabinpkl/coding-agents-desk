@@ -235,13 +235,6 @@ export function handleShiftTap(
   }
 }
 
-/**
- * Whether this browser raises a software keyboard when a field takes focus, and therefore whether
- * the panel must draw its own rather than focus anything. A desktop browser has no such keyboard
- * to suppress and a physical one that needs a focused element to type into, so it keeps the
- * capture field; a phone gets the deck and nothing focused.
- */
-export function drawsOwnKeyboard(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
-}
+// One definition, in `features/keyboard`: the terminal's key rail asks the same question, and a
+// second copy of this media query is exactly the kind of thing that drifts by one clause.
+export { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";

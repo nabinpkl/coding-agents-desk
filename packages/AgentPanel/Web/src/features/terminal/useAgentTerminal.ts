@@ -7,7 +7,33 @@ import type {
   AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import { cycleModifier, releaseArmed, type ModifierState } from "../keyboard/modifierLatch";
 import { isTmuxAttach, terminalContextKey } from "./terminalContext";
+import {
+  applyModifiers,
+  bytesForRailKey,
+  type RailKey,
+  type RailModifier,
+  type RailModifiers,
+} from "./terminalKeyBytes";
+
+/**
+ * A live terminal, and the chrome-facing handles for driving it from outside the grid.
+ *
+ * `modifiers` and `pressKey` exist for the key rail: a phone keyboard has no Ctrl, Esc, Tab or
+ * arrows, so those keys are drawn beside the terminal and typed through here. They live on the
+ * hook rather than in the rail because a held modifier has to reach `onData` -- the rail supplies
+ * the Ctrl, the phone's own keyboard supplies the letter, and only this side sees both.
+ */
+export interface AgentTerminal {
+  mountRef: RefObject<HTMLDivElement | null>;
+  labels: TerminalLabels;
+  /** Whether this terminal is what the keyboard is typing into. */
+  focused: boolean;
+  modifiers: Record<RailModifier, ModifierState>;
+  toggleModifier: (modifier: RailModifier) => void;
+  pressKey: (key: RailKey) => void;
+}
 
 export type AgentTerminalState =
   | { kind: "ready"; descriptor: AgentTerminalDescriptor }
@@ -79,12 +105,21 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
   context: AgentTerminalContext;
   sizing: TerminalSizing;
   onState: (context: AgentTerminalContext, state: AgentTerminalState) => void;
-}): { mountRef: RefObject<HTMLDivElement | null>; labels: TerminalLabels } {
+}): AgentTerminal {
   const mountRef = useRef<HTMLDivElement>(null);
   const [syncLabel, setSyncLabel] = useState("Opening terminal");
   const [ownershipLabel, setOwnershipLabel] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
   const [viewLabel, setViewLabel] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [modifiers, setModifiers] = useState<Record<RailModifier, ModifierState>>(RAIL_MODIFIERS_OFF);
+  // The effect's `onData` reads the latch as it stands at the keystroke, not as it stood when the
+  // terminal was created, and the effect deliberately does not re-run on a modifier press: that
+  // would tear down the session to answer a Ctrl tap.
+  const modifiersRef = useRef(modifiers);
+  modifiersRef.current = modifiers;
+  // Set once the terminal is open. Chrome outside the terminal -- the key rail -- types through it.
+  const sendRef = useRef<((data: string) => void) | null>(null);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -162,6 +197,20 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       };
       mount.addEventListener("touchstart", noteTouchStart, { passive: true });
       mount.addEventListener("touchend", focusOnTap);
+
+      // Whether this terminal is the thing being typed into. The key rail is chrome for typing, so
+      // it appears with the keyboard and leaves with it rather than standing there permanently.
+      const textarea = terminal.textarea;
+      const noteFocus = (): void => setFocused(true);
+      const noteBlur = (): void => {
+        setFocused(false);
+        // A latch is held for the next key of THIS terminal. Leaving one armed across a blur means
+        // it fires into whatever the user typed next somewhere else entirely.
+        setModifiers(RAIL_MODIFIERS_OFF);
+      };
+      textarea?.addEventListener("focus", noteFocus);
+      textarea?.addEventListener("blur", noteBlur);
+      if (textarea && document.activeElement === textarea) setFocused(true);
 
       let descriptor: AgentTerminalDescriptor | null = null;
       let unsubscribe: (() => void) | null = null;
@@ -265,9 +314,17 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         }
       };
 
-      const input = terminal.onData((data) => {
+      const send = (data: string): void => {
         if (!descriptor || remoteClosed) return;
         void feed.sendTerminalInput(descriptor.terminalId, data).catch(fail);
+      };
+      sendRef.current = send;
+      const input = terminal.onData((data) => {
+        // The rail's modifiers are held over whatever the phone's own keyboard produced, which is
+        // the only way a keyboard with no Ctrl on it can send one.
+        const held = heldModifiers(modifiersRef.current);
+        send(applyModifiers(data, held));
+        if (held.ctrl || held.alt || held.shift) setModifiers(releaseArmed);
       });
       const binaryInput = terminal.onBinary((data) => {
         if (!descriptor || remoteClosed) return;
@@ -347,6 +404,9 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         observer?.disconnect();
         mount.removeEventListener("touchstart", noteTouchStart);
         mount.removeEventListener("touchend", focusOnTap);
+        textarea?.removeEventListener("focus", noteFocus);
+        textarea?.removeEventListener("blur", noteBlur);
+        sendRef.current = null;
         input.dispose();
         binaryInput.dispose();
         appearance?.removeEventListener("change", updateTheme);
@@ -373,6 +433,30 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       source: sourceLabel,
       view: viewLabel,
     },
+    focused,
+    modifiers,
+    toggleModifier: (modifier) =>
+      setModifiers((current) => ({ ...current, [modifier]: cycleModifier(current[modifier]) })),
+    pressKey: (key) => {
+      const held = heldModifiers(modifiersRef.current);
+      sendRef.current?.(bytesForRailKey(key, held));
+      setModifiers(releaseArmed);
+    },
+  };
+}
+
+const RAIL_MODIFIERS_OFF: Record<RailModifier, ModifierState> = {
+  ctrl: "off",
+  alt: "off",
+  shift: "off",
+};
+
+/** Armed and locked both mean held; the difference is only what happens after the key. */
+function heldModifiers(states: Record<RailModifier, ModifierState>): RailModifiers {
+  return {
+    ctrl: states.ctrl !== "off",
+    alt: states.alt !== "off",
+    shift: states.shift !== "off",
   };
 }
 

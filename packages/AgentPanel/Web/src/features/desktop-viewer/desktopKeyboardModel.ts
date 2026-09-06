@@ -14,7 +14,11 @@ export const KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX = 24;
 export const REMOTE_MODIFIER_ORDER: RemoteModifier[] = ["cmd", "ctrl", "option", "shift"];
 
 export type KeyboardPresentation = "unavailable" | "hidden" | "pending" | "shown";
-export type ModifierState = "off" | "armed" | "locked";
+// One definition, in `features/keyboard`, because the terminal's key rail latches its modifiers
+// the same way this one does. Re-exported rather than moved out of this module's surface: every
+// caller here already reads its keyboard vocabulary from this file.
+import type { ModifierState } from "../keyboard/modifierLatch";
+export { cycleModifier, type ModifierState } from "../keyboard/modifierLatch";
 
 export interface KeyboardPresentationState {
   presentation: KeyboardPresentation;
@@ -124,10 +128,6 @@ export function keyboardPresentationReducer(
         editability: null,
       };
   }
-}
-
-export function cycleModifier(state: ModifierState): ModifierState {
-  return state === "off" ? "armed" : state === "armed" ? "locked" : "off";
 }
 
 export function activeModifiers(
