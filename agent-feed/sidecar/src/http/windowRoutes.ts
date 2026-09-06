@@ -5,6 +5,8 @@ import {
   type SessionKey,
   type WindowSource,
 } from "../desktop/composerCoordinator.ts";
+import { unlink } from "node:fs/promises";
+
 import { ControlHelperError, controlHelper } from "../desktop/controlHelper.ts";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
@@ -36,6 +38,7 @@ const COMPOSER_SUBMIT_ROUTE = "/api/window/composer/submit";
 const COMPOSER_CENSUS_ROUTE = "/api/window/composer/census";
 const QUESTION_ACTION_ROUTE = "/api/window/question/action";
 const INPUT_ROUTE = "/api/window/input";
+const SHOT_ROUTE = "/api/window/shot";
 
 /** Commands one request may aim at a window. Mirrors the helper's own bound. */
 const MAXIMUM_INPUT_COMMANDS = 64;
@@ -48,6 +51,7 @@ export function createWindowRoutes(): RouteHandler {
     if (request.method === "GET") {
       if (url.pathname === AUDIT_ROUTE) return audit();
       if (url.pathname === CAPABILITIES_ROUTE) return capabilities();
+      if (url.pathname === SHOT_ROUTE) return windowShot(url);
       if (url.pathname === COMPOSER_STREAM_ROUTE) return composerStream(request, url, server);
       return undefined;
     }
@@ -195,6 +199,50 @@ function decodeAction(body: Record<string, unknown>): QuestionAction | null {
  * vocabulary the WebRTC lane carries, and the helper hands them to the same parser with the same
  * bounds clamping, so a second validator in this file would be a second place for it to drift.
  */
+/**
+ * A PNG of one window, by id.
+ *
+ * The helper writes the file and reports its path; this reads the bytes and deletes it, so a
+ * caller gets an image and the temporary directory does not fill up with every look taken. Both
+ * processes are the same user, which is the only reason handing a path across is enough.
+ *
+ * A GET, like the other two reads here. It does reach into the window server, but it changes
+ * nothing, and making it a POST would only mean the panel's relay had to spell it differently.
+ */
+async function windowShot(url: URL): Promise<Response> {
+  const windowID = Number(url.searchParams.get("windowID"));
+  if (!Number.isInteger(windowID) || windowID <= 0) {
+    return badRequest("windowID must be a positive integer WindowServer id");
+  }
+  const raw = url.searchParams.get("maxWidth");
+  const maxWidth = raw === null ? undefined : Number(raw);
+  if (maxWidth !== undefined && (!Number.isInteger(maxWidth) || maxWidth <= 0)) {
+    return badRequest("maxWidth must be a positive integer");
+  }
+  try {
+    const result = await controlHelper.request("window-shot", { windowID, maxWidth });
+    const path = typeof result.path === "string" ? result.path : null;
+    if (!path) return errorResponse("window-shot-failed", "helper returned no image", 503);
+    const file = Bun.file(path);
+    const bytes = await file.arrayBuffer();
+    await unlink(path).catch(() => {});
+    return new Response(bytes, {
+      headers: {
+        "content-type": "image/png",
+        "cache-control": "no-store",
+        // The dimensions and the window's own identity, for a caller that took the picture to
+        // find out what is in it rather than to look at it.
+        "x-window-width": String(result.width ?? ""),
+        "x-window-height": String(result.height ?? ""),
+        "x-window-app": encodeURIComponent(String(result.app ?? "")),
+        "x-window-title": encodeURIComponent(String(result.title ?? "")),
+      },
+    });
+  } catch (error) {
+    return failure(error);
+  }
+}
+
 async function windowInput(request: Request): Promise<Response> {
   const body = await readJson(request);
   const windowID = body?.windowID;

@@ -53,6 +53,8 @@ export type WindowInputReason =
    * capability that is not there.
    */
   | "window-mover-unavailable"
+  /** Screen Recording is not granted to the helper, so no window can be captured. */
+  | "capture-denied"
   | "write-failed"
   /** The composer read back as something other than what was written. */
   | "verify-mismatch"
