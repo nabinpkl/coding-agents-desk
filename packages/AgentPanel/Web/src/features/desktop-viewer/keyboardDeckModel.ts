@@ -157,16 +157,21 @@ export function deckKeyName(key: DeckKey): string {
   }
 }
 
-/** Ratios against the first key of the row, exactly as the Swift width constraints express them. */
+/**
+ * Ratios against the first key of the row, from the Swift width constraints.
+ *
+ * The bottom row is the one place they are not copied. The Swift gives the page key 1.35 against
+ * the globe's 1.05, which draws `123` about forty percent wider than an iPhone's and takes the
+ * width out of the space bar; on iOS the page key and the mode switch beside it are the same size.
+ * So the page key matches its neighbour here, and the space bar keeps what that returns.
+ */
 export function keyWidthWeight(key: DeckKey): number {
   switch (key.kind) {
     case "space":
-      return 3.4;
+      return 3.8;
     case "return":
       return 1.65;
     case "page":
-      return 1.35;
-    // The globe's own weight, since it is the globe's seat.
     case "native":
       return 1.05;
     case "shift":

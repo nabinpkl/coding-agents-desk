@@ -324,7 +324,7 @@ describe("KeyboardDeck", () => {
     expect(key("delete").style.marginLeft).toBe(`${outer}px`);
     expect(key("char-78").style.marginLeft).toBe("");
     expect(key("shift").style.flexGrow).toBe("1.25");
-    expect(key("space").style.flexGrow).toBe("3.4");
+    expect(key("space").style.flexGrow).toBe("3.8");
   });
 
   it("keeps the wider gaps off the number and symbol pages", () => {

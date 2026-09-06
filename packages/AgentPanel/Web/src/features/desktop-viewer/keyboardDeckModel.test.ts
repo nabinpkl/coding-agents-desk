@@ -89,12 +89,26 @@ describe("keyboard deck layout", () => {
   });
 
   it("weights keys the way the Swift width constraints do", () => {
-    expect(keyWidthWeight({ kind: "space" })).toBe(3.4);
     expect(keyWidthWeight({ kind: "return" })).toBe(1.65);
-    expect(keyWidthWeight({ kind: "page", page: "numbers" })).toBe(1.35);
     expect(keyWidthWeight({ kind: "shift" })).toBe(1.25);
     expect(keyWidthWeight({ kind: "delete" })).toBe(1.25);
     expect(keyWidthWeight(character("q"))).toBe(0.88);
+  });
+
+  it("sizes the page key with the switch beside it, not wider as the Swift does", () => {
+    // 1.35 against the globe's 1.05 drew `123` about forty percent wider than an iPhone's, and
+    // the width came out of the space bar.
+    expect(keyWidthWeight({ kind: "page", page: "numbers" }))
+      .toBe(keyWidthWeight({ kind: "native" }));
+    expect(keyWidthWeight({ kind: "space" })).toBeGreaterThan(3.4);
+
+    const bottom = deckRows(INITIAL_DECK_STATE)[3]!;
+    const total = bottom.reduce((sum, key) => sum + keyWidthWeight(key), 0);
+    const share = (key: DeckKey) => keyWidthWeight(key) / total;
+    // Close to an iPhone's own bottom row: the space bar takes about half of it, the return key
+    // about a fifth, and the two small keys the rest.
+    expect(share({ kind: "space" })).toBeGreaterThan(0.48);
+    expect(share({ kind: "page", page: "numbers" })).toBeLessThan(0.15);
   });
 
   it("treats only characters and the space bar as regular keys", () => {
