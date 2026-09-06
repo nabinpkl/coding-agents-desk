@@ -28,6 +28,7 @@ describe("TileViewport pointer mode", () => {
     send: (input: DesktopPointerInput) => boolean,
     source?: { width: number; height: number; cursor: { x: number; y: number } },
     subscribeCursorEvents?: (listener: (event: WebrtcCursorEvent) => void) => () => void,
+    absolutePointer = false,
   ) {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       animationFrames.push(callback);
@@ -37,6 +38,7 @@ describe("TileViewport pointer mode", () => {
     render(
       <TileViewport
         pointerMode
+        absolutePointer={absolutePointer}
         sendPointerInput={send}
         sourceWidth={source?.width}
         sourceHeight={source?.height}
@@ -60,9 +62,11 @@ describe("TileViewport pointer mode", () => {
     pointerId: number,
     clientX: number,
     clientY: number,
+    pointerType = "touch",
   ) {
     const event = new MouseEvent(type, { bubbles: true, clientX, clientY });
     Object.defineProperty(event, "pointerId", { value: pointerId });
+    Object.defineProperty(event, "pointerType", { value: pointerType });
     surface.dispatchEvent(event);
   }
 
@@ -176,6 +180,57 @@ describe("TileViewport pointer mode", () => {
     expect(ring().hidden).toBe(false);
     pointer(surface, "pointercancel", 5, 80, 50);
     expect(ring().hidden).toBe(true);
+  });
+
+  it("presses a mouse button on the press and shows it held for as long as it is", () => {
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    }, { width: 800, height: 500, cursor: { x: 400, y: 250 } }, undefined, true);
+    const halo = () => screen.getByTestId("client-drag-halo");
+
+    // A mouse holds its own button. Nothing to wait out, so no ring and no hold: the press is the
+    // press, and the drag is whatever movement follows it.
+    pointer(surface, "pointerdown", 1, 100, 100, "mouse");
+    expect(inputs.map((input) => input.type)).toEqual(["pointer-warp", "mouse-down"]);
+    expect(halo().hidden).toBe(false);
+    expect(screen.getByTestId("client-drag-priming").hidden).toBe(true);
+
+    pointer(surface, "pointermove", 1, 200, 160, "mouse");
+    expect(halo().hidden).toBe(false);
+    pointer(surface, "pointerup", 1, 200, 160, "mouse");
+    expect(inputs.at(-1)).toEqual({ type: "mouse-up", button: "left" });
+    expect(halo().hidden).toBe(true);
+    // Press and release is a click on the Mac already; a second synthetic one would double it.
+    expect(inputs.some((input) => input.type === "click")).toBe(false);
+  });
+
+  it("lets go of a mouse button when the viewport goes away mid-drag", () => {
+    const inputs: DesktopPointerInput[] = [];
+    const view = render(
+      <TileViewport
+        pointerMode
+        absolutePointer
+        sendPointerInput={(input) => { inputs.push(input); return true; }}
+        sourceWidth={800}
+        sourceHeight={500}
+        initialCursor={{ x: 400, y: 250 }}
+      >
+        <div data-testid="content" />
+      </TileViewport>,
+    );
+    const surface = screen.getByTestId("content").parentElement!.parentElement!;
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    pointer(surface, "pointerdown", 1, 100, 100, "mouse");
+    expect(inputs.some((input) => input.type === "mouse-down")).toBe(true);
+
+    // Unmounting mid-drag otherwise leaves the far Mac holding a button nobody is pressing.
+    view.unmount();
+    expect(inputs.at(-1)).toEqual({ type: "mouse-up", button: "left" });
   });
 
   it("does not press when the finger travels before the hold completes", () => {
