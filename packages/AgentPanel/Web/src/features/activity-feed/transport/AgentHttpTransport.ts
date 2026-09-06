@@ -43,7 +43,15 @@ export interface AgentHttpTransport {
   request(
     method: string,
     path: string,
-    options?: { body?: unknown; signal?: AbortSignal },
+    options?: {
+      body?: unknown;
+      signal?: AbortSignal;
+      /**
+       * Let this request outlive the page. A document being torn down cancels everything in
+       * flight, which is how a viewer's goodbye goes missing exactly when it matters most.
+       */
+      keepalive?: boolean;
+    },
   ): Promise<TransportResponse>;
 
   /** Follows a server-sent event stream. Returns unsubscribe. */
@@ -311,13 +319,14 @@ export class FetchHttpTransport implements AgentHttpTransport {
   async request(
     method: string,
     path: string,
-    options: { body?: unknown; signal?: AbortSignal } = {},
+    options: { body?: unknown; signal?: AbortSignal; keepalive?: boolean } = {},
   ): Promise<TransportResponse> {
     const response = await fetch(`${this.origin}${path}`, {
       method,
       signal: options.signal,
       headers: options.body === undefined ? undefined : { "content-type": "application/json" },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      ...(options.keepalive ? { keepalive: true } : {}),
     });
     return { status: response.status, body: await response.text() };
   }

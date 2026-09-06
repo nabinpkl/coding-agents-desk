@@ -60,8 +60,8 @@ import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import {
   AgentTerminalPane,
-  type AgentTerminalPaneState,
 } from "../features/terminal/AgentTerminalPane";
+import type { AgentTerminalState } from "../features/terminal/useAgentTerminal";
 import { terminalContextKey } from "../features/terminal/terminalContext";
 
 /**
@@ -708,7 +708,7 @@ export function App({ feed, host, fill = false }: Props) {
     setTerminal({ kind: "idle" });
   }, [terminal.kind]);
 
-  const updateTerminalState = useCallback((context: AgentTerminalContext, state: AgentTerminalPaneState) => {
+  const updateTerminalState = useCallback((context: AgentTerminalContext, state: AgentTerminalState) => {
     setTerminal((current) => {
       if (current.kind === "idle") return current;
       if (terminalContextKey(current.context) !== terminalContextKey(context)) return current;

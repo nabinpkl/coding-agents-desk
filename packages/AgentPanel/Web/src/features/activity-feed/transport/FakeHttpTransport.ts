@@ -32,7 +32,7 @@ export class FakeHttpTransport implements AgentHttpTransport {
   async request(
     method: string,
     path: string,
-    options: { body?: unknown; signal?: AbortSignal } = {},
+    options: { body?: unknown; signal?: AbortSignal; keepalive?: boolean } = {},
   ): Promise<TransportResponse> {
     this.requests.push({ method, path, body: options.body });
     return this.responses.get(`${method} ${path}`) ?? this.defaultResponse;

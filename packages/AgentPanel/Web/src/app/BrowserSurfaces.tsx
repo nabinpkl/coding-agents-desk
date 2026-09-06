@@ -2,18 +2,20 @@ import { useCallback, useEffect, useState } from "react";
 import { App } from "./AgentPanelApp";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "../features/screen-viewer/ScreenViewer";
+import { TerminalsSurface } from "../features/terminal/TerminalsSurface";
 import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "../features/activity-feed/transport/AgentHttpTransport";
 import { sessionTransport } from "../features/activity-feed/transport/SessionTransport";
 import { parseSessionIndex, type PanelSessionRef } from "./panelSessions";
 
-export type BrowserSurface = "desktop" | "feed" | "screen";
+export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals";
 
 const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
   { name: "desktop", label: "Desktop" },
   { name: "feed", label: "Feed" },
   { name: "screen", label: "Screen" },
+  { name: "terminals", label: "Terminals" },
 ];
 
 const NAMED = new Set<string>(SURFACES.map((surface) => surface.name));
@@ -205,6 +207,8 @@ export function BrowserSurfaces({
           />
         ) : surface === "screen" ? (
           <ScreenViewer />
+        ) : surface === "terminals" ? (
+          <TerminalsSurface feed={feed} />
         ) : (
           <App feed={feed} host={host} fill />
         )}

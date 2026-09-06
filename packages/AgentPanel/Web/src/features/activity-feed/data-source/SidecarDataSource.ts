@@ -39,6 +39,7 @@ import type {
   SidecarConfig,
   SummaryStreamMessage,
   TaskOutputMessage,
+  TmuxSessionSummary,
   TimelineMessage,
   TokenUsage,
   UsageStreamMessage,
@@ -394,6 +395,14 @@ export class SidecarDataSource implements AgentDataSource {
     );
   }
 
+  /** What a terminal can be pointed at besides an agent session; empty when tmux holds nothing. */
+  async listTmuxSessions(): Promise<TmuxSessionSummary[]> {
+    const { sessions } = parse<{ sessions: TmuxSessionSummary[] }>(
+      await this.transport.request("GET", "/api/tmux/sessions"),
+    );
+    return sessions;
+  }
+
   subscribeTerminal(terminalId: string, handlers: TerminalViewer): () => void {
     const viewers = this.terminalViewers.get(terminalId) ?? new Set<TerminalViewer>();
     viewers.add(handlers);
@@ -489,11 +498,12 @@ export class SidecarDataSource implements AgentDataSource {
     ));
   }
 
+  /** Sent with `keepalive`, because the commonest time to close a terminal is by closing the page. */
   async closeTerminal(terminalId: string, mode: "detach" | "kill"): Promise<void> {
     expectEmpty(await this.transport.request(
       "POST",
       `/api/terminals/${encodeURIComponent(terminalId)}/close`,
-      { body: { mode } },
+      { body: { mode }, keepalive: true },
     ));
   }
 
