@@ -1,14 +1,18 @@
 #!/bin/sh
 set -eu
 
-src="$(CDPATH= cd -- "$(dirname -- "$0")/grid-encoder" && pwd)"
-out="$(mktemp -d)/desktop-input-controller-tests"
-fixtures="$(CDPATH= cd -- "$src/../../agent-feed/wire" && pwd)/contract-fixture.json"
+root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+src="$root/tools/grid-encoder"
+. "$root/tools/swiftc-cached.sh"
+# A stable path rather than a fresh mktemp dir, so the compile can be skipped when
+# nothing moved. The test binary still runs every time; only building it is cached.
+out="$root/.build/desktop-input-controller-tests"
+fixtures="$root/agent-feed/wire/contract-fixture.json"
 
-swiftc -O \
+swiftc_cached "$out" \
   "$src/CursorMirror.swift" \
   "$src/DesktopInputController.swift" \
   "$src/CaptureControlCommand.swift" \
-  "$src/DesktopInputControllerTests.swift" \
-  -o "$out"
+  "$src/DesktopInputControllerTests.swift"
+
 AGENTDESK_CONTROL_FIXTURES="$fixtures" "$out"

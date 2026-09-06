@@ -8,20 +8,13 @@
 # drift apart on the next macOS release.
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/tools/swiftc-cached.sh"
 if [ "$#" -gt 1 ]; then
   echo "usage: build-grid-encoder.sh [output-path]" >&2
   exit 64
 fi
 out="${1:-$root/.build/grid-encoder}"
-build_dir="$(dirname "$out")"
-mkdir -p "$build_dir"
-staging="$(mktemp -d "$build_dir/.grid-encoder-build.XXXXXX")"
-cleanup() {
-  rm -f "$staging/grid-encoder"
-  rmdir "$staging"
-}
-trap cleanup EXIT
-swiftc -O \
+swiftc_cached "$out" \
   "$root/tools/grid-encoder/main.swift" \
   "$root/tools/grid-encoder/ControlMode.swift" \
   "$root/tools/grid-encoder/DesktopAudit.swift" \
@@ -36,7 +29,4 @@ swiftc -O \
   "$root/tools/grid-encoder/CaptureControlCommand.swift" \
   "$root/tools/grid-encoder/CursorMirror.swift" \
   "$root/host/AgentDeskHost/SkyLightSymbols.swift" \
-  "$root/host/AgentDeskHost/DockSwipeEvent.swift" \
-  -o "$staging/grid-encoder"
-mv "$staging/grid-encoder" "$out"
-echo "built $out"
+  "$root/host/AgentDeskHost/DockSwipeEvent.swift"
