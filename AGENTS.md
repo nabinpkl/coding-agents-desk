@@ -94,30 +94,31 @@ When in doubt about which direction a code path should produce, the test is: fin
 
 ## Two input paths, and they can both be live
 
-Two surfaces drive the same desktop, and either or both may be running at once against one session:
+Two surfaces drive the same desktop, and either or both may be running at once against one session.
+**Both are Chrome**, at the panel's dev origin:
 
-- **The iPhone client**, sending touch.
-- **A pointer over the rendered page on the Mac** -- a Chrome tab at the dev origin, or the host's
-  own webview. The page is the same code in both.
+- **Chrome on the iPhone**, sending touch.
+- **Chrome on the Mac**, sending a pointer over the rendered page.
 
-They are not one input model with a cosmetic difference. A mouse has a position and real buttons; a
-touch has neither, and the wire says so (`agent-feed/wire/desktopControl.ts`): `pointer-warp` carries
-absolute display coordinates "for a mouse, which has a position to honour", while touch keeps the
-relative `pointer-move`; `mouse-down`/`mouse-up` exist because "a mouse has real buttons to hold; a
-tap has none, so touch keeps sending `click`". Touch reaches a drag by synthesising that hold after a
-long press.
+The native containers -- the iPhone client app and the host's own webview -- still exist in the code
+and still branch, but they are not the current path. `main.tsx` picks its transport from
+`window.webkit?.messageHandlers?.agentFeed`, and on both live surfaces that is absent, so both go
+through the dev server's `/api` proxy. Treat that native arm the way `FEATURE-MAP.md` says to treat
+the rest of the Swift: present, compiling, not where the work is.
 
-**The gate is the event, not the container.** `TileViewport.tsx` branches on
-`event.pointerType === "mouse"` for absolute warping, button press and release, and right-click.
-Container detection is a *separate* axis: `main.tsx` picks the transport from
-`window.webkit?.messageHandlers?.agentFeed`, which says whether there is a native relay, not what
-kind of pointer is arriving. All four combinations are real -- touch in the iPhone app, touch in a
-mobile browser, mouse in a desktop browser, mouse in the host webview -- so never infer the input
-kind from the container or the transport from the input kind.
+So the axis that matters is **not** the container. It is the pointer. A mouse has a position and
+real buttons; a touch has neither, and the wire says so
+(`agent-feed/wire/desktopControl.ts`): `pointer-warp` carries absolute display coordinates "for a
+mouse, which has a position to honour", while touch keeps the relative `pointer-move`;
+`mouse-down`/`mouse-up` exist because "a mouse has real buttons to hold; a tap has none, so touch
+keeps sending `click`". Touch reaches a drag by synthesising that hold after a long press.
+
+`TileViewport.tsx` branches on `event.pointerType === "mouse"` for absolute warping, button press and
+release, and right-click. That branch, not the container, is what splits the two live surfaces.
 
 The practical rule, and the reason this is written down: **when changing input behaviour, name which
 path you mean.** A fix that only branches under `pointerType === "mouse"` does nothing on the phone,
-and one written against the touch path leaves a desktop browser behaving as it did before. If the
+and one written against the touch path leaves the Mac's Chrome behaving as it did before. If the
 behaviour is meant to be universal it belongs above that branch, in the shared model, with the
 branch used only where the two genuinely differ. This is the same trap as the surface-scoping rule
 further down: the previous conversation being about one path does not make the next change about it.
