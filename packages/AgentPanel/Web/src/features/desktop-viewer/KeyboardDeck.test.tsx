@@ -158,14 +158,53 @@ describe("KeyboardDeck", () => {
     expect(onCharacter).toHaveBeenCalledWith(" ");
   });
 
-  it("cancels a key the finger slid away from", () => {
+  it("follows the finger across keys and types the one it lands on", () => {
     const { onCharacter } = renderDeck();
     press("char-71");
     expect(key("char-71")).toHaveAttribute("data-pressed", "true");
     const away = centreOf("char-70");
     moveTo(away.clientX, away.clientY);
+    // The press moves with the finger rather than being abandoned: stock iPhone behaviour, and a
+    // deliberate departure from the Swift keyboard, whose buttons give up on drag-exit.
     expect(key("char-71")).toHaveAttribute("data-pressed", "false");
+    expect(key("char-70")).toHaveAttribute("data-pressed", "true");
     release("char-70");
+    expect(onCharacter).toHaveBeenCalledExactlyOnceWith("p");
+  });
+
+  it("moves the balloon to the key the finger has moved onto", () => {
+    renderDeck();
+    press("char-71");
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
+    const w = centreOf("char-77");
+    moveTo(w.clientX, w.clientY);
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("w");
+    // A special key has no balloon, so moving onto one takes it away.
+    const shift = centreOf("shift");
+    moveTo(shift.clientX, shift.clientY);
+    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
+    release("shift");
+  });
+
+  it("abandons the press only when the finger leaves the deck", () => {
+    const { onCharacter } = renderDeck();
+    press("char-71");
+    moveTo(20, -20);
+    expect(key("char-71")).toHaveAttribute("data-pressed", "false");
+    release("char-71", { clientX: 20, clientY: -20 });
+    expect(onCharacter).not.toHaveBeenCalled();
+  });
+
+  it("ends a held delete when the finger leaves it, rather than handing the press on", () => {
+    vi.useFakeTimers();
+    const { onDelete, onCharacter } = renderDeck();
+    press("delete");
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    const away = centreOf("char-6d");
+    moveTo(away.clientX, away.clientY);
+    vi.advanceTimersByTime(DELETE_REPEAT_DELAY_MS + DELETE_REPEAT_INTERVAL_MS * 3);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    release("char-6d");
     expect(onCharacter).not.toHaveBeenCalled();
   });
 
@@ -317,16 +356,21 @@ describe("KeyboardDeck under fast typing", () => {
     expect(typed(onCharacter)).toBe("wq");
   });
 
-  it("types a tap that rolled a few pixels past the key's edge", () => {
+  it("never loses an edge tap, whichever side of the seam it rolls to", () => {
     const { onCharacter } = renderDeck();
     const q = key("char-71").getBoundingClientRect();
+    const w = key("char-77").getBoundingClientRect();
     const midY = (q.top + q.bottom) / 2;
-    // Landing near the right edge and rolling into the seam is an ordinary thumb tap, not a
-    // deliberate slide away.
+    const seam = (q.right + w.left) / 2;
+    // Landing near the right edge and rolling is an ordinary thumb tap. It used to type nothing;
+    // now it types whichever key the finger is over, which is never nothing.
     press("char-71", { clientX: q.right - 1, clientY: midY });
-    moveTo(q.right + 3, midY);
-    release("char-71", { clientX: q.right + 3, clientY: midY });
-    expect(typed(onCharacter)).toBe("q");
+    moveTo(seam - 1, midY);
+    release("char-71", { clientX: seam - 1, clientY: midY });
+    press("char-71", { clientX: q.right - 1, clientY: midY });
+    moveTo(seam + 1, midY);
+    release("char-77", { clientX: seam + 1, clientY: midY });
+    expect(typed(onCharacter)).toBe("qw");
   });
 
   it("recovers a pointer id whose release never arrived", () => {

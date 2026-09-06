@@ -117,6 +117,11 @@ export function KeyboardDeck({
   const presses = useRef(new Map<number, ActivePress>());
   /** The rows as last rendered, so a resolved cell can be turned back into the key it stands for. */
   const rowsRef = useRef<DeckKey[][]>([]);
+  const cellsRef = useRef<{
+    cells: DeckCell[][];
+    elements: HTMLElement[][];
+    origin: { left: number; top: number };
+  } | null>(null);
   const lastShiftTapAt = useRef(0);
   const repeatTimer = useRef<number | null>(null);
 
@@ -134,6 +139,22 @@ export function KeyboardDeck({
   // key: `render(_:)` dismisses it whenever the state it is asked for differs from the one on
   // screen. Reachable with two thumbs, where one holds a letter while the other taps shift.
   useEffect(() => setPreview(null), [state]);
+
+  // A different page or a different metric set is a different tiling.
+  useEffect(() => {
+    cellsRef.current = null;
+  }, [state, metrics]);
+
+  // And so is a resize, which changes no state at all.
+  useEffect(() => {
+    const deck = deckRef.current;
+    if (!deck) return;
+    const observer = new ResizeObserver(() => {
+      cellsRef.current = null;
+    });
+    observer.observe(deck);
+    return () => observer.disconnect();
+  }, []);
 
   const releasePress = useCallback((active: ActivePress) => {
     if (active.element.hasPointerCapture?.(active.pointerId)) {
@@ -181,33 +202,50 @@ export function KeyboardDeck({
   }, [onCharacter]);
 
   /**
-   * Resolve a touch to a key by the tiled cells rather than by whatever element is under it, so
-   * the gaps, the deck's padding, and the home row's indent all belong to a key.
+   * The tiling, measured once and kept until the deck changes shape. Rebuilding it per move would
+   * force a layout of the deck, its rows, and all thirty-one keys on every event.
    */
-  const resolve = useCallback((clientX: number, clientY: number) => {
+  const geometry = useCallback(() => {
+    if (cellsRef.current) return cellsRef.current;
     const deck = deckRef.current;
     if (!deck) return null;
     const deckRect = deck.getBoundingClientRect();
     const rowElements = [...deck.querySelectorAll<HTMLElement>("[data-deck-row]")];
-    const rows = rowElements.map((row) => {
+    const elements = rowElements.map((row) => [...row.children] as HTMLElement[]);
+    const rows = rowElements.map((row, rowIndex) => {
       const bounds = row.getBoundingClientRect();
       return {
         top: bounds.top - deckRect.top,
         bottom: bounds.bottom - deckRect.top,
-        keys: [...row.children].map((child) => {
+        keys: elements[rowIndex]!.map((child) => {
           const box = child.getBoundingClientRect();
           return { left: box.left - deckRect.left, right: box.right - deckRect.left };
         }),
       };
     });
-    const cells = deckHitCells(rows, { width: deckRect.width, height: deckRect.height });
-    const point = { x: clientX - deckRect.left, y: clientY - deckRect.top };
-    const cell = cellAtPoint(cells, point);
-    if (!cell) return null;
-    const element = rowElements[cell.row]?.children[cell.key];
-    if (!(element instanceof HTMLElement)) return null;
-    return { cell, element, deckOrigin: { left: deckRect.left, top: deckRect.top } };
+    cellsRef.current = {
+      cells: deckHitCells(rows, { width: deckRect.width, height: deckRect.height }),
+      elements,
+      origin: { left: deckRect.left, top: deckRect.top },
+    };
+    return cellsRef.current;
   }, []);
+
+  /**
+   * Resolve a touch to a key by the tiled cells rather than by whatever element is under it, so
+   * the gaps, the deck's padding, and the home row's indent all belong to a key.
+   */
+  const resolve = useCallback((clientX: number, clientY: number) => {
+    const built = geometry();
+    if (!built) return null;
+    const point = { x: clientX - built.origin.left, y: clientY - built.origin.top };
+    const cell = cellAtPoint(built.cells, point);
+    if (!cell) return null;
+    const element = built.elements[cell.row]?.[cell.key];
+    const key = rowsRef.current[cell.row]?.[cell.key];
+    if (!element || !key) return null;
+    return { cell, element, key, deckOrigin: built.origin };
+  }, [geometry]);
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
@@ -215,8 +253,7 @@ export function KeyboardDeck({
     event.preventDefault();
     const hit = resolve(event.clientX, event.clientY);
     if (!hit) return;
-    const key = rowsRef.current[hit.cell.row]?.[hit.cell.key];
-    if (!key) return;
+    const key = hit.key;
     // A pointer id whose release never arrived would otherwise be poisoned for good, and iOS
     // reuses ids: one missed `pointerup` would silently swallow every later touch that got the
     // same id. Discard the stale press and take this one.
@@ -273,18 +310,40 @@ export function KeyboardDeck({
       }
       return;
     }
-    // Sliding off a key cancels it, the way a drag-exit does on iOS, and permanently: coming back
-    // does not revive it. The cell is the boundary, not the keycap, and the slop past it is what
-    // keeps a thumb that rolls across a seam from losing its key.
-    const point = {
-      x: event.clientX - active.deckOrigin.left,
-      y: event.clientY - active.deckOrigin.top,
-    };
-    if (!pointHoldsCell(active.cell, point, keyExitSlop(metrics))) {
+    // Delete is a hold, not a slide: it fired on press-down and repeats, so leaving its cell ends
+    // it rather than handing the press to whatever is next door.
+    if (active.key.kind === "delete") {
+      const point = {
+        x: event.clientX - active.deckOrigin.left,
+        y: event.clientY - active.deckOrigin.top,
+      };
+      if (!pointHoldsCell(active.cell, point, keyExitSlop(metrics))) {
+        active.cancelled = true;
+        releasePress(active);
+      }
+      return;
+    }
+    // Every other key follows the finger. This is the stock iPhone behaviour and a deliberate
+    // departure from the Swift keyboard, whose buttons abandon the touch on drag-exit: sliding
+    // from one key to another types the one you land on, and the balloon moves with you.
+    const hit = resolve(event.clientX, event.clientY);
+    if (!hit) {
+      // Off the deck entirely. Nothing under the finger to hand the press to.
       active.cancelled = true;
       releasePress(active);
+      return;
     }
-  }, [metrics, onCursorDelta, releasePress]);
+    if (hit.cell.row === active.cell.row && hit.cell.key === active.cell.key) return;
+    active.cell = hit.cell;
+    active.element = hit.element;
+    active.key = hit.key;
+    setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
+    if (hit.key.kind === "character") {
+      showPreview(active);
+    } else {
+      setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
+    }
+  }, [metrics, onCursorDelta, releasePress, resolve, showPreview]);
 
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const active = presses.current.get(event.pointerId);
