@@ -1595,6 +1595,25 @@ grid-encoder-install path="":
         sh tools/install-grid-encoder.sh
     fi
 
+# An agent-feed sidecar on ANOTHER machine, so the panel's Feed can read that machine's transcripts
+# through the session picker it already has. The peer is an ssh host alias; its sidecar binds the
+# peer's own tailnet address, which is asked for on the peer rather than written down here.
+#
+# `setup` once per peer (tmux + bun), then `run` for every change: it ships and relaunches. Declare
+# the result to the panel with AGENTDESK_PANEL_REMOTE_SIDECARS in .env -- `run` prints the line.
+remote-sidecar-setup peer port="7682":
+    sh tools/remote-sidecar.sh setup '{{peer}}' '{{port}}'
+
+remote-sidecar-run peer port="7682":
+    sh tools/remote-sidecar.sh run '{{peer}}' '{{port}}'
+
+remote-sidecar-stop peer port="7682":
+    sh tools/remote-sidecar.sh stop '{{peer}}' '{{port}}'
+
+# Answers the question that matters: is it reachable FROM THIS MAC, not merely running over there.
+remote-sidecar-status peer port="7682":
+    sh tools/remote-sidecar.sh status '{{peer}}' '{{port}}'
+
 # Who is watching a sidecar's displays and which grid-encoders are capturing for them. One login
 # session per sidecar; the registry entry names its port.
 webrtc-sessions user=env_var_or_default("USER", "dev"):

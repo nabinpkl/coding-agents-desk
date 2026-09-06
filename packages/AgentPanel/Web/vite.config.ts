@@ -9,6 +9,14 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin, type ProxyOptions } from "vite";
 import { runtimePaths } from "../../../tools/runtime-paths.mjs";
+import {
+  indexFor,
+  mergeSidecars,
+  parseDeclaredPeers,
+  parseDescriptor,
+  SIDECAR_STALE_MS,
+  type LiveSidecar,
+} from "./src/app/sidecarBoard";
 
 /**
  * Where this session's own sidecar is listening. Per-machine and tier-derived (stable/dev), so it
@@ -72,24 +80,25 @@ const releaseUpstreamWhenClientLeaves: NonNullable<ProxyOptions["configure"]> = 
 };
 
 
-/** A login session's sidecar as the shared board records it, once liveness has been checked. */
-interface LiveSidecar {
-  readonly user: string;
-  readonly label: string;
-  readonly port: number;
-}
-
 /** Only letters, digits and dashes reach a path segment or match a descriptor filename. */
 const SESSION_ID = /^[a-z0-9-]+$/i;
-/** A descriptor older than this has lost its heartbeat; the sidecar behind it is treated as gone. */
-const SIDECAR_STALE_MS = 15_000;
 
 /**
- * Serves the login sessions this machine is running, discovered rather than declared.
+ * Sidecars on other machines, which cannot announce themselves.
  *
- * Every sidecar announces itself on a shared board (see `announceSidecar`); this reads that board,
- * so a second desktop appears the moment its sidecar starts and vanishes when it stops, with nothing
- * hand-fed to this server. Three routes:
+ * The board is a directory on THIS machine, so a peer elsewhere has no way onto it. Declaring it
+ * here is the other half of the same idea: `id=host:port`, comma separated. Env rather than a
+ * literal because an address is environment-dependent, the same reason `sidecarOrigin` is.
+ */
+const declaredPeers = parseDeclaredPeers(process.env.AGENTDESK_PANEL_REMOTE_SIDECARS);
+
+/**
+ * Serves the sidecars the panel can reach: the login sessions on this machine, plus declared peers.
+ *
+ * A session on this machine announces itself on a shared board (see `announceSidecar`); this reads
+ * that board, so a second desktop appears the moment its sidecar starts and vanishes when it stops,
+ * with nothing hand-fed to this server. A peer on ANOTHER machine cannot write to that board, so it
+ * is declared instead and its liveness is this server reaching it. Three routes:
  *
  *  - `GET /session/index.json` -- a one-shot snapshot of the live set, ids and labels only.
  *  - `GET /session/stream` -- the same set as Server-Sent Events, pushed whenever it changes, so a
@@ -99,48 +108,68 @@ const SIDECAR_STALE_MS = 15_000;
  *    resolved per request so it always follows the live port. The default session is not here: it
  *    answers on `/api`, as every existing caller expects.
  *
- * The board carries ports, not tokens: the sidecar API is unauthenticated on a loopback-bound
- * server behind a tailnet-only panel, so there is nothing to attach.
+ * No entry carries a token, because there is nothing to attach: the sidecar API has no auth of its
+ * own anywhere. What stood in for it was the bind address, and the invariant is now UNAUTHENTICATED
+ * IMPLIES TAILNET-ONLY rather than loopback-only -- a peer reached over the tailnet is authenticated
+ * and encrypted by WireGuard at the device level, which is the guarantee loopback was a proxy for.
+ * A sidecar still binds loopback unless `AGENT_FEED_HOST` says otherwise, so nothing widens by
+ * accident; do not "fix" a tailnet address here back to 127.0.0.1.
  */
 function panelSessions(): Plugin {
   const registryDir = runtimePaths().sidecarRegistry;
   const self = userInfo().username;
 
-  function readBoard(): Map<string, LiveSidecar> {
-    const live = new Map<string, LiveSidecar>();
+  /** When each declared peer was last seen answering. Its heartbeat, since it writes no file. */
+  const reachableAt = new Map<string, number>();
+
+  function readBoard(): LiveSidecar[] {
     let files: string[];
     try {
       files = readdirSync(registryDir);
     } catch {
-      return live; // no board yet: nothing has announced
+      return []; // no board yet: nothing has announced
     }
     const now = Date.now();
+    const board: LiveSidecar[] = [];
     for (const name of files) {
       if (!name.endsWith(".json")) continue;
       try {
-        const raw = JSON.parse(readFileSync(join(registryDir, name), "utf8")) as Record<string, unknown>;
-        const { user, port, heartbeat } = raw;
-        if (typeof user !== "string" || !SESSION_ID.test(user)) continue;
-        if (typeof port !== "number" || !Number.isInteger(port)) continue;
-        if (typeof heartbeat !== "number" || now - heartbeat > SIDECAR_STALE_MS) continue;
-        const label = typeof raw.label === "string" && raw.label ? raw.label : user;
-        live.set(user, { user, label, port });
+        const entry = parseDescriptor(JSON.parse(readFileSync(join(registryDir, name), "utf8")), now);
+        if (entry) board.push(entry);
       } catch {
         // a descriptor caught mid-write or malformed: skip it; the next read gets it whole
       }
     }
-    return live;
+    return board;
   }
 
-  // The default session leads, carries no id (it answers on `/api`), and takes the running account's
-  // own label. Every other live session follows, sorted so the picker order does not jump between
-  // reads.
-  function indexFor(live: Map<string, LiveSidecar>): { id?: string; label: string }[] {
-    const others = [...live.values()]
-      .filter((entry) => entry.user !== self)
-      .sort((a, b) => a.label.localeCompare(b.label))
-      .map((entry) => ({ id: entry.user, label: entry.label }));
-    return [{ label: live.get(self)?.label ?? self }, ...others];
+  function liveSidecars(): Map<string, LiveSidecar> {
+    return mergeSidecars(readBoard(), declaredPeers, reachableAt, Date.now());
+  }
+
+  /**
+   * Asks each declared peer whether it is there, which is that peer's heartbeat.
+   *
+   * `/api/config` is the cheapest endpoint that proves a real sidecar answered rather than some
+   * other service on that port. A failure just stops refreshing the timestamp, so the peer ages out
+   * of the picker by the same rule a silent board session does.
+   */
+  function probeDeclared(onChange: () => void): void {
+    for (const peer of declaredPeers) {
+      const probe = httpRequest(
+        { host: peer.host, port: peer.port, method: "GET", path: "/api/config", timeout: 4_000 },
+        (peerResponse) => {
+          peerResponse.resume();
+          if (peerResponse.statusCode === 200) {
+            reachableAt.set(peer.id, Date.now());
+            onChange();
+          }
+        },
+      );
+      probe.on("timeout", () => probe.destroy());
+      probe.on("error", () => {}); // unreachable: let it age out rather than logging every tick
+      probe.end();
+    }
   }
 
   return {
@@ -148,7 +177,7 @@ function panelSessions(): Plugin {
     configureServer(server) {
       const subscribers = new Set<ServerResponse>();
       let lastPushed = "";
-      const snapshot = () => JSON.stringify(indexFor(readBoard()));
+      const snapshot = () => JSON.stringify(indexFor(liveSidecars(), self));
 
       const broadcast = () => {
         const json = snapshot();
@@ -176,6 +205,14 @@ function panelSessions(): Plugin {
         // the dir is not created until the first sidecar announces; the interval still catches it
       }
       setInterval(broadcast, SIDECAR_STALE_MS / 3).unref?.();
+
+      // A declared peer has no file to watch, so it is polled on the same clock the board's silence
+      // is noticed on. Probing pushes as soon as a peer answers rather than waiting for the next
+      // broadcast tick, so a remote machine coming up appears in the picker without a reload.
+      if (declaredPeers.length > 0) {
+        probeDeclared(broadcast);
+        setInterval(() => probeDeclared(broadcast), SIDECAR_STALE_MS / 3).unref?.();
+      }
 
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
@@ -215,21 +252,21 @@ function panelSessions(): Plugin {
           response.end(`only /api is proxied per session, not "${upstreamPath}"\n`);
           return;
         }
-        const entry = readBoard().get(id);
+        const entry = liveSidecars().get(id);
         if (!entry) {
           response.statusCode = 503;
           response.setHeader("content-type", "text/plain; charset=utf-8");
-          response.end(`session "${id}" is not announced (no live sidecar)\n`);
+          response.end(`session "${id}" is not reachable (no live sidecar)\n`);
           return;
         }
-        proxyToSidecar(entry.port, upstreamPath, request, response);
+        proxyToSidecar(entry.host, entry.port, upstreamPath, request, response);
       });
     },
   };
 }
 
 /**
- * A streaming reverse proxy to a sidecar on loopback.
+ * A streaming reverse proxy to a sidecar, on loopback or across the tailnet.
  *
  * Hand-rolled rather than a library because the target is resolved per request from the live board,
  * which Vite's static `server.proxy` cannot express, and because http-proxy is not a resolvable
@@ -237,14 +274,22 @@ function panelSessions(): Plugin {
  * upstream down when the client response closes early lets the sidecar see an abandoned live
  * capture, the concern `releaseUpstreamWhenClientLeaves` handles for the default session.
  */
-function proxyToSidecar(port: number, path: string, request: IncomingMessage, response: ServerResponse): void {
+function proxyToSidecar(
+  host: string,
+  port: number,
+  path: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+): void {
   const upstream = httpRequest(
     {
-      host: "127.0.0.1",
+      host,
       port,
       method: request.method,
       path,
-      headers: { ...request.headers, host: `127.0.0.1:${port}` },
+      // The upstream's own authority, not the panel's: the browser sent this origin's Host header,
+      // and passing it through would tell the sidecar it is being addressed as the dev server.
+      headers: { ...request.headers, host: `${host}:${port}` },
     },
     (upstreamResponse) => {
       response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);

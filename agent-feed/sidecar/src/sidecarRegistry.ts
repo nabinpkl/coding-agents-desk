@@ -11,6 +11,15 @@ const HEARTBEAT_MS = 5_000;
 export interface SidecarDescriptor {
   readonly user: string;
   readonly label: string;
+  /**
+   * The address a reader should dial, not always loopback.
+   *
+   * Every peer on this board is another login session on this machine, so this is `127.0.0.1` in
+   * practice. It is written down anyway because the reader now also serves peers that are NOT on
+   * the board -- another machine cannot write into a directory on this one -- and a reader that
+   * assumed loopback for board entries would have to special-case which kind it was looking at.
+   */
+  readonly host: string;
   readonly port: number;
   readonly pid: number;
   readonly startedAt: number;
@@ -35,17 +44,25 @@ export interface SidecarAnnouncement {
  * and the next start by that account overwrites it. The write is a temp-then-rename so a reader
  * never catches a half-written descriptor.
  */
-export function announceSidecar(port: number, options?: { dir?: string; label?: string }): SidecarAnnouncement {
+export function announceSidecar(
+  port: number,
+  options?: { dir?: string; label?: string; host?: string },
+): SidecarAnnouncement {
   const dir = options?.dir ?? runtimePaths().sidecarRegistry;
   const user = userInfo().username;
   const label = options?.label ?? user;
+  // Loopback unless told otherwise: a board peer is another session on this machine, and a sidecar
+  // bound to a wider address is not made reachable by claiming one it is not listening on.
+  const host = options?.host ?? "127.0.0.1";
   const file = join(dir, `${user}.json`);
   const startedAt = Date.now();
 
   ensureCrossSessionDirectory(dir);
 
   const write = () => {
-    const descriptor: SidecarDescriptor = { user, label, port, pid: process.pid, startedAt, heartbeat: Date.now() };
+    const descriptor: SidecarDescriptor = {
+      user, label, host, port, pid: process.pid, startedAt, heartbeat: Date.now(),
+    };
     const temporary = `${file}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify(descriptor));
     renameSync(temporary, file);

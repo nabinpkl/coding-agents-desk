@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "./AgentPanelApp";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "../features/screen-viewer/ScreenViewer";
 import { TerminalsSurface } from "../features/terminal/TerminalsSurface";
-import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
+import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "../features/activity-feed/transport/AgentHttpTransport";
 import { sessionTransport } from "../features/activity-feed/transport/SessionTransport";
@@ -109,6 +109,35 @@ function remember(surface: BrowserSurface): void {
  * a picture nobody is looking at; the price is that returning to the desktop renegotiates rather
  * than resumes.
  */
+/**
+ * Whether the selected sidecar has a Mac desktop behind it at all.
+ *
+ * A peer on another machine has no display to capture and no window manager to ask, so Desktop and
+ * Screen would fail rather than degrade. `/api/config` already answers this as `parkAvailable`
+ * (the sidecar sets it from `yabaiPath !== null`), so it is read rather than a new field invented
+ * for the question. Unknown counts as yes, so the local session never flickers a tab away while the
+ * config request is in flight, and an unreachable peer keeps whatever it had rather than losing
+ * tabs to one failed request.
+ */
+function useDesktopAvailable(feed: SidecarDataSource): boolean {
+  const [available, setAvailable] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setAvailable(true);
+    feed.fetchConfig()
+      .then((config) => {
+        if (!cancelled) setAvailable(config.parkAvailable === true);
+      })
+      .catch(() => {
+        // leave the tabs as they are; a blip is not evidence that the desktop is gone
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [feed]);
+  return available;
+}
+
 export function BrowserSurfaces({
   transport,
   feed,
@@ -138,6 +167,31 @@ export function BrowserSurfaces({
     if (!sessions.some((session) => session.id === sessionId)) selectSession(undefined);
   }, [sessionId, sessions, selectSession]);
 
+  /**
+   * The data source for whichever session is selected.
+   *
+   * The picker used to move the desktop alone, because the feed's data source was built once at
+   * startup and pointing it elsewhere meant rebuilding it. That is all this is: one source per
+   * session, so the feed and the terminals answer the picker too. The default session reuses the
+   * source built at startup, which keeps the native/webview leg bit-for-bit what it was.
+   */
+  const sessionFeed = useMemo(
+    () => (sessionId ? new SidecarDataSource(sessionTransport(transport, sessionId)) : feed),
+    [feed, transport, sessionId],
+  );
+  const desktopAvailable = useDesktopAvailable(sessionFeed);
+  // A peer with no desktop must not leave the page sitting on a surface it cannot serve.
+  const visible = SURFACES.filter(
+    ({ name }) => desktopAvailable || (name !== "desktop" && name !== "screen"),
+  );
+  useEffect(() => {
+    if (desktopAvailable) return;
+    if (surface === "desktop" || surface === "screen") {
+      remember("feed");
+      setSurface("feed");
+    }
+  }, [desktopAvailable, surface]);
+
   function select(next: BrowserSurface): void {
     if (next === surface) return;
     remember(next);
@@ -151,7 +205,7 @@ export function BrowserSurfaces({
         aria-label="Panel surfaces"
         className="flex shrink-0 gap-3 border-b border-border bg-background px-3"
       >
-        {SURFACES.map(({ name, label }) => (
+        {visible.map(({ name, label }) => (
           <button
             key={name}
             type="button"
@@ -168,13 +222,12 @@ export function BrowserSurfaces({
             {label}
           </button>
         ))}
-        {/* The picker rides with the desktop only. The feed reads whatever sessions the sidecar it
-            was built against can see, and moving it would mean rebuilding its data source, which is
-            a larger change than switching a video stream. */}
-        {surface === "desktop" && sessions.length > 1 ? (
+        {/* The picker rides with every surface that takes a data source. Screen is the exception:
+            it reads this origin directly rather than a sidecar, so there is nothing to point. */}
+        {surface !== "screen" && sessions.length > 1 ? (
           <div
             role="group"
-            aria-label="Desktop session"
+            aria-label="Panel session"
             className="ml-auto flex items-center gap-1 self-center"
           >
             {sessions.map((session) => (
@@ -208,9 +261,12 @@ export function BrowserSurfaces({
         ) : surface === "screen" ? (
           <ScreenViewer />
         ) : surface === "terminals" ? (
-          <TerminalsSurface feed={feed} />
+          // Keyed by session for the same reason the desktop is: the tmux attaches, the terminal
+          // stream and every subscription belong to the sidecar that answered, and none of them
+          // survive a move to another one.
+          <TerminalsSurface key={sessionId ?? "default"} feed={sessionFeed} />
         ) : (
-          <App feed={feed} host={host} fill />
+          <App key={sessionId ?? "default"} feed={sessionFeed} host={host} fill />
         )}
       </div>
     </div>
