@@ -85,8 +85,18 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
   if (kind === "tmux") {
     return { kind, session: stringValue(context.session, "context.session") };
   }
+  // No project path: this kind names a session and lets the service resolve where it runs.
+  if (kind === "session-tmux") {
+    return {
+      kind,
+      source: stringValue(context.source, "context.source") as AgentSessionTerminalContext["source"],
+      sessionId: stringValue(context.sessionId, "context.sessionId"),
+    };
+  }
   if (kind !== "agent-session") {
-    throw new AgentTerminalInvalidError("context.kind must be agent-session or tmux");
+    throw new AgentTerminalInvalidError(
+      "context.kind must be agent-session, tmux or session-tmux",
+    );
   }
   return {
     kind,

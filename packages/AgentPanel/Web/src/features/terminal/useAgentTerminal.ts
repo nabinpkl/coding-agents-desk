@@ -7,7 +7,7 @@ import type {
   AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { terminalContextKey } from "./terminalContext";
+import { isTmuxAttach, terminalContextKey } from "./terminalContext";
 
 export type AgentTerminalState =
   | { kind: "ready"; descriptor: AgentTerminalDescriptor }
@@ -176,9 +176,9 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       // connected, and a client that nobody is watching still holds the window at the tile's size
       // in whatever terminal the user has that session open in. Killing ends the attach; the tmux
       // session it was attached to is untouched.
-      const closeMode = context.kind === "tmux" ? "kill" : "detach";
+      const closeMode = isTmuxAttach(context) ? "kill" : "detach";
       // Whether the far end owns the grid. True for tmux, where the pane is the size of record.
-      const paneAuthoritative = context.kind === "tmux";
+      const paneAuthoritative = isTmuxAttach(context);
       const release = (terminalId: string): void => {
         void feed.closeTerminal(terminalId, closeMode).catch((error) => {
           console.error(`Agent terminal ${closeMode} failed`, error);
@@ -262,7 +262,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           // Queued before the subscription's writes, so the history lands above the live output
           // rather than racing it. The queue is what orders them; the fetch inside it can take as
           // long as it likes.
-          const imported = context.kind === "tmux";
+          const imported = isTmuxAttach(context);
           if (imported) {
             enqueueWrite(async () => {
               const encoded = await feed.terminalHistory(opened.terminalId, HISTORY_LINES);

@@ -17,14 +17,6 @@ export interface CliInputHandle {
   /** True when a turn can be delivered right now. */
   available: boolean;
   reason: CliInputUnavailableReason | null;
-  /**
-   * The tmux session this session's process is sitting in, when the harness says so.
-   *
-   * What the terminal composer needs: a name to attach to. Reported whether or not the inbox is
-   * available, because a session this build cannot reach through an inbox may still be in a pane
-   * that takes keystrokes directly -- which is the case the terminal composer exists for.
-   */
-  tmuxSession: string | null;
   /** Re-asks the harness. Called when someone focuses the field, which is when the answer matters. */
   refresh: () => void;
   /** Resolves false, with `reason` set, when the session could not take the turn. */
@@ -103,7 +95,9 @@ export function useCliInput(
     isTerminalSession: status.entrypoint === "cli",
     available: status.available,
     reason: status.reason,
-    tmuxSession: status.tmuxSession,
+    // No `tmuxSession` here on purpose: the terminal composer used to take the pane name from it
+    // and now names the session instead, leaving nothing that reads it. The sidecar still reports
+    // it on the status, and resolves it there, where a live answer is a live answer.
     refresh: read,
     send,
   };

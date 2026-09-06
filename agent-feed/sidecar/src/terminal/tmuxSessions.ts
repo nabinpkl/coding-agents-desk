@@ -194,6 +194,81 @@ export async function restoreTmuxMouse(session: string): Promise<void> {
   if (code !== 0) throw new TmuxUnavailable(`tmux set-option mouse exited ${code}: ${err.trim()}`);
 }
 
+/**
+ * Whether that exact session is running.
+ *
+ * `=` before the name is load-bearing: tmux resolves a bare `-t name` by exact match, then
+ * prefix, then fnmatch, so `has-session -t agentdesk-x` answers yes for `agentdesk-xy`. Asked in
+ * order to decide whether to CREATE a session, a prefix hit means silently attaching a viewer to
+ * somebody else's pane, so this one asks exactly.
+ */
+export function hasSessionArgs(session: string): string[] {
+  return ["has-session", "-t", `=${session}`];
+}
+
+export async function tmuxSessionExists(session: string): Promise<boolean> {
+  const { out, err, code } = await tmux(hasSessionArgs(session));
+  if (code === 0) return true;
+  // Both "no server running" and "can't find session" are ordinary answers to the question.
+  if (/no server running|can.t find session|no such session|session not found/i.test(err + out)) {
+    return false;
+  }
+  throw new TmuxUnavailable(`tmux has-session exited ${code}: ${err.trim() || out.trim()}`);
+}
+
+/**
+ * Starts a detached session running one command, at the size the viewer asked for.
+ *
+ * The geometry is passed because this session has no other client to take it from: a detached
+ * `new-session` defaults to 80x24, and the viewer would then be reading a pane narrower than
+ * itself for the life of the session. A session tmux was already running keeps its own size --
+ * that one has an owner whose terminal decides it.
+ *
+ * The command goes through a login shell rather than straight to tmux, for the same reason the PTY
+ * path does: tmux hands a shell-command to `/bin/sh -c`, and this process's environment is
+ * deliberately stripped of the PATH that would find `claude`. It is built here as one string, from
+ * a fixed executable name and an argument this module's callers have already validated as a UUID.
+ */
+export function newSessionArgs(
+  { session, cwd, command, columns, rows }: NewTmuxSession,
+): string[] {
+  // Not `exec`: when the command exits -- a resume that is refused prints why and stops -- the
+  // shell stays, so the pane holds the reason where the viewer can read it instead of the session
+  // vanishing and the attach failing with nothing to show.
+  const script = `${command.join(" ")}; exec ${LOGIN_SHELL} -l`;
+  return [
+    // `-A` for the race: two viewers of one session can both find it missing, and without this the
+    // loser gets "duplicate session" where it wanted the winner's. With it, a second create is a
+    // no-op that exits 0, and the caller's own existence check stays as the ordinary path.
+    "new-session", "-A", "-d", "-s", session, "-c", cwd,
+    "-x", String(columns), "-y", String(rows),
+    `${LOGIN_SHELL} -l -c ${shellQuote(script)}`,
+  ];
+}
+
+export async function createTmuxSession(options: NewTmuxSession): Promise<void> {
+  const { err, code } = await tmux(newSessionArgs(options));
+  if (code !== 0) {
+    throw new TmuxUnavailable(`tmux new-session exited ${code}: ${err.trim()}`);
+  }
+}
+
+export interface NewTmuxSession {
+  session: string;
+  cwd: string;
+  /** Argv of the command to run, executable first. */
+  command: readonly string[];
+  columns: number;
+  rows: number;
+}
+
+const LOGIN_SHELL = "/bin/zsh";
+
+/** Single-quoted for `sh -c`, with the one escape single quotes have. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\''")}'`;
+}
+
 /** Empty when the server is not running, which is not a failure: nobody has started a session. */
 export async function listTmuxSessions(): Promise<TmuxSessionSummary[]> {
   const { out, err, code } = await tmux(["list-sessions", "-F", LIST_FORMAT]);

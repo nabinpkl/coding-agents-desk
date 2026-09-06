@@ -91,6 +91,7 @@ const feedMock = vi.hoisted(() => ({
 }));
 
 const terminalPaneMock = vi.hoisted(() => ({
+  composerContext: null as Record<string, unknown> | null,
   context: null as Record<string, unknown> | null,
   onState: null as ((context: Record<string, unknown>, state: Record<string, unknown>) => void) | null,
 }));
@@ -102,9 +103,20 @@ vi.mock("../features/terminal/AgentTerminalPane", () => ({
     context: Record<string, unknown>;
     onState: (context: Record<string, unknown>, state: Record<string, unknown>) => void;
   }) => {
-    terminalPaneMock.context = context;
-    terminalPaneMock.onState = onState;
-    return <section aria-label={`${context.source === "claude" ? "Claude" : "Codex"} terminal`} />;
+    // Two panes can be mounted at once -- the thread's own terminal in the composer and a resumed
+    // CLI on the Terminals surface -- so they are recorded apart. A single slot took whichever
+    // rendered last, which is a render-order dependency rather than a fact about the shell.
+    if (context.kind === "session-tmux") terminalPaneMock.composerContext = context;
+    else {
+      terminalPaneMock.context = context;
+      terminalPaneMock.onState = onState;
+    }
+    const provider = context.source === "claude" ? "Claude" : "Codex";
+    return (
+      <section
+        aria-label={`${provider}${context.kind === "session-tmux" ? " session" : ""} terminal`}
+      />
+    );
   },
 }));
 
@@ -328,6 +340,7 @@ describe("App shell", () => {
     localStorage.clear();
     terminalPaneMock.context = null;
     terminalPaneMock.onState = null;
+    terminalPaneMock.composerContext = null;
   });
 
   afterEach(() => {
@@ -1034,6 +1047,27 @@ describe("App shell", () => {
     emitTerminalState({ kind: "ended", exitStatus: 0 });
     expect(screen.getByRole("status")).toHaveTextContent("Claude terminal ended");
     expect(screen.getByRole("button", { name: "Open Claude terminal" })).toBeInTheDocument();
+    unmount();
+  });
+
+  it("opens the thread's own terminal in the composer, without waiting for one to exist", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+
+    // The session id, not a pane name. Which tmux pane that is -- the one a live process runs in,
+    // or one started to resume the id -- is the sidecar's to answer, and it is the only side that
+    // can: the panel would have to ask, and get the same null for a session running outside tmux
+    // as for a session not running at all.
+    expect(terminalPaneMock.composerContext).toEqual({
+      kind: "session-tmux",
+      source: "claude",
+      sessionId: "sid-claude-01",
+    });
+    expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
+    expect(screen.queryByRole("region", { name: "Claude session terminal" }))
+      .not.toBeInTheDocument();
     unmount();
   });
 

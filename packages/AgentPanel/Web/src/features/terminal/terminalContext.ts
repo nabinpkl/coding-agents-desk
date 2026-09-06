@@ -8,12 +8,33 @@ import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
  * a field had ever been added. The key is also what a grid can use as a React key.
  */
 export function terminalContextKey(context: AgentTerminalContext): string {
-  return context.kind === "tmux"
-    ? `tmux:${context.session}`
-    : `${context.source}:${context.projectPath}:${context.sessionId}`;
+  if (context.kind === "tmux") return `tmux:${context.session}`;
+  if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
+  return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
-/** What to call this terminal on screen. */
+/**
+ * What to call this terminal on screen.
+ *
+ * The session-backed kind says so, rather than reading as the plain provider name: both it and a
+ * resumed CLI can be open at once -- the thread's own terminal in the composer while the Terminals
+ * surface holds a shell in the same project -- and two regions with one name is a screen reader
+ * announcing the same thing twice for different things.
+ */
 export function terminalContextLabel(context: AgentTerminalContext): string {
-  return context.kind === "tmux" ? context.session : context.source === "claude" ? "Claude" : "Codex";
+  if (context.kind === "tmux") return context.session;
+  const provider = context.source === "claude" ? "Claude" : "Codex";
+  return context.kind === "session-tmux" ? `${provider} session` : provider;
+}
+
+/**
+ * Whether the far end is a tmux pane rather than a PTY session of the viewer's own.
+ *
+ * Asked in four places, and every one of them was written as `kind === "tmux"` before a second
+ * tmux-backed kind existed -- geometry ownership, history import, replay, and how a viewer leaves.
+ * They are all the same question, so it is asked once here: a predicate that misses a kind is a
+ * terminal that resizes somebody's live session or replays over its imported history.
+ */
+export function isTmuxAttach(context: AgentTerminalContext): boolean {
+  return context.kind === "tmux" || context.kind === "session-tmux";
 }

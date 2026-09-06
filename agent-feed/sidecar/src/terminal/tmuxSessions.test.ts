@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import {
   captureHistoryArgs,
   captureScreenArgs,
+  hasSessionArgs,
+  newSessionArgs,
   paneGeometryArgs,
   historyForTerminal,
   parseTmuxSessions,
@@ -97,4 +99,32 @@ test("leaves the cursor where the pane's is, not where the screen text ran out",
     cursor: { row: 1, column: 4 },
   });
   expect(payload.endsWith("\u001b[2;5H")).toBe(true);
+});
+
+test("asks about a session by exact name", () => {
+  // `=` matters: a bare `-t` resolves by exact name, then PREFIX, then fnmatch, so the answer for
+  // `agentdesk-1` would be yes while `agentdesk-12` is what exists -- and this answer decides
+  // whether to create a session or attach one somebody else is using.
+  expect(hasSessionArgs("agentdesk-1")).toEqual(["has-session", "-t", "=agentdesk-1"]);
+});
+
+test("starts a session at the viewer's geometry, through a login shell that outlives it", () => {
+  expect(newSessionArgs({
+    session: "agentdesk-abc",
+    cwd: "/Users/dev/projects/agent desk",
+    command: ["claude", "--resume", "abc"],
+    columns: 100,
+    rows: 30,
+  })).toEqual([
+    // `-A`: a second create for the same name is a no-op rather than a duplicate-session error.
+    "new-session", "-A", "-d", "-s", "agentdesk-abc",
+    // Its own argument, so a path with a space in it needs no quoting.
+    "-c", "/Users/dev/projects/agent desk",
+    // Without these a detached session sits at 80x24 for life, whatever the viewer is.
+    "-x", "100", "-y", "30",
+    // A login shell because tmux runs a shell-command through `/bin/sh -c`, and this process's
+    // environment is stripped of the PATH that finds `claude`. It stays after the command exits so
+    // a refused resume leaves its reason on screen.
+    "/bin/zsh -l -c 'claude --resume abc; exec /bin/zsh -l'",
+  ]);
 });

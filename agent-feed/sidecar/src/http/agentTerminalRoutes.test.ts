@@ -157,6 +157,23 @@ test("opens a tmux target with only the session it names", async () => {
   } }]);
 });
 
+test("opens a session-backed target with no project path of its own", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals", {
+    context: { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+    // A path is deliberately absent: this kind names a session, and where it runs is looked up
+    // from the catalog rather than asserted by the caller.
+    columns: 100,
+    rows: 30,
+  });
+
+  expect(response?.status).toBe(201);
+  expect(calls).toEqual([{ open: {
+    context: { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+    dimensions: { columns: 100, rows: 30 },
+  } }]);
+});
+
 test("a context without a known kind is refused before the service sees it", async () => {
   const { calls, route } = fakeService();
   const response = await call(route, "POST", "/api/terminals", {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   AgentTerminalInvalidError,
   AgentTerminalService,
+  liveTmuxSession,
   type AgentTerminalPtyClient,
 } from "./agentTerminalService.ts";
 import type { PtySessionConnection } from "./ptyClient.ts";
@@ -284,16 +285,23 @@ test("takes the wheel back from tmux and hands over the pane's history", async (
     kill() {},
     closeTransport() {},
   } as unknown as PtySessionConnection;
-  const service = new AgentTerminalService(
-    "/unused/pty.sock",
-    () => undefined,
-    home,
-    { listSessions: async () => [], openSession: async () => connection },
-    async (session, lines) => {
-      asked.push({ capture: { session, lines } });
-      return "earlier bytes\n";
-    },
-    async (session) => { asked.push({ mouseRestored: session }); },
+  // Through a recording tmux, not the machine's: without this the attach reaches the real tmux and
+  // the test passes only where a session called `canvas-fork` happens to exist. It did when this
+  // was written and did not an hour later, which reads as a code regression rather than as a test
+  // asking the wrong thing.
+  const service = serviceWithTmux(
+    new AgentTerminalService(
+      "/unused/pty.sock",
+      () => undefined,
+      home,
+      { listSessions: async () => [], openSession: async () => connection },
+      async (session, lines) => {
+        asked.push({ capture: { session, lines } });
+        return "earlier bytes\n";
+      },
+      async (session) => { asked.push({ mouseRestored: session }); },
+    ),
+    [],
   );
 
   const descriptor = await service.open(
@@ -367,4 +375,130 @@ test("refuses a tmux name that is not a plain identifier", async () => {
     await expect(service.open({ kind: "tmux", session }, { columns: 80, rows: 24 }))
       .rejects.toBeInstanceOf(AgentTerminalInvalidError);
   }
+});
+
+interface SessionTmuxFakes {
+  /** The pane a live process for the session claims, or null for "nothing is running it". */
+  owner: string | null;
+  running: Set<string>;
+  created: {
+    session: string;
+    cwd: string;
+    command: readonly string[];
+    columns: number;
+    rows: number;
+  }[];
+}
+
+/** Points the session-to-pane resolution at recording fakes, the way `serviceWithTmux` does. */
+function serviceWithSessionTmux(
+  service: AgentTerminalService,
+  fakes: SessionTmuxFakes,
+): AgentTerminalService {
+  (service as unknown as { sessionTmux: unknown }).sessionTmux = {
+    owner: async () => fakes.owner,
+    exists: async (session: string) => fakes.running.has(session),
+    create: async (options: SessionTmuxFakes["created"][number]) => {
+      fakes.created.push(options);
+      fakes.running.add(options.session);
+    },
+  };
+  return service;
+}
+
+async function sessionTmuxService(
+  fakes: SessionTmuxFakes,
+  attached: { session: string; columns: number; rows: number }[],
+): Promise<AgentTerminalService> {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const project = join(home, "projects", "agent-desk");
+  await mkdir(project, { recursive: true });
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => ({ projectPath: project, activity: "live" }),
+    home,
+    { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
+    async () => "",
+    async () => {},
+  );
+  return serviceWithSessionTmux(serviceWithTmux(service, attached), fakes);
+}
+
+test("joins the tmux session a live agent session is already running in", async () => {
+  const fakes: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  const descriptor = await service.open(
+    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(attached).toEqual([{ session: "composerprobe", columns: 100, rows: 30 }]);
+  // Nothing started: that pane belongs to whoever is running the session, and resuming a live
+  // transcript a second time is the thing this path exists to avoid.
+  expect(fakes.created).toEqual([]);
+  expect(descriptor.ptySessionName).toBe("agent-tmux-composerprobe");
+});
+
+test("starts a tmux session that resumes the agent session when nothing is running it", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  await service.open(
+    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  // At the viewer's geometry, because this session has no other client to take a size from.
+  expect(fakes.created).toEqual([{
+    session: `agentdesk-${SESSION_ID}`,
+    cwd: expect.stringContaining("projects/agent-desk"),
+    command: ["claude", "--resume", SESSION_ID],
+    columns: 100,
+    rows: 30,
+  }]);
+  expect(attached).toEqual([{ session: `agentdesk-${SESSION_ID}`, columns: 100, rows: 30 }]);
+});
+
+test("attaches a session's own pane a second time instead of resuming it twice", async () => {
+  const fakes: SessionTmuxFakes = {
+    owner: null,
+    running: new Set([`agentdesk-${SESSION_ID}`]),
+    created: [],
+  };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  const context = { kind: "session-tmux" as const, source: "claude" as const, sessionId: SESSION_ID };
+  await service.open(context, { columns: 100, rows: 30 });
+  await service.open(context, { columns: 80, rows: 24 });
+
+  // The pane name is derived from the session id, so the second viewer lands on the first's pane.
+  expect(fakes.created).toEqual([]);
+  expect(attached).toEqual([
+    { session: `agentdesk-${SESSION_ID}`, columns: 100, rows: 30 },
+    { session: `agentdesk-${SESSION_ID}`, columns: 80, rows: 24 },
+  ]);
+});
+
+test("prefers a human's pane over the one the sidecar resumed for the same session", async () => {
+  // Three rows for one id is what the machine actually looks like once a session has been resumed
+  // here: the resumed process registers under the id it resumed, beside the original.
+  const rows = [
+    { sessionId: SESSION_ID, tmuxSession: `agentdesk-${SESSION_ID}` },
+    { sessionId: SESSION_ID, tmuxSession: null },
+    { sessionId: SESSION_ID, tmuxSession: "agent-desk" },
+    { sessionId: "another", tmuxSession: "elsewhere" },
+  ];
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => rows)).toBe("agent-desk");
+
+  // Ours when it is the only one, so a second viewer joins the first's pane.
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[0]!]))
+    .toBe(`agentdesk-${SESSION_ID}`);
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[1]!])).toBe(null);
+  // Codex publishes no registry, so it has nothing to look up and lands on the resume path.
+  expect(await liveTmuxSession("codex", SESSION_ID, async () => rows)).toBe(null);
 });

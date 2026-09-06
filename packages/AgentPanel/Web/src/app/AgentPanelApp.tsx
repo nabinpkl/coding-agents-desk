@@ -9,6 +9,7 @@ import type {
   BotView,
   ProjectSummary,
   SessionSummary,
+  SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type {
@@ -266,23 +267,25 @@ export function App({ feed, host, fill = false }: Props) {
     ? botsState.bots.find((bot) => bot.botId === selectedBotId)?.name
     : undefined;
 
-  // The composer terminal's pane name, latched rather than read live.
+  // The composer's terminal names the SESSION, and the sidecar resolves which tmux pane that is:
+  // the one a live process is running in, or one it starts to resume the session id.
   //
-  // `cliInput` resets its status to idle on every re-read, so a terminal mounted on its live value
-  // was torn down and re-attached each time -- measured as a close/open cycle every ~2s in the
-  // network log. The name is taken the first time it arrives for the selected session and forgotten
-  // only when the selection moves, so the terminal stays attached across every status read in
-  // between.
+  // It used to name the pane instead, read from `cliInput.tmuxSession`, and that could only ever
+  // be half the sessions: the value comes from a live process's registry row, so a session running
+  // outside tmux and a session not running at all both read as null and got no terminal. It also
+  // had to be latched, because `cliInput` resets to idle on every status read and a terminal
+  // mounted on the live value was torn down and re-attached every couple of seconds -- measured as
+  // a close/open cycle in the network log. Naming the session removes both: the id is stable for
+  // as long as the selection is, and nothing about it blinks.
   const selectedSessionId = displayedThread?.session.sessionId ?? null;
-  const [latchedPane, setLatchedPane] = useState<{ sessionId: string; tmuxSession: string } | null>(null);
-  useEffect(() => {
-    if (selectedSessionId && cliInput.tmuxSession) {
-      setLatchedPane({ sessionId: selectedSessionId, tmuxSession: cliInput.tmuxSession });
-    }
-  }, [selectedSessionId, cliInput.tmuxSession]);
-  const composerPane = latchedPane && latchedPane.sessionId === selectedSessionId
-    ? latchedPane.tmuxSession
-    : null;
+  const selectedSource = displayedThread?.session.source;
+  const composerTerminal = useMemo<SessionTmuxTerminalContext | null>(
+    () =>
+      selectedSessionId && (selectedSource === "claude" || selectedSource === "codex")
+        ? { kind: "session-tmux", source: selectedSource, sessionId: selectedSessionId }
+        : null,
+    [selectedSessionId, selectedSource],
+  );
   const terminalComposerShown = useTerminalComposerShown();
   const botSessionPicker = botSessionPickerId
     ? botsState.bots.find((bot) => bot.botId === botSessionPickerId) ?? null
@@ -993,9 +996,9 @@ export function App({ feed, host, fill = false }: Props) {
                 displayedThread.session.source === "codex" ? codexComposer : claudeComposer
               }
               agentTerminal={terminalComposer}
-              terminalComposer={composerPane
+              terminalComposer={composerTerminal
                 ? {
-                  tmuxSession: composerPane,
+                  context: composerTerminal,
                   shown: terminalComposerShown,
                   toggle: toggleTerminalComposer,
                 }
@@ -1082,11 +1085,17 @@ function SessionComposer({
   /** The already-open Agent Feed pty, or null while no owned terminal is ready. */
   agentTerminal: AgentTerminalComposer | null;
   /**
-   * This session's own tmux pane, and whether to show it. Null when the session is not in a pane,
-   * which is when there is nothing to show and no switch to offer. The name is latched by the app,
-   * because the status it comes from blinks.
+   * This session's own terminal, and whether to show it.
+   *
+   * A context rather than a pane name: which pane it is -- the session's live one, or one started
+   * to resume it -- is resolved when the terminal opens, by the side that can see tmux. Null for a
+   * source with no CLI to resume, which is when there is nothing to show and no switch to offer.
    */
-  terminalComposer: { tmuxSession: string; shown: boolean; toggle: () => void } | null;
+  terminalComposer: {
+    context: SessionTmuxTerminalContext;
+    shown: boolean;
+    toggle: () => void;
+  } | null;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
@@ -1445,9 +1454,9 @@ function SessionComposer({
         // growing the pane down into reserved space.
         <div className="mb-2">
           <AgentTerminalPane
-            key={terminalComposer.tmuxSession}
+            key={terminalContextKey(terminalComposer.context)}
             feed={feed}
-            context={{ kind: "tmux", session: terminalComposer.tmuxSession }}
+            context={terminalComposer.context}
             onState={noteTerminalState}
             layout="band"
           />
@@ -1486,8 +1495,8 @@ function SessionComposer({
             aria-pressed={terminalComposer.shown}
             aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
             title={terminalComposer.shown
-              ? `Hide the ${terminalComposer.tmuxSession} terminal.`
-              : `Show the ${terminalComposer.tmuxSession} terminal.`}
+              ? "Hide this session's terminal."
+              : "Show this session's terminal, resuming it in tmux if nothing is running it."}
             className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
               terminalComposer.shown
                 ? "border-primary bg-primary/10 text-primary"

@@ -29,8 +29,28 @@ export interface TmuxTerminalContext {
   session: string;
 }
 
+/**
+ * A provider session to watch in tmux, whether or not tmux is already running it.
+ *
+ * The two kinds above are the two answers to "is there a process yet", and a caller that only
+ * knows a session id cannot pick between them: the panel would have to ask whether the session's
+ * live process reports a tmux pane, and get null both for a session running outside tmux and for
+ * one that is not running at all. This kind names the session and lets the sidecar decide -- attach
+ * the pane the session is already in, otherwise start one that resumes it. Deciding it there is
+ * also the only place it can be decided correctly, since between the panel's question and its open
+ * the answer can change.
+ */
+export interface SessionTmuxTerminalContext {
+  kind: "session-tmux";
+  source: "claude" | "codex";
+  sessionId: string;
+}
+
 /** What a terminal is pointed at. */
-export type AgentTerminalContext = AgentSessionTerminalContext | TmuxTerminalContext;
+export type AgentTerminalContext =
+  | AgentSessionTerminalContext
+  | TmuxTerminalContext
+  | SessionTmuxTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {

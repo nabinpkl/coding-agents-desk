@@ -8,15 +8,19 @@ import type {
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
+  SessionTmuxTerminalContext,
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
+import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
 import {
   captureTmuxHistory,
+  createTmuxSession,
   describeTmuxPane,
   hexSend,
   pipeTmuxPane,
   restoreTmuxMouse,
+  tmuxSessionExists,
 } from "./tmuxSessions.ts";
 import { TmuxAttachments, type TmuxSessionConnection } from "./tmuxAttachment.ts";
 import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
@@ -46,6 +50,14 @@ interface TerminalIdentity {
   command: string[];
   /** When set, a target with no PTY session yet must not get one, and this says why. */
   refuseNew: string | null;
+  /**
+   * When set, `tmuxSession` may be started rather than only joined, running this.
+   *
+   * Only the session-backed kind carries it. A tmux target named by the panel is somebody else's
+   * session and creating it would answer a typo with a new process; a session-backed one is a
+   * session id that the sidecar resolved to a pane name itself, so there is nothing to mistype.
+   */
+  createTmux: { cwd: string; command: string[] } | null;
 }
 
 /**
@@ -105,6 +117,25 @@ export class AgentTerminalService {
       pipe: pipeTmuxPane,
       send: hexSend,
     }),
+    /**
+     * Resolving a session id to a tmux pane, and starting one when there is none.
+     *
+     * `owner` answers which tmux session a LIVE process for that session is running inside, which
+     * only the process registry knows. Real by default and injected for the tests, the same way
+     * every collaborator above it is: a default that answered "none" would turn a wiring mistake
+     * into a second resume of a live transcript rather than into a failure.
+     */
+    private readonly sessionTmux: {
+      owner: (source: "claude" | "codex", sessionId: string) => Promise<string | null>;
+      exists: (session: string) => Promise<boolean>;
+      create: (options: {
+        session: string;
+        cwd: string;
+        command: readonly string[];
+        columns: number;
+        rows: number;
+      }) => Promise<void>;
+    } = { owner: liveTmuxSession, exists: tmuxSessionExists, create: createTmuxSession },
   ) {
   }
 
@@ -121,6 +152,9 @@ export class AgentTerminalService {
     // installed to attach it is how a machine with tmux and no daemon ends up listing sessions it
     // cannot open.
     if (identity.tmuxSession) {
+      if (identity.createTmux && !(await this.tmuxExists(identity.tmuxSession))) {
+        await this.startTmux(identity.createTmux, identity.tmuxSession, { columns, rows });
+      }
       return this.attachTmux(identity, identity.tmuxSession, { columns, rows });
     }
 
@@ -168,6 +202,34 @@ export class AgentTerminalService {
     }
 
     return this.register(identity, connection);
+  }
+
+  private async tmuxExists(session: string): Promise<boolean> {
+    try {
+      return await this.sessionTmux.exists(session);
+    } catch (error) {
+      throw new AgentTerminalUnavailableError("tmux could not be asked about its sessions", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Starts the session's own tmux, resuming it, because nothing is running it yet.
+   *
+   * At the viewer's geometry: this session has no other client to take a size from, and a detached
+   * `new-session` would otherwise sit at 80x24 for its whole life while the viewer reads it.
+   */
+  private async startTmux(
+    create: { cwd: string; command: readonly string[] },
+    session: string,
+    dimensions: { columns: number; rows: number },
+  ): Promise<void> {
+    try {
+      await this.sessionTmux.create({ session, ...create, ...dimensions });
+    } catch (error) {
+      throw new AgentTerminalUnavailableError(`tmux could not start ${session}`, { cause: error });
+    }
   }
 
   /**
@@ -334,6 +396,7 @@ export class AgentTerminalService {
    */
   private async identify(context: AgentTerminalContext): Promise<TerminalIdentity> {
     if (context.kind === "tmux") return this.identifyTmux(context);
+    if (context.kind === "session-tmux") return this.identifySessionTmux(context);
     return this.identifyAgentSession(context);
   }
 
@@ -360,6 +423,7 @@ export class AgentTerminalService {
       command: [],
       // A tmux session is meant to be watched from more than one place, so nothing to refuse.
       refuseNew: null,
+      createTmux: null,
     };
   }
 
@@ -423,6 +487,71 @@ export class AgentTerminalService {
       cwd: projectPath,
       command: [],
       refuseNew: null,
+      createTmux: null,
+    };
+  }
+
+  /**
+   * The session's own tmux pane: the one it is running in, or one started to resume it.
+   *
+   * Which of the two it is cannot be decided by the caller. A panel asking "is this session in
+   * tmux" gets null for a session running outside tmux and null again for one that is not running,
+   * so it cannot tell a pane it should join from one it should start -- and by the time it acted on
+   * either answer the session could have exited. Deciding it here also makes the pane name the
+   * sidecar's: derived from the session id, so a second viewer of the same session lands on the
+   * same pane instead of starting a second resume of one transcript.
+   *
+   * Resuming a session that is live SOMEWHERE ELSE -- a Claude Desktop window, say -- opens a
+   * second client to one transcript. That is why the resume is the fallback rather than the first
+   * move, and why the pane keeps a shell after the command exits: a CLI that refuses says so, and
+   * the reason stays on screen.
+   */
+  private async identifySessionTmux(
+    context: SessionTmuxTerminalContext,
+  ): Promise<TerminalIdentity> {
+    if (context.source !== "claude" && context.source !== "codex") {
+      throw new AgentTerminalInvalidError("terminal source must be claude or codex");
+    }
+    const sessionId = context.sessionId.toLowerCase();
+    if (!UUID_PATTERN.test(sessionId) || context.sessionId !== sessionId) {
+      throw new AgentTerminalInvalidError("terminal session id must be a canonical UUID");
+    }
+    const session = this.resolveSession(context.source, sessionId);
+    if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
+    let projectPath: string;
+    try {
+      projectPath = await realpath(resolve(session.projectPath));
+    } catch {
+      throw new AgentTerminalConflictError("agent session project directory is no longer available");
+    }
+
+    // The live process's own pane wins, and is joined rather than created: it is where the work is
+    // actually happening, and it belongs to whoever started it.
+    const owned = await this.sessionTmux.owner(context.source, sessionId);
+    if (owned) {
+      return {
+        ptySessionName: `agent-tmux-${owned}`,
+        tmuxSession: owned,
+        cwd: projectPath,
+        command: [],
+        refuseNew: null,
+        createTmux: null,
+      };
+    }
+
+    const pane = resumedPaneName(sessionId);
+    return {
+      ptySessionName: `agent-tmux-${pane}`,
+      tmuxSession: pane,
+      cwd: projectPath,
+      command: [],
+      refuseNew: null,
+      createTmux: {
+        cwd: projectPath,
+        command: context.source === "claude"
+          ? ["claude", "--resume", sessionId]
+          : ["codex", "resume", sessionId],
+      },
     };
   }
 
@@ -456,6 +585,44 @@ export class AgentTerminalService {
     if (!active) throw new AgentTerminalNotFoundError("terminal connection was not found");
     return active;
   }
+}
+
+/**
+ * The tmux session a live process for that session id is running inside, if any.
+ *
+ * Claude only: its harness is what writes the process registry this reads, so a Codex session has
+ * nothing to look up and answers "none" -- which lands it on the resume path, the same place a
+ * Claude session that is not running lands.
+ *
+ * More than one row can claim one session id, and routinely does: a session resumed by the path
+ * below registers itself under the same id as the session it resumed, so from the second open
+ * onwards there are two panes to choose from. Measured on this machine with three rows for one id.
+ * Somebody else's terminal wins, and the one this sidecar started is the fallback -- picking by
+ * registry order would move a thread's terminal between two panes for no visible reason.
+ */
+export async function liveTmuxSession(
+  source: "claude" | "codex",
+  sessionId: string,
+  processes: () => Promise<{ sessionId: string; tmuxSession: string | null }[]> =
+    liveSessionProcesses,
+): Promise<string | null> {
+  if (source !== "claude") return null;
+  const panes = (await processes())
+    .filter((entry) => entry.sessionId === sessionId)
+    .map((entry) => entry.tmuxSession)
+    .filter((pane): pane is string => pane !== null);
+  return panes.find((pane) => pane !== resumedPaneName(sessionId)) ?? panes[0] ?? null;
+}
+
+/**
+ * The pane name this sidecar resumes a session into.
+ *
+ * Derived from the session id rather than random so a second viewer of one session lands on the
+ * first's pane instead of starting a second resume of one transcript, and shared with the owner
+ * lookup above so the two agree on which pane is ours.
+ */
+function resumedPaneName(sessionId: string): string {
+  return `agentdesk-${sessionId}`;
 }
 
 function requiredDimension(value: number, name: string): number {
