@@ -51,7 +51,11 @@ describe("viewport meta", () => {
     // The app's own overflow containers do every scroll; the document does none. Without this,
     // a pinned scale would leave real content unreachable instead of leaving nothing to reach.
     const collapsed = css.replace(/\s+/g, " ");
-    expect(collapsed).toContain("html, body, #root { height: 100%; }");
+    // `html` is the one that gives back what a phone keyboard covers (keyboardInset.ts); body and
+    // #root chain off whatever height it ends up with, so the definite-height chain is unbroken
+    // either way.
+    expect(collapsed).toContain("html { height: calc(100% - var(--agent-panel-keyboard-inset, 0px)); }");
+    expect(collapsed).toContain("body, #root { height: 100%; }");
     expect(collapsed).toContain("overflow: hidden;");
   });
 });

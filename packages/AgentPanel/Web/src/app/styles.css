@@ -165,7 +165,13 @@
      containers. This also gives #root a definite height, so the h-dvh/h-full
      chain resolves deterministically and the thread view's internal scroller
      (not the document) owns the scroll -- required for its sticky headers. */
-  html,
+  /* `html` alone carries the keyboard inset (keyboardInset.ts): a phone keyboard covers the
+     bottom of the layout viewport without shortening it, so the document has to give that strip
+     back or the composer and its terminal sit underneath the keyboard they raised. Subtracting it
+     here lifts every surface at once, since body and #root chain off this height. */
+  html {
+    height: calc(100% - var(--agent-panel-keyboard-inset, 0px));
+  }
   body,
   #root {
     height: 100%;

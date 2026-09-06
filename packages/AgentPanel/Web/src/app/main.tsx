@@ -12,6 +12,7 @@ import {
   type AgentHttpTransport,
 } from "../features/activity-feed/transport/AgentHttpTransport";
 import { installFixture } from "./fixture";
+import { installKeyboardInset } from "./keyboardInset";
 import { installPagehideLifecycle } from "./pageLifecycle";
 import { installWindowDrag } from "./windowDrag";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
@@ -87,6 +88,12 @@ if (panelEntry() === "desktop") {
       )}
     </StrictMode>,
   );
+
+  // The feed's surfaces all put something at the bottom of the screen -- the composer, and the
+  // terminal band above it -- which is exactly what a phone keyboard covers. It lands as a
+  // document height (styles.css), so it lifts whatever chains its height through `#root`; that is
+  // the browser surfaces, which is where both live surfaces are.
+  installKeyboardInset();
 
   // pagehide fires reliably in WKWebView (unload is often skipped under the
   // back-forward cache and on iOS); use it to tear down the host client.

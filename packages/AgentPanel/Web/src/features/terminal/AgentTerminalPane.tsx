@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -13,8 +14,17 @@ const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
 const BAND_TERMINAL_SHARE = 0.42;
 
-/** 0 rather than NaN off a window, so every share of it clamps to the minimum instead. */
-const viewportHeight = (): number => globalThis.innerHeight || 0;
+/**
+ * The height a band pane is a share of: what is actually visible.
+ *
+ * The visual viewport rather than `innerHeight`, because a phone keyboard covers the bottom of the
+ * layout viewport without shortening it. The document gives that strip back (keyboardInset.ts), so
+ * a pane still sized against the full layout viewport would be taller than the shell it now sits
+ * in and would squeeze the transcript above it to nothing.
+ *
+ * 0 rather than NaN off a window, so every share of it clamps to the minimum instead.
+ */
+const viewportHeight = (): number => globalThis.visualViewport?.height || globalThis.innerHeight || 0;
 
 interface Props {
   feed: SidecarDataSource;
@@ -45,14 +55,31 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column" }:
       ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(viewportHeight() * BAND_TERMINAL_SHARE))
       : null,
   );
+  // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
+  const [viewport, setViewport] = useState(viewportHeight);
   const { mountRef, labels } = useAgentTerminal({ feed, context, sizing: { kind: "fit" }, onState });
 
-  const ceiling = (): number => {
-    const available = band
-      ? viewportHeight()
-      : (paneRef.current?.parentElement?.clientHeight ?? 0);
-    return Math.max(MINIMUM_TERMINAL_HEIGHT, available * MAXIMUM_TERMINAL_SHARE);
-  };
+  useEffect(() => {
+    if (!band) return;
+    const update = (): void => setViewport(viewportHeight());
+    // Both, because they answer different questions: `visualViewport` is the one a keyboard moves,
+    // and `window` is the one a rotation or a desktop window resize moves.
+    globalThis.visualViewport?.addEventListener("resize", update);
+    globalThis.addEventListener("resize", update);
+    update();
+    return () => {
+      globalThis.visualViewport?.removeEventListener("resize", update);
+      globalThis.removeEventListener("resize", update);
+    };
+  }, [band]);
+
+  const share = (available: number): number =>
+    Math.max(MINIMUM_TERMINAL_HEIGHT, available * MAXIMUM_TERMINAL_SHARE);
+  const ceiling = (): number =>
+    share(band ? viewport : (paneRef.current?.parentElement?.clientHeight ?? 0));
+  // The height asked for is kept, and the ceiling applied on top of it, so a keyboard that forces
+  // the pane down to fit gives its size back when it closes rather than costing the user the drag.
+  const appliedHeight = height !== null && band ? Math.min(height, share(viewport)) : height;
 
   const resizeTo = (requestedHeight: number): void => {
     if (!paneRef.current) return;
@@ -103,7 +130,7 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column" }:
       className={`flex min-h-[150px] shrink-0 flex-col border-t border-border bg-white dark:bg-[#0b0e14] ${
         band ? "" : "h-[38%]"
       }`}
-      style={height === null ? undefined : { height }}
+      style={appliedHeight === null ? undefined : { height: appliedHeight }}
     >
       <button
         type="button"

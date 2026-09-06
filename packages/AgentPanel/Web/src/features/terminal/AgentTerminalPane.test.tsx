@@ -225,3 +225,42 @@ it("focuses on a tap, which is the only thing that raises a phone's keyboard", a
   });
   expect(terminal.focuses).toBe(opened + 1);
 });
+
+it("gives the band pane back its height when the keyboard closes", async () => {
+  const feed = {
+    terminalHistory: vi.fn(async () => ""),
+    openTerminal: vi.fn(async () => ({
+      terminalId: "terminal-1",
+      ptySessionName: "composerprobe",
+      pid: 42,
+      columns: 80,
+      rows: 24,
+    })),
+    subscribeTerminal: vi.fn(() => vi.fn()),
+    sendTerminalInput: vi.fn(async () => {}),
+    updateTerminalViewport: vi.fn(async () => {}),
+    closeTerminal: vi.fn(async () => {}),
+  } as unknown as SidecarDataSource;
+  const context = { kind: "tmux" as const, session: "composerprobe" };
+  vi.stubGlobal("innerHeight", 1000);
+
+  render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />);
+  await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
+  const pane = screen.getByRole("region", { name: "composerprobe terminal" });
+  expect(pane).toHaveStyle({ height: "420px" });
+
+  // A keyboard takes 600px of the screen. The shell shortens to fit above it, so the pane has to
+  // fit inside what is left rather than crushing the transcript it sits under.
+  vi.stubGlobal("innerHeight", 400);
+  act(() => {
+    globalThis.dispatchEvent(new Event("resize"));
+  });
+  expect(pane).toHaveStyle({ height: "288px" });
+
+  // The drag the user made is remembered, not overwritten, so dismissing the keyboard restores it.
+  vi.stubGlobal("innerHeight", 1000);
+  act(() => {
+    globalThis.dispatchEvent(new Event("resize"));
+  });
+  expect(pane).toHaveStyle({ height: "420px" });
+});
