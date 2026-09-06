@@ -21,6 +21,7 @@ import {
   CHARACTER_PREVIEW,
   characterPreviewLayout,
   characterPreviewPath,
+  keyExitSlop,
   type CharacterPreviewLayout,
   type KeyboardDeckMetrics,
 } from "./keyboardDeckMetrics";
@@ -172,7 +173,11 @@ export function KeyboardDeck({
     // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
     // and its form-navigation strip, which is the whole reason the deck exists.
     event.preventDefault();
-    if (presses.current.has(event.pointerId)) return;
+    // A pointer id whose release never arrived would otherwise be poisoned for good, and iOS
+    // reuses ids: one missed `pointerup` would silently swallow every later touch that got the
+    // same id. Discard the stale press and take this one.
+    const stale = presses.current.get(event.pointerId);
+    if (stale) releasePress(stale);
     const element = event.currentTarget;
     // Touch captures the pointer to the pressed element on its own; a mouse does not, and without
     // this a drag onto the next key would report its moves there, leaving this key uncancelled and
@@ -204,7 +209,7 @@ export function KeyboardDeck({
         }, DELETE_REPEAT_INTERVAL_MS);
       }, DELETE_REPEAT_DELAY_MS);
     }
-  }, [onDelete, showPreview, stopRepeat]);
+  }, [onDelete, releasePress, showPreview, stopRepeat]);
 
   const onPointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     const active = presses.current.get(event.pointerId);
@@ -225,15 +230,16 @@ export function KeyboardDeck({
       return;
     }
     // Sliding off a key cancels it, the way a drag-exit does on iOS, and permanently: coming back
-    // does not revive it.
+    // does not revive it. The slop is what lets an ordinary tap survive; see `keyExitSlop`.
     const bounds = active.element.getBoundingClientRect();
-    const inside = event.clientX >= bounds.left && event.clientX <= bounds.right
-      && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    const slop = keyExitSlop(metrics);
+    const inside = event.clientX >= bounds.left - slop.x && event.clientX <= bounds.right + slop.x
+      && event.clientY >= bounds.top - slop.y && event.clientY <= bounds.bottom + slop.y;
     if (!inside) {
       active.cancelled = true;
       releasePress(active);
     }
-  }, [onCursorDelta, releasePress]);
+  }, [metrics, onCursorDelta, releasePress]);
 
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     const active = presses.current.get(event.pointerId);

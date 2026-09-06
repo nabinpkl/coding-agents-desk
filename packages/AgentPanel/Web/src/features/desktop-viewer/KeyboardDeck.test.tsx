@@ -306,3 +306,58 @@ describe("KeyboardDeck", () => {
     expect(key("char-2e").style.width).toBe("");
   });
 });
+
+describe("KeyboardDeck under fast typing", () => {
+  const typed = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((call) => String(call[0])).join("");
+
+  it("keeps every key in a burst that reuses one pointer id", () => {
+    const { onCharacter } = renderDeck();
+    for (const id of ["char-71", "char-77", "char-65", "char-72"]) {
+      press(key(id));
+      release(key(id));
+    }
+    expect(typed(onCharacter)).toBe("qwer");
+  });
+
+  it("keeps both keys of a roll whichever finger lifts first", () => {
+    const { onCharacter } = renderDeck();
+    fireEvent.pointerDown(key("char-71"), { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerDown(key("char-77"), { pointerId: 2, clientX: 50, clientY: 10 });
+    fireEvent.pointerUp(key("char-77"), { pointerId: 2, clientX: 50, clientY: 10 });
+    fireEvent.pointerUp(key("char-71"), { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(typed(onCharacter)).toBe("wq");
+  });
+
+  it("types a tap that rolled a few pixels past the key's edge", () => {
+    const { onCharacter } = renderDeck();
+    const q = key("char-71");
+    stubRect(q, { left: 7, top: 100, right: 40, bottom: 146, width: 33, height: 46 });
+    // Landing near the right edge and rolling into the seam is an ordinary thumb tap, not a
+    // deliberate slide away, and testing the exact rectangle threw it away.
+    press(q, { clientX: 39, clientY: 120 });
+    fireEvent.pointerMove(q, { pointerId: 1, clientX: 42, clientY: 120 });
+    release(q, { clientX: 42, clientY: 120 });
+    expect(typed(onCharacter)).toBe("q");
+  });
+
+  it("still abandons a key the finger deliberately slid away from", () => {
+    const { onCharacter } = renderDeck();
+    const q = key("char-71");
+    stubRect(q, { left: 7, top: 100, right: 40, bottom: 146, width: 33, height: 46 });
+    press(q, { clientX: 20, clientY: 120 });
+    fireEvent.pointerMove(q, { pointerId: 1, clientX: 120, clientY: 120 });
+    release(q, { clientX: 120, clientY: 120 });
+    expect(typed(onCharacter)).toBe("");
+  });
+
+  it("recovers a pointer id whose release never arrived", () => {
+    const { onCharacter } = renderDeck();
+    // One missed pointerup would otherwise poison that id for the life of the deck, and iOS hands
+    // the same ids out again, so every later touch on it would vanish silently.
+    fireEvent.pointerDown(key("char-71"), { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerDown(key("char-77"), { pointerId: 1, clientX: 50, clientY: 10 });
+    fireEvent.pointerUp(key("char-77"), { pointerId: 1, clientX: 50, clientY: 10 });
+    expect(typed(onCharacter)).toBe("w");
+  });
+});

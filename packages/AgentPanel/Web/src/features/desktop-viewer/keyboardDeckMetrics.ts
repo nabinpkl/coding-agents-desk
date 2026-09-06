@@ -48,6 +48,19 @@ export function deckMetricsForViewportHeight(height: number): KeyboardDeckMetric
   return height < COMPACT_DECK_MAX_VIEWPORT_HEIGHT ? COMPACT_LANDSCAPE_DECK : PORTRAIT_DECK;
 }
 
+/**
+ * How far past a key's edge the finger may stray before the press is abandoned.
+ *
+ * UIKit gives this away free: `UIControl` keeps tracking well outside its own bounds before it
+ * fires `touchDragExit`, so an ordinary thumb tap that rolls a few points still counts. Testing
+ * the exact rectangle instead means a tap landing near an edge types nothing at all, which is
+ * exactly what fast typing feels like when it drops characters. Twice the gap leaves the seam
+ * between two keys belonging to both, while staying well short of a neighbour's centre.
+ */
+export function keyExitSlop(metrics: KeyboardDeckMetrics): { x: number; y: number } {
+  return { x: metrics.horizontalKeyGap * 2, y: metrics.verticalRowGap * 2 };
+}
+
 export const CHARACTER_PREVIEW = {
   horizontalMargin: 3,
   minimumWidth: 60,
