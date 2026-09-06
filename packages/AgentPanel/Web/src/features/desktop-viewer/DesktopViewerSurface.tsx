@@ -293,6 +293,9 @@ export function DesktopViewerSurface({
             onPasteToMac={() => { void keyboard.pasteFromClipboard(); }}
             onDeckCharacter={keyboard.sendDeckCharacter}
             onDeckCursorDelta={keyboard.sendDeckCursorDelta}
+            showsDeck={keyboard.showsDeck}
+            deckAvailable={keyboard.deckAvailable}
+            onKeyboardMode={keyboard.setKeyboardMode}
           />
           {!keyboard.keyboardPresented ? (
             <>

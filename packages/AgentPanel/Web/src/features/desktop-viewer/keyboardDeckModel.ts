@@ -22,7 +22,16 @@ export type DeckKey =
   | { kind: "delete" }
   | { kind: "page"; page: KeyboardPage }
   | { kind: "space" }
-  | { kind: "return" };
+  | { kind: "return" }
+  /**
+   * Hand typing back to the browser's own keyboard.
+   *
+   * This is the globe key's seat, and close to its job: iOS put it between the page key and the
+   * space bar to switch input modes, and a page has exactly two -- this deck, or the system
+   * keyboard the deck was built to avoid. Keeping the way back visible is what makes the deck
+   * safe to default to.
+   */
+  | { kind: "native" };
 
 export interface KeyboardDeckState {
   page: KeyboardPage;
@@ -52,6 +61,12 @@ function characters(source: readonly string[] | string): DeckKey[] {
 
 const PUNCTUATION_ROW = [".", ",", "?", "!", "'"];
 
+function bottomRow(page: KeyboardPage): DeckKey[] {
+  return [{ kind: "page", page }, { kind: "native" }, { kind: "space" }, { kind: "return" }];
+}
+const alphabetBottomRow = bottomRow("numbers");
+const SYMBOL_BOTTOM_ROW = bottomRow("alphabet");
+
 export function deckRows(state: KeyboardDeckState): DeckKey[][] {
   switch (state.page) {
     case "alphabet":
@@ -59,7 +74,7 @@ export function deckRows(state: KeyboardDeckState): DeckKey[][] {
         characters("qwertyuiop"),
         characters("asdfghjkl"),
         [{ kind: "shift" }, ...characters("zxcvbnm"), { kind: "delete" }],
-        [{ kind: "page", page: "numbers" }, { kind: "space" }, { kind: "return" }],
+        alphabetBottomRow,
       ];
     case "numbers":
       return [
@@ -70,7 +85,7 @@ export function deckRows(state: KeyboardDeckState): DeckKey[][] {
           ...characters(PUNCTUATION_ROW),
           { kind: "delete" },
         ],
-        [{ kind: "page", page: "alphabet" }, { kind: "space" }, { kind: "return" }],
+        SYMBOL_BOTTOM_ROW,
       ];
     case "symbols":
       return [
@@ -81,7 +96,7 @@ export function deckRows(state: KeyboardDeckState): DeckKey[][] {
           ...characters(PUNCTUATION_ROW),
           { kind: "delete" },
         ],
-        [{ kind: "page", page: "alphabet" }, { kind: "space" }, { kind: "return" }],
+        SYMBOL_BOTTOM_ROW,
       ];
   }
 }
@@ -116,6 +131,10 @@ export function deckKeyLabel(key: DeckKey, state: KeyboardDeckState): string {
       // Always the plain return glyph. iOS varies it (Go, Search, Send, Done) from the focused
       // field's `returnKeyType`, which the Mac does not report.
       return "↵";
+    case "native":
+      // Drawn as an icon rather than a glyph: U+2328 exists in the system font but renders far
+      // smaller than the other keycap glyphs, which made the key hard to read.
+      return "";
   }
 }
 
@@ -133,6 +152,8 @@ export function deckKeyName(key: DeckKey): string {
       return "Space";
     case "return":
       return "Return";
+    case "native":
+      return "Switch to the system keyboard";
   }
 }
 
@@ -145,6 +166,9 @@ export function keyWidthWeight(key: DeckKey): number {
       return 1.65;
     case "page":
       return 1.35;
+    // The globe's own weight, since it is the globe's seat.
+    case "native":
+      return 1.05;
     case "shift":
     case "delete":
       return 1.25;
@@ -184,8 +208,10 @@ export function handleDeckKey(state: KeyboardDeckState, key: DeckKey): DeckKeyRe
       return { state: state.shift === "on" ? { ...state, shift: "off" } : state, output: "\n" };
     // Delete leaves an armed shift armed, which is what the Swift does by returning nil without
     // touching the state: backspacing mid-word must not lose the capital you were about to type.
+    // Shift and the keyboard switch are handled by their pressers, not here.
     case "delete":
     case "shift":
+    case "native":
       return { state, output: null };
   }
 }

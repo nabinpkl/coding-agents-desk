@@ -2,7 +2,6 @@ import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
 import { useEffect, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
-import { drawsOwnKeyboard } from "./keyboardDeckModel";
 import { KeyboardDeck } from "./KeyboardDeck";
 import { deckMetricsForViewportHeight } from "./keyboardDeckMetrics";
 
@@ -39,6 +38,9 @@ export function DesktopKeyboardChrome({
   onPasteToMac,
   onDeckCharacter,
   onDeckCursorDelta,
+  showsDeck,
+  deckAvailable,
+  onKeyboardMode,
 }: {
   captureRef: RefObject<HTMLTextAreaElement | null>;
   /** Measured by the keyboard hook so the viewer can end the video above this bar. */
@@ -63,11 +65,13 @@ export function DesktopKeyboardChrome({
   /** One character typed on the deck, including " " for space and "\n" for return. */
   onDeckCharacter: (character: string) => void;
   onDeckCursorDelta: (delta: number) => void;
+  /** Whether the panel's own keyboard is the one typing. */
+  showsDeck: boolean;
+  /** Whether a deck is on offer here at all; false on a browser with a physical keyboard. */
+  deckAvailable: boolean;
+  onKeyboardMode: (mode: "deck" | "native") => void;
 }) {
   const deckMetrics = useDeckMetrics();
-  // Only where the browser would otherwise raise its own keyboard. A desktop browser has a
-  // physical one, so a deck there would cost a third of the video and replace nothing.
-  const [ownKeyboard] = useState(drawsOwnKeyboard);
   const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
@@ -124,7 +128,7 @@ export function DesktopKeyboardChrome({
         >
           <div
             className="px-1.5"
-            style={ownKeyboard ? undefined : {
+            style={showsDeck ? undefined : {
               paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
             }}
           >
@@ -147,6 +151,16 @@ export function DesktopKeyboardChrome({
                 {deliveryStatus ?? "Ready"}
               </span>
               {deliveryPending ? <span aria-hidden className="text-xs text-muted-foreground">…</span> : null}
+              {deckAvailable && !showsDeck ? (
+                <button
+                  type="button"
+                  aria-label="Switch to the panel keyboard"
+                  onClick={() => onKeyboardMode("deck")}
+                  className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                >
+                  Panel
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onPasteToMac}
@@ -193,7 +207,7 @@ export function DesktopKeyboardChrome({
               ))}
             </div>
           </div>
-          {ownKeyboard ? (
+          {showsDeck ? (
             <KeyboardDeck
               metrics={deckMetrics}
               edgeInset={{
@@ -203,6 +217,7 @@ export function DesktopKeyboardChrome({
               onCharacter={onDeckCharacter}
               onDelete={() => onKey("delete")}
               onCursorDelta={onDeckCursorDelta}
+              onSwitchToNative={() => onKeyboardMode("native")}
             />
           ) : null}
         </section>, document.body,

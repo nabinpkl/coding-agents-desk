@@ -18,16 +18,18 @@ function renderDeck() {
   const onCharacter = vi.fn();
   const onDelete = vi.fn();
   const onCursorDelta = vi.fn();
+  const onSwitchToNative = vi.fn();
   render(
     <KeyboardDeck
       metrics={PORTRAIT_DECK}
       onCharacter={onCharacter}
       onDelete={onDelete}
       onCursorDelta={onCursorDelta}
+      onSwitchToNative={onSwitchToNative}
     />,
   );
   stubDeckLayout(deck());
-  return { onCharacter, onDelete, onCursorDelta };
+  return { onCharacter, onDelete, onCursorDelta, onSwitchToNative };
 }
 
 /** The centre of a key, in the coordinates the deck's handlers read. */
@@ -62,7 +64,7 @@ describe("KeyboardDeck", () => {
   it("draws the iPhone's four rows with no globe key", () => {
     renderDeck();
     const rows = deck().querySelectorAll("[data-deck-row]");
-    expect([...rows].map((row) => row.querySelectorAll("button").length)).toEqual([10, 9, 9, 3]);
+    expect([...rows].map((row) => row.querySelectorAll("button").length)).toEqual([10, 9, 9, 4]);
     expect(screen.queryByLabelText("Next keyboard")).toBeNull();
     expect(key("char-71")).toHaveTextContent("q");
   });
@@ -278,6 +280,35 @@ describe("KeyboardDeck", () => {
     expect(key("shift").className).toContain("bg-[rgba(0,122,255,0.42)]");
     tap("shift");
     expect(key("shift")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("hands typing to the browser's keyboard from the globe's old seat", () => {
+    const { onSwitchToNative, onCharacter } = renderDeck();
+    const row = [...deck().querySelectorAll("[data-deck-row]")][3]!;
+    // Between the page key and the space bar, which is where iOS put the globe.
+    expect([...row.children].map((child) => child.getAttribute("aria-label")))
+      .toEqual(["Numbers", "Switch to the system keyboard", "Space", "Return"]);
+    tap("native");
+    expect(onSwitchToNative).toHaveBeenCalledTimes(1);
+    expect(onCharacter).not.toHaveBeenCalled();
+  });
+
+  it("keeps the switch on every page and out of the shift double-tap window", () => {
+    const now = vi.spyOn(performance, "now");
+    const { onSwitchToNative } = renderDeck();
+    now.mockReturnValue(0);
+    tap("shift");
+    // The globe did not clear the window either; it returned before the key handler.
+    tap("native");
+    now.mockReturnValue(SHIFT_DOUBLE_TAP_MS - 1);
+    tap("shift");
+    expect(key("shift")).toHaveAttribute("data-shift", "locked");
+    now.mockRestore();
+
+    tap("page-numbers");
+    stubDeckLayout(deck());
+    tap("native");
+    expect(onSwitchToNative).toHaveBeenCalledTimes(2);
   });
 
   it("centres the home row on the top row's key width and widens the outer gaps", () => {

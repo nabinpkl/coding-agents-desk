@@ -24,15 +24,18 @@ const shifted: KeyboardDeckState = { page: "alphabet", shift: "on" };
 describe("keyboard deck layout", () => {
   it("lays the three pages out the way the iPhone does", () => {
     const alphabet = deckRows(INITIAL_DECK_STATE);
-    expect(alphabet.map((row) => row.length)).toEqual([10, 9, 9, 3]);
+    expect(alphabet.map((row) => row.length)).toEqual([10, 9, 9, 4]);
     expect(alphabet[0]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join(""))
       .toBe("qwertyuiop");
     expect(alphabet[2]![0]).toEqual({ kind: "shift" });
     expect(alphabet[2]!.at(-1)).toEqual({ kind: "delete" });
-    // No globe key: a page has no other input mode to switch to.
+    // The globe's seat, holding the only other input mode a page has: the browser's own keyboard.
     expect(alphabet[3]).toEqual([
-      { kind: "page", page: "numbers" }, { kind: "space" }, { kind: "return" },
+      { kind: "page", page: "numbers" }, { kind: "native" }, { kind: "space" }, { kind: "return" },
     ]);
+    for (const page of ["numbers", "symbols"] as const) {
+      expect(deckRows({ page, shift: "off" })[3]![1]).toEqual({ kind: "native" });
+    }
 
     const numbers = deckRows({ page: "numbers", shift: "off" });
     expect(numbers[0]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join(""))

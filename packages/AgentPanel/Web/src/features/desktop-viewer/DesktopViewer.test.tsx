@@ -128,7 +128,7 @@ describe("DesktopViewer", () => {
       await waitFor(() => expect(show).toBeEnabled());
       fireEvent.click(show);
       const deck = screen.getByTestId("keyboard-deck");
-      expect(within(deck).getAllByRole("button")).toHaveLength(31);
+      expect(within(deck).getAllByRole("button")).toHaveLength(32);
       // The deck resolves touches by coordinates, so it needs the layout jsdom will not compute.
       stubDeckLayout(deck);
       // Nothing focused is the point: a focused field is what WebKit draws its form strip over.
@@ -142,6 +142,47 @@ describe("DesktopViewer", () => {
       // treated as secure. What it proves is that the deck's press reached the send path at all.
       expect(screen.getByLabelText("Local typing echo")).toHaveTextContent("•");
     } finally {
+      media.mockRestore();
+    }
+  });
+
+  it("switches between the panel's keyboard and the browser's, and back", async () => {
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: query === "(hover: none) and (pointer: coarse)",
+      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
+      addListener() {}, removeListener() {}, dispatchEvent: () => false,
+    }) as MediaQueryList);
+    try {
+      tileMock.publishSource = true;
+      tileMock.controlVersion = 2;
+      render(<DesktopViewer transport={transport()} />);
+      const show = await screen.findByRole("button", { name: "Keyboard" });
+      await waitFor(() => expect(show).toBeEnabled());
+      fireEvent.click(show);
+      const capture = screen.getByLabelText("Remote Mac keyboard input");
+      const deck = screen.getByTestId("keyboard-deck");
+      stubDeckLayout(deck);
+      expect(document.activeElement).toBe(document.body);
+      expect(screen.queryByRole("button", { name: "Switch to the panel keyboard" })).toBeNull();
+
+      // The key in the globe's seat hands typing to WebKit, which needs the focus to happen
+      // inside the tap itself.
+      const native = screen.getByTestId("deck-key-native").getBoundingClientRect();
+      const at = {
+        pointerId: 1,
+        clientX: (native.left + native.right) / 2,
+        clientY: (native.top + native.bottom) / 2,
+      };
+      fireEvent.pointerDown(deck, at);
+      fireEvent.pointerUp(deck, at);
+      expect(screen.queryByTestId("keyboard-deck")).toBeNull();
+      expect(document.activeElement).toBe(capture);
+
+      fireEvent.click(screen.getByRole("button", { name: "Switch to the panel keyboard" }));
+      expect(screen.getByTestId("keyboard-deck")).toBeInTheDocument();
+      expect(document.activeElement).not.toBe(capture);
+    } finally {
+      window.localStorage.removeItem("agentdesk.desktop-keyboard-mode.v1");
       media.mockRestore();
     }
   });

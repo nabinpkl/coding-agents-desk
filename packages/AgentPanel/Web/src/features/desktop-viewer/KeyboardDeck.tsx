@@ -1,3 +1,4 @@
+import { Keyboard as KeyboardIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DELETE_REPEAT_DELAY_MS,
@@ -63,6 +64,8 @@ function titleSize(key: DeckKey): number {
       return 24;
     case "page":
       return 18;
+    case "native":
+      return 20;
     case "space":
       return 16;
     default:
@@ -96,6 +99,7 @@ export function KeyboardDeck({
   onCharacter,
   onDelete,
   onCursorDelta,
+  onSwitchToNative,
 }: {
   metrics: KeyboardDeckMetrics;
   /**
@@ -112,6 +116,11 @@ export function KeyboardDeck({
   onDelete: () => void;
   /** Positive moves the remote caret right. Emitted while panning across the space bar. */
   onCursorDelta: (delta: number) => void;
+  /**
+   * Hand typing to the browser's own keyboard. Called from the press itself rather than after a
+   * render, because WebKit only raises its keyboard from a focus inside the tap's own gesture.
+   */
+  onSwitchToNative: () => void;
 }) {
   const [state, setState] = useState<KeyboardDeckState>(INITIAL_DECK_STATE);
   const [pressedKeyIds, setPressedKeyIds] = useState<readonly string[]>([]);
@@ -203,13 +212,18 @@ export function KeyboardDeck({
     }
     // Delete already fired on press-down, so the first backspace and its repeats are one sequence.
     // It leaves the double-tap window open too: on iOS a delete never reaches the key handler at
-    // all, because the button returns at `touchUpInside` before it calls `onPress`.
+    // all, because the button returns at `touchUpInside` before it calls `onPress`. The globe key
+    // returned early in the same way, and this key sits in its seat.
     if (key.kind === "delete") return;
+    if (key.kind === "native") {
+      onSwitchToNative();
+      return;
+    }
     lastShiftTapAt.current = 0;
     const result = handleDeckKey(stateRef.current, key);
     setState(result.state);
     if (result.output !== null) onCharacter(result.output);
-  }, [onCharacter]);
+  }, [onCharacter, onSwitchToNative]);
 
   /**
    * The tiling, measured once and kept until the deck changes shape. Rebuilding it per move would
@@ -450,7 +464,9 @@ export function KeyboardDeck({
                       ${lit ? ACTIVE_FILL : special ? SPECIAL_FILL : REGULAR_FILL}
                       ${special ? SPECIAL_SHADOW : REGULAR_SHADOW}`}
                   >
-                    {deckKeyLabel(key, state)}
+                    {key.kind === "native"
+                      ? <KeyboardIcon aria-hidden size={22} className="mx-auto" />
+                      : deckKeyLabel(key, state)}
                   </button>
                 );
               })}

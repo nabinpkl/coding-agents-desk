@@ -46,11 +46,23 @@ import {
 import { drawsOwnKeyboard } from "./keyboardDeckModel";
 
 const AUTO_KEYBOARD_STORAGE_KEY = "agentdesk.desktop-keyboard-auto.v2";
+const KEYBOARD_MODE_STORAGE_KEY = "agentdesk.desktop-keyboard-mode.v1";
 // Give WebKit a deletable character even when the local echo is empty.
 const CAPTURE_SENTINEL = "\u200b";
 const OFF_MODIFIERS: Record<RemoteModifier, ModifierState> = {
   cmd: "off", ctrl: "off", option: "off", shift: "off",
 };
+
+/** Which keyboard types: the panel's own deck, or the browser's. */
+export type KeyboardMode = "deck" | "native";
+
+function storedKeyboardMode(): KeyboardMode {
+  try {
+    return window.localStorage.getItem(KEYBOARD_MODE_STORAGE_KEY) === "native" ? "native" : "deck";
+  } catch {
+    return "deck";
+  }
+}
 
 function storedAutoKeyboard(): boolean {
   try {
@@ -85,6 +97,13 @@ export function useDesktopKeyboard({
   const presentationRef = useRef<KeyboardPresentationState>(INITIAL_KEYBOARD_PRESENTATION);
   const [presentation, setPresentation] = useState(INITIAL_KEYBOARD_PRESENTATION);
   const [autoKeyboard, setAutoKeyboardState] = useState(storedAutoKeyboard);
+  const [keyboardMode, setKeyboardModeState] = useState<KeyboardMode>(storedKeyboardMode);
+  // The platform decides whether a deck is on offer at all; the preference only chooses between
+  // the two where both exist. A desktop browser raises no keyboard and has a real one attached.
+  const deckAvailable = useRef(drawsOwnKeyboard()).current;
+  const showsDeck = deckAvailable && keyboardMode === "deck";
+  const showsDeckRef = useRef(showsDeck);
+  showsDeckRef.current = showsDeck;
   const [modifiers, setModifiers] = useState<Record<RemoteModifier, ModifierState>>(OFF_MODIFIERS);
   const modifiersRef = useRef(modifiers);
   const [receipt, setReceipt] = useState<string[]>([]);
@@ -117,15 +136,38 @@ export function useDesktopKeyboard({
   /**
    * Focus the capture field only where focusing it is the way text arrives.
    *
-   * On a desktop browser it is: there is a physical keyboard, and its events need a focused
-   * element to land in. On a phone it is the opposite -- focusing summons WebKit's keyboard and,
-   * with it, the form-navigation strip that no web API can remove -- so the panel draws its own
-   * deck and leaves everything unfocused.
+   * With the browser's keyboard that is exactly what it is: a desktop browser's physical keys need
+   * a focused element to land in, and a phone raises its software keyboard from the focus. With
+   * the deck it is the opposite -- a focused editable is what summons WebKit's form-navigation
+   * strip, which no web API can remove -- so the deck leaves everything unfocused.
    */
   const focusCapture = useCallback(() => {
-    if (drawsOwnKeyboard()) return;
+    if (showsDeckRef.current) return;
     captureRef.current?.focus({ preventScroll: true });
   }, []);
+
+  /**
+   * Switch which keyboard types, and act on it in the same call.
+   *
+   * Raising WebKit's keyboard needs a focus inside the tap's own gesture, so this cannot wait for
+   * the render that follows the state change; the ref is updated here for the same reason, so a
+   * `focusCapture` between now and that render already knows which keyboard is showing.
+   */
+  const setKeyboardMode = useCallback((mode: KeyboardMode) => {
+    setKeyboardModeState(mode);
+    showsDeckRef.current = deckAvailable && mode === "deck";
+    try {
+      window.localStorage.setItem(KEYBOARD_MODE_STORAGE_KEY, mode);
+    } catch {
+      // The current setting remains authoritative for this mounted surface.
+    }
+    if (showsDeckRef.current) {
+      captureRef.current?.blur();
+      return;
+    }
+    resetCapture();
+    captureRef.current?.focus({ preventScroll: true });
+  }, [deckAvailable, resetCapture]);
 
   const updatePresentation = useCallback((action: KeyboardPresentationAction) => {
     const previous = presentationRef.current;
@@ -765,6 +807,10 @@ export function useDesktopKeyboard({
     showManually,
     hide,
     sendChromeKey,
+    deckAvailable,
+    showsDeck,
+    keyboardMode,
+    setKeyboardMode,
     sendDeckCharacter,
     sendDeckCursorDelta,
     pasteFromClipboard,
