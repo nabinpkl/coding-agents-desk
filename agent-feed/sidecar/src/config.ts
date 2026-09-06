@@ -125,6 +125,23 @@ delete process.env.AGENT_FEED_SUMMARY_API_KEY;
  * path). Null is a real answer: the park routes answer 503 with a reason
  * instead of failing at spawn time.
  */
+/**
+ * Same shape as `yabaiBinary`, and for the same reason: the sidecar's child environment is
+ * stripped of the PATH that would find a Homebrew install, so an absolute path is the only kind
+ * that works. Null means "not installed", which callers report rather than guess around.
+ */
+function tmuxBinary(): string | null {
+  const override = process.env.AGENT_FEED_TMUX_PATH?.trim();
+  if (override) return existsSync(override) ? resolve(override) : null;
+  const candidates = [
+    join(userHomeDirectory, ".local", "bin", "tmux"),
+    "/opt/homebrew/bin/tmux",
+    "/usr/local/bin/tmux",
+    "/usr/bin/tmux",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
 function yabaiBinary(): string | null {
   const override = process.env.AGENT_FEED_YABAI_PATH?.trim();
   if (override) return existsSync(override) ? resolve(override) : null;
@@ -360,6 +377,10 @@ export const config = {
   // to one Desktop and leaving a strip of each one uncovered. Geometry and
   // rationale: docs/superpowers/specs/2026-08-25-desktop-park-manifest-design.md
   yabaiPath: yabaiBinary(),
+  // The terminal grid attaches to sessions this multiplexer already holds, rather than starting
+  // its own: a session running in tmux is one somebody is already watching from a real terminal,
+  // and tmux is what makes a second viewer of it legal.
+  tmuxPath: tmuxBinary(),
   // How much of each parked window stays on the display. macOS clamps to 40pt
   // horizontally, so this is the ceiling as well as the default.
   parkStrip: integerEnvironment("AGENT_FEED_PARK_STRIP", 40, 1, 400),

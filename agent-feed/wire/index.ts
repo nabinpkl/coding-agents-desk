@@ -142,6 +142,7 @@ export type {
   AgentTerminalViewport,
   CloseAgentTerminalRequest,
   OpenAgentTerminalRequest,
+  TmuxSessionSummary,
 } from "./terminal.ts";
 
 export type {

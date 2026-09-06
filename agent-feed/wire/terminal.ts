@@ -1,3 +1,13 @@
+/** One tmux session, as `GET /api/tmux/sessions` reports it. */
+export interface TmuxSessionSummary {
+  name: string;
+  windows: number;
+  /** Zero means nobody is looking at it right now, not that it has stopped. */
+  attachedClients: number;
+  /** The session's working directory, which is the closest thing it has to a project. */
+  path: string;
+}
+
 /** A provider session whose CLI should be resumed inside the Agent Feed terminal. */
 export interface AgentTerminalContext {
   projectPath: string;

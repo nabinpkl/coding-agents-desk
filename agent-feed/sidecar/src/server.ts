@@ -18,6 +18,7 @@ import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createSummaryRoutes } from "./http/summaryRoutes.ts";
 import { createTaskRoutes } from "./http/taskRoutes.ts";
 import { createAgentTerminalRoutes } from "./http/agentTerminalRoutes.ts";
+import { createTmuxRoutes } from "./http/tmuxRoutes.ts";
 import { createTimelineRoutes } from "./http/timelineRoutes.ts";
 import { createUsageRoutes } from "./http/usageRoutes.ts";
 import { detectUsageVendors } from "./usage/usageReport.ts";
@@ -103,6 +104,7 @@ const routes: RouteHandler[] = [
   createInventoryRoutes(describeAgentSession),
   createBotRoutes(botRegistry),
   createAgentTerminalRoutes(agentTerminals),
+  createTmuxRoutes(),
   createAgentRoutes(resolveBackend),
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.
