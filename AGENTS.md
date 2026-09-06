@@ -221,6 +221,64 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
   state, and a second isolated browser both fails to load it the same way and disturbs the
   owner's own stream by making the sidecar cycle encoders underneath it.
 
+- **When the page stops responding, verify in a DEBUG Chrome, not the owner's.** The extension's
+  tools run inside the tab they are inspecting: `javascript_tool` is a CDP `Runtime.evaluate`, so a
+  renderer that is frozen, spinning, or backgrounded fails it with a 45s timeout, and
+  `read_console_messages` and `read_network_requests` come back empty because their tracking never
+  started. All three are then reporting on the probe rather than the page, and reading them harder
+  tells you nothing.
+
+  The answer is a browser this repo already drives autonomously: Playwright's **Chrome for Testing**,
+  as in `chrome-test/*.mjs` (`just dom-mirror-cdp-verify` and its siblings). It gives an independent
+  CDP session, a throwaway profile, console and network from page load rather than from whenever a
+  tool first attached, and it can be reloaded and killed freely -- none of which is true of the tab
+  the owner is looking at. Point it at the panel's dev origin the way those harnesses point it at
+  their fixtures.
+
+  Do NOT reach for `mcp__computer-use__app_screenshot` on the owner's Chrome for this. Browsers are
+  granted at computer-use's `read` tier, so it can only show what is already on screen, and it
+  raises a permission dialog the owner has to answer -- a prompt for a strictly worse observation
+  than the debug browser gives for free. `preview_logs` and the dev server's own log are the other
+  outside views; a healthy `/api/config` alongside a frozen tab is what tells you the freeze is the
+  page and not the server.
+
+## The dev origin serves HTTP/2, and it is load-bearing
+
+Settled 2026-09-06, after an evening spent debugging three features that were not broken.
+
+`server.https` gives the panel's dev origin TLS **and HTTP/2** -- but Vite downgrades it to
+TLS-only "if the `server.proxy` option is also configured" (its own server-options doc). Under
+HTTP/1.1 a browser allows about **six connections per origin**, and this panel holds an EventSource
+for the session catalog, the transcript, background tasks, the summary, usage, bots, the session
+board and the terminals. More streams than connections.
+
+The stream that loses is whichever the page asks for last, which is the terminals stream, because
+nothing opens it until a terminal does. It then fails in the worst available way: **silently**. No
+error, no console line, no frame. The screen replay waits on its `onopen`, so the terminal paints
+nothing and its footer says `Opening terminal` -- which is true, and stays true forever. Keystrokes
+reach tmux and are echoed the whole time; the echo has nowhere to arrive. It is intermittent,
+because which stream loses depends on what the page opened first.
+
+So:
+
+- **`/api` is proxied by the `panelSessions` plugin's middleware, not by `server.proxy`.** Adding a
+  `server.proxy` entry silently costs the whole origin its HTTP/2. If you need a new proxied path,
+  add it to that middleware.
+- **A proxy on an HTTP/2 origin must strip hop-by-hop headers in both directions.** `connection:
+  keep-alive` from the sidecar's SSE throws `ERR_HTTP2_INVALID_CONNECTION_HEADERS` on the way out,
+  and an HTTP/2 request arrives with its pseudo-headers (`:method`, `:path`, `:scheme`,
+  `:authority`) in the same map as the ordinary ones, which Node's HTTP/1.1 client rejects with
+  "Header name must be a valid HTTP token". Both were measured the first time this origin
+  negotiated h2.
+- **`just agent-webview-dev-status` checks the protocol**, not just the status code, and fails
+  loudly on a downgrade. Run it before concluding a panel surface is broken.
+
+The general lesson is the one already written under "An absent result is a claim about the probe":
+what was absent here was a **connection**, and every probe aimed at the feature found a healthy
+layer -- `POST /input` answered 204, the PTY daemon echoed input on a hand-driven socket, tmux held
+the bytes. All true, all pointing away from a transport that had never connected. When a surface is
+blank rather than wrong, **ask whether its stream ever opened** before reading its code.
+
 ## The virtual display
 
 - **The 8K desk is a process, and it lives in `deskzoom/`.** `deskzoom/.build/release/DeskZoom

@@ -24,8 +24,9 @@ export type AgentTerminalState =
  * A TMUX target ignores this entirely and renders at the pane's own geometry, whichever is asked
  * for. tmux has one window size per session, so a viewer that imposed its grid reflowed the
  * session in its owner's terminal; and a viewer that merely rendered at the wrong grid painted an
- * absolutely-addressed screen into the wrong rows, which looks like a blank or garbled terminal
- * rather than like a size disagreement. Both were measured on a live Claude Code pane.
+ * absolutely-addressed screen into the wrong rows, so text landed a row off from where the screen
+ * said it was. Both were measured on a live Claude Code pane. A terminal that is entirely BLANK is
+ * a different fault -- its event stream never opened -- and `openTerminalStream` says so now.
  */
 export type TerminalSizing =
   | { kind: "fit" }

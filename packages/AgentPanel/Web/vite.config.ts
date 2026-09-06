@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin, type ProxyOptions } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { runtimePaths } from "../../../tools/runtime-paths.mjs";
 import {
   indexFor,
@@ -57,27 +57,56 @@ const agentFeedWire = fileURLToPath(
 );
 
 /**
- * http-proxy does not tear down the upstream leg when the browser goes away: an aborted fetch kept
- * streaming from the sidecar into the proxy's void, which held live window captures alive with no
- * viewer. Destroying the upstream side when the client side closes is what lets the sidecar see the
- * abort at all. After a normally finished response these destroys are no-ops.
+ * The default session's sidecar, split for the middleware proxy below.
  *
- * The signal for "the browser is gone" is the client RESPONSE closing before it ended. The
- * request's own "close" is a trap: on a GET it fires as soon as the empty body completes, which is
- * immediately, and destroying there killed every proxied request at birth.
+ * There is no `server.proxy` entry for `/api` any more, and that is the point: Vite's `server.https`
+ * turns on TLS AND HTTP/2, but "if the `server.proxy` option is also configured, this setting will
+ * downgrade to TLS-only without HTTP/2" (Vite's own server-options doc). Under HTTP/1.1 a browser
+ * keeps about six connections per origin, and this panel holds an EventSource for the catalog, the
+ * transcript, background tasks, the summary, usage, bots, the session board and the terminals --
+ * more streams than connections. The terminal stream is opened last, so it was the one starved: its
+ * `onopen` never fired, the screen replay that waits on it was never requested, and the pane sat
+ * blank on "Opening terminal" while every other surface worked. Intermittent, because which stream
+ * loses depends on what the page opened first.
+ *
+ * HTTP/2 multiplexes them all over one connection, so the cap stops existing rather than being
+ * budgeted around.
  */
-const releaseUpstreamWhenClientLeaves: NonNullable<ProxyOptions["configure"]> = (proxy) => {
-  proxy.on("proxyReq", (proxyReq, _req, res) => {
-    res.on("close", () => {
-      if (!res.writableEnded) proxyReq.destroy();
-    });
-  });
-  proxy.on("proxyRes", (proxyRes, _req, res) => {
-    res.on("close", () => {
-      if (!res.writableEnded) proxyRes.destroy();
-    });
-  });
-};
+const defaultSidecar = (() => {
+  const url = new URL(sidecarOrigin);
+  return { host: url.hostname, port: Number(url.port || 80) };
+})();
+
+/**
+ * Headers that describe ONE hop and must not be forwarded.
+ *
+ * Required rather than tidy, in both directions. Writing `connection: keep-alive` into an HTTP/2
+ * response throws ERR_HTTP2_INVALID_CONNECTION_HEADERS, and the sidecar sends exactly that on
+ * every SSE stream; and an HTTP/2 REQUEST arrives carrying its pseudo-headers (`:method`,
+ * `:path`, `:scheme`, `:authority`) in the same map as the ordinary ones, which Node's HTTP/1.1
+ * client rejects outright with "Header name must be a valid HTTP token". Both were measured the
+ * first time this origin negotiated h2.
+ */
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function endToEnd<T extends Record<string, unknown>>(headers: T): Partial<T> {
+  const kept: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.startsWith(":")) continue;
+    if (!HOP_BY_HOP.has(name.toLowerCase())) kept[name] = value;
+  }
+  return kept as Partial<T>;
+}
 
 
 /** Only letters, digits and dashes reach a path segment or match a descriptor filename. */
@@ -217,6 +246,13 @@ function panelSessions(): Plugin {
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
         const path = url.split("?")[0] ?? "";
+        // The default session -- the one this server runs beside -- answers on `/api` directly.
+        // Handled here rather than by `server.proxy` because that option costs the whole origin
+        // its HTTP/2 (see `defaultSidecar`), and this plugin already proxies the other sessions.
+        if (path.startsWith("/api")) {
+          proxyToSidecar(defaultSidecar.host, defaultSidecar.port, url, request, response);
+          return;
+        }
         if (!path.startsWith("/session/")) return next();
 
         if (path === "/session/index.json") {
@@ -230,7 +266,8 @@ function panelSessions(): Plugin {
           response.statusCode = 200;
           response.setHeader("content-type", "text/event-stream; charset=utf-8");
           response.setHeader("cache-control", "no-cache");
-          response.setHeader("connection", "keep-alive");
+          // No `connection: keep-alive`: HTTP/2 rejects it outright, and it means nothing there --
+          // the connection is multiplexed and stays open by definition.
           response.write(`data: ${snapshot()}\n\n`);
           subscribers.add(response);
           request.on("close", () => subscribers.delete(response));
@@ -268,11 +305,16 @@ function panelSessions(): Plugin {
 /**
  * A streaming reverse proxy to a sidecar, on loopback or across the tailnet.
  *
- * Hand-rolled rather than a library because the target is resolved per request from the live board,
- * which Vite's static `server.proxy` cannot express, and because http-proxy is not a resolvable
- * dependency here. Piping both directions keeps SSE and chunked responses streaming; tearing the
- * upstream down when the client response closes early lets the sidecar see an abandoned live
- * capture, the concern `releaseUpstreamWhenClientLeaves` handles for the default session.
+ * Now the only proxy on this origin, for every session including the default one: `server.proxy`
+ * would cost the origin its HTTP/2 (see `defaultSidecar`), and it could not express a target
+ * resolved per request from the live board anyway.
+ *
+ * Piping both directions keeps SSE and chunked responses streaming. Tearing the upstream down when
+ * the client response closes early is what lets the sidecar see an abandoned live capture: an
+ * aborted fetch used to keep streaming into the proxy's void, holding window captures alive with no
+ * viewer. The signal is the client RESPONSE closing before it ended -- the request's own "close" is
+ * a trap, since on a GET it fires as soon as the empty body completes, which killed every proxied
+ * request at birth when it was tried.
  */
 function proxyToSidecar(
   host: string,
@@ -289,10 +331,13 @@ function proxyToSidecar(
       path,
       // The upstream's own authority, not the panel's: the browser sent this origin's Host header,
       // and passing it through would tell the sidecar it is being addressed as the dev server.
-      headers: { ...request.headers, host: `${host}:${port}` },
+      headers: { ...endToEnd(request.headers), host: `${host}:${port}` },
     },
     (upstreamResponse) => {
-      response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+      response.writeHead(upstreamResponse.statusCode ?? 502, endToEnd(upstreamResponse.headers));
+      // Flushed before the first event, so a stream the client is waiting on is answered as soon
+      // as the upstream answers rather than when its first chunk happens to arrive.
+      response.flushHeaders?.();
       upstreamResponse.pipe(response);
     },
   );
@@ -389,27 +434,6 @@ export default defineConfig({
       // the variable only when the page's origin is not reachable for the websocket, e.g. behind
       // a proxy.
       host: process.env.AGENTDESK_AGENT_PANEL_HMR_HOST,
-    },
-    proxy: {
-      // The default session -- the one the panel runs in -- answers here. Other sessions are proxied
-      // per request by the `panelSessions` plugin, which resolves each from the live board. Only the
-      // browser path uses this; inside the host's webview the panel goes through the relay.
-      "/api": {
-        target: sidecarOrigin,
-        changeOrigin: true,
-        // http-proxy does not tear down the upstream leg when the browser goes
-        // away: an aborted fetch kept streaming from the sidecar into the
-        // proxy's void, which held live window captures alive with no viewer.
-        // Destroying the upstream side when the client side closes is what
-        // lets the sidecar see the abort at all. After a normally finished
-        // response these destroys are no-ops.
-        // The signal for "the browser is gone" is the client RESPONSE
-        // closing before it ended. The request's own "close" is a trap: on a
-        // GET it fires as soon as the empty body completes, which is
-        // immediately, and destroying there killed every proxied request at
-        // birth.
-        configure: releaseUpstreamWhenClientLeaves,
-      },
     },
   },
 });

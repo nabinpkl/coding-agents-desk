@@ -271,9 +271,9 @@ export function App({ feed, host, fill = false }: Props) {
   //
   // `cliInput` resets to idle on every re-read, and a tile mounted on its live value was torn
   // down and re-attached each time -- measured as a close/open cycle every ~2s in the network
-  // log, with keystrokes typed into the gap going nowhere. The name is taken the first time it
-  // arrives for the selected session and forgotten only when the selection moves, so nothing the
-  // Feed does between those two moments can unmount the terminal.
+  // log. The name is taken the first time it arrives for the selected session and forgotten only
+  // when the selection moves, so nothing the Feed does between those two moments can unmount the
+  // terminal.
   const selectedSessionId = displayedThread?.session.sessionId ?? null;
   const [dockedPane, setDockedPane] = useState<{ sessionId: string; tmuxSession: string } | null>(null);
   useEffect(() => {

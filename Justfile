@@ -715,6 +715,26 @@ agent-webview-dev-status port=agent_panel_dev_port:
     case "$CODE" in
         200)
             echo "browser leg OK: $ORIGIN loads its own data"
+            # The protocol, not just the status. `server.https` gives this origin TLS AND HTTP/2,
+            # but Vite downgrades it to TLS-only the moment a `server.proxy` entry exists -- and
+            # under HTTP/1.1 a browser allows about six connections per origin while the panel
+            # holds an EventSource for the catalog, the transcript, tasks, the summary, usage,
+            # bots, the session board and the terminals. The stream that loses the race never
+            # opens, silently: the terminal that waits on it just says "Opening terminal" for
+            # ever. That cost an evening, so the version is checked here rather than assumed.
+            VERSION="$(curl -sk -o /dev/null -w '%{http_version}' --max-time 3 "$ORIGIN/api/config" || true)"
+            case "$VERSION" in
+                2*) echo "  negotiated HTTP/$VERSION, so its event streams are multiplexed" ;;
+                *)
+                    echo "browser leg DOWNGRADED: $ORIGIN negotiated HTTP/${VERSION:-unknown}," >&2
+                    echo "  not HTTP/2, so the panel's event streams compete for ~6 connections" >&2
+                    echo "  and whichever opens last (usually the terminals stream) never opens." >&2
+                    echo "  A 'server.proxy' entry in packages/AgentPanel/Web/vite.config.ts is" >&2
+                    echo "  what turns HTTP/2 off; proxy through the panelSessions middleware" >&2
+                    echo "  instead." >&2
+                    exit 1
+                    ;;
+            esac
             ;;
         401)
             echo "browser leg UNAUTHORIZED: the dev server's token is not the one this host's" >&2

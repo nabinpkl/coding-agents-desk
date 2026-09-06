@@ -143,6 +143,15 @@ interface TerminalViewer {
 }
 
 /** The panel's data source when there is a sidecar behind the transport, which is always. */
+/**
+ * How long a terminal may sit on "opening" before the viewer is told the stream never carried.
+ *
+ * Generous: this is the connect time of an SSE stream over a tailnet that may be relaying through
+ * DERP, not a request budget. Short enough that a starved stream is a visible failure rather than
+ * a terminal nobody can explain.
+ */
+const TERMINAL_STREAM_OPEN_TIMEOUT_MS = 8_000;
+
 export class SidecarDataSource implements AgentDataSource {
   constructor(private readonly transport: AgentHttpTransport) {}
 
@@ -471,8 +480,21 @@ export class SidecarDataSource implements AgentDataSource {
     if (this.terminalStreamOpen) return this.terminalStreamOpen;
     let carrying = (): void => {};
     this.terminalStreamOpen = new Promise<void>((resolve) => { carrying = resolve; });
+    // A stream that never opens is the failure this whole class of bug hides behind, and it is
+    // silent by construction: no error, no log, no frame -- just a terminal that says it is opening
+    // forever. It cost an evening once, when the dev server served HTTP/1.1 and this stream, being
+    // the last one the panel asks for, sat waiting for one of six connections that the other
+    // streams already held. Whatever the cause, the viewer is told rather than left reading a
+    // label that is technically true.
+    const stalled = setTimeout(
+      () => this.failTerminalViewers(
+        "Terminal stream did not open. The panel holds an event stream per surface, so this is"
+        + " usually the origin refusing another connection -- check that it negotiates HTTP/2.",
+      ),
+      TERMINAL_STREAM_OPEN_TIMEOUT_MS,
+    );
     this.terminalStream = this.transport.subscribe("/api/terminals/stream", {
-      onOpen: () => carrying(),
+      onOpen: () => { clearTimeout(stalled); carrying(); },
       onMessage: (payload) => {
         let envelope: AgentTerminalStreamEnvelope;
         try {
@@ -487,7 +509,10 @@ export class SidecarDataSource implements AgentDataSource {
           viewer.onMessage(envelope.message);
         }
       },
-      onError: (reason) => this.failTerminalViewers(reason),
+      onError: (reason) => {
+        clearTimeout(stalled);
+        this.failTerminalViewers(reason);
+      },
     });
     return this.terminalStreamOpen;
   }
