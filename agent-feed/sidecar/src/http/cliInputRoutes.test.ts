@@ -9,7 +9,7 @@ function routeWith(overrides: Partial<CliInputDependencies> = {}) {
   const sent: { sessionId: string; text: string }[] = [];
   const inbox: CliInputDependencies = {
     status: async (): Promise<CliInputStatus> =>
-      ({ available: true, entrypoint: "cli", reason: null }),
+      ({ available: true, entrypoint: "cli", reason: null, tmuxSession: null }),
     deliver: async (sessionId, text): Promise<CliInputReceipt> => {
       sent.push({ sessionId, text });
       return { delivered: true, reason: null };
@@ -38,7 +38,7 @@ describe("addressing", () => {
     const { route } = routeWith();
     const response = await call(route, "GET", `/api/sessions/claude/${SESSION}/input`);
     expect(response?.status).toBe(200);
-    expect(await response!.json()).toEqual({ available: true, entrypoint: "cli", reason: null });
+    expect(await response!.json()).toEqual({ available: true, entrypoint: "cli", reason: null, tmuxSession: null });
   });
 
   test("codex is refused by the pattern, because it has no inbox to write to", async () => {
@@ -110,7 +110,7 @@ describe("delivering", () => {
     const { route } = routeWith();
     const url = new URL(`http://127.0.0.1/api/sessions/claude/${SESSION}/input`);
     const response = await createCliInputRoutes({
-      status: async () => ({ available: false, entrypoint: null, reason: "not-running" }),
+      status: async () => ({ available: false, entrypoint: null, reason: "not-running", tmuxSession: null }),
       deliver: async () => ({ delivered: false, reason: "not-running" }),
     })(new Request(url.toString(), { method: "POST", body: "{{{" }), url, server);
     expect((await response)?.status).toBe(400);

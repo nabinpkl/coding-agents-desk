@@ -42,6 +42,14 @@ export interface CliInputStatus {
   /** null when nothing live is serving the session, which is also when `available` is false. */
   entrypoint: ClaudeSessionEntrypoint | null;
   reason: CliInputUnavailableReason | null;
+  /**
+   * The tmux session the live process is running inside, or null.
+   *
+   * Carried even when `available` is false, and that is the point: a session whose inbox this build
+   * cannot reach may still be sitting in a pane that can be typed into directly. Reporting it only
+   * on the available path would hide exactly the case the terminal composer exists for.
+   */
+  tmuxSession: string | null;
 }
 
 /**

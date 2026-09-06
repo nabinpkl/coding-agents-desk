@@ -192,6 +192,7 @@ describe("cliInputStatus", () => {
       available: true,
       entrypoint: "cli",
       reason: null,
+      tmuxSession: null,
     });
   });
 
@@ -203,6 +204,7 @@ describe("cliInputStatus", () => {
       available: true,
       entrypoint: "claude-desktop",
       reason: null,
+      tmuxSession: null,
     });
   });
 
@@ -212,6 +214,7 @@ describe("cliInputStatus", () => {
       available: false,
       entrypoint: null,
       reason: "not-running",
+      tmuxSession: null,
     });
   });
 });

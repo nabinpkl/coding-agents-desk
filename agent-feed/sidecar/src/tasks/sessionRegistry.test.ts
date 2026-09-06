@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandRunner } from "./processProbe.ts";
-import { liveSessionProcesses, sessionOwner } from "./sessionRegistry.ts";
+import { liveSessionProcesses, sessionOwner, readTmuxSession } from "./sessionRegistry.ts";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 
@@ -48,6 +48,7 @@ describe("liveSessionProcesses", () => {
         startedAt: Date.UTC(2026, 7, 14, 17, 10, 48),
         messagingSocketPath: "/tmp/cc-socks/9672.sock",
         entrypoint: "cli",
+        tmuxSession: null,
       },
     ]);
   });
@@ -116,4 +117,17 @@ describe("sessionOwner", () => {
     });
     expect(await sessionOwner(SESSION, async () => "", directory)).toBeNull();
   });
+});
+
+test("keeps the tmux session name the harness writes, and only the name", () => {
+  // The harness writes `<session>:@window.%pane` from 2.1.263. Every tmux verb this repo issues
+  // addresses `-t <session>`, so the rest is noise -- and the value ends up on an argument vector,
+  // so a row written by anything running as this user is validated rather than trusted.
+  expect(readTmuxSession("keyboard:@4.%4")).toBe("keyboard");
+  expect(readTmuxSession("rags")).toBe("rags");
+  expect(readTmuxSession(undefined)).toBeNull();
+  expect(readTmuxSession("")).toBeNull();
+  for (const hostile of ["../etc:@0.%0", "a b:@0.%0", "-x:@0.%0", ";reboot"]) {
+    expect(readTmuxSession(hostile)).toBeNull();
+  }
 });

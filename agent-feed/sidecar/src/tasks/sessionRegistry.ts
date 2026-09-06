@@ -38,6 +38,18 @@ export interface ClaudeSessionProcess {
   messagingSocketPath: string | null;
   /** How the session was launched. `cli` is a terminal; `claude-desktop` is an app window. */
   entrypoint: ClaudeSessionEntrypoint;
+  /**
+   * The tmux session this process is running inside, when it says so.
+   *
+   * The harness writes `tmux` as `<session>:@window.%pane` from 2.1.263; only the session name is
+   * kept, because every tmux verb this repo issues addresses `-t <session>`. null for a build that
+   * does not write it and for a process that is not under tmux at all, which are both ordinary.
+   *
+   * It is read HERE rather than by a second reader for the same reason `messagingSocketPath` is:
+   * this is the one module that decides which registry rows describe a live process, and a session
+   * name taken from an unverified row addresses some other session's pane.
+   */
+  tmuxSession: string | null;
 }
 
 interface RegistryRecord {
@@ -47,6 +59,7 @@ interface RegistryRecord {
   procStart?: unknown;
   messagingSocketPath?: unknown;
   entrypoint?: unknown;
+  tmux?: unknown;
 }
 
 /**
@@ -57,6 +70,19 @@ interface RegistryRecord {
  */
 function readEntrypoint(value: unknown): ClaudeSessionEntrypoint {
   return value === "cli" || value === "claude-desktop" ? value : "other";
+}
+
+/**
+ * The session name out of the harness's `<session>:@window.%pane`.
+ *
+ * Validated to the same plain-identifier shape the terminal service demands, because this value
+ * ends up as `-t <session>` on argument vectors this process builds, and a row is a file any
+ * process running as this user could have written.
+ */
+export function readTmuxSession(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.split(":")[0] ?? "";
+  return /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : null;
 }
 
 /**
@@ -118,6 +144,7 @@ export async function liveSessionProcesses(
         ? record.messagingSocketPath
         : null,
       entrypoint: readEntrypoint(record.entrypoint),
+      tmuxSession: readTmuxSession(record.tmux),
     });
   }
   return live;

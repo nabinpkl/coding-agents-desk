@@ -63,6 +63,13 @@ import {
 } from "../features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../features/terminal/useAgentTerminal";
 import { terminalContextKey } from "../features/terminal/terminalContext";
+import { ComposerTerminal } from "../features/cli-input/ComposerTerminal";
+import {
+  loadComposerBackend,
+  resolveComposerBackend,
+  storeComposerBackend,
+  type ComposerBackend,
+} from "../features/cli-input/composerBackendStore";
 
 /**
  * A textarea that grows with its content instead of scrolling inside a fixed single row.
@@ -958,6 +965,7 @@ export function App({ feed, host, fill = false }: Props) {
             <SessionComposer
               key={displayedThread.session.sessionId}
               host={host}
+              feed={feed}
               session={displayedThread.session}
               state={sessionState}
               usage={sessionUsage}
@@ -1011,6 +1019,7 @@ function harnessName(source: "claude" | "codex"): string {
 
 function SessionComposer({
   host,
+  feed,
   session,
   state,
   usage,
@@ -1024,6 +1033,8 @@ function SessionComposer({
   onAbort,
 }: {
   host: HostActionsClient;
+  /** The data source the terminal composer attaches through; the window band never needs it. */
+  feed: SidecarDataSource;
   session: SessionSummary;
   state: AgentSessionControlState;
   usage: TokenUsage | null;
@@ -1089,6 +1100,19 @@ function SessionComposer({
           ? { kind: "agent-terminal", terminal: agentTerminal }
           : { kind: "window" }
         : { kind: "agent-session" };
+  // Which composer this session opens with. The preference is global and remembered; what actually
+  // renders is that preference only where it can be honoured, so a session with no tmux pane shows
+  // the window band without rewriting what the viewer asked for.
+  const [composerBackend, setComposerBackend] = useState<ComposerBackend>(loadComposerBackend);
+  const chooseComposerBackend = useCallback((next: ComposerBackend) => {
+    setComposerBackend(next);
+    storeComposerBackend(next);
+  }, []);
+  const resolvedBackend = resolveComposerBackend(composerBackend, {
+    tmuxSession: cliInput.tmuxSession,
+  });
+  const showTerminalComposer = resolvedBackend === "terminal" && cliInput.tmuxSession !== null;
+
   const windowBand = transport.kind === "window";
   const inboxBand = transport.kind === "cli-inbox";
   const agentTerminalBand = transport.kind === "agent-terminal";
@@ -1383,6 +1407,16 @@ function SessionComposer({
         />
       ) : null}
       <div className="flex items-end gap-1.5">
+        {showTerminalComposer && cliInput.tmuxSession ? (
+          // The session's own terminal, in place of a field. Keyed by the pane so switching
+          // sessions tears the old attach down rather than repointing a live one.
+          <ComposerTerminal
+            key={cliInput.tmuxSession}
+            feed={feed}
+            session={cliInput.tmuxSession}
+            rows={6}
+          />
+        ) : (
         <textarea
           ref={autoGrow}
           value={editor.value}
@@ -1407,7 +1441,28 @@ function SessionComposer({
           disabled={editor.disabled}
           className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
         />
-        {actions.map((action) => (
+        )}
+        {/* Offered only where both backends are real: a session with no pane has nothing to switch
+            to, and a button that switches to the same thing is noise. */}
+        {cliInput.tmuxSession ? (
+          <button
+            type="button"
+            onClick={() => chooseComposerBackend(showTerminalComposer ? "window" : "terminal")}
+            aria-pressed={showTerminalComposer}
+            aria-label={showTerminalComposer ? "Use the window composer" : "Use the terminal composer"}
+            title={showTerminalComposer
+              ? `Typing into the ${cliInput.tmuxSession} pane. Switch to the window composer.`
+              : `Switch to the ${cliInput.tmuxSession} pane.`}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+              showTerminalComposer
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            }`}
+          >
+            {"\u2b1a"}
+          </button>
+        ) : null}
+        {showTerminalComposer ? null : actions.map((action) => (
           <button
             key={action.key}
             type="button"

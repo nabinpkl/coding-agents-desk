@@ -17,13 +17,23 @@ export interface CliInputHandle {
   /** True when a turn can be delivered right now. */
   available: boolean;
   reason: CliInputUnavailableReason | null;
+  /**
+   * The tmux session this session's process is sitting in, when the harness says so.
+   *
+   * What the terminal composer needs: a name to attach to. Reported whether or not the inbox is
+   * available, because a session this build cannot reach through an inbox may still be in a pane
+   * that takes keystrokes directly -- which is the case the terminal composer exists for.
+   */
+  tmuxSession: string | null;
   /** Re-asks the harness. Called when someone focuses the field, which is when the answer matters. */
   refresh: () => void;
   /** Resolves false, with `reason` set, when the session could not take the turn. */
   send: (text: string) => Promise<boolean>;
 }
 
-const IDLE: CliInputStatus = { available: false, entrypoint: null, reason: null };
+const IDLE: CliInputStatus = {
+  available: false, entrypoint: null, reason: null, tmuxSession: null,
+};
 
 /**
  * Whether the selected session is a terminal Claude session, and the means to type into it.
@@ -93,6 +103,7 @@ export function useCliInput(
     isTerminalSession: status.entrypoint === "cli",
     available: status.available,
     reason: status.reason,
+    tmuxSession: status.tmuxSession,
     refresh: read,
     send,
   };

@@ -4,9 +4,15 @@ import type { CliInputStatus } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "../activity-feed/data-source/SidecarDataSource";
 import { cliInputReasonText, useCliInput } from "./useCliInput";
 
-const TERMINAL: CliInputStatus = { available: true, entrypoint: "cli", reason: null };
-const DESKTOP: CliInputStatus = { available: true, entrypoint: "claude-desktop", reason: null };
-const GONE: CliInputStatus = { available: false, entrypoint: null, reason: "not-running" };
+const TERMINAL: CliInputStatus = {
+  available: true, entrypoint: "cli", reason: null, tmuxSession: "keyboard",
+};
+const DESKTOP: CliInputStatus = {
+  available: true, entrypoint: "claude-desktop", reason: null, tmuxSession: null,
+};
+const GONE: CliInputStatus = {
+  available: false, entrypoint: null, reason: "not-running", tmuxSession: null,
+};
 
 const S1: SessionAddress = { source: "claude", sessionId: "s1" };
 const S2: SessionAddress = { source: "claude", sessionId: "s2" };

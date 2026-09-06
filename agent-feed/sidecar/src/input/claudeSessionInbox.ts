@@ -177,9 +177,15 @@ export async function cliInputStatus(
       available: false,
       entrypoint: resolved.owner?.entrypoint ?? null,
       reason: resolved.reason,
+      tmuxSession: resolved.owner?.tmuxSession ?? null,
     };
   }
-  return { available: true, entrypoint: resolved.target.owner.entrypoint, reason: null };
+  return {
+    available: true,
+    entrypoint: resolved.target.owner.entrypoint,
+    reason: null,
+    tmuxSession: resolved.target.owner.tmuxSession,
+  };
 }
 
 /**
