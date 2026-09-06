@@ -256,6 +256,42 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
   display that is not that session's main one. If it cannot, the console's main display has to be
   the 8K at agent-session-creation time.
 
+## Where sessions run, and where they are watched
+
+The work and the wall are separate, and conflating them wastes an evening. Settled 2026-09-06:
+
+- **Work runs as the console user, in tmux.** `tmux new-session -d -s <name> -c <repo> 'claude
+  --resume <transcript-uuid> --fork-session -n "<label>"'` forks the calling session's context into
+  a new one running as the console user, on that user's repo, with that user's permissions. Remote
+  Control needs no enabling: it is on, and the forked session appears in the app's sidebar by itself.
+- **The agent session is the viewing wall and runs none of the work.** Its Claude Desktop windows
+  hold Remote Control *views* of those sessions. Typing a prompt into one of those windows instead
+  starts a session inside the `agent` account, which then fails on its own with `Failed to run Look
+  for local project folders`, because that account has no project registered. Measured, not assumed.
+- **tmux is the backbone, not the interface.** Reading it is `tmux capture-pane -p -t <session>`.
+  Driving it by hand is awkward enough that the desktop view earns its place.
+
+Five traps, each of which cost real time:
+
+- **`tmux send-keys -l` silently drops a long string.** 2600 characters produced an empty composer
+  and no error, while a short string on the same channel landed. Chunk at ~300 characters with a
+  short sleep between them, then send `Enter` as its own call.
+- **Three identifier namespaces name one session and none converts to another.** CCD's
+  `local_<uuid>` (what `list_sessions` and the cross-session message tool take), the Claude Code
+  transcript uuid (what `--resume` takes, and what the `.jsonl` under `~/.claude/projects/` is named
+  for), and the `ListAgents` peer name. One session here was `local_eadabff2…` and `35cf85c7…` at the
+  same time. A transcript uuid is never a valid message target.
+- **The cross-session message tool cannot reach a tmux CLI session.** It knows only sessions the
+  desktop app tracks, and a `claude` started from a shell does not appear in `list_sessions` at all.
+  Use tmux for those. `SendMessage` is separately disallowed in some sessions, so `ListAgents` will
+  cheerfully list peers that cannot be written to.
+- **No message channel can stop a running turn.** Not the cross-session tool, whose own description
+  says it is for handing off context rather than orchestrating work, and not `SendMessage`. Escape
+  twice in Claude Desktop opens **Rewind**, not a stop. Interrupting is a GUI act, and it is the one
+  thing the viewing wall is genuinely required for rather than merely convenient.
+- **`-n` is a display label only**, and there is no in-session rename. A fork named for the job it
+  was given reads afterwards as though it had been forked from that job.
+
 ## Running commands in the agent session
 
 - **Use the helper's `window-input` verb, not VNC typing.** `POST /api/window/input` with a Terminal
