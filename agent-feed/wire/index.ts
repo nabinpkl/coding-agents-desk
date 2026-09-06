@@ -134,6 +134,7 @@ export type {
 } from "./tasks.ts";
 
 export type {
+  AgentSessionTerminalContext,
   AgentTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalInput,
@@ -143,6 +144,7 @@ export type {
   CloseAgentTerminalRequest,
   OpenAgentTerminalRequest,
   TmuxSessionSummary,
+  TmuxTerminalContext,
 } from "./terminal.ts";
 
 export type {

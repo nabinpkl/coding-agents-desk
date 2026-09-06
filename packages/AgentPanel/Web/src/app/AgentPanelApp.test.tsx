@@ -1007,6 +1007,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
     expect(terminalPaneMock.context).toEqual({
+      kind: "agent-session",
       projectPath: "/projects/alpha",
       source: "claude",
       sessionId: "sid-claude-01",
@@ -1079,6 +1080,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
     expect(terminalPaneMock.context).toEqual({
+      kind: "agent-session",
       projectPath: "/projects/alpha",
       source: "codex",
       sessionId: "sid-codex-01",

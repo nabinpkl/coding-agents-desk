@@ -62,6 +62,7 @@ import {
   AgentTerminalPane,
   type AgentTerminalPaneState,
 } from "../features/terminal/AgentTerminalPane";
+import { terminalContextKey } from "../features/terminal/terminalContext";
 
 /**
  * A textarea that grows with its content instead of scrolling inside a fixed single row.
@@ -634,6 +635,7 @@ export function App({ feed, host, fill = false }: Props) {
     if (!selectedThread) return;
     if (!isTerminalSource(selectedThread.session.source) || !selectedThread.session.capabilities.canOpenTerminal) return;
     const context: AgentTerminalContext = {
+      kind: "agent-session",
       projectPath: selectedThread.project.projectPath,
       source: selectedThread.session.source,
       sessionId: selectedThread.session.sessionId,
@@ -709,11 +711,7 @@ export function App({ feed, host, fill = false }: Props) {
   const updateTerminalState = useCallback((context: AgentTerminalContext, state: AgentTerminalPaneState) => {
     setTerminal((current) => {
       if (current.kind === "idle") return current;
-      if (
-        current.context.projectPath !== context.projectPath ||
-        current.context.source !== context.source ||
-        current.context.sessionId !== context.sessionId
-      ) return current;
+      if (terminalContextKey(current.context) !== terminalContextKey(context)) return current;
       switch (state.kind) {
         case "ready":
           return { kind: "ready", context: current.context, descriptor: state.descriptor };

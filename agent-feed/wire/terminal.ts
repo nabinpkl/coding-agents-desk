@@ -9,11 +9,28 @@ export interface TmuxSessionSummary {
 }
 
 /** A provider session whose CLI should be resumed inside the Agent Feed terminal. */
-export interface AgentTerminalContext {
+export interface AgentSessionTerminalContext {
+  kind: "agent-session";
   projectPath: string;
   source: "claude" | "codex";
   sessionId: string;
 }
+
+/**
+ * A tmux session to attach to, rather than a CLI to start.
+ *
+ * The distinction is the point: resuming a session opens a second client to a transcript, while
+ * attaching shows the process somebody is already running. tmux is what makes the second viewer
+ * legal, so watching a live agent goes through here and not through the resume above.
+ */
+export interface TmuxTerminalContext {
+  kind: "tmux";
+  /** As `GET /api/tmux/sessions` names it. */
+  session: string;
+}
+
+/** What a terminal is pointed at. */
+export type AgentTerminalContext = AgentSessionTerminalContext | TmuxTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {

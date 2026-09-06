@@ -290,6 +290,7 @@ describe("SidecarDataSource", () => {
     const messages: unknown[] = [];
 
     expect(await source.openTerminal({
+      kind: "agent-session",
       projectPath: "/projects/agent-desk",
       source: "codex",
       sessionId: "session-1",
@@ -315,6 +316,7 @@ describe("SidecarDataSource", () => {
         path: "/api/terminals",
         body: {
           context: {
+            kind: "agent-session",
             projectPath: "/projects/agent-desk",
             source: "codex",
             sessionId: "session-1",

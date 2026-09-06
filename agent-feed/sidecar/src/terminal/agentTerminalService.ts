@@ -2,11 +2,13 @@ import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { relative, resolve } from "node:path";
 import type {
+  AgentSessionTerminalContext,
   AgentTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
+  TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
 import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
@@ -24,6 +26,16 @@ export class AgentTerminalUnavailableError extends Error {}
 export interface ResolvedAgentTerminalSession {
   projectPath: string;
   activity: string;
+}
+
+/** Everything `open` needs that depends on what the terminal is pointed at. */
+interface TerminalIdentity {
+  ptySessionName: string;
+  cwd: string;
+  /** Argv for the login shell to exec, command first. */
+  command: string[];
+  /** When set, a target with no PTY session yet must not get one, and this says why. */
+  refuseNew: string | null;
 }
 
 interface ActiveTerminal {
@@ -66,7 +78,7 @@ export class AgentTerminalService {
     context: AgentTerminalContext,
     dimensions: { columns: number; rows: number },
   ): Promise<AgentTerminalDescriptor> {
-    const identity = await this.validate(context);
+    const identity = await this.identify(context);
     let sessions: PtySessionSummary[];
     try {
       sessions = await this.pty.listSessions();
@@ -77,23 +89,22 @@ export class AgentTerminalService {
     if (existing && !isRunning(existing)) {
       throw new AgentTerminalConflictError("the deterministic terminal session has already exited");
     }
-    if (!existing && identity.activity === "live") {
-      throw new AgentTerminalConflictError("the agent session is already active in another terminal");
+    if (!existing && identity.refuseNew) {
+      throw new AgentTerminalConflictError(identity.refuseNew);
     }
 
     const columns = requiredDimension(dimensions.columns, "terminal columns");
     const rows = requiredDimension(dimensions.rows, "terminal rows");
-    const harnessArguments = identity.source === "claude"
-      ? ["claude", "--resume", identity.sessionId]
-      : ["codex", "resume", identity.sessionId];
     let connection: PtySessionConnection;
     try {
       connection = await this.pty.openSession({
         sessionName: identity.ptySessionName,
         launch: {
-          cwd: identity.projectPath,
+          cwd: identity.cwd,
           executable: "/bin/zsh",
-          arguments: ["-l", "-c", 'exec "$0" "$@"', ...harnessArguments],
+          // Through a login shell, so the command is found on the user's own PATH rather than the
+          // sidecar's, which is deliberately stripped of it.
+          arguments: ["-l", "-c", 'exec "$0" "$@"', ...identity.command],
         },
         columns,
         rows,
@@ -195,13 +206,40 @@ export class AgentTerminalService {
     }
   }
 
-  private async validate(context: AgentTerminalContext): Promise<{
-    source: "claude" | "codex";
-    sessionId: string;
-    projectPath: string;
-    ptySessionName: string;
-    activity: string;
-  }> {
+  /**
+   * What to launch, where, and under which PTY session name.
+   *
+   * One place rather than a branch inside `open`, because the two kinds of terminal agree on
+   * everything after this: the pty session is deterministic per target, so a second viewer of the
+   * same target joins the running one instead of starting a second.
+   */
+  private async identify(context: AgentTerminalContext): Promise<TerminalIdentity> {
+    if (context.kind === "tmux") return this.identifyTmux(context);
+    return this.identifyAgentSession(context);
+  }
+
+  /**
+   * Attaching, not resuming: the process is already running and tmux is what allows a second
+   * viewer. tmux 3.x negotiates window size as `window-size latest`, so this viewer's own
+   * dimensions win while it is the client most recently used -- the user's terminal is not shrunk
+   * for good, but it will letterbox until they touch it again.
+   */
+  private identifyTmux(context: TmuxTerminalContext): TerminalIdentity {
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(context.session)) {
+      throw new AgentTerminalInvalidError("tmux session name is not a plain identifier");
+    }
+    return {
+      ptySessionName: `agent-tmux-${context.session}`,
+      cwd: this.userHomeDirectory,
+      command: ["tmux", "attach-session", "-t", context.session],
+      // A tmux session is meant to be watched from more than one place, so nothing to refuse.
+      refuseNew: null,
+    };
+  }
+
+  private async identifyAgentSession(
+    context: AgentSessionTerminalContext,
+  ): Promise<TerminalIdentity> {
     if (context.source !== "claude" && context.source !== "codex") {
       throw new AgentTerminalInvalidError("terminal source must be claude or codex");
     }
@@ -245,11 +283,16 @@ export class AgentTerminalService {
     }
 
     return {
-      source: context.source,
-      sessionId,
-      projectPath,
       ptySessionName: `agent-resume-${context.source}-${sessionId}`,
-      activity: session.activity,
+      cwd: projectPath,
+      command: context.source === "claude"
+        ? ["claude", "--resume", sessionId]
+        : ["codex", "resume", sessionId],
+      // Resuming a session that is already running elsewhere would open a second client to one
+      // transcript. Watching it is what the tmux kind is for.
+      refuseNew: session.activity === "live"
+        ? "the agent session is already active in another terminal"
+        : null,
     };
   }
 

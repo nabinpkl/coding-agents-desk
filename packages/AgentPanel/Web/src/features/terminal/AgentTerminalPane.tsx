@@ -13,6 +13,7 @@ import type {
   AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import { terminalContextKey, terminalContextLabel } from "./terminalContext";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
@@ -210,7 +211,9 @@ export function AgentTerminalPane({ feed, context, onState }: Props) {
       removeResizeListenersRef.current();
       teardown();
     };
-  }, [context.projectPath, context.sessionId, context.source, feed, onState]);
+    // Keyed by what the terminal points at rather than by the context object, which is rebuilt on
+    // every render and would restart the session each time.
+  }, [terminalContextKey(context), feed, onState]);
 
   const resizeTo = (requestedHeight: number): void => {
     const pane = paneRef.current;
@@ -263,7 +266,7 @@ export function AgentTerminalPane({ feed, context, onState }: Props) {
   return (
     <section
       ref={paneRef}
-      aria-label={`${context.source === "claude" ? "Claude" : "Codex"} terminal`}
+      aria-label={`${terminalContextLabel(context)} terminal`}
       className="flex h-[38%] min-h-[150px] shrink-0 flex-col border-t border-border bg-white dark:bg-[#0b0e14]"
       style={height === null ? undefined : { height }}
     >

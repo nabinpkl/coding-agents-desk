@@ -66,7 +66,12 @@ async function call(
 test("opens the selected provider session through the sidecar PTY service", async () => {
   const { calls, route } = fakeService();
   const response = await call(route, "POST", "/api/terminals", {
-    context: { projectPath: "/projects/agent-desk", source: "codex", sessionId: SESSION_ID },
+    context: {
+      kind: "agent-session",
+      projectPath: "/projects/agent-desk",
+      source: "codex",
+      sessionId: SESSION_ID,
+    },
     columns: 90,
     rows: 28,
   });
@@ -74,7 +79,12 @@ test("opens the selected provider session through the sidecar PTY service", asyn
   expect(response?.status).toBe(201);
   expect(await response?.json()).toEqual(descriptor);
   expect(calls).toEqual([{ open: {
-    context: { projectPath: "/projects/agent-desk", source: "codex", sessionId: SESSION_ID },
+    context: {
+      kind: "agent-session",
+      projectPath: "/projects/agent-desk",
+      source: "codex",
+      sessionId: SESSION_ID,
+    },
     dimensions: { columns: 90, rows: 28 },
   } }]);
 });
@@ -128,6 +138,33 @@ test("posts xterm input and viewport state without a native bridge", async () =>
   ]);
 });
 
+test("opens a tmux target with only the session it names", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals", {
+    context: { kind: "tmux", session: "canvas-fork" },
+    columns: 120,
+    rows: 40,
+  });
+
+  expect(response?.status).toBe(201);
+  expect(calls).toEqual([{ open: {
+    context: { kind: "tmux", session: "canvas-fork" },
+    dimensions: { columns: 120, rows: 40 },
+  } }]);
+});
+
+test("a context without a known kind is refused before the service sees it", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals", {
+    context: { projectPath: "/projects/agent-desk", source: "codex", sessionId: SESSION_ID },
+    columns: 80,
+    rows: 24,
+  });
+
+  expect(response?.status).toBe(400);
+  expect(calls).toEqual([]);
+});
+
 test("maps an occupied provider session to a typed conflict", async () => {
   const { route } = fakeService({
     open: async () => {
@@ -135,7 +172,12 @@ test("maps an occupied provider session to a typed conflict", async () => {
     },
   });
   const response = await call(route, "POST", "/api/terminals", {
-    context: { projectPath: "/projects/agent-desk", source: "codex", sessionId: SESSION_ID },
+    context: {
+      kind: "agent-session",
+      projectPath: "/projects/agent-desk",
+      source: "codex",
+      sessionId: SESSION_ID,
+    },
     columns: 80,
     rows: 24,
   });

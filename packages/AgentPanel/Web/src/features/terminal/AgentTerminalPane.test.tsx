@@ -75,6 +75,7 @@ it("renders the PTY stream, sends xterm input, and detaches through Agent Feed",
   } as unknown as SidecarDataSource;
   const onState = vi.fn();
   const context = {
+    kind: "agent-session" as const,
     projectPath: "/projects/agent-desk",
     source: "codex" as const,
     sessionId: "session-1",
@@ -127,6 +128,7 @@ it("closes the stream without detaching a PTY that already exited", async () => 
   } as unknown as SidecarDataSource;
   const onState = vi.fn();
   const context = {
+    kind: "agent-session" as const,
     projectPath: "/projects/agent-desk",
     source: "codex" as const,
     sessionId: "session-1",

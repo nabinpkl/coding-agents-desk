@@ -1,4 +1,5 @@
 import type {
+  AgentSessionTerminalContext,
   AgentTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalStreamEnvelope,
@@ -62,12 +63,7 @@ async function openTerminal(
   try {
     const body = await requestObject(request);
     if (body instanceof Response) return body;
-    const context = objectValue(body.context, "context");
-    const descriptor = await service.open({
-      projectPath: stringValue(context.projectPath, "context.projectPath"),
-      source: stringValue(context.source, "context.source") as AgentTerminalContext["source"],
-      sessionId: stringValue(context.sessionId, "context.sessionId"),
-    }, {
+    const descriptor = await service.open(terminalContext(objectValue(body.context, "context")), {
       columns: integerValue(body.columns, "columns"),
       rows: integerValue(body.rows, "rows"),
     });
@@ -75,6 +71,23 @@ async function openTerminal(
   } catch (error) {
     return routeError(error);
   }
+}
+
+/** The kind is read first, because it decides which other fields have to be there. */
+function terminalContext(context: Record<string, unknown>): AgentTerminalContext {
+  const kind = stringValue(context.kind, "context.kind");
+  if (kind === "tmux") {
+    return { kind, session: stringValue(context.session, "context.session") };
+  }
+  if (kind !== "agent-session") {
+    throw new AgentTerminalInvalidError("context.kind must be agent-session or tmux");
+  }
+  return {
+    kind,
+    projectPath: stringValue(context.projectPath, "context.projectPath"),
+    source: stringValue(context.source, "context.source") as AgentSessionTerminalContext["source"],
+    sessionId: stringValue(context.sessionId, "context.sessionId"),
+  };
 }
 
 async function terminalInput(
