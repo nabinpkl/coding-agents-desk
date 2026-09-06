@@ -286,13 +286,20 @@ export function UserRow({
   isHighlighted: boolean;
 }) {
   return (
+    // Right-aligned, which is the one thing that separates what you said from what the session
+    // said without reading either. The card shrinks to its text and stops at 85% of the row, so
+    // the ragged left edge is the signal; a full-width card on the right would look the same as
+    // every other row. Everything inside stays left-aligned -- prose, code and diffs are read
+    // from a left margin whichever side of the feed they sit on.
     <div
-      className={`${FEED_ROW_GUTTER_CLASS} py-[0.4em]`}
+      className={`${FEED_ROW_GUTTER_CLASS} flex justify-end py-[0.4em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div
         className={
-          "rounded-md border border-primary/30 bg-primary/10 px-[0.6em] py-[0.35em] transition-shadow duration-300 " +
+          // `min-w-0` so a wide child (a pasted diff, a long unbroken path) scrolls inside the
+          // card the way it does anywhere else, rather than forcing the card past its maximum.
+          "min-w-0 max-w-[85%] rounded-md border border-primary/30 bg-primary/10 px-[0.6em] py-[0.35em] transition-shadow duration-300 " +
           (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "")
         }
       >

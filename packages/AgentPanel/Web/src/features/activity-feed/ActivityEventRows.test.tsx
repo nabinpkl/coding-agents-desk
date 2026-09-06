@@ -190,6 +190,22 @@ describe("event heading", () => {
     }
   });
 
+  it("puts what the user said on the right, in a card narrower than the row", () => {
+    const { container } = renderRow(
+      <UserRow
+        ev={event({ type: "user" })}
+        ctx={CTX}
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    const row = container.firstElementChild!;
+    expect(row.className).toContain("justify-end");
+    // Bounded, or a long prompt fills the row and the side it is on stops being readable.
+    expect(row.firstElementChild?.className).toContain("max-w-[85%]");
+  });
+
   it("floats so the body's first line sits beside it rather than below", () => {
     // The recovered row: the heading used to be a full-width bar above the
     // body, costing every event ~30px that carried no content.
