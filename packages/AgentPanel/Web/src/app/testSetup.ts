@@ -27,3 +27,26 @@ Object.defineProperty(globalThis, "ResizeObserver", {
     disconnect() {}
   },
 });
+
+// jsdom implements no PointerEvent, and Testing Library's fallback drops the coordinates with it,
+// so a pointer-driven component reads `clientX` as undefined and every drag assertion passes or
+// fails for the wrong reason. MouseEvent already carries the coordinate contract these components
+// use; this adds only the pointer identity on top.
+if (typeof (globalThis as { PointerEvent?: unknown }).PointerEvent === "undefined") {
+  class JsdomPointerEvent extends MouseEvent {
+    readonly pointerId: number;
+    readonly pointerType: string;
+    readonly isPrimary: boolean;
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+      this.pointerType = init.pointerType ?? "mouse";
+      this.isPrimary = init.isPrimary ?? true;
+    }
+  }
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: JsdomPointerEvent,
+  });
+}

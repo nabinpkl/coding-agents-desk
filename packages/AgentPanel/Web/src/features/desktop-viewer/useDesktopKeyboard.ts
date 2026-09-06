@@ -43,6 +43,7 @@ import {
   type KeyboardPresentationState,
   type ModifierState,
 } from "./desktopKeyboardModel";
+import { drawsOwnKeyboard } from "./keyboardDeckModel";
 
 const AUTO_KEYBOARD_STORAGE_KEY = "agentdesk.desktop-keyboard-auto.v2";
 // Give WebKit a deletable character even when the local echo is empty.
@@ -111,6 +112,19 @@ export function useDesktopKeyboard({
     if (!capture) return;
     capture.value = CAPTURE_SENTINEL;
     capture.setSelectionRange(CAPTURE_SENTINEL.length, CAPTURE_SENTINEL.length);
+  }, []);
+
+  /**
+   * Focus the capture field only where focusing it is the way text arrives.
+   *
+   * On a desktop browser it is: there is a physical keyboard, and its events need a focused
+   * element to land in. On a phone it is the opposite -- focusing summons WebKit's keyboard and,
+   * with it, the form-navigation strip that no web API can remove -- so the panel draws its own
+   * deck and leaves everything unfocused.
+   */
+  const focusCapture = useCallback(() => {
+    if (drawsOwnKeyboard()) return;
+    captureRef.current?.focus({ preventScroll: true });
   }, []);
 
   const updatePresentation = useCallback((action: KeyboardPresentationAction) => {
@@ -355,6 +369,31 @@ export function useDesktopKeyboard({
     return acceptEncodedKeys(encoded);
   }, [acceptEncodedKeys, report]);
 
+  /**
+   * One character from the on-screen deck.
+   *
+   * Most of them are a US key position and go as one, which is what carries the armed modifiers
+   * and fills the echo strip. The symbols page also offers four that no US keyboard has a key for
+   * -- the currency signs and the bullet -- and those go as characters instead, since a key code
+   * that does not exist cannot be sent. Their echo is appended here because the text path
+   * deliberately reports no keystroke tokens of its own.
+   */
+  const sendDeckCharacter = useCallback((character: string): boolean => {
+    const key = remoteKeyForCharacter(character);
+    if (key) return acceptEncodedKeys([key]);
+    const secure = presentationRef.current.secure || presentationRef.current.editability === null;
+    if (!sendText(character)) return false;
+    setLocalEcho((current) => [...current, secure ? "\u2022" : character].slice(-MAX_RECEIPT_EVENTS));
+    return true;
+  }, [acceptEncodedKeys, sendText]);
+
+  /** Panning the deck's space bar moves the remote caret, one arrow press per step. */
+  const sendDeckCursorDelta = useCallback((delta: number) => {
+    const code: RemoteKeyCode = delta > 0 ? "right" : "left";
+    const steps = Math.min(Math.abs(delta), DESKTOP_CONTROL_MAX_KEY_BATCH);
+    acceptEncodedKeys(Array.from({ length: steps }, () => ({ code, modifiers: [] })));
+  }, [acceptEncodedKeys]);
+
   const hide = useCallback(() => clearLocalState("hide", "explicit-hide"), [clearLocalState]);
 
   const prepareCapture = useCallback(() => {
@@ -364,8 +403,8 @@ export function useDesktopKeyboard({
       sawKeyboardViewport.current = false;
     }
     resetCapture();
-    captureRef.current?.focus({ preventScroll: true });
-  }, [resetCapture]);
+    focusCapture();
+  }, [focusCapture, resetCapture]);
 
   const beforeRemoteClick = useCallback((): string | undefined => {
     if (!autoKeyboard || !transportRef.current) return undefined;
@@ -427,16 +466,16 @@ export function useDesktopKeyboard({
 
   const sendChromeKey = useCallback((code: RemoteKeyCode) => {
     acceptEncodedKeys([{ code, modifiers: [] }]);
-    captureRef.current?.focus({ preventScroll: true });
-  }, [acceptEncodedKeys]);
+    focusCapture();
+  }, [acceptEncodedKeys, focusCapture]);
 
   const tapModifier = useCallback((modifier: RemoteModifier) => {
     const next = { ...modifiersRef.current };
     next[modifier] = cycleModifier(next[modifier]);
     modifiersRef.current = next;
     setModifiers(next);
-    captureRef.current?.focus({ preventScroll: true });
-  }, []);
+    focusCapture();
+  }, [focusCapture]);
 
   const setAutoKeyboard = useCallback((enabled: boolean) => {
     setAutoKeyboardState(enabled);
@@ -726,6 +765,8 @@ export function useDesktopKeyboard({
     showManually,
     hide,
     sendChromeKey,
+    sendDeckCharacter,
+    sendDeckCursorDelta,
     pasteFromClipboard,
     tapModifier,
     setAutoKeyboard,

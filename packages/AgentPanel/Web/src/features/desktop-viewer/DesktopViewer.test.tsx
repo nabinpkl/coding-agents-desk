@@ -126,9 +126,11 @@ describe("DesktopViewer", () => {
     expect(capture.parentElement).toBe(document.body);
     expect(container).not.toContainElement(chrome);
     expect(capture).toHaveStyle({ fontSize: "16px" });
-    // Twelve rail-and-chrome controls plus Paste. The capture stays a 4x4 nothing in the corner:
-    // a field big enough to tap is what makes WebKit draw its form strip over the key rail.
-    expect(within(chrome).getAllByRole("button")).toHaveLength(13);
+    // Twelve rail-and-chrome controls, plus Paste, plus the deck's own 31 keys. The capture stays
+    // a 4x4 nothing in the corner: a field big enough to tap is what makes WebKit draw its form
+    // strip over the key rail, and the deck exists so nothing has to be focused at all.
+    expect(within(chrome).getAllByRole("button")).toHaveLength(44);
+    expect(within(screen.getByTestId("keyboard-deck")).getAllByRole("button")).toHaveLength(31);
     expect(within(chrome).getByRole("button", { name: "Paste" })).toBeVisible();
     const rail = within(chrome).getByLabelText("Remote key rail");
     expect(within(rail).getAllByRole("button").map((button) => button.textContent))
@@ -138,11 +140,11 @@ describe("DesktopViewer", () => {
     expect(within(chrome).queryByText("Local echo above; delivery confirmed here")).not.toBeInTheDocument();
     expect(rail).not.toContainElement(within(chrome).getByRole("button", { name: "Hide" }));
     expect(rail).not.toContainElement(within(chrome).getByRole("button", { name: "Auto keyboard" }));
-    for (const name of ["Esc", "Tab", "Shift", "Cmd", "Ctrl", "Opt", "Hide"]) {
+    for (const name of ["Esc", "Tab", "Shift modifier", "Cmd", "Ctrl", "Opt", "Hide"]) {
       expect(within(chrome).getByRole("button", { name })).toBeVisible();
     }
-    fireEvent.pointerDown(within(chrome).getByRole("button", { name: "Shift" }));
-    fireEvent.click(within(chrome).getByRole("button", { name: "Shift" }));
+    fireEvent.pointerDown(within(chrome).getByRole("button", { name: "Shift modifier" }));
+    fireEvent.click(within(chrome).getByRole("button", { name: "Shift modifier" }));
     expect(document.activeElement).toBe(capture);
     expect(chrome).toBeInTheDocument();
     fireEvent.click(within(chrome).getByRole("button", { name: "Hide" }));

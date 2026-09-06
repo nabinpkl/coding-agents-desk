@@ -1,7 +1,9 @@
 import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
-import type { RefObject, TextareaHTMLAttributes } from "react";
+import { useEffect, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
+import { KeyboardDeck } from "./KeyboardDeck";
+import { deckMetricsForViewportHeight } from "./keyboardDeckMetrics";
 
 const ARROWS: Array<{ label: string; code: RemoteKeyCode; position: string }> = [
   { label: "↑", code: "up", position: "col-start-2 row-start-1" },
@@ -34,6 +36,8 @@ export function DesktopKeyboardChrome({
   onKey,
   onModifier,
   onPasteToMac,
+  onDeckCharacter,
+  onDeckCursorDelta,
 }: {
   captureRef: RefObject<HTMLTextAreaElement | null>;
   /** Measured by the keyboard hook so the viewer can end the video above this bar. */
@@ -55,7 +59,11 @@ export function DesktopKeyboardChrome({
   onModifier: (modifier: RemoteModifier) => void;
   /** Reads the clipboard and sends it, without any field on this page taking focus. */
   onPasteToMac: () => void;
+  /** One character typed on the deck, including " " for space and "\n" for return. */
+  onDeckCharacter: (character: string) => void;
+  onDeckCursorDelta: (delta: number) => void;
 }) {
+  const deckMetrics = useDeckMetrics();
   const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
@@ -175,10 +183,33 @@ export function DesktopKeyboardChrome({
               />
             ))}
           </div>
+          <KeyboardDeck
+            metrics={deckMetrics}
+            onCharacter={onDeckCharacter}
+            onDelete={() => onKey("delete")}
+            onCursorDelta={onDeckCursorDelta}
+          />
         </section>, document.body,
       )}
     </>
   );
+}
+
+/** iOS swaps its metrics on the vertical size class; a page has only the viewport's height. */
+function useDeckMetrics() {
+  const [metrics, setMetrics] = useState(() =>
+    deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
+  useEffect(() => {
+    const update = () => setMetrics(
+      deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
+  }, []);
+  return metrics;
 }
 
 function KeyboardButton({
@@ -195,7 +226,7 @@ function KeyboardButton({
   return (
     <button
       type="button"
-      aria-label={label === "⇧" ? "Shift" : label}
+      aria-label={label === "⇧" ? "Shift modifier" : label}
       aria-pressed={state === "off" ? undefined : true}
       data-state={state}
       onClick={onClick}
