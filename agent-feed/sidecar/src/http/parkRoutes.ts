@@ -23,7 +23,7 @@ import type {
   ParkStateResponse,
 } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
-import { gridSlots, usableArea } from "../park/grid.ts";
+import { packFromTopLeft, usableArea } from "../park/grid.ts";
 import { plan as planLadder } from "../park/ladder.ts";
 import { park, restore } from "../park/park.ts";
 import {
@@ -254,7 +254,10 @@ async function gridResponse(request: Request): Promise<Response> {
   const area = usableArea(screen.frame, MENU_BAR_INSET);
   let slots;
   try {
-    slots = gridSlots(area, chosen.length, gap);
+    // Packed at the windows' own sizes, so the space between two of them is the
+    // gap. Dividing the display evenly instead put an 860pt terminal at the
+    // top-left of a 2528pt cell and left 1600pt of desk between neighbours.
+    slots = packFromTopLeft(area, chosen.map((w) => w.frame), gap);
   } catch (error) {
     return jsonResponse(
       { code: "park-grid-impossible", message: (error as Error).message },
@@ -268,21 +271,10 @@ async function gridResponse(request: Request): Promise<Response> {
   const placements = [];
   for (const [index, window] of chosen.entries()) {
     const slot = slots[index]!;
-    // A slot is a region to sit in, not a shape to become. The window keeps the
-    // size its app chose and is only ever shrunk, and only when it would
-    // otherwise overflow into its neighbour. Stretching a terminal to 2528pt
-    // does not make it more readable, it just spends the desk, and the desk is
-    // the thing there is most of.
-    //
-    // Anchored at the region's top-left rather than centred in it. Centring
-    // gives every window a different left edge, so a row of them reads as
-    // scattered; a shared edge and a shared top is what makes a board look like
-    // a board when the windows in it are different sizes.
-    const width = Math.min(window.frame.w, slot.w);
-    const height = Math.min(window.frame.h, slot.h);
+    // The packer already sized the slot to the window, shrinking it only if it
+    // was too big for the desk, so the slot is the placement.
+    const { x, y, w: width, h: height } = slot;
     const shrinks = width !== window.frame.w || height !== window.frame.h;
-    const x = slot.x;
-    const y = slot.y;
 
     const steps = [];
     if (window.space !== target.index) steps.push(await moveToSpace(window.id, target.index));
