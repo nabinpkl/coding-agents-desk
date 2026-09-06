@@ -52,6 +52,7 @@ func runControlMode(
         DispatchQueue.main.sync { .ok(DesktopSpaces.catalog()) }
     }
     registerComposerVerbs(on: control)
+    registerWindowInputVerbs(on: control)
 
     // Announced before the loop starts so the sidecar can refuse a helper that came up without the
     // grants instead of discovering it one failed composer read at a time. `inputTrusted` false is

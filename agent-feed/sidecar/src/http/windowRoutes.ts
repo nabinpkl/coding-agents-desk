@@ -35,6 +35,10 @@ const COMPOSER_READ_ROUTE = "/api/window/composer/read";
 const COMPOSER_SUBMIT_ROUTE = "/api/window/composer/submit";
 const COMPOSER_CENSUS_ROUTE = "/api/window/composer/census";
 const QUESTION_ACTION_ROUTE = "/api/window/question/action";
+const INPUT_ROUTE = "/api/window/input";
+
+/** Commands one request may aim at a window. Mirrors the helper's own bound. */
+const MAXIMUM_INPUT_COMMANDS = 64;
 
 /** A composer holds a whole prompt, so this is generous; it is still a bound. */
 const MAXIMUM_BODY_BYTES = 1024 * 1024;
@@ -53,6 +57,7 @@ export function createWindowRoutes(): RouteHandler {
     if (url.pathname === COMPOSER_READ_ROUTE) return composerRead(request);
     if (url.pathname === COMPOSER_CENSUS_ROUTE) return composerCensus(request);
     if (url.pathname === QUESTION_ACTION_ROUTE) return questionAction(request);
+    if (url.pathname === INPUT_ROUTE) return windowInput(request);
     return undefined;
   };
 }
@@ -175,6 +180,39 @@ function decodeAction(body: Record<string, unknown>): QuestionAction | null {
     return { kind };
   }
   return null;
+}
+
+/**
+ * Aim desktop-control commands at one window rather than at whatever holds focus.
+ *
+ * The helper raises the window first, which is the part that needs saying out loud: everywhere else
+ * in this file is deliberately non-obtrusive, because the console user is working and a window that
+ * jumps forward is a stolen keystroke. This is for the agent's own login session, which has its own
+ * pointer, focus and frontmost application, and calling it against a session someone is using would
+ * be exactly the rudeness the rest of the path avoids.
+ *
+ * The commands are passed through rather than re-validated here. They are the same desktop-control
+ * vocabulary the WebRTC lane carries, and the helper hands them to the same parser with the same
+ * bounds clamping, so a second validator in this file would be a second place for it to drift.
+ */
+async function windowInput(request: Request): Promise<Response> {
+  const body = await readJson(request);
+  const windowID = body?.windowID;
+  if (typeof windowID !== "number" || !Number.isInteger(windowID) || windowID <= 0) {
+    return badRequest("windowID must be a positive integer WindowServer id");
+  }
+  const input = body?.input;
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAXIMUM_INPUT_COMMANDS) {
+    return badRequest(`input must be 1 to ${MAXIMUM_INPUT_COMMANDS} desktop-control commands`);
+  }
+  if (input.some((command) => typeof command !== "object" || command === null)) {
+    return badRequest("every input command must be an object");
+  }
+  try {
+    return jsonResponse(await controlHelper.request("window-input", { windowID, input }));
+  } catch (error) {
+    return failure(error);
+  }
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {

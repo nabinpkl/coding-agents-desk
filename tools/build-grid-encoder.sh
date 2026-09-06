@@ -26,6 +26,7 @@ swiftc_cached "$out" \
   "$root/tools/grid-encoder/WorkspaceObserver.swift" \
   "$root/tools/grid-encoder/ComposerVerbs.swift" \
   "$root/tools/grid-encoder/DesktopInputController.swift" \
+  "$root/tools/grid-encoder/WindowInputVerbs.swift" \
   "$root/tools/grid-encoder/CaptureControlCommand.swift" \
   "$root/tools/grid-encoder/CursorMirror.swift" \
   "$root/host/AgentDeskHost/SkyLightSymbols.swift" \
