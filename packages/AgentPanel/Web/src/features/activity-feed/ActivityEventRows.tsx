@@ -143,7 +143,12 @@ function EventHeading({
       // A live row has no transcript position yet, so it says what it is instead
       // of naming an index that would read as `#-1`.
       title={isLive ? "streaming" : when ? `#${ev.index} · ${when}` : `#${ev.index}`}
-      className="float-left mt-[0.15em] mr-[0.4em] flex items-center gap-[0.2em] rounded-sm text-left transition-colors hover:bg-foreground/5"
+      // `max-w-full` is what keeps a phone from scrolling sideways. A float is sized shrink-to-fit,
+      // which floors at its min-content width, and the intent span below caps itself in `ch` --
+      // an absolute bound that a 390px column cannot afford, so the float grew past the viewport
+      // and took the whole transcript's horizontal scroll with it. Measured at 466px of content in
+      // a 390px scroller; capped, 390.
+      className="float-left mt-[0.15em] mr-[0.4em] flex max-w-full items-center gap-[0.2em] rounded-sm text-left transition-colors hover:bg-foreground/5"
     >
       <ChevronRight
         className={

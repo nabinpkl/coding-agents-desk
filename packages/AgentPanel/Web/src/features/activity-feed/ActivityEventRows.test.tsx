@@ -222,6 +222,10 @@ describe("event heading", () => {
     );
     const heading = container.querySelector("button[aria-expanded]");
     expect(heading?.className).toContain("float-left");
+    // A float floors at its min-content width, and the tool-intent span inside caps itself in
+    // `ch`, so without this the heading grew past a phone's column and gave the whole transcript
+    // a horizontal scroll. jsdom has no layout to measure, so the cap is asserted as the class.
+    expect(heading?.className).toContain("max-w-full");
   });
 
   it("contains the float so a short body cannot let it escape the row", () => {

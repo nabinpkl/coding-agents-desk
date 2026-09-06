@@ -121,6 +121,12 @@
   padding: 0.1em 0.3em;
   border-radius: 3px;
   background: var(--muted);
+  /* An absolute path or a long identifier is one unbreakable token, and inline code sits in prose
+     that has nowhere to put it: on a phone it ran past the column and gave the whole transcript a
+     horizontal scroll. `anywhere` rather than `break-word` because it also lowers the box's
+     min-content width, which is what the line above it is measured against. Code FENCES keep their
+     own horizontal scroll (`.agent-panel-code__body`); this is only the inline kind. */
+  overflow-wrap: anywhere;
 }
 .agent-panel-md__prose hr {
   border: none;
