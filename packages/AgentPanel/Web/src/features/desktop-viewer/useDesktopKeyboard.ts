@@ -162,6 +162,9 @@ export function useDesktopKeyboard({
       // The current setting remains authoritative for this mounted surface.
     }
     if (showsDeckRef.current) {
+      // The browser's keyboard is on its way out; nothing left of it should be able to fire.
+      sawKeyboardViewport.current = false;
+      setSoftwareKeyboardVisible(false);
       captureRef.current?.blur();
       return;
     }
@@ -739,7 +742,10 @@ export function useDesktopKeyboard({
       setAccessoryBottom(bottom);
       const typing = presentationRef.current.presentation === "shown" || presentationRef.current.presentation === "pending";
       if (!typing) fullViewportHeight.current = viewport.height;
-      if (typing && viewport.height < fullViewportHeight.current - KEYBOARD_VIEWPORT_SHRINK_PX) {
+      // Only the browser's keyboard shrinks the viewport. The deck is part of the page, so a
+      // shrink while it is showing is someone else's and says nothing about how text arrives.
+      if (typing && !showsDeckRef.current
+          && viewport.height < fullViewportHeight.current - KEYBOARD_VIEWPORT_SHRINK_PX) {
         sawKeyboardViewport.current = true;
         setSoftwareKeyboardVisible(true);
       }
@@ -750,7 +756,11 @@ export function useDesktopKeyboard({
           offsetTop: Math.round(viewport.offsetTop), captureFocused: document.activeElement === captureRef.current,
         } });
       }
+      // The viewport coming back means the browser's keyboard left, which is a dismissal only
+      // while it was the one typing. Switching to the deck dismisses it too, and that is the deck
+      // arriving rather than the keyboard going.
       if (sawKeyboardViewport.current
+          && !showsDeckRef.current
           && viewport.height >= fullViewportHeight.current - KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX
           && typing) {
         clearLocalState("hide", "viewport-restored");

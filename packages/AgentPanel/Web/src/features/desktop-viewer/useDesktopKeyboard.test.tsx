@@ -414,6 +414,41 @@ describe("useDesktopKeyboard", () => {
     }
   });
 
+  it("stays up when the browser's keyboard leaves because the deck took over", () => {
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: query === "(hover: none) and (pointer: coarse)",
+      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
+      addListener() {}, removeListener() {}, dispatchEvent: () => false,
+    }) as MediaQueryList);
+    const previous = window.visualViewport;
+    const viewport = Object.assign(new EventTarget(), {
+      height: window.innerHeight, offsetTop: 0,
+    });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    try {
+      const harness = setup();
+      act(() => harness.controller.setKeyboardMode("native"));
+      act(() => harness.controller.showManually());
+      viewport.height = window.innerHeight - 200;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(harness.controller.softwareKeyboardVisible).toBe(true);
+
+      // Switching back dismisses the browser's keyboard, so the viewport comes back. That is the
+      // deck arriving, not the keyboard being dismissed, and must not tear the strip down.
+      act(() => harness.controller.setKeyboardMode("deck"));
+      viewport.height = window.innerHeight;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+
+      expect(harness.controller.presentation.presentation).toBe("shown");
+      expect(harness.controller.showsDeck).toBe(true);
+      expect(harness.controller.softwareKeyboardVisible).toBe(false);
+    } finally {
+      window.localStorage.removeItem("agentdesk.desktop-keyboard-mode.v1");
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
+      media.mockRestore();
+    }
+  });
+
   it("reports the whole occluded band, keyboard and accessory together", () => {
     const previous = window.visualViewport;
     const originalHeight = window.innerHeight;
