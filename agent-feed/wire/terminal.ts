@@ -92,6 +92,16 @@ export interface AgentTerminalStreamEnvelope {
   message: AgentTerminalStreamMessage;
 }
 
+/**
+ * `GET /api/terminals/{terminalId}/history` -- the scrollback the viewer was never sent.
+ *
+ * Base64, because it carries the escape sequences that colour it. Empty when the terminal has no
+ * history behind it to hand over.
+ */
+export interface AgentTerminalHistory {
+  data: string;
+}
+
 /** `POST /api/terminals/{terminalId}/input`. */
 export interface AgentTerminalInput {
   data: string;

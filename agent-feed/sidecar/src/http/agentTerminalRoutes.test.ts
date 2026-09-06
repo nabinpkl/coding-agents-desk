@@ -36,6 +36,10 @@ function fakeService(overrides: Partial<AgentTerminalRoutesService> = {}) {
     requestCheckpoint(terminalId) {
       calls.push({ checkpoint: { terminalId } });
     },
+    async history(terminalId, lines) {
+      calls.push({ history: { terminalId, lines } });
+      return "old \u001b[31mlines\u001b[0m\n";
+    },
     sendInput(terminalId, data, encoding) {
       calls.push({ input: { terminalId, data, encoding } });
     },
@@ -162,6 +166,26 @@ test("a context without a known kind is refused before the service sees it", asy
   });
 
   expect(response?.status).toBe(400);
+  expect(calls).toEqual([]);
+});
+
+test("hands back the scrollback a viewer was never sent, escapes intact", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "GET", `/api/terminals/${TERMINAL_ID}/history?lines=2000`);
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual({
+    data: Buffer.from("old \u001b[31mlines\u001b[0m\n", "utf8").toString("base64"),
+  });
+  expect(calls).toEqual([{ history: { terminalId: TERMINAL_ID, lines: 2000 } }]);
+});
+
+test("refuses a history request for an unusable number of lines", async () => {
+  const { calls, route } = fakeService();
+  for (const lines of ["0", "-1", "1.5", "50001", "all"]) {
+    const response = await call(route, "GET", `/api/terminals/${TERMINAL_ID}/history?lines=${lines}`);
+    expect(response?.status).toBe(400);
+  }
   expect(calls).toEqual([]);
 });
 

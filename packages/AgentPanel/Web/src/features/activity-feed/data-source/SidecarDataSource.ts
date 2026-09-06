@@ -19,6 +19,7 @@ import type {
   AgentSessionDescriptor,
   AgentTerminalContext,
   AgentTerminalDescriptor,
+  AgentTerminalHistory,
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
@@ -412,11 +413,37 @@ export class SidecarDataSource implements AgentDataSource {
     return sessions;
   }
 
-  subscribeTerminal(terminalId: string, handlers: TerminalViewer): () => void {
+  /**
+   * The scrollback the viewer was never sent, base64 with its escapes; empty when there is none.
+   *
+   * A tmux attach draws one screen, so everything before it exists only in tmux. This is how the
+   * client gets the rest, which is what makes scrolling back reach further than the attach.
+   */
+  async terminalHistory(terminalId: string, lines: number): Promise<string> {
+    const { data } = parse<AgentTerminalHistory>(await this.transport.request(
+      "GET",
+      `/api/terminals/${encodeURIComponent(terminalId)}/history?lines=${lines}`,
+    ));
+    return data;
+  }
+
+  /**
+   * `replay` asks the PTY to resend the screen. A viewer that already has one says no.
+   *
+   * The replay begins by clearing the terminal, so a viewer that imported the pane's history and
+   * then asked for a replay would watch its own history erased. Off, the screen it already wrote
+   * stands and the live output continues it.
+   */
+  subscribeTerminal(
+    terminalId: string,
+    handlers: TerminalViewer,
+    { replay = true }: { replay?: boolean } = {},
+  ): () => void {
     const viewers = this.terminalViewers.get(terminalId) ?? new Set<TerminalViewer>();
     viewers.add(handlers);
     this.terminalViewers.set(terminalId, viewers);
     const streaming = this.openTerminalStream();
+    if (!replay) return this.terminalViewerRelease(terminalId, handlers);
     // After the viewer is registered AND the stream is carrying, never before: the replay is what
     // paints the screen that was already there, and it is published once to whoever is listening.
     void streaming
@@ -427,6 +454,10 @@ export class SidecarDataSource implements AgentDataSource {
         handlers.onError?.(`Terminal replay was refused with ${response.status}`);
       })
       .catch(() => handlers.onError?.("Terminal replay could not be requested"));
+    return this.terminalViewerRelease(terminalId, handlers);
+  }
+
+  private terminalViewerRelease(terminalId: string, handlers: TerminalViewer): () => void {
     return () => {
       const live = this.terminalViewers.get(terminalId);
       if (!live) return;

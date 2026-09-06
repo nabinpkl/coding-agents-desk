@@ -137,6 +137,7 @@ export type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
   AgentTerminalDescriptor,
+  AgentTerminalHistory,
   AgentTerminalInput,
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,

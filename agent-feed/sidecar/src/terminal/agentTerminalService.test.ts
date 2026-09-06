@@ -255,6 +255,89 @@ test("a kill from one viewer of a shared attach only detaches that viewer", asyn
   expect(acts).toEqual(["detach:1", "kill:2"]);
 });
 
+test("takes the wheel back from tmux and hands over the pane's history", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const asked: unknown[] = [];
+  const connection = {
+    attachment: { sessionName: "agent-tmux-canvas-fork", pid: 7, columns: 80, rows: 24 },
+    onEnvelope: () => () => {},
+    onFailure: () => () => {},
+    requestCheckpoint() {},
+    sendInput() {},
+    sendBinaryInput() {},
+    updateViewerState() {},
+    detach() {},
+    kill() {},
+    closeTransport() {},
+  } as unknown as PtySessionConnection;
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => undefined,
+    home,
+    { listSessions: async () => [], openSession: async () => connection },
+    async (session, lines) => {
+      asked.push({ capture: { session, lines } });
+      return "earlier bytes\n";
+    },
+    async (session) => { asked.push({ mouseOff: session }); },
+  );
+
+  const descriptor = await service.open(
+    { kind: "tmux", session: "canvas-fork" },
+    { columns: 80, rows: 24 },
+  );
+  // With tmux holding the mouse, a browser terminal forwards the wheel to tmux and tmux answers by
+  // entering copy-mode, which is a mode the viewer then has to leave. Off, the client scrolls the
+  // bytes it already has.
+  await Promise.resolve();
+  expect(asked).toEqual([{ mouseOff: "canvas-fork" }]);
+
+  expect(await service.history(descriptor.terminalId, 2_000)).toBe("earlier bytes\n");
+  expect(asked).toEqual([
+    { mouseOff: "canvas-fork" },
+    { capture: { session: "canvas-fork", lines: 2_000 } },
+  ]);
+});
+
+test("a resumed CLI has no tmux history to hand over", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const project = join(home, "projects", "agent-desk");
+  await mkdir(project, { recursive: true });
+  const asked: unknown[] = [];
+  const connection = {
+    attachment: { sessionName: `agent-resume-codex-${SESSION_ID}`, pid: 7, columns: 80, rows: 24 },
+    onEnvelope: () => () => {},
+    onFailure: () => () => {},
+    requestCheckpoint() {},
+    sendInput() {},
+    sendBinaryInput() {},
+    updateViewerState() {},
+    detach() {},
+    kill() {},
+    closeTransport() {},
+  } as unknown as PtySessionConnection;
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => ({ projectPath: project, activity: "ready" }),
+    home,
+    { listSessions: async () => [], openSession: async () => connection },
+    async () => { asked.push("captured"); return "should not happen\n"; },
+    async () => { asked.push("mouseOff"); },
+  );
+
+  const descriptor = await service.open(
+    { kind: "agent-session", projectPath: project, source: "codex", sessionId: SESSION_ID },
+    { columns: 80, rows: 24 },
+  );
+
+  // Its screen comes from the PTY manager's own replay; there is no tmux behind it to ask, and no
+  // mouse setting of anyone else's to change.
+  expect(await service.history(descriptor.terminalId, 2_000)).toBe("");
+  expect(asked).toEqual([]);
+});
+
 test("refuses a tmux name that is not a plain identifier", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);

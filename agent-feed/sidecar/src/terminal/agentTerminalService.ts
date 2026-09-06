@@ -11,6 +11,7 @@ import type {
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
+import { captureTmuxHistory, releaseTmuxMouse } from "./tmuxSessions.ts";
 import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
 
 const BOOTSTRAP_COLUMNS = 80;
@@ -31,6 +32,8 @@ export interface ResolvedAgentTerminalSession {
 /** Everything `open` needs that depends on what the terminal is pointed at. */
 interface TerminalIdentity {
   ptySessionName: string;
+  /** Set for a tmux attach; the history and the mouse setting are that session's, not ours. */
+  tmuxSession: string | null;
   cwd: string;
   /** Argv for the login shell to exec, command first. */
   command: string[];
@@ -41,6 +44,8 @@ interface TerminalIdentity {
 interface ActiveTerminal {
   descriptor: AgentTerminalDescriptor;
   connection: PtySessionConnection;
+  /** The tmux session this terminal is attached to, when that is what it is pointed at. */
+  tmuxSession: string | null;
   removeEnvelope: () => void;
   removeFailure: () => void;
   ended: boolean;
@@ -71,6 +76,9 @@ export class AgentTerminalService {
     ) => ResolvedAgentTerminalSession | undefined,
     private readonly userHomeDirectory = homedir(),
     private readonly pty: AgentTerminalPtyClient = new PtyManagerClient(socketPath),
+    // Injected so the tests can watch what the service asks of tmux without one being installed.
+    private readonly captureHistory = captureTmuxHistory,
+    private readonly releaseMouse = releaseTmuxMouse,
   ) {
   }
 
@@ -132,6 +140,7 @@ export class AgentTerminalService {
     const active: ActiveTerminal = {
       descriptor,
       connection,
+      tmuxSession: identity.tmuxSession,
       removeEnvelope: () => {},
       removeFailure: () => {},
       ended: false,
@@ -142,7 +151,27 @@ export class AgentTerminalService {
       this.finish(active);
     });
     this.terminals.set(terminalId, active);
+    // After the attach, not before: the option is this session's, and setting it on a session that
+    // turned out not to open would be a change nobody asked for. Failing to set it costs scrolling,
+    // not the terminal, so it is reported rather than thrown.
+    if (identity.tmuxSession) {
+      this.releaseMouse(identity.tmuxSession).catch((error: unknown) => {
+        console.error("tmux mouse release failed", error);
+      });
+    }
     return descriptor;
+  }
+
+  /**
+   * The pane's own history, for a viewer that has none.
+   *
+   * A `tmux attach` draws one screen, so everything before the attach exists only in tmux. Nothing
+   * to hand over for a resumed CLI: that terminal's history is the PTY manager's, and it replays.
+   */
+  async history(terminalId: string, lines: number): Promise<string> {
+    const active = this.require(terminalId);
+    if (!active.tmuxSession) return "";
+    return this.captureHistory(active.tmuxSession, lines);
   }
 
   observe(listener: (envelope: AgentTerminalStreamEnvelope) => void): () => void {
@@ -247,6 +276,7 @@ export class AgentTerminalService {
     }
     return {
       ptySessionName: `agent-tmux-${context.session}`,
+      tmuxSession: context.session,
       cwd: this.userHomeDirectory,
       command: ["tmux", "attach-session", "-t", context.session],
       // A tmux session is meant to be watched from more than one place, so nothing to refuse.
@@ -301,6 +331,7 @@ export class AgentTerminalService {
 
     return {
       ptySessionName: `agent-resume-${context.source}-${sessionId}`,
+      tmuxSession: null,
       cwd: projectPath,
       command: context.source === "claude"
         ? ["claude", "--resume", sessionId]

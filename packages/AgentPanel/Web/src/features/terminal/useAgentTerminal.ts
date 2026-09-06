@@ -39,6 +39,11 @@ interface Dimensions {
   rows: number;
 }
 
+/** How much scrollback to ask tmux for, and how much to keep. Matches the route's own ceiling. */
+const HISTORY_LINES = 50_000;
+/** Rows per wheel notch. Three is what a terminal emulator conventionally scrolls. */
+const WHEEL_LINES = 3;
+
 /**
  * The one import of xterm, shared by every terminal on the page.
  *
@@ -93,10 +98,30 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
         fontSize: 13,
         lineHeight: 1.08,
-        scrollback: 2_000,
+        // Deep enough to hold what tmux hands over on open plus a long run of live output. The
+        // point of the terminals wall is reading back over a session, and a shallow buffer is the
+        // one thing that cannot be fixed later by scrolling.
+        scrollback: HISTORY_LINES,
+        // Wheel scrolling animates instead of jumping a row at a time, which is what makes reading
+        // back over output feel like scrolling a page rather than stepping through it.
+        smoothScrollDuration: 120,
         theme: terminalTheme(),
       });
       terminal.open(mount);
+
+      // The wheel belongs to whoever is reading, not to the program being read.
+      //
+      // On the normal screen the bytes are in this buffer, so scrolling it is the whole job, and
+      // returning false keeps xterm from forwarding a mouse event that tmux would answer by
+      // entering copy-mode. On the alternate screen there is no scrollback by definition -- a
+      // fullscreen program redraws rather than scrolls -- and xterm's fallback there is to send
+      // arrow keys, which in an agent's composer edits the line instead of moving a view. So the
+      // wheel does nothing there, which is at least honest.
+      terminal.attachCustomWheelEventHandler((event) => {
+        if (terminal.buffer.active.type === "alternate") return false;
+        terminal.scrollLines(Math.sign(event.deltaY) * WHEEL_LINES);
+        return false;
+      });
 
       let descriptor: AgentTerminalDescriptor | null = null;
       let unsubscribe: (() => void) | null = null;
@@ -219,10 +244,25 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           }
           descriptor = opened;
           terminal.resize(opened.columns, opened.rows);
+          // Queued before the subscription's writes, so the history lands above the live output
+          // rather than racing it. The queue is what orders them; the fetch inside it can take as
+          // long as it likes.
+          const imported = context.kind === "tmux";
+          if (imported) {
+            enqueueWrite(async () => {
+              const encoded = await feed.terminalHistory(opened.terminalId, HISTORY_LINES);
+              if (!encoded) return;
+              await new Promise<void>((resolve) => {
+                terminal.write(bytesFromBase64(encoded), resolve);
+              });
+            });
+          }
+          // A replay would clear the terminal first, erasing the history just written. The capture
+          // already ends with the current screen, so there is nothing left for it to add.
           unsubscribe = feed.subscribeTerminal(opened.terminalId, {
             onMessage: receive,
             onError: (reason) => fail(new Error(reason)),
-          });
+          }, { replay: !imported });
           onState(context, { kind: "ready", descriptor: opened });
           terminal.focus();
           scheduleViewport(true);

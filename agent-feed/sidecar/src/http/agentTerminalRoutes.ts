@@ -18,7 +18,9 @@ const TERMINALS_ROUTE = "/api/terminals";
 /** Every open terminal on one stream; see `AgentTerminalStreamEnvelope` for why it is not one each. */
 const TERMINALS_STREAM_ROUTE = "/api/terminals/stream";
 const TERMINAL_ROUTE_PATTERN =
-  /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint)$/;
+  /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint|history)$/;
+/** Enough to cover a generous tmux history without letting one request become a memory decision. */
+const MAXIMUM_HISTORY_LINES = 50_000;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 
 export interface AgentTerminalRoutesService {
@@ -28,6 +30,7 @@ export interface AgentTerminalRoutesService {
   ): Promise<AgentTerminalDescriptor>;
   observe(listener: (envelope: AgentTerminalStreamEnvelope) => void): () => void;
   requestCheckpoint(terminalId: string): void;
+  history(terminalId: string, lines: number): Promise<string>;
   sendInput(terminalId: string, data: string, encoding: "utf8" | "base64"): void;
   updateViewport(terminalId: string, viewport: AgentTerminalViewport): void;
   close(terminalId: string, mode: "detach" | "kill"): void;
@@ -47,6 +50,9 @@ export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): 
     if (!match) return undefined;
     const terminalId = match[1]!;
     const operation = match[2]!;
+    if (request.method === "GET" && operation === "history") {
+      return terminalHistory(url, terminalId, service);
+    }
     if (request.method !== "POST") return undefined;
     if (operation === "input") return terminalInput(request, terminalId, service);
     if (operation === "viewport") return terminalViewport(request, terminalId, service);
@@ -125,6 +131,29 @@ async function terminalViewport(
       rows: integerValue(body.rows, "rows"),
     });
     return new Response(null, { status: 204 });
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+/**
+ * The scrollback the viewer was never sent, base64 because it carries the escapes that colour it.
+ *
+ * Empty for a terminal with no history behind it, which is not an error: a resumed CLI's screen
+ * comes from the PTY manager's own replay instead.
+ */
+async function terminalHistory(
+  url: URL,
+  terminalId: string,
+  service: AgentTerminalRoutesService,
+): Promise<Response> {
+  try {
+    const requested = Number(url.searchParams.get("lines") ?? MAXIMUM_HISTORY_LINES);
+    if (!Number.isInteger(requested) || requested < 1 || requested > MAXIMUM_HISTORY_LINES) {
+      throw new AgentTerminalInvalidError(`lines must be an integer between 1 and ${MAXIMUM_HISTORY_LINES}`);
+    }
+    const history = await service.history(terminalId, requested);
+    return jsonResponse({ data: Buffer.from(history, "utf8").toString("base64") });
   } catch (error) {
     return routeError(error);
   }

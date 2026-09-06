@@ -19,7 +19,10 @@ class FakeTerminal {
     terminal = this;
   }
 
+  readonly buffer = { active: { type: "normal" as const } };
   open(element: HTMLElement) { this.element = element; }
+  attachCustomWheelEventHandler() {}
+  scrollLines() {}
   clear() {}
   reset() {}
   resize() {}
@@ -56,6 +59,7 @@ it("renders the PTY stream, sends xterm input, and detaches through Agent Feed",
   let stream: ((message: AgentTerminalStreamMessage) => void) | null = null;
   const unsubscribe = vi.fn();
   const feed = {
+    terminalHistory: vi.fn(async () => ""),
     openTerminal: vi.fn(async () => ({
       terminalId: "terminal-1",
       ptySessionName: "agent-resume-codex-session-1",
@@ -109,6 +113,7 @@ it("closes the stream without detaching a PTY that already exited", async () => 
   let stream: ((message: AgentTerminalStreamMessage) => void) | null = null;
   const unsubscribe = vi.fn();
   const feed = {
+    terminalHistory: vi.fn(async () => ""),
     openTerminal: vi.fn(async () => ({
       terminalId: "terminal-1",
       ptySessionName: "agent-resume-codex-session-1",
