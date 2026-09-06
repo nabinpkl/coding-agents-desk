@@ -292,6 +292,42 @@ Five traps, each of which cost real time:
 - **`-n` is a display label only**, and there is no in-session rename. A fork named for the job it
   was given reads afterwards as though it had been forked from that job.
 
+## Several sessions share one branch, so re-read before you trust anything
+
+Work here is not serialised. More than one session can be on `main` in this single worktree at the
+same time, committing and pushing independently. That is the point of the wall rather than an
+accident, and it means the repository is a shared mutable surface, not a snapshot you were handed.
+
+**The first act of every turn is finding out what moved since you last looked.** Not courtesy, a
+correctness step, before planning and before editing:
+
+```
+git status --short && git log --oneline -5
+```
+
+Then re-read any file you are about to change. Your in-context copy may predate someone else's edit
+to it, and the edit will not announce itself.
+
+What this actually breaks, observed rather than imagined:
+
+- **A green gate is not necessarily yours.** `just check` runs against the working tree, so another
+  session's in-flight edits are inside your result. On 2026-09-06 `agent-panel-web-check` went red
+  on a `KeyboardDeck` test belonging to a different session mid-arc, in the middle of an unrelated
+  commit. When a leg fails on files your diff never touched, read `git status` before you debug it:
+  identifying whose they are is faster than diagnosing someone else's half-written test.
+- **Stage by path, never `git add -A` or `git commit -a`.** Committing "the tree" sweeps up whoever
+  else is mid-edit. Every commit here names its files.
+- **Never `git checkout --` a file you did not change.** That is not a revert, it is destroying
+  another session's uncommitted work with no undo.
+- **A clean tree can go dirty between two of your own commands.** A `git status` read at the start
+  of a turn is evidence about that instant and nothing afterwards.
+- **`git log` may have moved under you too.** Commits appear on `main` that you did not make, so a
+  sha you noted earlier is not still `HEAD`.
+
+The failure mode this prevents is not a merge conflict, which is loud. It is acting confidently on a
+stale premise: editing around code that changed, reporting a gate result that measured someone
+else's work, or reverting a file that was never yours.
+
 ## Running commands in the agent session
 
 - **Use the helper's `window-input` verb, not VNC typing.** `POST /api/window/input` with a Terminal
