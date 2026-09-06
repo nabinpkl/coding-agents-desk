@@ -602,6 +602,11 @@ export function App({ feed, host, fill = false }: Props) {
     openSession(project, session);
   }, [openSession, projects]);
 
+  const openBotSessionPicker = useCallback((bot: BotView) => {
+    setBotSessionPickerId(bot.botId);
+    setHoverPreviewOpen(false);
+  }, []);
+
   /**
    * Choosing Canvas on a phone closes the drawer that was used to choose it.
    *
@@ -832,10 +837,7 @@ export function App({ feed, host, fill = false }: Props) {
     botsError: botsState.error,
     selectedBotId,
     onSelectBotSession: openBotSession,
-    onAddBotSession: (bot: BotView) => {
-      setBotSessionPickerId(bot.botId);
-      setHoverPreviewOpen(false);
-    },
+    onAddBotSession: openBotSessionPicker,
     onDetachBotSession: detachBotSession,
     onAddBot: () => {
       setBotCreatorOpen(true);
@@ -985,6 +987,7 @@ export function App({ feed, host, fill = false }: Props) {
                   ? `${selectedThread.session.source}:${selectedThread.session.sessionId}`
                   : null}
                 onOpenSession={openCanvasSession}
+                onAddSession={openBotSessionPicker}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
             ) : sidebarMode === "sessions" ? (

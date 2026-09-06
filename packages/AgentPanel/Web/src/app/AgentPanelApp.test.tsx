@@ -492,6 +492,90 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("attaches a session to a Bot from its canvas card", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-beta",
+          name: "Beta Curator",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+          sessionRefs: [],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    // The picker reads the Bot's directory off the inventory stream, so opening it from the canvas
+    // has to widen that subscription exactly as opening it from the sidebar does.
+    fireEvent.click(screen.getByRole("button", { name: "Add sessions to Beta Curator" }));
+    await waitFor(() => {
+      expect(transport.subscriptions.map((subscription) => subscription.path)).toContainEqual(
+        expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
+      );
+    });
+    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [FIXTURE_SESSIONS[0]!]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Session Claude 01/ }));
+
+    transport.responses.set("POST /api/bots/bot-beta/sessions", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-beta" }),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add sessions" }));
+    });
+
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-beta/sessions")).toEqual({
+      method: "POST",
+      path: "/api/bots/bot-beta/sessions",
+      body: {
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+      },
+    });
+    // Attaching leaves the canvas up rather than dropping the reader into the thread.
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    unmount();
+  });
+
+  it("cannot attach to a Bot whose directory is gone", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-gone",
+          name: "Orphan",
+          environment: { kind: "directory", path: "/projects/deleted" },
+          sessionRefs: [],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "missing",
+          sessions: [],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "Add sessions to Orphan" })).toBeDisabled();
+    unmount();
+  });
+
   it("walks all three views with the arrow keys, wrapping at the ends", () => {
     const { unmount } = setup();
     fireEvent.keyDown(screen.getByRole("tab", { name: "Sessions" }), { key: "ArrowRight" });

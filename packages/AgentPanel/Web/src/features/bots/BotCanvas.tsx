@@ -24,6 +24,7 @@ export function BotCanvas({
   error,
   selectedSessionKey,
   onOpenSession,
+  onAddSession,
   onAddBot,
 }: {
   bots: BotView[];
@@ -31,6 +32,7 @@ export function BotCanvas({
   error: string | null;
   selectedSessionKey: string | null;
   onOpenSession: (bot: BotView, session: SessionSummary) => void;
+  onAddSession: (bot: BotView) => void;
   onAddBot: () => void;
 }) {
   if (loading) {
@@ -74,6 +76,7 @@ export function BotCanvas({
             bot={bot}
             selectedSessionKey={selectedSessionKey}
             onOpenSession={onOpenSession}
+            onAddSession={onAddSession}
           />
         ))}
       </ul>
@@ -100,10 +103,12 @@ function BotCanvasCard({
   bot,
   selectedSessionKey,
   onOpenSession,
+  onAddSession,
 }: {
   bot: BotView;
   selectedSessionKey: string | null;
   onOpenSession: (bot: BotView, session: SessionSummary) => void;
+  onAddSession: (bot: BotView) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   const live = bot.sessions.filter((session) => session.activity === "live").length;
@@ -128,6 +133,18 @@ function BotCanvasCard({
           {live > 0 ? `${live} live · ` : ""}
           {bot.sessions.length} {bot.sessions.length === 1 ? "session" : "sessions"}
         </span>
+        <button
+          type="button"
+          onClick={() => onAddSession(bot)}
+          disabled={bot.environmentAvailability === "missing"}
+          // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
+          // identically named buttons with no way to tell which card it is on.
+          aria-label={`Add sessions to ${bot.name}`}
+          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
+          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="size-4" aria-hidden />
+        </button>
       </div>
 
       {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 ? (
