@@ -174,6 +174,26 @@ test("opens a session-backed target with no project path of its own", async () =
   } }]);
 });
 
+test("carries a fork's own id through to the service, not just the session it came from", async () => {
+  // The parser is a separate gate from the service: a kind the service understands is still
+  // refused here until this function knows it, and a field this function drops never reaches the
+  // service no matter what the service does with it. `forkId` is that field -- it names the pane,
+  // so losing it would put every fork of one session in one terminal.
+  const { calls, route } = fakeService();
+  const forkId = "9f0c5d5a-6c53-4b2a-9d8e-2f7c1a4b6e30";
+  const response = await call(route, "POST", "/api/terminals", {
+    context: { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId },
+    columns: 100,
+    rows: 30,
+  });
+
+  expect(response?.status).toBe(201);
+  expect(calls).toEqual([{ open: {
+    context: { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId },
+    dimensions: { columns: 100, rows: 30 },
+  } }]);
+});
+
 test("a context without a known kind is refused before the service sees it", async () => {
   const { calls, route } = fakeService();
   const response = await call(route, "POST", "/api/terminals", {

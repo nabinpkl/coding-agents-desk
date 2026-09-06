@@ -1,4 +1,4 @@
-import { EllipsisVertical, Unlink } from "lucide-react";
+import { EllipsisVertical, GitFork, Unlink } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -11,9 +11,15 @@ import { useEffect, useRef, useState } from "react";
  */
 export function SessionRowMenu({
   label,
+  onFork,
   onDetach,
 }: {
   label: string;
+  /**
+   * Starts a new session branched from this one. Absent on a row with no transcript to branch
+   * from, which is what a missing reference is.
+   */
+  onFork?: () => void;
   onDetach: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -69,6 +75,20 @@ export function SessionRowMenu({
             close();
           }}
         >
+          {onFork ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                close();
+                onFork();
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-accent/80"
+            >
+              <GitFork className="size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">Fork session</span>
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"

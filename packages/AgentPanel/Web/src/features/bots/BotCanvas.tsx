@@ -1,6 +1,6 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
 import { useState } from "react";
-import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ActivityFeed } from "../activity-feed/ActivityFeed";
 import type { EventMode } from "../activity-feed/data-source/AgentDataSource";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
@@ -37,6 +37,7 @@ export function BotCanvas({
   error,
   mode,
   onAddSession,
+  onForkSession,
   onDetachSession,
   onAddBot,
 }: {
@@ -46,6 +47,8 @@ export function BotCanvas({
   /** Raw or nice, owned by the shell so the choice is the same one the Bots view reads in. */
   mode: EventMode;
   onAddSession: (bot: BotView) => void;
+  /** Starts a new session branched from this one, in its own tmux pane. */
+  onForkSession: (session: SessionSummary) => void;
   /**
    * Drops the reference from the Bot's projection. The session itself is untouched.
    *
@@ -93,6 +96,7 @@ export function BotCanvas({
       bots={bots}
       mode={mode}
       onAddSession={onAddSession}
+      onForkSession={onForkSession}
       onDetachSession={onDetachSession}
     />
   );
@@ -111,11 +115,13 @@ function BotCanvasList({
   bots,
   mode,
   onAddSession,
+  onForkSession,
   onDetachSession,
 }: {
   bots: BotView[];
   mode: EventMode;
   onAddSession: (bot: BotView) => void;
+  onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -130,6 +136,7 @@ function BotCanvasList({
             openKey={openKey}
             onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
             onAddSession={onAddSession}
+            onForkSession={onForkSession}
             onDetachSession={onDetachSession}
           />
         ))}
@@ -159,6 +166,7 @@ function BotCanvasCard({
   openKey,
   onToggleSession,
   onAddSession,
+  onForkSession,
   onDetachSession,
 }: {
   bot: BotView;
@@ -166,6 +174,7 @@ function BotCanvasCard({
   openKey: string | null;
   onToggleSession: (key: string) => void;
   onAddSession: (bot: BotView) => void;
+  onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
@@ -254,6 +263,7 @@ function BotCanvasCard({
                   <span className="mt-1">
                     <SessionRowMenu
                       label={session.title || session.sessionId}
+                      onFork={() => onForkSession(session)}
                       onDetach={() => onDetachSession(bot, session)}
                     />
                   </span>

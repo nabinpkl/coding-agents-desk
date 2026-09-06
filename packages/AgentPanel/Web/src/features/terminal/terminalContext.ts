@@ -10,6 +10,9 @@ import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 export function terminalContextKey(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return `tmux:${context.session}`;
   if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
+  // The fork, not its source: two forks of one session are two terminals, and keying them by the
+  // session they came from would collapse them into one.
+  if (context.kind === "session-fork") return `session-fork:${context.forkId}`;
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
@@ -24,6 +27,7 @@ export function terminalContextKey(context: AgentTerminalContext): string {
 export function terminalContextLabel(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return context.session;
   const provider = context.source === "claude" ? "Claude" : "Codex";
+  if (context.kind === "session-fork") return `${provider} fork`;
   return context.kind === "session-tmux" ? `${provider} session` : provider;
 }
 
@@ -36,5 +40,7 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
  * terminal that resizes somebody's live session or replays over its imported history.
  */
 export function isTmuxAttach(context: AgentTerminalContext): boolean {
-  return context.kind === "tmux" || context.kind === "session-tmux";
+  return context.kind === "tmux"
+    || context.kind === "session-tmux"
+    || context.kind === "session-fork";
 }

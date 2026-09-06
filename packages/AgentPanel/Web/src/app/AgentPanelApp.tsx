@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
-import { CornerDownLeft, List, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
+import { CornerDownLeft, GitFork, List, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
 import type {
   AddBotCommand,
   AgentTerminalContext,
@@ -602,6 +602,33 @@ export function App({ feed, host, fill = false }: Props) {
     openSession(project, session);
   }, [openSession, projects]);
 
+  /**
+   * A session forked from another, and the pane it runs in.
+   *
+   * Held here rather than in the canvas because it takes over `main`, and because the fork's own
+   * identity has to outlive the row that started it: the source session can be detached from its
+   * Bot while its fork is still open.
+   *
+   * `forkId` is minted here, once, and never derived from `sessionId` -- forking one session twice
+   * has to give two panes, and a pane named after the source would give the second fork the
+   * first's terminal.
+   */
+  const [forkedSession, setForkedSession] = useState<
+    { source: "claude"; sessionId: string; forkId: string; title: string } | null
+  >(null);
+  // The fork's pane renders its own errors in its footer, so there is nothing for the shell to do
+  // with its state. Stable so a re-render of the shell never restarts the pane.
+  const noteForkTerminalState = useCallback(() => {}, []);
+  const forkSession = useCallback((session: SessionSummary) => {
+    if (session.source !== "claude") return;
+    setForkedSession({
+      source: "claude",
+      sessionId: session.sessionId,
+      forkId: crypto.randomUUID(),
+      title: session.title || session.sessionId,
+    });
+  }, []);
+
   const openBotSessionPicker = useCallback((bot: BotView) => {
     setBotSessionPickerId(bot.botId);
     setHoverPreviewOpen(false);
@@ -919,7 +946,9 @@ export function App({ feed, host, fill = false }: Props) {
             </button>
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
-              {sidebarMode === "canvas"
+              {forkedSession
+                ? `Fork of ${forkedSession.title}`
+                : sidebarMode === "canvas"
                 ? "Canvas"
                 : sidebarMode === "bots"
                   ? selectedBotName || "Bots"
@@ -947,7 +976,12 @@ export function App({ feed, host, fill = false }: Props) {
               its own scroller, so sticky transcript headers and virtualization
               still read the same scrollTop they did before this shell changed. */}
           <main className="min-h-0 flex-1 overflow-hidden bg-background">
-            {displayedThread ? (
+            {forkedSession ? (
+              <ForkedSessionView
+                title={forkedSession.title}
+                onClose={() => setForkedSession(null)}
+              />
+            ) : displayedThread ? (
               <div
                 key={`${displayedThread.session.sessionId}:${eventMode}`}
                 className="h-full"
@@ -973,6 +1007,7 @@ export function App({ feed, host, fill = false }: Props) {
                 error={botsState.error}
                 mode={eventMode}
                 onAddSession={openBotSessionPicker}
+                onForkSession={forkSession}
                 onDetachSession={detachBotSession}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
@@ -1043,6 +1078,20 @@ export function App({ feed, host, fill = false }: Props) {
               onAbort={abortRun}
             />
           ) : null}
+          {forkedSession ? (
+            <AgentTerminalPane
+              key={forkedSession.forkId}
+              feed={feed}
+              context={{
+                kind: "session-fork",
+                source: forkedSession.source,
+                sessionId: forkedSession.sessionId,
+                forkId: forkedSession.forkId,
+              }}
+              onState={noteForkTerminalState}
+              layout="band"
+            />
+          ) : null}
           {displayedThread && isTerminalSource(displayedThread.session.source) ? (
             <TerminalNotice source={displayedThread.session.source} state={terminal} />
           ) : null}
@@ -1068,6 +1117,34 @@ export function App({ feed, host, fill = false }: Props) {
         ) : null}
       </div>
     </DataSourceProvider>
+  );
+}
+
+/**
+ * What a fork shows before it has said anything.
+ *
+ * Empty on purpose, and not a loading state: a forked session has no transcript to read because
+ * the CLI writes none until its first turn. Measured -- resuming a fork loaded 255k tokens of
+ * context and created no file at all; the file appeared only after one message. So the terminal
+ * below is the whole session until then, and this says so rather than spinning on a transcript
+ * that is not coming.
+ */
+function ForkedSessionView({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
+      <GitFork className="size-5" aria-hidden />
+      <p className="max-w-prose">
+        Forked from <span className="font-medium text-foreground">{title}</span>. Its transcript
+        appears here once you send the first message in the terminal below.
+      </p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="min-h-9 cursor-pointer rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
+      >
+        Close fork
+      </button>
+    </div>
   );
 }
 

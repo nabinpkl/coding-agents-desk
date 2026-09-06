@@ -46,11 +46,37 @@ export interface SessionTmuxTerminalContext {
   sessionId: string;
 }
 
+/**
+ * A NEW session forked from an existing transcript, run in its own tmux pane.
+ *
+ * Distinct from `session-tmux` because the two want opposite things. That one is "show me this
+ * session", and it joins a live pane when there is one, precisely so two viewers never open two
+ * clients onto one transcript. A fork is "give me a session that starts where this one is", so it
+ * must never join anything: it always starts a process, and the process it starts writes a
+ * different transcript.
+ *
+ * `forkId` names this fork rather than the thing it came from, so asking twice makes two forks and
+ * re-opening one lands back on its own pane. The pane cannot be named after `sessionId` for the
+ * same reason -- every fork of one session would collide on it.
+ *
+ * Claude only. `claude --resume <id> --fork-session` is a verified capability; Codex has `resume`
+ * and no fork, so a Codex context is refused rather than silently resumed into the original.
+ */
+export interface SessionForkTerminalContext {
+  kind: "session-fork";
+  source: "claude";
+  /** The transcript to fork FROM. Untouched: forking never writes to it. */
+  sessionId: string;
+  /** This fork's own identity, minted by the caller. */
+  forkId: string;
+}
+
 /** What a terminal is pointed at. */
 export type AgentTerminalContext =
   | AgentSessionTerminalContext
   | TmuxTerminalContext
-  | SessionTmuxTerminalContext;
+  | SessionTmuxTerminalContext
+  | SessionForkTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {

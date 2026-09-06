@@ -463,6 +463,65 @@ test("starts a tmux session that resumes the agent session when nothing is runni
   expect(attached).toEqual([{ session: `agentdesk-${SESSION_ID}`, columns: 100, rows: 30 }]);
 });
 
+const FORK_ID = "9f0c5d5a-6c53-4b2a-9d8e-2f7c1a4b6e30";
+
+test("forks a session into a pane of its own, never joining the one it came from", async () => {
+  // The source session IS running in a pane. The resume path would join that pane; a fork must
+  // not, or the reader lands back in the transcript they asked to branch away from.
+  const fakes: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  await service.open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(fakes.created).toEqual([{
+    session: `agentdesk-fork-${FORK_ID}`,
+    cwd: expect.stringContaining("projects/agent-desk"),
+    command: ["claude", "--resume", SESSION_ID, "--fork-session"],
+    columns: 100,
+    rows: 30,
+  }]);
+  expect(attached).toEqual([{ session: `agentdesk-fork-${FORK_ID}`, columns: 100, rows: 30 }]);
+});
+
+test("gives two forks of one session two panes", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+  const second = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+
+  await service.open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  );
+  await service.open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: second },
+    { columns: 100, rows: 30 },
+  );
+
+  // Named for the fork, not its source: naming the pane after the session would put the second
+  // fork in the first's terminal.
+  expect(fakes.created.map((entry) => entry.session)).toEqual([
+    `agentdesk-fork-${FORK_ID}`,
+    `agentdesk-fork-${second}`,
+  ]);
+});
+
+test("refuses to fork a codex session", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  // `claude --resume <id> --fork-session` is a verified capability; codex has resume and no fork,
+  // so this refuses rather than silently resuming the original.
+  await expect(service.open(
+    { kind: "session-fork", source: "codex" as "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  )).rejects.toThrow(/only claude sessions can be forked/);
+  expect(fakes.created).toEqual([]);
+});
+
 test("attaches a session's own pane a second time instead of resuming it twice", async () => {
   const fakes: SessionTmuxFakes = {
     owner: null,

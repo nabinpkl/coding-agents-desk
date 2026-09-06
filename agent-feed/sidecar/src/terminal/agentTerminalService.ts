@@ -8,6 +8,7 @@ import type {
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
+  SessionForkTerminalContext,
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
@@ -397,6 +398,7 @@ export class AgentTerminalService {
   private async identify(context: AgentTerminalContext): Promise<TerminalIdentity> {
     if (context.kind === "tmux") return this.identifyTmux(context);
     if (context.kind === "session-tmux") return this.identifySessionTmux(context);
+    if (context.kind === "session-fork") return this.identifySessionFork(context);
     return this.identifyAgentSession(context);
   }
 
@@ -433,10 +435,7 @@ export class AgentTerminalService {
     if (context.source !== "claude" && context.source !== "codex") {
       throw new AgentTerminalInvalidError("terminal source must be claude or codex");
     }
-    const sessionId = context.sessionId.toLowerCase();
-    if (!UUID_PATTERN.test(sessionId) || context.sessionId !== sessionId) {
-      throw new AgentTerminalInvalidError("terminal session id must be a canonical UUID");
-    }
+    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
     if (!context.projectPath.startsWith("/")) {
       throw new AgentTerminalInvalidError("terminal project path must be absolute");
     }
@@ -512,10 +511,7 @@ export class AgentTerminalService {
     if (context.source !== "claude" && context.source !== "codex") {
       throw new AgentTerminalInvalidError("terminal source must be claude or codex");
     }
-    const sessionId = context.sessionId.toLowerCase();
-    if (!UUID_PATTERN.test(sessionId) || context.sessionId !== sessionId) {
-      throw new AgentTerminalInvalidError("terminal session id must be a canonical UUID");
-    }
+    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
     const session = this.resolveSession(context.source, sessionId);
     if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
     let projectPath: string;
@@ -551,6 +547,54 @@ export class AgentTerminalService {
         command: context.source === "claude"
           ? ["claude", "--resume", sessionId]
           : ["codex", "resume", sessionId],
+      },
+    };
+  }
+
+  /**
+   * A new session forked from an existing transcript.
+   *
+   * Deliberately the opposite of the resume above in the one way that matters: it NEVER joins a
+   * live pane. Resuming asks "where is this session", and joining is right because two viewers of
+   * one transcript should not become two clients of it. Forking asks for a session that did not
+   * exist a moment ago, so there is nothing to join, and joining would be the bug -- it would put
+   * the reader back in the transcript they asked to branch away from.
+   *
+   * The pane is named after the fork rather than its source, so forking one session twice gives
+   * two panes rather than one pane the second fork silently lands in.
+   *
+   * `--fork-session` copies from the source's LAST COMPACTION forward, not its whole history.
+   * Measured on a transcript with compactions at lines 419 and 653 of 1247: the fork carried lines
+   * 686 onward and no earlier record, including under the CLI's own "resume full session as-is"
+   * option. Anything before that boundary stays in the source's file and is not in the fork's.
+   */
+  private async identifySessionFork(
+    context: SessionForkTerminalContext,
+  ): Promise<TerminalIdentity> {
+    if (context.source !== "claude") {
+      throw new AgentTerminalInvalidError("only claude sessions can be forked");
+    }
+    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
+    const forkId = requiredSessionUuid(context.forkId, "terminal fork id");
+    const session = this.resolveSession(context.source, sessionId);
+    if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
+    let projectPath: string;
+    try {
+      projectPath = await realpath(resolve(session.projectPath));
+    } catch {
+      throw new AgentTerminalConflictError("agent session project directory is no longer available");
+    }
+
+    const pane = forkedPaneName(forkId);
+    return {
+      ptySessionName: `agent-tmux-${pane}`,
+      tmuxSession: pane,
+      cwd: projectPath,
+      command: [],
+      refuseNew: null,
+      createTmux: {
+        cwd: projectPath,
+        command: ["claude", "--resume", sessionId, "--fork-session"],
       },
     };
   }
@@ -612,6 +656,25 @@ export async function liveTmuxSession(
     .map((entry) => entry.tmuxSession)
     .filter((pane): pane is string => pane !== null);
   return panes.find((pane) => pane !== resumedPaneName(sessionId)) ?? panes[0] ?? null;
+}
+
+/**
+ * A canonical lower-case UUID, or a refusal naming which field was wrong.
+ *
+ * A pane name is derived from these, so a value that is merely close enough would put two
+ * different requests on one pane.
+ */
+function requiredSessionUuid(value: string, field: string): string {
+  const canonical = value.toLowerCase();
+  if (!UUID_PATTERN.test(canonical) || value !== canonical) {
+    throw new AgentTerminalInvalidError(`${field} must be a canonical UUID`);
+  }
+  return canonical;
+}
+
+/** The pane a fork runs in, named for the fork rather than the session it came from. */
+function forkedPaneName(forkId: string): string {
+  return `agentdesk-fork-${forkId}`;
 }
 
 /**

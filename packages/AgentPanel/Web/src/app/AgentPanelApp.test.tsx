@@ -505,6 +505,53 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("forks a session from its canvas row menu into a terminal of its own", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+
+    // A fork has no transcript to show: the CLI writes none until its first turn, so the view says
+    // that rather than spinning on a file that is not coming.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Fork of Session Claude 01");
+    expect(screen.getByText(/appears here once you send the first message/)).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+
+    // The terminal is the whole session until then, and it points at the fork rather than at the
+    // session it branched from.
+    expect(terminalPaneMock.context).toEqual({
+      kind: "session-fork",
+      source: "claude",
+      sessionId: "sid-claude-01",
+      forkId: expect.any(String),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close fork" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    unmount();
+  });
+
   it("detaches a session from a Bot through its canvas row menu", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

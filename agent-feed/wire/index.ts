@@ -136,6 +136,7 @@ export type {
 export type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
+  SessionForkTerminalContext,
   SessionTmuxTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalHistory,
