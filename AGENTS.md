@@ -225,6 +225,24 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
   display that is not that session's main one. If it cannot, the console's main display has to be
   the 8K at agent-session-creation time.
 
+## Running commands in the agent session
+
+- **Use the helper's `window-input` verb, not VNC typing.** `POST /api/window/input` with a Terminal
+  window id and `{"type":"text","text":"...\n"}` runs a command in that session: the helper posts
+  the keystrokes in-process, and `text` presses Return on a newline. Measured 2026-09-06 on the same
+  command: **0.15s**, against ~12s for a script invoked over VNC and 33s+ for typing the line
+  through VNC. Get the window id from `/api/park/state` or `/api/window/audit`.
+- **VNC has no command channel and never will.** RFB carries framebuffer updates out and key and
+  pointer events in; there is no "run this" message, so a command has to be typed one keysym at a
+  time with a hold and a gap. Its own bulk-text message, `ClientCutText`, does not work against
+  Apple's screensharingd: measured, the server took it and the clipboard stayed empty. Keep
+  `deskzoom/tools/session-client.py` for what it is genuinely good at -- looking at the screen
+  (`shot`) and driving pointer gestures -- and reach for `batch` only when the sidecar or its helper
+  is not up to answer.
+- `ssh` is not an option today: Remote Login is off, though `agent` is already in
+  `com.apple.access_ssh`. It would also only cover half the work, because an ssh session has no
+  WindowServer connection and so cannot drive Accessibility, raise a window, or post to that desk.
+
 ## Display capture
 
 - **Two grid-encoders must never run from one executable path.** replayd, the daemon behind
