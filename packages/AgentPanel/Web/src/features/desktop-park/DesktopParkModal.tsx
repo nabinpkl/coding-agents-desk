@@ -6,7 +6,6 @@ import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-f
 import type { DesktopStreamState } from "../desktop-viewer/DesktopStreamState";
 import { TileStreamRtc, type DesktopControlTransport } from "../desktop-viewer/TileStreamRtc";
 import { TileViewport } from "../desktop-viewer/TileViewport";
-import { TileStream } from "./TileStream";
 import type { DesktopParkHandle } from "./useDesktopPark";
 
 /**
@@ -89,9 +88,6 @@ export function DesktopParkPanel({
   // active screen. The grid comes after a compositor; this proves the delivery
   // path with the piece that already exists.
   const [watching, setWatching] = useState<number | "display" | null>(null);
-  // A/B seam for the delivery spike: WebRTC (transport owns timing) against
-  // MSE over HTTP (the page owns timing). Default is the contender under test.
-  const [transport, setTransport] = useState<"rtc" | "mse">("rtc");
   // Pseudo-fullscreen: a layout state, not the Fullscreen API. The app owns
   // the webview, so filling the viewport is CSS, the gesture overlay
   // survives, and iOS's native video player (which would eat the overlay)
@@ -116,14 +112,13 @@ export function DesktopParkPanel({
   useEffect(() => {
     setPointerMode(false);
     setPointerTransport(null);
-  }, [watching, transport]);
+  }, [watching]);
 
   useEffect(() => {
     if (!pointerTransport) setPointerMode(false);
   }, [pointerTransport]);
 
-  const pointerAvailable =
-    transport === "rtc" && pointerTransport !== null && tile.kind === "playing";
+  const pointerAvailable = pointerTransport !== null && tile.kind === "playing";
 
   return (
     <div className="flex max-h-[88dvh] flex-col">
@@ -253,19 +248,6 @@ export function DesktopParkPanel({
             <button
               type="button"
               onClick={() => {
-                setPointerMode(false);
-                setTransport((current) => (current === "rtc" ? "mse" : "rtc"));
-              }}
-              title="Switch tile transport"
-              className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground
-                transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
-                focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
-            >
-              {transport}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
                 setWatching(null);
                 setExpanded(false);
                 setPointerMode(false);
@@ -291,26 +273,15 @@ export function DesktopParkPanel({
                 ? (input) => pointerTransport.send(input) === "sent"
                 : undefined}
             >
-            {transport === "rtc" ? (
-              <TileStreamRtc
-                key={`rtc-${watched.id}`}
-                windowID={watched.id}
-                width={watched.frame.w}
-                height={watched.frame.h}
-                fill={expanded}
-                onState={setTile}
-                onControlTransport={setPointerTransport}
-              />
-            ) : (
-              <TileStream
-                key={`mse-${watched.id}`}
-                windowID={watched.id}
-                width={watched.frame.w}
-                height={watched.frame.h}
-                fill={expanded}
-                onState={setTile}
-              />
-            )}
+            <TileStreamRtc
+              key={watched.id}
+              windowID={watched.id}
+              width={watched.frame.w}
+              height={watched.frame.h}
+              fill={expanded}
+              onState={setTile}
+              onControlTransport={setPointerTransport}
+            />
             </TileViewport>
           </div>
         </section>

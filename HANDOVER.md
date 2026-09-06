@@ -20,8 +20,11 @@ previous handover" below carries forward the part of it that is not done.
 
 Desktop park can show a live window, or the whole active Space, as video inside
 the Agent Panel, on the Mac and on the iPhone, over the tailnet including LTE.
-Two delivery paths exist behind a per-tile toggle: **WebRTC** (default, better)
+Two delivery paths existed behind a per-tile toggle: **WebRTC** (default, better)
 and **fMP4 over HTTP into MSE** (the first one built, kept as the A/B control).
+The MSE path was removed on 2026-09-06, once WebRTC had been the default long
+enough that the control was answering no live question; the lessons it taught
+are still below, and the code is in the history.
 The tile has a map-style viewport (pinch, pan, double-tap) and a
 pseudo-fullscreen mode.
 
@@ -61,12 +64,13 @@ own `WKWebView` for the agent surface outside `WebPanelKit`.
 VideoToolbox hardware encode out. Makes no policy decisions.
 
 - Target: `--window <id>` or `--display <id|main>`.
-- Output mode: `--codec hevc-fmp4` (default, fragmented MP4 for MSE) or
-  `--codec h264-annexb` (bare access units for a transport that packetizes).
+- Output mode: `--codec h265-annexb` or `--codec h264-annexb`, bare access units
+  for a transport that packetizes. Required since the fMP4 mode was removed.
 - `--profile high|main|cb` (annexb only, default high).
 - stdout framing `[1 byte kind][4 bytes BE length][payload]`; kind 0 meta JSON,
-  1 fMP4 init, 2 fMP4 media, 3 access unit (8 bytes pts microseconds BE, 1
-  keyframe byte, then Annex-B).
+  3 access unit (8 bytes pts microseconds BE, 1 keyframe byte, then Annex-B), 4
+  desktop-control event. Kinds 1 and 2 were the fMP4 init and media segments and
+  are retired with that path; the numbers stay spent.
 - **stdin line protocol**: `K\n` forces a keyframe on the next frame,
   `B<bits>\n` applies a bitrate live. That is the entire encoder control
   surface, and it mirrors libwebrtc's own internal encoder callbacks.
@@ -83,15 +87,12 @@ VideoToolbox hardware encode out. Makes no policy decisions.
   `/tmp/agentdesk-webrtc-diag.log`.
 - `h264Packetizer.ts` — RFC 6184 mode 1. Pure reframing, tested. Exists only
   because werift ships the depacketizer and not the packetizer.
-- `tileRoutes.ts` + `tileEncoderPool.ts` — the MSE path, `GET
-  /api/park/tile/:target/stream`.
+- `encoderFrames.ts` — the stdout de-framer, all that survives of the MSE path's
+  `tileEncoderPool.ts`.
 
 **Panel** `packages/AgentPanel/Web/src/features/desktop-park/`
 
 - `TileStreamRtc.tsx` — offer/answer POST plus `srcObject`. That is all.
-- `TileStream.tsx` — the MSE feed loop, which needs a live-edge chase, buffer
-  pruning and a reconnect policy. Keep it around as the honest comparison of
-  what a byte-hose transport costs.
 - `TileViewport.tsx` + `tileViewportMath.ts` — gesture ownership and pan/zoom
   as one CSS transform. `toContentPoint()` is the exported inverse and is
   deliberately the hook remote control will use.

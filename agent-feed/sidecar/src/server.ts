@@ -11,7 +11,6 @@ import { createBotRoutes } from "./http/botRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import { createParkRoutes } from "./http/parkRoutes.ts";
-import { createTileRoutes } from "./http/tileRoutes.ts";
 import { createWindowRoutes } from "./http/windowRoutes.ts";
 import { createWebrtcTileRoutes } from "./http/webrtcTileRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
@@ -122,7 +121,6 @@ const routes: RouteHandler[] = [
   // Desktop and window reads through the standalone helper. Not under `/api/sessions/`, so its
   // position here is only for readability.
   createWindowRoutes(),
-  createTileRoutes(),
   createWebrtcTileRoutes(),
   createSessionRoutes(describeAgentSession),
 ];

@@ -43,7 +43,7 @@ import { acquireEncoderSlot } from "../desktop/encoderSlots.ts";
 import { basename } from "node:path";
 import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
-import { frames, KIND_META } from "./tileEncoderPool.ts";
+import { frames, KIND_META } from "./encoderFrames.ts";
 import { packetizeH264 } from "./h264Packetizer.ts";
 import { packetizeH265 } from "./h265Packetizer.ts";
 import {

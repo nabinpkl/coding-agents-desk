@@ -1,20 +1,18 @@
-// One window in, fragmented HEVC out.
+// One capture in, Annex-B video out.
 //
-// The bare-metal half of the live-tile path: capture a window with
-// ScreenCaptureKit, encode it with VideoToolbox through AVAssetWriter, and write
-// the resulting fMP4 fragments to stdout. It makes no policy decisions. It does
-// not dedupe, does not adapt quality, does not pace, and does not know what a
-// tile or a ladder is. The caller says which window and how big; everything else
-// downstream is TypeScript's.
+// The bare-metal half of the live-desktop path: capture a display or a window with
+// ScreenCaptureKit, encode it with VideoToolbox, and write raw H.264 or HEVC access units to
+// stdout. It makes no policy decisions. It does not dedupe, does not adapt quality, does not pace,
+// and does not know what a tile or a ladder is. The caller says what to capture and how big;
+// everything else downstream is TypeScript's.
 //
-// The output is what Media Source Extensions eats directly, so the whole
-// delivery path after this process is: sidecar copies bytes to an HTTP body,
-// page appends them to a SourceBuffer, WebKit hardware-decodes and composites.
-// No pacer, no jitter buffer, no packet repair, no keyframe negotiation.
+// The output is what an RTP packetizer eats, so the delivery path after this process is: sidecar
+// de-frames stdout, packetizes access units, and sends them over WebRTC. It used to also emit
+// fragmented MP4 for Media Source Extensions; that path is gone.
 //
-// Backpressure is the pipe. If nobody reads stdout the write blocks, the capture
-// handler stops draining, and frames are simply not produced. That is the entire
-// flow-control design.
+// Backpressure is the pipe. If nobody reads stdout the write blocks, the capture handler stops
+// draining, and frames are simply not produced. That is the entire flow-control design. Stdin is
+// the other half of that contract: its EOF means the owner is gone, and this process exits.
 
 import AVFoundation
 import AppKit
@@ -26,12 +24,13 @@ import VideoToolbox
 
 // MARK: - stdout framing
 
-/// `[1 byte kind][4 bytes big-endian length][payload]`. Kind 0 is a JSON header,
-/// 1 is the fMP4 initialization segment, 2 is a media fragment. Kind 3 is one
-/// raw H.264 or HEVC access unit in Annex-B form (annexb modes only): 8 bytes of
-/// big-endian presentation time in microseconds, 1 keyframe byte, then NALUs.
-/// Kind 4 is one desktop-control JSON event for the TypeScript control path.
-enum Frame: UInt8 { case meta = 0, initialization = 1, media = 2, accessUnit = 3, control = 4 }
+/// `[1 byte kind][4 bytes big-endian length][payload]`. Kind 0 is a JSON header. Kind 3 is one
+/// raw H.264 or HEVC access unit in Annex-B form: 8 bytes of big-endian presentation time in
+/// microseconds, 1 keyframe byte, then NALUs. Kind 4 is one desktop-control JSON event for the
+/// TypeScript control path. Kinds 1 and 2 were the fragmented-MP4 initialization segment and media
+/// fragment; they are retired with the MSE path, and the numbers stay spent so a stale reader
+/// cannot mistake a new kind for an old one.
+enum Frame: UInt8 { case meta = 0, accessUnit = 3, control = 4 }
 
 func emitNavigationEvent(_ value: [String: Any]) {
     do {
@@ -101,205 +100,6 @@ func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("grid-encoder: \(message)\n".utf8))
     emitMeta(["type": "error", "message": message])
     exit(1)
-}
-
-// MARK: - codec string
-
-/// The RFC 6381 codec string for the stream we actually produced, parsed out of
-/// the `hvcC` box in the initialization segment.
-///
-/// Derived rather than hardcoded because the browser's `addSourceBuffer` string
-/// has to describe the real profile, tier and level, and AVFoundation picks the
-/// level from the resolution and bitrate we asked for. Guessing it produces a
-/// `NotSupportedError` at append time, which is a confusing way to learn that a
-/// constant was wrong.
-func hevcCodecString(fromInitializationSegment data: Data) -> String? {
-    let marker = Array("hvcC".utf8)
-    let bytes = [UInt8](data)
-    guard bytes.count > 8 else { return nil }
-    var box = -1
-    for i in 0...(bytes.count - marker.count) where Array(bytes[i..<(i + marker.count)]) == marker {
-        box = i + marker.count
-        break
-    }
-    guard box >= 0, bytes.count >= box + 13 else { return nil }
-    let profileSpace = (bytes[box + 1] & 0xC0) >> 6
-    let tierFlag = (bytes[box + 1] & 0x20) >> 5
-    let profileIDC = bytes[box + 1] & 0x1F
-    let compatibility = (UInt32(bytes[box + 2]) << 24) | (UInt32(bytes[box + 3]) << 16)
-        | (UInt32(bytes[box + 4]) << 8) | UInt32(bytes[box + 5])
-    let levelIDC = bytes[box + 12]
-    let constraints = Array(bytes[(box + 6)...(box + 11)])
-
-    // The compatibility field is written with the bit order reversed.
-    var reversed: UInt32 = 0
-    for i in 0..<32 where compatibility & (1 << i) != 0 { reversed |= 1 << (31 - i) }
-
-    var parts = ["hvc1"]
-    parts.append((["", "A", "B", "C"][Int(profileSpace)]) + String(profileIDC))
-    parts.append(String(reversed, radix: 16))
-    parts.append((tierFlag == 0 ? "L" : "H") + String(levelIDC))
-    // Trailing zero constraint bytes are omitted.
-    var tail = constraints
-    while let last = tail.last, last == 0 { tail.removeLast() }
-    for byte in tail { parts.append(String(format: "%02X", byte)) }
-    return parts.joined(separator: ".")
-}
-
-// MARK: - encode and mux
-
-/// Hardware HEVC through VideoToolbox, muxed to fragmented MP4 by AVAssetWriter.
-///
-/// The split is forced by the framework and happens to be the split we want.
-/// AVAssetWriter will only flush a fragment per call when its input is
-/// PASSTHROUGH -- ask it to encode for you and it insists on a fixed segment
-/// interval, which buries a fixed buffer under MSE's own. So VideoToolbox
-/// encodes, the writer only wraps, and one frame in is one fragment out.
-final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
-    private var session: VTCompressionSession?
-    private var writer: AVAssetWriter?
-    private var input: AVAssetWriterInput?
-    private var firstPTS: CMTime?
-    private var announcedCodec = false
-    private let width: Int, height: Int, bitrate: Int, segmentSeconds: Double
-    /// True once a sample has gone into the current segment, so the very first
-    /// keyframe opens a segment rather than closing an empty one.
-    private var segmentOpen = false
-    private(set) var submitted = 0, encodedCount = 0, appended = 0, notReady = 0, encodeErrors = 0
-
-    init(width: Int, height: Int, bitrate: Int, segmentSeconds: Double) {
-        self.width = width; self.height = height; self.bitrate = bitrate
-        self.segmentSeconds = segmentSeconds
-        super.init()
-    }
-
-    func start() {
-        var created: VTCompressionSession?
-        let status = VTCompressionSessionCreate(
-            allocator: kCFAllocatorDefault,
-            width: Int32(width), height: Int32(height),
-            codecType: kCMVideoCodecType_HEVC,
-            encoderSpecification: [
-                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
-            ] as CFDictionary,
-            imageBufferAttributes: nil, compressedDataAllocator: nil,
-            outputCallback: { refcon, _, status, _, sample in
-                guard status == noErr, let sample, let refcon else { return }
-                Unmanaged<EncodingMuxer>.fromOpaque(refcon).takeUnretainedValue().encoded(sample)
-            },
-            refcon: Unmanaged.passUnretained(self).toOpaque(),
-            compressionSessionOut: &created,
-        )
-        guard status == noErr, let created else { fail("VTCompressionSessionCreate failed: \(status)") }
-        session = created
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel,
-                             value: kVTProfileLevel_HEVC_Main_AutoLevel)
-        // Keyed by DURATION rather than frame count, because the segment length
-        // is what the viewer feels and the capture rate varies with how much the
-        // window is doing. A sparse window would otherwise stretch its GOP, and
-        // its segment, to minutes.
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-                             value: NSNumber(value: segmentSeconds))
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-                             value: NSNumber(value: 600))
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
-                             value: NSNumber(value: bitrate))
-        VTCompressionSessionPrepareToEncodeFrames(created)
-    }
-
-    /// A raw captured frame on its way into the encoder.
-    func submit(_ sample: CMSampleBuffer) {
-        guard let session, let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-        if firstPTS == nil { firstPTS = pts }
-        submitted += 1
-        let encodeStatus = VTCompressionSessionEncodeFrame(
-            session, imageBuffer: pixels,
-            presentationTimeStamp: CMTimeSubtract(pts, firstPTS!),
-            duration: CMSampleBufferGetDuration(sample),
-            frameProperties: nil, sourceFrameRefcon: nil, infoFlagsOut: nil,
-        )
-        if encodeStatus != noErr { encodeErrors += 1 }
-    }
-
-    /// An encoded frame on its way into the muxer.
-    private func encoded(_ sample: CMSampleBuffer) {
-        encodedCount += 1
-        if writer == nil {
-            // Built on the first encoded frame, because the passthrough input
-            // needs the real format description and only the encoder has it.
-            guard let format = CMSampleBufferGetFormatDescription(sample) else { return }
-            let assetWriter = AVAssetWriter(contentType: UTType.mpeg4Movie)
-            assetWriter.outputFileTypeProfile = .mpeg4CMAFCompliant
-            assetWriter.preferredOutputSegmentInterval = .indefinite
-            assetWriter.initialSegmentStartTime = .zero
-            assetWriter.delegate = self
-            let writerInput = AVAssetWriterInput(
-                mediaType: .video, outputSettings: nil, sourceFormatHint: format,
-            )
-            writerInput.expectsMediaDataInRealTime = true
-            guard assetWriter.canAdd(writerInput) else { fail("writer refused the passthrough input") }
-            assetWriter.add(writerInput)
-            guard assetWriter.startWriting() else {
-                let error = assetWriter.error as NSError?
-                fail("startWriting failed: \(error?.userInfo ?? [:])")
-            }
-            assetWriter.startSession(atSourceTime: .zero)
-            writer = assetWriter
-            input = writerInput
-        }
-        guard let writer, let input else { return }
-        guard input.isReadyForMoreMediaData else { notReady += 1; return }
-
-        // A segment has to START with a sync sample: AVAssetWriter rejects
-        // anything else with "segment is not allowed to start with a non-sync
-        // sample", under the HLS profile and the CMAF one alike. So a segment is
-        // a GOP. Flush BEFORE appending a keyframe, which closes the segment the
-        // previous frames filled and lets this keyframe open the next one.
-        if isSyncSample(sample) && segmentOpen {
-            writer.flushSegment()
-            segmentOpen = false
-        }
-        appended += 1
-        guard input.append(sample) else {
-            fail("append failed: \(String(describing: writer.error))")
-        }
-        segmentOpen = true
-    }
-
-    /// A frame other decoders can start from. Absent attachments means sync.
-    private func isSyncSample(_ sample: CMSampleBuffer) -> Bool {
-        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false)
-            as? [[CFString: Any]], let first = attachments.first else { return true }
-        return !((first[kCMSampleAttachmentKey_NotSync] as? Bool) ?? false)
-    }
-
-    func assetWriter(
-        _ writer: AVAssetWriter,
-        didOutputSegmentData segmentData: Data,
-        segmentType: AVAssetSegmentType,
-        segmentReport: AVAssetSegmentReport?
-    ) {
-        switch segmentType {
-        case .initialization:
-            if !announcedCodec {
-                announcedCodec = true
-                let codec = hevcCodecString(fromInitializationSegment: segmentData)
-                emitMeta([
-                    "type": "codec",
-                    "codec": codec ?? "hvc1.1.6.L93.B0",
-                    "derived": codec != nil,
-                ])
-            }
-            emit(.initialization, segmentData)
-        case .separable:
-            emit(.media, segmentData)
-        @unknown default:
-            break
-        }
-    }
 }
 
 // MARK: - raw video for a transport that packetizes
@@ -531,18 +331,11 @@ final class RawAnnexBEncoder: NSObject {
     }
 }
 
-/// Adapts either encoder behind the capture callback.
-protocol FrameSink: AnyObject {
-    func submit(_ sample: CMSampleBuffer)
-}
-extension EncodingMuxer: FrameSink {}
-extension RawAnnexBEncoder: FrameSink {}
-
 // MARK: - capture
 
 final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
-    let muxer: FrameSink
-    init(muxer: FrameSink) { self.muxer = muxer }
+    let encoder: RawAnnexBEncoder
+    init(encoder: RawAnnexBEncoder) { self.encoder = encoder }
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false)
@@ -557,7 +350,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
                               kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
         CVBufferSetAttachment(imageBuffer, kCVImageBufferTransferFunctionKey,
                               kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
-        muxer.submit(sb)
+        encoder.submit(sb)
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         fail("capture stopped: \(error.localizedDescription)")
@@ -587,7 +380,8 @@ let windowArgument = argument("window").flatMap(UInt32.init)
 let displayArgument = argument("display")
 guard windowArgument != nil || displayArgument != nil else {
     fail("usage: grid-encoder (--window <id> | --display <id|main>) [--width N] [--height N] "
-        + "[--source-rect X,Y,W,H] [--fps N] [--bitrate BPS] [--segment SECONDS] [--verbose]")
+        + "--codec (h265-annexb|h264-annexb) [--source-rect X,Y,W,H] [--fps N] [--bitrate BPS] "
+        + "[--verbose]")
 }
 let requestedWidth = argument("width").flatMap(Int.init)
 let requestedHeight = argument("height").flatMap(Int.init)
@@ -614,13 +408,12 @@ if requestedSourceRect != nil && windowArgument != nil {
 }
 let fps = argument("fps").flatMap(Int32.init) ?? 30
 let bitrate = argument("bitrate").flatMap(Int.init) ?? 4_000_000
-// One segment per GOP, so this is the latency floor the muxer imposes. MSE adds
-// its own buffer on top; there is no point going far below it.
-let segmentSeconds = argument("segment").flatMap(Double.init) ?? 0.4
-/// `hevc-fmp4` feeds MSE; the Annex-B modes feed a transport that packetizes.
-let codecMode = argument("codec") ?? "hevc-fmp4"
-guard codecMode == "hevc-fmp4" || codecMode == "h264-annexb" || codecMode == "h265-annexb" else {
-    fail("unknown --codec \(codecMode); expected hevc-fmp4, h264-annexb, or h265-annexb")
+/// Both modes feed a transport that packetizes. Required rather than defaulted: the default used
+/// to be the fragmented-MP4 mode that fed MSE, and an invocation that forgot the flag got a capture
+/// which produced frames and answered nothing on stdin, which reads as a broken build.
+guard let codecMode = argument("codec") else { fail("--codec is required: h265-annexb or h264-annexb") }
+guard codecMode == "h264-annexb" || codecMode == "h265-annexb" else {
+    fail("unknown --codec \(codecMode); expected h265-annexb or h264-annexb")
 }
 /// H.264 profile for annexb mode. High is the text-quality profile (CABAC,
 /// 8x8 transform); receivers configure their decoder from the SPS in-band, so
@@ -641,7 +434,6 @@ _ = NSApplication.shared
 // looks exactly like a capture that produced one frame and then hung.
 nonisolated(unsafe) var liveStream: SCStream?
 nonisolated(unsafe) var liveCapturer: Capturer?
-nonisolated(unsafe) var liveMuxer: EncodingMuxer?
 nonisolated(unsafe) var liveRawEncoder: RawAnnexBEncoder?
 nonisolated(unsafe) var liveCursorMirror: CursorMirror?
 // A plain thread is sufficient for optional counters. The AppKit main queue remains
@@ -760,9 +552,6 @@ Task {
     var meta = openMeta
     meta["width"] = width
     meta["height"] = height
-    if codecMode == "hevc-fmp4" {
-        meta["segmentSeconds"] = segmentSeconds
-    }
     meta["inputTrusted"] = desktopInput.isTrusted
     meta["desktopControlVersion"] = 2
     meta["inputBounds"] = [
@@ -774,87 +563,70 @@ Task {
     meta["cursor"] = ["x": initialCursor.x, "y": initialCursor.y]
     emitMeta(meta)
 
-    let sink: FrameSink
-    if codecMode == "h264-annexb" || codecMode == "h265-annexb" {
-        let rawCodec: RawAnnexBCodec = codecMode == "h265-annexb"
-            ? .hevc
-            : .h264(profile: h264Profile)
-        let encoder = RawAnnexBEncoder(
-            width: width, height: height, bitrate: bitrate, codec: rawCodec,
-        )
-        encoder.start()
-        sink = encoder
-        liveRawEncoder = encoder
-        // Transport control arrives as exact line commands. JSON is desktop-control-v2,
-        // "K" forces a keyframe, and a bounded "B<number>" applies the receiver estimate.
-        Thread.detachNewThread {
-            var buffer = Data()
-            while true {
-                // read(upToCount:) waited for the full 256-byte request on this
-                // pipe, hiding a lone PLI until about 128 `K\n` commands had
-                // accumulated. availableData wakes for the first flushed line.
-                let data = FileHandle.standardInput.availableData
-                guard !data.isEmpty else {
-                    // Stdin EOF: the owner is gone, the same conclusion the control loop draws.
-                    // Returning here used to leave the capture running with nobody reading its
-                    // frames, which is how a `bun --watch` reload of the sidecar orphaned an
-                    // encoder: the reload drops the JS context and closes this pipe without
-                    // running any exit handler (measured on Bun 1.3.13 -- no signal, no `exit`
-                    // event, and `import.meta.hot` undefined under --watch), so nothing on that
-                    // side can stop us. The orphan then held a ScreenCaptureKit capture of the
-                    // display beside the one the reloaded sidecar started, and two captures of one
-                    // target starve each other into a black picture.
-                    if let navigation { DispatchQueue.main.sync { navigation.stop() } }
-                    exit(0)
-                }
-                buffer.append(data)
-                while let newline = buffer.firstIndex(of: 0x0A) {
-                    let rawLine = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
-                    let line = rawLine.last == "\r" ? String(rawLine.dropLast()) : rawLine
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    let navigationHandled = navigation.map { nav in
-                        DispatchQueue.main.sync { nav.handle(line) }
-                    } ?? false
-                    if navigationHandled || desktopInput.handle(line) {
-                        continue
-                    } else if let capture = CaptureControlCommand.parse(line) {
-                        switch capture {
-                        case .keyframe: encoder.requestKeyframe()
-                        case .bitrate(let bits): encoder.setBitrate(bits)
-                        }
+    let rawCodec: RawAnnexBCodec = codecMode == "h265-annexb"
+        ? .hevc
+        : .h264(profile: h264Profile)
+    let encoder = RawAnnexBEncoder(
+        width: width, height: height, bitrate: bitrate, codec: rawCodec,
+    )
+    encoder.start()
+    liveRawEncoder = encoder
+    // Transport control arrives as exact line commands. JSON is desktop-control-v2,
+    // "K" forces a keyframe, and a bounded "B<number>" applies the receiver estimate.
+    Thread.detachNewThread {
+        var buffer = Data()
+        while true {
+            // read(upToCount:) waited for the full 256-byte request on this
+            // pipe, hiding a lone PLI until about 128 `K\n` commands had
+            // accumulated. availableData wakes for the first flushed line.
+            let data = FileHandle.standardInput.availableData
+            guard !data.isEmpty else {
+                // Stdin EOF: the owner is gone, the same conclusion the control loop draws.
+                // Returning here used to leave the capture running with nobody reading its
+                // frames, which is how a `bun --watch` reload of the sidecar orphaned an
+                // encoder: the reload drops the JS context and closes this pipe without
+                // running any exit handler (measured on Bun 1.3.13 -- no signal, no `exit`
+                // event, and `import.meta.hot` undefined under --watch), so nothing on that
+                // side can stop us. The orphan then held a ScreenCaptureKit capture of the
+                // display beside the one the reloaded sidecar started, and two captures of one
+                // target starve each other into a black picture.
+                if let navigation { DispatchQueue.main.sync { navigation.stop() } }
+                exit(0)
+            }
+            buffer.append(data)
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let rawLine = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
+                let line = rawLine.last == "\r" ? String(rawLine.dropLast()) : rawLine
+                buffer.removeSubrange(buffer.startIndex...newline)
+                let navigationHandled = navigation.map { nav in
+                    DispatchQueue.main.sync { nav.handle(line) }
+                } ?? false
+                if navigationHandled || desktopInput.handle(line) {
+                    continue
+                } else if let capture = CaptureControlCommand.parse(line) {
+                    switch capture {
+                    case .keyframe: encoder.requestKeyframe()
+                    case .bitrate(let bits): encoder.setBitrate(bits)
                     }
                 }
-                // A bare "K" with no newline still works: flush it eagerly.
-                if buffer == Data([0x4B]) {
-                    encoder.requestKeyframe()
-                    buffer.removeAll()
-                } else if buffer.count > DesktopInputController.maximumCommandBytes {
-                    buffer.removeAll(keepingCapacity: true)
-                    desktopInput.rejectOversized()
-                }
+            }
+            // A bare "K" with no newline still works: flush it eagerly.
+            if buffer == Data([0x4B]) {
+                encoder.requestKeyframe()
+                buffer.removeAll()
+            } else if buffer.count > DesktopInputController.maximumCommandBytes {
+                buffer.removeAll(keepingCapacity: true)
+                desktopInput.rejectOversized()
             }
         }
-        countersLock.lock()
-        counters = {
-            "submitted=\(encoder.submitted) encoded=\(encoder.encodedCount) appended=\(encoder.appended) "
-                + "encodeErrors=\(encoder.encodeErrors)"
-        }
-        countersLock.unlock()
-    } else {
-        let muxer = EncodingMuxer(
-            width: width, height: height, bitrate: bitrate, segmentSeconds: segmentSeconds,
-        )
-        muxer.start()
-        sink = muxer
-        liveMuxer = muxer
-        countersLock.lock()
-        counters = {
-            "submitted=\(muxer.submitted) encoded=\(muxer.encodedCount) appended=\(muxer.appended) "
-                + "notReady=\(muxer.notReady) encodeErrors=\(muxer.encodeErrors)"
-        }
-        countersLock.unlock()
     }
-    let capturer = Capturer(muxer: sink)
+    countersLock.lock()
+    counters = {
+        "submitted=\(encoder.submitted) encoded=\(encoder.encodedCount) appended=\(encoder.appended) "
+            + "encodeErrors=\(encoder.encodeErrors)"
+    }
+    countersLock.unlock()
+    let capturer = Capturer(encoder: encoder)
     liveCapturer = capturer
     let configuration = SCStreamConfiguration()
     configuration.width = width

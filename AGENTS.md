@@ -357,13 +357,17 @@ else's work, or reverting a file that was never yours.
   numbered copy under the runtime `bin/grid-encoder-slots/` (see
   `agent-feed/sidecar/src/desktop/encoderSlots.ts`). A probe encoder started by hand from the
   installed binary kills the sidecar's live capture the moment it exits; run probes from a copy.
-- **Probe the helper with `--codec h265-annexb`, the way the sidecar spawns it.** The stdin loop
-  that owns desktop control -- input, space navigation, keyframe and bitrate commands -- runs only
-  on the annexb path. Left to the default `hevc-fmp4`, the helper starts, captures, and emits
-  cursor frames exactly as usual while answering nothing at all on stdin, which reads like a
-  broken command rather than a wrong invocation. Measured 2026-09-05: the same `focus-query` that
-  returned silence under the default returned a `text-focus` event immediately with the codec
-  passed.
+- **`--codec` is required, and both values are Annex-B.** It used to default to `hevc-fmp4`, the
+  fragmented-MP4 mode that fed the MSE path, and the stdin loop owning desktop control -- input,
+  space navigation, keyframe and bitrate commands -- ran only on the annexb path. So a probe that
+  forgot the flag captured and emitted cursor frames exactly as usual while answering nothing at
+  all on stdin, which reads as a broken build rather than a wrong invocation (measured 2026-09-05).
+  The MSE path was removed on 2026-09-06 and the flag made mandatory, so that trap is closed
+  rather than documented; the note stays because an older helper still on a machine has it.
+- **Stdin EOF ends a capture.** The helper reads it as "the owner is gone" and exits, which is what
+  makes a sidecar reload, crash or kill take its encoders with it. A capture started by hand with
+  stdin at `/dev/null` therefore exits immediately; keep stdin open, as sending commands requires
+  anyway.
 - **See who is streaming before blaming the stream.** `just webrtc-sessions [user]` lists live
   viewers and encoders for that login session's sidecar; `just webrtc-close [user]` ends them
   all, or one with `attempt=` / `pid=`. The diagnostics log for a session is

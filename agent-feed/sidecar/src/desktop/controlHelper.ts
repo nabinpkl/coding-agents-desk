@@ -1,5 +1,5 @@
 import { config } from "../config.ts";
-import { frames, KIND_META } from "../http/tileEncoderPool.ts";
+import { frames, KIND_META } from "../http/encoderFrames.ts";
 import { helperBinary, type HelperBinary, missingHelperMessage } from "./helperBinary.ts";
 
 /**
