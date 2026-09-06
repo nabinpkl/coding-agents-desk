@@ -53,6 +53,16 @@ const VIEW_REAIM_INTERVAL_MS = 350;
 const POINTER_SLOP = 3;
 /** How long one finger stays still before it becomes a held button. */
 const TOUCH_DRAG_HOLD_MS = 500;
+/**
+ * How long a finger rests before the priming ring appears at all.
+ *
+ * Drawing it on touch-down would put a ring under every tap, and almost every tap is a click. The
+ * ring waits out the length of an ordinary tap and then shows the progress already made, so it
+ * only ever appears for someone who is holding on purpose.
+ */
+const DRAG_PRIMING_DELAY_MS = 150;
+const DRAG_PRIMING_RADIUS = 12;
+const DRAG_PRIMING_CIRCUMFERENCE = 2 * Math.PI * DRAG_PRIMING_RADIUS;
 const SCROLL_SLOP = 10;
 const SCROLL_MOMENTUM_FLICK_THRESHOLD = 200;
 const SCROLL_MOMENTUM_STOP_THRESHOLD = 30;
@@ -147,6 +157,8 @@ export function TileViewport({
   const cursorFallback = useRef<SVGSVGElement>(null);
   const cursorImage = useRef<HTMLImageElement>(null);
   const dragHalo = useRef<HTMLSpanElement>(null);
+  const dragPriming = useRef<HTMLSpanElement>(null);
+  const dragPrimingArc = useRef<SVGCircleElement>(null);
   const cursorImageCache = useRef(new CursorImageCache());
   const sendPointerInputRef = useRef(sendPointerInput);
   const pointerGestureStartRef = useRef(onPointerGestureStart);
@@ -231,6 +243,8 @@ export function TileViewport({
     let hadMultiplePointers = false;
     let pressedMouseButton: "left" | "right" | null = null;
     let touchHoldTimer = 0;
+    let touchPrimingTimer = 0;
+    let touchPrimingArc: Animation | null = null;
     let touchDragHeld = false;
     let pendingPointerDx = 0;
     let pendingPointerDy = 0;
@@ -391,7 +405,38 @@ export function TileViewport({
      * the viewer, and the page, so every exit releases: the lift, a cancelled pointer, a second
      * finger arriving, and the effect's own teardown.
      */
+    /**
+     * Show how much of the hold is left, as a ring that closes on the moment the drag arms.
+     *
+     * It is started from the progress already elapsed rather than from zero, so the ring is a
+     * reading of the same timer rather than a second animation that happens to take a similar
+     * time. jsdom implements no Web Animations, hence the optional call; the ring's visibility is
+     * the part the tests can see.
+     */
+    const showDragPriming = (priming: boolean) => {
+      const ring = dragPriming.current;
+      if (!ring) return;
+      touchPrimingArc?.cancel();
+      touchPrimingArc = null;
+      ring.hidden = !priming;
+      if (!priming) return;
+      const elapsed = DRAG_PRIMING_DELAY_MS / TOUCH_DRAG_HOLD_MS;
+      touchPrimingArc = dragPrimingArc.current?.animate?.(
+        [
+          { strokeDashoffset: DRAG_PRIMING_CIRCUMFERENCE * (1 - elapsed) },
+          { strokeDashoffset: 0 },
+        ],
+        { duration: TOUCH_DRAG_HOLD_MS - DRAG_PRIMING_DELAY_MS, easing: "linear", fill: "forwards" },
+      ) ?? null;
+    };
     const cancelTouchHold = () => {
+      // Ahead of the timer check: the ring outlives the timer by the moment the hold fires in, and
+      // a ring left on screen is worse than one that never showed.
+      showDragPriming(false);
+      if (touchPrimingTimer !== 0) {
+        window.clearTimeout(touchPrimingTimer);
+        touchPrimingTimer = 0;
+      }
       if (touchHoldTimer === 0) return;
       window.clearTimeout(touchHoldTimer);
       touchHoldTimer = 0;
@@ -410,8 +455,15 @@ export function TileViewport({
     };
     const armTouchHold = () => {
       cancelTouchHold();
+      touchPrimingTimer = window.setTimeout(() => {
+        touchPrimingTimer = 0;
+        if (didCrossPointerSlop || hadMultiplePointers || pointers.size !== 1) return;
+        showDragPriming(true);
+      }, DRAG_PRIMING_DELAY_MS);
       touchHoldTimer = window.setTimeout(() => {
         touchHoldTimer = 0;
+        // The ring has done its job either way: what follows is the held state or nothing.
+        showDragPriming(false);
         // The finger has to still be down, alone, and to have stayed inside the slop. Any of those
         // failing means this was a move, a pinch, or a tap that already ended.
         if (didCrossPointerSlop || hadMultiplePointers || pointers.size !== 1) return;
@@ -1104,10 +1156,39 @@ export function TileViewport({
         <span
           ref={dragHalo}
           hidden
+          data-testid="client-drag-halo"
           className="absolute -left-2.5 -top-2.5 size-5 rounded-full border-2 border-blue-400 bg-blue-400/25"
         />
+        <span
+          ref={dragPriming}
+          hidden
+          data-testid="client-drag-priming"
+          className="absolute -left-3.5 -top-3.5 size-7"
+        >
+          <svg viewBox="0 0 28 28" className="size-full -rotate-90" aria-hidden="true">
+            <circle
+              cx="14"
+              cy="14"
+              r={DRAG_PRIMING_RADIUS}
+              strokeWidth="2.5"
+              className="fill-black/25 stroke-white/40"
+            />
+            <circle
+              ref={dragPrimingArc}
+              cx="14"
+              cy="14"
+              r={DRAG_PRIMING_RADIUS}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={DRAG_PRIMING_CIRCUMFERENCE}
+              strokeDashoffset={DRAG_PRIMING_CIRCUMFERENCE}
+              className="fill-none stroke-blue-400"
+            />
+          </svg>
+        </span>
         <svg
           ref={cursorFallback}
+          data-testid="client-cursor-fallback"
           viewBox="0 0 11 18"
           className="h-3 w-2 max-w-none overflow-visible"
           aria-hidden="true"

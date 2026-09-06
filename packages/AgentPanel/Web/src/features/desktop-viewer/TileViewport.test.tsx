@@ -135,6 +135,49 @@ describe("TileViewport pointer mode", () => {
     expect(inputs.some((input) => input.type === "click")).toBe(false);
   });
 
+  it("shows the hold priming as a ring, and takes it back on every path that ends the hold", () => {
+    vi.useFakeTimers();
+    const surface = renderPointerSurface(() => true);
+    const ring = () => screen.getByTestId("client-drag-priming");
+
+    // Nothing under an ordinary tap: the ring waits out the length of one first.
+    pointer(surface, "pointerdown", 1, 80, 50);
+    act(() => vi.advanceTimersByTime(140));
+    expect(ring().hidden).toBe(true);
+    act(() => vi.advanceTimersByTime(20));
+    expect(ring().hidden).toBe(false);
+
+    // The held state takes over the moment the drag arms, so the ring is not left doubling it.
+    act(() => vi.advanceTimersByTime(600));
+    expect(ring().hidden).toBe(true);
+    expect(screen.getByTestId("client-drag-halo").hidden).toBe(false);
+    pointer(surface, "pointerup", 1, 80, 50);
+
+    // A finger that travels cancels the hold, and the ring goes with it.
+    pointer(surface, "pointerdown", 2, 80, 50);
+    act(() => vi.advanceTimersByTime(200));
+    expect(ring().hidden).toBe(false);
+    pointer(surface, "pointermove", 2, 140, 90);
+    act(() => animationFrames.shift()?.(performance.now() + 16));
+    expect(ring().hidden).toBe(true);
+    pointer(surface, "pointerup", 2, 140, 90);
+
+    // So does a second finger, and a cancelled pointer.
+    pointer(surface, "pointerdown", 3, 80, 50);
+    act(() => vi.advanceTimersByTime(200));
+    expect(ring().hidden).toBe(false);
+    pointer(surface, "pointerdown", 4, 200, 120);
+    expect(ring().hidden).toBe(true);
+    pointer(surface, "pointerup", 3, 80, 50);
+    pointer(surface, "pointerup", 4, 200, 120);
+
+    pointer(surface, "pointerdown", 5, 80, 50);
+    act(() => vi.advanceTimersByTime(200));
+    expect(ring().hidden).toBe(false);
+    pointer(surface, "pointercancel", 5, 80, 50);
+    expect(ring().hidden).toBe(true);
+  });
+
   it("does not press when the finger travels before the hold completes", () => {
     vi.useFakeTimers();
     const inputs: DesktopPointerInput[] = [];
@@ -386,7 +429,7 @@ describe("TileViewport pointer mode", () => {
 
     expect(overlay).not.toHaveAttribute("hidden");
     expect(overlay.style.transform).toBe("translate3d(400px, 250px, 0)");
-    expect(overlay.querySelector("svg")).toHaveClass("h-3", "w-2");
+    expect(screen.getByTestId("client-cursor-fallback")).toHaveClass("h-3", "w-2");
     expect(surface.contains(overlay)).toBe(true);
   });
 
@@ -474,7 +517,7 @@ describe("TileViewport pointer mode", () => {
       },
     );
     const overlay = screen.getByTestId("client-cursor-overlay");
-    const fallback = overlay.querySelector("svg")!;
+    const fallback = screen.getByTestId("client-cursor-fallback");
     const image = overlay.querySelector("img")!;
 
     act(() => listener?.({
