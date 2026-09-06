@@ -1093,8 +1093,17 @@ export function TileViewport({
         // around a shrunken desktop. Fill the strip instead and aim it at the cursor, which is
         // where the typing is going. Recomputed on every resize while typing so an accessory that
         // changes height re-aims rather than drifting.
-        if (viewBeforeKeyboard === null) viewBeforeKeyboard = view.snapshot();
-        view.cover(remoteCursor, w, h);
+        //
+        // Unless the viewer had already zoomed. The cover answers a view nobody chose; a zoom is a
+        // view somebody chose, and opening the keyboard is not a reason to throw it away. The
+        // snapshot doubles as the record of whose view this is: null here means the zoom was
+        // theirs, so it stands and only gets clamped to the shorter box.
+        if (viewBeforeKeyboard === null && view.isZoomed()) {
+          view.reclamp(w, h);
+        } else {
+          if (viewBeforeKeyboard === null) viewBeforeKeyboard = view.snapshot();
+          view.cover(remoteCursor, w, h);
+        }
       } else if (viewBeforeKeyboard !== null) {
         // The cover was this viewer's doing, not the user's, so leaving the keyboard leaves it.
         view.restore(viewBeforeKeyboard, w, h);

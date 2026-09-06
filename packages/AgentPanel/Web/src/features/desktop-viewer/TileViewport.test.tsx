@@ -572,6 +572,45 @@ describe("TileViewport pointer mode", () => {
     expect(content.style.transform).toBe("translate(0px, 0px) scale(1)");
   });
 
+  it("keeps a zoom the viewer chose when the keyboard opens over it", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const surfaceFor = (keyboardPresented: boolean) => (
+      <TileViewport keyboardPresented={keyboardPresented}
+        sourceWidth={800} sourceHeight={500} initialCursor={{ x: 200, y: 250 }}>
+        <div data-testid="content" />
+      </TileViewport>
+    );
+    const { rerender } = render(surfaceFor(false));
+    const content = screen.getByTestId("content").parentElement!;
+    const frame = content.parentElement!;
+    Object.defineProperties(frame, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 1000 },
+    });
+
+    // Zoom in the way a viewer does, with a double tap.
+    pointer(frame, "pointerdown", 1, 400, 500);
+    pointer(frame, "pointerup", 1, 400, 500);
+    pointer(frame, "pointerdown", 1, 400, 500);
+    pointer(frame, "pointerup", 1, 400, 500);
+    const zoomed = content.style.transform;
+    expect(zoomed).toContain("scale(2.5)");
+
+    // The keyboard shortens the box. The cover exists for a view nobody chose; this one was
+    // chosen, so it stays at the scale the viewer put it at.
+    rerender(surfaceFor(true));
+    Object.defineProperty(frame, "clientHeight", { configurable: true, value: 800 });
+    act(() => frameObservers.get(frame)!());
+    expect(content.style.transform).toContain("scale(2.5)");
+
+    // And closing the keyboard has nothing of its own to put back.
+    Object.defineProperty(frame, "clientHeight", { configurable: true, value: 1000 });
+    rerender(surfaceFor(false));
+    act(() => frameObservers.get(frame)!());
+    expect(content.style.transform).toBe(zoomed);
+  });
+
   it("re-clamps a zoomed pan when the keyboard shortens the box", () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
