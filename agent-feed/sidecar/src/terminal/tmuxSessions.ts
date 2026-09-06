@@ -167,3 +167,124 @@ export async function listTmuxSessions(): Promise<TmuxSessionSummary[]> {
   if (/no server running|no sessions/i.test(err)) return [];
   throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
 }
+
+/** The pane's pid and geometry, in one query, for the descriptor the panel renders. */
+export async function describeTmuxPane(
+  session: string,
+): Promise<{ pid: number; columns: number; rows: number }> {
+  const { out, err, code } = await tmux([
+    "display-message", "-p", "-t", session, "#{pane_pid}|#{pane_width}|#{pane_height}",
+  ]);
+  if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}: ${err.trim()}`);
+  const parsed = out.trim().split("|").map((value) => Number.parseInt(value, 10));
+  const [pid, columns, rows] = parsed;
+  if (parsed.length !== 3
+    || pid === undefined || columns === undefined || rows === undefined
+    || !Number.isInteger(pid) || !Number.isInteger(columns) || !Number.isInteger(rows)) {
+    throw new TmuxUnavailable(`tmux reported an unreadable pane: ${out.trim()}`);
+  }
+  return { pid, columns, rows };
+}
+
+/**
+ * Bytes into the pane.
+ *
+ * Hex via `send-keys -H`, because the viewer sends a terminal's byte stream -- printable text,
+ * escape sequences for the arrows, bare control characters -- and every key-NAME mapping is a table
+ * with holes in it where the composer's keys are.
+ */
+export async function hexSend(session: string, bytes: Uint8Array): Promise<void> {
+  await sendTmuxBytes(session, [...bytes].map((byte) => byte.toString(16).padStart(2, "0")));
+}
+
+/** The hex form, for a caller that already has it. */
+export async function sendTmuxBytes(session: string, hex: readonly string[]): Promise<void> {
+  if (hex.length === 0) return;
+  const { err, code } = await tmux(["send-keys", "-H", "-t", session, ...hex]);
+  if (code !== 0) throw new TmuxUnavailable(`tmux send-keys exited ${code}: ${err.trim()}`);
+}
+
+/** The window's size. tmux has one per session and no per-client override, so this is shared. */
+export async function resizeTmuxWindow(
+  session: string,
+  columns: number,
+  rows: number,
+): Promise<void> {
+  const { err, code } = await tmux([
+    "resize-window", "-t", session, "-x", String(columns), "-y", String(rows),
+  ]);
+  if (code !== 0) throw new TmuxUnavailable(`tmux resize-window exited ${code}: ${err.trim()}`);
+}
+
+/**
+ * The pane's raw output, live, delivered to `onData` until the returned function is called.
+ *
+ * Over a loopback socket that tmux connects to with bash's `/dev/tcp`, which is the only shape
+ * tried that cannot outlive this process. The obvious alternatives both leak:
+ *
+ *   A FIFO plus a `cat` child of ours was measured leaking on every `bun --watch` reload -- the
+ *   reload drops module state without running any cleanup (no exit event, no signal), so the child
+ *   kept the pipe open, the pane stayed piped, and five stale directories and two orphaned readers
+ *   were left behind in one session with nothing able to notice.
+ *
+ *   A plain file grows without bound and still leaves the pane piped.
+ *
+ * A socket inverts the lifetime: when this process goes, the socket closes, tmux's writer fails on
+ * its next write and exits, and tmux clears `pane_pipe` itself. Nothing has to remember to tidy up.
+ *
+ * What it does NOT fix is a `bun --watch` reload, because that keeps the process and only drops
+ * module state -- so the writer is orphaned with its socket still open, and this map no longer
+ * knows about it. Measured: one orphaned writer per reload with a tile open. It is bounded rather
+ * than unbounded, which is the difference from the FIFO version: the next `open` of that session
+ * replaces the pipe command and the old writer dies on its next write, and a socket that nobody
+ * drains fills and fails on its own. One idle bash until then, and no temp directory at all.
+ *
+ * The listener is closed the moment tmux connects, so the window in which anything else on this
+ * machine could take that port's one connection is the length of a `pipe-pane` call. Even inside
+ * it, the worst a squatter gets is to write bytes into one viewer's OUTPUT; there is no input path
+ * here, and `send-keys` is a separate, authenticated-by-being-local tmux call.
+ *
+ * `pipe-pane` is set WITHOUT `-o`. Measured: `-o` toggles, so a second call closes the pipe the
+ * first opened rather than adding one, and a pane has only one pipe either way.
+ */
+export async function pipeTmuxPane(
+  session: string,
+  onData: (chunk: Uint8Array) => void,
+): Promise<() => void> {
+  let stopped = false;
+  let connected: { end: () => void } | null = null;
+  const server = Bun.listen<undefined>({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: {
+      open(socket) {
+        // One writer per pane, so the listener's job is done the instant it arrives.
+        connected = socket;
+        server.stop();
+      },
+      data(_socket, chunk) {
+        if (!stopped) onData(new Uint8Array(chunk));
+      },
+    },
+  });
+
+  const { err, code } = await tmux([
+    "pipe-pane", "-t", session,
+    `bash -c 'exec 3<>/dev/tcp/127.0.0.1/${server.port}; cat >&3'`,
+  ]);
+  if (code !== 0) {
+    stopped = true;
+    server.stop(true);
+    throw new TmuxUnavailable(`tmux pipe-pane exited ${code}: ${err.trim()}`);
+  }
+
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    // Tell tmux first, so its writer is not still writing into a socket being torn down.
+    void tmux(["pipe-pane", "-t", session]).finally(() => {
+      connected?.end();
+      server.stop(true);
+    });
+  };
+}

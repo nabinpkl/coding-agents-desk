@@ -8,6 +8,7 @@ import {
   type AgentTerminalPtyClient,
 } from "./agentTerminalService.ts";
 import type { PtySessionConnection } from "./ptyClient.ts";
+import type { TmuxAttachments, TmuxSessionConnection } from "./tmuxAttachment.ts";
 
 const SESSION_ID = "019c3708-fadb-7e2f-a744-322df224faf4";
 const roots: string[] = [];
@@ -163,6 +164,36 @@ test("rejects a non-canonical session id before touching the PTY manager", async
   }, { columns: 80, rows: 24 })).rejects.toBeInstanceOf(AgentTerminalInvalidError);
 });
 
+/** A tmux-backed connection that records what the service asked of it. */
+function tmuxConnection(acts: string[]) {
+  return {
+    attachment: { sessionName: "canvas-fork", pid: 7, columns: 80, rows: 24 },
+    onEnvelope: () => () => {},
+    onFailure: () => () => {},
+    requestCheckpoint() {},
+    sendInput() {},
+    sendBinaryInput() {},
+    updateViewerState() {},
+    detach() { acts.push("detach"); },
+    kill() { acts.push("detach"); },
+    closeTransport() {},
+  } as unknown as TmuxSessionConnection;
+}
+
+/** Points a service built for the PTY path at a recording tmux backend instead. */
+function serviceWithTmux(
+  service: AgentTerminalService,
+  attached: { session: string; columns: number; rows: number }[],
+): AgentTerminalService {
+  (service as unknown as { tmux: { open: TmuxAttachments["open"] } }).tmux = {
+    open: async (session, dimensions) => {
+      attached.push({ session, ...dimensions });
+      return tmuxConnection([]);
+    },
+  };
+  return service;
+}
+
 test("attaches to a tmux session rather than resuming a CLI", async () => {
   const opened: unknown[] = [];
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
@@ -194,51 +225,32 @@ test("attaches to a tmux session rather than resuming a CLI", async () => {
     },
   );
 
-  const descriptor = await service.open(
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const descriptor = await serviceWithTmux(service, attached).open(
     { kind: "tmux", session: "canvas-fork" },
     { columns: 120, rows: 40 },
   );
 
+  // A tmux target never reaches the PTY daemon: nothing has to be launched, because the session is
+  // already running and owned by whoever started it. Asking a daemon that may not be installed to
+  // attach it is how a machine with tmux and no daemon lists sessions it cannot open.
+  expect(opened).toEqual([]);
+  expect(attached).toEqual([{ session: "canvas-fork", columns: 120, rows: 40 }]);
   expect(descriptor.ptySessionName).toBe("agent-tmux-canvas-fork");
-  expect(opened).toEqual([{
-    sessionName: "agent-tmux-canvas-fork",
-    launch: {
-      cwd: home,
-      executable: "/bin/zsh",
-      arguments: ["-l", "-c", 'exec "$0" "$@"', "tmux", "attach-session", "-t", "canvas-fork"],
-    },
-    columns: 120,
-    rows: 40,
-    createIfMissing: true,
-    clientTitle: "Agent Feed",
-  }]);
 });
 
-test("a kill from one viewer of a shared attach only detaches that viewer", async () => {
+test("a viewer leaving a shared tmux attach never ends the session", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);
   const acts: string[] = [];
-  const connection = (label: string) => ({
-    attachment: { sessionName: "agent-tmux-canvas-fork", pid: 7, columns: 80, rows: 24 },
-    onEnvelope: () => () => {},
-    onFailure: () => () => {},
-    requestCheckpoint() {},
-    sendInput() {},
-    sendBinaryInput() {},
-    updateViewerState() {},
-    detach() { acts.push(`detach:${label}`); },
-    kill() { acts.push(`kill:${label}`); },
-    closeTransport() {},
-  }) as unknown as PtySessionConnection;
-  let opens = 0;
   const service = new AgentTerminalService(
     "/unused/pty.sock",
     () => undefined,
     home,
-    {
-      listSessions: async () => [],
-      openSession: async () => connection(String(++opens)),
-    },
+    { listSessions: async () => [], openSession: async () => { throw new Error("no PTY here"); } },
+    async () => "",
+    async () => {},
+    { open: async () => tmuxConnection(acts) },
   );
 
   const context = { kind: "tmux" as const, session: "canvas-fork" };
@@ -246,13 +258,12 @@ test("a kill from one viewer of a shared attach only detaches that viewer", asyn
   const second = await service.open(context, { columns: 80, rows: 24 });
   expect(first.ptySessionName).toBe(second.ptySessionName);
 
-  // Two tiles of one tmux session are two connections to one `tmux attach` process. Honouring this
-  // kill would end the second viewer's terminal because the first tab closed.
+  // "kill" is the viewer's word for closing its tile. On this backend it can only ever stop the
+  // pipe, because the tmux session is the owner's work and a closing browser tab is not a reason
+  // to end it. Both viewers leaving must still leave the session alone.
   service.close(first.terminalId, "kill");
-  expect(acts).toEqual(["detach:1"]);
-
   service.close(second.terminalId, "kill");
-  expect(acts).toEqual(["detach:1", "kill:2"]);
+  expect(acts).toEqual(["detach", "detach"]);
 });
 
 test("takes the wheel back from tmux and hands over the pane's history", async () => {

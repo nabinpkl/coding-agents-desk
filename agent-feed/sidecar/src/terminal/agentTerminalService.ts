@@ -11,7 +11,15 @@ import type {
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
-import { captureTmuxHistory, restoreTmuxMouse } from "./tmuxSessions.ts";
+import {
+  captureTmuxHistory,
+  describeTmuxPane,
+  hexSend,
+  pipeTmuxPane,
+  resizeTmuxWindow,
+  restoreTmuxMouse,
+} from "./tmuxSessions.ts";
+import { TmuxAttachments, type TmuxSessionConnection } from "./tmuxAttachment.ts";
 import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
 
 const BOOTSTRAP_COLUMNS = 80;
@@ -41,9 +49,18 @@ interface TerminalIdentity {
   refuseNew: string | null;
 }
 
+/**
+ * The two backends a terminal can be attached through, which share exactly this surface.
+ *
+ * A resumed CLI needs a process launched and owned, which is the PTY manager's job. A tmux session
+ * was started by a human and only needs joining, which tmux can do by itself -- and on a machine
+ * without the PTY daemon that is the difference between listing sessions and opening them.
+ */
+type TerminalConnection = PtySessionConnection | TmuxSessionConnection;
+
 interface ActiveTerminal {
   descriptor: AgentTerminalDescriptor;
-  connection: PtySessionConnection;
+  connection: TerminalConnection;
   /** The tmux session this terminal is attached to, when that is what it is pointed at. */
   tmuxSession: string | null;
   removeEnvelope: () => void;
@@ -79,6 +96,17 @@ export class AgentTerminalService {
     // Injected so the tests can watch what the service asks of tmux without one being installed.
     private readonly captureHistory = captureTmuxHistory,
     private readonly restoreMouse = restoreTmuxMouse,
+    /**
+     * Joining a tmux session without the PTY daemon. Injected whole so a test can hand over a
+     * runtime with no tmux behind it, the same way `captureHistory` is.
+     */
+    private readonly tmux: Pick<TmuxAttachments, "open"> = new TmuxAttachments({
+      describe: describeTmuxPane,
+      capture: captureTmuxHistory,
+      pipe: pipeTmuxPane,
+      send: hexSend,
+      resize: resizeTmuxWindow,
+    }),
   ) {
   }
 
@@ -87,6 +115,17 @@ export class AgentTerminalService {
     dimensions: { columns: number; rows: number },
   ): Promise<AgentTerminalDescriptor> {
     const identity = await this.identify(context);
+    const columns = requiredDimension(dimensions.columns, "terminal columns");
+    const rows = requiredDimension(dimensions.rows, "terminal rows");
+
+    // A tmux target never goes through the PTY daemon. Nothing has to be launched -- the session is
+    // already running and owned by whoever started it -- and asking a daemon that may not be
+    // installed to attach it is how a machine with tmux and no daemon ends up listing sessions it
+    // cannot open.
+    if (identity.tmuxSession) {
+      return this.attachTmux(identity, identity.tmuxSession, { columns, rows });
+    }
+
     let sessions: PtySessionSummary[];
     try {
       sessions = await this.pty.listSessions();
@@ -101,8 +140,6 @@ export class AgentTerminalService {
       throw new AgentTerminalConflictError(identity.refuseNew);
     }
 
-    const columns = requiredDimension(dimensions.columns, "terminal columns");
-    const rows = requiredDimension(dimensions.rows, "terminal rows");
     let connection: PtySessionConnection;
     try {
       connection = await this.pty.openSession({
@@ -129,6 +166,40 @@ export class AgentTerminalService {
       throw new AgentTerminalConflictError("PTY manager returned the wrong terminal session");
     }
 
+    return this.register(identity, connection);
+  }
+
+  /**
+   * Joins a tmux session with tmux's own primitives, no daemon involved.
+   *
+   * The failure is reported as unavailable rather than not-found because from the panel's side the
+   * two are the same shape -- a tile that cannot open -- and the message is what tells them apart.
+   */
+  private async attachTmux(
+    identity: TerminalIdentity,
+    session: string,
+    dimensions: { columns: number; rows: number },
+  ): Promise<AgentTerminalDescriptor> {
+    let connection: TmuxSessionConnection;
+    try {
+      connection = await this.tmux.open(session, dimensions);
+    } catch (error) {
+      throw new AgentTerminalUnavailableError(`tmux could not attach ${session}`, { cause: error });
+    }
+    return this.register(identity, connection);
+  }
+
+  /**
+   * The half both backends share: an id, a descriptor, the envelope and failure wiring.
+   *
+   * Factored out when tmux became a second backend, because everything after "there is a
+   * connection" is identical and a divergence here is the kind that shows up as one backend's
+   * terminals never reporting an exit.
+   */
+  private register(
+    identity: TerminalIdentity,
+    connection: TerminalConnection,
+  ): AgentTerminalDescriptor {
     const terminalId = crypto.randomUUID();
     const descriptor: AgentTerminalDescriptor = {
       terminalId,
@@ -267,9 +338,15 @@ export class AgentTerminalService {
 
   /**
    * Attaching, not resuming: the process is already running and tmux is what allows a second
-   * viewer. tmux 3.x negotiates window size as `window-size latest`, so this viewer's own
-   * dimensions win while it is the client most recently used -- the user's terminal is not shrunk
-   * for good, but it will letterbox until they touch it again.
+   * viewer.
+   *
+   * The name is validated here rather than at the tmux call, because every tmux verb takes it as
+   * `-t <session>` on an argument vector this process builds -- so a name that is not a plain
+   * identifier is refused once, at the door, instead of at each of five call sites.
+   *
+   * `command` is empty and `cwd` is nominal: nothing is launched on this path. They stay on the
+   * shared identity shape because the PTY path needs them, and `ptySessionName` stays because the
+   * descriptor carries it as the terminal's label on both backends.
    */
   private identifyTmux(context: TmuxTerminalContext): TerminalIdentity {
     if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(context.session)) {
@@ -279,7 +356,7 @@ export class AgentTerminalService {
       ptySessionName: `agent-tmux-${context.session}`,
       tmuxSession: context.session,
       cwd: this.userHomeDirectory,
-      command: ["tmux", "attach-session", "-t", context.session],
+      command: [],
       // A tmux session is meant to be watched from more than one place, so nothing to refuse.
       refuseNew: null,
     };
