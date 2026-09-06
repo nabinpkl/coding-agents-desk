@@ -280,22 +280,22 @@ test("takes the wheel back from tmux and hands over the pane's history", async (
       asked.push({ capture: { session, lines } });
       return "earlier bytes\n";
     },
-    async (session) => { asked.push({ mouseOff: session }); },
+    async (session) => { asked.push({ mouseRestored: session }); },
   );
 
   const descriptor = await service.open(
     { kind: "tmux", session: "canvas-fork" },
     { columns: 80, rows: 24 },
   );
-  // With tmux holding the mouse, a browser terminal forwards the wheel to tmux and tmux answers by
-  // entering copy-mode, which is a mode the viewer then has to leave. Off, the client scrolls the
-  // bytes it already has.
+  // `mouse` is a session option with no per-client form, so a tile that forced it off took
+  // copy-mode and mouse selection from every other client of the session. Opening now releases the
+  // option instead, which is the one direction that cannot surprise another client.
   await Promise.resolve();
-  expect(asked).toEqual([{ mouseOff: "canvas-fork" }]);
+  expect(asked).toEqual([{ mouseRestored: "canvas-fork" }]);
 
   expect(await service.history(descriptor.terminalId, 2_000)).toBe("earlier bytes\n");
   expect(asked).toEqual([
-    { mouseOff: "canvas-fork" },
+    { mouseRestored: "canvas-fork" },
     { capture: { session: "canvas-fork", lines: 2_000 } },
   ]);
 });
@@ -324,7 +324,7 @@ test("a resumed CLI has no tmux history to hand over", async () => {
     home,
     { listSessions: async () => [], openSession: async () => connection },
     async () => { asked.push("captured"); return "should not happen\n"; },
-    async () => { asked.push("mouseOff"); },
+    async () => { asked.push("mouseRestored"); },
   );
 
   const descriptor = await service.open(
@@ -333,7 +333,7 @@ test("a resumed CLI has no tmux history to hand over", async () => {
   );
 
   // Its screen comes from the PTY manager's own replay; there is no tmux behind it to ask, and no
-  // mouse setting of anyone else's to change.
+  // mouse setting of anyone else's to touch.
   expect(await service.history(descriptor.terminalId, 2_000)).toBe("");
   expect(asked).toEqual([]);
 });

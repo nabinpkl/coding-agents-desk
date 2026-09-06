@@ -11,7 +11,7 @@ import type {
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
-import { captureTmuxHistory, releaseTmuxMouse } from "./tmuxSessions.ts";
+import { captureTmuxHistory, restoreTmuxMouse } from "./tmuxSessions.ts";
 import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
 
 const BOOTSTRAP_COLUMNS = 80;
@@ -78,7 +78,7 @@ export class AgentTerminalService {
     private readonly pty: AgentTerminalPtyClient = new PtyManagerClient(socketPath),
     // Injected so the tests can watch what the service asks of tmux without one being installed.
     private readonly captureHistory = captureTmuxHistory,
-    private readonly releaseMouse = releaseTmuxMouse,
+    private readonly restoreMouse = restoreTmuxMouse,
   ) {
   }
 
@@ -151,12 +151,13 @@ export class AgentTerminalService {
       this.finish(active);
     });
     this.terminals.set(terminalId, active);
-    // After the attach, not before: the option is this session's, and setting it on a session that
-    // turned out not to open would be a change nobody asked for. Failing to set it costs scrolling,
-    // not the terminal, so it is reported rather than thrown.
+    // After the attach, not before: the option is this session's, and touching a session that
+    // turned out not to open would be a change nobody asked for. This clears the `mouse off` an
+    // older build wrote here, so the session goes back to the owner's own setting; failing costs
+    // that repair, not the terminal, so it is reported rather than thrown.
     if (identity.tmuxSession) {
-      this.releaseMouse(identity.tmuxSession).catch((error: unknown) => {
-        console.error("tmux mouse release failed", error);
+      this.restoreMouse(identity.tmuxSession).catch((error: unknown) => {
+        console.error("tmux mouse restore failed", error);
       });
     }
     return descriptor;

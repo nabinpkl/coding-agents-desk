@@ -142,16 +142,20 @@ export function historyForTerminal(captured: string): string {
 }
 
 /**
- * Hands the wheel to whoever is viewing, rather than to tmux.
+ * Gives the session's mouse setting back to whoever configured it.
  *
- * With `mouse on` tmux asks its client for mouse reporting, so a browser terminal forwards the
- * wheel to tmux instead of scrolling its own buffer, and tmux answers it by entering copy-mode:
- * the pane freezes, keys stop reaching the agent, and scrolling back is a mode you have to leave.
- * Off, the client scrolls the bytes it already holds. Set per session rather than globally,
- * because a session the panel never shows is none of its business.
+ * This used to force `mouse off`, so that a browser terminal's wheel scrolled its own buffer
+ * instead of being forwarded to tmux and answered with copy-mode. The cost was not the panel's to
+ * pay: `mouse` is a session option with no per-client form, so one tile opening quietly took
+ * copy-mode, wheel scrollback and mouse selection away from every other client of that session,
+ * including the terminal the owner has it open in. `-u` unsets the session-local value so the
+ * session inherits the global one again, which also repairs a session an older build clobbered.
+ *
+ * The viewer keeps its own scrolling regardless, because its wheel handler consumes the event
+ * rather than letting xterm forward it.
  */
-export async function releaseTmuxMouse(session: string): Promise<void> {
-  const { err, code } = await tmux(["set-option", "-t", session, "mouse", "off"]);
+export async function restoreTmuxMouse(session: string): Promise<void> {
+  const { err, code } = await tmux(["set-option", "-u", "-t", session, "mouse"]);
   if (code !== 0) throw new TmuxUnavailable(`tmux set-option mouse exited ${code}: ${err.trim()}`);
 }
 
