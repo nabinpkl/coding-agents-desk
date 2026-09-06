@@ -17,6 +17,8 @@ import {
   type WebrtcDeliveryServerSample,
   writeEncoderControl,
   encoderSourceRect,
+  encoderDisposition,
+  encoderStreamKey,
   webrtcSessionsSnapshot,
 } from "./webrtcTileRoutes.ts";
 
@@ -482,5 +484,53 @@ describe("WebRTC sessions", () => {
     expect((await sessions("POST", "/api/park/webrtc/sessions/close", {})).status).toBe(400);
     expect((await sessions("POST", "/api/park/webrtc/sessions/close", { attempt: "bad attempt!" })).status).toBe(400);
     expect((await sessions("POST", "/api/park/webrtc/sessions/close", { encoderPid: "12" })).status).toBe(400);
+  });
+});
+
+describe("one encoder per capture stream", () => {
+  const wanted = { identity: "--display 224 --width 5776" };
+  const running = (overrides: Partial<{ identity: string; subscribers: number }> = {}) => ({
+    identity: wanted.identity,
+    subscribers: 1,
+    ...overrides,
+  });
+
+  test("nothing running means the offer starts the capture", () => {
+    expect(encoderDisposition(undefined, wanted)).toBe("spawn");
+  });
+
+  test("an identical offer joins the running capture rather than starting a second", () => {
+    expect(encoderDisposition(running(), wanted)).toBe("reuse");
+  });
+
+  test("a watched stream is joined at its own resolution, never doubled", () => {
+    // The measured failure: 990 wide beside 5776 wide on one display for 557 seconds, both
+    // starving. Evicting the watcher instead would have it reconnect and evict this one back.
+    expect(encoderDisposition(running({ identity: "--display 224 --width 990" }), wanted)).toBe("join");
+  });
+
+  test("an unwatched stream is retasked, so the resolution knob still moves", () => {
+    expect(encoderDisposition(running({ identity: "--display 224 --width 990", subscribers: 0 }), wanted))
+      .toBe("retask");
+  });
+});
+
+describe("what counts as a separate capture stream", () => {
+  const args = (...rest: string[]) => ["--display", "224", "--codec", "h265-annexb", ...rest];
+
+  test("a crop is its own stream, because the overview and the detail are different pixels", () => {
+    expect(encoderStreamKey("display:A", args("--source-rect", "0,0,800,600")))
+      .not.toBe(encoderStreamKey("display:A", args()));
+    expect(encoderStreamKey("display:A", args("--source-rect", "0,0,800,600")))
+      .not.toBe(encoderStreamKey("display:A", args("--source-rect", "10,0,800,600")));
+  });
+
+  test("a resolution is not, because that is the same pixels twice", () => {
+    expect(encoderStreamKey("display:A", args("--width", "5776", "--fps", "15")))
+      .toBe(encoderStreamKey("display:A", args("--width", "990", "--fps", "8")));
+  });
+
+  test("targets never share a stream, whatever they ask for", () => {
+    expect(encoderStreamKey("display:A", args())).not.toBe(encoderStreamKey("display:B", args()));
   });
 });

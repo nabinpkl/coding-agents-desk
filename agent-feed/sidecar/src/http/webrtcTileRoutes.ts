@@ -266,27 +266,30 @@ const H264 = new RTCRtpCodecParameters({
 });
 
 /**
- * One encoder per WINDOW, shared by every viewer, keyed by window alone.
+ * One encoder per capture STREAM: a target, and the pixels asked of it. Resolution is not part of
+ * that -- see `encoderStreamKey` for where the line falls and why.
  *
- * Not an optimization: two ScreenCaptureKit captures of the same window starve
- * each other (measured on the MSE path at 48ms apart, and measured again here
- * when a reconnect overlapped the old session's encoder, which outlives its
- * dead peer by the ICE consent timeout, so BOTH captures sat at zero frames).
- * Since overlap is guaranteed by the reconnect flow, the second capture must
- * never exist. The first viewer's geometry and profile win; a later viewer of
- * the same window joins the running stream and its element scales the picture.
+ * Not an optimization: two ScreenCaptureKit captures of one target starve each other (measured on
+ * the MSE path at 48ms apart, and measured again here when a reconnect overlapped the old
+ * session's encoder, which outlives its dead peer by the ICE consent timeout, so BOTH captures sat
+ * at zero frames). The viewer's overview and detail streams ask for different pixels and are worth
+ * that cost; two viewers of the same pixels at different sizes are not. The first one's geometry
+ * and profile win, and the later one's element scales the picture.
  */
 interface SharedEncoder {
   key: string;
   /**
    * The spawn arguments that decide what this child captures and at what size, minus the ones it
-   * can be told to change while running. Reuse is keyed on the display, so without this a viewer
-   * asking for a new capture resolution was handed the encoder started at the old one and nothing
-   * appeared to happen -- the helper takes --width and --height only at spawn.
+   * can be told to change while running. Only the crop reaches the key (`encoderStreamKey`);
+   * carrying the resolution there too is what let two captures of one display coexist. The helper
+   * takes --width and --height only at spawn, so a viewer wanting different ones can be served
+   * only by a respawn: see `encoderDisposition` for when that is worth doing.
    */
   identity: string;
+  /** A readable geometry for diagnostics, since the key no longer carries one. */
+  geometry: string;
   /**
-   * Installed stamp of the binary this child was spawned from. Reuse is keyed on the window, so
+   * Installed stamp of the binary this child was spawned from. Reuse is keyed on the stream, so
    * without this an updated helper would be shadowed by the previous process for
    * as long as one viewer stayed connected, and `just grid-encoder-install` would look like it
    * had done nothing.
@@ -422,25 +425,61 @@ function captureIdentity(args: readonly string[]): string {
 }
 
 /**
- * One encoder per (target, geometry), not per target.
+ * The target plus the pixels asked of it: `display:UUID|whole`, or `display:UUID|x,y,w,h`.
  *
- * Two geometries of one display run at once by design: the viewer's coarse whole-display stream
- * underneath its cropped sharp one, so a pan past the sharp region shows the coarse picture rather
- * than nothing. And a re-aim no longer kills the encoder the viewer is still painting from; that
- * one lingers for its last subscriber and dies on its own, which is also what keeps a new capture
- * from starting on top of an old one's teardown.
+ * The crop is in, because it decides WHICH pixels: the viewer's coarse whole-display stream and
+ * its sharp cropped one are different content and must both exist, or a pan past the sharp region
+ * shows the viewport's bare edge. A re-aim lands on its own key too, so it does not kill the
+ * encoder the viewer is still painting from; that one lingers for its last subscriber and dies on
+ * its own, which is also what keeps a new capture from starting on top of an old one's teardown.
+ *
+ * Width, height and fps are out, because they decide only HOW MANY pixels of the same content, and
+ * a second capture for that starves the first. Measured 2026-09-06 on the agent session's 8K with
+ * them in the key: 990 wide beside 5776 wide on one display for 557s, 2310 beside 2888 for 197s,
+ * and fourteen captures that produced two frames or fewer.
  */
-function encoderMapKey(windowID: string, identity: string): string {
-  return `${windowID}|${identity}`;
+export function encoderStreamKey(captureKey: string, args: readonly string[]): string {
+  const index = args.indexOf("--source-rect");
+  return `${captureKey}|${index >= 0 ? args[index + 1] : "whole"}`;
 }
 
-function liveEncodersFor(windowID: string): SharedEncoder[] {
-  const prefix = `${windowID}|`;
+function liveEncoderFor(streamKey: string): SharedEncoder | undefined {
+  const shared = sharedEncoders.get(streamKey);
+  return shared && !shared.dead ? shared : undefined;
+}
+
+/** Every stream of one target, for the decisions that belong to the target: codec, and staleness. */
+function liveEncodersForTarget(captureKey: string): SharedEncoder[] {
+  const prefix = `${captureKey}|`;
   const live: SharedEncoder[] = [];
   for (const [key, shared] of sharedEncoders) {
     if (key.startsWith(prefix) && !shared.dead) live.push(shared);
   }
   return live;
+}
+
+export type EncoderDisposition = "spawn" | "reuse" | "join" | "retask";
+
+/**
+ * What to do about the encoder already running on a capture stream when a new offer arrives for
+ * it. Staleness is not here: a rebuilt helper retires every stream of the target, above.
+ *
+ * This is the only place a second capture of one stream could be created, and it never answers
+ * that.
+ */
+export function encoderDisposition(
+  running: { identity: string; subscribers: number } | undefined,
+  wanted: { identity: string },
+): EncoderDisposition {
+  if (!running) return "spawn";
+  if (running.identity === wanted.identity) return "reuse";
+  // Nobody is watching, so serving the geometry this offer asks for costs a respawn and nothing
+  // else: the lone viewer changing resolution, or coming back from a reload at another size.
+  if (running.subscribers === 0) return "retask";
+  // Somebody is. Two captures of one stream starve each other, and evicting the watcher would have
+  // it reconnect at its own geometry and evict this one straight back, so the running geometry
+  // wins and the joining viewer's element scales the picture.
+  return "join";
 }
 
 /** A short name for a geometry, for the diagnostics log; the identity is too long to read there. */
@@ -457,7 +496,7 @@ function geometryTag(args: readonly string[]): string {
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
   if (shared.dead) return;
   diag(
-    `encoder key=${shared.key} stop reason=${reason} accessUnits=${shared.accessUnits} subscribers=${shared.subscribers.size}`,
+    `encoder key=${shared.key} stop reason=${reason} geometry=${shared.geometry} accessUnits=${shared.accessUnits} subscribers=${shared.subscribers.size}`,
   );
   shared.dead = true;
   if (sharedEncoders.get(shared.key) === shared) sharedEncoders.delete(shared.key);
@@ -524,42 +563,49 @@ function rememberCursorAck(shared: SharedEncoder, revision: number, ack: Pending
 }
 
 async function acquireSharedEncoder(
-  windowID: string,
+  captureKey: string,
   binary: string,
   binaryMtimeMs: number,
   args: string[],
   codec: TileVideoCodec,
 ): Promise<SharedEncoder> {
   const identity = captureIdentity(args);
-  const mapKey = encoderMapKey(windowID, identity);
-  // A rebuild retires every running child for this target rather than joining any of them. The
-  // viewer pays one reconnect, which is the cost the tile pool already accepts for the same
-  // reason, and in exchange an edit to the helper is visible on the next offer instead of
-  // whenever the last viewer happens to leave.
-  for (const running of liveEncodersFor(windowID)) {
-    if (running.binaryMtimeMs !== binaryMtimeMs) {
-      diag(`encoder key=${running.key} retired stale binary mtime=${running.binaryMtimeMs} -> ${binaryMtimeMs}`);
-      killSharedEncoder(running, "stale-binary");
-    }
+  const geometry = geometryTag(args);
+  const streamKey = encoderStreamKey(captureKey, args);
+  // A rebuild retires every stream of this target rather than joining any of them. The viewer pays
+  // one reconnect, which is the cost the tile pool already accepts for the same reason, and in
+  // exchange an edit to the helper is visible on the next offer instead of whenever the last
+  // viewer happens to leave.
+  for (const stale of liveEncodersForTarget(captureKey)) {
+    if (stale.binaryMtimeMs === binaryMtimeMs) continue;
+    diag(`encoder key=${stale.key} retired stale binary mtime=${stale.binaryMtimeMs} -> ${binaryMtimeMs}`);
+    killSharedEncoder(stale, "stale-binary");
   }
-  const existing = sharedEncoders.get(mapKey);
-  if (existing && !existing.dead && existing.binaryMtimeMs === binaryMtimeMs) {
-    if (existing.codec !== codec) {
-      throw new Error(`shared encoder codec changed from ${existing.codec} to ${codec}`);
+  const running = liveEncoderFor(streamKey);
+  const disposition = encoderDisposition(
+    running && { identity: running.identity, subscribers: running.subscribers.size },
+    { identity },
+  );
+  if (running && (disposition === "reuse" || disposition === "join")) {
+    if (running.codec !== codec) {
+      throw new Error(`shared encoder codec changed from ${running.codec} to ${codec}`);
     }
     diag(
-      `encoder key=${existing.key} reuse accessUnits=${existing.accessUnits} subscribers=${existing.subscribers.size} cachedKeyframe=${existing.latestKeyframe !== null}`,
+      `encoder key=${running.key} ${disposition} geometry=${running.geometry} wanted=${geometry} accessUnits=${running.accessUnits} subscribers=${running.subscribers.size} cachedKeyframe=${running.latestKeyframe !== null}`,
     );
-    return existing;
+    return running;
   }
+  if (running) killSharedEncoder(running, disposition);
 
   // Never start a capture on top of one that is still dying; see `encoderTeardowns`.
   await drainEncoderTeardowns();
   // Another offer may have created this encoder while we waited, and a second child for the same
-  // key would orphan the first.
-  const raced = sharedEncoders.get(mapKey);
-  if (raced && !raced.dead && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
-    diag(`encoder key=${raced.key} adopted after teardown drain subscribers=${raced.subscribers.size}`);
+  // target would orphan the first. Joining it is what the rule above would say for any viewer
+  // arriving a moment later, and churning a capture somebody just paid for is not worth a
+  // geometry.
+  const raced = liveEncoderFor(streamKey);
+  if (raced && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
+    diag(`encoder key=${raced.key} adopted after teardown drain geometry=${raced.geometry} subscribers=${raced.subscribers.size}`);
     return raced;
   }
   const slot = acquireEncoderSlot(
@@ -569,10 +615,11 @@ async function acquireSharedEncoder(
   );
   const child = Bun.spawn([slot, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
   encoderSlotHolders.set(slot, child);
-  const videoDiagnostics = new WebrtcEncoderDiagnostics(`${windowID}|${geometryTag(args)}`);
+  const videoDiagnostics = new WebrtcEncoderDiagnostics(`${captureKey}|${geometry}`);
   const shared: SharedEncoder = {
-    key: mapKey,
+    key: streamKey,
     identity,
+    geometry,
     binaryMtimeMs,
     binary: slot,
     codec,
@@ -592,8 +639,8 @@ async function acquireSharedEncoder(
     videoDiagnostics,
     videoDiagnosticsTimer: setInterval(() => videoDiagnostics.flush(), 10_000),
   };
-  sharedEncoders.set(mapKey, shared);
-  diag(`encoder key=${mapKey} spawn pid=${child.pid} binary=${basename(slot)}`);
+  sharedEncoders.set(streamKey, shared);
+  diag(`encoder key=${streamKey} spawn pid=${child.pid} binary=${basename(slot)} geometry=${geometry}`);
   shared.firstAccessUnitDeadline = setTimeout(() => {
     killSharedEncoder(shared, "first-access-unit-timeout");
   }, FIRST_ACCESS_UNIT_TIMEOUT_MS);
@@ -606,7 +653,7 @@ async function acquireSharedEncoder(
         if (shared.dead) break;
         if (frame.kind === KIND_META) {
           const meta = JSON.parse(new TextDecoder().decode(frame.payload)) as Record<string, unknown>;
-          diag(`encoder key=${windowID} meta=${JSON.stringify(meta)}`);
+          diag(`encoder key=${streamKey} meta=${JSON.stringify(meta)}`);
           if (meta.type === "error") {
             stopReason = `encoder-error-${String(meta.message)}`;
             break;
@@ -661,7 +708,7 @@ async function acquireSharedEncoder(
             shared.firstAccessUnitDeadline = null;
           }
           diag(
-            `encoder key=${windowID} first-access-unit bytes=${frame.payload.length} keyframe=${frame.payload[8] === 1}`,
+            `encoder key=${streamKey} first-access-unit bytes=${frame.payload.length} keyframe=${frame.payload[8] === 1}`,
           );
         }
         for (const subscriber of shared.subscribers) subscriber.onAccessUnit(frame.payload);
@@ -713,6 +760,13 @@ function primeSubscriber(shared: SharedEncoder, subscriber: EncoderSubscriber) {
 interface TileOffer {
   displayId?: string;
   attempt?: string;
+  /**
+   * The attempt this offer takes over from, when the viewer is handing one of its own streams to
+   * another. A handover keeps the old peer alive until the new one has painted, so without this
+   * the old peer is still subscribed when the new offer arrives, and `encoderDisposition` joins
+   * this one to the running capture -- leaving the resolution the viewer asked for unserved.
+   */
+  supersedes?: string;
   sdp?: string;
   type?: string;
   width?: number;
@@ -1181,6 +1235,9 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   if (offer.attempt !== undefined && !ATTEMPT_PATTERN.test(offer.attempt)) {
     return jsonResponse({ code: "webrtc-bad-offer", message: "attempt was invalid" }, 400);
   }
+  if (offer.supersedes !== undefined && !ATTEMPT_PATTERN.test(offer.supersedes)) {
+    return jsonResponse({ code: "webrtc-bad-offer", message: "supersedes was invalid" }, 400);
+  }
 
   if (signal.aborted) return jsonResponse({ code: "offer-cancelled" }, 499);
   const tailnet = tailnetIPv4();
@@ -1353,7 +1410,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   ).join(" | ")}`);
   // Every encoder of one target shares a codec: the hardware encoder is one resource, and a
   // viewer running a coarse and a sharp stream of the same display should not pay for two.
-  const activeCodec = liveEncodersFor(captureKey)[0]?.codec;
+  const activeCodec = liveEncodersForTarget(captureKey)[0]?.codec;
   let choice = chooseTileVideoCodec(transceiver.codecs, activeCodec);
   if (!choice) {
     closeConnectionDiagnostic();
@@ -1384,7 +1441,7 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   // Another offer can finish while certificates and ICE are being prepared.
   // Re-check synchronously before acquiring so both connections cannot create
   // different codecs for the one-window/one-capture authority.
-  const nowActiveCodec = liveEncodersFor(captureKey)[0]?.codec;
+  const nowActiveCodec = liveEncodersForTarget(captureKey)[0]?.codec;
   if (nowActiveCodec && nowActiveCodec !== choice.kind) {
     const activeChoice = chooseTileVideoCodec(transceiver.codecs, nowActiveCodec);
     if (!activeChoice) {
@@ -1424,6 +1481,13 @@ async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): 
   if (height) args.push("--height", String(height));
   if (fps) args.push("--fps", String(fps));
   if (bitrate) args.push("--bitrate", String(bitrate));
+
+  // Only a predecessor on this very stream is released here. A display handover's predecessor is
+  // on another target and a re-aim's is on another crop; neither contends for this capture, and
+  // both keep the gapless overlap they were retired for.
+  if (offer.supersedes !== undefined) {
+    releaseSupersededViewer(offer.supersedes, encoderStreamKey(captureKey, args));
+  }
 
   // One retry, because a wedged capture is recoverable and a viewer switching monitors is not
   // patient. Draining teardowns before a spawn makes the starve rare, but ScreenCaptureKit can
@@ -1657,6 +1721,18 @@ export function webrtcSessionsSnapshot(nowMs = Date.now()): WebrtcSessionsSnapsh
     });
   }
   return { connections, encoders };
+}
+
+/**
+ * Ends the peer a new offer says it is taking over from, so the encoder decision below sees the
+ * viewers that are actually still watching.
+ */
+function releaseSupersededViewer(attempt: string, streamKey: string) {
+  const previous = connectionDiagnostics.get(attempt);
+  if (!previous || previous.closedAtMs !== null || previous.shutdown === null) return;
+  if (previous.encoder?.key !== streamKey) return;
+  diag(`c${previous.connection} superseded on ${streamKey} by a new offer`);
+  previous.shutdown("superseded");
 }
 
 export interface WebrtcSessionsClose {
