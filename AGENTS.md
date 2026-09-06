@@ -292,6 +292,40 @@ Five traps, each of which cost real time:
 - **`-n` is a display label only**, and there is no in-session rename. A fork named for the job it
   was given reads afterwards as though it had been forked from that job.
 
+## An absent result is a claim about the probe until a second look agrees
+
+When the check you wrote to verify a change comes back **empty** -- no scrollback, no rows, no
+events, zero bytes, nothing matching -- corroborate it a different way before touching the feature
+code. An absence is the cheapest thing a broken probe can produce, and it is indistinguishable from
+a broken feature by looking at it harder.
+
+Measured 2026-09-06, on the terminal tiles. A DOM probe read `.xterm-viewport.scrollHeight` to ask
+whether imported scrollback had landed, and reported `scrollHeight === clientHeight` twice, across
+a reload. Wrong element: xterm's DOM renderer sizes that viewport from a spacer that does not track
+the buffer, and the history had been there the whole time. Acting on the absence produced a feature
+change made for the wrong reason and then a diagnostic tangent into whether tmux puts its client on
+the alternate screen, complete with a hand-rolled pty probe. A single screenshot settled it, and the
+real defect was somewhere else entirely: captured lines carried LF without CR, so the history was
+present but rendered as a staircase.
+
+Second looks that cost almost nothing:
+
+- **A screenshot of the real surface.** The one thing that cannot report an absence that is not
+  there.
+- **The same question one layer down or up** -- the API instead of the DOM, the log instead of the
+  API, the process table instead of the log.
+- **The input rather than the output**: did the bytes arrive at all? A network panel showing a 200
+  with a body means the feature worked and the probe did not.
+- **Ask the human what they see.** They are looking at it.
+
+Two failure shapes this prevents, both of which happened in one evening: changing working code
+because the measurement was wrong, and spending the next hour explaining a phenomenon that never
+occurred. The second is worse, because every step of it is sound reasoning from a false premise.
+
+The corollary for the other direction: a probe that reports **success** deserves the same suspicion
+when it is the only thing that agrees with you. See also the exit-code rule under Commits, which is
+the same mistake at a different layer.
+
 ## Several sessions share one branch, so re-read before you trust anything
 
 Work here is not serialised. More than one session can be on `main` in this single worktree at the
