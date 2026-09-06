@@ -33,7 +33,6 @@ async function fixture(t, { serving = true, token = true, tls = true, failure = 
   await mkdir(bin);
   await mkdir(paths.panelTlsDirectory, { recursive: true });
   if (serving) await writeFile(join(root, "serving"), "yes");
-  if (token) await writeFile(paths.panelControlTokenFile, "original-token", { mode: 0o600 });
   if (tls) {
     await writeFile(join(paths.panelTlsDirectory, "fixture.invalid.crt"), "certificate");
     await writeFile(join(paths.panelTlsDirectory, "fixture.invalid.key"), "key");
@@ -86,15 +85,8 @@ switch (basename(process.argv[1])) {
     record("dependencies");
     console.log("dependency check output must stay off origin stdout");
     break;
-  case "openssl":
-    assert.deepEqual(args, ["rand", "-hex", "32"]);
-    assert.ok(!existsSync(marker), "must stop old server before minting a token");
-    record("mint");
-    console.log("new-fixture-token");
-    break;
   case "bun":
     assert.deepEqual(args, ["run", "dev", "--port", "5173", "--strictPort"]);
-    assert.equal(process.env.AGENT_FEED_CONTROL_TOKEN, readFileSync(token, "utf8"));
     assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_CERT, prefix + ".crt");
     assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_KEY, prefix + ".key");
     assert.equal(process.env.AGENTDESK_AGENT_FEED_ORIGIN, "http://127.0.0.1:7682");
@@ -122,39 +114,34 @@ switch (basename(process.argv[1])) {
   };
 }
 
-test("healthy live server reuses its token without provisioning or restarting", async (t) => {
+test("healthy live server is reused without provisioning or restarting", async (t) => {
   const state = await fixture(t);
   const result = state.run();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, origin + "\n");
   assert.deepEqual(await state.events(), []);
-  assert.equal(await readFile(state.paths.panelControlTokenFile, "utf8"), "original-token");
 });
 
 for (const [name, options] of [
-  ["missing token", { token: false }],
   ["missing TLS files", { tls: false }],
   ["unhealthy listener", { serving: false }],
-  ["cold runtime", { serving: false, token: false, tls: false }],
+  ["cold runtime", { serving: false, tls: false }],
 ]) {
   test(`${name}: stop before provisioning and publish only the ready origin`, async (t) => {
     const state = await fixture(t, options);
     const result = state.run();
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, origin + "\n");
-    assert.deepEqual(await state.events(), ["stop", "cert", "dependencies", "mint", "start"]);
-    assert.equal(await readFile(state.paths.panelControlTokenFile, "utf8"), "new-fixture-token");
-    assert.equal((await stat(state.paths.panelControlTokenFile)).mode & 0o777, 0o600);
+    assert.deepEqual(await state.events(), ["stop", "cert", "dependencies", "start"]);
   });
 }
 
-test("failed stop aborts without replacing the existing token", async (t) => {
+test("failed stop aborts before provisioning anything", async (t) => {
   const state = await fixture(t, { serving: false, failure: "stop" });
   const result = state.run();
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.deepEqual(await state.events(), ["stop"]);
-  assert.equal(await readFile(state.paths.panelControlTokenFile, "utf8"), "original-token");
 });
 
 test("failed certificate provisioning never starts a server or publishes an origin", async (t) => {
@@ -172,5 +159,5 @@ test("failed server readiness fails launch rather than returning an unusable ori
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /no Vite dev server/);
-  assert.deepEqual(await state.events(), ["stop", "cert", "dependencies", "mint", "start"]);
+  assert.deepEqual(await state.events(), ["stop", "cert", "dependencies", "start"]);
 });

@@ -148,24 +148,6 @@ agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp
 # The dev server's TLS material belongs to its durable runtime, outside the checkout.
 # Deleting build caches must not erase the certificate/key of the running server.
 agent_panel_dev_tls_dir := shell('node tools/runtime-paths.mjs panel-tls')
-# The env var carrying the sidecar's control token. Mirrors Config.agentFeedControlTokenVariable
-# on the host and the name the sidecar reads at startup; one spelling, because a second one is a
-# host that mints a token nothing else knows.
-agent_feed_token_var := "AGENT_FEED_CONTROL_TOKEN"
-# The control token for the CURRENT dev server, and the reason the plain-browser leg works.
-#
-# A browser has no relay to attach the sidecar's bearer header, so Vite's /api proxy attaches it --
-# which means the dev server needs a token the host's sidecar will accept. The host normally mints
-# one per spawn and keeps it in memory, where nothing else can reach it, so the direction is
-# inverted here: whoever starts the dev server mints the token, and the host adopts it.
-#
-# On disk because the dev server outlives the launch that started it and is reused by every later
-# one, so the value has to survive in something both can read. Written 0600 in the durable
-# runtime, and removed by agent-webview-dev-stop. The tradeoff is real and worth stating: while a
-# dev server is up, any process running as this user can read the token and drive the sidecar's
-# control API, which is not true of a host that minted its own. The relay's own guarantee is
-# untouched -- the token still never enters the page, on any surface.
-agent_panel_dev_token_file := shell('node tools/runtime-paths.mjs panel-token')
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
@@ -345,7 +327,7 @@ agent-feed-pi-smoke:
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-feed-sidecar "$SIDECAR" "$ROOT/.build/js-dependencies"
     cd "$SIDECAR"
     AGENT_FEED_PI_SESSIONS_DIR="$SMOKE_ROOT/sessions" \
-        AGENT_FEED_CONTROL_TOKEN="smoke-secret-that-must-not-reach-bash" \
+        AGENT_FEED_SUMMARY_API_KEY="smoke-secret-that-must-not-reach-bash" \
         bun run scripts/pi-agent-smoke.ts "$SMOKE_ROOT/project"
 
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
@@ -379,7 +361,6 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     PROJECT_TWO="$SMOKE_ROOT/projects/two"
     CLAUDE_SLUG="$CLAUDE_ROOT/discovery-only"
     ROLLOUT_ROOT="$SMOKE_CODEX_HOME/sessions/2026/07/24"
-    CONTROL_TOKEN="$(openssl rand -hex 32)"
     LOG_FILE="$SMOKE_ROOT/sidecar.log"
     INVENTORY_STREAM="$SMOKE_ROOT/inventory.sse"
     SESSIONS_JSON="$SMOKE_ROOT/sessions.json"
@@ -406,7 +387,6 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
         AGENT_FEED_CLAUDE_PROJECTS_DIR="$CLAUDE_ROOT" \
         AGENT_FEED_CODEX_HOME="$SMOKE_CODEX_HOME" \
         AGENT_FEED_PI_SESSIONS_DIR="$PI_SESSIONS_ROOT" \
-        AGENT_FEED_CONTROL_TOKEN="$CONTROL_TOKEN" \
         AGENT_FEED_DISCOVERY_RESCAN_MS=1000 \
         "$BINARY" > "$LOG_FILE" 2>&1 &
     SPID=$!
@@ -419,18 +399,18 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     }
     trap cleanup EXIT
     for i in $(seq 1 100); do
-        if curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" http://127.0.0.1:$PORT/api/config 2>/dev/null | grep -q '"watcherState":"live"'; then break; fi
+        if curl -sf http://127.0.0.1:$PORT/api/config 2>/dev/null | grep -q '"watcherState":"live"'; then break; fi
         sleep 0.1
     done
     test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/config")" = "401"
-    CFG=$(curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/config")
+    CFG=$(curl -sf "http://127.0.0.1:$PORT/api/config")
     echo "agent-feed-sidecar-smoke: /api/config -> ${CFG}"
-    curl -sfG -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/sessions" \
+    curl -sfG "http://127.0.0.1:$PORT/api/sessions" \
         --data-urlencode "projectPath=$PROJECT_ONE" -o "$SESSIONS_JSON"
     SESSIONS_FILE="$SESSIONS_JSON" bun -e \
         'const body=await Bun.file(process.env.SESSIONS_FILE).json();if(body.sessions.length!==2||!body.sessions.some((s)=>s.source==="claude")||!body.sessions.some((s)=>s.source==="codex"))throw new Error(JSON.stringify(body));'
     test "$(curl -sG -o /dev/null -w '%{http_code}' \
-        -H "Authorization: Bearer $CONTROL_TOKEN" \
+        \
         "http://127.0.0.1:$PORT/api/sessions/claude/$CLAUDE_ONE/events" \
         --data-urlencode 'offset=invalid')" = "400"
 
@@ -444,7 +424,7 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     # 20s rather than the 8 the two split streams had: this one connection now spans both
     # wait loops, and each can spend 5s of its own. It is a hang stop, not a deadline --
     # the trap kills the stream as soon as the assertions below are done.
-    curl -NsG --max-time 20 -H "Authorization: Bearer $CONTROL_TOKEN" \
+    curl -NsG --max-time 20 \
         "http://127.0.0.1:$PORT/api/inventory/stream" \
         --data-urlencode "projectPath=$PROJECT_ONE" > "$INVENTORY_STREAM" &
     INVENTORY_STREAM_PID=$!
@@ -605,7 +585,6 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
     LOG='{{agent_panel_dev_log}}'
-    TOKEN_FILE='{{agent_panel_dev_token_file}}'
     NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
     TLS_PREFIX='{{agent_panel_dev_tls_dir}}'/"$NAME"
     ORIGIN="https://$NAME:{{port}}"
@@ -613,15 +592,14 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     # listening on this port" but "is that something a Vite dev server". An unhealthy listener
     # or missing runtime credentials must be replaced before a host adopts this origin.
     serving() { curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
-    if serving && [ -s "$TOKEN_FILE" ] && [ -s "$TLS_PREFIX.crt" ] && [ -s "$TLS_PREFIX.key" ]; then
+    if serving && [ -s "$TLS_PREFIX.crt" ] && [ -s "$TLS_PREFIX.key" ]; then
         echo "agent-webview-dev: already serving at $ORIGIN" >&2
         echo "$ORIGIN"
         exit 0
     fi
     echo "agent-webview-dev: preparing $ORIGIN (server unavailable or durable credentials missing)" >&2
-    # Stop first, including a listener whose TLS can no longer answer the probe. Never
-    # replace a token behind a running server: the host and its proxy would disagree.
-    # The existing port reclaimer is a no-op on a cold start and fails if it cannot stop.
+    # Stop first, including a listener whose TLS can no longer answer the probe. The existing
+    # port reclaimer is a no-op on a cold start and fails if it cannot stop.
     just agent-webview-dev-stop '{{port}}' >&2
     CERT="$(just agent-webview-dev-cert)"
     # stdout of this recipe IS the origin, so everything else here goes to stderr. Without the
@@ -629,13 +607,6 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     # is handed a two-line "origin" it can only refuse -- which it does, loudly, on both surfaces.
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies" >&2
     : > "$LOG"
-    # Minted here rather than by the host, because this server outlives the launch that started it
-    # and every later launch reuses it: the token has to belong to the server's lifetime, not to one
-    # host process. The host reads this file and spawns its sidecar with the same value, so a
-    # browser tab and the webview end up talking to one sidecar with one capability.
-    ( umask 077; mkdir -p "$(dirname "$TOKEN_FILE")" )
-    TOKEN="$(openssl rand -hex 32)"
-    ( umask 077; printf '%s' "$TOKEN" > "$TOKEN_FILE" )
     # Detached, because the launch that called this outlives it and a dev server that died with the
     # recipe would make every launch the last one that worked.
     (
@@ -644,7 +615,6 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
         AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
         AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
         AGENTDESK_AGENT_FEED_ORIGIN='{{feed_origin}}' \
-        {{agent_feed_token_var}}="$TOKEN" \
         nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 &
     )
     # 20s by default, as 100 attempts a fifth of a second apart. Overridable because the
@@ -679,7 +649,6 @@ agent-webview-dev port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
-    TOKEN_FILE='{{agent_panel_dev_token_file}}'
     NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
     ORIGIN="https://$NAME:{{port}}"
     # Refuse rather than let --strictPort fail with a bare EADDRINUSE: the likely occupant is the
@@ -692,33 +661,22 @@ agent-webview-dev port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
     fi
     CERT="$(just agent-webview-dev-cert)"
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
-    ( umask 077; mkdir -p "$(dirname "$TOKEN_FILE")" )
-    TOKEN="$(openssl rand -hex 32)"
-    ( umask 077; printf '%s' "$TOKEN" > "$TOKEN_FILE" )
     echo "agent-webview-dev: serving at $ORIGIN"
     echo "  hosts launched from here point at it automatically ({{agent_panel_origin_var}}),"
     echo "  and each host tells its attached phones to load from it too"
-    echo "  a host launched from here also adopts this server's sidecar token,"
-    echo "  which is what lets a plain browser tab load data through /api"
     echo ""
     cd "$WEB"
     AGENTDESK_AGENT_PANEL_HOST="$NAME" \
     AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
     AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
     AGENTDESK_AGENT_FEED_ORIGIN='{{feed_origin}}' \
-    {{agent_feed_token_var}}="$TOKEN" \
     bun run dev --port '{{port}}' --strictPort
 
 # Stop whatever holds the panel dev-server port. The next host launch starts a fresh one.
-#
-# The token goes with the server that owned it. Left behind it would be a value the next host
-# adopts and no dev server shares, which is the one failure this whole path cannot see: the webview
-# legs keep working, and only a browser tab reports it, as a 401 nothing explains.
 agent-webview-dev-stop port=agent_panel_dev_port:
     #!/usr/bin/env bash
     set -euo pipefail
     sh '{{justfile_directory()}}/tools/reclaim-port.sh' "agent panel dev server" '{{port}}'
-    rm -f '{{agent_panel_dev_token_file}}'
 
 # Whether a PLAIN BROWSER tab at the dev origin can actually load data.
 #
@@ -1707,14 +1665,6 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
-        # Adopt the dev server's control token instead of letting the host mint its own, so a
-        # browser tab loading this same origin can reach the sidecar through Vite's /api proxy.
-        # Only the browser leg needs this: the Mac webview and the phone go through the relay,
-        # which holds the token natively and never hands it to the page.
-        if [ -s '{{agent_panel_dev_token_file}}' ]; then
-            DEV_FEED_TOKEN="$(cat '{{agent_panel_dev_token_file}}')"
-            export {{agent_feed_token_var}}="$DEV_FEED_TOKEN"
-        fi
     fi
     # The sidecar, same live-or-frozen axis as the panel and for the same reason. `bundled` runs
     # the compiled binary the app ships with, so a one-line change to the sidecar costs a rebuild,
@@ -1910,14 +1860,6 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
-        # Adopt the dev server's control token instead of letting the host mint its own, so a
-        # browser tab loading this same origin can reach the sidecar through Vite's /api proxy.
-        # Only the browser leg needs this: the Mac webview and the phone go through the relay,
-        # which holds the token natively and never hands it to the page.
-        if [ -s '{{agent_panel_dev_token_file}}' ]; then
-            DEV_FEED_TOKEN="$(cat '{{agent_panel_dev_token_file}}')"
-            export {{agent_feed_token_var}}="$DEV_FEED_TOKEN"
-        fi
     fi
     # The sidecar, same live-or-frozen axis as the panel and for the same reason. `bundled` runs
     # the compiled binary the app ships with, so a one-line change to the sidecar costs a rebuild,

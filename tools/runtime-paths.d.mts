@@ -3,8 +3,6 @@ export interface RuntimePaths {
   gridEncoder: string;
   gridEncoderSlots: string;
   panelTlsDirectory: string;
-  panelControlTokenFile: string;
-  parkDevControlTokenFile: string;
   sidecarRegistry: string;
   webrtcDiagLog: string;
 }

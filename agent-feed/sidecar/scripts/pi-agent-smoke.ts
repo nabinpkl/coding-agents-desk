@@ -80,8 +80,13 @@ async function waitForViewers(viewers: ViewerState[]): Promise<void> {
 
 const projectPath = requireProjectPath();
 await mkdir(projectPath, { recursive: true });
-if (process.env.AGENT_FEED_CONTROL_TOKEN !== undefined) {
-  throw new Error("sidecar control capability remained in the Pi tool environment");
+// The summarizer's model credential, which `config.ts` deletes from `process.env` before Pi
+// builds tools whose child processes inherit it. This used to check the sidecar's control token;
+// that token turned out to be validated by nobody and was removed, so the check moved to the
+// secret that is actually still there -- a paid API key, in the environment of every tool
+// subprocess an agent backend spawns if the deletion ever regresses.
+if (process.env.AGENT_FEED_SUMMARY_API_KEY !== undefined) {
+  throw new Error("summarizer credential remained in the Pi tool environment");
 }
 
 const locations = new Map<string, PiSessionLocation>();
@@ -116,7 +121,7 @@ try {
     await backend.send(
       sessionId,
       crypto.randomUUID(),
-      `Use the built-in bash tool exactly once. Run this exact command: test -z "$AGENT_FEED_CONTROL_TOKEN" && printf ${BASH_MARKER}\nAfter the tool completes, reply with exactly ${FINAL_MARKER} and nothing else.`,
+      `Use the built-in bash tool exactly once. Run this exact command: test -z "$AGENT_FEED_SUMMARY_API_KEY" && printf ${BASH_MARKER}\nAfter the tool completes, reply with exactly ${FINAL_MARKER} and nothing else.`,
       "next",
     );
     await waitForViewers(viewers);

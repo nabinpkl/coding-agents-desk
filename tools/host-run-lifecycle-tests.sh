@@ -152,18 +152,6 @@ assert_contains "$ensure" \
     'ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies" >&2' \
     'the dependency check must not write to the stdout that carries the origin'
 
-# The plain-browser leg. A browser has no relay to attach the sidecar's bearer header, so the dev
-# server's own /api proxy attaches it -- which only works if the server and the sidecar share a
-# token. The server starts first and outlives every launch, so it mints, and the host adopts.
-#
-# Asserted on the wiring because the failure is invisible from everywhere else: the Mac webview and
-# the phone go through the relay, so they keep working while a browser tab silently shows nothing.
-assert_contains "$ensure" \
-    'AGENT_FEED_CONTROL_TOKEN="$TOKEN"' \
-    'the dev server must carry the token its /api proxy attaches for a browser'
-assert_contains "$ensure" \
-    'umask 077' \
-    'the token file must not be world-readable'
 for launch in "$stable_release" "$dev_debug"; do
     assert_contains "$launch" \
         'node tools/build-system/install-runtime.mjs host "$BUILT_APP" "$APP" "$HOST_BID"' \
@@ -174,14 +162,7 @@ for launch in "$stable_release" "$dev_debug"; do
     assert_contains "$launch" \
         'just grid-encoder-install' \
         'a host deployment must install its standalone helper'
-    assert_contains "$launch" \
-        'export AGENT_FEED_CONTROL_TOKEN="$DEV_FEED_TOKEN"' \
-        'a live panel launch must adopt the dev server token rather than let the host mint one'
 done
-stop="$(just --dry-run agent-webview-dev-stop 2>&1)"
-assert_contains "$stop" \
-    "$(node tools/runtime-paths.mjs panel-token)" \
-    'stopping the dev server must take its token with it'
 assert_contains "$ensure" \
     "just agent-webview-dev-stop '5173' >&2" \
     'unhealthy runtime state must stop the server before credentials can be replaced'
@@ -208,8 +189,8 @@ for recipe in dom-mirror-e2e motion-verify; do
         "$recipe must pass the installed helper override to the launched host"
 done
 assert_contains "$(cat "$(dirname "$0")/launch-env.sh")" \
-    'AGENT_FEED_CONTROL_TOKEN' \
-    'the adopted token must reach a host launched by open, which inherits launchd, not the shell'
+    'AGENT_FEED_SUMMARY_API_KEY' \
+    'the summarizer credential must reach a host launched by open, which inherits launchd, not the shell'
 assert_contains "$dev_debug" \
     "if [ 'live' = live ]" \
     'Debug launch must serve the panel live by default'

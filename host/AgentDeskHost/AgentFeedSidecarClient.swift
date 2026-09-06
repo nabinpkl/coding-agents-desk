@@ -4,7 +4,6 @@ import AgentDeskWire
 
 struct AgentFeedSidecarEndpoint: Sendable {
     let baseURL: URL
-    let controlToken: String
 }
 
 struct AgentFeedSessionSummary: Codable {
@@ -162,7 +161,6 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
-        request.setValue("Bearer \(endpoint.controlToken)", forHTTPHeaderField: "Authorization")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return request
     }
@@ -304,7 +302,6 @@ extension HttpSidecarClient: AgentFeedRelayClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
-        request.setValue("Bearer \(endpoint.controlToken)", forHTTPHeaderField: "Authorization")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return request
     }

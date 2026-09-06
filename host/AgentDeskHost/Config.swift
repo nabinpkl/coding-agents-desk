@@ -1041,7 +1041,7 @@ enum Config {
 
     /// Takes the environment and the bundled URL rather than reading them, so the fallbacks can be
     /// tested. Reading the real ones would let a test pass on any machine that is not mid-dev-run,
-    /// which is every machine -- the same reason `childProcessEnvironment(from:)` is shaped this way.
+    /// which is every machine.
     ///
     /// A dev launch that names an entry but no `bun`, or names a file that is not there, falls back
     /// to the bundled binary and SAYS SO. The whole point of asking for the live sidecar is that
@@ -1082,48 +1082,6 @@ enum Config {
             arguments: ["--watch", entry],
             reloadsOnEdit: true
         )
-    }
-    /// A control token to use instead of minting one, or nil for the normal per-spawn mint.
-    ///
-    /// The mint is the default because a token nobody else can name is the strongest form of the
-    /// capability: the host holds it in memory, the sidecar deletes it from its own environment,
-    /// and model-authored bash has nothing to read. Adopting one costs exactly that property, so
-    /// it is set only by a dev launch that has a second consumer to serve.
-    ///
-    /// That consumer is the panel's Vite dev server. A browser tab loading the panel from it has no
-    /// relay to attach the sidecar's bearer header, so the server's own /api proxy attaches it --
-    /// which requires the server and the sidecar to share a token, and the server starts first
-    /// (ADR-0096). Nothing changes for the Mac webview or the phone, which reach the sidecar
-    /// through the relay and never hold the token themselves.
-    static var agentFeedSidecarControlTokenOverride: String? {
-        guard let raw = ProcessInfo.processInfo.environment[agentFeedControlTokenVariable] else {
-            return nil
-        }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-    /// One spelling of the sidecar capability's variable, for the reader above and the stripper
-    /// below. The sidecar reads the same name and the Justfile writes it.
-    static let agentFeedControlTokenVariable = "AGENT_FEED_CONTROL_TOKEN"
-    /// The host's environment with the sidecar capability removed, for children that are not the
-    /// agent-feed sidecar.
-    ///
-    /// Load-bearing whenever a dev launch supplied the token, because then it is in the HOST's own
-    /// environment and `Process` hands that to children by default. The child that matters is the
-    /// PTY runtime: its descendants are terminal shells, and an agent's bash tool runs inside one.
-    /// The sidecar deletes this variable from its own environment for exactly that reason -- so the
-    /// agents it spawns cannot read the capability -- and inheriting it down the PTY tree would
-    /// reopen the same door from the other side.
-    static var childProcessEnvironment: [String: String] {
-        childProcessEnvironment(from: ProcessInfo.processInfo.environment)
-    }
-    /// Takes the environment rather than reading it, so the stripping can be tested against an
-    /// environment that actually has the token in it. Reading the real one would let a test pass
-    /// on a machine where the variable was never set, which is every machine that is not mid-dev-run.
-    static func childProcessEnvironment(from environment: [String: String]) -> [String: String] {
-        var sanitized = environment
-        sanitized.removeValue(forKey: agentFeedControlTokenVariable)
-        return sanitized
     }
     // How long a feed request waits for a sidecar that is still coming up before
     // reporting it as down. The host starts the sidecar alongside the windows that

@@ -12,8 +12,6 @@ test("runtime defaults live outside checkout and build output", () => {
   assert.equal(paths.root, "/Users/fixture/Library/Application Support/AgentDeskRuntime");
   assert.equal(paths.gridEncoder, join(paths.root, "bin/grid-encoder"));
   assert.equal(paths.panelTlsDirectory, join(paths.root, "agent-panel/tls"));
-  assert.equal(paths.panelControlTokenFile, join(paths.root, "agent-panel/control-token"));
-  assert.equal(paths.parkDevControlTokenFile, join(paths.root, "park-dev/control-token"));
   assert.equal(installedHostAppPath("com.example.agentdesk.AgentDeskHost", paths),
     join(paths.root, "hosts/com.example.agentdesk.AgentDeskHost/AgentDeskHost.app"));
   assert.notEqual(installedHostAppPath("com.example.agentdesk.AgentDeskHost", paths),
@@ -24,8 +22,6 @@ test("one runtime-root override moves every consumer; helper override is explici
   const paths = runtimePaths({ AGENTDESK_RUNTIME_ROOT: "/private/runtime" }, "/Users/fixture");
   assert.equal(paths.gridEncoder, "/private/runtime/bin/grid-encoder");
   assert.equal(paths.panelTlsDirectory, "/private/runtime/agent-panel/tls");
-  assert.equal(paths.panelControlTokenFile, "/private/runtime/agent-panel/control-token");
-  assert.equal(paths.parkDevControlTokenFile, "/private/runtime/park-dev/control-token");
   assert.equal(installedHostAppPath("example.host", paths),
     "/private/runtime/hosts/example.host/AgentDeskHost.app");
   assert.equal(runtimePaths({
@@ -52,8 +48,6 @@ test("the shell interface and imported configuration resolve identical paths", (
   assert.equal(cli(["root"]), paths.root);
   assert.equal(cli(["grid-encoder"]), paths.gridEncoder);
   assert.equal(cli(["panel-tls"]), paths.panelTlsDirectory);
-  assert.equal(cli(["panel-token"]), paths.panelControlTokenFile);
-  assert.equal(cli(["park-token"]), paths.parkDevControlTokenFile);
   assert.equal(cli(["host-app", "example.host"]), installedHostAppPath("example.host", paths));
 });
 

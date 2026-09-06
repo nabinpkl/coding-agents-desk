@@ -35,8 +35,6 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     // Nil until the first successful ready-poll.
     var baseURL: URL? { readiness.current }
-    private let tokenLock = NSLock()
-    private var token: String?
 
     private let launch: Config.AgentFeedSidecarLaunch
     private let port: UInt16
@@ -96,7 +94,6 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         queue.sync {
             self.stopped = true
             self.terminateCurrentProcess()
-            self.tokenLock.withLock { self.token = nil }
             self.readiness.stop()
         }
     }
@@ -117,9 +114,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     func endpoint(waitingUpTo timeout: TimeInterval) async -> AgentFeedSidecarEndpoint? {
         guard let baseURL = await readiness.value(waitingUpTo: timeout) else { return nil }
-        let currentToken = tokenLock.withLock { token }
-        guard let currentToken else { return nil }
-        return AgentFeedSidecarEndpoint(baseURL: baseURL, controlToken: currentToken)
+        return AgentFeedSidecarEndpoint(baseURL: baseURL)
     }
 
     // MARK: - Private
@@ -130,11 +125,6 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // process can schedule its own restart.
         restartScheduled = false
 
-        let controlToken = Self.controlTokenForSpawn()
-        tokenLock.lock()
-        token = controlToken
-        tokenLock.unlock()
-
         let proc = Process()
         proc.executableURL = launch.executable
         proc.arguments = launch.arguments
@@ -143,13 +133,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // PATH/HOME and break transcript discovery. Inherit
         // the parent env and override only ours.
         //
-        // From the sanitized base like every other child, then the capability put back explicitly.
-        // This is the ONE process that is supposed to have it, so it says so rather than relying on
-        // an inheritance that the stripper would otherwise have to make an exception for.
-        proc.environment = Config.childProcessEnvironment.merging([
+        proc.environment = ProcessInfo.processInfo.environment.merging([
             "AGENT_FEED_PORT": String(port),
             "AGENT_FEED_HOST": "127.0.0.1",
-            Config.agentFeedControlTokenVariable: controlToken,
         ]) { _, new in new }
         // Keep catalog and snapshot timing observable in the host unified log
         // without inheriting the host process's stdio descriptors.
@@ -197,17 +183,17 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             return
         }
 
-        waitUntilReady(controlToken: controlToken)
+        waitUntilReady()
     }
 
-    private func waitUntilReady(controlToken: String) {
+    private func waitUntilReady() {
         let candidate = URL(string: "http://127.0.0.1:\(port)/api/config")!
         let deadline = Date().addingTimeInterval(Self.readyTimeoutSeconds)
         var reached = false
 
         while Date() < deadline {
             if stopped || isStopRequested { return }
-            if isReady(candidate, controlToken: controlToken) {
+            if isReady(candidate) {
                 reached = true
                 break
             }
@@ -226,10 +212,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         }
     }
 
-    private func isReady(_ url: URL, controlToken: String) -> Bool {
+    private func isReady(_ url: URL) -> Bool {
         var request = URLRequest(url: url)
         request.timeoutInterval = Self.readinessProbeTimeoutSeconds
-        request.setValue("Bearer \(controlToken)", forHTTPHeaderField: "Authorization")
         let probe = AgentFeedReadinessProbe()
         let completion = DispatchSemaphore(value: 0)
         let task = URLSession.shared.dataTask(with: request) { data, response, _ in
@@ -273,9 +258,6 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         closeOutputPipe()
         logger.notice("sidecar exited unexpectedly status=\(status, privacy: .public); scheduling restart")
         readiness.clear()
-        tokenLock.lock()
-        token = nil
-        tokenLock.unlock()
         scheduleRestart()
     }
 
@@ -332,17 +314,4 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         outputBuffer = ""
     }
 
-    /// The capability this spawn hands the sidecar: an adopted one when a dev launch supplied it,
-    /// a fresh mint otherwise. Read per spawn rather than once, so a supervised restart keeps
-    /// whichever answer the launch chose instead of silently reverting to a mint mid-session.
-    private static func controlTokenForSpawn() -> String {
-        Config.agentFeedSidecarControlTokenOverride ?? makeControlToken()
-    }
-
-    private static func makeControlToken() -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        precondition(status == errSecSuccess, "unable to generate agent sidecar capability")
-        return bytes.map { String(format: "%02x", $0) }.joined()
-    }
 }

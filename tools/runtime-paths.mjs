@@ -20,8 +20,6 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // refreshing one copy would race each other.
     gridEncoderSlots: join(root, "bin", "grid-encoder-slots"),
     panelTlsDirectory: join(root, "agent-panel", "tls"),
-    panelControlTokenFile: join(root, "agent-panel", "control-token"),
-    parkDevControlTokenFile: join(root, "park-dev", "control-token"),
     // The rendezvous board every sidecar announces itself on. Fixed under /Users/Shared, NOT the
     // per-user runtime root, because a panel in one login session has to read descriptors written
     // by a sidecar in another, and ~/Library is 0700. /Users/Shared is the one place every session
@@ -54,8 +52,6 @@ if (import.meta.main) {
     "grid-encoder": paths.gridEncoder,
     "grid-encoder-slots": paths.gridEncoderSlots,
     "panel-tls": paths.panelTlsDirectory,
-    "panel-token": paths.panelControlTokenFile,
-    "park-token": paths.parkDevControlTokenFile,
     "sidecar-registry": paths.sidecarRegistry,
     "webrtc-diag-log": paths.webrtcDiagLog,
   };
@@ -64,6 +60,6 @@ if (import.meta.main) {
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|panel-token|park-token|sidecar-registry|webrtc-diag-log|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|sidecar-registry|webrtc-diag-log|host-app <bundle-id>");
   }
 }

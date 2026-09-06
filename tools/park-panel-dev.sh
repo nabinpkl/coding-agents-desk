@@ -16,12 +16,10 @@ which="${1:-dev}"
 case "$which" in
   host)
     port="${AGENT_FEED_PORT_HOST:-7682}"
-    token_file="$(node "$root/tools/runtime-paths.mjs" panel-token)"
     panel_port="${AGENTDESK_PARK_PANEL_PORT:-5185}"
     ;;
   dev)
     port="${AGENT_FEED_PARK_DEV_PORT:-7690}"
-    token_file="$(node "$root/tools/runtime-paths.mjs" park-token)"
     panel_port="${AGENTDESK_PARK_PANEL_PORT:-5184}"
     ;;
   *)
@@ -30,14 +28,6 @@ case "$which" in
     ;;
 esac
 
-if [ ! -s "$token_file" ]; then
-  echo "park-panel-dev: no token at $token_file" >&2
-  [ "$which" = host ] && echo "  start the host first: just host-run" >&2
-  [ "$which" = dev ] && echo "  start the dev sidecar first: tools/park-sidecar-dev.sh" >&2
-  exit 1
-fi
-
 echo "park panel dev ($which): http://127.0.0.1:$panel_port -> sidecar 127.0.0.1:$port"
 AGENTDESK_AGENT_FEED_ORIGIN="http://127.0.0.1:$port" \
-AGENT_FEED_CONTROL_TOKEN="$(cat "$token_file")" \
 exec bun run --cwd "$root/packages/AgentPanel/Web" vite --port "$panel_port"

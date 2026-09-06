@@ -5,13 +5,11 @@ set -eu
 # shell's. Set just before the launch and unset just after, so the window in which any other process
 # started on this Mac would inherit them is about a second wide.
 #
-# Nearly all are AGENTDESK_-prefixed knobs. The AGENT_FEED_ names are the exception.
-# AGENT_FEED_CONTROL_TOKEN is not a knob: it is the sidecar capability the panel's dev server
-# minted, which the host adopts instead of minting its own so a plain browser tab can reach the
-# same sidecar (ADR-0096). AGENT_FEED_SUMMARY_API_KEY is the turn summarizer's model credential,
-# and it carries the same one-second exposure as the token above: while this is set, anything else
-# starting on this Mac inherits it. The sidecar deletes it from its own environment at startup so
-# no tool subprocess it spawns can read it, but that only covers the sidecar's children.
+# Nearly all are AGENTDESK_-prefixed knobs. AGENT_FEED_SUMMARY_API_KEY is the exception: it is the
+# turn summarizer's model credential, and it carries a real one-second exposure, because while it
+# is set anything else starting on this Mac inherits it. The sidecar deletes it from its own
+# environment at startup so no tool subprocess it spawns can read it, but that only covers the
+# sidecar's children.
 fixed_names='
 AGENTDESK_AUTO_APPROVE
 AGENTDESK_DEV_ITERATION_RUN
@@ -62,7 +60,6 @@ AGENTDESK_BUN_PATH
 AGENTDESK_AGENT_FEED_SIDECAR_ENTRY
 AGENTDESK_RUNTIME_ROOT
 AGENT_FEED_GRID_ENCODER_PATH
-AGENT_FEED_CONTROL_TOKEN
 AGENT_FEED_SUMMARY_PROVIDER
 AGENT_FEED_SUMMARY_MODEL
 AGENT_FEED_SUMMARY_API_KEY
