@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import { desktopDocumentFallbackHeight, DesktopViewer } from "./DesktopViewer";
 import type { DesktopControlEvent, DesktopControlInput } from "@agentdesk/agent-feed-wire";
+import { stubDeckLayout } from "./keyboardDeckTestLayout";
 
 const tileMock = vi.hoisted(() => ({
   publishSource: true,
@@ -128,10 +129,14 @@ describe("DesktopViewer", () => {
       fireEvent.click(show);
       const deck = screen.getByTestId("keyboard-deck");
       expect(within(deck).getAllByRole("button")).toHaveLength(31);
+      // The deck resolves touches by coordinates, so it needs the layout jsdom will not compute.
+      stubDeckLayout(deck);
       // Nothing focused is the point: a focused field is what WebKit draws its form strip over.
       expect(document.activeElement).toBe(document.body);
-      fireEvent.pointerDown(screen.getByTestId("deck-key-char-71"), { pointerId: 1 });
-      fireEvent.pointerUp(screen.getByTestId("deck-key-char-71"), { pointerId: 1 });
+      const q = screen.getByTestId("deck-key-char-71").getBoundingClientRect();
+      const at = { pointerId: 1, clientX: (q.left + q.right) / 2, clientY: (q.top + q.bottom) / 2 };
+      fireEvent.pointerDown(deck, at);
+      fireEvent.pointerUp(deck, at);
       expect(document.activeElement).toBe(document.body);
       // Masked, because a manually shown keyboard has no focus result yet and an unknown field is
       // treated as secure. What it proves is that the deck's press reached the send path at all.

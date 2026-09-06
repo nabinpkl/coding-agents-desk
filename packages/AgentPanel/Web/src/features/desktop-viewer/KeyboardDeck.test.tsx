@@ -9,6 +9,10 @@ import {
   SPACE_PAN_SLOP_PX,
 } from "./keyboardDeckModel";
 import { PORTRAIT_DECK } from "./keyboardDeckMetrics";
+import { stubDeckLayout } from "./keyboardDeckTestLayout";
+
+const deck = () => screen.getByTestId("keyboard-deck");
+const key = (id: string) => screen.getByTestId(`deck-key-${id}`);
 
 function renderDeck() {
   const onCharacter = vi.fn();
@@ -22,24 +26,33 @@ function renderDeck() {
       onCursorDelta={onCursorDelta}
     />,
   );
+  stubDeckLayout(deck());
   return { onCharacter, onDelete, onCursorDelta };
 }
 
-const key = (id: string) => screen.getByTestId(`deck-key-${id}`);
-/** jsdom lays nothing out, so a press that reports a position needs one supplied. */
-function stubRect(element: Element, rect: Partial<DOMRect>) {
-  element.getBoundingClientRect = () => ({
-    left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0,
-    toJSON: () => ({}), ...rect,
-  }) as DOMRect;
+/** The centre of a key, in the coordinates the deck's handlers read. */
+function centreOf(id: string) {
+  const bounds = key(id).getBoundingClientRect();
+  return { clientX: (bounds.left + bounds.right) / 2, clientY: (bounds.top + bounds.bottom) / 2 };
 }
 
-function press(element: Element, at: Record<string, number> = { clientX: 10, clientY: 10 }) {
-  fireEvent.pointerDown(element, { pointerId: 1, clientY: 10, ...at });
+type At = { pointerId?: number; clientX?: number; clientY?: number };
+
+function press(id: string, { pointerId = 1, ...at }: At = {}) {
+  fireEvent.pointerDown(deck(), { pointerId, ...centreOf(id), ...at });
 }
-function release(element: Element, at: Record<string, number> = { clientX: 10, clientY: 10 }) {
-  fireEvent.pointerUp(element, { pointerId: 1, clientY: 10, ...at });
+function release(id: string, { pointerId = 1, ...at }: At = {}) {
+  fireEvent.pointerUp(deck(), { pointerId, ...centreOf(id), ...at });
 }
+function moveTo(clientX: number, clientY: number, pointerId = 1) {
+  fireEvent.pointerMove(deck(), { pointerId, clientX, clientY });
+}
+function tap(id: string, pointerId = 1) {
+  press(id, { pointerId });
+  release(id, { pointerId });
+}
+const typed = (fn: ReturnType<typeof vi.fn>) =>
+  fn.mock.calls.map((call) => String(call[0])).join("");
 
 afterEach(() => {
   vi.useRealTimers();
@@ -48,7 +61,7 @@ afterEach(() => {
 describe("KeyboardDeck", () => {
   it("draws the iPhone's four rows with no globe key", () => {
     renderDeck();
-    const rows = screen.getByTestId("keyboard-deck").querySelectorAll(".flex.flex-col > div");
+    const rows = deck().querySelectorAll("[data-deck-row]");
     expect([...rows].map((row) => row.querySelectorAll("button").length)).toEqual([10, 9, 9, 3]);
     expect(screen.queryByLabelText("Next keyboard")).toBeNull();
     expect(key("char-71")).toHaveTextContent("q");
@@ -56,169 +69,162 @@ describe("KeyboardDeck", () => {
 
   it("types the character a key shows, and clears an armed shift after one", () => {
     const { onCharacter } = renderDeck();
-    press(key("char-71"));
-    release(key("char-71"));
+    tap("char-71");
     expect(onCharacter).toHaveBeenCalledWith("q");
 
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     expect(key("char-71")).toHaveTextContent("Q");
-    press(key("char-71"));
-    release(key("char-71"));
+    tap("char-71");
     expect(onCharacter).toHaveBeenLastCalledWith("Q");
     expect(key("char-71")).toHaveTextContent("q");
   });
 
   it("locks shift on a second tap inside the double-tap window and not after it", () => {
-    vi.useFakeTimers();
     const now = vi.spyOn(performance, "now");
     renderDeck();
     now.mockReturnValue(0);
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     now.mockReturnValue(SHIFT_DOUBLE_TAP_MS - 1);
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     expect(key("shift")).toHaveTextContent("⇪");
 
-    // Unlock, then arm again and wait past the window: the second tap turns it off, not locked.
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     now.mockReturnValue(1000);
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     now.mockReturnValue(1000 + SHIFT_DOUBLE_TAP_MS + 1);
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     expect(key("shift")).toHaveTextContent("⇧");
     expect(key("shift")).toHaveAttribute("aria-pressed", "false");
+    now.mockRestore();
   });
 
   it("switches pages and drops an armed shift on the way out", () => {
     const { onCharacter } = renderDeck();
-    press(key("shift"));
-    release(key("shift"));
-    press(key("page-numbers"));
-    release(key("page-numbers"));
+    tap("shift");
+    tap("page-numbers");
+    stubDeckLayout(deck());
     expect(key("char-31")).toHaveTextContent("1");
-    press(key("page-symbols"));
-    release(key("page-symbols"));
+    tap("page-symbols");
+    stubDeckLayout(deck());
     // The bullet has no US key position; the deck still offers it and the send path decides how.
-    press(key("char-2022"));
-    release(key("char-2022"));
+    tap("char-2022");
     expect(onCharacter).toHaveBeenCalledWith("•");
 
-    press(key("page-alphabet"));
-    release(key("page-alphabet"));
+    tap("page-alphabet");
+    stubDeckLayout(deck());
     expect(key("char-71")).toHaveTextContent("q");
   });
 
   it("deletes on press and repeats while held", () => {
     vi.useFakeTimers();
     const { onDelete } = renderDeck();
-    press(key("delete"));
+    press("delete");
     expect(onDelete).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(DELETE_REPEAT_DELAY_MS - 1);
     expect(onDelete).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1 + DELETE_REPEAT_INTERVAL_MS * 3);
     expect(onDelete).toHaveBeenCalledTimes(4);
-    release(key("delete"));
+    release("delete");
     vi.advanceTimersByTime(DELETE_REPEAT_INTERVAL_MS * 5);
     expect(onDelete).toHaveBeenCalledTimes(4);
   });
 
   it("pans the caret across the space bar instead of typing a space", () => {
     const { onCharacter, onCursorDelta } = renderDeck();
-    const space = key("space");
-    const move = (clientX: number) =>
-      fireEvent.pointerMove(space, { pointerId: 1, clientX, clientY: 10 });
-    press(space, { clientX: 100 });
+    const start = centreOf("space");
+    press("space");
     // The pan is recognised where the slop is crossed, and steps are counted from there, not from
     // where the finger landed.
-    move(100 + SPACE_PAN_SLOP_PX);
+    moveTo(start.clientX + SPACE_PAN_SLOP_PX, start.clientY);
     expect(onCursorDelta).not.toHaveBeenCalled();
-    move(100 + SPACE_PAN_SLOP_PX + SPACE_CURSOR_STEP_PX * 2);
+    moveTo(start.clientX + SPACE_PAN_SLOP_PX + SPACE_CURSOR_STEP_PX * 2, start.clientY);
     expect(onCursorDelta).toHaveBeenCalledWith(2);
-    move(100 + SPACE_PAN_SLOP_PX - SPACE_CURSOR_STEP_PX);
+    moveTo(start.clientX + SPACE_PAN_SLOP_PX - SPACE_CURSOR_STEP_PX, start.clientY);
     expect(onCursorDelta).toHaveBeenLastCalledWith(-3);
-    release(space, { clientX: 100 });
+    release("space");
     expect(onCharacter).not.toHaveBeenCalled();
 
-    press(space, { clientX: 100 });
-    release(space, { clientX: 100 });
+    tap("space");
     expect(onCharacter).toHaveBeenCalledWith(" ");
   });
 
   it("types a space that drifted less than the pan slop", () => {
     const { onCharacter, onCursorDelta } = renderDeck();
-    const space = key("space");
-    press(space, { clientX: 100 });
-    fireEvent.pointerMove(space, { pointerId: 1, clientX: 100 + SPACE_PAN_SLOP_PX - 1, clientY: 10 });
-    release(space, { clientX: 100 + SPACE_PAN_SLOP_PX - 1 });
+    const start = centreOf("space");
+    press("space");
+    moveTo(start.clientX + SPACE_PAN_SLOP_PX - 1, start.clientY);
+    release("space");
     expect(onCursorDelta).not.toHaveBeenCalled();
     expect(onCharacter).toHaveBeenCalledWith(" ");
   });
 
-  it("takes both keys when two thumbs roll across the deck", () => {
+  it("cancels a key the finger slid away from", () => {
     const { onCharacter } = renderDeck();
-    const q = key("char-71");
-    const w = key("char-77");
-    fireEvent.pointerDown(q, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerDown(w, { pointerId: 2, clientX: 50, clientY: 10 });
-    expect(q).toHaveAttribute("data-pressed", "true");
-    expect(w).toHaveAttribute("data-pressed", "true");
-    fireEvent.pointerUp(q, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(w, { pointerId: 2, clientX: 50, clientY: 10 });
-    expect(onCharacter.mock.calls.map(([character]) => character)).toEqual(["q", "w"]);
+    press("char-71");
+    expect(key("char-71")).toHaveAttribute("data-pressed", "true");
+    const away = centreOf("char-70");
+    moveTo(away.clientX, away.clientY);
+    expect(key("char-71")).toHaveAttribute("data-pressed", "false");
+    release("char-70");
+    expect(onCharacter).not.toHaveBeenCalled();
+  });
+
+  it("pops a preview over a held character key, showing the shifted glyph", () => {
+    renderDeck();
+    press("char-71");
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
+    release("char-71");
+    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
+
+    tap("shift");
+    press("char-71");
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("Q");
+    release("char-71");
+  });
+
+  it("does not preview a special key", () => {
+    renderDeck();
+    press("shift");
+    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
+    release("shift");
+    press("delete");
+    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
+    release("delete");
   });
 
   it("hands the single balloon to the newest finger and keeps it until that one lifts", () => {
     renderDeck();
-    stubRect(screen.getByTestId("keyboard-deck"), { left: 0, top: 0, width: 390, height: 236 });
-    const q = key("char-71");
-    const w = key("char-77");
-    stubRect(q, { left: 7, top: 100, right: 39, bottom: 146, width: 32, height: 46 });
-    stubRect(w, { left: 45, top: 100, right: 77, bottom: 146, width: 32, height: 46 });
-
-    fireEvent.pointerDown(q, { pointerId: 1, clientX: 10, clientY: 110 });
+    press("char-71", { pointerId: 1 });
     expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
-    fireEvent.pointerDown(w, { pointerId: 2, clientX: 50, clientY: 110 });
+    press("char-77", { pointerId: 2 });
     expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("w");
     // The first finger lifting must not take the second finger's balloon with it.
-    fireEvent.pointerUp(q, { pointerId: 1, clientX: 10, clientY: 110 });
+    release("char-71", { pointerId: 1 });
     expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("w");
-    fireEvent.pointerUp(w, { pointerId: 2, clientX: 50, clientY: 110 });
+    release("char-77", { pointerId: 2 });
     expect(screen.queryByTestId("deck-key-preview")).toBeNull();
   });
 
   it("takes the balloon down when the layout changes under a held finger", () => {
     renderDeck();
-    stubRect(screen.getByTestId("keyboard-deck"), { left: 0, top: 0, width: 390, height: 236 });
-    const q = key("char-71");
-    stubRect(q, { left: 7, top: 100, right: 39, bottom: 146, width: 32, height: 46 });
-
-    fireEvent.pointerDown(q, { pointerId: 1, clientX: 10, clientY: 110 });
+    press("char-71", { pointerId: 1 });
     expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
     // A second thumb arming shift is a layout change, and iOS rebuilds the deck for one.
-    fireEvent.pointerDown(key("shift"), { pointerId: 2, clientX: 10, clientY: 160 });
-    fireEvent.pointerUp(key("shift"), { pointerId: 2, clientX: 10, clientY: 160 });
+    press("shift", { pointerId: 2 });
+    release("shift", { pointerId: 2 });
     expect(screen.queryByTestId("deck-key-preview")).toBeNull();
-    // The held key is still held, and still types when it lifts.
-    expect(q).toHaveAttribute("data-pressed", "true");
+    expect(key("char-71")).toHaveAttribute("data-pressed", "true");
   });
 
   it("leaves the shift double-tap window open across a delete", () => {
     const now = vi.spyOn(performance, "now");
     renderDeck();
     now.mockReturnValue(0);
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     // On iOS a delete returns before the key handler runs, so it never clears the window.
-    press(key("delete"));
-    release(key("delete"));
+    tap("delete");
     now.mockReturnValue(SHIFT_DOUBLE_TAP_MS - 1);
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     expect(key("shift")).toHaveAttribute("data-shift", "locked");
     now.mockRestore();
   });
@@ -227,59 +233,12 @@ describe("KeyboardDeck", () => {
     renderDeck();
     expect(key("shift")).toHaveAttribute("data-shift", "off");
     expect(key("shift")).toHaveAttribute("aria-pressed", "false");
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     expect(key("shift")).toHaveAttribute("data-shift", "on");
     expect(key("shift")).toHaveAttribute("aria-pressed", "mixed");
     expect(key("shift").className).toContain("bg-[rgba(0,122,255,0.42)]");
-    press(key("shift"));
-    release(key("shift"));
+    tap("shift");
     expect(key("shift")).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("cancels a key the finger slid off, the way a drag-exit does", () => {
-    const { onCharacter } = renderDeck();
-    const q = key("char-71");
-    stubRect(q, { left: 0, top: 0, right: 32, bottom: 46, width: 32, height: 46 });
-    // Capturing the pointer is what keeps a mouse drag reporting to the key it started on, so a
-    // drag onto the neighbour cancels this key rather than committing it on release over there.
-    const capture = vi.fn();
-    (q as HTMLElement & { setPointerCapture: unknown }).setPointerCapture = capture;
-    press(q, { clientX: 10, clientY: 10 });
-    expect(capture).toHaveBeenCalledWith(1);
-    expect(q).toHaveAttribute("data-pressed", "true");
-    fireEvent.pointerMove(q, { pointerId: 1, clientX: 200, clientY: 10 });
-    expect(q).toHaveAttribute("data-pressed", "false");
-    release(q, { clientX: 200, clientY: 10 });
-    expect(onCharacter).not.toHaveBeenCalled();
-  });
-
-  it("pops a preview over a held character key, showing the shifted glyph", () => {
-    renderDeck();
-    stubRect(screen.getByTestId("keyboard-deck"), { left: 0, top: 0, width: 390, height: 236 });
-    const q = key("char-71");
-    stubRect(q, { left: 7, top: 100, right: 39, bottom: 146, width: 32, height: 46 });
-
-    press(q);
-    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
-    release(q);
-    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
-
-    press(key("shift"));
-    release(key("shift"));
-    press(q);
-    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("Q");
-    release(q);
-  });
-
-  it("does not preview a special key", () => {
-    renderDeck();
-    press(key("shift"));
-    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
-    release(key("shift"));
-    press(key("delete"));
-    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
-    release(key("delete"));
   });
 
   it("centres the home row on the top row's key width and widens the outer gaps", () => {
@@ -300,64 +259,83 @@ describe("KeyboardDeck", () => {
 
   it("keeps the wider gaps off the number and symbol pages", () => {
     renderDeck();
-    press(key("page-numbers"));
-    release(key("page-numbers"));
+    tap("page-numbers");
     expect(key("delete").style.marginLeft).toBe("");
     expect(key("char-2e").style.width).toBe("");
   });
 });
 
-describe("KeyboardDeck under fast typing", () => {
-  const typed = (fn: ReturnType<typeof vi.fn>) =>
-    fn.mock.calls.map((call) => String(call[0])).join("");
+describe("KeyboardDeck hit areas", () => {
+  it("types the key nearest an empty patch of deck", () => {
+    const { onCharacter } = renderDeck();
+    // The indent left of the home row, which on the iPhone belongs to `a`.
+    const a = key("char-61").getBoundingClientRect();
+    const at = { clientX: a.left - 10, clientY: (a.top + a.bottom) / 2 };
+    press("char-61", at);
+    release("char-61", at);
+    expect(typed(onCharacter)).toBe("a");
+  });
 
+  it("types from the deck's own padding and from the seams between keys", () => {
+    const { onCharacter } = renderDeck();
+    const q = key("char-71").getBoundingClientRect();
+    const midY = (q.top + q.bottom) / 2;
+    // Above the top row, inside the deck's top padding.
+    press("char-71", { clientX: (q.left + q.right) / 2, clientY: 1 });
+    release("char-71", { clientX: (q.left + q.right) / 2, clientY: 1 });
+    // Either side of the seam in the gap between q and w.
+    const w = key("char-77").getBoundingClientRect();
+    const seam = (q.right + w.left) / 2;
+    press("char-71", { clientX: seam - 1, clientY: midY });
+    release("char-71", { clientX: seam - 1, clientY: midY });
+    press("char-77", { clientX: seam + 1, clientY: midY });
+    release("char-77", { clientX: seam + 1, clientY: midY });
+    expect(typed(onCharacter)).toBe("qqw");
+  });
+
+  it("ignores a touch that starts outside the deck", () => {
+    const { onCharacter } = renderDeck();
+    fireEvent.pointerDown(deck(), { pointerId: 1, clientX: 20, clientY: -5 });
+    fireEvent.pointerUp(deck(), { pointerId: 1, clientX: 20, clientY: -5 });
+    expect(onCharacter).not.toHaveBeenCalled();
+  });
+});
+
+describe("KeyboardDeck under fast typing", () => {
   it("keeps every key in a burst that reuses one pointer id", () => {
     const { onCharacter } = renderDeck();
-    for (const id of ["char-71", "char-77", "char-65", "char-72"]) {
-      press(key(id));
-      release(key(id));
-    }
+    for (const id of ["char-71", "char-77", "char-65", "char-72"]) tap(id);
     expect(typed(onCharacter)).toBe("qwer");
   });
 
   it("keeps both keys of a roll whichever finger lifts first", () => {
     const { onCharacter } = renderDeck();
-    fireEvent.pointerDown(key("char-71"), { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerDown(key("char-77"), { pointerId: 2, clientX: 50, clientY: 10 });
-    fireEvent.pointerUp(key("char-77"), { pointerId: 2, clientX: 50, clientY: 10 });
-    fireEvent.pointerUp(key("char-71"), { pointerId: 1, clientX: 10, clientY: 10 });
+    press("char-71", { pointerId: 1 });
+    press("char-77", { pointerId: 2 });
+    release("char-77", { pointerId: 2 });
+    release("char-71", { pointerId: 1 });
     expect(typed(onCharacter)).toBe("wq");
   });
 
   it("types a tap that rolled a few pixels past the key's edge", () => {
     const { onCharacter } = renderDeck();
-    const q = key("char-71");
-    stubRect(q, { left: 7, top: 100, right: 40, bottom: 146, width: 33, height: 46 });
+    const q = key("char-71").getBoundingClientRect();
+    const midY = (q.top + q.bottom) / 2;
     // Landing near the right edge and rolling into the seam is an ordinary thumb tap, not a
-    // deliberate slide away, and testing the exact rectangle threw it away.
-    press(q, { clientX: 39, clientY: 120 });
-    fireEvent.pointerMove(q, { pointerId: 1, clientX: 42, clientY: 120 });
-    release(q, { clientX: 42, clientY: 120 });
+    // deliberate slide away.
+    press("char-71", { clientX: q.right - 1, clientY: midY });
+    moveTo(q.right + 3, midY);
+    release("char-71", { clientX: q.right + 3, clientY: midY });
     expect(typed(onCharacter)).toBe("q");
-  });
-
-  it("still abandons a key the finger deliberately slid away from", () => {
-    const { onCharacter } = renderDeck();
-    const q = key("char-71");
-    stubRect(q, { left: 7, top: 100, right: 40, bottom: 146, width: 33, height: 46 });
-    press(q, { clientX: 20, clientY: 120 });
-    fireEvent.pointerMove(q, { pointerId: 1, clientX: 120, clientY: 120 });
-    release(q, { clientX: 120, clientY: 120 });
-    expect(typed(onCharacter)).toBe("");
   });
 
   it("recovers a pointer id whose release never arrived", () => {
     const { onCharacter } = renderDeck();
     // One missed pointerup would otherwise poison that id for the life of the deck, and iOS hands
     // the same ids out again, so every later touch on it would vanish silently.
-    fireEvent.pointerDown(key("char-71"), { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerDown(key("char-77"), { pointerId: 1, clientX: 50, clientY: 10 });
-    fireEvent.pointerUp(key("char-77"), { pointerId: 1, clientX: 50, clientY: 10 });
+    press("char-71", { pointerId: 1 });
+    press("char-77", { pointerId: 1 });
+    release("char-77", { pointerId: 1 });
     expect(typed(onCharacter)).toBe("w");
   });
 });

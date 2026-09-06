@@ -25,6 +25,12 @@ import {
   type CharacterPreviewLayout,
   type KeyboardDeckMetrics,
 } from "./keyboardDeckMetrics";
+import {
+  cellAtPoint,
+  deckHitCells,
+  pointHoldsCell,
+  type DeckCell,
+} from "./keyboardDeckHitTest";
 
 /**
  * Resting and pressed fills, from `KeyboardKeyAppearance.swift`. The pairs invert by theme: a
@@ -68,6 +74,9 @@ interface ActivePress {
   pointerId: number;
   key: DeckKey;
   element: HTMLElement;
+  /** The tiled area this press owns, in deck coordinates. Read once; layout cannot move mid-press. */
+  cell: DeckCell;
+  deckOrigin: { left: number; top: number };
   /** Where the finger landed, against which the space bar measures its slop. */
   startX: number;
   /**
@@ -106,6 +115,8 @@ export function KeyboardDeck({
   stateRef.current = state;
   /** One entry per finger. Two-thumb typing is ordinary typing, and each key tracks its own touch. */
   const presses = useRef(new Map<number, ActivePress>());
+  /** The rows as last rendered, so a resolved cell can be turned back into the key it stands for. */
+  const rowsRef = useRef<DeckKey[][]>([]);
   const lastShiftTapAt = useRef(0);
   const repeatTimer = useRef<number | null>(null);
 
@@ -169,24 +180,57 @@ export function KeyboardDeck({
     if (result.output !== null) onCharacter(result.output);
   }, [onCharacter]);
 
-  const onPointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>, key: DeckKey) => {
+  /**
+   * Resolve a touch to a key by the tiled cells rather than by whatever element is under it, so
+   * the gaps, the deck's padding, and the home row's indent all belong to a key.
+   */
+  const resolve = useCallback((clientX: number, clientY: number) => {
+    const deck = deckRef.current;
+    if (!deck) return null;
+    const deckRect = deck.getBoundingClientRect();
+    const rowElements = [...deck.querySelectorAll<HTMLElement>("[data-deck-row]")];
+    const rows = rowElements.map((row) => {
+      const bounds = row.getBoundingClientRect();
+      return {
+        top: bounds.top - deckRect.top,
+        bottom: bounds.bottom - deckRect.top,
+        keys: [...row.children].map((child) => {
+          const box = child.getBoundingClientRect();
+          return { left: box.left - deckRect.left, right: box.right - deckRect.left };
+        }),
+      };
+    });
+    const cells = deckHitCells(rows, { width: deckRect.width, height: deckRect.height });
+    const point = { x: clientX - deckRect.left, y: clientY - deckRect.top };
+    const cell = cellAtPoint(cells, point);
+    if (!cell) return null;
+    const element = rowElements[cell.row]?.children[cell.key];
+    if (!(element instanceof HTMLElement)) return null;
+    return { cell, element, deckOrigin: { left: deckRect.left, top: deckRect.top } };
+  }, []);
+
+  const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
     // and its form-navigation strip, which is the whole reason the deck exists.
     event.preventDefault();
+    const hit = resolve(event.clientX, event.clientY);
+    if (!hit) return;
+    const key = rowsRef.current[hit.cell.row]?.[hit.cell.key];
+    if (!key) return;
     // A pointer id whose release never arrived would otherwise be poisoned for good, and iOS
     // reuses ids: one missed `pointerup` would silently swallow every later touch that got the
     // same id. Discard the stale press and take this one.
     const stale = presses.current.get(event.pointerId);
     if (stale) releasePress(stale);
-    const element = event.currentTarget;
-    // Touch captures the pointer to the pressed element on its own; a mouse does not, and without
-    // this a drag onto the next key would report its moves there, leaving this key uncancelled and
-    // committing it on release. jsdom implements neither, hence the guard.
-    element.setPointerCapture?.(event.pointerId);
+    // Capture to the deck, not the keycap: the cells are the targets now, and a drag across them
+    // has to keep reporting here. Touch captures implicitly; a mouse does not. jsdom has neither.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     const active: ActivePress = {
       pointerId: event.pointerId,
       key,
-      element,
+      element: hit.element,
+      cell: hit.cell,
+      deckOrigin: hit.deckOrigin,
       startX: event.clientX,
       panOriginX: null,
       lastStep: 0,
@@ -209,9 +253,9 @@ export function KeyboardDeck({
         }, DELETE_REPEAT_INTERVAL_MS);
       }, DELETE_REPEAT_DELAY_MS);
     }
-  }, [onDelete, releasePress, showPreview, stopRepeat]);
+  }, [onDelete, releasePress, resolve, showPreview, stopRepeat]);
 
-  const onPointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+  const onPointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const active = presses.current.get(event.pointerId);
     if (!active || active.cancelled) return;
     if (active.key.kind === "space") {
@@ -230,18 +274,19 @@ export function KeyboardDeck({
       return;
     }
     // Sliding off a key cancels it, the way a drag-exit does on iOS, and permanently: coming back
-    // does not revive it. The slop is what lets an ordinary tap survive; see `keyExitSlop`.
-    const bounds = active.element.getBoundingClientRect();
-    const slop = keyExitSlop(metrics);
-    const inside = event.clientX >= bounds.left - slop.x && event.clientX <= bounds.right + slop.x
-      && event.clientY >= bounds.top - slop.y && event.clientY <= bounds.bottom + slop.y;
-    if (!inside) {
+    // does not revive it. The cell is the boundary, not the keycap, and the slop past it is what
+    // keeps a thumb that rolls across a seam from losing its key.
+    const point = {
+      x: event.clientX - active.deckOrigin.left,
+      y: event.clientY - active.deckOrigin.top,
+    };
+    if (!pointHoldsCell(active.cell, point, keyExitSlop(metrics))) {
       active.cancelled = true;
       releasePress(active);
     }
   }, [metrics, onCursorDelta, releasePress]);
 
-  const onPointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+  const onPointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const active = presses.current.get(event.pointerId);
     if (!active) return;
     const commits = !active.cancelled && !active.panned;
@@ -252,7 +297,7 @@ export function KeyboardDeck({
     if (commits) commit(active.key);
   }, [commit, releasePress]);
 
-  const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+  const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const active = presses.current.get(event.pointerId);
     if (!active) return;
     active.cancelled = true;
@@ -260,6 +305,7 @@ export function KeyboardDeck({
   }, [releasePress]);
 
   const rows = deckRows(state);
+  rowsRef.current = rows;
   const deckStyle = {
     paddingTop: metrics.topDeckPadding,
     paddingBottom: metrics.bottomDeckPadding,
@@ -277,6 +323,11 @@ export function KeyboardDeck({
       aria-label="On-screen keyboard"
       data-testid="keyboard-deck"
       style={deckStyle}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onContextMenu={(event) => event.preventDefault()}
       className="relative touch-none select-none bg-[#d1d4d9] dark:bg-[#1c1c1e]"
     >
       <div className="flex flex-col" style={{ gap: metrics.verticalRowGap }}>
@@ -287,6 +338,7 @@ export function KeyboardDeck({
           return (
             <div
               key={rowIndex}
+              data-deck-row=""
               className={`flex ${centred ? "justify-center" : ""}`}
               style={{ height: metrics.keycapHeight, gap: metrics.horizontalKeyGap }}
             >
@@ -309,11 +361,10 @@ export function KeyboardDeck({
                       ? (state.shift === "locked" ? true : state.shift === "on" ? "mixed" : false)
                       : undefined}
                     data-shift={key.kind === "shift" ? state.shift : undefined}
-                    onPointerDown={(event) => onPointerDown(event, key)}
-                    onPointerMove={onPointerMove}
-                    onPointerUp={onPointerUp}
-                    onPointerCancel={onPointerCancel}
-                    onContextMenu={(event) => event.preventDefault()}
+                    // Presentational: the deck resolves touches to tiled cells, so the keycap is
+                    // where the key is drawn, not where it is hit. Left focusable and labelled for
+                    // assistive technology, which still drives the element rather than a point.
+                    tabIndex={-1}
                     style={{
                       fontSize: titleSize(key),
                       marginLeft: widened ? outerGap : undefined,
@@ -323,7 +374,8 @@ export function KeyboardDeck({
                     }}
                     // `touch-action` does not inherit, so the deck's own value does not reach the
                     // keys: without this a press that drifts scrolls the page instead of typing.
-                    className={`touch-none rounded-lg leading-none text-black transition-none dark:text-white
+                    // `pointer-events-none` keeps every touch on the deck, where the cells decide.
+                    className={`pointer-events-none touch-none rounded-lg leading-none text-black transition-none dark:text-white
                       data-[pressed=true]:translate-y-px
                       focus-visible:outline-2 focus-visible:outline-ring
                       ${lit ? ACTIVE_FILL : special ? SPECIAL_FILL : REGULAR_FILL}
