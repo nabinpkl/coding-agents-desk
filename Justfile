@@ -1149,7 +1149,57 @@ dom-mirror-e2e: ext-stamp
 # swift-check` as well -- and note that the auto-commit rule in AGENTS.md means green there too,
 # not just here. `just voice-check` covers the dormant voice arc, `just sim-test` the iOS
 # simulator suite, and `just check-all` runs the lot.
-check: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder
+# The legs run concurrently, so the gate costs the slowest one rather than their sum.
+#
+# They are independent by construction: each owns its own project directory, and the one thing
+# three of them share -- the dependency cache under .build/js-dependencies -- keeps a stamp per
+# project and writes it through a pid-suffixed temporary file and an atomic rename, so two
+# installing at once cannot corrupt it.
+#
+# Output is collected per leg instead of interleaved, because six streams writing at once is not
+# readable. Every leg reports pass or fail with its own wall clock, and a failing leg's log is
+# printed in full afterwards. Run any leg on its own by name to watch it live.
+check:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    legs=(agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder)
+    logs="$(mktemp -d "${TMPDIR:-/tmp}/agentdesk-check.XXXXXX")"
+    trap 'rm -rf "$logs"' EXIT
+    started=$SECONDS
+    pids=()
+    for leg in "${legs[@]}"; do
+      (
+        leg_started=$SECONDS
+        just "$leg" > "$logs/$leg.log" 2>&1
+        leg_status=$?
+        echo "$leg_status $((SECONDS - leg_started))" > "$logs/$leg.status"
+        exit $leg_status
+      ) &
+      pids[${#pids[@]}]=$!
+    done
+    # bash 3.2 has no wait -n, and the point is the total anyway: every leg is already running.
+    failed=""
+    index=0
+    for leg in "${legs[@]}"; do
+      wait "${pids[$index]}" || failed="$failed $leg"
+      index=$((index + 1))
+    done
+    for leg in "${legs[@]}"; do
+      read -r leg_status leg_elapsed < "$logs/$leg.status"
+      if [ "$leg_status" -eq 0 ]; then
+        printf 'ok    %-26s %ss\n' "$leg" "$leg_elapsed"
+      else
+        printf 'FAIL  %-26s %ss\n' "$leg" "$leg_elapsed"
+      fi
+    done
+    for leg in $failed; do
+      echo
+      echo "===== $leg ====="
+      cat "$logs/$leg.log"
+    done
+    echo
+    echo "check finished in $((SECONDS - started))s"
+    [ -z "$failed" ]
 
 # The native apps and the machinery that launches them: the Swift packages, the Rust PTY manager,
 # the whole Xcode host test suite, and the shell tests covering host-run and client-install

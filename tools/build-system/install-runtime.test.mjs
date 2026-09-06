@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -81,6 +81,10 @@ test("a compiler failure does not replace the last complete build or installed h
   await writeFile(source, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   await installHelper({ source, destination });
   const original = await readFile(source);
+  // The build script skips swiftc when its output is already newer than every source, so a
+  // freshly written binary would make this test assert nothing: there would be no compile to
+  // fail. Age it past the sources to put the build genuinely out of date.
+  await utimes(source, new Date(0), new Date(0));
   const bin = join(root, "fake-tools");
   await mkdir(bin);
   await writeFile(join(bin, "swiftc"), `#!/bin/sh
