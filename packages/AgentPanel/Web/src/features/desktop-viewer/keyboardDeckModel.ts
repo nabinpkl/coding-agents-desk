@@ -37,6 +37,14 @@ export const DELETE_REPEAT_DELAY_MS = 450;
 export const DELETE_REPEAT_INTERVAL_MS = 80;
 /** Horizontal travel over the space bar that moves the remote caret one character. */
 export const SPACE_CURSOR_STEP_PX = 14;
+/**
+ * How far the finger must travel before the space bar becomes a caret pad rather than a key.
+ *
+ * iOS gets this free from `UIPanGestureRecognizer`, which spends its slop before `.began` fires
+ * and only then starts measuring. Without an equivalent, a space bar tapped with a little drift
+ * would move the caret instead of typing a space.
+ */
+export const SPACE_PAN_SLOP_PX = 10;
 
 function characters(source: readonly string[] | string): DeckKey[] {
   return [...source].map((value) => ({ kind: "character", value }) as DeckKey);

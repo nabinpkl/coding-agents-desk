@@ -6,6 +6,7 @@ import {
   DELETE_REPEAT_INTERVAL_MS,
   SHIFT_DOUBLE_TAP_MS,
   SPACE_CURSOR_STEP_PX,
+  SPACE_PAN_SLOP_PX,
 } from "./keyboardDeckModel";
 import { PORTRAIT_DECK } from "./keyboardDeckMetrics";
 
@@ -33,11 +34,11 @@ function stubRect(element: Element, rect: Partial<DOMRect>) {
   }) as DOMRect;
 }
 
-function press(element: Element, at = { clientX: 10, clientY: 10 }) {
-  fireEvent.pointerDown(element, { pointerId: 1, ...at });
+function press(element: Element, at: Record<string, number> = { clientX: 10, clientY: 10 }) {
+  fireEvent.pointerDown(element, { pointerId: 1, clientY: 10, ...at });
 }
-function release(element: Element, at = { clientX: 10, clientY: 10 }) {
-  fireEvent.pointerUp(element, { pointerId: 1, ...at });
+function release(element: Element, at: Record<string, number> = { clientX: 10, clientY: 10 }) {
+  fireEvent.pointerUp(element, { pointerId: 1, clientY: 10, ...at });
 }
 
 afterEach(() => {
@@ -129,17 +130,79 @@ describe("KeyboardDeck", () => {
   it("pans the caret across the space bar instead of typing a space", () => {
     const { onCharacter, onCursorDelta } = renderDeck();
     const space = key("space");
-    press(space, { clientX: 100, clientY: 10 });
-    fireEvent.pointerMove(space, { pointerId: 1, clientX: 100 + SPACE_CURSOR_STEP_PX * 2, clientY: 10 });
+    const move = (clientX: number) =>
+      fireEvent.pointerMove(space, { pointerId: 1, clientX, clientY: 10 });
+    press(space, { clientX: 100 });
+    // The pan is recognised where the slop is crossed, and steps are counted from there, not from
+    // where the finger landed.
+    move(100 + SPACE_PAN_SLOP_PX);
+    expect(onCursorDelta).not.toHaveBeenCalled();
+    move(100 + SPACE_PAN_SLOP_PX + SPACE_CURSOR_STEP_PX * 2);
     expect(onCursorDelta).toHaveBeenCalledWith(2);
-    fireEvent.pointerMove(space, { pointerId: 1, clientX: 100 - SPACE_CURSOR_STEP_PX, clientY: 10 });
+    move(100 + SPACE_PAN_SLOP_PX - SPACE_CURSOR_STEP_PX);
     expect(onCursorDelta).toHaveBeenLastCalledWith(-3);
-    release(space, { clientX: 100 - SPACE_CURSOR_STEP_PX, clientY: 10 });
+    release(space, { clientX: 100 });
     expect(onCharacter).not.toHaveBeenCalled();
 
-    press(space, { clientX: 100, clientY: 10 });
-    release(space, { clientX: 100, clientY: 10 });
+    press(space, { clientX: 100 });
+    release(space, { clientX: 100 });
     expect(onCharacter).toHaveBeenCalledWith(" ");
+  });
+
+  it("types a space that drifted less than the pan slop", () => {
+    const { onCharacter, onCursorDelta } = renderDeck();
+    const space = key("space");
+    press(space, { clientX: 100 });
+    fireEvent.pointerMove(space, { pointerId: 1, clientX: 100 + SPACE_PAN_SLOP_PX - 1, clientY: 10 });
+    release(space, { clientX: 100 + SPACE_PAN_SLOP_PX - 1 });
+    expect(onCursorDelta).not.toHaveBeenCalled();
+    expect(onCharacter).toHaveBeenCalledWith(" ");
+  });
+
+  it("takes both keys when two thumbs roll across the deck", () => {
+    const { onCharacter } = renderDeck();
+    const q = key("char-71");
+    const w = key("char-77");
+    fireEvent.pointerDown(q, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerDown(w, { pointerId: 2, clientX: 50, clientY: 10 });
+    expect(q).toHaveAttribute("data-pressed", "true");
+    expect(w).toHaveAttribute("data-pressed", "true");
+    fireEvent.pointerUp(q, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(w, { pointerId: 2, clientX: 50, clientY: 10 });
+    expect(onCharacter.mock.calls.map(([character]) => character)).toEqual(["q", "w"]);
+  });
+
+  it("hands the single balloon to the newest finger and keeps it until that one lifts", () => {
+    renderDeck();
+    stubRect(screen.getByTestId("keyboard-deck"), { left: 0, top: 0, width: 390, height: 236 });
+    const q = key("char-71");
+    const w = key("char-77");
+    stubRect(q, { left: 7, top: 100, right: 39, bottom: 146, width: 32, height: 46 });
+    stubRect(w, { left: 45, top: 100, right: 77, bottom: 146, width: 32, height: 46 });
+
+    fireEvent.pointerDown(q, { pointerId: 1, clientX: 10, clientY: 110 });
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
+    fireEvent.pointerDown(w, { pointerId: 2, clientX: 50, clientY: 110 });
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("w");
+    // The first finger lifting must not take the second finger's balloon with it.
+    fireEvent.pointerUp(q, { pointerId: 1, clientX: 10, clientY: 110 });
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("w");
+    fireEvent.pointerUp(w, { pointerId: 2, clientX: 50, clientY: 110 });
+    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
+  });
+
+  it("lights an armed shift and reads its lock state as a tri-state", () => {
+    renderDeck();
+    expect(key("shift")).toHaveAttribute("data-shift", "off");
+    expect(key("shift")).toHaveAttribute("aria-pressed", "false");
+    press(key("shift"));
+    release(key("shift"));
+    expect(key("shift")).toHaveAttribute("data-shift", "on");
+    expect(key("shift")).toHaveAttribute("aria-pressed", "mixed");
+    expect(key("shift").className).toContain("bg-[rgba(0,122,255,0.42)]");
+    press(key("shift"));
+    release(key("shift"));
+    expect(key("shift")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("cancels a key the finger slid off, the way a drag-exit does", () => {

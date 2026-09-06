@@ -5,6 +5,7 @@ import {
   INITIAL_DECK_STATE,
   SHIFT_DOUBLE_TAP_MS,
   SPACE_CURSOR_STEP_PX,
+  SPACE_PAN_SLOP_PX,
   deckKeyId,
   deckKeyLabel,
   deckKeyName,
@@ -38,6 +39,12 @@ const REGULAR_SHADOW = "shadow-[0_1.5px_0.75px_rgba(0,0,0,0.28)] "
   + "data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.098)] "
   + "dark:shadow-[0_1.5px_0.75px_rgba(0,0,0,0.62)] "
   + "dark:data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.217)]";
+/**
+ * An armed or locked shift washes the keycap in the tint colour rather than taking either special
+ * fill, which is `isActiveSpecial` in `KeyboardKeyButton.applyVisualState`. The alpha is the whole
+ * effect: the deck shows through, so the key reads as lit rather than as a different key.
+ */
+const ACTIVE_FILL = "bg-[rgba(0,122,255,0.42)] data-[pressed=true]:bg-[rgba(0,122,255,0.62)]";
 const SPECIAL_SHADOW = "shadow-[0_1.5px_0.75px_rgba(0,0,0,0.30)] "
   + "data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.105)] "
   + "dark:shadow-[0_1.5px_0.75px_rgba(0,0,0,0.68)] "
@@ -60,8 +67,14 @@ interface ActivePress {
   pointerId: number;
   key: DeckKey;
   element: HTMLElement;
-  /** Space-bar panning: where the finger landed and how many caret steps it has spent. */
+  /** Where the finger landed, against which the space bar measures its slop. */
   startX: number;
+  /**
+   * Where the space-bar pan was recognised, or null while it is still inside the slop. iOS spends
+   * a pan recogniser's slop before `.began`, and counts caret steps from there rather than from
+   * touch-down, so a tap that drifts a little still types a space.
+   */
+  panOriginX: number | null;
   lastStep: number;
   panned: boolean;
   cancelled: boolean;
@@ -81,14 +94,17 @@ export function KeyboardDeck({
   onCursorDelta: (delta: number) => void;
 }) {
   const [state, setState] = useState<KeyboardDeckState>(INITIAL_DECK_STATE);
-  const [pressedKeyId, setPressedKeyId] = useState<string | null>(null);
+  const [pressedKeyIds, setPressedKeyIds] = useState<readonly string[]>([]);
+  // Owned by the pointer that raised it: rolling a second thumb onto another key takes the balloon
+  // over, and lifting the first thumb must not take the second one's balloon away with it.
   const [preview, setPreview] = useState<
-    { character: string; layout: CharacterPreviewLayout } | null
+    { pointerId: number; character: string; layout: CharacterPreviewLayout } | null
   >(null);
   const deckRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
-  const press = useRef<ActivePress | null>(null);
+  /** One entry per finger. Two-thumb typing is ordinary typing, and each key tracks its own touch. */
+  const presses = useRef(new Map<number, ActivePress>());
   const lastShiftTapAt = useRef(0);
   const repeatTimer = useRef<number | null>(null);
 
@@ -102,24 +118,24 @@ export function KeyboardDeck({
 
   useEffect(() => stopRepeat, [stopRepeat]);
 
-  const endPress = useCallback(() => {
-    const active = press.current;
-    if (active?.element.hasPointerCapture?.(active.pointerId)) {
+  const releasePress = useCallback((active: ActivePress) => {
+    if (active.element.hasPointerCapture?.(active.pointerId)) {
       active.element.releasePointerCapture(active.pointerId);
     }
-    press.current = null;
-    stopRepeat();
-    setPressedKeyId(null);
-    setPreview(null);
+    presses.current.delete(active.pointerId);
+    if (active.key.kind === "delete") stopRepeat();
+    setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
+    setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
   }, [stopRepeat]);
 
-  const showPreview = useCallback((key: DeckKey, element: HTMLElement) => {
+  const showPreview = useCallback((press: ActivePress) => {
     const deck = deckRef.current;
     if (!deck) return;
-    const keyRect = element.getBoundingClientRect();
+    const keyRect = press.element.getBoundingClientRect();
     const deckRect = deck.getBoundingClientRect();
     setPreview({
-      character: deckKeyLabel(key, stateRef.current),
+      pointerId: press.pointerId,
+      character: deckKeyLabel(press.key, stateRef.current),
       layout: characterPreviewLayout(
         { left: keyRect.left - deckRect.left, top: keyRect.top - deckRect.top, width: keyRect.width },
         deckRect.width,
@@ -149,29 +165,31 @@ export function KeyboardDeck({
     // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
     // and its form-navigation strip, which is the whole reason the deck exists.
     event.preventDefault();
-    if (press.current) return;
+    if (presses.current.has(event.pointerId)) return;
     const element = event.currentTarget;
     // Touch captures the pointer to the pressed element on its own; a mouse does not, and without
     // this a drag onto the next key would report its moves there, leaving this key uncancelled and
     // committing it on release. jsdom implements neither, hence the guard.
     element.setPointerCapture?.(event.pointerId);
-    press.current = {
+    const active: ActivePress = {
       pointerId: event.pointerId,
       key,
       element,
       startX: event.clientX,
+      panOriginX: null,
       lastStep: 0,
       panned: false,
       cancelled: false,
     };
-    setPressedKeyId(deckKeyId(key));
-    if (key.kind === "character") showPreview(key, element);
+    presses.current.set(event.pointerId, active);
+    setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
+    if (key.kind === "character") showPreview(active);
     if (key.kind === "delete") {
       onDelete();
       repeatTimer.current = window.setTimeout(() => {
         repeatTimer.current = window.setInterval(() => {
-          const active = press.current;
-          if (!active || active.cancelled) return;
+          const held = presses.current.get(active.pointerId);
+          if (!held || held.cancelled) return;
           onDelete();
         }, DELETE_REPEAT_INTERVAL_MS);
       }, DELETE_REPEAT_DELAY_MS);
@@ -179,10 +197,15 @@ export function KeyboardDeck({
   }, [onDelete, showPreview]);
 
   const onPointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    const active = press.current;
-    if (!active || active.pointerId !== event.pointerId || active.cancelled) return;
+    const active = presses.current.get(event.pointerId);
+    if (!active || active.cancelled) return;
     if (active.key.kind === "space") {
-      const step = Math.trunc((event.clientX - active.startX) / SPACE_CURSOR_STEP_PX);
+      if (active.panOriginX === null) {
+        if (Math.abs(event.clientX - active.startX) < SPACE_PAN_SLOP_PX) return;
+        active.panOriginX = event.clientX;
+        return;
+      }
+      const step = Math.trunc((event.clientX - active.panOriginX) / SPACE_CURSOR_STEP_PX);
       const delta = step - active.lastStep;
       if (delta !== 0) {
         active.panned = true;
@@ -191,29 +214,34 @@ export function KeyboardDeck({
       }
       return;
     }
-    // Sliding off a key cancels it, the way a drag-exit does on iOS.
+    // Sliding off a key cancels it, the way a drag-exit does on iOS, and permanently: coming back
+    // does not revive it.
     const bounds = active.element.getBoundingClientRect();
     const inside = event.clientX >= bounds.left && event.clientX <= bounds.right
       && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
     if (!inside) {
       active.cancelled = true;
-      endPress();
+      releasePress(active);
     }
-  }, [endPress, onCursorDelta]);
+  }, [onCursorDelta, releasePress]);
 
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    const active = press.current;
-    if (!active || active.pointerId !== event.pointerId) return;
-    if (!active.cancelled && !active.panned) commit(active.key);
-    endPress();
-  }, [commit, endPress]);
+    const active = presses.current.get(event.pointerId);
+    if (!active) return;
+    const commits = !active.cancelled && !active.panned;
+    // Release before committing, as the Swift does, so the balloon is never the thing standing
+    // over a key that has already typed. React batches both into one paint, so the order is a
+    // statement of intent here rather than a frame the viewer could otherwise catch.
+    releasePress(active);
+    if (commits) commit(active.key);
+  }, [commit, releasePress]);
 
   const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    const active = press.current;
-    if (!active || active.pointerId !== event.pointerId) return;
+    const active = presses.current.get(event.pointerId);
+    if (!active) return;
     active.cancelled = true;
-    endPress();
-  }, [endPress]);
+    releasePress(active);
+  }, [releasePress]);
 
   const rows = deckRows(state);
   const deckStyle = {
@@ -248,6 +276,7 @@ export function KeyboardDeck({
             >
               {keys.map((key, keyIndex) => {
                 const special = isSpecialKey(key);
+                const lit = key.kind === "shift" && state.shift !== "off";
                 const widened = widensOuterGaps
                   && (keyIndex === 1 || keyIndex === keys.length - 1);
                 const id = deckKeyId(key);
@@ -256,9 +285,14 @@ export function KeyboardDeck({
                     key={id}
                     type="button"
                     data-testid={`deck-key-${id}`}
-                    data-pressed={pressedKeyId === id}
+                    data-pressed={pressedKeyIds.includes(id)}
                     aria-label={deckKeyName(key)}
-                    aria-pressed={key.kind === "shift" ? state.shift !== "off" : undefined}
+                    // Tri-state, matching the accessibility value iOS sets: armed for one letter
+                    // reads as partial, caps lock as fully on.
+                    aria-pressed={key.kind === "shift"
+                      ? (state.shift === "locked" ? true : state.shift === "on" ? "mixed" : false)
+                      : undefined}
+                    data-shift={key.kind === "shift" ? state.shift : undefined}
                     onPointerDown={(event) => onPointerDown(event, key)}
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
@@ -276,11 +310,8 @@ export function KeyboardDeck({
                     className={`touch-none rounded-lg leading-none text-black transition-none dark:text-white
                       data-[pressed=true]:translate-y-px
                       focus-visible:outline-2 focus-visible:outline-ring
-                      ${special ? SPECIAL_FILL : REGULAR_FILL}
-                      ${special ? SPECIAL_SHADOW : REGULAR_SHADOW}
-                      ${key.kind === "shift" && state.shift !== "off"
-                        ? "ring-2 ring-black/40 dark:ring-white/50"
-                        : ""}`}
+                      ${lit ? ACTIVE_FILL : special ? SPECIAL_FILL : REGULAR_FILL}
+                      ${special ? SPECIAL_SHADOW : REGULAR_SHADOW}`}
                   >
                     {deckKeyLabel(key, state)}
                   </button>
