@@ -16,7 +16,6 @@ import {
   describeTmuxPane,
   hexSend,
   pipeTmuxPane,
-  resizeTmuxWindow,
   restoreTmuxMouse,
 } from "./tmuxSessions.ts";
 import { TmuxAttachments, type TmuxSessionConnection } from "./tmuxAttachment.ts";
@@ -105,7 +104,6 @@ export class AgentTerminalService {
       capture: captureTmuxHistory,
       pipe: pipeTmuxPane,
       send: hexSend,
-      resize: resizeTmuxWindow,
     }),
   ) {
   }
@@ -147,9 +145,12 @@ export class AgentTerminalService {
         launch: {
           cwd: identity.cwd,
           executable: "/bin/zsh",
-          // Through a login shell, so the command is found on the user's own PATH rather than the
-          // sidecar's, which is deliberately stripped of it.
-          arguments: ["-l", "-c", 'exec "$0" "$@"', ...identity.command],
+          // Through a login shell, so a command is found on the user's own PATH rather than the
+          // sidecar's, which is deliberately stripped of it. With no command it IS the shell: the
+          // pty gives it a tty, which is what makes `-l` interactive.
+          arguments: identity.command.length === 0
+            ? ["-l"]
+            : ["-l", "-c", 'exec "$0" "$@"', ...identity.command],
         },
         columns,
         rows,
@@ -407,18 +408,21 @@ export class AgentTerminalService {
       throw new AgentTerminalConflictError("agent session belongs to another project directory");
     }
 
+    // A shell in the session's own directory, not a resumed agent.
+    //
+    // This used to launch `claude --resume <id>` (or `codex resume`), which made the terminal
+    // control unusable exactly when it was most wanted: resuming a session that is already running
+    // opens a second client to one transcript, so a LIVE session -- the common case -- was refused
+    // and the pane never appeared at all. What the control is for is a terminal where that work is
+    // happening; the running session is already watchable through its own tmux pane.
+    //
+    // `command` empty means the login shell itself, resolved in `open`.
     return {
-      ptySessionName: `agent-resume-${context.source}-${sessionId}`,
+      ptySessionName: `agent-shell-${context.source}-${sessionId}`,
       tmuxSession: null,
       cwd: projectPath,
-      command: context.source === "claude"
-        ? ["claude", "--resume", sessionId]
-        : ["codex", "resume", sessionId],
-      // Resuming a session that is already running elsewhere would open a second client to one
-      // transcript. Watching it is what the tmux kind is for.
-      refuseNew: session.activity === "live"
-        ? "the agent session is already active in another terminal"
-        : null,
+      command: [],
+      refuseNew: null,
     };
   }
 

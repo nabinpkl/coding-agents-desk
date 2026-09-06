@@ -19,8 +19,13 @@ export type AgentTerminalState =
  *
  * `fit` measures the mount and follows it, which is what a single resizable pane wants. `fixed`
  * pins the grid, which is what a wall of them needs: a tile that re-fits would renegotiate the
- * PTY size on every layout change, and for a tmux target that means resizing the window in
- * whatever terminal the user has it open in as well.
+ * PTY size on every layout change.
+ *
+ * A TMUX target ignores this entirely and renders at the pane's own geometry, whichever is asked
+ * for. tmux has one window size per session, so a viewer that imposed its grid reflowed the
+ * session in its owner's terminal; and a viewer that merely rendered at the wrong grid painted an
+ * absolutely-addressed screen into the wrong rows, which looks like a blank or garbled terminal
+ * rather than like a size disagreement. Both were measured on a live Claude Code pane.
  */
 export type TerminalSizing =
   | { kind: "fit" }
@@ -138,9 +143,13 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       };
       const publishViewport = (claim: boolean): void => {
         if (!descriptor || disposed || remoteClosed) return;
-        const dimensions = sizing.kind === "fixed"
-          ? { columns: sizing.columns, rows: sizing.rows }
-          : proposedDimensions(terminal, mount);
+        // A tmux pane's geometry is the pane's. Reporting anything else here would relabel the
+        // terminal with a grid it is not rendering at.
+        const dimensions = paneAuthoritative
+          ? { columns: descriptor.columns, rows: descriptor.rows }
+          : sizing.kind === "fixed"
+            ? { columns: sizing.columns, rows: sizing.rows }
+            : proposedDimensions(terminal, mount);
         if (!dimensions) return;
         viewportSequence += 1;
         setViewLabel(`View ${dimensions.columns}×${dimensions.rows}`);
@@ -167,6 +176,8 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       // in whatever terminal the user has that session open in. Killing ends the attach; the tmux
       // session it was attached to is untouched.
       const closeMode = context.kind === "tmux" ? "kill" : "detach";
+      // Whether the far end owns the grid. True for tmux, where the pane is the size of record.
+      const paneAuthoritative = context.kind === "tmux";
       const release = (terminalId: string): void => {
         void feed.closeTerminal(terminalId, closeMode).catch((error) => {
           console.error(`Agent terminal ${closeMode} failed`, error);
@@ -229,8 +240,11 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           .catch(fail);
       });
       // A fixed grid has nothing to observe: its size is the one it was given, and re-fitting it
-      // would push a new size onto the PTY every time the page reflowed.
-      const observer = sizing.kind === "fit" ? new ResizeObserver(() => scheduleViewport()) : null;
+      // would push a new size onto the PTY every time the page reflowed. Neither has a tmux
+      // attach, whose grid is the pane's however the mount is laid out.
+      const observer = sizing.kind === "fit" && !paneAuthoritative
+        ? new ResizeObserver(() => scheduleViewport())
+        : null;
       observer?.observe(mount);
 
       const initial = sizing.kind === "fixed"
@@ -265,7 +279,15 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           }, { replay: !imported });
           onState(context, { kind: "ready", descriptor: opened });
           terminal.focus();
-          scheduleViewport(true);
+          // An attach has no checkpoint to wait for -- the capture above IS its first screen -- so
+          // nothing else would ever move the label off "Opening terminal", and a terminal that is
+          // attached and reading claims to be still opening.
+          if (imported) {
+            setSyncLabel("Attached");
+            setSourceLabel(`Source ${opened.columns}×${opened.rows}`);
+          }
+          // Never a claim for a pane-authoritative target: there is no size to claim.
+          scheduleViewport(!paneAuthoritative);
         })
         .catch(fail);
 

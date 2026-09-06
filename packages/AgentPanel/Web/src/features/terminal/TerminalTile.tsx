@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { AgentTerminalContext, TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
+import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
 import { useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
 
@@ -13,9 +13,22 @@ import { useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
 const TILE_COLUMNS = 80;
 const TILE_ROWS = 24;
 
+/**
+ * What a tile needs to know about its session, which is less than a full listing row.
+ *
+ * Narrowed to these two when the composer began rendering a tile: it knows the pane's NAME from
+ * the harness's own session registry and never lists tmux, so requiring a listing row would have
+ * meant either a second request per composer or a fabricated one whose watcher count was a lie.
+ */
+export interface TerminalTileSession {
+  name: string;
+  /** Omitted by a caller that has not listed tmux; the header then says nothing about watchers. */
+  attachedClients?: number;
+}
+
 export function TerminalTile({ feed, session }: {
   feed: SidecarDataSource;
-  session: TmuxSessionSummary;
+  session: TerminalTileSession;
 }) {
   const [state, setState] = useState<AgentTerminalState | null>(null);
   const context: AgentTerminalContext = { kind: "tmux", session: session.name };
@@ -37,7 +50,11 @@ export function TerminalTile({ feed, session }: {
       <header className="flex min-h-6 shrink-0 items-center justify-between gap-2 border-b border-border px-2 font-mono text-[10px]">
         <span className="truncate font-semibold">{session.name}</span>
         <span className="shrink-0 text-muted-foreground">
-          {session.attachedClients > 0 ? `${session.attachedClients} watching` : "unattached"}
+          {session.attachedClients === undefined
+            ? ""
+            : session.attachedClients > 0
+              ? `${session.attachedClients} watching`
+              : "unattached"}
         </span>
       </header>
       <div ref={mountRef} className="p-1" />

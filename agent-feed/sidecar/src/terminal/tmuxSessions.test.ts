@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   captureHistoryArgs,
   captureScreenArgs,
-  paneHeightArgs,
+  paneGeometryArgs,
   historyForTerminal,
   parseTmuxSessions,
   terminalHistoryPayload,
@@ -54,8 +54,8 @@ test("asks for the scrollback and stops one line short of the screen", () => {
 
 test("captures the screen separately, with no range, so the two do not overlap", () => {
   expect(captureScreenArgs("keyboard")).toEqual(["capture-pane", "-p", "-e", "-t", "keyboard"]);
-  expect(paneHeightArgs("keyboard"))
-    .toEqual(["display-message", "-p", "-t", "keyboard", "#{pane_height}"]);
+  expect(paneGeometryArgs("keyboard"))
+    .toEqual(["display-message", "-p", "-t", "keyboard", "#{pane_height} #{cursor_y} #{cursor_x}"]);
 });
 
 test("opens exactly one screen of rows between the history and the screen", () => {
@@ -66,20 +66,35 @@ test("opens exactly one screen of rows between the history and the screen", () =
     scrollback: "old one\nold two\n",
     screen: "top\nmiddle\nbottom\n",
     rows: 3,
+    cursor: { row: 0, column: 0 },
   });
-  expect(payload).toBe("old one\r\nold two\r\n\r\n\r\n\u001b[Htop\r\nmiddle\r\nbottom");
+  expect(payload)
+    .toBe("old one\r\nold two\r\n\r\n\r\n\u001b[Htop\r\nmiddle\r\nbottom\u001b[1;1H");
 });
 
 test("the rows it opens follow the pane's height, since that is what has to line up", () => {
   const opening = (rows: number): string =>
-    terminalHistoryPayload({ scrollback: "one\n", screen: "s\n", rows })
-      .slice("one\r\n".length, -"\u001b[Hs".length);
+    terminalHistoryPayload({ scrollback: "one\n", screen: "s\n", rows, cursor: { row: 0, column: 0 } })
+      .slice("one\r\n".length, -"\u001b[Hs\u001b[1;1H".length);
   expect(opening(1)).toBe("");
   expect(opening(2)).toBe("\r\n");
   expect(opening(24)).toBe("\r\n".repeat(23));
 });
 
 test("still opens a full screen when the pane has no scrollback at all", () => {
-  expect(terminalHistoryPayload({ scrollback: "", screen: "only\n", rows: 2 }))
-    .toBe("\r\n\u001b[Honly");
+  expect(terminalHistoryPayload({ scrollback: "", screen: "only\n", rows: 2, cursor: { row: 0, column: 0 } }))
+    .toBe("\r\n\u001b[Honly\u001b[1;1H");
+});
+
+test("leaves the cursor where the pane's is, not where the screen text ran out", () => {
+  // The bug: the program on the other end redraws relative to the cursor, so an import that ended
+  // below the composer echoed every later keystroke onto the status divider. tmux counts from 0
+  // and CUP counts from 1.
+  const payload = terminalHistoryPayload({
+    scrollback: "",
+    screen: "a\nb\nc\n",
+    rows: 3,
+    cursor: { row: 1, column: 4 },
+  });
+  expect(payload.endsWith("\u001b[2;5H")).toBe(true);
 });

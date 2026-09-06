@@ -91,7 +91,9 @@ export function AgentTerminalPane({ feed, context, onState }: Props) {
       >
         <span className="absolute inset-x-0 top-0 h-px bg-border transition-colors group-hover:bg-primary" />
       </button>
-      <div ref={mountRef} className="min-h-0 flex-1 overflow-hidden px-1 pb-1" />
+      {/* Scrolls rather than clips: a tmux attach renders at the pane's geometry, which is not
+          this pane's, and clipping it hid the part of the screen the cursor was on. */}
+      <div ref={mountRef} className="min-h-0 flex-1 overflow-auto px-1 pb-1" />
       <footer className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span>{labels.sync}</span>
         {labels.ownership ? <span>{labels.ownership}</span> : null}

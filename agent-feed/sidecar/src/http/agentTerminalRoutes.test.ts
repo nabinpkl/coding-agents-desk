@@ -13,7 +13,7 @@ const SESSION_ID = "48fc14ac-0c09-4d3b-85d1-9c57c990db32";
 const server = { timeout() {} } as never;
 const descriptor: AgentTerminalDescriptor = {
   terminalId: TERMINAL_ID,
-  ptySessionName: `agent-resume-codex-${SESSION_ID}`,
+  ptySessionName: `agent-shell-codex-${SESSION_ID}`,
   pid: 42,
   columns: 90,
   rows: 28,

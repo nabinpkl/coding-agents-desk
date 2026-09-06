@@ -26,7 +26,7 @@ test("opens a UUIDv7 Codex session with the deterministic resume command", async
   const opened: unknown[] = [];
   const connection = {
     attachment: {
-      sessionName: `agent-resume-codex-${SESSION_ID}`,
+      sessionName: `agent-shell-codex-${SESSION_ID}`,
       pid: 42,
       columns: 90,
       rows: 30,
@@ -63,17 +63,19 @@ test("opens a UUIDv7 Codex session with the deterministic resume command", async
   }, { columns: 90, rows: 30 });
 
   expect(descriptor).toMatchObject({
-    ptySessionName: `agent-resume-codex-${SESSION_ID}`,
+    ptySessionName: `agent-shell-codex-${SESSION_ID}`,
     pid: 42,
     columns: 90,
     rows: 30,
   });
   expect(opened).toEqual([{
-    sessionName: `agent-resume-codex-${SESSION_ID}`,
+    sessionName: `agent-shell-codex-${SESSION_ID}`,
     launch: {
       cwd: canonicalProject,
       executable: "/bin/zsh",
-      arguments: ["-l", "-c", 'exec "$0" "$@"', "codex", "resume", SESSION_ID],
+      // A shell, not `codex resume`: the control opens a terminal in the session's directory, and
+      // a live session used to be refused outright rather than given one.
+      arguments: ["-l"],
     },
     columns: 90,
     rows: 30,
@@ -92,7 +94,7 @@ test("an observer sees every terminal, including ones opened after it started", 
   const publishers: Array<(envelope: unknown) => void> = [];
   const connection = {
     attachment: {
-      sessionName: `agent-resume-codex-${SESSION_ID}`,
+      sessionName: `agent-shell-codex-${SESSION_ID}`,
       pid: 42,
       columns: 90,
       rows: 30,
@@ -318,7 +320,7 @@ test("a resumed CLI has no tmux history to hand over", async () => {
   await mkdir(project, { recursive: true });
   const asked: unknown[] = [];
   const connection = {
-    attachment: { sessionName: `agent-resume-codex-${SESSION_ID}`, pid: 7, columns: 80, rows: 24 },
+    attachment: { sessionName: `agent-shell-codex-${SESSION_ID}`, pid: 7, columns: 80, rows: 24 },
     onEnvelope: () => () => {},
     onFailure: () => () => {},
     requestCheckpoint() {},

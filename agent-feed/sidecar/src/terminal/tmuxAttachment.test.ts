@@ -13,14 +13,13 @@ interface Recorded {
   pipes: number;
   stops: number;
   sent: string[][];
-  resizes: { columns: number; rows: number }[];
   captures: number;
   emit: (chunk: Uint8Array) => void;
 }
 
 function runtime(overrides: Partial<TmuxPaneRuntime> = {}): { runtime: TmuxPaneRuntime; log: Recorded } {
   const log: Recorded = {
-    pipes: 0, stops: 0, sent: [], resizes: [], captures: 0, emit: () => {},
+    pipes: 0, stops: 0, sent: [], captures: 0, emit: () => {},
   };
   const base: TmuxPaneRuntime = {
     describe: async () => ({ pid: 4242, columns: 80, rows: 24 }),
@@ -33,7 +32,6 @@ function runtime(overrides: Partial<TmuxPaneRuntime> = {}): { runtime: TmuxPaneR
     send: async (_session, bytes) => {
       log.sent.push(hexKeyArguments(bytes));
     },
-    resize: async (_session, columns, rows) => { log.resizes.push({ columns, rows }); },
   };
   return { runtime: { ...base, ...overrides }, log };
 }
@@ -107,7 +105,6 @@ test("kill does NOT end the session, whatever the caller called it", async () =>
   connection.kill();
   expect(log.stops).toBe(1);
   expect(log.sent).toEqual([]);
-  expect(log.resizes).toEqual([]);
 });
 
 test("input reaches tmux as hex, control characters and escapes included", async () => {
@@ -146,26 +143,26 @@ test("a checkpoint is the capture, framed as begin/chunk/end with a moving revis
   expect(seen[2]?.terminalCheckpointEnd?.revision).toBe("1");
 });
 
-test("only a claiming viewer resizes the window, since tmux has one size for everyone", async () => {
-  const { runtime: tmux, log } = runtime();
+test("the pane's size is reported, never set, even by a viewer that claims it", async () => {
+  // The bug this pins: a viewer opening at 80x24 used to resize the tmux window, and tmux has one
+  // window size for everyone. On a live Claude Code pane the TUI reflowed under its owner and
+  // redrew its composer off the bottom of its own frame, so typed characters landed in a box that
+  // was no longer where the screen said it was. The pane is authoritative; the viewer adopts it.
+  const { runtime: tmux } = runtime();
   const attachments = new TmuxAttachments(tmux);
-  const connection = await attachments.open("rags", { columns: 80, rows: 24 });
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 120, rows: 40 });
-  await Promise.resolve();
-  expect(log.resizes).toEqual([]);
+  const connection = await attachments.open("rags", { columns: 200, rows: 50 });
+  expect(connection.attachment).toMatchObject({ columns: 80, rows: 24 });
 
-  connection.updateViewerState({ sequence: "2", active: true, claim: true, columns: 120, rows: 40 });
+  const seen = collect(connection);
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 120, rows: 40 });
   await Promise.resolve();
-  expect(log.resizes).toEqual([{ columns: 120, rows: 40 }]);
-});
-
-test("a claim that matches the pane asks tmux for nothing", async () => {
-  const { runtime: tmux, log } = runtime();
-  const attachments = new TmuxAttachments(tmux);
-  const connection = await attachments.open("rags", { columns: 80, rows: 24 });
-  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 80, rows: 24 });
-  await Promise.resolve();
-  expect(log.resizes).toEqual([]);
+  expect(seen[0]?.terminalViewportStatus).toMatchObject({
+    isOwner: false,
+    sourceColumns: 80,
+    sourceRows: 24,
+    viewColumns: 120,
+    viewRows: 40,
+  });
 });
 
 test("a failing send surfaces on the connection rather than vanishing", async () => {

@@ -7,7 +7,9 @@
 //   capture-pane    the screen and its scrollback, for a viewer that has neither
 //   pipe-pane       the pane's raw output, live, from the moment it is set
 //   send-keys -H    arbitrary bytes in, as hex, so no key-name table is needed
-//   resize-window   the pane's geometry
+//
+// It deliberately does NOT resize. tmux has one window size for everyone, so a viewer that set it
+// would reflow the session in its owner's own terminal.
 //
 // What it does NOT do is create a session. The PTY path exists to launch and own a process; this
 // path only ever joins one a human already started, which is the whole point of the terminals wall.
@@ -35,7 +37,6 @@ export interface TmuxPaneRuntime {
   pipe(session: string, onData: (chunk: Uint8Array) => void): Promise<() => void>;
   /** Raw bytes into the pane. */
   send(session: string, bytes: Uint8Array): Promise<void>;
-  resize(session: string, columns: number, rows: number): Promise<void>;
 }
 
 type EnvelopeListener = (envelope: PtyEnvelope) => void;
@@ -122,11 +123,16 @@ export class TmuxSessionConnection {
   }
 
   /**
-   * Geometry only, and only when this viewer claimed it.
+   * Reports the pane's geometry. It never changes it.
    *
-   * There is no ownership negotiation here as there is on the PTY path: tmux has one window size
-   * per session and no per-client override, so the honest answer is that whoever claims last sets
-   * it. A viewer that did not claim is told what the pane is rather than resizing it.
+   * A viewer used to be able to claim the size, and tmux has one window size for everyone, so the
+   * claim reflowed the session in whatever terminal its owner had it open in. Measured on a live
+   * Claude Code pane: a viewer opening at 80x24 shrank the window under it, and the TUI redrew
+   * with its composer off the bottom of its own frame -- keystrokes were landing the whole time,
+   * in a box that was no longer where the screen said it was.
+   *
+   * So the pane is authoritative and the viewer adopts what it finds. `isOwner` is false for the
+   * same reason: nobody watching through this path owns the size.
    */
   updateViewerState(options: {
     sequence: string;
@@ -136,37 +142,19 @@ export class TmuxSessionConnection {
     rows: number;
   }): void {
     if (this.closed) return;
-    const status: PtyEnvelope = {
+    this.deliver({
       protocolVersion: 1,
       sessionName: this.pane.session,
       terminalViewportStatus: {
-        isOwner: options.claim,
-        ownerClientId: options.claim ? "tmux" : "0",
+        isOwner: false,
+        ownerClientId: "0",
         ownerTitle: "tmux",
         sourceColumns: this.pane.columns,
         sourceRows: this.pane.rows,
         viewColumns: options.columns,
         viewRows: options.rows,
       },
-    };
-    if (!options.claim || (options.columns === this.pane.columns && options.rows === this.pane.rows)) {
-      this.deliver(status);
-      return;
-    }
-    void this.runtime.resize(this.pane.session, options.columns, options.rows)
-      .then(() => {
-        this.pane.columns = options.columns;
-        this.pane.rows = options.rows;
-        this.deliver({
-          ...status,
-          terminalViewportStatus: {
-            ...status.terminalViewportStatus,
-            sourceColumns: options.columns,
-            sourceRows: options.rows,
-          },
-        });
-      })
-      .catch((error: unknown) => this.fail(asError(error)));
+    });
   }
 
   /**
@@ -255,9 +243,13 @@ export class TmuxAttachments {
     return this.panes.size;
   }
 
+  /**
+   * Joins a session. `dimensions` is what the viewer would like and is deliberately ignored: the
+   * pane's own size is returned instead, for the viewer to adopt. See `updateViewerState`.
+   */
   async open(
     session: string,
-    dimensions: { columns: number; rows: number },
+    _dimensions: { columns: number; rows: number },
   ): Promise<TmuxSessionConnection> {
     const existing = this.panes.get(session);
     if (existing) {
@@ -293,20 +285,6 @@ export class TmuxAttachments {
     const connection = new TmuxSessionConnection(seeded, this.runtime, (leaving) =>
       this.releaseViewer(seeded, leaving));
     seeded.viewers.add(connection);
-    if (dimensions.columns !== seeded.columns || dimensions.rows !== seeded.rows) {
-      // The opener's own size, applied once. A viewer that asked for a grid and got the pane's
-      // instead would render a screen addressed for the wrong width.
-      await this.runtime.resize(session, dimensions.columns, dimensions.rows).catch(() => {
-        // The pane keeps its size; the descriptor below reports what it actually is.
-      });
-      const after = await this.runtime.describe(session).catch(() => null);
-      if (after) {
-        seeded.columns = after.columns;
-        seeded.rows = after.rows;
-        connection.attachment.columns = after.columns;
-        connection.attachment.rows = after.rows;
-      }
-    }
     return connection;
   }
 

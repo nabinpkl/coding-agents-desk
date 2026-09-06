@@ -78,9 +78,20 @@ export function captureScreenArgs(session: string): string[] {
   return ["capture-pane", "-p", "-e", "-t", session];
 }
 
-/** How tall that screen is, which is how many rows the viewer has to open for it. */
-export function paneHeightArgs(session: string): string[] {
-  return ["display-message", "-p", "-t", session, "#{pane_height}"];
+/**
+ * How tall that screen is, and where the cursor sits in it.
+ *
+ * The height says how many rows the viewer has to open. The cursor says where to leave it, which
+ * matters because the program on the other end goes on drawing RELATIVE to it: Claude Code's
+ * renderer redraws by moving from where it believes the cursor is. Measured on a live pane: a
+ * viewer that ended its import at the end of the captured text left the cursor several rows below
+ * the composer, and every subsequent keystroke was echoed onto the status divider instead of into
+ * the box -- correct bytes, correct terminal, wrong origin.
+ */
+export function paneGeometryArgs(session: string): string[] {
+  return [
+    "display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x}",
+  ];
 }
 
 /**
@@ -94,15 +105,27 @@ export function paneHeightArgs(session: string): string[] {
  * `rows - 1` lines (the scrollback's own trailing newline is the first) puts the window entirely on
  * blank rows below the history, and `ESC[H` homes into it before the screen text fills it exactly.
  *
+ * It ends by putting the cursor where the pane's actually is, rather than wherever the screen text
+ * happened to run out. See `paneGeometryArgs`.
+ *
  * Composed here rather than in the viewer because the row count that has to match is the pane's,
  * and the pane is what this module can see.
  */
 export function terminalHistoryPayload(
-  { scrollback, screen, rows }: { scrollback: string; screen: string; rows: number },
+  { scrollback, screen, rows, cursor }: {
+    scrollback: string;
+    screen: string;
+    rows: number;
+    /** The pane's cursor, zero-based as tmux reports it. */
+    cursor: { row: number; column: number };
+  },
 ): string {
   const history = historyForTerminal(scrollback);
   const opening = "\r\n".repeat(Math.max(0, rows - 1));
-  return `${history}${opening}\u001b[H${historyForTerminal(screen.replace(/\n$/, ""))}`;
+  // CUP is one-based, and addresses the screen -- which the opening rows above put exactly where
+  // the pane's screen is.
+  const home = `\u001b[${cursor.row + 1};${cursor.column + 1}H`;
+  return `${history}${opening}\u001b[H${historyForTerminal(screen.replace(/\n$/, ""))}${home}`;
 }
 
 function demand(what: string, result: { err: string; code: number }): void {
@@ -112,21 +135,33 @@ function demand(what: string, result: { err: string; code: number }): void {
 
 /** Everything the viewer needs to open with: the pane's scrollback and its current screen. */
 export async function captureTmuxHistory(session: string, lines: number): Promise<string> {
-  const [history, screen, height] = await Promise.all([
+  const [history, screen, geometry] = await Promise.all([
     tmux(captureHistoryArgs(session, lines)),
     tmux(captureScreenArgs(session)),
-    tmux(paneHeightArgs(session)),
+    tmux(paneGeometryArgs(session)),
   ]);
   // Named individually because the three are different commands: a reader told "capture-pane
   // failed" when it was `display-message` that failed looks for the bug in the wrong place.
   demand("scrollback", history);
   demand("screen", screen);
-  demand("pane height", height);
-  const rows = Number.parseInt(height.out.trim(), 10);
+  demand("pane geometry", geometry);
+  const fields = geometry.out.trim().split(/\s+/);
+  const rows = Number.parseInt(fields[0] ?? "", 10);
   if (!Number.isInteger(rows) || rows < 1) {
-    throw new TmuxUnavailable(`tmux reported an unusable pane height: ${height.out.trim()}`);
+    throw new TmuxUnavailable(`tmux reported an unusable pane height: ${geometry.out.trim()}`);
   }
-  return terminalHistoryPayload({ scrollback: history.out, screen: screen.out, rows });
+  // A tmux old enough not to report a cursor still gets a correct screen; it just resumes from the
+  // top of it, which is the behaviour this replaces rather than a new failure.
+  const coordinate = (field: string | undefined): number => {
+    const value = Number.parseInt(field ?? "", 10);
+    return Number.isInteger(value) && value >= 0 ? value : 0;
+  };
+  return terminalHistoryPayload({
+    scrollback: history.out,
+    screen: screen.out,
+    rows,
+    cursor: { row: coordinate(fields[1]), column: coordinate(fields[2]) },
+  });
 }
 
 /**
@@ -202,18 +237,6 @@ export async function sendTmuxBytes(session: string, hex: readonly string[]): Pr
   if (hex.length === 0) return;
   const { err, code } = await tmux(["send-keys", "-H", "-t", session, ...hex]);
   if (code !== 0) throw new TmuxUnavailable(`tmux send-keys exited ${code}: ${err.trim()}`);
-}
-
-/** The window's size. tmux has one per session and no per-client override, so this is shared. */
-export async function resizeTmuxWindow(
-  session: string,
-  columns: number,
-  rows: number,
-): Promise<void> {
-  const { err, code } = await tmux([
-    "resize-window", "-t", session, "-x", String(columns), "-y", String(rows),
-  ]);
-  if (code !== 0) throw new TmuxUnavailable(`tmux resize-window exited ${code}: ${err.trim()}`);
 }
 
 /**
