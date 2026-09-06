@@ -17,12 +17,26 @@ import { ProfileRow } from "../profile/ProfileRow";
 import { BotSidebarPanel } from "../bots/BotSidebarPanel";
 import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import type { UsageHandle } from "../usage/useUsage";
+import { ActivityDot, SessionMeta } from "./SessionMeta";
 import { SourceBadge } from "./SourceBadge";
 
 const INITIAL_SESSION_COUNT = 3;
 const SESSION_BATCH_SIZE = 10;
 
-export type AgentSidebarMode = "sessions" | "bots";
+export type AgentSidebarMode = "sessions" | "bots" | "canvas";
+
+/**
+ * Tab order, and the order the arrow keys walk.
+ *
+ * Canvas sits after Bots because it is derived from them: it is the same curated roster with the
+ * "pick one" taken out. A reader who has not met it yet meets Bots first, which is the thing it is
+ * a view of.
+ */
+const SIDEBAR_MODES: ReadonlyArray<{ mode: AgentSidebarMode; label: string }> = [
+  { mode: "sessions", label: "Sessions" },
+  { mode: "bots", label: "Bots" },
+  { mode: "canvas", label: "Canvas" },
+];
 
 interface AgentSidebarProps {
   mode: AgentSidebarMode;
@@ -66,28 +80,31 @@ interface AgentSidebarProps {
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
-  const sessionsTabId = useId();
-  const sessionsPanelId = useId();
-  const botsTabId = useId();
-  const botsPanelId = useId();
-  const sessionsTabRef = useRef<HTMLButtonElement>(null);
-  const botsTabRef = useRef<HTMLButtonElement>(null);
+  const tabGroupId = useId();
+  const tabId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-tab`;
+  const panelId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-panel`;
+  const tabRefs = useRef(new Map<AgentSidebarMode, HTMLButtonElement | null>());
 
   const selectMode = (mode: AgentSidebarMode, focus = false) => {
     props.onModeChange(mode);
     if (focus) {
-      const target = mode === "sessions" ? sessionsTabRef : botsTabRef;
-      globalThis.requestAnimationFrame?.(() => target.current?.focus());
+      globalThis.requestAnimationFrame?.(() => tabRefs.current.get(mode)?.focus());
     }
   };
 
+  // Roving by index rather than the two-way toggle this was when there were exactly two tabs:
+  // a third made "left means the first one" wrong in both directions. Wrapping is the ARIA tabs
+  // pattern, and it is what keeps the last tab one keystroke from the first.
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    let next: AgentSidebarMode | null = null;
-    if (event.key === "ArrowLeft" || event.key === "Home") next = "sessions";
-    else if (event.key === "ArrowRight" || event.key === "End") next = "bots";
+    const current = SIDEBAR_MODES.findIndex((tab) => tab.mode === props.mode);
+    let next: number | null = null;
+    if (event.key === "ArrowLeft") next = (current - 1 + SIDEBAR_MODES.length) % SIDEBAR_MODES.length;
+    else if (event.key === "ArrowRight") next = (current + 1) % SIDEBAR_MODES.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = SIDEBAR_MODES.length - 1;
     if (next === null) return;
     event.preventDefault();
-    selectMode(next, true);
+    selectMode(SIDEBAR_MODES[next].mode, true);
   };
 
   return (
@@ -98,43 +115,35 @@ export function AgentSidebar(props: AgentSidebarProps) {
           props.ownsWindowTitlebar ? " agent-window-titlebar-sidebar-leading" : ""
         }`}
       >
-        <div role="tablist" aria-label="Agent views" className="flex min-w-0 flex-1 self-stretch">
-          <button
-            ref={sessionsTabRef}
-            id={sessionsTabId}
-            type="button"
-            role="tab"
-            aria-selected={props.mode === "sessions"}
-            aria-controls={sessionsPanelId}
-            tabIndex={props.mode === "sessions" ? 0 : -1}
-            onClick={() => selectMode("sessions")}
-            onKeyDown={handleTabKeyDown}
-            className={`flex min-h-11 items-center border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
-              props.mode === "sessions"
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            }`}
-          >
-            Sessions
-          </button>
-          <button
-            ref={botsTabRef}
-            id={botsTabId}
-            type="button"
-            role="tab"
-            aria-selected={props.mode === "bots"}
-            aria-controls={botsPanelId}
-            tabIndex={props.mode === "bots" ? 0 : -1}
-            onClick={() => selectMode("bots")}
-            onKeyDown={handleTabKeyDown}
-            className={`flex min-h-11 items-center border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
-              props.mode === "bots"
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            }`}
-          >
-            Bots
-          </button>
+        {/* Three tabs fit a phone drawer at the default type size and stop fitting when the
+            reader raises it, so the strip scrolls rather than compressing the last tab into its
+            own truncation. */}
+        <div
+          role="tablist"
+          aria-label="Agent views"
+          className="flex min-w-0 flex-1 self-stretch overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {SIDEBAR_MODES.map(({ mode, label }) => (
+            <button
+              key={mode}
+              ref={(node) => { tabRefs.current.set(mode, node); }}
+              id={tabId(mode)}
+              type="button"
+              role="tab"
+              aria-selected={props.mode === mode}
+              aria-controls={panelId(mode)}
+              tabIndex={props.mode === mode ? 0 : -1}
+              onClick={() => selectMode(mode)}
+              onKeyDown={handleTabKeyDown}
+              className={`flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
+                props.mode === mode
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         {props.onClose ? (
           <button
@@ -153,9 +162,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
           under a row that is already clear of it. */}
       {props.mode === "sessions" ? (
         <div
-          id={sessionsPanelId}
+          id={panelId("sessions")}
           role="tabpanel"
-          aria-labelledby={sessionsTabId}
+          aria-labelledby={tabId("sessions")}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
           {props.loading ? (
@@ -188,11 +197,39 @@ export function AgentSidebar(props: AgentSidebarProps) {
             </ul>
           )}
         </div>
+      ) : props.mode === "canvas" ? (
+        // The canvas itself is the main panel: every bot at once, scrolled rather than switched
+        // between. What is left for the sidebar is the one action the roster needs and a count
+        // that says whether an empty canvas is empty or still arriving.
+        <div
+          id={panelId("canvas")}
+          role="tabpanel"
+          aria-labelledby={tabId("canvas")}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        >
+          <button
+            type="button"
+            onClick={props.onAddBot}
+            className="flex min-h-11 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-primary/15"
+          >
+            <Plus className="size-4" aria-hidden />
+            Add Bot
+          </button>
+          {props.botsError ? (
+            <SidebarError message={`Bots unavailable: ${props.botsError}`} retrying={false} />
+          ) : (
+            <SidebarStatus>
+              {props.botsLoading
+                ? "Loading Bots…"
+                : `${props.bots.length} ${props.bots.length === 1 ? "bot" : "bots"} on the canvas`}
+            </SidebarStatus>
+          )}
+        </div>
       ) : (
         <div
-          id={botsPanelId}
+          id={panelId("bots")}
           role="tabpanel"
-          aria-labelledby={botsTabId}
+          aria-labelledby={tabId("bots")}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
           <BotSidebarPanel
@@ -400,10 +437,6 @@ function ProjectSessionPreview({
         {visibleSessions.map((session) => {
           const key = `${session.source}:${session.sessionId}`;
           const active = key === selectedSessionKey;
-          const time = new Date(session.lastEventAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
           return (
             <li key={key}>
               <button
@@ -414,19 +447,16 @@ function ProjectSessionPreview({
                   active ? "border-primary bg-muted text-foreground" : "border-transparent"
                 }`}
               >
-                <span
-                  className={`mt-1.5 size-2 shrink-0 rounded-full ${session.activity === "live" ? "bg-green-500" : "bg-muted-foreground/35"}`}
-                  aria-hidden
-                />
+                <ActivityDot activity={session.activity} className="mt-1.5" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                     {session.title || session.sessionId}
                   </span>
-                  <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                    <SourceBadge source={session.source} />
-                    <span>{time}</span>
-                    <span className="capitalize">{session.activity}</span>
-                  </span>
+                  <SessionMeta
+                    source={session.source}
+                    lastEventAt={session.lastEventAt}
+                    activity={session.activity}
+                  />
                 </span>
               </button>
             </li>

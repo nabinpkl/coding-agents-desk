@@ -434,6 +434,83 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("shows every Bot at once on the canvas, and opening one hands off to Bots", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { role: "Coordinates releases", labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+          {
+            botId: "bot-2",
+            name: "Docs Keeper",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+            sessionRefs: [{ source: "codex", sessionId: "sid-codex-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 2,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[1]!],
+            missingSessionRefs: [{ source: "claude", sessionId: "sid-gone" }],
+          },
+        ],
+      });
+    });
+
+    // The point of the view: both Bots and both their sessions are on screen together, with
+    // nothing selected and no Bot picked.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    expect(screen.getByText("Release Captain")).toBeInTheDocument();
+    expect(screen.getByText("Docs Keeper")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
+    // A reference the catalog has forgotten stays visible rather than silently thinning the list.
+    expect(screen.getByText("sid-gone")).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Session Codex 01/ }));
+    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Docs Keeper");
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
+    unmount();
+  });
+
+  it("walks all three views with the arrow keys, wrapping at the ends", () => {
+    const { unmount } = setup();
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Sessions" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Bots" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+
+    // Wrapping, not clamping: the last view is one keystroke from the first.
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Canvas" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Sessions" }), { key: "End" });
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Canvas" }), { key: "Home" });
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
+    unmount();
+  });
+
   it("removes an attached session from a Bot through the row's actions menu", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
@@ -814,6 +891,25 @@ describe("App shell", () => {
     fireEvent(drawer, new Event("cancel", { cancelable: true }));
     expect(drawer).not.toHaveAttribute("open");
     await waitFor(() => expect(trigger).toHaveFocus());
+    unmount();
+  });
+
+  it("closes the phone drawer when Canvas is chosen, because the canvas is behind it", () => {
+    installViewport({ compact: true, hoverCapable: false });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+
+    const drawer = screen.getByRole("dialog", { name: "Agent navigation" });
+    expect(drawer).toHaveAttribute("open");
+
+    // Bots keeps its content inside the drawer, so the drawer stays.
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    expect(drawer).toHaveAttribute("open");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    expect(drawer).not.toHaveAttribute("open");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     unmount();
   });
 

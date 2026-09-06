@@ -57,6 +57,7 @@ import {
 } from "../features/sidebar/sidebarPreferences";
 import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
 import { useBots } from "../features/bots/useBots";
+import { BotCanvas } from "../features/bots/BotCanvas";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import {
@@ -260,9 +261,15 @@ export function App({ feed, host, fill = false }: Props) {
   // A catalog selection survives a trip through Bots. A Bot selection opens that same underlying
   // session, but entering Bots from Sessions still presents an empty middle panel rather than
   // relabelling the current session as a Bot.
-  const displayedThread = sidebarMode === "sessions"
-    ? selectedThread
-    : selectedBotId ? selectedThread : null;
+  // Canvas has no single thread by construction: it shows the whole roster, so `main` renders the
+  // canvas instead of a transcript. Everything below the transcript -- composer, summary band,
+  // tasks chip, extension surface -- is already gated on this, so they stand down without a
+  // condition of their own.
+  const displayedThread = sidebarMode === "canvas"
+    ? null
+    : sidebarMode === "sessions"
+      ? selectedThread
+      : selectedBotId ? selectedThread : null;
   const selectedBotName = selectedBotId
     ? botsState.bots.find((bot) => bot.botId === selectedBotId)?.name
     : undefined;
@@ -595,6 +602,33 @@ export function App({ feed, host, fill = false }: Props) {
     openSession(project, session);
   }, [openSession, projects]);
 
+  /**
+   * Choosing Canvas on a phone closes the drawer that was used to choose it.
+   *
+   * Sessions and Bots put their content INSIDE the drawer, so it stays open and the reader keeps
+   * picking. The canvas is the main panel, so leaving the drawer up would cover the only thing
+   * the tab was pressed for with a panel that has almost nothing on it.
+   */
+  const changeSidebarMode = useCallback((mode: AgentSidebarMode) => {
+    setSidebarMode(mode);
+    if (mode === "canvas") {
+      setHoverPreviewOpen(false);
+      if (usesModalSidebar) setSidebarOpen(false);
+    }
+  }, [setSidebarOpen, usesModalSidebar]);
+
+  /**
+   * Opening a session from the canvas leaves the canvas, deliberately.
+   *
+   * The canvas is a roster, not a reader: it has no transcript to open one into. Handing off to
+   * Bots with that Bot selected is the same destination the sidebar would have reached by two
+   * clicks, and the Canvas tab is one click back.
+   */
+  const openCanvasSession = useCallback((bot: BotView, session: SessionSummary) => {
+    openBotSession(bot, session);
+    setSidebarMode("bots");
+  }, [openBotSession]);
+
   const createBot = useCallback(async (command: Omit<AddBotCommand, "requestId">) => {
     await feed.createBot(command);
     setBotCreatorOpen(false);
@@ -775,7 +809,7 @@ export function App({ feed, host, fill = false }: Props) {
   // twice when they are.
   const sidebarProps = {
     mode: sidebarMode,
-    onModeChange: setSidebarMode,
+    onModeChange: changeSidebarMode,
     usage,
     park,
     projects,
@@ -895,9 +929,11 @@ export function App({ feed, host, fill = false }: Props) {
             </button>
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
-              {sidebarMode === "bots"
-                ? selectedBotName || "Bots"
-                : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
+              {sidebarMode === "canvas"
+                ? "Canvas"
+                : sidebarMode === "bots"
+                  ? selectedBotName || "Bots"
+                  : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
             </h1>
             <div ref={setThreadControlsHost} className="flex shrink-0 items-center" />
             {displayedThread && summary.available ? (
@@ -940,6 +976,17 @@ export function App({ feed, host, fill = false }: Props) {
                   onOpenQuestion={setOpenQuestion}
                 />
               </div>
+            ) : sidebarMode === "canvas" ? (
+              <BotCanvas
+                bots={botsState.bots}
+                loading={botsState.loading}
+                error={botsState.error}
+                selectedSessionKey={selectedThread
+                  ? `${selectedThread.session.source}:${selectedThread.session.sessionId}`
+                  : null}
+                onOpenSession={openCanvasSession}
+                onAddBot={() => setBotCreatorOpen(true)}
+              />
             ) : sidebarMode === "sessions" ? (
               <div className="flex h-full items-center justify-center p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
                 Select a session from Sessions
