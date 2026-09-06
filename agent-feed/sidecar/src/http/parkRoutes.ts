@@ -268,23 +268,40 @@ async function gridResponse(request: Request): Promise<Response> {
   const placements = [];
   for (const [index, window] of chosen.entries()) {
     const slot = slots[index]!;
+    // A slot is a region to sit in, not a shape to become. The window keeps the
+    // size its app chose and is only ever shrunk, and only when it would
+    // otherwise overflow into its neighbour. Stretching a terminal to 2528pt
+    // does not make it more readable, it just spends the desk, and the desk is
+    // the thing there is most of.
+    //
+    // Anchored at the region's top-left rather than centred in it. Centring
+    // gives every window a different left edge, so a row of them reads as
+    // scattered; a shared edge and a shared top is what makes a board look like
+    // a board when the windows in it are different sizes.
+    const width = Math.min(window.frame.w, slot.w);
+    const height = Math.min(window.frame.h, slot.h);
+    const shrinks = width !== window.frame.w || height !== window.frame.h;
+    const x = slot.x;
+    const y = slot.y;
+
     const steps = [];
-    // Position before sizing, and re-assert the origin after. Measured on the
-    // agent desk: a window resized while still on the display it came from is
-    // clamped to that display's height (2104pt asked, 754pt given), while the
-    // two windows already on the target took their slot exactly. So the window
-    // has to be standing on the big display before it is told how big to be,
-    // and since a resize is anchored at the origin, the move is repeated after.
     if (window.space !== target.index) steps.push(await moveToSpace(window.id, target.index));
-    steps.push(await moveTo(window.id, slot.x, slot.y));
-    steps.push(await resizeTo(window.id, slot.w, slot.h));
-    steps.push(await moveTo(window.id, slot.x, slot.y));
+    steps.push(await moveTo(window.id, x, y));
+    if (shrinks) {
+      // Measured on this desk: a window resized while it still stands on the
+      // display it came from is clamped to that display (2104pt asked, 754pt
+      // given), so the move above has to land first. A resize is anchored at
+      // the origin, so the move is repeated after it.
+      steps.push(await resizeTo(window.id, width, height));
+      steps.push(await moveTo(window.id, x, y));
+    }
     const final = steps[steps.length - 1]!;
     placements.push({
       id: window.id,
       app: window.app,
       title: window.title,
-      requested: slot,
+      slot,
+      requested: { x, y, w: width, h: height },
       observed: final.observed?.frame ?? null,
       ok: steps.every((step) => step.ok),
       reasons: steps.flatMap((step) => (step.reason ? [step.reason] : [])),
