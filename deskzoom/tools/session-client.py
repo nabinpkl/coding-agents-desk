@@ -17,6 +17,7 @@ RFB with Apple's Diffie-Hellman and AES credential exchange, security type 30.
     python3 tools/session-client.py click 400 300 [left|right|middle]
     python3 tools/session-client.py key tab
     python3 tools/session-client.py type hello world
+    python3 tools/session-client.py batch < script     # one connection, one command per line
     python3 tools/session-client.py encodings [x y w h]
 
 The password comes from the login Keychain, or from VNC_PASS when no Keychain item exists, so it
@@ -36,7 +37,10 @@ RAW, COPY_RECT, ZLIB, ZRLE = 0, 1, 6, 16
 # The server discards input for a moment after a connection opens. Measured 2026-09-04: pointer and
 # key events sent immediately were dropped every time, and the same events after a settle landed
 # three times out of three. This is a wait before the first input, not a blanket sleep.
-INPUT_SETTLE = 2.5
+# Measured 2026-09-06: at 2.5 a fresh connection still lost the first ten characters of a
+# fourteen-character line, so the server's real dead window is nearer four seconds. It is paid
+# once per connection, which is the argument for `batch` over one process per keystroke group.
+INPUT_SETTLE = 4.0
 KEYCHAIN_SERVICE = "deskzoom-vnc"
 
 # X11 keysyms. Printable ASCII is its own code; these are the keys that are not characters.
@@ -259,6 +263,23 @@ def parse_chord(text):
     return keysym, modifiers
 
 
+def perform_input(session, command, rest):
+    """The commands that only send input. Returns False for anything else, so both the
+    single-command path and `batch` route through exactly one place."""
+    if command == "move":
+        session.pointer(int(rest[0]), int(rest[1]))
+    elif command == "click":
+        session.click(int(rest[0]), int(rest[1]), rest[2] if len(rest) > 2 else "left")
+    elif command == "key":
+        keysym, modifiers = parse_chord(rest[0])
+        session.tap(keysym, modifiers)
+    elif command == "type":
+        session.write(" ".join(rest))
+    else:
+        return False
+    return True
+
+
 def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
@@ -337,26 +358,20 @@ def main():
                   f"{total / 1e6:.2f} MB in {elapsed:.2f}s over {len(rectangles)} rectangles")
             probe.sock.close()
 
-    elif command == "move":
-        session.pointer(int(rest[0]), int(rest[1]))
-        print(f"pointer to {rest[0]},{rest[1]}")
+    elif command == "batch":
+        # One connection for a whole sequence. Every process pays the server's input dead window
+        # on connect, so a click, a line of text and a Return as three processes pay it three
+        # times and drop whatever lands early; here only the first command waits.
+        for line in sys.stdin.read().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, _, arguments = line.partition(" ")
+            if not perform_input(session, name, arguments.split() if arguments else []):
+                raise SystemExit(f"batch: {name!r} is not an input command")
+            print(line)
 
-    elif command == "click":
-        button = rest[2] if len(rest) > 2 else "left"
-        session.click(int(rest[0]), int(rest[1]), button)
-        print(f"{button} click at {rest[0]},{rest[1]}")
-
-    elif command == "key":
-        keysym, modifiers = parse_chord(rest[0])
-        session.tap(keysym, modifiers)
-        print(f"sent {rest[0]}")
-
-    elif command == "type":
-        text = " ".join(rest)
-        session.write(text)
-        print(f"typed {len(text)} characters")
-
-    else:
+    elif not perform_input(session, command, rest):
         raise SystemExit(__doc__)
 
     time.sleep(0.4)  # input is fire-and-forget; give the server a moment before the socket closes
