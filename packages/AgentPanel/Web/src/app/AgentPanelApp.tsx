@@ -1440,15 +1440,16 @@ function SessionComposer({
         // owns the resize handle, the header and the footer. It takes a tmux context as readily as
         // an agent-session one, so the composer needed no second copy of any of that.
         //
-        // Wrapped in a fixed-height box because the pane sizes itself as a share of its parent, and
-        // this band's own height is decided by its contents -- a percentage of that would chase
-        // the drag. The box is the column; the pane resizes within it.
-        <div className="mb-2 h-[42vh] min-h-[150px]">
+        // Its `band` layout, so the pane's height is the band's height: nothing reserves a box
+        // around it to leave blank, and a drag upward makes the whole band taller rather than
+        // growing the pane down into reserved space.
+        <div className="mb-2">
           <AgentTerminalPane
             key={terminalComposer.tmuxSession}
             feed={feed}
             context={{ kind: "tmux", session: terminalComposer.tmuxSession }}
             onState={noteTerminalState}
+            layout="band"
           />
         </div>
       ) : null}

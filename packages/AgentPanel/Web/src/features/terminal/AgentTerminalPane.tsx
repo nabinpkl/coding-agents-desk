@@ -11,32 +11,57 @@ import { useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
+const BAND_TERMINAL_SHARE = 0.42;
+
+/** 0 rather than NaN off a window, so every share of it clamps to the minimum instead. */
+const viewportHeight = (): number => globalThis.innerHeight || 0;
 
 interface Props {
   feed: SidecarDataSource;
   context: AgentTerminalContext;
   onState: (context: AgentTerminalContext, state: AgentTerminalState) => void;
+  /**
+   * Where the pane's height comes from, which also decides which way a drag grows.
+   *
+   * `column` (the default) is a pane sharing a fixed-height column with a transcript, so it
+   * opens at a share of that column and its ceiling is a share of it too.
+   *
+   * `band` is a pane whose own height IS the height of the band holding it. Nothing reserves a
+   * box around it -- a share of the parent would measure the pane itself, and a reserved box
+   * leaves whatever the pane does not fill blank -- so it opens at a share of the viewport and
+   * takes its ceiling from there too. Growing it makes the band taller, which moves the band's
+   * top edge up: the direction a handle along the pane's top edge implies.
+   */
+  layout?: "column" | "band";
 }
 
 /** The resizable terminal under one thread. The protocol is the hook's; this is its chrome. */
-export function AgentTerminalPane({ feed, context, onState }: Props) {
+export function AgentTerminalPane({ feed, context, onState, layout = "column" }: Props) {
   const paneRef = useRef<HTMLDivElement>(null);
   const removeResizeListenersRef = useRef<() => void>(() => {});
-  const [height, setHeight] = useState<number | null>(null);
+  const band = layout === "band";
+  const [height, setHeight] = useState<number | null>(
+    band
+      ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(viewportHeight() * BAND_TERMINAL_SHARE))
+      : null,
+  );
   const { mountRef, labels } = useAgentTerminal({ feed, context, sizing: { kind: "fit" }, onState });
 
+  const ceiling = (): number => {
+    const available = band
+      ? viewportHeight()
+      : (paneRef.current?.parentElement?.clientHeight ?? 0);
+    return Math.max(MINIMUM_TERMINAL_HEIGHT, available * MAXIMUM_TERMINAL_SHARE);
+  };
+
   const resizeTo = (requestedHeight: number): void => {
-    const pane = paneRef.current;
-    const column = pane?.parentElement;
-    if (!pane || !column) return;
-    const maximum = Math.max(MINIMUM_TERMINAL_HEIGHT, column.clientHeight * MAXIMUM_TERMINAL_SHARE);
-    setHeight(Math.min(maximum, Math.max(MINIMUM_TERMINAL_HEIGHT, requestedHeight)));
+    if (!paneRef.current) return;
+    setHeight(Math.min(ceiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, requestedHeight)));
   };
 
   const beginResize = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     const pane = paneRef.current;
-    const column = pane?.parentElement;
-    if (!pane || !column) return;
+    if (!pane) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const startY = event.clientY;
@@ -59,15 +84,13 @@ export function AgentTerminalPane({ feed, context, onState }: Props) {
 
   const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     const pane = paneRef.current;
-    const column = pane?.parentElement;
-    if (!pane || !column) return;
+    if (!pane) return;
     const currentHeight = pane.getBoundingClientRect().height;
-    const maximum = Math.max(MINIMUM_TERMINAL_HEIGHT, column.clientHeight * MAXIMUM_TERMINAL_SHARE);
     let nextHeight: number | null = null;
     if (event.key === "ArrowUp") nextHeight = currentHeight + 24;
     if (event.key === "ArrowDown") nextHeight = currentHeight - 24;
     if (event.key === "Home") nextHeight = MINIMUM_TERMINAL_HEIGHT;
-    if (event.key === "End") nextHeight = maximum;
+    if (event.key === "End") nextHeight = ceiling();
     if (nextHeight === null) return;
     event.preventDefault();
     resizeTo(nextHeight);
@@ -77,7 +100,9 @@ export function AgentTerminalPane({ feed, context, onState }: Props) {
     <section
       ref={paneRef}
       aria-label={`${terminalContextLabel(context)} terminal`}
-      className="flex h-[38%] min-h-[150px] shrink-0 flex-col border-t border-border bg-white dark:bg-[#0b0e14]"
+      className={`flex min-h-[150px] shrink-0 flex-col border-t border-border bg-white dark:bg-[#0b0e14] ${
+        band ? "" : "h-[38%]"
+      }`}
       style={height === null ? undefined : { height }}
     >
       <button

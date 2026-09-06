@@ -148,3 +148,33 @@ it("closes the stream without detaching a PTY that already exited", async () => 
   view.unmount();
   expect(feed.closeTerminal).not.toHaveBeenCalled();
 });
+
+it("sizes a band pane from its own height, with the viewport as its ceiling", async () => {
+  const feed = {
+    terminalHistory: vi.fn(async () => ""),
+    openTerminal: vi.fn(async () => ({
+      terminalId: "terminal-1",
+      ptySessionName: "composerprobe",
+      pid: 42,
+      columns: 80,
+      rows: 24,
+    })),
+    subscribeTerminal: vi.fn(() => vi.fn()),
+    sendTerminalInput: vi.fn(async () => {}),
+    updateTerminalViewport: vi.fn(async () => {}),
+    closeTerminal: vi.fn(async () => {}),
+  } as unknown as SidecarDataSource;
+  const context = { kind: "tmux" as const, session: "composerprobe" };
+  vi.stubGlobal("innerHeight", 1000);
+
+  render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />);
+  await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
+  const pane = screen.getByRole("region", { name: "composerprobe terminal" });
+  // A height of its own from the start: the band reserves no box around it, so a pane sized as a
+  // share of its parent would collapse to the minimum instead.
+  expect(pane).toHaveStyle({ height: "420px" });
+
+  // The ceiling comes from the viewport, because the parent measures the pane itself.
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize terminal" }), { key: "End" });
+  expect(pane).toHaveStyle({ height: "720px" });
+});
