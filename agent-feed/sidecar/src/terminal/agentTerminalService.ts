@@ -182,9 +182,18 @@ export class AgentTerminalService {
     this.require(terminalId).connection.updateViewerState({ ...viewport, columns, rows });
   }
 
+  /**
+   * A viewer is leaving. `kill` ends the PTY session with it; `detach` leaves it running.
+   *
+   * A kill is honoured only when this is the last viewer of that PTY session. Viewers of one
+   * target share it -- two tiles of one tmux session, or a phone and a Mac on the same one, are
+   * separate connections to a single `tmux attach` process -- so an unconditional kill would end
+   * everyone else's terminal because one tab closed. Measured that way: closing one panel tab took
+   * the other's tile down with it. The viewer that asked still leaves; it just leaves by detaching.
+   */
   close(terminalId: string, mode: "detach" | "kill"): void {
     const active = this.require(terminalId);
-    if (mode === "kill") {
+    if (mode === "kill" && this.isLastViewer(active)) {
       active.connection.kill();
       return;
     }
@@ -192,6 +201,14 @@ export class AgentTerminalService {
     this.publish(active, { type: "detached" });
     active.connection.detach();
     this.finish(active);
+  }
+
+  private isLastViewer(active: ActiveTerminal): boolean {
+    for (const other of this.terminals.values()) {
+      if (other === active || other.ended) continue;
+      if (other.descriptor.ptySessionName === active.descriptor.ptySessionName) return false;
+    }
+    return true;
   }
 
   stop(): void {

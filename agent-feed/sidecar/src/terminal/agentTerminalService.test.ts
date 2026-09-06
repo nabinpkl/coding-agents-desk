@@ -214,6 +214,47 @@ test("attaches to a tmux session rather than resuming a CLI", async () => {
   }]);
 });
 
+test("a kill from one viewer of a shared attach only detaches that viewer", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const acts: string[] = [];
+  const connection = (label: string) => ({
+    attachment: { sessionName: "agent-tmux-canvas-fork", pid: 7, columns: 80, rows: 24 },
+    onEnvelope: () => () => {},
+    onFailure: () => () => {},
+    requestCheckpoint() {},
+    sendInput() {},
+    sendBinaryInput() {},
+    updateViewerState() {},
+    detach() { acts.push(`detach:${label}`); },
+    kill() { acts.push(`kill:${label}`); },
+    closeTransport() {},
+  }) as unknown as PtySessionConnection;
+  let opens = 0;
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => undefined,
+    home,
+    {
+      listSessions: async () => [],
+      openSession: async () => connection(String(++opens)),
+    },
+  );
+
+  const context = { kind: "tmux" as const, session: "canvas-fork" };
+  const first = await service.open(context, { columns: 80, rows: 24 });
+  const second = await service.open(context, { columns: 80, rows: 24 });
+  expect(first.ptySessionName).toBe(second.ptySessionName);
+
+  // Two tiles of one tmux session are two connections to one `tmux attach` process. Honouring this
+  // kill would end the second viewer's terminal because the first tab closed.
+  service.close(first.terminalId, "kill");
+  expect(acts).toEqual(["detach:1"]);
+
+  service.close(second.terminalId, "kill");
+  expect(acts).toEqual(["detach:1", "kill:2"]);
+});
+
 test("refuses a tmux name that is not a plain identifier", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);
