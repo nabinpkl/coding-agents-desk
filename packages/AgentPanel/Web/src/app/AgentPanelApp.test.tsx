@@ -434,7 +434,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("shows every Bot at once on the canvas, and opening one hands off to Bots", () => {
+  it("shows every Bot at once on the canvas, and opens one session inline at a time", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
@@ -485,10 +485,23 @@ describe("App shell", () => {
     expect(screen.getByText("sid-gone")).toBeInTheDocument();
     expect(screen.queryByTestId("activity-feed")).toBeNull();
 
+    // A row opens where it sits rather than navigating: the canvas stays up, and the transcript
+    // takes a bounded box inside the card with its own scroller.
     fireEvent.click(screen.getByRole("button", { name: /^Session Codex 01/ }));
-    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Docs Keeper");
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
+    // No header to lend it, so the feed's controls have nowhere to portal.
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-controls-host", "missing");
+
+    // One at a time: opening another Bot's session closes the first, so the roster never holds
+    // more than one open stream.
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.getAllByTestId("activity-feed")).toHaveLength(1);
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
     unmount();
   });
 

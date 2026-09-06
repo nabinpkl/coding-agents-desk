@@ -1,8 +1,20 @@
-import { Bot, LoaderCircle, Plus } from "lucide-react";
-import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
+import { useState } from "react";
+import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
+import { ActivityFeed } from "../activity-feed/ActivityFeed";
+import type { EventMode } from "../activity-feed/data-source/AgentDataSource";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
+
+/**
+ * How tall an opened transcript is inside its card.
+ *
+ * Bounded rather than natural: ActivityFeed owns its own scroller and virtualizes against it, so
+ * it needs a height to scroll within. Tall enough to read a few turns, short enough that the card
+ * above and below it stay reachable without scrolling the transcript first.
+ */
+const OPEN_TRANSCRIPT_HEIGHT = "h-[min(60dvh,520px)]";
 
 /**
  * Every Bot's curated sessions at once, in one scroll.
@@ -22,16 +34,15 @@ export function BotCanvas({
   bots,
   loading,
   error,
-  selectedSessionKey,
-  onOpenSession,
+  mode,
   onAddSession,
   onAddBot,
 }: {
   bots: BotView[];
   loading: boolean;
   error: string | null;
-  selectedSessionKey: string | null;
-  onOpenSession: (bot: BotView, session: SessionSummary) => void;
+  /** Raw or nice, owned by the shell so the choice is the same one the Bots view reads in. */
+  mode: EventMode;
   onAddSession: (bot: BotView) => void;
   onAddBot: () => void;
 }) {
@@ -67,6 +78,28 @@ export function BotCanvas({
     );
   }
 
+  return <BotCanvasList bots={bots} mode={mode} onAddSession={onAddSession} />;
+}
+
+/**
+ * The roster, with at most one transcript open in it.
+ *
+ * One at a time rather than many, because an open transcript is an open SSE subscription and the
+ * relay between this panel and the sidecar admits a bounded number of them -- the same budget that
+ * collapsed the sidebar's per-project streams into one inventory stream. One open transcript costs
+ * exactly what the single-thread view costs today, so a long roster cannot exhaust it. Two of them
+ * would also be unreadable on a phone, where each is already most of the screen.
+ */
+function BotCanvasList({
+  bots,
+  mode,
+  onAddSession,
+}: {
+  bots: BotView[];
+  mode: EventMode;
+  onAddSession: (bot: BotView) => void;
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
   return (
     <div className="h-full overflow-y-auto overscroll-contain">
       <ul role="list" aria-label="Bot canvas" className="flex flex-col gap-3 p-3">
@@ -74,8 +107,9 @@ export function BotCanvas({
           <BotCanvasCard
             key={bot.botId}
             bot={bot}
-            selectedSessionKey={selectedSessionKey}
-            onOpenSession={onOpenSession}
+            mode={mode}
+            openKey={openKey}
+            onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
             onAddSession={onAddSession}
           />
         ))}
@@ -101,13 +135,15 @@ function sessionKey(session: BotSessionRef): string {
 
 function BotCanvasCard({
   bot,
-  selectedSessionKey,
-  onOpenSession,
+  mode,
+  openKey,
+  onToggleSession,
   onAddSession,
 }: {
   bot: BotView;
-  selectedSessionKey: string | null;
-  onOpenSession: (bot: BotView, session: SessionSummary) => void;
+  mode: EventMode;
+  openKey: string | null;
+  onToggleSession: (key: string) => void;
   onAddSession: (bot: BotView) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
@@ -155,14 +191,15 @@ function BotCanvasCard({
         <ul role="list" aria-label={`${bot.name} sessions`}>
           {bot.sessions.map((session) => {
             const key = sessionKey(session);
+            const open = key === openKey;
             return (
               <li key={key}>
                 <button
                   type="button"
-                  onClick={() => onOpenSession(bot, session)}
-                  aria-current={key === selectedSessionKey ? "page" : undefined}
+                  onClick={() => onToggleSession(key)}
+                  aria-expanded={open}
                   className={`flex min-h-11 w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 ${
-                    key === selectedSessionKey ? "border-primary bg-muted" : "border-transparent"
+                    open ? "border-primary bg-muted" : "border-transparent"
                   }`}
                 >
                   <ActivityDot activity={session.activity} className="mt-1.5" />
@@ -181,7 +218,35 @@ function BotCanvasCard({
                       view only
                     </span>
                   ) : null}
+                  <ChevronDown
+                    className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                    aria-hidden
+                  />
                 </button>
+                {open ? (
+                  // Keyed by mode as well as session: every event index the feed holds is counted
+                  // in the mode it was read in, so a mode change has to remount rather than
+                  // reinterpret what is already in the buffer.
+                  <div
+                    className={`${OPEN_TRANSCRIPT_HEIGHT} border-t border-border bg-background`}
+                    aria-label={`${session.title || session.sessionId} transcript`}
+                  >
+                    <ActivityFeed
+                      key={`${session.sessionId}:${mode}`}
+                      source={session.source}
+                      sessionId={session.sessionId}
+                      mode={mode}
+                      onToggleMode={() => {}}
+                      canToggleMode={false}
+                      showCacheHits={false}
+                      onToggleCacheHits={() => {}}
+                      // No host: the feed's controls portal into the shell's header, and a card
+                      // has no header to lend. Reading is what a card is for; the Bots view is
+                      // where a thread gets its controls and its composer.
+                      controlsHost={null}
+                    />
+                  </div>
+                ) : null}
               </li>
             );
           })}

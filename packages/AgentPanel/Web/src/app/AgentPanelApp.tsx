@@ -622,18 +622,6 @@ export function App({ feed, host, fill = false }: Props) {
     }
   }, [setSidebarOpen, usesModalSidebar]);
 
-  /**
-   * Opening a session from the canvas leaves the canvas, deliberately.
-   *
-   * The canvas is a roster, not a reader: it has no transcript to open one into. Handing off to
-   * Bots with that Bot selected is the same destination the sidebar would have reached by two
-   * clicks, and the Canvas tab is one click back.
-   */
-  const openCanvasSession = useCallback((bot: BotView, session: SessionSummary) => {
-    openBotSession(bot, session);
-    setSidebarMode("bots");
-  }, [openBotSession]);
-
   const createBot = useCallback(async (command: Omit<AddBotCommand, "requestId">) => {
     await feed.createBot(command);
     setBotCreatorOpen(false);
@@ -983,10 +971,7 @@ export function App({ feed, host, fill = false }: Props) {
                 bots={botsState.bots}
                 loading={botsState.loading}
                 error={botsState.error}
-                selectedSessionKey={selectedThread
-                  ? `${selectedThread.session.source}:${selectedThread.session.sessionId}`
-                  : null}
-                onOpenSession={openCanvasSession}
+                mode={eventMode}
                 onAddSession={openBotSessionPicker}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
