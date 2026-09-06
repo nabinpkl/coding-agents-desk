@@ -53,6 +53,14 @@ const MENU_BAR_INSET = 40;
 // Wide enough to read as deliberate separation on a desk measured in thousands
 // of points, narrow enough not to waste a column.
 const SLOT_GAP = 24;
+// What a window is allowed to be on the board, whatever size it happens to remember.
+//
+// A remembered size is the wrong input here: a window that was once dragged huge, or that this
+// endpoint itself once stretched, arrives claiming thousands of points and pushes everything else
+// off the desk. This is Claude's own default and five of them fit across a 7680pt desk with the
+// gaps. A window smaller than this keeps its size; only the oversized are brought back.
+const DEFAULT_MAX_WIDTH = 1200;
+const DEFAULT_MAX_HEIGHT = 800;
 
 interface ParkRequestBody {
   confirm?: unknown;
@@ -252,12 +260,20 @@ async function gridResponse(request: Request): Promise<Response> {
 
   const gap = typeof input.gap === "number" ? input.gap : SLOT_GAP;
   const area = usableArea(screen.frame, MENU_BAR_INSET);
+  // Reading order of where the windows already are, not the stacking order yabai returns.
+  // Stacking changes every time something is clicked, so packing by it would rearrange the whole
+  // board on a focus change; position is stable, and re-packing then preserves the order already
+  // on screen instead of shuffling it.
+  chosen.sort((a, b) => a.frame.y - b.frame.y || a.frame.x - b.frame.x);
   let slots;
   try {
     // Packed at the windows' own sizes, so the space between two of them is the
     // gap. Dividing the display evenly instead put an 860pt terminal at the
     // top-left of a 2528pt cell and left 1600pt of desk between neighbours.
-    slots = packFromTopLeft(area, chosen.map((w) => w.frame), gap);
+    slots = packFromTopLeft(area, chosen.map((w) => ({
+      w: Math.min(w.frame.w, DEFAULT_MAX_WIDTH),
+      h: Math.min(w.frame.h, DEFAULT_MAX_HEIGHT),
+    })), gap);
   } catch (error) {
     return jsonResponse(
       { code: "park-grid-impossible", message: (error as Error).message },
