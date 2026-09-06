@@ -1,7 +1,7 @@
 import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
-  AgentTerminalStreamMessage,
+  AgentTerminalStreamEnvelope,
   AgentTerminalViewport,
 } from "@agentdesk/agent-feed-wire";
 import {
@@ -14,7 +14,10 @@ import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from 
 import type { RouteHandler } from "./route.ts";
 
 const TERMINALS_ROUTE = "/api/terminals";
-const TERMINAL_ROUTE_PATTERN = /^\/api\/terminals\/([0-9a-f-]+)\/(stream|input|viewport|close)$/;
+/** Every open terminal on one stream; see `AgentTerminalStreamEnvelope` for why it is not one each. */
+const TERMINALS_STREAM_ROUTE = "/api/terminals/stream";
+const TERMINAL_ROUTE_PATTERN =
+  /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint)$/;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 
 export interface AgentTerminalRoutesService {
@@ -22,11 +25,8 @@ export interface AgentTerminalRoutesService {
     context: AgentTerminalContext,
     dimensions: { columns: number; rows: number },
   ): Promise<AgentTerminalDescriptor>;
-  has(terminalId: string): boolean;
-  subscribe(
-    terminalId: string,
-    listener: (message: AgentTerminalStreamMessage) => void,
-  ): () => void;
+  observe(listener: (envelope: AgentTerminalStreamEnvelope) => void): () => void;
+  requestCheckpoint(terminalId: string): void;
   sendInput(terminalId: string, data: string, encoding: "utf8" | "base64"): void;
   updateViewport(terminalId: string, viewport: AgentTerminalViewport): void;
   close(terminalId: string, mode: "detach" | "kill"): void;
@@ -37,19 +37,20 @@ export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): 
     if (request.method === "POST" && url.pathname === TERMINALS_ROUTE) {
       return openTerminal(request, service);
     }
+    // Before the id pattern, because "stream" is not a terminal id and must not be read as one.
+    if (request.method === "GET" && url.pathname === TERMINALS_STREAM_ROUTE) {
+      return startServerSentEventStream(request, server, (write) =>
+        service.observe((envelope) => write(encodeServerSentEvent(envelope))));
+    }
     const match = TERMINAL_ROUTE_PATTERN.exec(url.pathname);
     if (!match) return undefined;
     const terminalId = match[1]!;
     const operation = match[2]!;
-    if (request.method === "GET" && operation === "stream") {
-      if (!service.has(terminalId)) return routeError(new AgentTerminalNotFoundError("terminal connection was not found"));
-      return startServerSentEventStream(request, server, (write) =>
-        service.subscribe(terminalId, (message) => write(encodeServerSentEvent(message))));
-    }
     if (request.method !== "POST") return undefined;
     if (operation === "input") return terminalInput(request, terminalId, service);
     if (operation === "viewport") return terminalViewport(request, terminalId, service);
     if (operation === "close") return closeTerminal(request, terminalId, service);
+    if (operation === "checkpoint") return terminalCheckpoint(terminalId, service);
     return undefined;
   };
 }
@@ -110,6 +111,19 @@ async function terminalViewport(
       columns: integerValue(body.columns, "columns"),
       rows: integerValue(body.rows, "rows"),
     });
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+/** No body: the request is the whole message, and a replay is the same ask every time. */
+function terminalCheckpoint(
+  terminalId: string,
+  service: AgentTerminalRoutesService,
+): Response {
+  try {
+    service.requestCheckpoint(terminalId);
     return new Response(null, { status: 204 });
   } catch (error) {
     return routeError(error);

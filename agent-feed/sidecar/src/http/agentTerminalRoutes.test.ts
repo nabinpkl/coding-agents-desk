@@ -26,10 +26,15 @@ function fakeService(overrides: Partial<AgentTerminalRoutesService> = {}) {
       calls.push({ open: { context, dimensions } });
       return descriptor;
     },
-    has: () => true,
-    subscribe(_terminalId, listener) {
-      listener({ type: "output", revision: "1", data: "aGk=" });
-      return () => calls.push({ unsubscribed: true });
+    observe(listener) {
+      listener({
+        terminalId: TERMINAL_ID,
+        message: { type: "output", revision: "1", data: "aGk=" },
+      });
+      return () => calls.push({ unobserved: true });
+    },
+    requestCheckpoint(terminalId) {
+      calls.push({ checkpoint: { terminalId } });
     },
     sendInput(terminalId, data, encoding) {
       calls.push({ input: { terminalId, data, encoding } });
@@ -74,19 +79,30 @@ test("opens the selected provider session through the sidecar PTY service", asyn
   } }]);
 });
 
-test("streams base64 PTY output as an Agent Feed SSE event", async () => {
+test("carries every terminal's output on one stream, addressed by id", async () => {
   const { calls, route } = fakeService();
-  const response = await call(route, "GET", `/api/terminals/${TERMINAL_ID}/stream`);
+  const response = await call(route, "GET", "/api/terminals/stream");
   expect(response?.status).toBe(200);
   const reader = response!.body!.getReader();
   const first = await reader.read();
   expect(new TextDecoder().decode(first.value)).toBe(
-    'data: {"type":"output","revision":"1","data":"aGk="}\n\n',
+    `data: {"terminalId":"${TERMINAL_ID}","message":{"type":"output","revision":"1","data":"aGk="}}\n\n`,
   );
   const debug = spyOn(console, "debug").mockImplementation(() => {});
   await reader.cancel();
   debug.mockRestore();
-  expect(calls).toContainEqual({ unsubscribed: true });
+  expect(calls).toContainEqual({ unobserved: true });
+});
+
+test("a per-terminal stream is gone: the id path serves commands only", async () => {
+  const { route } = fakeService();
+  expect(await call(route, "GET", `/api/terminals/${TERMINAL_ID}/stream`)).toBeUndefined();
+});
+
+test("asks the PTY to replay a screen for a viewer that just arrived", async () => {
+  const { calls, route } = fakeService();
+  expect((await call(route, "POST", `/api/terminals/${TERMINAL_ID}/checkpoint`))?.status).toBe(204);
+  expect(calls).toEqual([{ checkpoint: { terminalId: TERMINAL_ID } }]);
 });
 
 test("posts xterm input and viewport state without a native bridge", async () => {

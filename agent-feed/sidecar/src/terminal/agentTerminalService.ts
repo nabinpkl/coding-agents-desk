@@ -4,6 +4,7 @@ import { relative, resolve } from "node:path";
 import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
+  AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
 } from "@agentdesk/agent-feed-wire";
@@ -28,7 +29,6 @@ export interface ResolvedAgentTerminalSession {
 interface ActiveTerminal {
   descriptor: AgentTerminalDescriptor;
   connection: PtySessionConnection;
-  listeners: Set<(message: AgentTerminalStreamMessage) => void>;
   removeEnvelope: () => void;
   removeFailure: () => void;
   ended: boolean;
@@ -41,6 +41,15 @@ export interface AgentTerminalPtyClient {
 
 export class AgentTerminalService {
   private readonly terminals = new Map<string, ActiveTerminal>();
+  /**
+   * Watchers of every terminal, present and future.
+   *
+   * Per-terminal listener sets came with one HTTP stream each, which a browser cannot afford: it
+   * holds about six connections per origin on HTTP/1.1 and an EventSource holds one for life. A
+   * service-level set is what lets one stream serve a wall of terminals, including the ones opened
+   * after it started.
+   */
+  private readonly observers = new Set<(envelope: AgentTerminalStreamEnvelope) => void>();
 
   constructor(
     socketPath: string,
@@ -112,7 +121,6 @@ export class AgentTerminalService {
     const active: ActiveTerminal = {
       descriptor,
       connection,
-      listeners: new Set(),
       removeEnvelope: () => {},
       removeFailure: () => {},
       ended: false,
@@ -126,18 +134,20 @@ export class AgentTerminalService {
     return descriptor;
   }
 
-  subscribe(
-    terminalId: string,
-    listener: (message: AgentTerminalStreamMessage) => void,
-  ): () => void {
-    const active = this.require(terminalId);
-    active.listeners.add(listener);
-    active.connection.requestCheckpoint("0");
-    return () => active.listeners.delete(listener);
+  observe(listener: (envelope: AgentTerminalStreamEnvelope) => void): () => void {
+    this.observers.add(listener);
+    return () => this.observers.delete(listener);
   }
 
-  has(terminalId: string): boolean {
-    return this.terminals.has(terminalId);
+  /**
+   * Asks the PTY to replay the screen, which is how a viewer paints what was already there.
+   *
+   * Separate from `observe` because the two are no longer one act: the stream is shared and
+   * long-lived, while a viewer arrives per terminal and needs the replay addressed to it. A viewer
+   * that requested it during `observe` would race the panel's own dispatcher and paint nothing.
+   */
+  requestCheckpoint(terminalId: string): void {
+    this.require(terminalId).connection.requestCheckpoint("0");
   }
 
   sendInput(terminalId: string, data: string, encoding: "utf8" | "base64"): void {
@@ -254,7 +264,11 @@ export class AgentTerminalService {
   }
 
   private publish(active: ActiveTerminal, message: AgentTerminalStreamMessage): void {
-    for (const listener of active.listeners) listener(message);
+    const envelope: AgentTerminalStreamEnvelope = {
+      terminalId: active.descriptor.terminalId,
+      message,
+    };
+    for (const observer of this.observers) observer(envelope);
   }
 
   private finish(active: ActiveTerminal): void {
@@ -262,7 +276,6 @@ export class AgentTerminalService {
     active.removeEnvelope();
     active.removeFailure();
     active.connection.closeTransport();
-    active.listeners.clear();
   }
 
   private require(terminalId: string): ActiveTerminal {

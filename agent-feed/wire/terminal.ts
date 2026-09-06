@@ -21,7 +21,7 @@ export interface AgentTerminalDescriptor {
   rows: number;
 }
 
-/** One message of `GET /api/terminals/{terminalId}/stream`. */
+/** One terminal's message, carried inside an envelope on the shared stream. */
 export type AgentTerminalStreamMessage =
   | {
       type: "checkpointBegin";
@@ -51,6 +51,19 @@ export type AgentTerminalStreamMessage =
   | { type: "exited"; status: number }
   | { type: "detached" }
   | { type: "error"; message: string };
+
+/**
+ * One frame of `GET /api/terminals/stream`, the single stream carrying every open terminal.
+ *
+ * One stream rather than one per terminal because a browser on HTTP/1.1 holds about six
+ * connections per origin and an EventSource holds one for as long as it lives, so a wall of
+ * terminals would open its first six and leave the rest, and the panel's other requests, waiting
+ * on a connection that never frees.
+ */
+export interface AgentTerminalStreamEnvelope {
+  terminalId: string;
+  message: AgentTerminalStreamMessage;
+}
 
 /** `POST /api/terminals/{terminalId}/input`. */
 export interface AgentTerminalInput {

@@ -137,6 +137,7 @@ export type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalInput,
+  AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
   CloseAgentTerminalRequest,

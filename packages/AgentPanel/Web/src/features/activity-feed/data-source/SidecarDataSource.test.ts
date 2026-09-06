@@ -295,10 +295,9 @@ describe("SidecarDataSource", () => {
       sessionId: "session-1",
     }, 80, 24)).toEqual(descriptor);
     source.subscribeTerminal("terminal-1", { onMessage: (message) => messages.push(message) });
-    transport.deliver("/api/terminals/terminal-1/stream", {
-      type: "output",
-      revision: "2",
-      data: "aGk=",
+    transport.deliver("/api/terminals/stream", {
+      terminalId: "terminal-1",
+      message: { type: "output", revision: "2", data: "aGk=" },
     });
     await source.sendTerminalInput("terminal-1", "pwd\r");
     await source.updateTerminalViewport("terminal-1", {
@@ -310,7 +309,7 @@ describe("SidecarDataSource", () => {
     });
 
     expect(messages).toEqual([{ type: "output", revision: "2", data: "aGk=" }]);
-    expect(transport.requests.slice(-3)).toEqual([
+    expect(transport.requests.slice(-4)).toEqual([
       {
         method: "POST",
         path: "/api/terminals",
@@ -323,6 +322,13 @@ describe("SidecarDataSource", () => {
           columns: 80,
           rows: 24,
         },
+      },
+      // The viewer asks for its own screen replay, because the stream it joined is shared and
+      // may have been running for another terminal long before this one existed.
+      {
+        method: "POST",
+        path: "/api/terminals/terminal-1/checkpoint",
+        body: undefined,
       },
       {
         method: "POST",
@@ -341,6 +347,32 @@ describe("SidecarDataSource", () => {
         },
       },
     ]);
+  });
+
+  it("serves every terminal from one connection, and holds none when all have closed", () => {
+    // HTTP/1.1 gives a browser about six connections per origin and an EventSource holds one for
+    // life, so a stream each would strand the seventh terminal and the panel's own requests too.
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const first: unknown[] = [];
+    const second: unknown[] = [];
+
+    const stopFirst = source.subscribeTerminal("terminal-1", { onMessage: (m) => first.push(m) });
+    const stopSecond = source.subscribeTerminal("terminal-2", { onMessage: (m) => second.push(m) });
+    expect(transport.subscriptions.map((subscription) => subscription.path))
+      .toEqual(["/api/terminals/stream"]);
+
+    transport.deliver("/api/terminals/stream", {
+      terminalId: "terminal-2",
+      message: { type: "output", revision: "7", data: "Zm9v" },
+    });
+    expect(first).toEqual([]);
+    expect(second).toEqual([{ type: "output", revision: "7", data: "Zm9v" }]);
+
+    stopFirst();
+    expect(transport.subscriptions).toHaveLength(1);
+    stopSecond();
+    expect(transport.subscriptions).toHaveLength(0);
   });
 
   it("delivers a composer turn as one safe bracketed paste through the owned terminal", async () => {

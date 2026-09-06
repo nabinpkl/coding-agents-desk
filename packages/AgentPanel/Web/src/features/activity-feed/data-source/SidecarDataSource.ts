@@ -19,6 +19,7 @@ import type {
   AgentSessionDescriptor,
   AgentTerminalContext,
   AgentTerminalDescriptor,
+  AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
   AgentUiEvent,
@@ -134,6 +135,11 @@ export interface SessionAddress {
   sessionId: string;
 }
 
+interface TerminalViewer {
+  onMessage: (message: AgentTerminalStreamMessage) => void;
+  onError?: (reason: string) => void;
+}
+
 /** The panel's data source when there is a sidecar behind the transport, which is always. */
 export class SidecarDataSource implements AgentDataSource {
   constructor(private readonly transport: AgentHttpTransport) {}
@@ -148,6 +154,18 @@ export class SidecarDataSource implements AgentDataSource {
    * the mount storm has passed instead of being taken as an answer.
    */
   private configRead: Promise<SidecarConfig> | null = null;
+
+  /**
+   * Every terminal viewer on one connection, dispatched by id.
+   *
+   * A stream each was affordable while one terminal was open at a time. It is not for a wall of
+   * them: this origin negotiates HTTP/1.1, where a browser keeps about six connections and an
+   * EventSource holds one for as long as it lives, so the seventh terminal would wait forever and
+   * take the panel's ordinary requests down with it. Opened on the first viewer, closed after the
+   * last, so a panel with no terminal open holds no connection.
+   */
+  private readonly terminalViewers = new Map<string, Set<TerminalViewer>>();
+  private terminalStream: (() => void) | null = null;
 
   // ---------------------------------------------------------------------
   // Inventory
@@ -376,26 +394,59 @@ export class SidecarDataSource implements AgentDataSource {
     );
   }
 
-  subscribeTerminal(
-    terminalId: string,
-    handlers: {
-      onMessage: (message: AgentTerminalStreamMessage) => void;
-      onError?: (reason: string) => void;
-    },
-  ): () => void {
-    return this.transport.subscribe(
-      `/api/terminals/${encodeURIComponent(terminalId)}/stream`,
-      {
-        onMessage: (payload) => {
-          try {
-            handlers.onMessage(JSON.parse(payload) as AgentTerminalStreamMessage);
-          } catch {
-            handlers.onError?.("Terminal stream returned malformed JSON");
-          }
-        },
-        onError: (reason) => handlers.onError?.(reason),
+  subscribeTerminal(terminalId: string, handlers: TerminalViewer): () => void {
+    const viewers = this.terminalViewers.get(terminalId) ?? new Set<TerminalViewer>();
+    viewers.add(handlers);
+    this.terminalViewers.set(terminalId, viewers);
+    this.openTerminalStream();
+    // After the viewer is registered, never before: the replay is what paints the screen that was
+    // already there, and it arrives on the shared stream, which may already be delivering.
+    void this.transport
+      .request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/checkpoint`)
+      .then((response) => {
+        if (response.status >= 200 && response.status < 300) return;
+        handlers.onError?.(`Terminal replay was refused with ${response.status}`);
+      })
+      .catch(() => handlers.onError?.("Terminal replay could not be requested"));
+    return () => {
+      const live = this.terminalViewers.get(terminalId);
+      if (!live) return;
+      live.delete(handlers);
+      if (live.size === 0) this.terminalViewers.delete(terminalId);
+      if (this.terminalViewers.size === 0) this.closeTerminalStream();
+    };
+  }
+
+  private openTerminalStream(): void {
+    if (this.terminalStream) return;
+    this.terminalStream = this.transport.subscribe("/api/terminals/stream", {
+      onMessage: (payload) => {
+        let envelope: AgentTerminalStreamEnvelope;
+        try {
+          envelope = JSON.parse(payload) as AgentTerminalStreamEnvelope;
+        } catch {
+          this.failTerminalViewers("Terminal stream returned malformed JSON");
+          return;
+        }
+        // A terminal nobody is watching is not an error: its viewer can unsubscribe while its
+        // last messages are still in flight.
+        for (const viewer of this.terminalViewers.get(envelope.terminalId) ?? []) {
+          viewer.onMessage(envelope.message);
+        }
       },
-    );
+      onError: (reason) => this.failTerminalViewers(reason),
+    });
+  }
+
+  private closeTerminalStream(): void {
+    this.terminalStream?.();
+    this.terminalStream = null;
+  }
+
+  private failTerminalViewers(reason: string): void {
+    for (const viewers of this.terminalViewers.values()) {
+      for (const viewer of viewers) viewer.onError?.(reason);
+    }
   }
 
   async sendTerminalInput(
