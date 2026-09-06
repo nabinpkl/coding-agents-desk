@@ -191,6 +191,38 @@ describe("KeyboardDeck", () => {
     expect(screen.queryByTestId("deck-key-preview")).toBeNull();
   });
 
+  it("takes the balloon down when the layout changes under a held finger", () => {
+    renderDeck();
+    stubRect(screen.getByTestId("keyboard-deck"), { left: 0, top: 0, width: 390, height: 236 });
+    const q = key("char-71");
+    stubRect(q, { left: 7, top: 100, right: 39, bottom: 146, width: 32, height: 46 });
+
+    fireEvent.pointerDown(q, { pointerId: 1, clientX: 10, clientY: 110 });
+    expect(screen.getByTestId("deck-key-preview")).toHaveTextContent("q");
+    // A second thumb arming shift is a layout change, and iOS rebuilds the deck for one.
+    fireEvent.pointerDown(key("shift"), { pointerId: 2, clientX: 10, clientY: 160 });
+    fireEvent.pointerUp(key("shift"), { pointerId: 2, clientX: 10, clientY: 160 });
+    expect(screen.queryByTestId("deck-key-preview")).toBeNull();
+    // The held key is still held, and still types when it lifts.
+    expect(q).toHaveAttribute("data-pressed", "true");
+  });
+
+  it("leaves the shift double-tap window open across a delete", () => {
+    const now = vi.spyOn(performance, "now");
+    renderDeck();
+    now.mockReturnValue(0);
+    press(key("shift"));
+    release(key("shift"));
+    // On iOS a delete returns before the key handler runs, so it never clears the window.
+    press(key("delete"));
+    release(key("delete"));
+    now.mockReturnValue(SHIFT_DOUBLE_TAP_MS - 1);
+    press(key("shift"));
+    release(key("shift"));
+    expect(key("shift")).toHaveAttribute("data-shift", "locked");
+    now.mockRestore();
+  });
+
   it("lights an armed shift and reads its lock state as a tri-state", () => {
     renderDeck();
     expect(key("shift")).toHaveAttribute("data-shift", "off");

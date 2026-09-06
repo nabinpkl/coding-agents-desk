@@ -118,6 +118,11 @@ export function KeyboardDeck({
 
   useEffect(() => stopRepeat, [stopRepeat]);
 
+  // A layout change takes the balloon down, even from under a finger that is still holding its
+  // key: `render(_:)` dismisses it whenever the state it is asked for differs from the one on
+  // screen. Reachable with two thumbs, where one holds a letter while the other taps shift.
+  useEffect(() => setPreview(null), [state]);
+
   const releasePress = useCallback((active: ActivePress) => {
     if (active.element.hasPointerCapture?.(active.pointerId)) {
       active.element.releasePointerCapture(active.pointerId);
@@ -153,9 +158,11 @@ export function KeyboardDeck({
       setState(next);
       return;
     }
-    lastShiftTapAt.current = 0;
     // Delete already fired on press-down, so the first backspace and its repeats are one sequence.
+    // It leaves the double-tap window open too: on iOS a delete never reaches the key handler at
+    // all, because the button returns at `touchUpInside` before it calls `onPress`.
     if (key.kind === "delete") return;
+    lastShiftTapAt.current = 0;
     const result = handleDeckKey(stateRef.current, key);
     setState(result.state);
     if (result.output !== null) onCharacter(result.output);
@@ -186,6 +193,9 @@ export function KeyboardDeck({
     if (key.kind === "character") showPreview(active);
     if (key.kind === "delete") {
       onDelete();
+      // One repeat for the one delete key, restarted rather than stacked, as the Swift's scheduler
+      // does by stopping inside `start`. Two fingers on it otherwise leave an orphaned timer.
+      stopRepeat();
       repeatTimer.current = window.setTimeout(() => {
         repeatTimer.current = window.setInterval(() => {
           const held = presses.current.get(active.pointerId);
@@ -194,7 +204,7 @@ export function KeyboardDeck({
         }, DELETE_REPEAT_INTERVAL_MS);
       }, DELETE_REPEAT_DELAY_MS);
     }
-  }, [onDelete, showPreview]);
+  }, [onDelete, showPreview, stopRepeat]);
 
   const onPointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     const active = presses.current.get(event.pointerId);
