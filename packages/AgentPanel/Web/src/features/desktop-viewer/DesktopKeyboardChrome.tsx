@@ -115,81 +115,91 @@ export function DesktopKeyboardChrome({
         <section
           ref={accessoryRef}
           aria-label="Remote keyboard controls"
-          style={{
-            bottom: `${bottom}px`,
-            paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
-          }}
+          style={{ bottom: `${bottom}px` }}
           onPointerDown={(event) => event.preventDefault()}
           onMouseDown={(event) => event.preventDefault()}
-          className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background px-1.5 pt-1 text-foreground"
+          // No padding of its own: the deck below spans this edge to edge so its outermost keys
+          // own the screen's edge, and the strip and rail carry their own inset instead.
+          className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background pt-1 text-foreground"
         >
-          <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
-            <output
-              aria-label="Local typing echo"
-              className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
-            >
-              <span className="min-w-full shrink-0 whitespace-pre">
-                {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
+          <div
+            className="px-1.5"
+            style={ownKeyboard ? undefined : {
+              paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
+            }}
+          >
+            <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
+              <output
+                aria-label="Local typing echo"
+                className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
+              >
+                <span className="min-w-full shrink-0 whitespace-pre">
+                  {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
+                </span>
+              </output>
+              <span
+                role="status"
+                aria-label="Input delivery"
+                className={deliveryProblem
+                  ? "max-w-[35%] truncate text-[10px] text-destructive"
+                  : "sr-only"}
+              >
+                {deliveryStatus ?? "Ready"}
               </span>
+              {deliveryPending ? <span aria-hidden className="text-xs text-muted-foreground">…</span> : null}
+              <button
+                type="button"
+                onClick={onPasteToMac}
+                className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+              >
+                Paste
+              </button>
+              <button
+                type="button"
+                aria-label="Auto keyboard"
+                aria-pressed={autoKeyboard}
+                onClick={() => onAutoChange(!autoKeyboard)}
+                className={`h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${autoKeyboard ? "text-foreground" : "text-muted-foreground"}`}
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                onClick={onHide}
+                className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+              >
+                Hide
+              </button>
+            </div>
+            <output aria-label="Acknowledged remote input" className="sr-only">
+              {receipt.join("")}
             </output>
-            <span
-              role="status"
-              aria-label="Input delivery"
-              className={deliveryProblem
-                ? "max-w-[35%] truncate text-[10px] text-destructive"
-                : "sr-only"}
-            >
-              {deliveryStatus ?? "Ready"}
-            </span>
-            {deliveryPending ? <span aria-hidden className="text-xs text-muted-foreground">…</span> : null}
-            <button
-              type="button"
-              onClick={onPasteToMac}
-              className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-            >
-              Paste
-            </button>
-            <button
-              type="button"
-              aria-label="Auto keyboard"
-              aria-pressed={autoKeyboard}
-              onClick={() => onAutoChange(!autoKeyboard)}
-              className={`h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${autoKeyboard ? "text-foreground" : "text-muted-foreground"}`}
-            >
-              Auto
-            </button>
-            <button
-              type="button"
-              onClick={onHide}
-              className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-            >
-              Hide
-            </button>
-          </div>
-          <output aria-label="Acknowledged remote input" className="sr-only">
-            {receipt.join("")}
-          </output>
-          <div aria-label="Remote key rail" className="grid h-9 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-1">
-            <KeyboardButton label="Esc" onClick={() => onKey("escape")} />
-            <KeyboardButton label="Tab" onClick={() => onKey("tab")} />
-            <KeyboardButton label="⇧" state={modifiers.shift} onClick={() => onModifier("shift")} />
-            <div role="group" aria-label="Arrow keys" className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
-              {ARROWS.map((key) => (
-                <KeyboardButton key={key.code} label={key.label} className={`${key.position} text-base leading-none`} onClick={() => onKey(key.code)} />
+            <div aria-label="Remote key rail" className="grid h-9 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-1">
+              <KeyboardButton label="Esc" onClick={() => onKey("escape")} />
+              <KeyboardButton label="Tab" onClick={() => onKey("tab")} />
+              <KeyboardButton label="⇧" state={modifiers.shift} onClick={() => onModifier("shift")} />
+              <div role="group" aria-label="Arrow keys" className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
+                {ARROWS.map((key) => (
+                  <KeyboardButton key={key.code} label={key.label} className={`${key.position} text-base leading-none`} onClick={() => onKey(key.code)} />
+                ))}
+              </div>
+              {MODIFIERS.map(({ label, modifier }) => (
+                <KeyboardButton
+                  key={modifier}
+                  label={label}
+                  state={modifiers[modifier]}
+                  onClick={() => onModifier(modifier)}
+                />
               ))}
             </div>
-            {MODIFIERS.map(({ label, modifier }) => (
-              <KeyboardButton
-                key={modifier}
-                label={label}
-                state={modifiers[modifier]}
-                onClick={() => onModifier(modifier)}
-              />
-            ))}
           </div>
           {ownKeyboard ? (
             <KeyboardDeck
               metrics={deckMetrics}
+              edgeInset={{
+                x: 6,
+                bottom: softwareKeyboardVisible ? "4px" : "max(4px, env(safe-area-inset-bottom))",
+              }}
               onCharacter={onDeckCharacter}
               onDelete={() => onKey("delete")}
               onCursorDelta={onDeckCursorDelta}

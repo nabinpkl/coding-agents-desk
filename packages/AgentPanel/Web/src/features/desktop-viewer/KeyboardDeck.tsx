@@ -92,11 +92,21 @@ interface ActivePress {
 
 export function KeyboardDeck({
   metrics,
+  edgeInset = { x: 0, bottom: "0px" },
   onCharacter,
   onDelete,
   onCursorDelta,
 }: {
   metrics: KeyboardDeckMetrics;
+  /**
+   * Padding the surrounding chrome used to hold, moved inside the deck.
+   *
+   * A key's cell reaches only as far as the deck's own box, so any padding around the deck is dead
+   * to the touch: the strip down the left of the screen belonged to nothing, and pressing there
+   * did nothing. Absorbing it means the deck spans its container edge to edge and the leftmost
+   * keys own the screen edge, while the keycaps stay exactly where they were drawn.
+   */
+  edgeInset?: { x: number; bottom: string };
   /** One typed character, including " " for space and "\n" for return. */
   onCharacter: (character: string) => void;
   onDelete: () => void;
@@ -367,9 +377,9 @@ export function KeyboardDeck({
   rowsRef.current = rows;
   const deckStyle = {
     paddingTop: metrics.topDeckPadding,
-    paddingBottom: metrics.bottomDeckPadding,
-    paddingLeft: metrics.horizontalDeckInset,
-    paddingRight: metrics.horizontalDeckInset,
+    paddingBottom: `calc(${metrics.bottomDeckPadding}px + ${edgeInset.bottom})`,
+    paddingLeft: metrics.horizontalDeckInset + edgeInset.x,
+    paddingRight: metrics.horizontalDeckInset + edgeInset.x,
     // The alphabet home row is centred at the top row's key width rather than stretched, which is
     // what produces the iPhone's half-key indent under Q and P.
     "--kbd-key-w": `calc((100% - ${9 * metrics.horizontalKeyGap}px) / 10)`,
