@@ -296,6 +296,8 @@ describe("SidecarDataSource", () => {
       sessionId: "session-1",
     }, 80, 24)).toEqual(descriptor);
     source.subscribeTerminal("terminal-1", { onMessage: (message) => messages.push(message) });
+    transport.open("/api/terminals/stream");
+    await Promise.resolve();
     transport.deliver("/api/terminals/stream", {
       terminalId: "terminal-1",
       message: { type: "output", revision: "2", data: "aGk=" },
@@ -348,6 +350,25 @@ describe("SidecarDataSource", () => {
           rows: 30,
         },
       },
+    ]);
+  });
+
+  it("waits for the shared stream to carry before asking for a screen replay", async () => {
+    // Nothing replays a message published while no observer was attached, and the stream connects a
+    // round trip after it is asked to. Asking first left the terminal blank and silent, because
+    // tmux sends nothing to a client that is already attached and unchanged.
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+
+    source.subscribeTerminal("terminal-1", { onMessage: () => {} });
+    await Promise.resolve();
+    expect(transport.requests).toEqual([]);
+
+    transport.open("/api/terminals/stream");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(transport.requests).toEqual([
+      { method: "POST", path: "/api/terminals/terminal-1/checkpoint", body: undefined },
     ]);
   });
 

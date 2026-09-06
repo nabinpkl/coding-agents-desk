@@ -167,6 +167,15 @@ export class SidecarDataSource implements AgentDataSource {
    */
   private readonly terminalViewers = new Map<string, Set<TerminalViewer>>();
   private terminalStream: (() => void) | null = null;
+  /**
+   * Resolves when the shared stream is actually carrying, which the screen replay has to wait for.
+   *
+   * Nothing replays a message published while no observer was attached, and the stream connects a
+   * round trip after it is asked to. Measured: a replay requested before the connection was up was
+   * delivered to nobody, and the terminal sat blank and silent -- tmux sends nothing to a client
+   * that is already attached and has not changed, so the lost screen never came back on its own.
+   */
+  private terminalStreamOpen: Promise<void> | null = null;
 
   // ---------------------------------------------------------------------
   // Inventory
@@ -407,11 +416,12 @@ export class SidecarDataSource implements AgentDataSource {
     const viewers = this.terminalViewers.get(terminalId) ?? new Set<TerminalViewer>();
     viewers.add(handlers);
     this.terminalViewers.set(terminalId, viewers);
-    this.openTerminalStream();
-    // After the viewer is registered, never before: the replay is what paints the screen that was
-    // already there, and it arrives on the shared stream, which may already be delivering.
-    void this.transport
-      .request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/checkpoint`)
+    const streaming = this.openTerminalStream();
+    // After the viewer is registered AND the stream is carrying, never before: the replay is what
+    // paints the screen that was already there, and it is published once to whoever is listening.
+    void streaming
+      .then(() => this.transport
+        .request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/checkpoint`))
       .then((response) => {
         if (response.status >= 200 && response.status < 300) return;
         handlers.onError?.(`Terminal replay was refused with ${response.status}`);
@@ -426,9 +436,12 @@ export class SidecarDataSource implements AgentDataSource {
     };
   }
 
-  private openTerminalStream(): void {
-    if (this.terminalStream) return;
+  private openTerminalStream(): Promise<void> {
+    if (this.terminalStreamOpen) return this.terminalStreamOpen;
+    let carrying = (): void => {};
+    this.terminalStreamOpen = new Promise<void>((resolve) => { carrying = resolve; });
     this.terminalStream = this.transport.subscribe("/api/terminals/stream", {
+      onOpen: () => carrying(),
       onMessage: (payload) => {
         let envelope: AgentTerminalStreamEnvelope;
         try {
@@ -445,11 +458,13 @@ export class SidecarDataSource implements AgentDataSource {
       },
       onError: (reason) => this.failTerminalViewers(reason),
     });
+    return this.terminalStreamOpen;
   }
 
   private closeTerminalStream(): void {
     this.terminalStream?.();
     this.terminalStream = null;
+    this.terminalStreamOpen = null;
   }
 
   private failTerminalViewers(reason: string): void {
