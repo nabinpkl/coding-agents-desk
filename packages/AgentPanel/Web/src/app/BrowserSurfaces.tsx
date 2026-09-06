@@ -3,8 +3,6 @@ import { App } from "./AgentPanelApp";
 import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "../features/screen-viewer/ScreenViewer";
 import { TerminalsSurface } from "../features/terminal/TerminalsSurface";
-import { TerminalTile } from "../features/terminal/TerminalTile";
-import { useTerminalDock } from "../features/terminal/terminalDockStore";
 import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "../features/activity-feed/transport/AgentHttpTransport";
@@ -182,11 +180,6 @@ export function BrowserSurfaces({
     [feed, transport, sessionId],
   );
   const desktopAvailable = useDesktopAvailable(sessionFeed);
-  // The floating terminal for the Feed's selected session. Mounted HERE, above the tab switch,
-  // because that is the highest place its pane name is known and the only one that does not
-  // re-render when the Feed reads a status: inside the Feed it was torn down and re-attached
-  // every couple of seconds, and typing into the gap reached nothing.
-  const dock = useTerminalDock();
   // A peer with no desktop must not leave the page sitting on a surface it cannot serve.
   const visible = SURFACES.filter(
     ({ name }) => desktopAvailable || (name !== "desktop" && name !== "screen"),
@@ -206,7 +199,7 @@ export function BrowserSurfaces({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div
         role="tablist"
         aria-label="Panel surfaces"
@@ -276,24 +269,6 @@ export function BrowserSurfaces({
           <App key={sessionId ?? "default"} feed={sessionFeed} host={host} fill />
         )}
       </div>
-      {/* Keyed by the pane, and by nothing else: a re-render of any surface leaves the attach
-          alone, and only a different pane replaces it. Hidden rather than unmounted while another
-          tab is open, so switching tabs does not drop the tmux attach either.
-
-          It scrolls rather than resizing: the pane's own geometry is what the terminal renders at,
-          because a viewer that imposed its size would reflow the session in whatever terminal its
-          owner has it open in. */}
-      {dock.shown && dock.tmuxSession ? (
-        <div
-          className={`absolute bottom-4 right-4 z-40 max-h-[70vh] max-w-[min(95vw,100%-2rem)] overflow-auto shadow-xl ${surface === "feed" ? "" : "hidden"}`}
-        >
-          <TerminalTile
-            key={dock.tmuxSession}
-            feed={sessionFeed}
-            session={{ name: dock.tmuxSession }}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

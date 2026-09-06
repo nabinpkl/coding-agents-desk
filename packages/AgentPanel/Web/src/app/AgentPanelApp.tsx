@@ -63,11 +63,11 @@ import {
 } from "../features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../features/terminal/useAgentTerminal";
 import { terminalContextKey } from "../features/terminal/terminalContext";
+import { TerminalTile } from "../features/terminal/TerminalTile";
 import {
-  setTerminalDockPane,
-  toggleTerminalDock,
-  useTerminalDock,
-} from "../features/terminal/terminalDockStore";
+  toggleTerminalComposer,
+  useTerminalComposerShown,
+} from "../features/terminal/terminalComposerPreference";
 
 /**
  * A textarea that grows with its content instead of scrolling inside a fixed single row.
@@ -267,31 +267,24 @@ export function App({ feed, host, fill = false }: Props) {
     ? botsState.bots.find((bot) => bot.botId === selectedBotId)?.name
     : undefined;
 
-  // The terminal dock's pane name, latched rather than read live.
+  // The composer terminal's pane name, latched rather than read live.
   //
-  // `cliInput` resets to idle on every re-read, and a tile mounted on its live value was torn
-  // down and re-attached each time -- measured as a close/open cycle every ~2s in the network
-  // log. The name is taken the first time it arrives for the selected session and forgotten only
-  // when the selection moves, so nothing the Feed does between those two moments can unmount the
-  // terminal.
+  // `cliInput` resets its status to idle on every re-read, so a terminal mounted on its live value
+  // was torn down and re-attached each time -- measured as a close/open cycle every ~2s in the
+  // network log. The name is taken the first time it arrives for the selected session and forgotten
+  // only when the selection moves, so the terminal stays attached across every status read in
+  // between.
   const selectedSessionId = displayedThread?.session.sessionId ?? null;
-  const [dockedPane, setDockedPane] = useState<{ sessionId: string; tmuxSession: string } | null>(null);
+  const [latchedPane, setLatchedPane] = useState<{ sessionId: string; tmuxSession: string } | null>(null);
   useEffect(() => {
     if (selectedSessionId && cliInput.tmuxSession) {
-      setDockedPane({ sessionId: selectedSessionId, tmuxSession: cliInput.tmuxSession });
+      setLatchedPane({ sessionId: selectedSessionId, tmuxSession: cliInput.tmuxSession });
     }
   }, [selectedSessionId, cliInput.tmuxSession]);
-  const dockedTmuxSession = dockedPane && dockedPane.sessionId === selectedSessionId
-    ? dockedPane.tmuxSession
+  const composerPane = latchedPane && latchedPane.sessionId === selectedSessionId
+    ? latchedPane.tmuxSession
     : null;
-  // Published, not rendered here. The terminal is mounted by the surface shell so that nothing in
-  // this tree -- which re-renders on every status the Feed reads -- can unmount it mid-keystroke.
-  // No cleanup: this component unmounts whenever another surface is selected, and clearing the
-  // pane there would tear the attach down on a tab switch -- the very thing the dock exists to
-  // avoid. The pane is replaced when the selection moves and cleared when it moves to a session
-  // with no pane, both of which happen while this is mounted.
-  useEffect(() => setTerminalDockPane(dockedTmuxSession), [dockedTmuxSession]);
-  const dock = useTerminalDock();
+  const terminalComposerShown = useTerminalComposerShown();
   const botSessionPicker = botSessionPickerId
     ? botsState.bots.find((bot) => bot.botId === botSessionPickerId) ?? null
     : null;
@@ -1001,8 +994,12 @@ export function App({ feed, host, fill = false }: Props) {
                 displayedThread.session.source === "codex" ? codexComposer : claudeComposer
               }
               agentTerminal={terminalComposer}
-              terminalDock={dockedTmuxSession
-                ? { tmuxSession: dockedTmuxSession, shown: dock.shown, toggle: toggleTerminalDock }
+              terminalComposer={composerPane
+                ? {
+                  tmuxSession: composerPane,
+                  shown: terminalComposerShown,
+                  toggle: toggleTerminalComposer,
+                }
                 : null}
               onSendMessage={sendPrompt}
               onAbort={abortRun}
@@ -1056,7 +1053,7 @@ function SessionComposer({
   cliInput,
   windowComposerClient,
   agentTerminal,
-  terminalDock,
+  terminalComposer,
   onSendMessage,
   onAbort,
 }: {
@@ -1086,10 +1083,11 @@ function SessionComposer({
   /** The already-open Agent Feed pty, or null while no owned terminal is ready. */
   agentTerminal: AgentTerminalComposer | null;
   /**
-   * The floating terminal for this session's tmux pane, owned by the app. This band only offers
-   * the switch; null when the session has no pane, which is when there is nothing to switch to.
+   * This session's own tmux pane, and whether to show it. Null when the session is not in a pane,
+   * which is when there is nothing to show and no switch to offer. The name is latched by the app,
+   * because the status it comes from blinks.
    */
-  terminalDock: { tmuxSession: string; shown: boolean; toggle: () => void } | null;
+  terminalComposer: { tmuxSession: string; shown: boolean; toggle: () => void } | null;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
@@ -1425,6 +1423,23 @@ function SessionComposer({
           onDismiss={questionPanel.dismiss}
         />
       ) : null}
+      {/* The session's own terminal, above the field rather than instead of it: the field sends a
+          turn through the harness, the terminal types into the process. Both are useful, and which
+          one you want changes between asking it something and answering its prompt.
+
+          Keyed by the pane so switching sessions tears the old attach down rather than repointing a
+          live one, and scrolling rather than resizing, because the terminal renders at the pane's
+          own geometry -- imposing a size here would reflow the session in whatever terminal its
+          owner has it open in. */}
+      {terminalComposer?.shown ? (
+        <div className="mb-2 max-h-[45vh] overflow-auto">
+          <TerminalTile
+            key={terminalComposer.tmuxSession}
+            feed={feed}
+            session={{ name: terminalComposer.tmuxSession }}
+          />
+        </div>
+      ) : null}
       <div className="flex items-end gap-1.5">
         <textarea
           ref={autoGrow}
@@ -1451,17 +1466,17 @@ function SessionComposer({
           className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
         />
         {/* Offered only where there is a pane: a session without one has nothing to show. */}
-        {terminalDock ? (
+        {terminalComposer ? (
           <button
             type="button"
-            onClick={terminalDock.toggle}
-            aria-pressed={terminalDock.shown}
-            aria-label={terminalDock.shown ? "Hide the terminal" : "Show the terminal"}
-            title={terminalDock.shown
-              ? `Hide the ${terminalDock.tmuxSession} terminal.`
-              : `Show the ${terminalDock.tmuxSession} terminal.`}
+            onClick={terminalComposer.toggle}
+            aria-pressed={terminalComposer.shown}
+            aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
+            title={terminalComposer.shown
+              ? `Hide the ${terminalComposer.tmuxSession} terminal.`
+              : `Show the ${terminalComposer.tmuxSession} terminal.`}
             className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-              terminalDock.shown
+              terminalComposer.shown
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             }`}
