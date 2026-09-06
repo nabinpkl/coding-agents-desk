@@ -57,19 +57,76 @@ async function tmux(args: string[]): Promise<{ out: string; err: string; code: n
 }
 
 /**
- * Everything the pane holds, escapes included, newest last.
+ * What tmux is asked for: the scrollback, and deliberately NOT the screen.
  *
- * A `tmux attach` draws one screen and nothing more, so a viewer that joined sees only what has
- * changed since. The history it is missing is tmux's, and this is how tmux hands it over. `-e`
- * keeps the colour; `-J` is deliberately absent, since joining wrapped lines would reflow output
- * that was laid out for a different width.
+ * tmux numbers the visible screen from 0 and the scrollback with negatives, so `-E -1` ends the
+ * range one line above the top of the screen. The screen is excluded because the live stream is
+ * about to paint it: a viewer that also imports it as text writes a second, frozen copy, and
+ * tmux's redraw then addresses screen rows absolutely into a window that overlaps that copy.
+ * Measured on a pane holding 1066 scrollback lines: `-S -50000` returned 1089, the extra 23 being
+ * the screen, and the redraw landing one row out left half-overwritten lines through the history.
+ *
+ * `-e` keeps the colour. `-J` is deliberately absent, since joining wrapped lines would reflow
+ * output that was laid out for a different width.
  */
+export function captureHistoryArgs(session: string, lines: number): string[] {
+  return ["capture-pane", "-p", "-e", "-S", `-${lines}`, "-E", "-1", "-t", session];
+}
+
+/** The visible screen on its own, which is the part the scrollback range deliberately omits. */
+export function captureScreenArgs(session: string): string[] {
+  return ["capture-pane", "-p", "-e", "-t", session];
+}
+
+/** How tall that screen is, which is how many rows the viewer has to open for it. */
+export function paneHeightArgs(session: string): string[] {
+  return ["display-message", "-p", "-t", session, "#{pane_height}"];
+}
+
+/**
+ * Scrollback, then a screen's worth of blank rows, then the screen painted into them.
+ *
+ * The blank rows are the whole point, and they are not padding. A terminal's active screen is
+ * always the last `rows` lines of its buffer, and tmux addresses that screen absolutely: row 1 is
+ * row 1 whatever is under it. Write the scrollback and stop, and the screen window still straddles
+ * the last rows of that scrollback, so tmux's next repaint overwrites part of each of those lines
+ * and leaves the rest -- history that reads as corruption rather than as a positioning bug. Opening
+ * `rows - 1` lines (the scrollback's own trailing newline is the first) puts the window entirely on
+ * blank rows below the history, and `ESC[H` homes into it before the screen text fills it exactly.
+ *
+ * Composed here rather than in the viewer because the row count that has to match is the pane's,
+ * and the pane is what this module can see.
+ */
+export function terminalHistoryPayload(
+  { scrollback, screen, rows }: { scrollback: string; screen: string; rows: number },
+): string {
+  const history = historyForTerminal(scrollback);
+  const opening = "\r\n".repeat(Math.max(0, rows - 1));
+  return `${history}${opening}\u001b[H${historyForTerminal(screen.replace(/\n$/, ""))}`;
+}
+
+function demand(what: string, result: { err: string; code: number }): void {
+  if (result.code === 0) return;
+  throw new TmuxUnavailable(`tmux ${what} read exited ${result.code}: ${result.err.trim()}`);
+}
+
+/** Everything the viewer needs to open with: the pane's scrollback and its current screen. */
 export async function captureTmuxHistory(session: string, lines: number): Promise<string> {
-  const { out, err, code } = await tmux([
-    "capture-pane", "-p", "-e", "-S", `-${lines}`, "-t", session,
+  const [history, screen, height] = await Promise.all([
+    tmux(captureHistoryArgs(session, lines)),
+    tmux(captureScreenArgs(session)),
+    tmux(paneHeightArgs(session)),
   ]);
-  if (code !== 0) throw new TmuxUnavailable(`tmux capture-pane exited ${code}: ${err.trim()}`);
-  return historyForTerminal(out);
+  // Named individually because the three are different commands: a reader told "capture-pane
+  // failed" when it was `display-message` that failed looks for the bug in the wrong place.
+  demand("scrollback", history);
+  demand("screen", screen);
+  demand("pane height", height);
+  const rows = Number.parseInt(height.out.trim(), 10);
+  if (!Number.isInteger(rows) || rows < 1) {
+    throw new TmuxUnavailable(`tmux reported an unusable pane height: ${height.out.trim()}`);
+  }
+  return terminalHistoryPayload({ scrollback: history.out, screen: screen.out, rows });
 }
 
 /**
