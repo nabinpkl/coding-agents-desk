@@ -200,10 +200,17 @@ export function BrowserSurfaces({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Scrolls sideways rather than compressing: on a phone the surfaces alone fill the width,
+          and the session picker beyond them was simply off the screen -- a peer you could not
+          reach and had no way of knowing was there. `ml-auto` on the picker still pushes it to the
+          right wherever there IS room, because free space is what that margin eats.
+
+          `overscroll-x-contain` so a swipe that runs out of bar stops there instead of becoming
+          the browser's back gesture, which on iOS would leave the panel entirely. */}
       <div
         role="tablist"
         aria-label="Panel surfaces"
-        className="flex shrink-0 gap-3 border-b border-border bg-background px-3"
+        className="flex shrink-0 gap-3 overflow-x-auto overscroll-x-contain border-b border-border bg-background px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {visible.map(({ name, label }) => (
           <button
@@ -213,7 +220,7 @@ export function BrowserSurfaces({
             aria-selected={surface === name}
             tabIndex={surface === name ? 0 : -1}
             onClick={() => select(name)}
-            className={`flex min-h-11 items-center border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
+            className={`flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
               surface === name
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
@@ -228,7 +235,7 @@ export function BrowserSurfaces({
           <div
             role="group"
             aria-label="Panel session"
-            className="ml-auto flex items-center gap-1 self-center"
+            className="ml-auto flex shrink-0 items-center gap-1 self-center"
           >
             {sessions.map((session) => (
               <button
@@ -236,7 +243,7 @@ export function BrowserSurfaces({
                 type="button"
                 aria-pressed={session.id === sessionId}
                 onClick={() => selectSession(session.id)}
-                className={`rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+                className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
                   session.id === sessionId
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
