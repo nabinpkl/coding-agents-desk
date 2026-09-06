@@ -118,7 +118,11 @@ export function BotSessionPickerDialog({
                 AgentDesk has no sessions correlated to this directory.
               </div>
             ) : (
-              <fieldset>
+              <fieldset className="min-w-0">
+                {/* A fieldset defaults to `min-inline-size: min-content`, so without this it
+                    refuses to shrink to its column and every row's `truncate` never fires:
+                    measured 1712px of rows inside a 356px list on a phone, titles running off
+                    the side. */}
                 <legend className="sr-only">Sessions in {bot.environment.path}</legend>
                 {sessions.map((session) => {
                   const key = sessionKey(session);
