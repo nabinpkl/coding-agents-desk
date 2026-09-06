@@ -113,6 +113,34 @@ describe("DesktopViewer", () => {
     expect(disconnected).toHaveBeenCalled();
   });
 
+  it("draws its own keyboard where the browser would raise one, and focuses nothing", async () => {
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: query === "(hover: none) and (pointer: coarse)",
+      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
+      addListener() {}, removeListener() {}, dispatchEvent: () => false,
+    }) as MediaQueryList);
+    try {
+      tileMock.publishSource = true;
+      tileMock.controlVersion = 2;
+      render(<DesktopViewer transport={transport()} />);
+      const show = await screen.findByRole("button", { name: "Keyboard" });
+      await waitFor(() => expect(show).toBeEnabled());
+      fireEvent.click(show);
+      const deck = screen.getByTestId("keyboard-deck");
+      expect(within(deck).getAllByRole("button")).toHaveLength(31);
+      // Nothing focused is the point: a focused field is what WebKit draws its form strip over.
+      expect(document.activeElement).toBe(document.body);
+      fireEvent.pointerDown(screen.getByTestId("deck-key-char-71"), { pointerId: 1 });
+      fireEvent.pointerUp(screen.getByTestId("deck-key-char-71"), { pointerId: 1 });
+      expect(document.activeElement).toBe(document.body);
+      // Masked, because a manually shown keyboard has no focus result yet and an unknown field is
+      // treated as secure. What it proves is that the deck's press reached the send path at all.
+      expect(screen.getByLabelText("Local typing echo")).toHaveTextContent("•");
+    } finally {
+      media.mockRestore();
+    }
+  });
+
   it("keeps the capture and every accessory control outside the clipped viewer toolbar", async () => {
     tileMock.publishSource = true;
     tileMock.controlVersion = 2;
@@ -126,11 +154,12 @@ describe("DesktopViewer", () => {
     expect(capture.parentElement).toBe(document.body);
     expect(container).not.toContainElement(chrome);
     expect(capture).toHaveStyle({ fontSize: "16px" });
-    // Twelve rail-and-chrome controls, plus Paste, plus the deck's own 31 keys. The capture stays
-    // a 4x4 nothing in the corner: a field big enough to tap is what makes WebKit draw its form
-    // strip over the key rail, and the deck exists so nothing has to be focused at all.
-    expect(within(chrome).getAllByRole("button")).toHaveLength(44);
-    expect(within(screen.getByTestId("keyboard-deck")).getAllByRole("button")).toHaveLength(31);
+    // Twelve rail-and-chrome controls plus Paste, and no deck: this browser reports a physical
+    // keyboard, so the capture is focused and text arrives through it. The capture stays a 4x4
+    // nothing in the corner because a field big enough to tap is what makes WebKit draw its form
+    // strip over the key rail.
+    expect(within(chrome).getAllByRole("button")).toHaveLength(13);
+    expect(screen.queryByTestId("keyboard-deck")).toBeNull();
     expect(within(chrome).getByRole("button", { name: "Paste" })).toBeVisible();
     const rail = within(chrome).getByLabelText("Remote key rail");
     expect(within(rail).getAllByRole("button").map((button) => button.textContent))

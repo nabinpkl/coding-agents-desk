@@ -2,6 +2,7 @@ import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
 import { useEffect, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
+import { drawsOwnKeyboard } from "./keyboardDeckModel";
 import { KeyboardDeck } from "./KeyboardDeck";
 import { deckMetricsForViewportHeight } from "./keyboardDeckMetrics";
 
@@ -64,6 +65,9 @@ export function DesktopKeyboardChrome({
   onDeckCursorDelta: (delta: number) => void;
 }) {
   const deckMetrics = useDeckMetrics();
+  // Only where the browser would otherwise raise its own keyboard. A desktop browser has a
+  // physical one, so a deck there would cost a third of the video and replace nothing.
+  const [ownKeyboard] = useState(drawsOwnKeyboard);
   const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
@@ -183,12 +187,14 @@ export function DesktopKeyboardChrome({
               />
             ))}
           </div>
-          <KeyboardDeck
-            metrics={deckMetrics}
-            onCharacter={onDeckCharacter}
-            onDelete={() => onKey("delete")}
-            onCursorDelta={onDeckCursorDelta}
-          />
+          {ownKeyboard ? (
+            <KeyboardDeck
+              metrics={deckMetrics}
+              onCharacter={onDeckCharacter}
+              onDelete={() => onKey("delete")}
+              onCursorDelta={onDeckCursorDelta}
+            />
+          ) : null}
         </section>, document.body,
       )}
     </>
