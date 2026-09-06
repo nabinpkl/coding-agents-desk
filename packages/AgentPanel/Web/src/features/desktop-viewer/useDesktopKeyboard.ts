@@ -715,10 +715,16 @@ export function useDesktopKeyboard({
     acceptEncodedKeys([key]);
   }, [acceptEncodedKeys]);
 
+  /**
+   * Losing focus means the browser's keyboard went away, so stop presenting -- but only while the
+   * browser's keyboard is the one typing. With the deck, an unfocused capture is the resting
+   * state, and the blur that comes from switching back to it is not a dismissal.
+   */
   const onBlur = useCallback(() => {
     if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
     blurTimer.current = window.setTimeout(() => {
       blurTimer.current = null;
+      if (showsDeckRef.current) return;
       if (document.activeElement !== captureRef.current
           && (presentationRef.current.presentation === "shown"
             || presentationRef.current.presentation === "pending")) clearLocalState("hide", "dom-blur");

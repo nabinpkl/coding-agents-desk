@@ -181,6 +181,11 @@ describe("DesktopViewer", () => {
       fireEvent.click(screen.getByRole("button", { name: "Switch to the panel keyboard" }));
       expect(screen.getByTestId("keyboard-deck")).toBeInTheDocument();
       expect(document.activeElement).not.toBe(capture);
+      // The blur that switching back causes must not read as the keyboard being dismissed, which
+      // is decided a tick later and would otherwise tear the whole strip down.
+      await act(() => new Promise((resolve) => { setTimeout(resolve, 1); }));
+      expect(screen.getByTestId("keyboard-deck")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Remote keyboard controls" })).toBeInTheDocument();
     } finally {
       window.localStorage.removeItem("agentdesk.desktop-keyboard-mode.v1");
       media.mockRestore();
