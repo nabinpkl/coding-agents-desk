@@ -1209,6 +1209,9 @@ check:
                 add grid-encoder; native="$native $path" ;;
             host/*|client/*|terminal/pty-manager/*|packages/*/Sources/*|packages/*/Tests/*)
                 native="$native $path" ;;
+            # deskzoom is the virtual display and its RFB client: Swift and Python that no leg
+            # in this gate tests. Saying so beats falling through to the run-everything default.
+            deskzoom/*) ;;
             *.md|.gitignore|architecture-decisions/*|tasks/*|mock-design/*) ;;
             *) unclaimed="$unclaimed $path" ;;
         esac
