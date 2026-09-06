@@ -795,8 +795,17 @@ Task {
                 // accumulated. availableData wakes for the first flushed line.
                 let data = FileHandle.standardInput.availableData
                 guard !data.isEmpty else {
+                    // Stdin EOF: the owner is gone, the same conclusion the control loop draws.
+                    // Returning here used to leave the capture running with nobody reading its
+                    // frames, which is how a `bun --watch` reload of the sidecar orphaned an
+                    // encoder: the reload drops the JS context and closes this pipe without
+                    // running any exit handler (measured on Bun 1.3.13 -- no signal, no `exit`
+                    // event, and `import.meta.hot` undefined under --watch), so nothing on that
+                    // side can stop us. The orphan then held a ScreenCaptureKit capture of the
+                    // display beside the one the reloaded sidecar started, and two captures of one
+                    // target starve each other into a black picture.
                     if let navigation { DispatchQueue.main.sync { navigation.stop() } }
-                    return
+                    exit(0)
                 }
                 buffer.append(data)
                 while let newline = buffer.firstIndex(of: 0x0A) {
