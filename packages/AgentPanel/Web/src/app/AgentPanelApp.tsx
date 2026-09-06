@@ -63,7 +63,6 @@ import {
 } from "../features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../features/terminal/useAgentTerminal";
 import { terminalContextKey } from "../features/terminal/terminalContext";
-import { TerminalTile } from "../features/terminal/TerminalTile";
 import {
   toggleTerminalComposer,
   useTerminalComposerShown,
@@ -1141,6 +1140,11 @@ function SessionComposer({
   // because that is what it did before this band existed and what it should keep doing: the
   // question is real and worth reading. Pressing one would mean delivering the answer through the
   // inbox instead of through a window, which is a different feature from typing a turn.
+  // The composer's terminal reports its state like any other, and there is nothing here to do
+  // with it: the pane renders its own errors in its footer. Stable so the pane is not restarted by
+  // a re-render of this band, which happens on every status the Feed reads.
+  const noteTerminalState = useCallback(() => {}, []);
+
   const questionPanel = useClaudeWindowQuestion(
     windowComposerClient,
     sessionId,
@@ -1432,11 +1436,19 @@ function SessionComposer({
           own geometry -- imposing a size here would reflow the session in whatever terminal its
           owner has it open in. */}
       {terminalComposer?.shown ? (
-        <div className="mb-2 max-h-[45vh] overflow-auto">
-          <TerminalTile
+        // `AgentTerminalPane` rather than a tile: it is the same hook underneath and it already
+        // owns the resize handle, the header and the footer. It takes a tmux context as readily as
+        // an agent-session one, so the composer needed no second copy of any of that.
+        //
+        // Wrapped in a fixed-height box because the pane sizes itself as a share of its parent, and
+        // this band's own height is decided by its contents -- a percentage of that would chase
+        // the drag. The box is the column; the pane resizes within it.
+        <div className="mb-2 h-[42vh] min-h-[150px]">
+          <AgentTerminalPane
             key={terminalComposer.tmuxSession}
             feed={feed}
-            session={{ name: terminalComposer.tmuxSession }}
+            context={{ kind: "tmux", session: terminalComposer.tmuxSession }}
+            onState={noteTerminalState}
           />
         </div>
       ) : null}
