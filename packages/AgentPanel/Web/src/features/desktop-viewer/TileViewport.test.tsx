@@ -328,6 +328,48 @@ describe("TileViewport pointer mode", () => {
     pointer(surface, "pointercancel", 2, 100, 20);
   });
 
+  it("sends the mouse wheel to the Mac while the clutch is engaged, and ends it on silence", () => {
+    vi.useFakeTimers();
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    });
+    activatePuckWithKeyboard();
+
+    surface.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaX: 0, deltaY: 30 }));
+    surface.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaX: 0, deltaY: 30 }));
+
+    // The wheel does not wait for an animation frame, and its delta goes out unaccelerated:
+    // macOS already applied its own curve before Chrome reported it.
+    expect(inputs).toEqual([
+      { type: "scroll", dx: -0, dy: -30, phase: "began" },
+      { type: "scroll", dx: -0, dy: -30, phase: "changed" },
+    ]);
+
+    // A wheel has no lift, so the end comes from the quiet after it.
+    act(() => vi.advanceTimersByTime(200));
+    expect(inputs.at(-1)).toEqual({ type: "scroll", dx: 0, dy: 0, phase: "ended" });
+  });
+
+  it("keeps the wheel local when the clutch is off or the gesture is a pinch", () => {
+    const inputs: DesktopPointerInput[] = [];
+    const surface = renderPointerSurface((input) => {
+      inputs.push(input);
+      return true;
+    });
+    const transformed = screen.getByTestId("content").parentElement!;
+
+    surface.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 30 }));
+    expect(inputs).toEqual([]);
+
+    activatePuckWithKeyboard();
+    surface.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100, ctrlKey: true }));
+
+    expect(inputs).toEqual([]);
+    expect(scaleOf(transformed.style.transform)).toBeGreaterThan(1);
+  });
+
   it("delays a physical puck tap for double-tap zoom arbitration", () => {
     vi.useFakeTimers();
     const surface = renderPointerSurface(

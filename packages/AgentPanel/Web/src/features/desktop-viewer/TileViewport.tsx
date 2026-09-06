@@ -67,6 +67,14 @@ const SCROLL_SLOP = 10;
 const SCROLL_MOMENTUM_FLICK_THRESHOLD = 200;
 const SCROLL_MOMENTUM_STOP_THRESHOLD = 30;
 const SCROLL_MOMENTUM_DECAY_K = 2.8;
+/**
+ * How long the wheel has to be quiet before the remote scroll is ended.
+ *
+ * Long enough that neither a notched wheel between clicks nor a trackpad's own momentum stream
+ * (both under ~60ms apart in Chrome on macOS) reads as a stop, short enough that the far Mac is
+ * not left inside an open scroll phase after the hand is off.
+ */
+const WHEEL_SCROLL_IDLE_MS = 150;
 const POINTER_SCROLL_PUCK_SIDE = 56;
 const POINTER_SCROLL_PUCK_STORAGE_KEY = "agentdesk.pointer-scroll-puck-offset.v1";
 const DEFAULT_POINTER_SCROLL_PUCK_OFFSET = { right: 16, bottom: 120 };
@@ -261,6 +269,7 @@ export function TileViewport({
     let momentumLastTime = 0;
     let momentumVelocity = { x: 0, y: 0 };
     let didEmitMomentumBegan = false;
+    let wheelIdleTimer = 0;
     let puckOffset = storedPointerScrollPuckOffset();
     let puckPointer: {
       id: number;
@@ -444,6 +453,19 @@ export function TileViewport({
     const showDragHeld = (held: boolean) => {
       const halo = dragHalo.current;
       if (halo) halo.hidden = !held;
+    };
+    /**
+     * Let go of a mouse button, wherever the sequence ends.
+     *
+     * A mouse holds its own button rather than earning one by waiting, so it never goes through
+     * the touch hold; it still has to be let go on every exit, including the teardown, for the
+     * same reason a held finger does. A button left down on the far Mac outlives the page.
+     */
+    const releaseMouseButton = () => {
+      if (pressedMouseButton === null) return;
+      send({ type: "mouse-up", button: pressedMouseButton });
+      pressedMouseButton = null;
+      showDragHeld(false);
     };
     /** True when a held button was actually let go, which is what suppresses the tap-click. */
     const releaseTouchDrag = () => {
@@ -686,7 +708,53 @@ export function TileViewport({
         startMomentum(liftVelocity);
       }
     };
+    /**
+     * A wheel delta is already the scroll the OS decided on, so it goes out as it is.
+     *
+     * The finger path accumulates raw travel and accelerates it at flush time, because a finger
+     * reports where it is and the curve is what turns that into a scroll. A wheel reports a scroll
+     * directly, with macOS's own acceleration already in it, and it arrives whole inside one
+     * frame: measured, five notches pushed through the finger curve came out as 7500 points,
+     * because 500 points in 16ms reads as a flick. Sending each event as it lands also keeps the
+     * wheel off the animation frame, which a hidden or throttled tab never runs.
+     */
+    const sendWheelScroll = (dx: number, dy: number) => {
+      gestureInputAccepted = send({
+        type: "scroll",
+        dx,
+        dy,
+        phase: scrollActive ? "changed" : "began",
+      }) && gestureInputAccepted;
+      scrollActive = true;
+    };
+    /**
+     * A wheel has no lift, so the end of a wheel scroll is inferred from silence.
+     *
+     * The finger path closes its scroll on pointerup, and the Mac needs that `ended` to close the
+     * phase the first delta opened. Nothing in a wheel stream says the hand stopped: a trackpad's
+     * own inertia keeps arriving as ordinary wheel events and a notched wheel simply goes quiet.
+     * A timer restarted on every wheel event is therefore the lift. It also means the trackpad's
+     * momentum is forwarded as the real `changed` deltas it already is, rather than being thrown
+     * away and re-synthesised here on top of itself.
+     */
+    const armWheelIdle = () => {
+      if (wheelIdleTimer !== 0) window.clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = window.setTimeout(() => {
+        wheelIdleTimer = 0;
+        endScroll(false);
+      }, WHEEL_SCROLL_IDLE_MS);
+    };
+    /** Close a wheel scroll now, for anything that supersedes it or tears the surface down. */
+    const endWheelScroll = () => {
+      if (wheelIdleTimer === 0) return;
+      window.clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = 0;
+      endScroll(false);
+    };
     const down = (event: PointerEvent) => {
+      // A press supersedes a wheel scroll still waiting out its idle timer; the far Mac must not
+      // be left inside an open phase while a button goes down.
+      endWheelScroll();
       try {
         frame.setPointerCapture(event.pointerId);
       } catch {
@@ -702,6 +770,9 @@ export function TileViewport({
         warpRemoteCursor(at);
         send({ type: "mouse-down", button: event.button === 2 ? "right" : "left" });
         pressedMouseButton = event.button === 2 ? "right" : "left";
+        // The same held marker a finger gets. A mouse drag reads as nothing at all without it:
+        // the button is down on the Mac and the panel shows no sign of it.
+        showDragHeld(true);
         return;
       }
       const countBefore = pointers.size;
@@ -827,8 +898,7 @@ export function TileViewport({
       if (pressedMouseButton !== null && event.pointerType === "mouse") {
         // The whole mouse sequence is press/release; the tap-to-click path below is for fingers.
         pointers.delete(event.pointerId);
-        send({ type: "mouse-up", button: pressedMouseButton });
-        pressedMouseButton = null;
+        releaseMouseButton();
         return;
       }
       const countBefore = pointers.size;
@@ -896,8 +966,7 @@ export function TileViewport({
       pointers.delete(event.pointerId);
       if (pressedMouseButton !== null && event.pointerType === "mouse") {
         // A cancelled drag still has to let go, or the Mac is left with a button held down.
-        send({ type: "mouse-up", button: pressedMouseButton });
-        pressedMouseButton = null;
+        releaseMouseButton();
         return;
       }
       cancelTouchHold();
@@ -921,6 +990,22 @@ export function TileViewport({
       // cursor, a plain scroll pans when zoomed. Either way the page must not
       // scroll out from under the gesture.
       event.preventDefault();
+      // The puck means "scrolling", whichever pointer is driving it, so an engaged puck sends the
+      // wheel to the far Mac instead of panning the local picture. It reuses the finger's phase
+      // protocol and its `endScroll`, and differs only where a wheel genuinely differs: its delta
+      // needs no curve and its end has to be inferred. A pinch stays local, being a view gesture.
+      if (scrollEngagedRef.current && !event.ctrlKey && !event.metaKey) {
+        // A wheel delta points where the content is pushed away; the wire carries finger deltas,
+        // which point where the content follows. Same negation the local pan below uses.
+        const dx = -event.deltaX;
+        const dy = -event.deltaY;
+        if (dx === 0 && dy === 0) return;
+        // Leftover momentum from a finger belongs to a gesture this wheel just replaced.
+        if (wheelIdleTimer === 0) stopMomentum(true);
+        sendWheelScroll(dx, dy);
+        armWheelIdle();
+        return;
+      }
       const { w, h } = size();
       const at = local(event);
       let moved = false;
@@ -1062,11 +1147,13 @@ export function TileViewport({
       puck?.removeEventListener("pointercancel", puckCancel);
       unsubscribeCursorEvents?.();
       if (pointerFrame !== 0) window.cancelAnimationFrame(pointerFrame);
+      if (wheelIdleTimer !== 0) window.clearTimeout(wheelIdleTimer);
       if (scrollFrame !== 0 || scrollActive) endScroll(false);
       stopMomentum(true);
       if (pendingPuckTap !== 0) window.clearTimeout(pendingPuckTap);
       cancelTouchHold();
       releaseTouchDrag();
+      releaseMouseButton();
     };
   }, [
     initialCursor?.x,
