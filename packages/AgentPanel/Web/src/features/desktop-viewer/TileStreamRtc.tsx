@@ -183,6 +183,11 @@ export function tileCaptureSize(
  * Tells the sidecar a peer is gone. Closing an RTCPeerConnection sends nothing the sidecar can
  * see, so without this it keeps the capture running until ICE consent expires thirty seconds
  * later; with two captures on one display that is a second whole-display capture nobody watches.
+ *
+ * `keepalive` is what makes this work on the way out of a page. A reload -- an HMR one included --
+ * destroys the document without running React cleanup, and cancels every request in flight, so an
+ * ordinary fetch fired from `pagehide` would be dropped and the abandoned capture would live on
+ * for the consent timeout while the reloaded page asked for one of its own.
  */
 export function postWebrtcClose(attempt: string, httpTransport?: Pick<AgentHttpTransport, "request">) {
   const body = { attempt };
@@ -192,6 +197,7 @@ export function postWebrtcClose(attempt: string, httpTransport?: Pick<AgentHttpT
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        keepalive: true,
       });
   void request.catch(() => {
     // Best effort; the sidecar's consent timeout is the fallback.
@@ -410,6 +416,7 @@ export function TileStreamRtc({
     // Resolve the initial main alias once; reconnect must retain the same physical screen.
     let resolvedDisplayId = displayId;
     let activePeer: RTCPeerConnection | null = null;
+    let activeAttempt: string | null = null;
     const closePeer = (peer: RTCPeerConnection, attempt: string) => {
       peer.close();
       postWebrtcClose(attempt, httpTransport);
@@ -666,6 +673,8 @@ export function TileStreamRtc({
         let negotiatedCodec: WebrtcTileAnswer["codec"] | null = null;
         let controlCompatible = false;
         const attempt = crypto.randomUUID();
+        // Named here so a document teardown can report this peer gone; see `onPageHide`.
+        activeAttempt = attempt;
         const report = (phase: string, detail?: string) => {
           postTileTelemetry(windowID, {
             attempt,
@@ -934,6 +943,10 @@ export function TileStreamRtc({
           if (cancelActiveSession === cancelSession) cancelActiveSession = null;
           clearControlTransport();
           inputChannel.close();
+          if (activePeer === peer) {
+            activePeer = null;
+            activeAttempt = null;
+          }
           // Cancelled means replaced or unmounted, and either way the picture it is painting is
           // worth keeping until whatever comes next has one of its own. Anything else is a dead
           // peer with nothing to keep.
@@ -1084,6 +1097,11 @@ export function TileStreamRtc({
               type: "offer",
               sdp: peer.localDescription!.sdp,
               attempt,
+              // Retiring after the new stream paints keeps a display handover gapless, but it also
+              // leaves the predecessor subscribed while this offer is decided. Naming it lets the
+              // sidecar retask the one capture instead of joining this viewer to its own old
+              // geometry.
+              ...(retiring.current === null ? {} : { supersedes: retiring.current.attempt }),
               ...(resolvedDisplayId === undefined ? {} : { displayId: resolvedDisplayId }),
               ...(capture.width === undefined ? {} : { width: capture.width }),
               ...(capture.height === undefined ? {} : { height: capture.height }),
@@ -1160,6 +1178,18 @@ export function TileStreamRtc({
     };
     document.addEventListener("visibilitychange", onVisible);
 
+    // React runs no cleanup when the document is torn down, so a reload used to leave the sidecar
+    // believing this viewer was still watching until ICE consent expired. The reloaded page then
+    // offered again, and any change of size made that a second capture of the same display beside
+    // the abandoned one -- two ScreenCaptureKit captures of one target, which starve each other
+    // into a black picture. Closing both peers here is what makes the reload look like a leave.
+    const onPageHide = () => {
+      const previous = retiring.current;
+      if (previous) postWebrtcClose(previous.attempt, httpTransport);
+      if (activeAttempt) postWebrtcClose(activeAttempt, httpTransport);
+    };
+    window.addEventListener("pagehide", onPageHide);
+
     void (async () => {
       let attempt = 0;
       let firstEver = true;
@@ -1182,6 +1212,7 @@ export function TileStreamRtc({
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pagehide", onPageHide);
       window.clearInterval(presentationTimer);
       window.clearInterval(presentationWatchdogTimer);
       for (const event of videoEvents) element.removeEventListener(event, onVideoEvent);

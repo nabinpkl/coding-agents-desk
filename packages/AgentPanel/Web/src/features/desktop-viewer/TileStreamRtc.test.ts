@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyReceiverProgress,
   parseWebrtcTileAnswer,
+  postWebrtcClose,
   RECEIVER_STATS_INTERVAL_MS,
   receiverProgressDelta,
   type ReceiverProgressSample,
@@ -177,5 +178,31 @@ describe("parseWebrtcTileAnswer", () => {
       codec: "h265",
       source: { width: 1170, height: 759, cursor: { x: 10, y: 10 } },
     })).source.desktopControlVersion).toBe(0);
+  });
+});
+
+
+describe("telling the sidecar a viewer left", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("survives the document going away, because a reload runs no React cleanup", () => {
+    const fetched = vi.fn((_url: string, _init: RequestInit) => Promise.resolve(new Response("{}")));
+    vi.stubGlobal("fetch", fetched);
+    postWebrtcClose("attempt-1");
+    expect(fetched).toHaveBeenCalledTimes(1);
+    const [url, init] = fetched.mock.calls[0]!;
+    expect(url).toBe("/api/park/webrtc/sessions/close");
+    // Without this the browser cancels the request on unload and the abandoned capture lives
+    // until ICE consent expires, starving the one the reloaded page asks for.
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(String(init.body))).toEqual({ attempt: "attempt-1" });
+  });
+
+  it("goes through the native relay when there is one, which needs no keepalive", async () => {
+    const request = vi.fn(() => Promise.resolve({ status: 200, body: "{}" }));
+    postWebrtcClose("attempt-2", { request } as never);
+    expect(request).toHaveBeenCalledWith("POST", "/api/park/webrtc/sessions/close", {
+      body: { attempt: "attempt-2" },
+    });
   });
 });
