@@ -505,6 +505,66 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("detaches a session from a Bot through its canvas row menu", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
+        }],
+      });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-1" }),
+    });
+
+    // The menu is a sibling of the row's disclosure, not inside it, so opening the menu must not
+    // also open the transcript.
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Session Claude 01" }));
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+    });
+
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach")).toEqual({
+      method: "POST",
+      path: "/api/bots/bot-1/sessions/detach",
+      body: {
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+      },
+    });
+
+    // The row a Bot can otherwise never be rid of: no summary, so no title, and it still has to
+    // carry the same action.
+    fireEvent.click(screen.getByRole("button", { name: "Actions for sid-forgotten" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+    });
+    expect(
+      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions/detach").at(-1)?.body,
+    ).toEqual({
+      requestId: expect.any(String),
+      sessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
+    });
+    unmount();
+  });
+
   it("attaches a session to a Bot from its canvas card", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

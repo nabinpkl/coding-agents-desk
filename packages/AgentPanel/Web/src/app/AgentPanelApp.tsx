@@ -973,6 +973,7 @@ export function App({ feed, host, fill = false }: Props) {
                 error={botsState.error}
                 mode={eventMode}
                 onAddSession={openBotSessionPicker}
+                onDetachSession={detachBotSession}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
             ) : sidebarMode === "sessions" ? (

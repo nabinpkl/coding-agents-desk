@@ -6,6 +6,7 @@ import type { EventMode } from "../activity-feed/data-source/AgentDataSource";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
+import { SessionRowMenu } from "./SessionRowMenu";
 
 /**
  * How tall an opened transcript is inside its card.
@@ -36,6 +37,7 @@ export function BotCanvas({
   error,
   mode,
   onAddSession,
+  onDetachSession,
   onAddBot,
 }: {
   bots: BotView[];
@@ -44,6 +46,14 @@ export function BotCanvas({
   /** Raw or nice, owned by the shell so the choice is the same one the Bots view reads in. */
   mode: EventMode;
   onAddSession: (bot: BotView) => void;
+  /**
+   * Drops the reference from the Bot's projection. The session itself is untouched.
+   *
+   * Takes a reference rather than a summary because the rows that most need this are the ones with
+   * no summary left: a transcript the catalog has forgotten shows as "missing" and would otherwise
+   * be the one entry a Bot can never be rid of.
+   */
+  onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onAddBot: () => void;
 }) {
   if (loading) {
@@ -78,7 +88,14 @@ export function BotCanvas({
     );
   }
 
-  return <BotCanvasList bots={bots} mode={mode} onAddSession={onAddSession} />;
+  return (
+    <BotCanvasList
+      bots={bots}
+      mode={mode}
+      onAddSession={onAddSession}
+      onDetachSession={onDetachSession}
+    />
+  );
 }
 
 /**
@@ -94,10 +111,12 @@ function BotCanvasList({
   bots,
   mode,
   onAddSession,
+  onDetachSession,
 }: {
   bots: BotView[];
   mode: EventMode;
   onAddSession: (bot: BotView) => void;
+  onDetachSession: (bot: BotView, session: BotSessionRef) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   return (
@@ -111,6 +130,7 @@ function BotCanvasList({
             openKey={openKey}
             onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
             onAddSession={onAddSession}
+            onDetachSession={onDetachSession}
           />
         ))}
       </ul>
@@ -139,12 +159,14 @@ function BotCanvasCard({
   openKey,
   onToggleSession,
   onAddSession,
+  onDetachSession,
 }: {
   bot: BotView;
   mode: EventMode;
   openKey: string | null;
   onToggleSession: (key: string) => void;
   onAddSession: (bot: BotView) => void;
+  onDetachSession: (bot: BotView, session: BotSessionRef) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   const live = bot.sessions.filter((session) => session.activity === "live").length;
@@ -194,35 +216,48 @@ function BotCanvasCard({
             const open = key === openKey;
             return (
               <li key={key}>
-                <button
-                  type="button"
-                  onClick={() => onToggleSession(key)}
-                  aria-expanded={open}
-                  className={`flex min-h-11 w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 ${
+                {/* A button cannot contain a button, so opening the transcript and opening the
+                    row's menu are siblings and the open tint moves up to the box that holds
+                    both -- the same shape the sidebar's rows took when they grew this menu. */}
+                <div
+                  className={`flex items-start border-l-2 pr-1.5 ${
                     open ? "border-primary bg-muted" : "border-transparent"
                   }`}
                 >
-                  <ActivityDot activity={session.activity} className="mt-1.5" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
-                      {session.title || session.sessionId}
+                  <button
+                    type="button"
+                    onClick={() => onToggleSession(key)}
+                    aria-expanded={open}
+                    className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+                  >
+                    <ActivityDot activity={session.activity} className="mt-1.5" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
+                        {session.title || session.sessionId}
+                      </span>
+                      <SessionMeta
+                        source={session.source}
+                        lastEventAt={session.lastEventAt}
+                        activity={session.activity}
+                      />
                     </span>
-                    <SessionMeta
-                      source={session.source}
-                      lastEventAt={session.lastEventAt}
-                      activity={session.activity}
+                    {!session.capabilities.canSend ? (
+                      <span className="mt-0.5 shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                        view only
+                      </span>
+                    ) : null}
+                    <ChevronDown
+                      className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                      aria-hidden
+                    />
+                  </button>
+                  <span className="mt-1">
+                    <SessionRowMenu
+                      label={session.title || session.sessionId}
+                      onDetach={() => onDetachSession(bot, session)}
                     />
                   </span>
-                  {!session.capabilities.canSend ? (
-                    <span className="mt-0.5 shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                      view only
-                    </span>
-                  ) : null}
-                  <ChevronDown
-                    className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-                    aria-hidden
-                  />
-                </button>
+                </div>
                 {open ? (
                   // Keyed by mode as well as session: every event index the feed holds is counted
                   // in the mode it was read in, so a mode change has to remount rather than
@@ -256,11 +291,12 @@ function BotCanvasCard({
           {bot.missingSessionRefs.map((ref) => (
             <li
               key={sessionKey(ref)}
-              className="flex min-h-9 items-center gap-2 px-3 py-2 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
+              className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
             >
               <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>
               <SourceBadge source={ref.source} />
               <span>missing</span>
+              <SessionRowMenu label={ref.sessionId} onDetach={() => onDetachSession(bot, ref)} />
             </li>
           ))}
         </ul>
