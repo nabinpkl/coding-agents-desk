@@ -1573,8 +1573,27 @@ prepare-pty-runtime variant="stable": build-pty-runtime
 host-debug:
     lldb --wait-for --attach-name AgentDeskHost
 
-grid-encoder-install:
-    sh tools/install-grid-encoder.sh
+# Install the desktop helper for a login session, without rebuilding or relaunching either app.
+#
+# `path` exists because the agent session's sidecar does not read its helper from that account's
+# runtime root. It sets AGENT_FEED_GRID_ENCODER_PATH to a shared location, so the console user can
+# update the helper for a session whose ~/Library it cannot even read. Installing to the account's
+# own root instead leaves the running helper untouched and the change looks like it did nothing --
+# which it did, to a file nobody executes.
+#
+#   just grid-encoder-install                          # this account's runtime root
+#   just grid-encoder-install /Users/Shared/grid-encoder  # the agent session's helper
+#
+# The other direction now works too: `tools/install-node.sh` gives an account the node this script
+# needs, so that session can run the plain form itself.
+grid-encoder-install path="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n '{{path}}' ]; then
+        AGENT_FEED_GRID_ENCODER_PATH='{{path}}' sh tools/install-grid-encoder.sh
+    else
+        sh tools/install-grid-encoder.sh
+    fi
 
 # Who is watching a sidecar's displays and which grid-encoders are capturing for them. One login
 # session per sidecar; the registry entry names its port.
