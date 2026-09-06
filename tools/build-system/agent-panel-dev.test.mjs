@@ -22,6 +22,10 @@ async function fixture(t, { serving = true, token = true, tls = true, failure = 
     AGENTDESK_RUNTIME_ROOT: join(root, "runtime with spaces"),
     AGENTDESK_AGENT_PANEL_DEV_PORT: "5173",
     AGENTDESK_AGENT_PANEL_DEV_LOG: join(root, "vite.log"),
+    // The fixture never brings a server up, so the failure path would otherwise spend the
+    // recipe's full 20s readiness budget proving the obvious. Three attempts exercise the
+    // same loop and the same error.
+    AGENTDESK_AGENT_PANEL_DEV_READY_ATTEMPTS: "3",
     FIXTURE_ROOT: root,
     FIXTURE_FAILURE: failure,
   };

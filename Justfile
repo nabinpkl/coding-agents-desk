@@ -647,7 +647,12 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
         {{agent_feed_token_var}}="$TOKEN" \
         nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 &
     )
-    for _ in $(seq 1 100); do
+    # 20s by default, as 100 attempts a fifth of a second apart. Overridable because the
+    # failure path is exercised by a test that has no server to wait for and would otherwise
+    # spend the whole budget proving it: the test sets a handful of attempts, a real launch
+    # keeps the twenty seconds a cold Vite start can need.
+    ATTEMPTS="${AGENTDESK_AGENT_PANEL_DEV_READY_ATTEMPTS:-100}"
+    for _ in $(seq 1 "$ATTEMPTS"); do
         if serving; then
             echo "agent-webview-dev: serving at $ORIGIN (log: $LOG)" >&2
             echo "$ORIGIN"
@@ -655,7 +660,7 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
         fi
         sleep 0.2
     done
-    echo "ERROR: no Vite dev server at $ORIGIN after 20s. Its output is in $LOG." >&2
+    echo "ERROR: no Vite dev server at $ORIGIN after $ATTEMPTS attempts. Its output is in $LOG." >&2
     echo "       The panel would load from nothing, so this launch stops here. Pass" >&2
     echo "       'panel=bundled' to use the built webview instead." >&2
     exit 1
