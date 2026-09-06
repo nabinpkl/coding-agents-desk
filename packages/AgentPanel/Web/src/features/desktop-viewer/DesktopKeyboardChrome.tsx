@@ -38,6 +38,10 @@ export function DesktopKeyboardChrome({
   onPasteToMac,
   onDeckCharacter,
   onDeckCursorDelta,
+  onDeckBackspace,
+  draft,
+  onSendDraft,
+  onCancelDraft,
   showsDeck,
   deckAvailable,
   onKeyboardMode,
@@ -65,6 +69,11 @@ export function DesktopKeyboardChrome({
   /** One character typed on the deck, including " " for space and "\n" for return. */
   onDeckCharacter: (character: string) => void;
   onDeckCursorDelta: (delta: number) => void;
+  onDeckBackspace: () => void;
+  /** Pasted text being edited before it goes, or null when there is no paste in hand. */
+  draft: string | null;
+  onSendDraft: () => void;
+  onCancelDraft: () => void;
   /** Whether the panel's own keyboard is the one typing. */
   showsDeck: boolean;
   /** Whether a deck is on offer here at all; false on a browser with a physical keyboard. */
@@ -132,15 +141,33 @@ export function DesktopKeyboardChrome({
               paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
             }}
           >
-            <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
-              <output
-                aria-label="Local typing echo"
-                className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
-              >
-                <span className="min-w-full shrink-0 whitespace-pre">
-                  {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
-                </span>
-              </output>
+            <div className={`mb-1 flex items-center gap-1 rounded-lg border bg-muted px-2 ${
+              draft === null ? "h-8 border-border" : "min-h-8 border-primary py-1"}`}>
+              {draft === null ? (
+                <output
+                  aria-label="Local typing echo"
+                  className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
+                >
+                  <span className="min-w-full shrink-0 whitespace-pre">
+                    {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
+                  </span>
+                </output>
+              ) : (
+                /*
+                 * A field in everything but kind: it shows the text, carries a caret, and the deck
+                 * edits it. What it must never be is focusable, because a focused editable is what
+                 * summons WebKit's keyboard and the form strip the deck exists to avoid.
+                 */
+                <div
+                  role="textbox"
+                  aria-readonly
+                  aria-label="Pasted text, editable before sending"
+                  className="max-h-20 min-w-0 flex-1 select-none overflow-y-auto whitespace-pre-wrap break-words text-left text-sm text-foreground"
+                >
+                  {draft}
+                  <span aria-hidden className="ml-px inline-block w-px animate-pulse self-stretch bg-foreground align-middle" style={{ height: "1.1em" }} />
+                </div>
+              )}
               <span
                 role="status"
                 aria-label="Input delivery"
@@ -161,13 +188,32 @@ export function DesktopKeyboardChrome({
                   Panel
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={onPasteToMac}
-                className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-              >
-                Paste
-              </button>
+              {draft === null ? (
+                <button
+                  type="button"
+                  onClick={onPasteToMac}
+                  className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                >
+                  Paste
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={onCancelDraft}
+                    className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onSendDraft}
+                    className="h-7 shrink-0 cursor-pointer rounded bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    Send
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 aria-label="Auto keyboard"
@@ -215,7 +261,7 @@ export function DesktopKeyboardChrome({
                 bottom: softwareKeyboardVisible ? "4px" : "max(4px, env(safe-area-inset-bottom))",
               }}
               onCharacter={onDeckCharacter}
-              onDelete={() => onKey("delete")}
+              onDelete={onDeckBackspace}
               onCursorDelta={onDeckCursorDelta}
               onSwitchToNative={() => onKeyboardMode("native")}
             />

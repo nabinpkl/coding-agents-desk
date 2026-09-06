@@ -109,6 +109,15 @@ export function useDesktopKeyboard({
   const [receipt, setReceipt] = useState<string[]>([]);
   const [localEcho, setLocalEcho] = useState<string[]>([]);
   const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
+  /**
+   * The pasted text being edited before it goes, or null when there is nothing to edit.
+   *
+   * Null is not the same as empty: a draft that has been emptied is still a mode the deck is
+   * typing into, and leaving it takes Send or Cancel rather than a backspace.
+   */
+  const [draft, setDraft] = useState<string | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [accessoryBottom, setAccessoryBottom] = useState(0);
   const [accessoryHeight, setAccessoryHeight] = useState(0);
   const accessoryRef = useRef<HTMLElement>(null);
@@ -350,6 +359,36 @@ export function useDesktopKeyboard({
       setDeliveryStatus("Clipboard is empty: nothing was sent");
       return;
     }
+    // With the deck up there is a keyboard to edit with, so the paste lands in a draft and waits.
+    // Without one there is nothing to edit it with, and it goes as it always did.
+    if (showsDeckRef.current) {
+      setDeliveryStatus(null);
+      setDraft(text);
+      return;
+    }
+    sendText(text);
+  }, [sendText]);
+
+  const appendToDraft = useCallback((character: string) => {
+    setDraft((current) => (current === null ? current : current + character));
+  }, []);
+
+  const backspaceDraft = useCallback(() => {
+    // By code point, so one backspace takes one emoji rather than half of one.
+    setDraft((current) => (current === null ? current : [...current].slice(0, -1).join("")));
+  }, []);
+
+  const cancelDraft = useCallback(() => {
+    setDraft(null);
+    setDeliveryStatus(null);
+  }, []);
+
+  /** Commit the edited text and leave the mode. It goes as characters, which is what a paste is. */
+  const sendDraft = useCallback(() => {
+    const text = draftRef.current;
+    if (text === null) return;
+    setDraft(null);
+    if (text.length === 0) return;
     sendText(text);
   }, [sendText]);
 
@@ -424,13 +463,23 @@ export function useDesktopKeyboard({
    * deliberately reports no keystroke tokens of its own.
    */
   const sendDeckCharacter = useCallback((character: string): boolean => {
+    // A draft is a mode, so the deck types into it rather than at the Mac. Return is the exception
+    // and the way out: it sends what has been edited.
+    if (draftRef.current !== null) {
+      if (character === "\n") {
+        sendDraft();
+        return true;
+      }
+      appendToDraft(character);
+      return true;
+    }
     const key = remoteKeyForCharacter(character);
     if (key) return acceptEncodedKeys([key]);
     const secure = presentationRef.current.secure || presentationRef.current.editability === null;
     if (!sendText(character)) return false;
     setLocalEcho((current) => [...current, secure ? "\u2022" : character].slice(-MAX_RECEIPT_EVENTS));
     return true;
-  }, [acceptEncodedKeys, sendText]);
+  }, [acceptEncodedKeys, appendToDraft, sendDraft, sendText]);
 
   /** Panning the deck's space bar moves the remote caret, one arrow press per step. */
   const sendDeckCursorDelta = useCallback((delta: number) => {
@@ -513,6 +562,15 @@ export function useDesktopKeyboard({
     acceptEncodedKeys([{ code, modifiers: [] }]);
     focusCapture();
   }, [acceptEncodedKeys, focusCapture]);
+
+  /** Backspace edits the draft while there is one, and reaches the Mac only when there is not. */
+  const deckBackspace = useCallback(() => {
+    if (draftRef.current !== null) {
+      backspaceDraft();
+      return;
+    }
+    sendChromeKey("delete");
+  }, [backspaceDraft, sendChromeKey]);
 
   const tapModifier = useCallback((modifier: RemoteModifier) => {
     const next = { ...modifiersRef.current };
@@ -829,6 +887,10 @@ export function useDesktopKeyboard({
     setKeyboardMode,
     sendDeckCharacter,
     sendDeckCursorDelta,
+    deckBackspace,
+    draft,
+    sendDraft,
+    cancelDraft,
     pasteFromClipboard,
     tapModifier,
     setAutoKeyboard,
