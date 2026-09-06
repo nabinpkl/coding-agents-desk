@@ -1154,57 +1154,85 @@ dom-mirror-e2e: ext-stamp
 # swift-check` as well -- and note that the auto-commit rule in AGENTS.md means green there too,
 # not just here. `just voice-check` covers the dormant voice arc, `just sim-test` the iOS
 # simulator suite, and `just check-all` runs the lot.
-# The legs run concurrently, so the gate costs the slowest one rather than their sum.
+# Every leg of the current-path gate, run whatever changed. `check` runs only the legs a diff
+# can affect; this is the sweep, and what `check-all` builds on.
+check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder
+
+# Only the legs the current diff can actually affect.
 #
-# They are independent by construction: each owns its own project directory, and the one thing
-# three of them share -- the dependency cache under .build/js-dependencies -- keeps a stamp per
-# project and writes it through a pid-suffixed temporary file and an atomic rename, so two
-# installing at once cannot corrupt it.
+# Measured on this tree: the six legs together are ~21s, of which the two big suites are ~19s,
+# and running them concurrently bought almost nothing because both are already internally
+# parallel. The lever is not scheduling, it is not running suites a diff cannot reach. A
+# sidecar-only change now runs one leg instead of six.
 #
-# Output is collected per leg instead of interleaved, because six streams writing at once is not
-# readable. Every leg reports pass or fail with its own wall clock, and a failing leg's log is
-# printed in full afterwards. Run any leg on its own by name to watch it live.
+# Conservative in one direction on purpose: a path no leg claims runs everything, because a
+# silently skipped leg is worse than a slow gate. Native paths are reported, never run -- they
+# belong to `just swift-check`, and this deliberately does not invoke it.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    legs=(agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder)
-    logs="$(mktemp -d "${TMPDIR:-/tmp}/agentdesk-check.XXXXXX")"
-    trap 'rm -rf "$logs"' EXIT
-    started=$SECONDS
-    pids=()
-    for leg in "${legs[@]}"; do
-      (
-        leg_started=$SECONDS
-        just "$leg" > "$logs/$leg.log" 2>&1
-        leg_status=$?
-        echo "$leg_status $((SECONDS - leg_started))" > "$logs/$leg.status"
-        exit $leg_status
-      ) &
-      pids[${#pids[@]}]=$!
+    changed="$(git diff --name-only HEAD; git ls-files --others --exclude-standard)"
+    if [ -z "$changed" ]; then
+        changed="$(git diff --name-only '@{upstream}'...HEAD 2>/dev/null || true)"
+        if [ -n "$changed" ]; then
+            echo "check: tree is clean, so checking what is committed but unpushed." >&2
+        fi
+    fi
+    if [ -z "$changed" ]; then
+        echo "check: nothing changed since HEAD or upstream. Nothing to check." >&2
+        echo "check: run 'just check-legs' for the full sweep." >&2
+        exit 0
+    fi
+    legs=""
+    native=""
+    unclaimed=""
+    add() {
+        case " $legs " in
+            *" $1 "*) ;;
+            *) legs="$legs $1" ;;
+        esac
+    }
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        case "$path" in
+            agent-feed/sidecar/*) add agent-feed-sidecar-check ;;
+            # The wire is the contract both ends compile against, so it is both their problem.
+            agent-feed/wire/*) add agent-feed-sidecar-check; add agent-panel-web-check ;;
+            packages/AgentPanel/Web/*) add agent-panel-web-check ;;
+            terminal/pty-client-swift/Web/*) add terminal-web-check ;;
+            tools/build-system/*|tools/runtime-paths.mjs|Justfile) add build-system-check ;;
+            tools/grid-encoder/*|tools/test-desktop-*.sh) add grid-encoder ;;
+            # build-system-check owns the tests that drive these two scripts.
+            tools/build-grid-encoder.sh|tools/swiftc-cached.sh) add grid-encoder; add build-system-check ;;
+            # Compiled into the helper from the host tree, so they are this gate's business too.
+            host/AgentDeskHost/SkyLightSymbols.swift|host/AgentDeskHost/DockSwipeEvent.swift)
+                add grid-encoder; native="$native $path" ;;
+            host/*|client/*|terminal/pty-manager/*|packages/*/Sources/*|packages/*/Tests/*)
+                native="$native $path" ;;
+            *.md|.gitignore|architecture-decisions/*|tasks/*|mock-design/*) ;;
+            *) unclaimed="$unclaimed $path" ;;
+        esac
+    done <<< "$changed"
+    if [ -n "$unclaimed" ]; then
+        echo "check: no leg claims:$unclaimed" >&2
+        echo "check: running every leg rather than guessing." >&2
+        legs="agent-feed-sidecar-check agent-panel-web-check terminal-web-check build-system-check grid-encoder"
+    fi
+    # Always, because it is two seconds and it reads across the host Swift, the panel Swift and
+    # the wire at once: its inputs are too spread to map honestly.
+    add agent-feed-fitness
+    echo "check:$legs" >&2
+    status=0
+    for leg in $legs; do
+        echo "===== $leg" >&2
+        just "$leg" || status=1
     done
-    # bash 3.2 has no wait -n, and the point is the total anyway: every leg is already running.
-    failed=""
-    index=0
-    for leg in "${legs[@]}"; do
-      wait "${pids[$index]}" || failed="$failed $leg"
-      index=$((index + 1))
-    done
-    for leg in "${legs[@]}"; do
-      read -r leg_status leg_elapsed < "$logs/$leg.status"
-      if [ "$leg_status" -eq 0 ]; then
-        printf 'ok    %-26s %ss\n' "$leg" "$leg_elapsed"
-      else
-        printf 'FAIL  %-26s %ss\n' "$leg" "$leg_elapsed"
-      fi
-    done
-    for leg in $failed; do
-      echo
-      echo "===== $leg ====="
-      cat "$logs/$leg.log"
-    done
-    echo
-    echo "check finished in $((SECONDS - started))s"
-    [ -z "$failed" ]
+    if [ -n "$native" ]; then
+        echo >&2
+        echo "check: native files changed and this gate does not build them:$native" >&2
+        echo "check: run 'just swift-check' as well." >&2
+    fi
+    exit $status
 
 # The native apps and the machinery that launches them: the Swift packages, the Rust PTY manager,
 # the whole Xcode host test suite, and the shell tests covering host-run and client-install
@@ -1281,7 +1309,7 @@ sim-test: ensure-webview-placeholder voice-assets-stage-tests
 
 # Everything: the current-path gate, the native apps, the voice arc, and the client simulator
 # tests. Minutes, not seconds.
-check-all: check swift-check voice-check sim-test
+check-all: check-legs swift-check voice-check sim-test
 
 # Reproduce the pinned R130 Core ML phone model and stage its coupled manifest
 # and vocabulary under the client synchronized resource root. The large source
