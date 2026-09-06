@@ -2,6 +2,7 @@
 // `GET  /api/park/plan`    -- where a park would put everything, and whether that plan holds up.
 // `POST /api/park`         -- gather, re-read the order, lay the ladder.
 // `POST /api/park/restore` -- put everything back where the manifest says it came from.
+// `POST /api/park/grid`    -- spread windows across one display as a board.
 //
 // Not under `/api/sessions/`: a Desktop is a fact about the machine, not about a
 // thread, which is the same reason `/api/usage` sits at the top level.
@@ -22,9 +23,20 @@ import type {
   ParkStateResponse,
 } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
+import { gridSlots, usableArea } from "../park/grid.ts";
 import { plan as planLadder } from "../park/ladder.ts";
 import { park, restore } from "../park/park.ts";
-import { activeSpace, displays, parkable, windows, YabaiUnavailable } from "../park/yabai.ts";
+import {
+  activeSpace,
+  displays,
+  moveTo,
+  moveToSpace,
+  parkable,
+  resizeTo,
+  spaces,
+  windows,
+  YabaiUnavailable,
+} from "../park/yabai.ts";
 import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
@@ -32,11 +44,25 @@ const STATE_ROUTE = "/api/park/state";
 const PLAN_ROUTE = "/api/park/plan";
 const PARK_ROUTE = "/api/park";
 const RESTORE_ROUTE = "/api/park/restore";
+const GRID_ROUTE = "/api/park/grid";
+
+// macOS refuses to place a window under the menu bar, so a grid computed
+// against the raw display frame has its whole top row clamped downward into the
+// second. Measured on this desk: a window pushed to y=0 lands at y=39.
+const MENU_BAR_INSET = 40;
+// Wide enough to read as deliberate separation on a desk measured in thousands
+// of points, narrow enough not to waste a column.
+const SLOT_GAP = 24;
 
 interface ParkRequestBody {
   confirm?: unknown;
   app?: unknown;
   dryRun?: unknown;
+  /** Grid only: which display, which windows, and how far apart. */
+  display?: unknown;
+  ids?: unknown;
+  count?: unknown;
+  gap?: unknown;
 }
 
 async function body(request: Request): Promise<ParkRequestBody> {
@@ -170,6 +196,111 @@ async function restoreResponse(request: Request): Promise<Response> {
   return jsonResponse(await restore());
 }
 
+/**
+ * Spread windows across one display as a board.
+ *
+ * The ladder's counterpart, and the reason `moveTo` and `resizeTo` both verify:
+ * a window with a minimum size of its own answers a slot-sized request with its
+ * own floor while yabai still exits 0, so "placed" has to mean observed, not
+ * requested.
+ */
+async function gridResponse(request: Request): Promise<Response> {
+  const input = await body(request);
+  if (input.confirm !== true) return unconfirmed();
+
+  const [all, screens, allSpaces] = await Promise.all([windows(), displays(), spaces()]);
+  const candidates = parkable(all);
+
+  // Defaults to the largest display rather than to an index, because the desk
+  // this exists for is a big panel beside a small one and an index moves when a
+  // display is unplugged.
+  const requested = typeof input.display === "number" ? input.display : null;
+  const screen = requested !== null
+    ? screens.find((d) => d.index === requested)
+    : [...screens].sort((a, b) => b.frame.w * b.frame.h - a.frame.w * a.frame.h)[0];
+  if (!screen) {
+    return jsonResponse(
+      { code: "park-no-such-display", message: `no display ${requested}`, displays: screens },
+      400,
+    );
+  }
+
+  const target = allSpaces.find((s) => s.display === screen.index);
+  if (!target) {
+    return jsonResponse(
+      { code: "park-no-space", message: `display ${screen.index} has no Space to move windows to` },
+      400,
+    );
+  }
+
+  const ids = Array.isArray(input.ids) ? input.ids.filter((id) => typeof id === "number") : [];
+  const limit = typeof input.count === "number" ? input.count : candidates.length;
+  const chosen = ids.length > 0
+    ? ids.flatMap((id) => candidates.filter((w) => w.id === id))
+    : candidates.slice(0, limit);
+  if (chosen.length === 0) {
+    return jsonResponse(
+      {
+        code: "park-nothing-to-place",
+        message: "no windows matched",
+        tracked: all.length,
+        parkable: candidates.length,
+      },
+      400,
+    );
+  }
+
+  const gap = typeof input.gap === "number" ? input.gap : SLOT_GAP;
+  const area = usableArea(screen.frame, MENU_BAR_INSET);
+  let slots;
+  try {
+    slots = gridSlots(area, chosen.length, gap);
+  } catch (error) {
+    return jsonResponse(
+      { code: "park-grid-impossible", message: (error as Error).message },
+      400,
+    );
+  }
+
+  // Serially, because every step re-queries the window to see where it actually
+  // landed; overlapping that with other moves would verify against a desk that
+  // is still changing underneath the read.
+  const placements = [];
+  for (const [index, window] of chosen.entries()) {
+    const slot = slots[index]!;
+    const steps = [];
+    // Position before sizing, and re-assert the origin after. Measured on the
+    // agent desk: a window resized while still on the display it came from is
+    // clamped to that display's height (2104pt asked, 754pt given), while the
+    // two windows already on the target took their slot exactly. So the window
+    // has to be standing on the big display before it is told how big to be,
+    // and since a resize is anchored at the origin, the move is repeated after.
+    if (window.space !== target.index) steps.push(await moveToSpace(window.id, target.index));
+    steps.push(await moveTo(window.id, slot.x, slot.y));
+    steps.push(await resizeTo(window.id, slot.w, slot.h));
+    steps.push(await moveTo(window.id, slot.x, slot.y));
+    const final = steps[steps.length - 1]!;
+    placements.push({
+      id: window.id,
+      app: window.app,
+      title: window.title,
+      requested: slot,
+      observed: final.observed?.frame ?? null,
+      ok: steps.every((step) => step.ok),
+      reasons: steps.flatMap((step) => (step.reason ? [step.reason] : [])),
+    });
+  }
+
+  return jsonResponse({
+    display: screen.index,
+    space: target.index,
+    area,
+    gap,
+    placed: placements.filter((placement) => placement.ok).length,
+    placements,
+  });
+}
+
 export function createParkRoutes(): RouteHandler {
   // Deliberately not an async function: the "not my route" answer is `undefined`
   // and must be returned synchronously, so only the matched paths become a
@@ -178,7 +309,8 @@ export function createParkRoutes(): RouteHandler {
     const isGet = request.method === "GET"
       && (url.pathname === STATE_ROUTE || url.pathname === PLAN_ROUTE);
     const isPost = request.method === "POST"
-      && (url.pathname === PARK_ROUTE || url.pathname === RESTORE_ROUTE);
+      && (url.pathname === PARK_ROUTE || url.pathname === RESTORE_ROUTE
+        || url.pathname === GRID_ROUTE);
     if (!isGet && !isPost) return undefined;
     if (!config.yabaiPath) {
       return unavailable(new YabaiUnavailable("no yabai binary found on this machine"));
@@ -187,6 +319,7 @@ export function createParkRoutes(): RouteHandler {
     if (url.pathname === STATE_ROUTE) work = state();
     else if (url.pathname === PLAN_ROUTE) work = planResponse(url);
     else if (url.pathname === PARK_ROUTE) work = parkResponse(request);
+    else if (url.pathname === GRID_ROUTE) work = gridResponse(request);
     else work = restoreResponse(request);
     return work.catch(unavailable);
   };

@@ -194,6 +194,30 @@ export async function moveTo(id: number, x: number, y: number): Promise<MoveOutc
 }
 
 /**
+ * Resize a window and report the size it actually took.
+ *
+ * Verified for the same reason `moveTo` is: macOS clamps a window to whatever
+ * its app is willing to be, and a minimum-size app answers a 2560pt request
+ * with its own floor while yabai still exits 0.
+ */
+export async function resizeTo(id: number, w: number, h: number): Promise<MoveOutcome> {
+  try {
+    await run(["-m", "window", String(id), "--resize", `abs:${Math.round(w)}:${Math.round(h)}`]);
+  } catch (error) {
+    return { id, ok: false, observed: null, reason: (error as Error).message };
+  }
+  const after = await windowById(id);
+  if (!after) return { id, ok: false, observed: null, reason: "window vanished after the resize" };
+  const landed = Math.abs(after.frame.w - w) < 1 && Math.abs(after.frame.h - h) < 1;
+  return {
+    id,
+    ok: landed,
+    observed: { space: after.space, frame: after.frame },
+    reason: landed ? undefined : `clamped to ${after.frame.w}x${after.frame.h}`,
+  };
+}
+
+/**
  * The candidates a park would touch: ordinary windows on a real Desktop.
  *
  * Excludes minimized and hidden windows (they have no surface to render),
