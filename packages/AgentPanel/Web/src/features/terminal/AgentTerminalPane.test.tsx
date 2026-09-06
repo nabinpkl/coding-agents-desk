@@ -19,6 +19,7 @@ class FakeTerminal {
     terminal = this;
   }
 
+  focuses = 0;
   readonly buffer = { active: { type: "normal" as const } };
   open(element: HTMLElement) { this.element = element; }
   attachCustomWheelEventHandler() {}
@@ -26,7 +27,7 @@ class FakeTerminal {
   clear() {}
   reset() {}
   resize() {}
-  focus() {}
+  focus() { this.focuses++; }
   dispose() {}
   write(bytes: Uint8Array, done: () => void) {
     this.writes.push([...bytes]);
@@ -177,4 +178,50 @@ it("sizes a band pane from its own height, with the viewport as its ceiling", as
   // The ceiling comes from the viewport, because the parent measures the pane itself.
   fireEvent.keyDown(screen.getByRole("separator", { name: "Resize terminal" }), { key: "End" });
   expect(pane).toHaveStyle({ height: "720px" });
+});
+
+/** A touch event jsdom will carry: only the two lists the tap handler reads have to be real. */
+function touch(type: string, x: number, y: number): Event {
+  const event = new Event(type, { bubbles: true });
+  const point = { clientX: x, clientY: y };
+  Object.assign(event, { touches: [point], changedTouches: [point] });
+  return event;
+}
+
+it("focuses on a tap, which is the only thing that raises a phone's keyboard", async () => {
+  const feed = {
+    terminalHistory: vi.fn(async () => ""),
+    openTerminal: vi.fn(async () => ({
+      terminalId: "terminal-1",
+      ptySessionName: "composerprobe",
+      pid: 42,
+      columns: 80,
+      rows: 24,
+    })),
+    subscribeTerminal: vi.fn(() => vi.fn()),
+    sendTerminalInput: vi.fn(async () => {}),
+    updateTerminalViewport: vi.fn(async () => {}),
+    closeTerminal: vi.fn(async () => {}),
+  } as unknown as SidecarDataSource;
+  const context = { kind: "tmux" as const, session: "composerprobe" };
+
+  render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} />);
+  await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
+  const mount = terminal.element!;
+  // xterm focuses from `mousedown`, and its touch Gesture preventDefaults the touch that would
+  // have synthesized one -- so without this the terminal is never focused by a finger.
+  const opened = terminal.focuses;
+
+  act(() => {
+    mount.dispatchEvent(touch("touchstart", 100, 100));
+    mount.dispatchEvent(touch("touchend", 102, 103));
+  });
+  expect(terminal.focuses).toBe(opened + 1);
+
+  // A finger that travelled was reading, not asking to type.
+  act(() => {
+    mount.dispatchEvent(touch("touchstart", 100, 100));
+    mount.dispatchEvent(touch("touchend", 100, 180));
+  });
+  expect(terminal.focuses).toBe(opened + 1);
 });

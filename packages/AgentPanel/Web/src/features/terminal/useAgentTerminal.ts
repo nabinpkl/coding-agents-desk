@@ -45,6 +45,8 @@ interface Dimensions {
   rows: number;
 }
 
+/** A finger this far off where it landed was scrolling, not tapping. */
+const TAP_SLOP_PX = 10;
 /** How much scrollback to ask tmux for, and how much to keep. Matches the route's own ceiling. */
 const HISTORY_LINES = 50_000;
 /** Rows per wheel notch. Three is what a terminal emulator conventionally scrolls. */
@@ -128,6 +130,38 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         terminal.scrollLines(Math.sign(event.deltaY) * WHEEL_LINES);
         return false;
       });
+
+      // A tap has to focus the terminal by hand, or a phone gets no keyboard.
+      //
+      // xterm focuses from `mousedown` (`bindMouse`'s requestFocus). On a touch device it also
+      // installs a Gesture on the screen element, and that Gesture calls `preventDefault()` on
+      // touchstart and touchend -- which is exactly what suppresses the browser's synthesized
+      // mouse events. So the mousedown that would have focused never arrives, nothing focuses the
+      // hidden textarea, and iOS has no focused field to raise a keyboard for. Measured against
+      // the vendored source rather than inferred from the symptom.
+      //
+      // Focused from the touch itself, for two reasons: it is on the mount, which bubbles before
+      // the document-level listener that stops propagation, and it runs synchronously inside the
+      // gesture, which is the condition iOS puts on showing the keyboard at all.
+      let touchOrigin: { x: number; y: number } | null = null;
+      const noteTouchStart = (event: TouchEvent): void => {
+        const touch = event.touches.length === 1 ? event.touches[0] : null;
+        touchOrigin = touch ? { x: touch.clientX, y: touch.clientY } : null;
+      };
+      // Only a tap, never a drag: a finger scrolling back over output has not asked to type, and
+      // a keyboard thrown up mid-scroll takes half the screen the reader was using.
+      const focusOnTap = (event: TouchEvent): void => {
+        const origin = touchOrigin;
+        touchOrigin = null;
+        const touch = event.changedTouches[0];
+        if (!origin || !touch) return;
+        const moved = Math.abs(touch.clientX - origin.x) > TAP_SLOP_PX
+          || Math.abs(touch.clientY - origin.y) > TAP_SLOP_PX;
+        if (moved) return;
+        terminal.focus();
+      };
+      mount.addEventListener("touchstart", noteTouchStart, { passive: true });
+      mount.addEventListener("touchend", focusOnTap);
 
       let descriptor: AgentTerminalDescriptor | null = null;
       let unsubscribe: (() => void) | null = null;
@@ -311,6 +345,8 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       teardown = () => {
         if (resizeTimer !== null) clearTimeout(resizeTimer);
         observer?.disconnect();
+        mount.removeEventListener("touchstart", noteTouchStart);
+        mount.removeEventListener("touchend", focusOnTap);
         input.dispose();
         binaryInput.dispose();
         appearance?.removeEventListener("change", updateTheme);

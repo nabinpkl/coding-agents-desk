@@ -213,3 +213,12 @@
   user-select: none;
   cursor: default;
 }
+
+/* iOS zooms the page whenever it focuses a field smaller than 16px, and xterm's hidden textarea
+   inherits the terminal's own font size -- so tapping a terminal to type would zoom the panel and
+   leave it zoomed. The element is invisible (opacity 0, behind the screen), so its size is only
+   ever read by that rule. xterm sets `line-height` on it inline for IME positioning and never
+   `font-size`, so this does not fight the library. */
+.xterm .xterm-helper-textarea {
+  font-size: 16px;
+}
