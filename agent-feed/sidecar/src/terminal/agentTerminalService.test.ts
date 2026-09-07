@@ -388,6 +388,8 @@ interface SessionTmuxFakes {
     columns: number;
     rows: number;
   }[];
+  /** Panes this open waited on before attaching, in order. */
+  settled?: string[];
 }
 
 /** Points the session-to-pane resolution at recording fakes, the way `serviceWithTmux` does. */
@@ -401,6 +403,9 @@ function serviceWithSessionTmux(
     create: async (options: SessionTmuxFakes["created"][number]) => {
       fakes.created.push(options);
       fakes.running.add(options.session);
+    },
+    settle: async (session: string) => {
+      fakes.settled?.push(session);
     },
   };
   return service;
@@ -507,6 +512,31 @@ test("gives two forks of one session two panes", async () => {
     `agentdesk-fork-${FORK_ID}`,
     `agentdesk-fork-${second}`,
   ]);
+});
+
+test("waits for a pane it just created to settle, and never for one it merely joins", async () => {
+  // The whole point: `pipe-pane` starts at now, so attaching to a newborn pane pipes its startup
+  // live and makes the viewer emulate every repaint. Waiting lets `capture-pane` collapse it, the
+  // way tmux collapses it for its own clients.
+  const created: SessionTmuxFakes = {
+    owner: null, running: new Set(), created: [], settled: [],
+  };
+  await (await sessionTmuxService(created, [])).open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  );
+  expect(created.settled).toEqual([`agentdesk-fork-${FORK_ID}`]);
+
+  // A pane that already exists has already collapsed its startup into scrollback, so waiting on it
+  // would spend seconds to gain nothing.
+  const joined: SessionTmuxFakes = {
+    owner: null, running: new Set([`agentdesk-${SESSION_ID}`]), created: [], settled: [],
+  };
+  await (await sessionTmuxService(joined, [])).open(
+    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+    { columns: 100, rows: 30 },
+  );
+  expect(joined.settled).toEqual([]);
 });
 
 test("refuses to fork a codex session", async () => {

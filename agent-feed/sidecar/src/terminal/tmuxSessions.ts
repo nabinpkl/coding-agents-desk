@@ -189,6 +189,97 @@ export function historyForTerminal(captured: string): string {
  * The viewer keeps its own scrolling regardless, because its wheel handler consumes the event
  * rather than letting xterm forward it.
  */
+/**
+ * What a pane looks like right now, cheaply, for deciding whether it has stopped writing.
+ *
+ * `history_size` catches output that scrolled away and the cursor catches a redraw that stayed on
+ * one screen, which a full-screen program does constantly. Either alone misses half of what
+ * "still working" looks like.
+ */
+export function paneActivityArgs(session: string): string[] {
+  return [
+    "display-message", "-p", "-t", session,
+    "#{history_size} #{cursor_y} #{cursor_x} #{pane_dead}",
+  ];
+}
+
+export async function paneActivity(session: string): Promise<string> {
+  const { out, code } = await tmux(paneActivityArgs(session));
+  if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}`);
+  return out.trim();
+}
+
+/**
+ * Waits for a pane this process just created to stop writing, or gives up.
+ *
+ * The reason is what a tmux client gets for free and this path does not. `pipe-pane` starts at
+ * NOW, so a viewer that attaches to a pane at the instant it is born receives the program's entire
+ * startup as live output -- every escape and every intermediate repaint -- and has to emulate all
+ * of it. A viewer that arrives later gets the same thing already collapsed by `capture-pane`, which
+ * is exactly what tmux hands its own clients: the settled screen, not the working.
+ *
+ * So a freshly created pane waits here first. Measured on a forked CLI: it wrote ~148KB in the
+ * first second and a half and then went quiet, and attaching after that turned 24 live output
+ * messages into one capture and nothing on the wire.
+ *
+ * Bounded, and the bound is not an error: a program that never stops writing is a legitimate thing
+ * to watch, and it should be watched late rather than not at all.
+ */
+export async function waitForPaneToSettle(
+  session: string,
+  options: {
+    quietMs?: number;
+    timeoutMs?: number;
+    pollMs?: number;
+    startupMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+    sample?: (session: string) => Promise<string>;
+  } = {},
+): Promise<{ settled: boolean; waitedMs: number }> {
+  const quietMs = options.quietMs ?? 400;
+  const timeoutMs = options.timeoutMs ?? 6_000;
+  const pollMs = options.pollMs ?? 100;
+  // How long to give a pane that has not written anything YET.
+  //
+  // Measured, and the reason a first attempt at this did nothing: a pane is silent for its first
+  // second or so while the program loads, so "no change for 400ms" is true immediately and the
+  // wait returned before the startup it exists to wait for had begun. Quiet only counts once the
+  // pane has shown it is alive.
+  const startupMs = options.startupMs ?? 3_000;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const sample = options.sample ?? paneActivity;
+
+  const start = now();
+  let baseline: string | null = null;
+  let lastChange = start;
+  let stirred = false;
+  while (now() - start < timeoutMs) {
+    let current: string;
+    try {
+      current = await sample(session);
+    } catch {
+      // A pane that cannot be described is not a pane worth waiting for; let the attach report it.
+      return { settled: false, waitedMs: now() - start };
+    }
+    if (baseline === null) {
+      baseline = current;
+    } else if (current !== baseline) {
+      baseline = current;
+      lastChange = now();
+      stirred = true;
+    } else if (stirred && now() - lastChange >= quietMs) {
+      return { settled: true, waitedMs: now() - start };
+    } else if (!stirred && now() - start >= startupMs) {
+      // Never wrote a byte. Nothing to collapse, so nothing to wait for.
+      return { settled: true, waitedMs: now() - start };
+    }
+    await sleep(pollMs);
+  }
+  return { settled: false, waitedMs: now() - start };
+}
+
 export async function restoreTmuxMouse(session: string): Promise<void> {
   const { err, code } = await tmux(["set-option", "-u", "-t", session, "mouse"]);
   if (code !== 0) throw new TmuxUnavailable(`tmux set-option mouse exited ${code}: ${err.trim()}`);

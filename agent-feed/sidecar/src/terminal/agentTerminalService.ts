@@ -17,6 +17,7 @@ import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
 import {
   captureTmuxHistory,
   createTmuxSession,
+  waitForPaneToSettle,
   describeTmuxPane,
   hexSend,
   pipeTmuxPane,
@@ -136,7 +137,14 @@ export class AgentTerminalService {
         columns: number;
         rows: number;
       }) => Promise<void>;
-    } = { owner: liveTmuxSession, exists: tmuxSessionExists, create: createTmuxSession },
+      /** Waits for a just-created pane to stop writing, so its startup lands in the capture. */
+      settle: (session: string) => Promise<void>;
+    } = {
+      owner: liveTmuxSession,
+      exists: tmuxSessionExists,
+      create: createTmuxSession,
+      settle: (session: string) => waitForPaneToSettle(session).then(() => {}),
+    },
   ) {
   }
 
@@ -155,6 +163,10 @@ export class AgentTerminalService {
     if (identity.tmuxSession) {
       if (identity.createTmux && !(await this.tmuxExists(identity.tmuxSession))) {
         await this.startTmux(identity.createTmux, identity.tmuxSession, { columns, rows });
+        // Only for a pane THIS call just created. An existing pane has already collapsed its
+        // startup into scrollback, which is what makes joining one feel instant; a newborn one
+        // would otherwise pipe every byte of that startup live and make the viewer emulate it.
+        await this.sessionTmux.settle(identity.tmuxSession);
       }
       return this.attachTmux(identity, identity.tmuxSession, { columns, rows });
     }
