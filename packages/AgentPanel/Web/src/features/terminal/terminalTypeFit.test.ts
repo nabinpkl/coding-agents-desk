@@ -3,7 +3,7 @@
 // is silent -- a screen that scrolls or a screen in the corner of its own box.
 
 import { expect, test } from "vitest";
-import { fittedFontSize } from "./terminalTypeFit";
+import { fittedFontSize, preferredScreenHeight } from "./terminalTypeFit";
 
 const reading = (available: { width: number; height: number }) => ({
   baseFontSize: 13,
@@ -44,4 +44,31 @@ test("answers nothing for a box or a grid it cannot measure", () => {
     .toBeNull();
   expect(fittedFontSize({ ...reading({ width: 308, height: 320 }), cell: { width: 0, height: 16 } }))
     .toBeNull();
+});
+
+const wanting = (availableWidth: number) => ({
+  baseFontSize: 13,
+  cell: { width: 7.83, height: 16 },
+  grid: { columns: 53, rows: 15 },
+  availableWidth,
+  minimum: 8,
+  maximum: 28,
+});
+
+test("asks for the height that spends the width, not the height at the base size", () => {
+  // 53 x 7.83 = 415 wide at the base size. A band four times that wide has room for type four
+  // times the size, and the height that buys is what the pane should ask for -- asking for the
+  // base-size height instead pins the screen at the base size, because the fit then finds the
+  // height exactly binding and confirms what it started from.
+  expect(preferredScreenHeight(wanting(415))).toBe(15 * 16);
+  expect(preferredScreenHeight(wanting(830))).toBe(15 * 32);
+});
+
+test("stops asking at the largest type it would use", () => {
+  // Capped at 28 of a base 13, so the tallest it ever asks for is that ratio of the screen.
+  expect(preferredScreenHeight(wanting(100_000))).toBe(Math.round(15 * 16 * (28 / 13)));
+});
+
+test("asks for nothing when there is no width to measure", () => {
+  expect(preferredScreenHeight(wanting(0))).toBeNull();
 });

@@ -9,7 +9,7 @@ import type {
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
 import { cycleModifier, releaseArmed, type ModifierState } from "../keyboard/modifierLatch";
 import { isTmuxAttach, terminalContextKey } from "./terminalContext";
-import { fittedFontSize } from "./terminalTypeFit";
+import { fittedFontSize, preferredScreenHeight } from "./terminalTypeFit";
 import {
   applyModifiers,
   bytesForRailKey,
@@ -30,11 +30,11 @@ export interface AgentTerminal {
   mountRef: RefObject<HTMLDivElement | null>;
   labels: TerminalLabels;
   /**
-   * How tall this terminal's screen is at the base type size, or null until one is attached.
+   * How tall this terminal's screen wants to be, or null until one is attached and measured.
    *
-   * Only meaningful where the far end owns the grid: it is the height at which the whole screen is
-   * visible without the type being scaled, which is what a pane free to choose its own height
-   * should be.
+   * Only meaningful where the far end owns the grid: it is the height at which the type fills the
+   * width the screen has, which is the height a pane free to choose its own should take. Capped by
+   * whoever takes it -- this is what the screen wants, not what the surface can afford.
    */
   contentHeight: number | null;
   /** Whether this terminal is what the keyboard is typing into. */
@@ -127,8 +127,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
   const [ownershipLabel, setOwnershipLabel] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
   const [viewLabel, setViewLabel] = useState("");
-  // How tall this terminal's screen is at the base type size, or null while nothing is attached.
-  // What the pane holding it should be, when it is free to choose.
+  // How tall this terminal's screen wants to be, or null while nothing is attached or measurable.
   const [contentHeight, setContentHeight] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
   const [modifiers, setModifiers] = useState<Record<RailModifier, ModifierState>>(RAIL_MODIFIERS_OFF);
@@ -392,24 +391,52 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         // is an overflow and a scrollbar for the sake of eight pixels.
         const padding = paddingOf(mount);
         const framePadding = terminal.element ? paddingOf(terminal.element) : { width: 0, height: 0 };
-        // What the mount must be for the screen to fit at the base size, padding included, because
-        // that is what the pane holding it can act on.
-        setContentHeight(
-          Math.round(baseCell.height * grid.rows + padding.height + framePadding.height),
-        );
+        const available = {
+          width: mount.clientWidth - padding.width - framePadding.width,
+          height: mount.clientHeight - padding.height - framePadding.height,
+        };
+        // What the mount must be for the screen to spend the width it has, padding included,
+        // because that is what the pane holding it can act on. NOT the height at the base size:
+        // asking for that is asking to stay at the base size forever, since the fit below would
+        // then find the height exactly binding every time.
+        const wanted = preferredScreenHeight({
+          baseFontSize: BASE_FONT_SIZE,
+          cell: baseCell,
+          grid,
+          availableWidth: available.width,
+          minimum: MINIMUM_FONT_SIZE,
+          maximum: MAXIMUM_FONT_SIZE,
+        });
+        if (wanted !== null) {
+          setContentHeight(wanted + padding.height + framePadding.height);
+        }
         const fitted = fittedFontSize({
           baseFontSize: BASE_FONT_SIZE,
           cell: baseCell,
           grid,
-          available: {
-            width: mount.clientWidth - padding.width - framePadding.width,
-            height: mount.clientHeight - padding.height - framePadding.height,
-          },
+          available,
           minimum: MINIMUM_FONT_SIZE,
           maximum: MAXIMUM_FONT_SIZE,
         });
-        if (fitted !== null && fitted !== terminal.options.fontSize) {
-          terminal.options.fontSize = fitted;
+        // Nothing measurable to fit against, which is every render before the mount has a size.
+        if (fitted === null) return;
+        if (fitted !== terminal.options.fontSize) terminal.options.fontSize = fitted;
+        // Then settle it against the real metrics, because a cell is not proportional to its font:
+        // measured on this pane, 13pt gives a cell 16 tall and 28pt gives 35.5, where the ratio
+        // predicts 34.5. The arithmetic above is therefore a starting point that can overshoot by a
+        // few percent -- enough for a scrollbar -- and xterm updates `dimensions` synchronously
+        // with the option, so the overshoot is readable straight away. Only ever downward, so this
+        // settles instead of hunting.
+        for (let step = 0; step < 4; step += 1) {
+          // Annotated because the assignment below feeds back into inferring this.
+          const size: number = terminal.options.fontSize ?? BASE_FONT_SIZE;
+          if (size <= MINIMUM_FONT_SIZE) break;
+          const actual = terminal.dimensions?.css.cell;
+          if (!actual) break;
+          const fits = actual.height * grid.rows <= available.height
+            && actual.width * grid.columns <= available.width;
+          if (fits) break;
+          terminal.options.fontSize = size - 1;
         }
       };
 

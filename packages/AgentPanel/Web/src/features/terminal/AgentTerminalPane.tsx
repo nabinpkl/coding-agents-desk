@@ -229,10 +229,16 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
           This mount stays the full band, because it is what the type is fitted against, and it
           still scrolls rather than clips for the case the scaling cannot reach: a grid so large the
           type would stop being readable stays readable and moves instead, since clipping it hid the
-          part of the screen the cursor was on. */}
+          part of the screen the cursor was on.
+
+          Centred by the screen's own auto margins rather than by `justify`/`items`: a flex box
+          that centres its item clips the top of one too large to fit, where auto margins fall back
+          to the start edge and leave it scrollable. `box-content` for the same reason in the other
+          direction -- stretched to the box, the screen's padding would come out of its own height
+          instead of adding to it, and the last row would sit outside the surface it is drawn on. */}
       <div
         ref={mountRef}
-        className="flex min-h-0 flex-1 justify-center overflow-auto px-3 pb-3 [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
+        className="flex min-h-0 flex-1 overflow-auto p-3 [&>.xterm]:m-auto [&>.xterm]:box-content [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
       />
       {showsKeyRail ? (
         <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />

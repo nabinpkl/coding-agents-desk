@@ -35,3 +35,38 @@ export function fittedFontSize(reading: {
   // type for nothing.
   return Math.max(minimum, Math.min(maximum, Math.floor(baseFontSize * scale + 0.001)));
 }
+
+/**
+ * How tall the screen wants to be: the height at which the type fills the width it has.
+ *
+ * A pane that asks for the height the screen needs at the BASE size can never show it any larger,
+ * because the fit then finds the height exactly binding and confirms the size it started from. The
+ * width is the axis with room to spare -- a 53-column pane in a window-wide band uses a third of it
+ * -- so the height worth asking for is the one that spends it.
+ *
+ * Whoever asks still has to cap it: this answers what the screen wants, not what the surface can
+ * afford, and a tall grid can want more than the whole card.
+ */
+export function preferredScreenHeight(reading: {
+  baseFontSize: number;
+  cell: { width: number; height: number };
+  grid: { columns: number; rows: number };
+  /** The width the screen has, padding already taken off. */
+  availableWidth: number;
+  minimum: number;
+  maximum: number;
+}): number | null {
+  const fontSize = fittedFontSize({
+    baseFontSize: reading.baseFontSize,
+    cell: reading.cell,
+    grid: reading.grid,
+    // Unbounded on the axis being spent, so only the width decides.
+    available: { width: reading.availableWidth, height: Number.POSITIVE_INFINITY },
+    minimum: reading.minimum,
+    maximum: reading.maximum,
+  });
+  if (fontSize === null) return null;
+  return Math.round(
+    reading.cell.height * reading.grid.rows * (fontSize / reading.baseFontSize),
+  );
+}
