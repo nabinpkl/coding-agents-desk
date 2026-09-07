@@ -1329,8 +1329,11 @@ describe("App shell", () => {
       (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
     expect(screen.getByRole("status")).toHaveTextContent("Opening Claude");
     const terminal = screen.getByRole("region", { name: "Claude terminal" });
-    const mainColumn = terminal.parentElement!;
-    expect(mainColumn).toContainElement(screen.getByRole("main"));
+    // The pane belongs to the session's own column, which fills `main`, rather than being a band
+    // of the shell's beneath it. What this guards is unchanged: it is in the content column and
+    // not in the sidebar.
+    expect(screen.getByRole("main")).toContainElement(terminal);
+    const mainColumn = screen.getByRole("main").parentElement!;
     expect(screen.getByLabelText("Agent navigation").parentElement).toContainElement(mainColumn);
     unmount();
   });
