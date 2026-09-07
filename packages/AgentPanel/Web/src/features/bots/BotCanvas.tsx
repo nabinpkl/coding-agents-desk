@@ -151,16 +151,28 @@ function BotCanvasList({
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   return (
-    <div className="h-full overflow-y-auto overscroll-contain">
-      {/* Capped and centred, while the scroller stays full width so its bar sits at the panel's
-          edge rather than floating in the middle of it.
+    <div className="@container h-full overflow-y-auto overscroll-contain">
+      {/* Three columns once there is room for three, and the query is on the CONTAINER rather than
+          the viewport because this panel is not the window: the sidebar is pinnable and resizable,
+          so a `md:` breakpoint would split into columns while a pinned sidebar leaves the canvas
+          too narrow to hold them.
 
-          A card is not a dashboard tile: it holds a transcript, and a transcript stretched across a
-          wide Mac window is a line of prose a hundred-odd characters long, which the eye loses
-          track of between the right edge and the start of the next line. The cap is a reading
-          measure, so it does nothing at all until the window is wider than one -- a phone and a
-          split-screen Mac see the same layout they saw before. */}
-      <ul role="list" aria-label="Bot canvas" className="mx-auto flex max-w-5xl flex-col gap-3 p-3">
+          The threshold is where three columns are still worth having: below it they are measured
+          at 284px each, which is narrower than the phone this layout was drawn for. Capped and
+          centred at the other end, while the scroller stays full width so its bar sits at the
+          panel's edge rather than floating in the middle of it. The cap holds a column to a card's
+          width instead of letting three of them stretch across a wide Mac, and neither bound does
+          anything on a phone or a split-screen Mac: those get the single column they had before.
+
+          `items-start` because a card is as tall as its own roster: without it every card in a row
+          stretches to the tallest, so a Bot with two sessions beside a Bot with twelve becomes a
+          card mostly made of empty. The cost is a ragged bottom edge, which is the honest shape of
+          rows that hold different amounts. */}
+      <ul
+        role="list"
+        aria-label="Bot canvas"
+        className="mx-auto grid max-w-[1400px] grid-cols-1 items-start gap-3 p-3 @[1100px]:grid-cols-3"
+      >
         {bots.map((bot) => (
           <BotCanvasCard
             key={bot.botId}
@@ -271,7 +283,7 @@ function BotCanvasCard({
                     the session's titlebar: it is where its controls land, the way the app header
                     is where the thread view's land. */}
                 <div
-                  className={`flex flex-wrap items-start border-l-2 pr-1.5 ${
+                  className={`@container flex flex-wrap items-start border-l-2 pr-1.5 ${
                     open ? "border-primary bg-muted" : "border-transparent"
                   }`}
                 >
@@ -302,15 +314,20 @@ function BotCanvasCard({
                       aria-hidden
                     />
                   </button>
-                  {/* Its own line on a phone, inline once there is room. A session's controls are
-                      five icons wide, which at 390px leaves the title about one character: the
-                      name of the thing is worth more than keeping this to one line. `order-last`
-                      rather than DOM order, so the menu stays beside the title where it is on
-                      every closed row and does not move when one opens. */}
+                  {/* Its own line in a narrow row, inline once there is room. A session's controls
+                      are five icons wide, which in a grid column leaves the title about one
+                      character: the name of the thing is worth more than keeping this to one line.
+                      `order-last` rather than DOM order, so the menu stays beside the title where
+                      it is on every closed row and does not move when one opens.
+
+                      The query is on this ROW, not the viewport. A `sm:` breakpoint asks how wide
+                      the window is, and a grid column on a wide Mac is narrower than a phone: it
+                      kept the controls inline in a 451px column and truncated the title to "CPU
+                      and RA...". What decides here is how much room this row actually has. */}
                   {open ? (
                     <span
                       ref={setControlsHost}
-                      className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 sm:order-none sm:basis-auto sm:pb-0"
+                      className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0"
                     />
                   ) : null}
                   <span className="mt-1">
