@@ -8,6 +8,9 @@ let terminal: FakeTerminal;
 
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
+  // The grid, which a band pane takes its opening height from.
+  cols = 80;
+  rows = 24;
   readonly writes: number[][] = [];
   readonly options: Record<string, unknown>;
   element: HTMLElement | undefined;
@@ -33,7 +36,7 @@ class FakeTerminal {
   scrollLines() {}
   clear() {}
   reset() {}
-  resize() {}
+  resize(columns: number, rows: number) { this.cols = columns; this.rows = rows; }
   focus() { this.focuses++; this.textarea?.focus(); }
   dispose() {}
   write(bytes: Uint8Array, done: () => void) {
@@ -157,7 +160,7 @@ it("closes the stream without detaching a PTY that already exited", async () => 
   expect(feed.closeTerminal).not.toHaveBeenCalled();
 });
 
-it("sizes a band pane from its own height, with the viewport as its ceiling", async () => {
+it("sizes a band pane to the screen it is showing, with the viewport as its ceiling", async () => {
   const feed = {
     terminalHistory: vi.fn(async () => ""),
     openTerminal: vi.fn(async () => ({
@@ -179,8 +182,10 @@ it("sizes a band pane from its own height, with the viewport as its ceiling", as
   await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
   const pane = screen.getByRole("region", { name: "composerprobe terminal" });
   // A height of its own from the start: the band reserves no box around it, so a pane sized as a
-  // share of its parent would collapse to the minimum instead.
-  expect(pane).toHaveStyle({ height: "420px" });
+  // share of its parent would collapse to the minimum instead. And the height is the SCREEN's --
+  // 24 rows of 16px -- not a flat share of the surface, which is a guess made before the pane has
+  // seen what it is showing.
+  expect(pane).toHaveStyle({ height: "384px" });
 
   // The ceiling comes from the viewport, because the parent measures the pane itself.
   fireEvent.keyDown(screen.getByRole("separator", { name: "Resize terminal" }), { key: "End" });
@@ -254,7 +259,7 @@ it("gives the band pane back its height when the keyboard closes", async () => {
   render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />);
   await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
   const pane = screen.getByRole("region", { name: "composerprobe terminal" });
-  expect(pane).toHaveStyle({ height: "420px" });
+  expect(pane).toHaveStyle({ height: "384px" });
 
   // A keyboard takes 600px of the screen. The shell shortens to fit above it, so the pane has to
   // fit inside what is left rather than crushing the transcript it sits under.
@@ -264,12 +269,12 @@ it("gives the band pane back its height when the keyboard closes", async () => {
   });
   expect(pane).toHaveStyle({ height: "288px" });
 
-  // The drag the user made is remembered, not overwritten, so dismissing the keyboard restores it.
+  // The height it asked for is remembered, not overwritten, so dismissing the keyboard restores it.
   vi.stubGlobal("innerHeight", 1000);
   act(() => {
     globalThis.dispatchEvent(new Event("resize"));
   });
-  expect(pane).toHaveStyle({ height: "420px" });
+  expect(pane).toHaveStyle({ height: "384px" });
 });
 
 function railFeed() {

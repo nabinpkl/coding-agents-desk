@@ -72,6 +72,8 @@ interface Props {
 export function AgentTerminalPane({ feed, context, onState, layout = "column", heightBasis }: Props) {
   const paneRef = useRef<HTMLDivElement>(null);
   const removeResizeListenersRef = useRef<() => void>(() => {});
+  // Whether the viewer has sized this pane themselves, which outranks anything the grid prefers.
+  const sized = useRef(false);
   const band = layout === "band";
   const measureBasis = (): number => heightBasis?.clientHeight ?? viewportHeight();
   const [height, setHeight] = useState<number | null>(
@@ -79,7 +81,7 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
   );
   // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
   const [basis, setBasis] = useState(measureBasis);
-  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
+  const { mountRef, labels, contentHeight, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
     feed,
     context,
     sizing: { kind: "fit" },
@@ -126,8 +128,36 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
   // the pane down to fit gives its size back when it closes rather than costing the user the drag.
   const appliedHeight = height !== null && band ? Math.min(height, share(basis)) : height;
 
+  /**
+   * Opens at the height the screen actually needs, once that is known.
+   *
+   * A band pane's opening height was a flat share of its surface, which is a guess made before it
+   * has seen the screen: the same 20-row tmux pane scrolled off the bottom of a card's band and
+   * left the type small in a window's. The grid's own height answers both -- at that height the
+   * whole screen is visible at the type's base size -- and the surface still caps it, so a
+   * 50-row pane in a short card shrinks the type rather than eating the card.
+   *
+   * Never over a drag: a viewer who has sized this pane has said what they want, and a later
+   * checkpoint must not take it back.
+   */
+  useEffect(() => {
+    if (!band || contentHeight === null || !(contentHeight > 0) || sized.current) return;
+    const pane = paneRef.current;
+    const mount = mountRef.current;
+    if (!pane || !mount) return;
+    // `offsetHeight`, not `clientHeight`: the height being set is a border-box one, so a chrome
+    // measured without the border is a pixel short -- and a pixel short is a whole point of type,
+    // because the fit floors.
+    const chrome = pane.offsetHeight - mount.clientHeight;
+    setHeight(Math.min(ceiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, contentHeight + chrome)));
+    // `ceiling` reads the basis this render measured; re-running it on every render would fight
+    // the drag rather than follow the grid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [band, contentHeight]);
+
   const resizeTo = (requestedHeight: number): void => {
     if (!paneRef.current) return;
+    sized.current = true;
     setHeight(Math.min(ceiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, requestedHeight)));
   };
 
@@ -188,9 +218,15 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
       >
         <span className="absolute inset-x-0 top-0 h-px bg-border transition-colors group-hover:bg-primary" />
       </button>
-      {/* Scrolls rather than clips: a tmux attach renders at the pane's geometry, which is not
-          this pane's, and clipping it hid the part of the screen the cursor was on. */}
-      <div ref={mountRef} className="min-h-0 flex-1 overflow-auto px-1 pb-1" />
+      {/* Centred, because a grid this side does not own is rarely this box's shape: the type is
+          scaled until the screen fits, and whatever is left over reads as margin rather than as a
+          screen shoved into a corner. Still scrolls rather than clips, for the case the scaling
+          cannot reach -- a grid so large the type would stop being readable stays readable and
+          moves instead, because clipping it hid the part of the screen the cursor was on. */}
+      <div
+        ref={mountRef}
+        className="flex min-h-0 flex-1 justify-center overflow-auto px-1 pb-1 [&>.xterm]:shrink-0"
+      />
       {showsKeyRail ? (
         <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
       ) : null}

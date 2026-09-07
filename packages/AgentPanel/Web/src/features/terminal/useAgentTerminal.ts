@@ -9,6 +9,7 @@ import type {
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
 import { cycleModifier, releaseArmed, type ModifierState } from "../keyboard/modifierLatch";
 import { isTmuxAttach, terminalContextKey } from "./terminalContext";
+import { fittedFontSize } from "./terminalTypeFit";
 import {
   applyModifiers,
   bytesForRailKey,
@@ -28,6 +29,14 @@ import {
 export interface AgentTerminal {
   mountRef: RefObject<HTMLDivElement | null>;
   labels: TerminalLabels;
+  /**
+   * How tall this terminal's screen is at the base type size, or null until one is attached.
+   *
+   * Only meaningful where the far end owns the grid: it is the height at which the whole screen is
+   * visible without the type being scaled, which is what a pane free to choose its own height
+   * should be.
+   */
+  contentHeight: number | null;
   /** Whether this terminal is what the keyboard is typing into. */
   focused: boolean;
   modifiers: Record<RailModifier, ModifierState>;
@@ -88,38 +97,17 @@ const WHEEL_LINES = 3;
  */
 let xtermModule: Promise<typeof import("@xterm/xterm")> | null = null;
 
-/**
- * Draws with the GPU instead of the DOM, when the browser will.
- *
- * xterm's default renderer builds elements per row, and this panel hands it whole tmux captures --
- * a pane's scrollback arrives as one write of a few hundred kilobytes. The DOM renderer is the
- * slowest of the three by a wide margin on exactly that shape of input.
- *
- * Every failure here is survivable and none of them is fatal: the import can fail, the browser can
- * refuse a WebGL context, and a context already granted can be lost when the GPU is reclaimed --
- * which is ordinary on a phone that has been backgrounded. In all three the addon is dropped and
- * xterm falls back to the DOM renderer, which is what it would have used anyway. So this is a
- * best-effort accelerator, never a dependency.
- *
- * Pinned to the addon build whose peer range names the exact vendored core (`0.20.0-beta.291` ->
- * `^6.1.0-beta.292`); the addon reaches into xterm internals, so a mismatched pair is a runtime
- * break rather than a type error.
- */
-async function accelerateRendering(terminal: XtermTerminal): Promise<void> {
-  try {
-    const { WebglAddon } = await import("@xterm/addon-webgl");
-    const addon = new WebglAddon();
-    addon.onContextLoss(() => addon.dispose());
-    terminal.loadAddon(addon);
-  } catch {
-    // The DOM renderer is already drawing; there is nothing to repair and nothing to report.
-  }
-}
-
 function loadXterm(): Promise<typeof import("@xterm/xterm")> {
   xtermModule ??= import("@xterm/xterm");
   return xtermModule;
 }
+
+/** The size the type is authored at, and what a fit scales away from. */
+const BASE_FONT_SIZE = 13;
+/** Below this the screen is not worth reading, so it scrolls instead of shrinking further. */
+const MINIMUM_FONT_SIZE = 8;
+/** Above this a small grid in a large pane stops looking like a terminal. */
+const MAXIMUM_FONT_SIZE = 28;
 
 /**
  * One xterm bound to one sidecar terminal: the stream, the input, the size negotiation, the theme.
@@ -139,6 +127,9 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
   const [ownershipLabel, setOwnershipLabel] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
   const [viewLabel, setViewLabel] = useState("");
+  // How tall this terminal's screen is at the base type size, or null while nothing is attached.
+  // What the pane holding it should be, when it is free to choose.
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
   const [modifiers, setModifiers] = useState<Record<RailModifier, ModifierState>>(RAIL_MODIFIERS_OFF);
   // The effect's `onData` reads the latch as it stands at the keystroke, not as it stood when the
@@ -167,7 +158,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         cursorBlink: true,
         cursorStyle: "block",
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-        fontSize: 13,
+        fontSize: BASE_FONT_SIZE,
         lineHeight: 1.08,
         // Deep enough to hold what tmux hands over on open plus a long run of live output. The
         // point of the terminals wall is reading back over a session, and a shallow buffer is the
@@ -178,8 +169,15 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         smoothScrollDuration: 120,
         theme: terminalTheme(),
       });
+      // Deliberately the DOM renderer, and this is the second time round.
+      //
+      // `@xterm/addon-webgl` was added for the speed and removed the same day: on a device with a
+      // devicePixelRatio of 2 -- every Retina Mac and every phone -- it draws each glyph at twice
+      // its cell, so a 41-column pane rendered about 20 columns and clipped the rest. Measured
+      // both ways in a real browser at both ratios; the DOM renderer is correct at both. The
+      // version pairing was not the problem: `0.20.0-beta.291` is the peer match for the vendored
+      // `6.1.0-beta.292` core, and it was the one installed.
       terminal.open(mount);
-      void accelerateRendering(terminal);
 
       // The wheel belongs to whoever is reading, not to the program being read.
       //
@@ -305,6 +303,9 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
               terminal.clear();
               terminal.reset();
               terminal.resize(message.columns, message.rows);
+              // A new grid is a new shape to fit the type to, and a new height for the pane to
+              // want. Nothing else reports this: the mount has not moved.
+              fitType();
             });
             break;
           case "checkpointChunk":
@@ -360,12 +361,63 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         void feed.sendTerminalInput(descriptor.terminalId, base64FromBinaryString(data), "base64")
           .catch(fail);
       });
+      /**
+       * Scales the TYPE, for a grid this side does not own.
+       *
+       * A tmux pane is whatever shape its own terminal made it -- 41 columns by 20 rows, measured
+       * -- and the band showing it is nothing like that shape. At a fixed type size the screen
+       * therefore either ran off the bottom of the band and had to be scrolled, or sat in the
+       * corner of a box several times its size. Neither is fixable by resizing the pane: tmux has
+       * one window size for everyone and setting it from here reflows the session in whatever
+       * terminal its owner has it open in, which is why `tmuxAttachment` refuses to.
+       *
+       * So the grid keeps its shape and the type grows or shrinks until the whole screen fits the
+       * space. Measured ONCE, at the base size: cell metrics are proportional to the font, so
+       * everything after that is arithmetic. Re-measuring after each change instead reads a layout
+       * xterm has not finished writing, and iterating on that oscillates.
+       */
+      let baseCell: { width: number; height: number } | null = null;
+      const fitType = (): void => {
+        const cell = terminal.dimensions?.css.cell;
+        if (!cell || cell.width <= 0 || cell.height <= 0) return;
+        const grid = { columns: terminal.cols, rows: terminal.rows };
+        if (!(grid.columns > 0) || !(grid.rows > 0)) return;
+        if (!baseCell) {
+          if (terminal.options.fontSize !== BASE_FONT_SIZE) return;
+          baseCell = { width: cell.width, height: cell.height };
+        }
+        const style = getComputedStyle(mount);
+        const padding = {
+          width: pixelValue(style.paddingLeft) + pixelValue(style.paddingRight),
+          height: pixelValue(style.paddingTop) + pixelValue(style.paddingBottom),
+        };
+        // What the mount must be for the screen to fit at the base size, padding included, because
+        // that is what the pane holding it can act on.
+        setContentHeight(Math.round(baseCell.height * grid.rows + padding.height));
+        const fitted = fittedFontSize({
+          baseFontSize: BASE_FONT_SIZE,
+          cell: baseCell,
+          grid,
+          available: {
+            width: mount.clientWidth - padding.width,
+            height: mount.clientHeight - padding.height,
+          },
+          minimum: MINIMUM_FONT_SIZE,
+          maximum: MAXIMUM_FONT_SIZE,
+        });
+        if (fitted !== null && fitted !== terminal.options.fontSize) {
+          terminal.options.fontSize = fitted;
+        }
+      };
+
       // A fixed grid has nothing to observe: its size is the one it was given, and re-fitting it
-      // would push a new size onto the PTY every time the page reflowed. Neither has a tmux
-      // attach, whose grid is the pane's however the mount is laid out.
-      const observer = sizing.kind === "fit" && !paneAuthoritative
-        ? new ResizeObserver(() => scheduleViewport())
-        : null;
+      // would push a new size onto the PTY every time the page reflowed. A tmux attach observes for
+      // the opposite reason: its grid never follows the mount, so the type has to.
+      const observer = paneAuthoritative
+        ? new ResizeObserver(() => fitType())
+        : sizing.kind === "fit"
+          ? new ResizeObserver(() => scheduleViewport())
+          : null;
       observer?.observe(mount);
 
       const initial = sizing.kind === "fixed"
@@ -379,6 +431,10 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           }
           descriptor = opened;
           terminal.resize(opened.columns, opened.rows);
+          // The grid a tmux attach ends up with comes from HERE, not from a checkpoint: the
+          // history is imported rather than replayed, so `checkpointBegin` never arrives and this
+          // is the only place the far end's shape is learned.
+          fitType();
           // Queued before the subscription's writes, so the history lands above the live output
           // rather than racing it. The queue is what orders them; the fetch inside it can take as
           // long as it likes.
@@ -462,6 +518,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       source: sourceLabel,
       view: viewLabel,
     },
+    contentHeight,
     focused,
     modifiers,
     toggleModifier: (modifier) =>
