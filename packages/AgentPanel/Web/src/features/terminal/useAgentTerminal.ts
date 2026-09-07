@@ -386,21 +386,24 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           if (terminal.options.fontSize !== BASE_FONT_SIZE) return;
           baseCell = { width: cell.width, height: cell.height };
         }
-        const style = getComputedStyle(mount);
-        const padding = {
-          width: pixelValue(style.paddingLeft) + pixelValue(style.paddingRight),
-          height: pixelValue(style.paddingTop) + pixelValue(style.paddingBottom),
-        };
+        // Both boxes: the mount is the space the band gives, and the terminal element carries the
+        // padding that makes the screen read as a screen rather than as a block of text. Missing
+        // the second one sizes the grid to the whole space and then adds the padding to it, which
+        // is an overflow and a scrollbar for the sake of eight pixels.
+        const padding = paddingOf(mount);
+        const framePadding = terminal.element ? paddingOf(terminal.element) : { width: 0, height: 0 };
         // What the mount must be for the screen to fit at the base size, padding included, because
         // that is what the pane holding it can act on.
-        setContentHeight(Math.round(baseCell.height * grid.rows + padding.height));
+        setContentHeight(
+          Math.round(baseCell.height * grid.rows + padding.height + framePadding.height),
+        );
         const fitted = fittedFontSize({
           baseFontSize: BASE_FONT_SIZE,
           cell: baseCell,
           grid,
           available: {
-            width: mount.clientWidth - padding.width,
-            height: mount.clientHeight - padding.height,
+            width: mount.clientWidth - padding.width - framePadding.width,
+            height: mount.clientHeight - padding.height - framePadding.height,
           },
           minimum: MINIMUM_FONT_SIZE,
           maximum: MAXIMUM_FONT_SIZE,
@@ -568,6 +571,15 @@ function proposedDimensions(terminal: XtermTerminal, mount: HTMLElement): Dimens
   return {
     columns: Math.max(2, Math.floor((mount.clientWidth - horizontalPadding - scrollbarWidth) / cell.width)),
     rows: Math.max(1, Math.floor((mount.clientHeight - verticalPadding) / cell.height)),
+  };
+}
+
+/** A box's padding, in CSS pixels, as one pair. */
+function paddingOf(element: HTMLElement): { width: number; height: number } {
+  const style = getComputedStyle(element);
+  return {
+    width: pixelValue(style.paddingLeft) + pixelValue(style.paddingRight),
+    height: pixelValue(style.paddingTop) + pixelValue(style.paddingBottom),
   };
 }
 

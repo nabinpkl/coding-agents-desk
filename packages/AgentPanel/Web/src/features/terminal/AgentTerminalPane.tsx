@@ -202,7 +202,7 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
     <section
       ref={paneRef}
       aria-label={`${terminalContextLabel(context)} terminal`}
-      className={`flex min-h-[150px] shrink-0 flex-col border-t border-border bg-white dark:bg-[#0b0e14] ${
+      className={`flex min-h-[150px] shrink-0 flex-col border-t border-border ${
         band ? "" : "h-[38%]"
       }`}
       style={appliedHeight === null ? undefined : { height: appliedHeight }}
@@ -218,14 +218,21 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
       >
         <span className="absolute inset-x-0 top-0 h-px bg-border transition-colors group-hover:bg-primary" />
       </button>
-      {/* Centred, because a grid this side does not own is rarely this box's shape: the type is
-          scaled until the screen fits, and whatever is left over reads as margin rather than as a
-          screen shoved into a corner. Still scrolls rather than clips, for the case the scaling
-          cannot reach -- a grid so large the type would stop being readable stays readable and
-          moves instead, because clipping it hid the part of the screen the cursor was on. */}
+      {/* The dark surface is the SCREEN, not the band.
+
+          A grid this side does not own is rarely this box's shape -- a 41-column tmux pane in a
+          window-wide band is a third of its width -- so a background painted across the band left
+          most of a black rectangle with nothing in it, which reads as something failing rather
+          than as a terminal. The screen is centred and carries its own background and padding, and
+          the band around it is the surface the pane sits on.
+          
+          This mount stays the full band, because it is what the type is fitted against, and it
+          still scrolls rather than clips for the case the scaling cannot reach: a grid so large the
+          type would stop being readable stays readable and moves instead, since clipping it hid the
+          part of the screen the cursor was on. */}
       <div
         ref={mountRef}
-        className="flex min-h-0 flex-1 justify-center overflow-auto px-1 pb-1 [&>.xterm]:shrink-0"
+        className="flex min-h-0 flex-1 justify-center overflow-auto px-3 pb-3 [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
       />
       {showsKeyRail ? (
         <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
