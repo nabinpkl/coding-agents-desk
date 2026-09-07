@@ -555,6 +555,10 @@ function SessionComposer({
   const editorValue = windowBand ? windowComposer.draft : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
 
+  // The terminal when it is the band's input surface, null when the field is. One name rather than
+  // the condition written twice, because the whole point is that they are never both on screen.
+  const terminalInput = terminalComposer?.shown && terminalHeightBasis ? terminalComposer : null;
+
   const [deliveryPending, setDeliveryPending] = useState(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
@@ -815,15 +819,20 @@ function SessionComposer({
           onDismiss={questionPanel.dismiss}
         />
       ) : null}
-      {/* The session's own terminal, above the field rather than instead of it: the field sends a
-          turn through the harness, the terminal types into the process. Both are useful, and which
-          one you want changes between asking it something and answering its prompt.
+      {/* The session's own terminal, INSTEAD of the field rather than above it.
+
+          Both are ways of typing at the same session -- the field sends a turn through the harness,
+          the terminal types into the process -- and which one you want changes between asking it
+          something and answering its own prompt. But wanting both at once is not a thing that
+          happens, and showing both spent two thirds of the band on input while the transcript they
+          are about went to a sliver. So the button below switches between them and the transcript
+          keeps the difference.
 
           Keyed by the pane so switching sessions tears the old attach down rather than repointing a
           live one, and scrolling rather than resizing, because the terminal renders at the pane's
           own geometry -- imposing a size here would reflow the session in whatever terminal its
           owner has it open in. */}
-      {terminalComposer?.shown && terminalHeightBasis ? (
+      {terminalInput ? (
         // `AgentTerminalPane` rather than a tile: it is the same hook underneath and it already
         // owns the resize handle, the header and the footer. It takes a tmux context as readily as
         // an agent-session one, so the composer needed no second copy of any of that.
@@ -834,17 +843,17 @@ function SessionComposer({
         // of the viewport, because the session is not always the page.
         <div className="mb-2">
           <AgentTerminalPane
-            key={terminalContextKey(terminalComposer.context)}
+            key={terminalContextKey(terminalInput.context)}
             feed={feed}
-            context={terminalComposer.context}
+            context={terminalInput.context}
             onState={noteTerminalState}
             layout="band"
             heightBasis={terminalHeightBasis}
           />
         </div>
       ) : null}
-      <div className="flex items-end gap-1.5">
-        <textarea
+      <div className={`flex items-end gap-1.5 ${terminalInput ? "justify-end" : ""}`}>
+        {terminalInput ? null : <textarea
           ref={autoGrow}
           value={editor.value}
           onChange={(event) => editor.onChange(event.target.value)}
@@ -867,8 +876,11 @@ function SessionComposer({
           aria-label={editor.ariaLabel}
           disabled={editor.disabled}
           className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
-        />
-        {/* Offered only where there is a pane: a session without one has nothing to show. */}
+        />}
+        {/* Offered only where there is a pane: a session without one has nothing to show. The one
+            control that survives the swap, because it is the way back from either side. A draft
+            typed in the field is still in this component's state while the terminal has the band,
+            so switching away and back does not cost it. */}
         {terminalComposer ? (
           <button
             type="button"
@@ -876,8 +888,8 @@ function SessionComposer({
             aria-pressed={terminalComposer.shown}
             aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
             title={terminalComposer.shown
-              ? "Hide this session's terminal."
-              : "Show this session's terminal, resuming it in tmux if nothing is running it."}
+              ? "Hide this session's terminal and type in the composer instead."
+              : "Type in this session's terminal instead, resuming it in tmux if nothing is running it."}
             className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
               terminalComposer.shown
                 ? "border-primary bg-primary/10 text-primary"
@@ -887,7 +899,8 @@ function SessionComposer({
             {"\u2b1a"}
           </button>
         ) : null}
-        {actions.map((action) => (
+        {/* Every one of these acts on the draft, so they go where the draft goes. */}
+        {terminalInput ? null : actions.map((action) => (
           <button
             key={action.key}
             type="button"

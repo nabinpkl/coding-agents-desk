@@ -543,14 +543,17 @@ describe("App shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
 
-    // The composer's own terminal comes up with the row, and it is handed the session's column to
-    // be a share of. Left to ask the viewport it would open taller than the card holding it.
+    // Swapping the row's field for its terminal hands that pane the session's column to be a share
+    // of. Left to ask the viewport it would open taller than the card holding it.
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
     expect(terminalPaneMock.composerContext).toEqual({
       kind: "session-tmux",
       source: "claude",
       sessionId: "sid-claude-01",
     });
     expect(terminalPaneMock.composerHasBasis).toBe(true);
+    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
 
     // The thread terminal opens from the control the row lends the session, and it names the BOT's
     // directory -- the canvas has no project selection to borrow one from.
@@ -1419,9 +1422,15 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("opens the thread's own terminal in the composer, without waiting for one to exist", () => {
+  it("swaps the composer's field for the thread's own terminal, one or the other", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
+
+    // The field is what a session opens with: it is the surface every session has.
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Claude session terminal" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
 
     // The session id, not a pane name. Which tmux pane that is -- the one a live process runs in,
     // or one started to resume the id -- is the sidecar's to answer, and it is the only side that
@@ -1433,10 +1442,14 @@ describe("App shell", () => {
       sessionId: "sid-claude-01",
     });
     expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
+    // Instead of the field, not above it: two ways of typing at one session, and the band spends
+    // its height on whichever is in use rather than on both.
+    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
     expect(screen.queryByRole("region", { name: "Claude session terminal" }))
       .not.toBeInTheDocument();
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
     unmount();
   });
 

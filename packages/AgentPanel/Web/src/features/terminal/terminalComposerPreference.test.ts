@@ -6,9 +6,10 @@ import { toggleTerminalComposer } from "./terminalComposerPreference";
 
 beforeEach(() => localStorage.clear());
 
-test("remembers being hidden, and being shown again", () => {
-  toggleTerminalComposer();
-  expect(localStorage.getItem("agent-panel.terminal-composer")).toBe("hidden");
+// From the default, which is the field: the first press asks for the terminal.
+test("remembers being shown, and being hidden again", () => {
   toggleTerminalComposer();
   expect(localStorage.getItem("agent-panel.terminal-composer")).toBe("shown");
+  toggleTerminalComposer();
+  expect(localStorage.getItem("agent-panel.terminal-composer")).toBe("hidden");
 });
