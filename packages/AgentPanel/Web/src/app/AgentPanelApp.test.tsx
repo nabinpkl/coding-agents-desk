@@ -92,6 +92,10 @@ const feedMock = vi.hoisted(() => ({
 
 const terminalPaneMock = vi.hoisted(() => ({
   composerContext: null as Record<string, unknown> | null,
+  // Whether the pane was handed something to be a share of, rather than left to ask the viewport.
+  // Recorded because a session rendered inside a Bot card must never ask the viewport: a share of
+  // the screen is more than the whole card.
+  composerHasBasis: null as boolean | null,
   context: null as Record<string, unknown> | null,
   onState: null as ((context: Record<string, unknown>, state: Record<string, unknown>) => void) | null,
 }));
@@ -99,15 +103,18 @@ const terminalPaneMock = vi.hoisted(() => ({
 // App-shell tests exercise ownership and placement. The renderer itself has a focused test with a
 // fake xterm, so jsdom does not need a canvas merely because one shell test opens the pane.
 vi.mock("../features/terminal/AgentTerminalPane", () => ({
-  AgentTerminalPane: ({ context, onState }: {
+  AgentTerminalPane: ({ context, onState, heightBasis }: {
     context: Record<string, unknown>;
     onState: (context: Record<string, unknown>, state: Record<string, unknown>) => void;
+    heightBasis?: HTMLElement | null;
   }) => {
     // Two panes can be mounted at once -- the thread's own terminal in the composer and a resumed
     // CLI on the Terminals surface -- so they are recorded apart. A single slot took whichever
     // rendered last, which is a render-order dependency rather than a fact about the shell.
-    if (context.kind === "session-tmux") terminalPaneMock.composerContext = context;
-    else {
+    if (context.kind === "session-tmux") {
+      terminalPaneMock.composerContext = context;
+      terminalPaneMock.composerHasBasis = heightBasis instanceof HTMLElement;
+    } else {
       terminalPaneMock.context = context;
       terminalPaneMock.onState = onState;
     }
@@ -341,6 +348,7 @@ describe("App shell", () => {
     terminalPaneMock.context = null;
     terminalPaneMock.onState = null;
     terminalPaneMock.composerContext = null;
+    terminalPaneMock.composerHasBasis = null;
   });
 
   afterEach(() => {
@@ -485,14 +493,18 @@ describe("App shell", () => {
     expect(screen.getByText("sid-gone")).toBeInTheDocument();
     expect(screen.queryByTestId("activity-feed")).toBeNull();
 
-    // A row opens where it sits rather than navigating: the canvas stays up, and the transcript
-    // takes a bounded box inside the card with its own scroller.
+    // A row opens where it sits rather than navigating: the canvas stays up, and the whole session
+    // takes a bounded box inside the card -- not a transcript, a session, with the composer it is
+    // typed into.
     fireEvent.click(screen.getByRole("button", { name: /^Session Codex 01/ }));
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
-    // No header to lend it, so the feed's controls have nowhere to portal.
-    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-controls-host", "missing");
+    expect(screen.getByRole("region", { name: /^Session Codex 01 session/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Codex composer text")).toBeInTheDocument();
+    // The open row is the session's titlebar, so the feed's controls have somewhere to portal
+    // after all -- the card's own row rather than the app's header.
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-controls-host", "attached");
 
     // One at a time: opening another Bot's session closes the first, so the roster never holds
     // more than one open stream.
@@ -502,6 +514,60 @@ describe("App shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.queryByTestId("activity-feed")).toBeNull();
+    unmount();
+  });
+
+  it("gives a canvas row the whole session, sized against the card rather than the page", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+
+    // The composer's own terminal comes up with the row, and it is handed the session's column to
+    // be a share of. Left to ask the viewport it would open taller than the card holding it.
+    expect(terminalPaneMock.composerContext).toEqual({
+      kind: "session-tmux",
+      source: "claude",
+      sessionId: "sid-claude-01",
+    });
+    expect(terminalPaneMock.composerHasBasis).toBe(true);
+
+    // The thread terminal opens from the control the row lends the session, and it names the BOT's
+    // directory -- the canvas has no project selection to borrow one from.
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+    expect(terminalPaneMock.context).toEqual({
+      kind: "agent-session",
+      projectPath: FIXTURE_PROJECT_A.projectPath,
+      source: "claude",
+      sessionId: "sid-claude-01",
+    });
+
+    // Closing the row ends all of it rather than hiding it, which is what keeps one open session
+    // affordable on a roster of thirty.
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+    expect(screen.queryByLabelText("Claude composer text")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Claude terminal" })).toBeNull();
     unmount();
   });
 

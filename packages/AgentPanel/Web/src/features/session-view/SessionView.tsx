@@ -52,6 +52,42 @@ interface AgentTerminalComposer {
 }
 
 /**
+ * Everything a `SessionView` needs that is not the session itself.
+ *
+ * One object because it is identical for every session on a surface: a Bot canvas hands the same
+ * one to whichever row it has open, and the shell builds all of it once. Split out so a surface
+ * that renders sessions can take "the context" as a single prop instead of restating nine.
+ */
+export interface SessionViewContext {
+  feed: SidecarDataSource;
+  host: HostActionsClient;
+  /**
+   * Raw or nice, and the toggle for it. Owned by whoever mounts this rather than in here, because
+   * it is a reader's preference that outlives any one session and is persisted as such.
+   */
+  eventMode: EventMode;
+  onToggleEventMode: () => void;
+  showCacheHits: boolean;
+  onToggleCacheHits: () => void;
+  /**
+   * One client per source, built by the owner. They are bound to a source rather than a session --
+   * Claude resolves its window by process tree, Codex by its accessibility tree -- so they are
+   * shared across every session rather than rebuilt per view.
+   */
+  windowComposers: { claude: WindowComposerClient; codex: WindowComposerClient };
+  /** Whether the tasks panel should present as a sheet rather than a column beside the thread. */
+  compact: boolean;
+  /**
+   * Where the background-tasks panel renders, or null to render it in place.
+   *
+   * It is the one thing here that is not part of the column: it floats over the thread, positioned
+   * against the app's own relative root. A host keeps that true without this component having to
+   * know what it is layered over.
+   */
+  tasksHost: HTMLElement | null;
+}
+
+/**
  * One session, whole: its transcript, its controls, and every band that acts on it.
  *
  * This used to be the shell's own body -- a `<main>` holding the feed, with the summary band, the
@@ -69,11 +105,10 @@ interface AgentTerminalComposer {
  * The safe-area insets are therefore NOT in here and must not move in: they describe the page's
  * physical edges rather than this box.
  *
- * Three things inside it still measure the VIEWPORT rather than their container, and each is a lie
- * as soon as this view is smaller than the page: `SummaryBand`'s `max-h-[45vh]`, and
- * `AgentTerminalPane` in its `band` layout -- which is what the composer's own terminal opens in,
- * and what the shell's fork pane uses. The thread's terminal below opens in the default `column`
- * layout, which measures its parent and is the shape the others need to take.
+ * Everything inside it measures this column rather than the viewport, which is what makes the
+ * paragraph above true rather than aspirational: `SummaryBand` caps at a share of it, the thread's
+ * terminal takes a share of it by being its child, and the composer's terminal is handed it
+ * explicitly because a band pane has no parent to measure.
  *
  * Everything per-session is owned here and reset by REMOUNTING, so the owner keys this on the
  * session. The mode toggle deliberately does not remount it: only the feed inside is keyed on the
@@ -92,22 +127,12 @@ export function SessionView({
   controlsHost,
   windowComposers,
   compact,
-  tasksHost = null,
+  tasksHost,
   externalError = null,
-}: {
-  feed: SidecarDataSource;
-  host: HostActionsClient;
+}: SessionViewContext & {
   /** The directory this session runs in, which is how its terminal names the process to open. */
   projectPath: string;
   session: SessionSummary;
-  /**
-   * Raw or nice, and the toggle for it. Owned by whoever mounts this rather than in here, because
-   * it is a reader's preference that outlives any one session and is persisted as such.
-   */
-  eventMode: EventMode;
-  onToggleEventMode: () => void;
-  showCacheHits: boolean;
-  onToggleCacheHits: () => void;
   /**
    * Where this session's controls render, or null to render none.
    *
@@ -118,22 +143,6 @@ export function SessionView({
    * these.
    */
   controlsHost: HTMLElement | null;
-  /**
-   * One client per source, built by the owner. They are bound to a source rather than a session --
-   * Claude resolves its window by process tree, Codex by its accessibility tree -- so they are
-   * shared across every session rather than rebuilt per view.
-   */
-  windowComposers: { claude: WindowComposerClient; codex: WindowComposerClient };
-  /** Whether the tasks panel should present as a sheet rather than a column beside the thread. */
-  compact: boolean;
-  /**
-   * Where the background-tasks panel renders, or null to render it in place.
-   *
-   * It is the one thing here that is not part of the column: it floats over the thread, positioned
-   * against the app's own relative root. A host keeps that true without this component having to
-   * know what it is layered over.
-   */
-  tasksHost?: HTMLElement | null;
   /**
    * An error raised outside this session's own commands -- a Bot edit, say -- shown on the same
    * band, because it has no band of its own and a failure that shows nowhere is indistinguishable
@@ -157,6 +166,11 @@ export function SessionView({
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
   // Held in state, not a ref, because the feed has to re-render once the node exists.
   const [feedControlsHost, setFeedControlsHost] = useState<HTMLDivElement | null>(null);
+  // This column is what the composer's terminal takes its height as a share of. A band pane cannot
+  // measure its own parent -- it IS the band -- so without this it asks the viewport, which is the
+  // right answer only while this view is the page. State rather than a ref, because the pane has to
+  // render again once the node exists; a ref would still be null when its own effects ran.
+  const [column, setColumn] = useState<HTMLDivElement | null>(null);
 
   const summary = useSummary(feed, { source, sessionId });
   // Whether this is a Claude Code process in someone's terminal, which is what decides between the
@@ -291,7 +305,7 @@ export function SessionView({
   ) : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
+    <div ref={setColumn} className="flex h-full min-h-0 flex-col bg-card">
       {controlsHost
         ? createPortal(
           <>
@@ -380,6 +394,7 @@ export function SessionView({
             toggle: toggleTerminalComposer,
           }
           : null}
+        terminalHeightBasis={column}
         onSendMessage={sendPrompt}
         onAbort={abortRun}
       />
@@ -413,6 +428,7 @@ function SessionComposer({
   windowComposerClient,
   agentTerminal,
   terminalComposer,
+  terminalHeightBasis,
   onSendMessage,
   onAbort,
 }: {
@@ -453,6 +469,12 @@ function SessionComposer({
     shown: boolean;
     toggle: () => void;
   } | null;
+  /**
+   * What this band's terminal takes its height as a share of, and whether it renders at all: the
+   * pane waits for it rather than mounting against the viewport for a render and re-fitting itself
+   * once the real reference arrives.
+   */
+  terminalHeightBasis: HTMLElement | null;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
@@ -801,14 +823,15 @@ function SessionComposer({
           live one, and scrolling rather than resizing, because the terminal renders at the pane's
           own geometry -- imposing a size here would reflow the session in whatever terminal its
           owner has it open in. */}
-      {terminalComposer?.shown ? (
+      {terminalComposer?.shown && terminalHeightBasis ? (
         // `AgentTerminalPane` rather than a tile: it is the same hook underneath and it already
         // owns the resize handle, the header and the footer. It takes a tmux context as readily as
         // an agent-session one, so the composer needed no second copy of any of that.
         //
-        // Its `band` layout, so the pane's height is the band's height: nothing reserves a box
+        // Its `band` layout, so the pane's height IS the band's height: nothing reserves a box
         // around it to leave blank, and a drag upward makes the whole band taller rather than
-        // growing the pane down into reserved space.
+        // growing the pane down into reserved space. A share of the session's column rather than
+        // of the viewport, because the session is not always the page.
         <div className="mb-2">
           <AgentTerminalPane
             key={terminalContextKey(terminalComposer.context)}
@@ -816,6 +839,7 @@ function SessionComposer({
             context={terminalComposer.context}
             onState={noteTerminalState}
             layout="band"
+            heightBasis={terminalHeightBasis}
           />
         </div>
       ) : null}

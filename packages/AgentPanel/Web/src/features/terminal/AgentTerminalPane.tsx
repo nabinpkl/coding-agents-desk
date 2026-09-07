@@ -18,12 +18,16 @@ const BAND_TERMINAL_SHARE = 0.42;
 
 
 /**
- * The height a band pane is a share of: what is actually visible.
+ * What a band pane is a share of when it is given nothing else to measure: what is actually
+ * visible.
  *
  * The visual viewport rather than `innerHeight`, because a phone keyboard covers the bottom of the
  * layout viewport without shortening it. The document gives that strip back (keyboardInset.ts), so
  * a pane still sized against the full layout viewport would be taller than the shell it now sits
  * in and would squeeze the transcript above it to nothing.
+ *
+ * Only right for a band that fills the page. A band inside anything smaller is handed that
+ * something instead, through `heightBasis`.
  *
  * 0 rather than NaN off a window, so every share of it clamps to the minimum instead.
  */
@@ -41,25 +45,40 @@ interface Props {
    *
    * `band` is a pane whose own height IS the height of the band holding it. Nothing reserves a
    * box around it -- a share of the parent would measure the pane itself, and a reserved box
-   * leaves whatever the pane does not fill blank -- so it opens at a share of the viewport and
-   * takes its ceiling from there too. Growing it makes the band taller, which moves the band's
-   * top edge up: the direction a handle along the pane's top edge implies.
+   * leaves whatever the pane does not fill blank -- so it opens at a share of the surface holding
+   * the band, and takes its ceiling from there too. Growing it makes the band taller, which moves
+   * the band's top edge up: the direction a handle along the pane's top edge implies.
    */
   layout?: "column" | "band";
+  /**
+   * What a `band` pane's height is a share OF. The viewport when this is absent.
+   *
+   * A band cannot measure its own parent -- the parent is the band, and the band's height is this
+   * pane's -- so it needs an outside reference, and the viewport is only the right one when the
+   * surface holding the band IS the page. Inside a Bot card it is not: a share of the viewport is
+   * most of a screen and more than the whole card, so the pane opens taller than the thing holding
+   * it and squeezes everything above it away. Hand it the column instead and the same arithmetic
+   * is right on both surfaces.
+   *
+   * The ELEMENT, not a ref to it, and that distinction was measured rather than reasoned: React
+   * attaches refs child-first, so a ref handed down from a parent is still null while this pane's
+   * own effects run, and a pane that read one fell back to the viewport for good. An element
+   * arrives as a prop, which means it arrives in a render, which is when it can be used.
+   */
+  heightBasis?: HTMLElement | null;
 }
 
 /** The resizable terminal under one thread. The protocol is the hook's; this is its chrome. */
-export function AgentTerminalPane({ feed, context, onState, layout = "column" }: Props) {
+export function AgentTerminalPane({ feed, context, onState, layout = "column", heightBasis }: Props) {
   const paneRef = useRef<HTMLDivElement>(null);
   const removeResizeListenersRef = useRef<() => void>(() => {});
   const band = layout === "band";
+  const measureBasis = (): number => heightBasis?.clientHeight ?? viewportHeight();
   const [height, setHeight] = useState<number | null>(
-    band
-      ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(viewportHeight() * BAND_TERMINAL_SHARE))
-      : null,
+    band ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE)) : null,
   );
   // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
-  const [viewport, setViewport] = useState(viewportHeight);
+  const [basis, setBasis] = useState(measureBasis);
   const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
     feed,
     context,
@@ -76,7 +95,18 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column" }:
 
   useEffect(() => {
     if (!band) return;
-    const update = (): void => setViewport(viewportHeight());
+    if (heightBasis) {
+      // An element answers every question the two window events answer and one they do not: the
+      // surface can change height without the window doing anything, which is what happens when a
+      // card is opened above this one. A keyboard still reaches it, because the inset shortens the
+      // document and every column in it shortens too.
+      setBasis(heightBasis.clientHeight);
+      if (typeof ResizeObserver === "undefined") return;
+      const observer = new ResizeObserver(() => setBasis(heightBasis.clientHeight));
+      observer.observe(heightBasis);
+      return () => observer.disconnect();
+    }
+    const update = (): void => setBasis(viewportHeight());
     // Both, because they answer different questions: `visualViewport` is the one a keyboard moves,
     // and `window` is the one a rotation or a desktop window resize moves.
     globalThis.visualViewport?.addEventListener("resize", update);
@@ -86,15 +116,15 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column" }:
       globalThis.visualViewport?.removeEventListener("resize", update);
       globalThis.removeEventListener("resize", update);
     };
-  }, [band]);
+  }, [band, heightBasis]);
 
   const share = (available: number): number =>
     Math.max(MINIMUM_TERMINAL_HEIGHT, available * MAXIMUM_TERMINAL_SHARE);
   const ceiling = (): number =>
-    share(band ? viewport : (paneRef.current?.parentElement?.clientHeight ?? 0));
+    share(band ? basis : (paneRef.current?.parentElement?.clientHeight ?? 0));
   // The height asked for is kept, and the ceiling applied on top of it, so a keyboard that forces
   // the pane down to fit gives its size back when it closes rather than costing the user the drag.
-  const appliedHeight = height !== null && band ? Math.min(height, share(viewport)) : height;
+  const appliedHeight = height !== null && band ? Math.min(height, share(basis)) : height;
 
   const resizeTo = (requestedHeight: number): void => {
     if (!paneRef.current) return;

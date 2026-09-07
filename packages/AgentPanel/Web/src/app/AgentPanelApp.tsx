@@ -38,7 +38,7 @@ import { useBots } from "../features/bots/useBots";
 import { BotCanvas } from "../features/bots/BotCanvas";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
-import { SessionView } from "../features/session-view/SessionView";
+import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
 
 
@@ -571,6 +571,23 @@ export function App({ feed, host, fill = false }: Props) {
     }
   }, [feed, creatingProjectPath, openSession]);
 
+  /**
+   * Everything a session needs that is not the session: built once and handed to whichever surface
+   * is showing one. The thread view and the Bot canvas both render `SessionView`, and neither is
+   * the place to decide how a window composer is built or where a tasks panel lands.
+   */
+  const sessionViewContext: SessionViewContext = {
+    feed,
+    host,
+    eventMode,
+    onToggleEventMode: toggleEventMode,
+    showCacheHits,
+    onToggleCacheHits: toggleCacheHits,
+    windowComposers,
+    compact,
+    tasksHost,
+  };
+
   // One subscription for all three sidebar mounts. Owned here rather than inside the sidebar so
   // the pinned rail, the hover preview, and the phone drawer share one stream instead of opening
   // one each; only two of them are ever mounted at once, but the report should not be fetched
@@ -722,18 +739,10 @@ export function App({ feed, host, fill = false }: Props) {
               // threads replaces it rather than clearing a dozen pieces of state by hand.
               <SessionView
                 key={`${displayedThread.session.source}:${displayedThread.session.sessionId}`}
-                feed={feed}
-                host={host}
+                {...sessionViewContext}
                 projectPath={displayedThread.project.projectPath}
                 session={displayedThread.session}
-                eventMode={eventMode}
-                onToggleEventMode={toggleEventMode}
-                showCacheHits={showCacheHits}
-                onToggleCacheHits={toggleCacheHits}
                 controlsHost={threadControlsHost}
-                windowComposers={windowComposers}
-                compact={compact}
-                tasksHost={tasksHost}
                 externalError={botCommandError}
               />
             ) : sidebarMode === "canvas" ? (
@@ -741,7 +750,8 @@ export function App({ feed, host, fill = false }: Props) {
                 bots={botsState.bots}
                 loading={botsState.loading}
                 error={botsState.error}
-                mode={eventMode}
+                sessionContext={sessionViewContext}
+                botError={botCommandError}
                 onAddSession={openBotSessionPicker}
                 onForkSession={forkSession}
                 onDetachSession={detachBotSession}

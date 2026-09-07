@@ -45,7 +45,12 @@ export function SummaryBand({
       // plus risks came to 731px against a 720px pane, so the band pushed the transcript it was
       // describing entirely off screen. It is a note about the thread, never a replacement for
       // it, and the trace below only makes a long digest longer.
-      className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-border bg-card px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px)"
+      //
+      // A share of the SESSION rather than of the viewport, because the session is not always the
+      // page: inside a Bot card, 45vh is most of a screen and all of a card, so the band would do
+      // exactly what the cap exists to prevent. The flex column above it has a definite height in
+      // both places, so the percentage resolves in both.
+      className="max-h-[45%] shrink-0 overflow-y-auto border-t border-border bg-card px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px)"
     >
       {state.kind === "pending" ? (
         <RunInProgress reasoning={state.reasoning} thought={state.thought} onDismiss={onDismiss} />

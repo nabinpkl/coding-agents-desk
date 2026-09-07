@@ -1,21 +1,22 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
 import { useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { ActivityFeed } from "../activity-feed/ActivityFeed";
-import type { EventMode } from "../activity-feed/data-source/AgentDataSource";
+import { SessionView, type SessionViewContext } from "../session-view/SessionView";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
 import { SessionRowMenu } from "./SessionRowMenu";
 
 /**
- * How tall an opened transcript is inside its card.
+ * How tall an opened session is inside its card.
  *
- * Bounded rather than natural: ActivityFeed owns its own scroller and virtualizes against it, so
- * it needs a height to scroll within. Tall enough to read a few turns, short enough that the card
- * above and below it stay reachable without scrolling the transcript first.
+ * Bounded rather than natural, because `SessionView` fills what it is given: it owns its own
+ * scroller and everything inside it -- the transcript's virtualizer, the summary band's cap, the
+ * terminal's share -- measures this box. Tall enough that a transcript is still readable once the
+ * composer and its bands have taken their share, short enough that the cards above and below stay
+ * reachable without scrolling a session first.
  */
-const OPEN_TRANSCRIPT_HEIGHT = "h-[min(60dvh,520px)]";
+const OPEN_SESSION_HEIGHT = "h-[min(75dvh,640px)]";
 
 /**
  * Every Bot's curated sessions at once, in one scroll.
@@ -25,17 +26,22 @@ const OPEN_TRANSCRIPT_HEIGHT = "h-[min(60dvh,520px)]";
  * and remembering the first. This is the same roster with that pick removed -- the reader scrolls
  * instead of switching, which is the whole point of it existing beside the tab it came from.
  *
- * It costs nothing extra to serve. `/api/bots/stream` already resolves every curated reference to
- * a full catalog summary and republishes when the catalog moves, so this renders data the app is
- * already holding for the sidebar: no second subscription, and no per-session stream. That last
- * part is what keeps a roster of thirty sessions the same weight as a roster of three, and it is
- * the property to check before a row here grows a live transcript preview.
+ * The ROSTER costs nothing extra to serve. `/api/bots/stream` already resolves every curated
+ * reference to a full catalog summary and republishes when the catalog moves, so every closed row
+ * here is data the app is already holding for the sidebar: no second subscription, and no
+ * per-session stream. That is what keeps a roster of thirty the same weight as a roster of three.
+ *
+ * An OPEN row is a different thing entirely: the whole session, the same component the app's own
+ * thread view renders, with its transcript, its controls, its terminal and the composer it is typed
+ * into. It is not a preview of a session, it is one -- which is why one is open at a time and why
+ * closing it unmounts rather than hides it. See `BotCanvasList`.
  */
 export function BotCanvas({
   bots,
   loading,
   error,
-  mode,
+  sessionContext,
+  botError,
   onAddSession,
   onForkSession,
   onDetachSession,
@@ -44,8 +50,19 @@ export function BotCanvas({
   bots: BotView[];
   loading: boolean;
   error: string | null;
-  /** Raw or nice, owned by the shell so the choice is the same one the Bots view reads in. */
-  mode: EventMode;
+  /**
+   * Everything an opened row's session needs that is not the session, built once by the shell.
+   * The same object the thread view is given, which is what makes a row here the same surface
+   * rather than a lesser copy of it.
+   */
+  sessionContext: SessionViewContext;
+  /**
+   * A failure from editing a Bot, shown on the open session's own error band.
+   *
+   * This surface is where a detach is most likely to be pressed -- the action is in every row's
+   * menu -- and the open session's band is the only one on screen able to say that one failed.
+   */
+  botError: string | null;
   onAddSession: (bot: BotView) => void;
   /** Starts a new session branched from this one, in its own tmux pane. */
   onForkSession: (session: SessionSummary) => void;
@@ -94,7 +111,8 @@ export function BotCanvas({
   return (
     <BotCanvasList
       bots={bots}
-      mode={mode}
+      sessionContext={sessionContext}
+      botError={botError}
       onAddSession={onAddSession}
       onForkSession={onForkSession}
       onDetachSession={onDetachSession}
@@ -103,23 +121,30 @@ export function BotCanvas({
 }
 
 /**
- * The roster, with at most one transcript open in it.
+ * The roster, with at most one session open in it.
  *
- * One at a time rather than many, because an open transcript is an open SSE subscription and the
- * relay between this panel and the sidecar admits a bounded number of them -- the same budget that
- * collapsed the sidebar's per-project streams into one inventory stream. One open transcript costs
- * exactly what the single-thread view costs today, so a long roster cannot exhaust it. Two of them
- * would also be unreadable on a phone, where each is already most of the screen.
+ * One at a time rather than many, and the reason got stronger when a row grew from a transcript
+ * into a whole session. An open row is an event stream, a background-task stream, a summary probe
+ * and a CLI-status poll -- and, once its terminal is opened, a pty attach. The relay between this
+ * panel and the sidecar admits a bounded number of streams, the same budget that collapsed the
+ * sidebar's per-project streams into one inventory stream. One open session costs exactly what the
+ * single-thread view costs, so a roster of thirty cannot exhaust it. Two would also be unreadable
+ * on a phone, where one is already most of the screen.
+ *
+ * Closing a row UNMOUNTS it rather than hiding it, which is what makes that true: every one of
+ * those subscriptions belongs to a hook inside `SessionView`, so they end with it.
  */
 function BotCanvasList({
   bots,
-  mode,
+  sessionContext,
+  botError,
   onAddSession,
   onForkSession,
   onDetachSession,
 }: {
   bots: BotView[];
-  mode: EventMode;
+  sessionContext: SessionViewContext;
+  botError: string | null;
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -132,7 +157,8 @@ function BotCanvasList({
           <BotCanvasCard
             key={bot.botId}
             bot={bot}
-            mode={mode}
+            sessionContext={sessionContext}
+            botError={botError}
             openKey={openKey}
             onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
             onAddSession={onAddSession}
@@ -162,7 +188,8 @@ function sessionKey(session: BotSessionRef): string {
 
 function BotCanvasCard({
   bot,
-  mode,
+  sessionContext,
+  botError,
   openKey,
   onToggleSession,
   onAddSession,
@@ -170,7 +197,8 @@ function BotCanvasCard({
   onDetachSession,
 }: {
   bot: BotView;
-  mode: EventMode;
+  sessionContext: SessionViewContext;
+  botError: string | null;
   openKey: string | null;
   onToggleSession: (key: string) => void;
   onAddSession: (bot: BotView) => void;
@@ -179,6 +207,10 @@ function BotCanvasCard({
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   const live = bot.sessions.filter((session) => session.activity === "live").length;
+  // Where the open row's session portals its controls. One node per card is enough because one row
+  // is open across the whole canvas; a card with none keeps null and is never asked for. State
+  // rather than a ref, because the session has to re-render once the node exists.
+  const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
   return (
     <li className="overflow-hidden rounded-xl border border-border bg-card">
       {/* Sticky so the name of whichever Bot you are reading stays overhead through a long
@@ -225,11 +257,13 @@ function BotCanvasCard({
             const open = key === openKey;
             return (
               <li key={key}>
-                {/* A button cannot contain a button, so opening the transcript and opening the
-                    row's menu are siblings and the open tint moves up to the box that holds
-                    both -- the same shape the sidebar's rows took when they grew this menu. */}
+                {/* A button cannot contain a button, so opening the session, its controls and its
+                    menu are siblings and the open tint moves up to the box that holds them -- the
+                    same shape the sidebar's rows took when they grew this menu. Open, this row is
+                    the session's titlebar: it is where its controls land, the way the app header
+                    is where the thread view's land. */}
                 <div
-                  className={`flex items-start border-l-2 pr-1.5 ${
+                  className={`flex flex-wrap items-start border-l-2 pr-1.5 ${
                     open ? "border-primary bg-muted" : "border-transparent"
                   }`}
                 >
@@ -260,6 +294,17 @@ function BotCanvasCard({
                       aria-hidden
                     />
                   </button>
+                  {/* Its own line on a phone, inline once there is room. A session's controls are
+                      five icons wide, which at 390px leaves the title about one character: the
+                      name of the thing is worth more than keeping this to one line. `order-last`
+                      rather than DOM order, so the menu stays beside the title where it is on
+                      every closed row and does not move when one opens. */}
+                  {open ? (
+                    <span
+                      ref={setControlsHost}
+                      className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 sm:order-none sm:basis-auto sm:pb-0"
+                    />
+                  ) : null}
                   <span className="mt-1">
                     <SessionRowMenu
                       label={session.title || session.sessionId}
@@ -269,28 +314,23 @@ function BotCanvasCard({
                   </span>
                 </div>
                 {open ? (
-                  // Keyed by mode as well as session: every event index the feed holds is counted
-                  // in the mode it was read in, so a mode change has to remount rather than
-                  // reinterpret what is already in the buffer.
-                  <div
-                    className={`${OPEN_TRANSCRIPT_HEIGHT} border-t border-border bg-background`}
-                    aria-label={`${session.title || session.sessionId} transcript`}
+                  // A named landmark rather than a bare box: a canvas of open cards is a page with
+                  // several sessions on it, and each one should be reachable by name.
+                  <section
+                    className={`${OPEN_SESSION_HEIGHT} border-t border-border`}
+                    aria-label={`${session.title || session.sessionId} session`}
                   >
-                    <ActivityFeed
-                      key={`${session.sessionId}:${mode}`}
-                      source={session.source}
-                      sessionId={session.sessionId}
-                      mode={mode}
-                      onToggleMode={() => {}}
-                      canToggleMode={false}
-                      showCacheHits={false}
-                      onToggleCacheHits={() => {}}
-                      // No host: the feed's controls portal into the shell's header, and a card
-                      // has no header to lend. Reading is what a card is for; the Bots view is
-                      // where a thread gets its controls and its composer.
-                      controlsHost={null}
+                    {/* The same component the app's own thread view renders, given a box instead
+                        of the page. It needs nothing said to it about being small: everything in
+                        it measures the column it is, so the box decides. */}
+                    <SessionView
+                      {...sessionContext}
+                      projectPath={bot.environment.path}
+                      session={session}
+                      controlsHost={controlsHost}
+                      externalError={botError}
                     />
-                  </div>
+                  </section>
                 ) : null}
               </li>
             );
