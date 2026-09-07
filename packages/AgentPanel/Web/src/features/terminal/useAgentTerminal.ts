@@ -88,6 +88,34 @@ const WHEEL_LINES = 3;
  */
 let xtermModule: Promise<typeof import("@xterm/xterm")> | null = null;
 
+/**
+ * Draws with the GPU instead of the DOM, when the browser will.
+ *
+ * xterm's default renderer builds elements per row, and this panel hands it whole tmux captures --
+ * a pane's scrollback arrives as one write of a few hundred kilobytes. The DOM renderer is the
+ * slowest of the three by a wide margin on exactly that shape of input.
+ *
+ * Every failure here is survivable and none of them is fatal: the import can fail, the browser can
+ * refuse a WebGL context, and a context already granted can be lost when the GPU is reclaimed --
+ * which is ordinary on a phone that has been backgrounded. In all three the addon is dropped and
+ * xterm falls back to the DOM renderer, which is what it would have used anyway. So this is a
+ * best-effort accelerator, never a dependency.
+ *
+ * Pinned to the addon build whose peer range names the exact vendored core (`0.20.0-beta.291` ->
+ * `^6.1.0-beta.292`); the addon reaches into xterm internals, so a mismatched pair is a runtime
+ * break rather than a type error.
+ */
+async function accelerateRendering(terminal: XtermTerminal): Promise<void> {
+  try {
+    const { WebglAddon } = await import("@xterm/addon-webgl");
+    const addon = new WebglAddon();
+    addon.onContextLoss(() => addon.dispose());
+    terminal.loadAddon(addon);
+  } catch {
+    // The DOM renderer is already drawing; there is nothing to repair and nothing to report.
+  }
+}
+
 function loadXterm(): Promise<typeof import("@xterm/xterm")> {
   xtermModule ??= import("@xterm/xterm");
   return xtermModule;
@@ -151,6 +179,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         theme: terminalTheme(),
       });
       terminal.open(mount);
+      void accelerateRendering(terminal);
 
       // The wheel belongs to whoever is reading, not to the program being read.
       //
