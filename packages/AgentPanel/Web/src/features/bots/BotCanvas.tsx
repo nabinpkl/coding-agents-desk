@@ -152,7 +152,15 @@ function BotCanvasList({
   const [openKey, setOpenKey] = useState<string | null>(null);
   return (
     <div className="h-full overflow-y-auto overscroll-contain">
-      <ul role="list" aria-label="Bot canvas" className="flex flex-col gap-3 p-3">
+      {/* Capped and centred, while the scroller stays full width so its bar sits at the panel's
+          edge rather than floating in the middle of it.
+
+          A card is not a dashboard tile: it holds a transcript, and a transcript stretched across a
+          wide Mac window is a line of prose a hundred-odd characters long, which the eye loses
+          track of between the right edge and the start of the next line. The cap is a reading
+          measure, so it does nothing at all until the window is wider than one -- a phone and a
+          split-screen Mac see the same layout they saw before. */}
+      <ul role="list" aria-label="Bot canvas" className="mx-auto flex max-w-5xl flex-col gap-3 p-3">
         {bots.map((bot) => (
           <BotCanvasCard
             key={bot.botId}
