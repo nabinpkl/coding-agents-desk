@@ -20,8 +20,21 @@ export const MIN_CARD_WIDTH = 320;
 export const MAX_CARD_WIDTH = 1400;
 export const DEFAULT_CARD_WIDTH = 440;
 
-export const MIN_CARD_HEIGHT = 360;
-export const MAX_CARD_HEIGHT = 1600;
+/**
+ * Low enough to be out of the way rather than an opinion about what is readable: a card can be
+ * squashed until only its header shows, and the session inside gives up its space first. Not zero,
+ * because the grip is the last thing in the card and the card clips its own overflow -- a card
+ * shorter than its own header and grip would be one you could no longer grab to drag back.
+ */
+export const MIN_CARD_HEIGHT = 80;
+
+/**
+ * Not a layout bound. A card is free to be taller than the screen -- the canvas scrolls, and a Bot
+ * with a long transcript is exactly the case for a card taller than the window -- so this is only
+ * high enough that a stored number this large is certainly corrupt rather than chosen. A drag
+ * cannot cross a screen in one gesture, so nothing reaches it by pulling.
+ */
+export const MAX_CARD_HEIGHT = 8000;
 export const DEFAULT_CARD_HEIGHT = 780;
 
 export interface BotCardSize {
@@ -61,20 +74,18 @@ export function clampCardWidth(width: number, canvasWidth?: number): number {
 }
 
 /**
- * Holds a height inside the usable range, and inside the window when one is given.
+ * Holds a height inside the usable range, which the window is no part of.
  *
- * The viewport share is what the old fixed `min(75dvh, 640px)` was for: a card taller than the
- * screen makes the cards under it unreachable without first scrolling past a whole session. It is
- * passed in rather than read here so a drag can clamp against the window it started in, and so this
- * stays callable with no DOM at all.
+ * Height used to stop at a share of the viewport, on the reasoning that a card taller than the
+ * screen buries the cards below it. That is true and it is not this code's call to make: the canvas
+ * is a scroller, the cards below are a scroll away rather than lost, and the whole point of
+ * dragging a card is to say how much of it you want to see at once. Width is still held to the row
+ * it sits in, and that one IS structural -- a card wider than the row would leave the page sideways
+ * with nothing to scroll it.
  */
-export function clampCardHeight(height: number, viewportHeight?: number): number {
+export function clampCardHeight(height: number): number {
   const wanted = Number.isFinite(height) ? Math.round(height) : DEFAULT_CARD_HEIGHT;
-  const ceiling =
-    viewportHeight !== undefined && Number.isFinite(viewportHeight)
-      ? Math.min(MAX_CARD_HEIGHT, Math.max(MIN_CARD_HEIGHT, Math.round(viewportHeight * 0.85)))
-      : MAX_CARD_HEIGHT;
-  return Math.min(ceiling, Math.max(MIN_CARD_HEIGHT, wanted));
+  return Math.min(MAX_CARD_HEIGHT, Math.max(MIN_CARD_HEIGHT, wanted));
 }
 
 export function loadBotCardSizes(): BotCardSizes {

@@ -12,6 +12,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  MAX_CARD_HEIGHT,
+  MIN_CARD_HEIGHT,
+} from "../features/bots/botCanvasPreferences";
 import { render, screen, fireEvent, act, cleanup, waitFor, within } from "@testing-library/react";
 import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
@@ -624,21 +628,22 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     const grip = screen.getByRole("separator", { name: "Resize Release Captain card" });
-    // The remembered 900 held inside this 768px-tall window: a card taller than the screen would
-    // bury every card under it behind a whole session.
-    expect(grip).toHaveAttribute("aria-valuemax", "653");
-    expect(grip).toHaveAttribute("aria-valuenow", "653");
+    // The remembered 900, untouched by the 768px-tall window it is being shown in: a card is free
+    // to be taller than the screen, because the canvas scrolls.
+    expect(grip).toHaveAttribute("aria-valuenow", "900");
+    expect(grip).toHaveAttribute("aria-valuemax", String(MAX_CARD_HEIGHT));
 
     fireEvent.keyDown(grip, { key: "ArrowUp" });
-    expect(grip).toHaveAttribute("aria-valuenow", "629");
+    expect(grip).toHaveAttribute("aria-valuenow", "876");
 
-    // Home is the floor rather than nothing, so a card cannot be driven down to an unusable strip.
+    // Home is the floor rather than nothing: below it the grip is inside a card too short to show
+    // it, and the drag could not be undone by pointer.
     fireEvent.keyDown(grip, { key: "Home" });
-    expect(grip).toHaveAttribute("aria-valuenow", "360");
+    expect(grip).toHaveAttribute("aria-valuenow", String(MIN_CARD_HEIGHT));
 
     // Both axes are kept under the one Bot, and the width a closed card was given is still there.
     expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
-      "bot-1": { width: 596, height: 360 },
+      "bot-1": { width: 596, height: MIN_CARD_HEIGHT },
     });
 
     // The corner moves both at once, which is the only thing on the card a keyboard cannot express.
@@ -649,9 +654,9 @@ describe("App shell", () => {
     fireEvent.pointerMove(corner!, { pointerId: 1, clientX: 40, clientY: 40 });
     fireEvent.pointerUp(corner!, { pointerId: 1, clientX: 40, clientY: 40 });
     expect(widen).toHaveAttribute("aria-valuenow", "636");
-    expect(grip).toHaveAttribute("aria-valuenow", "400");
+    expect(grip).toHaveAttribute("aria-valuenow", String(MIN_CARD_HEIGHT + 40));
     expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
-      "bot-1": { width: 636, height: 400 },
+      "bot-1": { width: 636, height: MIN_CARD_HEIGHT + 40 },
     });
 
     // Closing puts the card back on its own content, and the height waits for the next session.

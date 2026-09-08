@@ -72,10 +72,13 @@ describe("bot canvas preferences", () => {
     expect(clampCardWidth(900, 0)).toBe(900);
   });
 
-  it("keeps a card inside the window it is being dragged in", () => {
-    // 85% of a 900px window: a card taller than the screen buries the cards under it.
-    expect(clampCardHeight(1200, 900)).toBe(765);
-    expect(clampCardHeight(1200, 300)).toBe(MIN_CARD_HEIGHT);
-    expect(clampCardHeight(1200)).toBe(1200);
+  it("lets a card be taller than any window, because the canvas scrolls", () => {
+    // The screen is not a bound on height. A Bot with a long transcript is exactly the case for a
+    // card taller than the window, and the cards below it are a scroll away rather than lost.
+    expect(clampCardHeight(4200)).toBe(4200);
+    // The ends of its own range still hold: below the floor the grip itself would be clipped away
+    // by the card, and above the ceiling a stored number is corrupt rather than chosen.
+    expect(clampCardHeight(10)).toBe(MIN_CARD_HEIGHT);
+    expect(clampCardHeight(99999)).toBe(MAX_CARD_HEIGHT);
   });
 });

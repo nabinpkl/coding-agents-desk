@@ -302,11 +302,13 @@ function BotCanvasCard({
   const holdsOpen = openKey !== null && bot.sessions.some((session) => sessionKey(session) === openKey);
   const drag = useRef<{ pointerId: number; startX: number; startY: number; from: BotCardSize } | null>(null);
 
-  // The room each edge actually has to move in, asked with a finite maximum rather than `Infinity`,
-  // which the clamps read as a number they cannot trust and answer with the default.
+  // The room each edge has to move in. Width is held to the row this card sits in; height is held
+  // only away from the two ends of its own range, and in particular not to the window -- a card
+  // taller than the screen is a card you asked to see more of at once, and the canvas scrolls.
+  // Asked with a finite maximum rather than `Infinity`, which the clamps read as a number they
+  // cannot trust and answer with the default.
   const widthWithin = (width: number): number => clampCardWidth(width, canvasWidth);
-  const heightWithin = (height: number): number =>
-    clampCardHeight(height, typeof window === "undefined" ? undefined : window.innerHeight);
+  const heightWithin = (height: number): number => clampCardHeight(height);
   const widest = (): number => widthWithin(MAX_CARD_WIDTH);
   const tallest = (): number => heightWithin(MAX_CARD_HEIGHT);
   // What this card actually stands at: the remembered size held inside THIS canvas and window. A
@@ -371,9 +373,7 @@ function BotCanvasCard({
     // land on the transcript's scrollbar.
     <li className="flex overflow-hidden rounded-xl border border-border bg-card" style={{ width }}>
       <div
-        // The dvh cap is the second half of the height clamp: it keeps a height remembered on a
-        // tall window from burying the cards below it on a short one.
-        className={`flex min-w-0 flex-1 flex-col${holdsOpen ? " max-h-[85dvh]" : ""}`}
+        className="flex min-w-0 flex-1 flex-col"
         style={holdsOpen ? { height } : undefined}
       >
         {/* Sticky so the name of whichever Bot you are reading stays overhead through a long
