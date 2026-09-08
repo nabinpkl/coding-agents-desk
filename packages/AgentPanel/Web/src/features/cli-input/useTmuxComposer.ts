@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
+  type ComposerCommand,
   type RailKey,
   type RailModifier,
   type TmuxComposerState,
@@ -104,6 +105,22 @@ export interface TmuxComposerHandle {
   modifiers: Record<RailModifier, ModifierState>;
   toggleModifier: (modifier: RailModifier) => void;
   pressKey: (key: RailKey) => void;
+  /**
+   * The command menu the pane is showing, which is open only while a `/` is being typed.
+   *
+   * Claude's own list rather than one assembled here, so it carries this session's plugins and
+   * project commands and cannot drift from what pressing Return would actually run.
+   */
+  commands: readonly ComposerCommand[];
+  /**
+   * Takes one of them, by putting its name in the field the way typing it would.
+   *
+   * A trailing space, because that is what completes the name: measured on a live pane, it closes
+   * the menu and Claude puts its own argument hint in the box instead. Deliberately NOT a second
+   * way into the pane -- the ordinary debounced push carries it, so choosing a command and typing
+   * one are the same act.
+   */
+  chooseCommand: (name: string) => void;
   pending: boolean;
   error: string | null;
   /**
@@ -134,9 +151,11 @@ export interface TmuxComposerHandle {
  * makes one out of the pane's output and reports only differences; nothing here is on a timer, and
  * a session nobody is typing at costs nothing at all.
  *
- * A wrapped reading is not adopted over a draft. Claude word-wraps its own box, so a composer that
- * ran onto a second row cannot be reconstructed to the character; the sidecar says so, and text
- * that might be off by a space must not overwrite text the reader actually typed.
+ * An inexact reading is not adopted over a draft. A box that wrapped cannot be reconstructed to
+ * the character, and neither can one whose cursor is not at its end -- where what follows may not
+ * even be the reader's, since Claude draws its own argument hint there once a command name is
+ * complete. The sidecar says which kind of reading it is sending, and text that might not be
+ * theirs must not overwrite text that is.
  */
 export function useTmuxComposer(
   feed: Pick<
@@ -159,6 +178,7 @@ export function useTmuxComposer(
   const [error, setError] = useState<string | null>(null);
 
   const [images, setImages] = useState<readonly ComposerImage[]>([]);
+  const [commands, setCommands] = useState<readonly ComposerCommand[]>([]);
 
   const draftRef = useRef("");
   /**
@@ -280,6 +300,14 @@ export function useTmuxComposer(
 
   const receive = useCallback((next: TmuxComposerState) => {
     setState(next);
+    // Only ever from the stream. A push answers with what it ASKED the box to hold, and it cannot
+    // know the menu that Claude then draws under it -- so taking the menu from a push would empty
+    // the list on every keystroke and let the stream put it back a moment later, which is a list
+    // that flickers away under the thumb reaching for it.
+    //
+    // Checked for its shape rather than taken on the type's word, for the same reason `text` is
+    // below: a sidecar that does not know this field sends a message without it.
+    setCommands(Array.isArray(next.commands) ? next.commands : []);
     // Checked for the shape it is documented in rather than for `text !== null`, because the two
     // differ exactly where it matters: a message that carries neither field -- a sidecar that does
     // not know this route, a proxy that swallowed the body -- has an `undefined` text, which is
@@ -290,7 +318,7 @@ export function useTmuxComposer(
     // An unsent edit is newer than anything the pane can show, and a reading that cannot be
     // trusted to the character may only fill a field that has nothing to lose.
     if (edited.current) return;
-    if (next.wrapped && draftRef.current.length > 0) return;
+    if (!next.exact && draftRef.current.length > 0) return;
     setBoth(next.text);
   }, [setBoth]);
 
@@ -302,6 +330,7 @@ export function useTmuxComposer(
     edited.current = false;
     pushAgain.current = false;
     setMirrored(false);
+    setCommands([]);
     setBoth("");
   }, [key, setBoth]);
 
@@ -474,6 +503,11 @@ export function useTmuxComposer(
     setModifiers((current) => ({ ...current, [modifier]: cycleModifier(current[modifier]) }));
   }, []);
 
+  const chooseCommand = useCallback((name: string) => {
+    edited.current = true;
+    setBoth(`${name} `);
+  }, [setBoth]);
+
   return {
     // Latched, so the band survives the session it mirrors exiting. `state` still carries the
     // live answer, which is what `reason` reports.
@@ -492,6 +526,8 @@ export function useTmuxComposer(
     modifiers,
     toggleModifier,
     pressKey,
+    commands,
+    chooseCommand,
     pending,
     error,
     onBlur,

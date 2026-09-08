@@ -18,6 +18,7 @@ export type {
 } from "./cliInput.ts";
 
 export type {
+  ComposerCommand,
   ComposerImageDrop,
   ComposerKeyPress,
   ComposerImageMediaType,

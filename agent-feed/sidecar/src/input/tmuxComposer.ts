@@ -37,6 +37,7 @@
 import {
   bytesForRailKey,
   NO_MODIFIERS,
+  type ComposerCommand,
   type RailKey,
   type RailModifiers,
   type TmuxComposerState,
@@ -95,6 +96,23 @@ const FAINT = "2";
  * makes the other one by pasting anything long, and this side has to read their box correctly.
  */
 const ATTACHMENT = /\[(?:Image|Pasted text) #\d+(?: \+\d+ lines)?\]/g;
+
+/**
+ * One row of the command menu: two spaces, the name, a gap, and the description.
+ *
+ * The name is deliberately narrow -- letters, digits and the few separators a command may carry,
+ * and NO second slash. Claude draws the menu into the same rows the status lines use, and a status
+ * line showing a path would otherwise read as a command called `/Users`.
+ */
+const MENU_ENTRY = /^ {2}(\/[A-Za-z0-9][A-Za-z0-9:_.-]*) {2,}(\S.*)$/;
+
+/**
+ * A row that continues the description above it, which is indented to the description's column.
+ *
+ * Told from an entry by having more than the entry's two spaces in front of it, rather than by the
+ * column itself, which is a width this does not want to depend on.
+ */
+const MENU_WRAP = /^ {3,}(\S.*)$/;
 
 /** Kill to the start of the visual row. One per row is what empties the box. */
 const KILL_ROW = "\u0015";
@@ -175,6 +193,14 @@ export interface ComposerBox {
    * every 700ms, the cursor stayed inside the composer and the reading was exact throughout.
    */
   exact: boolean;
+  /**
+   * The command menu drawn under the box, or empty when there is none.
+   *
+   * Part of reading the box rather than a second read of the same screen: the menu lives in the
+   * rows immediately below the box's closing rule, so whatever walked the box already knows where
+   * it starts.
+   */
+  commands: ComposerCommand[];
 }
 
 /**
@@ -201,12 +227,19 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
       // A suggestion is drawn in a box with nothing in it, so there is nothing to be inexact
       // about. Where the cursor is inside it does not change that.
       exact: true,
+      // A menu needs text to filter, and a box holding a suggestion is a box holding nothing.
+      commands: [],
     };
   }
   const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
+  let below = lines.length;
   for (let index = head + 1; index < lines.length; index += 1) {
     const line = lines[index]!;
-    if (RULE.test(line)) break;
+    // The closing rule, and with it the first row the menu could be on.
+    if (RULE.test(line)) {
+      below = index + 1;
+      break;
+    }
     // Anything not indented into the box has left it. The status line under the bottom rule is
     // indented too, so the rule is what usually stops this; a redraw that dropped the rule would
     // otherwise swallow the whole footer into the composer.
@@ -221,7 +254,65 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
   // putting it back is what stops the next append inserting a space that is already there.
   const exact = view.cursor.row - head === last && column >= rows[last]!.length;
   if (exact) rows[last] = rows[last]!.padEnd(column, " ");
-  return { rows, hint: null, exact };
+  return { rows, hint: null, exact, commands: menuUnder(raw, lines, below) };
+}
+
+/**
+ * The command menu Claude is drawing below the box, from the row after its closing rule.
+ *
+ * Claude puts this menu where the status lines usually go and runs it to the bottom of the pane,
+ * so there is no terminator to find: the scan stops at the first row that is neither an entry nor
+ * the wrapped tail of one, which is what the status lines are when no menu is open.
+ *
+ * The `@` menu shares the region and is deliberately NOT read here. Measured 2026-09-08: its rows
+ * are `◇ resource – description` with no leading slash, so `MENU_ENTRY` declines them by shape
+ * rather than by a flag, and a reader who opens it sees no list instead of a list of the wrong
+ * things.
+ */
+function menuUnder(raw: string[], lines: string[], from: number): ComposerCommand[] {
+  const found: Array<{ command: ComposerCommand; colour: string }> = [];
+  for (let index = from; index < lines.length; index += 1) {
+    const entry = MENU_ENTRY.exec(lines[index]!);
+    if (entry) {
+      found.push({
+        command: { name: entry[1]!, description: entry[2]!.trimEnd(), selected: false },
+        colour: firstColour(raw[index]!),
+      });
+      continue;
+    }
+    const wrap = found.length > 0 ? MENU_WRAP.exec(lines[index]!) : null;
+    if (!wrap) break;
+    const last = found[found.length - 1]!.command;
+    last.description = `${last.description} ${wrap[1]!.trimEnd()}`;
+  }
+  // Which entry Return would run, taken as the one whose colour is not the others'. Measured on a
+  // live pane: the selected row came back `38;5;153` against `38;5;246` for every other, and the
+  // highlight moved with the arrow keys. Read as "the odd one out" rather than as those numbers,
+  // because they are a colour scheme's and this is not the place to hold one.
+  const majority = commonest(found.map((entry) => entry.colour));
+  for (const entry of found) entry.command.selected = entry.colour !== majority;
+  return found.map((entry) => entry.command);
+}
+
+/** The colour a menu row opens with, which is what the highlight changes. */
+function firstColour(rawLine: string): string {
+  // The row's own leading style comes before the two spaces; the entry's colour comes after them.
+  const match = /^(?:\u001b\[[0-9;]*m)*\s*(\u001b\[[0-9;]*m)/.exec(rawLine);
+  return match?.[1] ?? "";
+}
+
+/** The value that appears most often, or null when there is nothing to be commonest of. */
+function commonest(values: readonly string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  let best: string | null = null;
+  let seen = 0;
+  for (const [value, count] of counts) {
+    if (count <= seen) continue;
+    best = value;
+    seen = count;
+  }
+  return best;
 }
 
 /** A screen line with its colour taken off and its padding trimmed, which is what parses. */
@@ -269,7 +360,7 @@ function lastPromptRow(lines: string[]): number | null {
  *
  * Joined with a space because the wrap Claude performs is a WORD wrap, and the space it broke on
  * survives in neither row. Exact for a single row and a hypothesis for more than one, which is
- * why `wrapped` travels beside it all the way to the panel.
+ * why `exact` travels beside it all the way to the panel.
  */
 export function composerText(rows: readonly string[]): string {
   return rows.join(" ");
@@ -718,7 +809,8 @@ export async function readComposerAt(
     text: composerText(box.rows),
     hint: box.hint,
     reason: null,
-    wrapped: box.rows.length > 1,
+    exact: box.exact && box.rows.length === 1,
+    commands: box.commands,
   };
 }
 
@@ -749,10 +841,11 @@ export async function syncTmuxComposer(
         await runtime.send(pane, new TextEncoder().encode(keys));
         await settle(pane, composerText(box.rows), runtime);
       }
-      // No hint: whatever Claude was offering, the box now holds what was asked for instead. An
-      // empty push is the one case where a suggestion comes back, and the watcher reports it a
-      // moment later.
-      return { text: desired, hint: null, reason: null, wrapped: false };
+      // No hint and no menu: whatever Claude was offering, the box now holds what was asked
+      // for instead, and the menu under it is redrawn from that. An empty push is the one case
+      // where a suggestion comes back, and a push beginning `/` opens a menu -- the watcher
+      // reports both a moment later, which is the only reading that is not a guess.
+      return { text: desired, hint: null, reason: null, exact: true, commands: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }
@@ -792,7 +885,7 @@ export async function dropTmuxComposerImage(
       // differently. Waiting for that is what stops the next push diffing against a box that
       // still shows the moment before the drop.
       await settle(pane, composerText(box.rows), runtime);
-      return { text: null, hint: null, reason: null, wrapped: false };
+      return { text: null, hint: null, reason: null, exact: true, commands: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }
@@ -871,7 +964,7 @@ export async function submitTmuxComposer(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, wrapped: false }, runtime);
+  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, exact: true, commands: [] }, runtime);
 }
 
 /**
@@ -887,7 +980,7 @@ export async function acceptTmuxComposerHint(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, TAB, { text: null, hint: null, reason: null, wrapped: false }, runtime);
+  return press(sessionId, TAB, { text: null, hint: null, reason: null, exact: true, commands: [] }, runtime);
 }
 
 /**
@@ -914,7 +1007,7 @@ export async function pressTmuxComposerKey(
   return press(
     sessionId,
     bytesForRailKey(key, held),
-    { text: null, hint: null, reason: null, wrapped: false },
+    { text: null, hint: null, reason: null, exact: true, commands: [] },
     runtime,
   );
 }
@@ -982,5 +1075,5 @@ function failed(
 }
 
 function unavailable(reason: NonNullable<TmuxComposerState["reason"]>): TmuxComposerState {
-  return { text: null, hint: null, reason, wrapped: false };
+  return { text: null, hint: null, reason, exact: true, commands: [] };
 }

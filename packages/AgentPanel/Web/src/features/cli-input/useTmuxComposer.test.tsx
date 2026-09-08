@@ -7,7 +7,7 @@ import { useTmuxComposer } from "./useTmuxComposer";
 const SESSION: SessionAddress = { source: "claude", sessionId: "s1" };
 
 function holding(text: string, wrapped = false, hint: string | null = null): TmuxComposerState {
-  return { text, hint, reason: null, wrapped };
+  return { text, hint, reason: null, exact: !wrapped, commands: [] };
 }
 
 /**
@@ -65,7 +65,7 @@ function pane(initial = "", opening?: TmuxComposerState) {
     },
     acceptTmuxComposerHint: async (): Promise<TmuxComposerState> => {
       feed.accepts += 1;
-      return { text: null, hint: null, reason: null, wrapped: false };
+      return { text: null, hint: null, reason: null, exact: true, commands: [] };
     },
     /** Every rail press, so a test can ask what reached the pane and what was held when it did. */
     keys: [] as { key: RailKey; modifiers: RailModifiers }[],
@@ -75,14 +75,14 @@ function pane(initial = "", opening?: TmuxComposerState) {
       modifiers: RailModifiers,
     ): Promise<TmuxComposerState> => {
       feed.keys.push({ key, modifiers });
-      return { text: null, hint: null, reason: null, wrapped: false };
+      return { text: null, hint: null, reason: null, exact: true, commands: [] };
     },
     dropTmuxComposerImage: async (
       _session: SessionAddress,
       image: Blob,
     ): Promise<TmuxComposerState> => {
       feed.drops.push(image.size);
-      return { text: null, hint: null, reason: null, wrapped: false };
+      return { text: null, hint: null, reason: null, exact: true, commands: [] };
     },
   };
   return feed;
@@ -114,6 +114,10 @@ function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; active?
       <button type="button" onClick={() => composer.pressKey("escape")}>escape</button>
       <button type="button" onClick={() => composer.pressKey("left")}>left</button>
       <button type="button" onClick={() => composer.remove(7)}>remove</button>
+      <span data-testid="commands">
+        {composer.commands.map((c) => `${c.selected ? ">" : ""}${c.name}`).join(" ")}
+      </span>
+      <button type="button" onClick={() => composer.chooseCommand("/rename")}>choose</button>
       <button
         type="button"
         // Two images of different sizes, which is how the test tells them apart in order.
@@ -297,7 +301,7 @@ describe("tmux composer", () => {
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     await act(async () => {
-      feed.emit({ text: null, hint: null, reason: "no-pane", wrapped: false });
+      feed.emit({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
     });
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     expect(screen.getByTestId("reason").textContent).toBe("no-pane");
@@ -305,7 +309,7 @@ describe("tmux composer", () => {
   });
 
   it("never claims a session whose first word is that it has no pane", async () => {
-    const feed = pane("", { text: null, hint: null, reason: "no-pane", wrapped: false });
+    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
@@ -325,7 +329,7 @@ describe("tmux composer", () => {
     // A placeholder because that is exactly what it is: shown in the empty box, taking no part in
     // the value, gone the moment the reader types. Pushing it would type Claude's own guess into
     // the session as if somebody had meant it.
-    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, wrapped: false });
+    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [] });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("hint").textContent).toBe("stop adding the three suggestions");
@@ -343,7 +347,7 @@ describe("tmux composer", () => {
   it("accepts the suggestion by pressing Tab in the pane, not by typing its words", async () => {
     // What accepting means belongs to Claude. The pane redraws with the words in it and the
     // stream reports that, which is why nothing here guesses at the result.
-    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, wrapped: false });
+    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [] });
     render(<Probe feed={feed} />);
     await settle();
     await act(async () => { screen.getByText("accept").click(); });
@@ -387,7 +391,7 @@ describe("tmux composer", () => {
     render(<Probe feed={feed} />);
     await settle();
     feed.syncTmuxComposer = async () => ({
-      text: null, hint: null, reason: "no-pane", wrapped: false,
+      text: null, hint: null, reason: "no-pane", exact: true, commands: [],
     });
     await type("look at this");
     await press("drop");
@@ -414,6 +418,98 @@ describe("tmux composer", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(feed.box).toBe("typed then left");
+  });
+});
+
+describe("the commands a session offers", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("shows the menu the pane is showing, and drops it when the pane does", async () => {
+    const feed = pane();
+    render(<Probe feed={feed} />);
+    expect(screen.getByTestId("commands").textContent).toBe("");
+
+    await act(async () => {
+      feed.emit({
+        text: "/re",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [
+          { name: "/recap", description: "Generate a one-line session recap now", selected: true },
+          { name: "/rename", description: "Rename the current conversation", selected: false },
+        ],
+      });
+    });
+    expect(screen.getByTestId("commands").textContent).toBe(">/recap /rename");
+
+    // The menu closes in the pane when the name is complete, and the panel follows it rather than
+    // holding a list of what is no longer on offer.
+    await act(async () => feed.emit(holding("/rename ")));
+    expect(screen.getByTestId("commands").textContent).toBe("");
+  });
+
+  it("does not let a push empty the list the stream just filled", async () => {
+    // A push answers with what it ASKED the box to hold; it cannot know the menu Claude then draws
+    // under it. Taking the menu from that answer would blank the list on every keystroke and let
+    // the stream put it back a moment later -- a list that flickers away under the thumb reaching
+    // for it.
+    const feed = pane();
+    render(<Probe feed={feed} />);
+    await act(async () => {
+      feed.emit({
+        text: "/re",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [{ name: "/recap", description: "one line", selected: true }],
+      });
+    });
+    await type("/rec");
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(feed.pushes).toEqual(["/rec"]);
+    expect(screen.getByTestId("commands").textContent).toBe(">/recap");
+  });
+
+  it("takes a command by typing it, with the space that completes the name", async () => {
+    // Measured on a live pane: the trailing space is what closes the menu and makes Claude show
+    // its own argument hint instead. It goes through the ordinary debounced push, so choosing a
+    // command and typing one are the same act and there is no second way into the pane.
+    const feed = pane();
+    render(<Probe feed={feed} />);
+    await act(async () => {
+      fireEvent.click(screen.getByText("choose"));
+    });
+    expect(screen.getByTestId("draft").textContent).toBe("/rename ");
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(feed.pushes).toEqual(["/rename "]);
+  });
+
+  it("keeps the draft when the pane's reading is not exact", async () => {
+    // What the argument hint costs if this is missed: the box reads "/rename  [name]" while the
+    // reader typed "/rename ", and adopting it would put Claude's annotation in their field and
+    // then type it into their session for real.
+    const feed = pane();
+    render(<Probe feed={feed} />);
+    await type("/rename ");
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    await act(async () => {
+      feed.emit({
+        text: "/rename  [name]",
+        hint: null,
+        reason: null,
+        exact: false,
+        commands: [],
+      });
+    });
+    expect(screen.getByTestId("draft").textContent).toBe("/rename ");
   });
 });
 

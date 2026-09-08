@@ -70,7 +70,7 @@ function paneShowing(screen: string, cursor?: { row: number; column: number }): 
  * between an incremental edit and a retype.
  */
 function held(rows: string[]): ComposerBox {
-  return { rows, hint: null, exact: true };
+  return { rows, hint: null, exact: true, commands: [] };
 }
 
 const KILL = "\u0015";
@@ -93,9 +93,9 @@ const CLOSE = "\u001b[201~";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
   expect(composerBox(screenWith(["make the hover ring stronger"])))
-    .toEqual({ rows: ["make the hover ring stronger"], hint: null, exact: true });
+    .toEqual({ rows: ["make the hover ring stronger"], hint: null, exact: true, commands: [] });
   // The distinction the whole reconciliation rests on: "" is adopted into the field, null is not.
-  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null, exact: true });
+  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null, exact: true, commands: [] });
 });
 
 test("keeps every wrapped row, because the row count is what clearing costs", () => {
@@ -123,12 +123,12 @@ test("reads Claude's own hint as an empty box holding a suggestion", () => {
     RULE,
   ].join("\n");
   expect(composerBox(paneShowing(screen)))
-    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true });
+    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true, commands: [] });
 });
 
 test("keeps text that merely sits under a colour, because only faint means a hint", () => {
   const screen = [RULE, "\u001b[39m❯\u00a0\u001b[1mtyped in bold\u001b[0m", RULE].join("\n");
-  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true });
+  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true, commands: [] });
 });
 
 test("takes the last box, not a turn the transcript echoed with the same marker", () => {
@@ -141,7 +141,7 @@ test("takes the last box, not a turn the transcript echoed with the same marker"
     "❯\u00a0what is being typed now",
     RULE,
   ].join("\n");
-  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["what is being typed now"], hint: null, exact: true });
+  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["what is being typed now"], hint: null, exact: true, commands: [] });
 });
 
 test("answers nothing for a screen mid-redraw, which is retryable rather than broken", () => {
@@ -178,7 +178,7 @@ test("retypes rather than edits when the reading is only a lower bound", () => {
   // An append would land after whitespace nobody can see, and a backspace count taken from the
   // visible text would rub out one character too few. Ctrl+U needs neither: it kills a whole
   // visual row whatever is in it, and the row COUNT is exact even when the text is not.
-  const inexact = { rows: ["hello"], hint: null, exact: false };
+  const inexact = { rows: ["hello"], hint: null, exact: false, commands: [] };
   expect(keystrokesFor(inexact, "hello world"))
     .toBe(`${END}${KILL}${OPEN}hello world${CLOSE}`);
   // Including when the box already reads the way it is being asked to: what it reads is not all
@@ -196,8 +196,67 @@ test("does not insert a space that is already in the box", () => {
   expect(keystrokesFor(held, "hello world")).toBe(`${END}${OPEN}world${CLOSE}`);
 });
 
+/** The menu Claude draws under its box, verbatim from a live pane, colour and all. */
+function menuScreen(rows: string[], typed: string): TmuxPaneView {
+  const screen = [RULE, `❯ ${typed}`, RULE, ...rows].join("\n");
+  return { screen, cursor: { row: 1, column: 2 + typed.length } };
+}
+
+test("reads the command menu Claude draws under the box, and rejoins a wrapped description", () => {
+  // Captured from a live pane after pasting "/re". The selected row is a different colour from
+  // the rest -- 153 against 246 here -- and the arrows move which one carries it.
+  const box = composerBox(menuScreen([
+    "\u001b[39m  \u001b[38;5;153m/\u001b[1mre\u001b[0m\u001b[38;5;153mcap                          Generate a one-line session \u001b[1mre\u001b[0m\u001b[38;5;153mcap now\u001b[39m",
+    "  \u001b[38;5;246m/\u001b[1m\u001b[39mre\u001b[0m\u001b[38;5;246msume                         \u001b[1m\u001b[39mRe\u001b[0m\u001b[38;5;246msume a previous conversation\u001b[39m",
+    "  \u001b[38;5;246m/\u001b[1m\u001b[39mre\u001b[0m\u001b[38;5;246mwind\u001b[39m                         \u001b[1mRe\u001b[0m\u001b[38;5;246mstore\u001b[39m \u001b[38;5;246mthe code and/or conversation to a\u001b[39m",
+    "                                  \u001b[38;5;246mp\u001b[1m\u001b[39mre\u001b[0m\u001b[38;5;246mvious point\u001b[39m",
+  ], "/re"))!;
+  expect(box.commands).toEqual([
+    { name: "/recap", description: "Generate a one-line session recap now", selected: true },
+    { name: "/resume", description: "Resume a previous conversation", selected: false },
+    {
+      name: "/rewind",
+      // The two rows it wrapped onto, rejoined. Claude wraps the description itself, so the row
+      // break is a rendering and not part of what it says.
+      description: "Restore the code and/or conversation to a previous point",
+      selected: false,
+    },
+  ]);
+});
+
+test("reads no menu out of the status lines that stand in the same rows", () => {
+  // What is under the box when nothing is open, verbatim. The menu is drawn INTO these rows, so
+  // "is there a menu" and "is this the footer" are one question, answered by shape.
+  const box = composerBox(menuScreen([
+    "\u001b[39m  \u001b[38;5;246mcomposer-probe  Opus 5 (1M context)  ctx:5%  5h:13%\u001b[39m",
+    "  \u001b[38;5;73m⏸ plan mode on\u001b[38;5;246m (shift+tab to cycle)\u001b[39m",
+    "                                                          \u001b[38;5;246m49597 tokens\u001b[39m",
+  ], "ordinary text"))!;
+  expect(box.commands).toEqual([]);
+});
+
+test("declines the @ menu, which shares the region and is not a list of commands", () => {
+  // Measured on a live pane: its rows are `◇ resource – description` with no leading slash, so the
+  // entry pattern turns them down by shape. A reader who opens it sees no list, rather than a
+  // list of the wrong things.
+  const box = composerBox(menuScreen([
+    "\u001b[39m  \u001b[38;5;246m◇ claude.ai Figma:ui://widget/f… – figjam-diagram-mcp-app\u001b[39m",
+    "  \u001b[38;5;246m◇ claude.ai Figma:skill://index… – skill-index\u001b[39m",
+  ], "@"))!;
+  expect(box.commands).toEqual([]);
+});
+
+test("does not read a path in the footer as a command", () => {
+  // The narrow name pattern is what stops this: a command name carries no second slash, so a row
+  // showing a directory declines even though it starts the same way.
+  const box = composerBox(menuScreen([
+    "  /Users/dev/projects/agent-desk        the working directory",
+  ], "ordinary text"))!;
+  expect(box.commands).toEqual([]);
+});
+
 test("stops at the bottom rule rather than swallowing the status lines", () => {
-  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null, exact: true });
+  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null, exact: true, commands: [] });
 });
 
 test("sends nothing when the box already reads that way", () => {
@@ -274,13 +333,13 @@ test("reports tmux itself being gone as its own reason, rather than as an empty 
     screen: async () => { throw new TmuxUnavailable("no server running"); },
   });
   expect(await readComposerAt("agentdesk-1", tmux))
-    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [] });
 });
 
 test("marks a multi-row reading as wrapped, so the panel knows not to trust it exactly", async () => {
   const tmux = runtime({ screen: async () => screenWith(["alpha bravo", "charlie"]) });
   expect(await readComposerAt("agentdesk-1", tmux))
-    .toEqual({ text: "alpha bravo charlie", hint: null, reason: null, wrapped: true });
+    .toEqual({ text: "alpha bravo charlie", hint: null, reason: null, exact: false, commands: [] });
 });
 
 test("re-reads the screen before every push, rather than trusting the caller's view of it", async () => {
@@ -315,7 +374,7 @@ test("a push into a session with no pane sends nothing, and never reaches for a 
     },
   });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
   expect(tmux.sent).toEqual([]);
   expect(asked).toBe(false);
 });
@@ -328,7 +387,7 @@ test("accepting the hint presses Tab, and guesses nothing about what lands", asy
     screen: async () => { throw new Error("accepting must not read the screen"); },
   });
   expect(await acceptTmuxComposerHint("session", tmux))
-    .toEqual({ text: null, hint: null, reason: null, wrapped: false });
+    .toEqual({ text: null, hint: null, reason: null, exact: true, commands: [] });
   expect(tmux.sent).toEqual(["\t"]);
 });
 
@@ -337,7 +396,7 @@ test("submitting presses Return, and needs no screen to do it", async () => {
     screen: async () => { throw new Error("submit must not read the screen"); },
   });
   expect(await submitTmuxComposer("session", tmux))
-    .toEqual({ text: "", hint: null, reason: null, wrapped: false });
+    .toEqual({ text: "", hint: null, reason: null, exact: true, commands: [] });
   expect(tmux.sent).toEqual(["\r"]);
 });
 
@@ -391,7 +450,7 @@ test("reports what the composer holds without waiting for the pane to write", as
     onEnd: () => {},
   }, tmux);
   await settle(60);
-  expect(seen).toEqual([{ text: "make the hover ring stronger", hint: null, reason: null, wrapped: false }]);
+  expect(seen).toEqual([{ text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [] }]);
   expect(state.watching).toBe(true);
   stop();
   expect(state.watching).toBe(false);
@@ -433,8 +492,8 @@ test("reports only what changed, so a redraw above the box costs nobody anything
   write();
   await settle(300);
   expect(seen).toEqual([
-    { text: "hello", hint: null, reason: null, wrapped: false },
-    { text: "hello there", hint: null, reason: null, wrapped: false },
+    { text: "hello", hint: null, reason: null, exact: true, commands: [] },
+    { text: "hello there", hint: null, reason: null, exact: true, commands: [] },
   ]);
   stop();
 });
@@ -452,7 +511,7 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
     onEnd: () => { ended += 1; },
   }, tmux);
   await settle(60);
-  expect(seen).toEqual([{ text: null, hint: null, reason: "no-pane", wrapped: false }]);
+  expect(seen).toEqual([{ text: null, hint: null, reason: "no-pane", exact: true, commands: [] }]);
   expect(ended).toBe(1);
   expect(state.watching).toBe(false);
   expect(state.screens).toBe(0);
@@ -529,9 +588,9 @@ test("a pane that stops answering is dropped, so the next push says the session 
     screen: async () => { throw new TmuxUnavailable("can't find session"); },
   });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [] });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
 });
 
 test("two watchers hold one pane independently, and the first to leave does not take it", async () => {
@@ -562,7 +621,7 @@ test("a dropped image is pasted as its path alone, which is what a terminal drop
   // looking at a file path, so the path cannot ride along with anything else.
   const tmux = runtime({ screen: async () => screenWith([""]) });
   expect(await dropTmuxComposerImage("session", "/tmp/a-b/c.png", tmux))
-    .toEqual({ text: null, hint: null, reason: null, wrapped: false });
+    .toEqual({ text: null, hint: null, reason: null, exact: true, commands: [] });
   expect(tmux.sent).toEqual([`${OPEN}/tmp/a-b/c.png${CLOSE}`]);
 });
 
@@ -577,7 +636,7 @@ test("separates the path from text already in the box, with a space outside the 
 test("a drop into a session with no pane pastes nothing and says why", async () => {
   const tmux = runtime({ panes: composerPanes(), pane: async () => null });
   expect(await dropTmuxComposerImage("session", "/tmp/x.png", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
   expect(tmux.sent).toEqual([]);
 });
 
@@ -706,7 +765,7 @@ test("a send that never shows up on screen gives the push back rather than holdi
   const tmux = runtime({ screen: async () => screenWith(["frozen"]) });
   const started = Date.now();
   expect(await syncTmuxComposer("session", "something else", tmux))
-    .toEqual({ text: "something else", hint: null, reason: null, wrapped: false });
+    .toEqual({ text: "something else", hint: null, reason: null, exact: true, commands: [] });
   expect(Date.now() - started).toBeLessThan(2_000);
 });
 
@@ -728,7 +787,7 @@ test("a failed turn does not take the next one down with it", async () => {
     syncTmuxComposer("shared", "two", tmux),
   ]);
   expect(broken.reason).toBe("tmux-unavailable");
-  expect(fine).toEqual({ text: "two", hint: null, reason: null, wrapped: false });
+  expect(fine).toEqual({ text: "two", hint: null, reason: null, exact: true, commands: [] });
 });
 
 test("a push that landed is not reported as failed because the pane stopped answering afterwards", async () => {
@@ -747,7 +806,7 @@ test("a push that landed is not reported as failed because the pane stopped answ
     },
   });
   expect(await syncTmuxComposer("session", "alpha", tmux))
-    .toEqual({ text: "alpha", hint: null, reason: null, wrapped: false });
+    .toEqual({ text: "alpha", hint: null, reason: null, exact: true, commands: [] });
   expect(tmux.sent).toEqual([`${END}${OPEN}alpha${CLOSE}`]);
 });
 

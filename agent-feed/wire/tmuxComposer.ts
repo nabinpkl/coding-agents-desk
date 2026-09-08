@@ -30,6 +30,28 @@ export type TmuxComposerUnavailableReason =
   | "no-composer";
 
 /**
+ * One entry of the command menu Claude draws under its box when the text starts with `/`.
+ *
+ * Read off that menu rather than compiled from disk, and the difference is the point: the list a
+ * session offers is its own -- built-ins, this project's commands, whatever plugins and skills it
+ * loaded -- and a second list assembled here would be a second source of truth that drifts from it
+ * the first time somebody adds a plugin.
+ */
+export interface ComposerCommand {
+  /** The name as it goes into the box, leading `/` and all. */
+  name: string;
+  /**
+   * What the menu says it does, rejoined from however many rows it wrapped onto.
+   *
+   * Claude elides a long one with an ellipsis before it ever reaches the screen, so this is what
+   * the pane shows and not what the command's own help would say.
+   */
+  description: string;
+  /** Whether this is the entry Return would run, which is what the arrows move. */
+  selected: boolean;
+}
+
+/**
  * What a session's tmux composer holds, or why it cannot be read.
  *
  * `text` is null exactly when `reason` is set. An empty composer is `""`, which is a different
@@ -52,14 +74,35 @@ export interface TmuxComposerState {
   hint: string | null;
   reason: TmuxComposerUnavailableReason | null;
   /**
-   * True when the composer's text ran onto more than one screen row.
+   * True when `text` is what the box holds, character for character.
    *
-   * Carried because the panel must not trust `text` to the character in that case: tmux shows a
-   * wrapped line and a deliberately broken one identically, so a reconstruction can only guess
-   * which it was. The panel still shows it; it just stops treating a disagreement as the user's
-   * edit being stale.
+   * False means it is a HYPOTHESIS, and the panel must not overwrite a draft with it. Two things
+   * make it one, and the panel does not need to tell them apart:
+   *
+   *   The box wrapped. Claude word-wraps its own rows and the space it broke on survives in
+   *   neither of them, so tmux shows a wrapped line and a deliberately broken one identically.
+   *
+   *   The reading did not reach the end. Everything past the cursor is unknowable -- tmux pads
+   *   every row to the pane width -- and it is not always the reader's anyway: Claude draws its
+   *   own argument hint there once a command name is complete, so a box the reader left holding
+   *   `/rename ` reads as `/rename  [name]`. Adopting that would put Claude's annotation in
+   *   somebody's field and then type it into their session for real.
+   *
+   * The panel still SHOWS an inexact reading when it has nothing of its own; what it will not do
+   * is take one over words somebody typed.
    */
-  wrapped: boolean;
+  exact: boolean;
+  /**
+   * The command menu the pane is showing, or empty when it is showing none.
+   *
+   * Only what FITS on that pane's screen. Claude draws the menu into the rows below its box and
+   * stops at the bottom of the terminal, so a session in a short pane offers a short list -- and
+   * the way to reach the rest is the way it is in the terminal, by typing more of the name.
+   *
+   * Empty is the ordinary answer: it is a menu, so it is open only while somebody is part-way
+   * through a command.
+   */
+  commands: readonly ComposerCommand[];
 }
 
 /**

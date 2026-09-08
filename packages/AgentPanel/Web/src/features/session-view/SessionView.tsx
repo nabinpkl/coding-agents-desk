@@ -55,10 +55,11 @@ import {
   type ComposerImage,
 } from "../cli-input/useTmuxComposer";
 import { ComposerImageStrip } from "../cli-input/ComposerImageStrip";
+import { ComposerCommandList } from "../cli-input/ComposerCommandList";
 import { TerminalKeyRail } from "../terminal/TerminalKeyRail";
 import { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
 import type { ModifierState } from "../keyboard/modifierLatch";
-import type { RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
+import type { ComposerCommand, RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
 import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
 import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../terminal/useAgentTerminal";
@@ -723,6 +724,11 @@ function SessionComposer({
       onModifier: (modifier: RailModifier) => void;
       onKey: (key: RailKey) => void;
     };
+    /** The command menu the pane is showing, and how to take one of them. */
+    commands?: {
+      shown: readonly ComposerCommand[];
+      onChoose: (name: string) => void;
+    };
   } = windowBand
     ? {
         value: windowComposer.draft,
@@ -780,6 +786,10 @@ function SessionComposer({
           modifiers: tmuxComposer.modifiers,
           onModifier: tmuxComposer.toggleModifier,
           onKey: tmuxComposer.pressKey,
+        },
+        commands: {
+          shown: tmuxComposer.commands,
+          onChoose: tmuxComposer.chooseCommand,
         },
       }
     : inboxBand
@@ -1089,6 +1099,16 @@ function SessionComposer({
             event.target.value = "";
             if (chosen.length > 0) void tmuxComposer.drop(chosen);
           }}
+        />
+      ) : null}
+      {/* Above the field rather than under it, which is where Claude draws it: under the panel's
+          field are the key rail, the send button and then a phone's keyboard, so a list there is
+          behind the thumb reaching for it. Open only while the pane's own menu is, which is only
+          while somebody is part-way through a command. */}
+      {editor.commands && editor.commands.shown.length > 0 && !terminalInput ? (
+        <ComposerCommandList
+          commands={editor.commands.shown}
+          onChoose={editor.commands.onChoose}
         />
       ) : null}
       <div className={`flex items-end gap-1.5 ${terminalInput ? "justify-end" : ""}`}>
