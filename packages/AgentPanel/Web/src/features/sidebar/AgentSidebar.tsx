@@ -80,8 +80,8 @@ interface AgentSidebarProps {
    */
   detachedBotIds: ReadonlySet<string>;
   onToggleBotOnCanvas: (bot: BotView) => void;
-  /** Which session the canvas has open, so this roster can mark the row that opened it. */
-  canvasOpenSessionKey: string | null;
+  /** Which sessions the canvas has open, so this roster can mark the rows that opened them. */
+  canvasOpenSessionKeys: ReadonlySet<string>;
   /**
    * Opens a session ON the canvas rather than in place of it.
    *
@@ -233,16 +233,22 @@ export function AgentSidebar(props: AgentSidebarProps) {
             loading={props.botsLoading}
             error={props.botsError}
             // Marked from what the CANVAS has open, not from what the app has selected: over here
-            // a highlighted row means "this is the card that is unfolded", and nothing on the
-            // canvas is selected in the sense the other two tabs mean.
-            selectedBotId={
-              props.bots.find((bot) =>
-                bot.sessions.some(
-                  (session) => `${session.source}:${session.sessionId}` === props.canvasOpenSessionKey,
-                ),
-              )?.botId ?? null
+            // a highlighted row means "this is a card that is unfolded", and nothing on the canvas
+            // is selected in the sense the other two tabs mean. Every Bot holding an open session
+            // is marked, not the first one found, because the canvas opens as many as it is asked
+            // to and a roster that marked one of them would be pointing at the wrong card.
+            selectedBotIds={
+              new Set(
+                props.bots
+                  .filter((bot) =>
+                    bot.sessions.some((session) =>
+                      props.canvasOpenSessionKeys.has(`${session.source}:${session.sessionId}`),
+                    ),
+                  )
+                  .map((bot) => bot.botId),
+              )
             }
-            selectedSessionKey={props.canvasOpenSessionKey}
+            selectedSessionKeys={props.canvasOpenSessionKeys}
             onSelectSession={props.onOpenSessionOnCanvas}
             onAddSession={props.onAddBotSession}
             onRenameSession={props.onRenameSession}
@@ -277,8 +283,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
             bots={props.bots}
             loading={props.botsLoading}
             error={props.botsError}
-            selectedBotId={props.selectedBotId}
-            selectedSessionKey={props.selectedSessionKey}
+            // Singletons: this tab selects one session at a time. The panel takes sets because
+            // it is the same one the canvas tab renders, and the canvas does not.
+            selectedBotIds={new Set(props.selectedBotId ? [props.selectedBotId] : [])}
+            selectedSessionKeys={new Set(props.selectedSessionKey ? [props.selectedSessionKey] : [])}
             onSelectSession={props.onSelectBotSession}
             onAddSession={props.onAddBotSession}
             onRenameSession={props.onRenameSession}

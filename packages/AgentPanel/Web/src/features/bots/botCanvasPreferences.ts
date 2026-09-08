@@ -147,40 +147,53 @@ export function storeSessionCardSizes(sizes: BotCardSizes, onCanvas: Iterable<st
   storeSizes(SESSION_SIZES_KEY, sizes, onCanvas);
 }
 
-const OPEN_SESSION_KEY = "agent-panel.bot-canvas.open-session";
+/**
+ * The name is the singular it was when the canvas held one card open, kept deliberately: a reader
+ * upgrading has the old bare-string value under it, and reusing the name overwrites that on the
+ * first write instead of orphaning it beside the new one forever.
+ */
+const OPEN_SESSIONS_KEY = "agent-panel.bot-canvas.open-session";
 
 /**
- * Which session the canvas had open, as `source:sessionId`, remembered across reloads.
+ * Which sessions the canvas has open, as `source:sessionId`, remembered across reloads.
  *
  * The same reason the sidebar's own selection is remembered: this panel is edited while it is being
- * read, so a reload happens many times an hour, and every one of them closed the card someone was
- * reading and left a canvas of collapsed rosters to click back through.
+ * read, so a reload happens many times an hour, and every one of them closed the cards someone was
+ * reading and left a canvas of collapsed rosters to click back through. A set rather than one key
+ * because a card is a whole session and reading two at once is the point of a canvas; what used to
+ * argue for one at a time was a stream budget that was measured and found to be about thirty cards,
+ * against a machine that holds six sessions.
  *
- * Identity only, and deliberately unresolved. The key may name a session that has since ended or a
+ * Identity only, and deliberately unresolved. A key may name a session that has since ended or a
  * Bot that no longer holds it, in which case no card opens and the canvas is the one it would have
  * been anyway -- there is nothing to repair, so nothing checks. What is NOT stored is which Bots are
  * on the canvas, for the reason `detachedBotIds` gives: a canvas that comes back whole costs one
  * click to arrange again, where one that comes back missing a Bot hides it from a reader who has
  * forgotten they took it off.
  */
-export function loadCanvasOpenKey(): string | null {
-  if (typeof window === "undefined") return null;
+export function loadCanvasOpenKeys(): ReadonlySet<string> {
+  if (typeof window === "undefined") return new Set();
   try {
-    const raw = localStorage.getItem(OPEN_SESSION_KEY);
-    // Checked for the shape it is written in, so a hand-edited value cannot become a lookup for a
-    // key no session could ever have.
-    return typeof raw === "string" && raw.includes(":") ? raw : null;
+    const raw = localStorage.getItem(OPEN_SESSIONS_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    // Each entry checked for the shape it is written in, so a hand-edited value cannot become a
+    // lookup for a key no session could ever have.
+    return new Set(
+      parsed.filter((key): key is string => typeof key === "string" && key.includes(":")),
+    );
   } catch {
-    return null;
+    return new Set();
   }
 }
 
-export function storeCanvasOpenKey(key: string | null): void {
+export function storeCanvasOpenKeys(keys: ReadonlySet<string>): void {
   try {
-    if (key === null) localStorage.removeItem(OPEN_SESSION_KEY);
-    else localStorage.setItem(OPEN_SESSION_KEY, key);
+    if (keys.size === 0) localStorage.removeItem(OPEN_SESSIONS_KEY);
+    else localStorage.setItem(OPEN_SESSIONS_KEY, JSON.stringify([...keys]));
   } catch {
-    // The canvas still opens and closes rows; it just forgets which one by the next visit.
+    // The canvas still opens and closes rows; it just forgets which ones by the next visit.
   }
 }
 

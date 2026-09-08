@@ -41,8 +41,8 @@ export function BotSidebarPanel({
   bots,
   loading,
   error,
-  selectedBotId,
-  selectedSessionKey,
+  selectedBotIds,
+  selectedSessionKeys,
   onSelectSession,
   onAddSession,
   onRenameSession,
@@ -54,8 +54,9 @@ export function BotSidebarPanel({
   bots: BotView[];
   loading: boolean;
   error: string | null;
-  selectedBotId: string | null;
-  selectedSessionKey: string | null;
+  /** Every Bot to mark. A set because the canvas opens as many cards as it is asked to. */
+  selectedBotIds: ReadonlySet<string>;
+  selectedSessionKeys: ReadonlySet<string>;
   onSelectSession: (bot: BotView, session: SessionSummary) => void;
   onAddSession: (bot: BotView) => void;
   /** Opens the rename dialog for one session. Claude only; a Codex row does not offer it. */
@@ -117,7 +118,7 @@ export function BotSidebarPanel({
         <ul role="list" aria-label="Bots">
           {bots.map((bot) => {
             const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
-            const selected = bot.botId === selectedBotId;
+            const selected = selectedBotIds.has(bot.botId);
             // Off the canvas dims the whole entry, sessions included, because the thing that is
             // not on the canvas is the Bot rather than its header. Undefined when there is no
             // canvas in the picture, which is not the same as being off one.
@@ -195,7 +196,7 @@ export function BotSidebarPanel({
                   <ul role="list" aria-label={`${bot.name} sessions`} className="pb-1">
                     {bot.sessions.map((session) => {
                       const key = attachedSessionKey(session);
-                      const active = selected && selectedSessionKey === key;
+                      const active = selected && selectedSessionKeys.has(key);
                       return (
                         // The row was one button until it grew a second action. A button cannot
                         // contain a button, so opening the session and opening its menu are now

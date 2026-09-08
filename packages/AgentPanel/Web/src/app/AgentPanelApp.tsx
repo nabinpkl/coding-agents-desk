@@ -38,8 +38,8 @@ import { loadSelection, storeSelection } from "../features/sidebar/selectionStor
 import { useBots } from "../features/bots/useBots";
 import { BotCanvas } from "../features/bots/BotCanvas";
 import {
-  loadCanvasOpenKey,
-  storeCanvasOpenKey,
+  loadCanvasOpenKeys,
+  storeCanvasOpenKeys,
 } from "../features/bots/botCanvasPreferences";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { SessionRenameDialog } from "../features/bots/SessionRenameDialog";
@@ -167,17 +167,22 @@ export function App({ feed, host, fill = false }: Props) {
   // comes back whole on the next visit costs one click to arrange again and never hides a Bot from
   // a reader who has forgotten they took it off.
   const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(() => new Set());
-  // Which session the canvas has open, as `source:sessionId`. Held here rather than inside the
+  // Which sessions the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
-  const [canvasOpenKey, setCanvasOpenKey] = useState<string | null>(loadCanvasOpenKey);
+  const [canvasOpenKeys, setCanvasOpenKeys] = useState<ReadonlySet<string>>(loadCanvasOpenKeys);
   const toggleCanvasSession = useCallback((key: string) => {
-    setCanvasOpenKey((current) => (current === key ? null : key));
+    setCanvasOpenKeys((current) => {
+      // A new set rather than a mutation, because React decides whether to re-render by identity.
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   }, []);
-  // One write for every way the open card changes -- the row's own toggle, the sidebar roster
-  // opening one, a Bot leaving the canvas -- rather than a call beside each of them, which is how
-  // one of them ends up forgotten.
-  useEffect(() => storeCanvasOpenKey(canvasOpenKey), [canvasOpenKey]);
+  // One write for every way the open cards change -- a row's own toggle, the sidebar roster opening
+  // one, a Bot leaving the canvas -- rather than a call beside each of them, which is how one of
+  // them ends up forgotten.
+  useEffect(() => storeCanvasOpenKeys(canvasOpenKeys), [canvasOpenKeys]);
   const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because
@@ -189,7 +194,14 @@ export function App({ feed, host, fill = false }: Props) {
       next.delete(bot.botId);
       return next;
     });
-    setCanvasOpenKey(`${session.source}:${session.sessionId}`);
+    // Opens rather than toggles, unlike the card's own row. The same click also puts a detached
+    // Bot back, and a click that re-attaches a Bot while closing the session it was clicked for
+    // means two contradictory things at once. Closing stays where the card is.
+    setCanvasOpenKeys((current) => {
+      const key = `${session.source}:${session.sessionId}`;
+      if (current.has(key)) return current;
+      return new Set(current).add(key);
+    });
   }, []);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
     setDetachedBotIds((current) => {
@@ -811,7 +823,7 @@ export function App({ feed, host, fill = false }: Props) {
     onRenameSession: setRenamingSession,
     detachedBotIds,
     onToggleBotOnCanvas: toggleBotOnCanvas,
-    canvasOpenSessionKey: canvasOpenKey,
+    canvasOpenSessionKeys: canvasOpenKeys,
     onOpenSessionOnCanvas: openSessionOnCanvas,
     onAddBot: () => {
       setBotCreatorOpen(true);
@@ -966,7 +978,7 @@ export function App({ feed, host, fill = false }: Props) {
                 onDetachSession={detachBotSession}
                 onDetachBot={toggleBotOnCanvas}
                 detachedCount={botsState.bots.length - canvasBots.length}
-                openKey={canvasOpenKey}
+                openKeys={canvasOpenKeys}
                 onToggleSession={toggleCanvasSession}
                 onAddBot={() => setBotCreatorOpen(true)}
               />

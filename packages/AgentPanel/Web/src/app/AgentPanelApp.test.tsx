@@ -488,7 +488,7 @@ describe("App shell", () => {
    */
   const canvas = () => within(screen.getByRole("list", { name: "Bot canvas" }));
 
-  it("shows every Bot at once on the canvas, and opens one session inline at a time", () => {
+  it("shows every Bot at once on the canvas, and opens their sessions inline beside each other", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
@@ -552,13 +552,19 @@ describe("App shell", () => {
     // after all -- the card's own row rather than the app's header.
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-controls-host", "attached");
 
-    // One at a time: opening another Bot's session closes the first, so the roster never holds
-    // more than one open stream.
+    // As many as the reader opens: another Bot's session joins the first rather than replacing it,
+    // which is what a canvas is for. The budget that used to force one at a time is Chrome's
+    // hundred streams per origin, about thirty cards away.
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
-    expect(screen.getAllByTestId("activity-feed")).toHaveLength(1);
-    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+    expect(
+      screen.getAllByTestId("activity-feed").map((feed) => feed.getAttribute("data-session-id")),
+    ).toEqual(["sid-claude-01", "sid-codex-01"]);
 
+    // And each row closes only itself, rather than the click being the only way to swap which one
+    // is up.
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Codex 01/ }));
     expect(screen.queryByTestId("activity-feed")).toBeNull();
     unmount();
   });

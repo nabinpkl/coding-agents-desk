@@ -70,7 +70,7 @@ export function BotCanvas({
   onDetachSession,
   onDetachBot,
   detachedCount,
-  openKey,
+  openKeys,
   onToggleSession,
   onAddBot,
 }: {
@@ -116,14 +116,14 @@ export function BotCanvas({
    */
   detachedCount: number;
   /**
-   * Which session is open, as `source:sessionId`, owned above this component.
+   * Which sessions are open, as `source:sessionId`, owned above this component.
    *
    * It used to live in `BotCanvasList`, and it moved out when the sidebar beside the canvas gained
    * the same rows: a session picked over there opens the card over here, which cannot work while
    * the only copy of the answer is inside the thing being driven.
    */
-  openKey: string | null;
-  /** Opens that session, or closes it if it is the one already open. */
+  openKeys: ReadonlySet<string>;
+  /** Opens that session, or closes it if it is already open. */
   onToggleSession: (key: string) => void;
   onAddBot: () => void;
 }) {
@@ -173,25 +173,28 @@ export function BotCanvas({
       onRenameSession={onRenameSession}
       onDetachSession={onDetachSession}
       onDetachBot={onDetachBot}
-      openKey={openKey}
+      openKeys={openKeys}
       onToggleSession={onToggleSession}
     />
   );
 }
 
 /**
- * The roster, with at most one session open in it.
+ * The roster, with as many sessions open in it as the reader has opened.
  *
- * One at a time rather than many, and the reason got stronger when a row grew from a transcript
- * into a whole session. An open row is an event stream, a background-task stream, a summary probe
- * and a CLI-status poll -- and, once its terminal is opened, a pty attach. The relay between this
- * panel and the sidecar admits a bounded number of streams, the same budget that collapsed the
- * sidebar's per-project streams into one inventory stream. One open session costs exactly what the
- * single-thread view costs, so a roster of thirty cannot exhaust it. Two would also be unreadable
- * on a phone, where one is already most of the screen.
+ * It held one at a time until the budget behind that rule was measured. An open row is an event
+ * stream, a background-task stream, a summary probe and a CLI-status poll -- and, once its terminal
+ * is opened, a pty attach. The ceiling is CHROME's, not the sidecar's: a browser allows 100
+ * concurrent streams per HTTP/2 origin and parks the excess in CONNECTING with no error at all,
+ * which is about thirty open cards, against a machine that holds six sessions. The sidecar's own
+ * per-session cost went with it -- every watched session now shares one process table, one registry
+ * pass and one `lsof` per tick, so 18 of them cost what 8 used to.
  *
- * Closing a row UNMOUNTS it rather than hiding it, which is what makes that true: every one of
- * those subscriptions belongs to a hook inside `SessionView`, so they end with it.
+ * The phone is the surface where one card is still most of the screen, and that stays the reader's
+ * call: nothing here caps the count, because the cards are what the reader arranged.
+ *
+ * Closing a row UNMOUNTS it rather than hiding it, which is what keeps a closed card free: every
+ * one of those subscriptions belongs to a hook inside `SessionView`, so they end with it.
  */
 function BotCanvasList({
   bots,
@@ -202,7 +205,7 @@ function BotCanvasList({
   onRenameSession,
   onDetachSession,
   onDetachBot,
-  openKey,
+  openKeys,
   onToggleSession,
 }: {
   bots: BotView[];
@@ -214,7 +217,7 @@ function BotCanvasList({
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
-  openKey: string | null;
+  openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
@@ -275,7 +278,7 @@ function BotCanvasList({
             bot={bot}
             sessionContext={sessionContext}
             botError={botError}
-            openKey={openKey}
+            openKeys={openKeys}
             onToggleSession={onToggleSession}
             sessionSizes={sessionSizes}
             onResizeSession={resizeSession}
@@ -594,7 +597,7 @@ function BotCanvasCard({
   bot,
   sessionContext,
   botError,
-  openKey,
+  openKeys,
   onToggleSession,
   sessionSizes,
   onResizeSession,
@@ -615,7 +618,7 @@ function BotCanvasCard({
   bot: BotView;
   sessionContext: SessionViewContext;
   botError: string | null;
-  openKey: string | null;
+  openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
   /** Every session's own size, by `source:sessionId`. */
   sessionSizes: BotCardSizes;
@@ -672,9 +675,9 @@ function BotCanvasCard({
   const counted = `${bot.sessions.length} ${bot.sessions.length === 1 ? "session" : "sessions"}${
     live > 0 ? `, ${live} live` : ""
   }`;
-  // Whether the open session is one of THIS card's, which is what makes this card the sized one.
-  const holdsOpen = openKey !== null && bot.sessions.some((session) => sessionKey(session) === openKey);
-  // Brings this card into view when it becomes the open one, because the row that opened it may
+  // Whether an open session is one of THIS card's, which is what the scroll below acts on.
+  const holdsOpen = bot.sessions.some((session) => openKeys.has(sessionKey(session)));
+  // Brings this card into view when it becomes an open one, because the row that opened it may
   // have been in the sidebar rather than on the canvas, and the card can be anywhere in a tiled
   // roster of thirty. `nearest` rather than `start`: it does nothing at all when the card is
   // already fully visible, which is the common case of clicking a row on the canvas itself, and a
@@ -793,7 +796,7 @@ function BotCanvasCard({
                 key={sessionKey(session)}
                 bot={bot}
                 session={session}
-                open={sessionKey(session) === openKey}
+                open={openKeys.has(sessionKey(session))}
                 onToggle={() => onToggleSession(sessionKey(session))}
                 size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
                 onResize={(next) => onResizeSession(sessionKey(session), next, false)}

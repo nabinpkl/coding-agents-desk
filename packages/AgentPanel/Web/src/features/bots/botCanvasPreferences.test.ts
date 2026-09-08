@@ -10,14 +10,17 @@ import {
   clampCardHeight,
   clampCardWidth,
   loadBotCanvasOrder,
+  loadCanvasOpenKeys,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
+  storeCanvasOpenKeys,
   storeSessionCardSizes,
 } from "./botCanvasPreferences";
 
 const STORAGE_KEY = "agent-panel.bot-canvas.session-sizes";
+const OPEN_SESSIONS_STORAGE_KEY = "agent-panel.bot-canvas.open-session";
 
 describe("session card sizes", () => {
   beforeEach(() => localStorage.clear());
@@ -147,5 +150,38 @@ describe("pruning session sizes", () => {
   it("writes nothing when nothing on the canvas matches", () => {
     storeSessionCardSizes({ "claude:s1": { width: 700, height: 900 } }, []);
     expect(loadSessionCardSizes()).toEqual({});
+  });
+});
+
+describe("which sessions the canvas has open", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("knows nothing before a card has been opened", () => {
+    expect(loadCanvasOpenKeys()).toEqual(new Set());
+  });
+
+  it("remembers every open card, which is the whole point of holding a set", () => {
+    storeCanvasOpenKeys(new Set(["claude:a", "codex:b"]));
+    expect(loadCanvasOpenKeys()).toEqual(new Set(["claude:a", "codex:b"]));
+  });
+
+  it("forgets the last card rather than storing an empty list", () => {
+    storeCanvasOpenKeys(new Set(["claude:a"]));
+    storeCanvasOpenKeys(new Set());
+    expect(localStorage.getItem(OPEN_SESSIONS_STORAGE_KEY)).toBeNull();
+  });
+
+  it("drops an entry that is not shaped like a session key, rather than opening nothing at all", () => {
+    // A stale or hand-edited value must not become a lookup for a card that could never exist, and
+    // one bad entry must not cost the reader the cards beside it.
+    localStorage.setItem(OPEN_SESSIONS_STORAGE_KEY, JSON.stringify(["claude:a", "nocolon", 7]));
+    expect(loadCanvasOpenKeys()).toEqual(new Set(["claude:a"]));
+  });
+
+  it("opens nothing on the single key it used to write, which is what upgrades a reader", () => {
+    // The name is reused rather than changed, so the value under it is the old bare string until
+    // the first write replaces it.
+    localStorage.setItem(OPEN_SESSIONS_STORAGE_KEY, "claude:a");
+    expect(loadCanvasOpenKeys()).toEqual(new Set());
   });
 });
