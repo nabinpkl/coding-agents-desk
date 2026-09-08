@@ -294,41 +294,50 @@ async function adoptPaneSize(
   // Joining the running applier rather than starting a second: two resizes racing on one window
   // land in an order neither caller chose, and the loser's shape is what sticks.
   if (pane.resizing) return pane.resizing;
-  pane.resizing = (async () => {
+  const applier = (async () => {
     let moved = false;
-    try {
-      for (let want = pane.wanted; want !== null; want = pane.wanted) {
-        pane.wanted = null;
-        if (want.columns === pane.columns && want.rows === pane.rows) continue;
-        // Asked every pass, not once: a human can attach between two reports, and the whole
-        // guarantee is that this never reshapes a session somebody is sitting in front of.
-        if (await runtime.clients(pane.session) > 0) return moved;
-        await runtime.resize(pane.session, want.columns, want.rows);
-        // Handed straight back. `resize-window -x -y` pins the window to `window-size manual` as a
-        // side effect -- measured, and it is what left four sessions stuck that way the last time
-        // this repo resized panes. Unsetting keeps the size and restores tmux's own negotiation, so
-        // a human who attaches a moment later gets their own terminal's shape at once instead of
-        // the 44x23 some card left behind. Measured end to end: resize to 44x23, unset, attach a
-        // client at 150x45, window is 150x45.
-        //
-        // Immediately rather than when the last viewer leaves, which is where this lived first: a
-        // pin held for the life of a card is a pin held across exactly the window in which somebody
-        // might attach, which is the case it exists to protect.
-        await runtime.releaseSize(pane.session);
-        // Read back rather than assumed. tmux clamps a window to what its layout can hold, so the
-        // shape that lands is not always the shape that was asked for, and the viewer is about to
-        // render against whichever it really is.
-        const geometry = await runtime.describe(pane.session);
-        moved = geometry.columns !== pane.columns || geometry.rows !== pane.rows;
-        pane.columns = geometry.columns;
-        pane.rows = geometry.rows;
-      }
-    } finally {
-      pane.resizing = null;
+    for (let want = pane.wanted; want !== null; want = pane.wanted) {
+      pane.wanted = null;
+      if (want.columns === pane.columns && want.rows === pane.rows) continue;
+      // Asked every pass, not once: a human can attach between two reports, and the whole
+      // guarantee is that this never reshapes a session somebody is sitting in front of.
+      if (await runtime.clients(pane.session) > 0) return moved;
+      await runtime.resize(pane.session, want.columns, want.rows);
+      // Handed straight back. `resize-window -x -y` pins the window to `window-size manual` as a
+      // side effect -- measured, and it is what left four sessions stuck that way the last time
+      // this repo resized panes. Unsetting keeps the size and restores tmux's own negotiation, so
+      // a human who attaches a moment later gets their own terminal's shape at once instead of
+      // the 44x23 some card left behind. Measured end to end: resize to 44x23, unset, attach a
+      // client at 150x45, window is 150x45.
+      //
+      // Immediately rather than when the last viewer leaves, which is where this lived first: a
+      // pin held for the life of a card is a pin held across exactly the window in which somebody
+      // might attach, which is the case it exists to protect.
+      await runtime.releaseSize(pane.session);
+      // Read back rather than assumed. tmux clamps a window to what its layout can hold, so the
+      // shape that lands is not always the shape that was asked for, and the viewer is about to
+      // render against whichever it really is.
+      const geometry = await runtime.describe(pane.session);
+      moved = geometry.columns !== pane.columns || geometry.rows !== pane.rows;
+      pane.columns = geometry.columns;
+      pane.rows = geometry.rows;
     }
     return moved;
   })();
-  return pane.resizing;
+  pane.resizing = applier;
+  // Cleared from OUTSIDE the applier, and this is not a style choice. An applier whose every
+  // iteration hits the `continue` above finishes SYNCHRONOUSLY, so a `finally` written inside it
+  // runs before `pane.resizing` is even assigned -- and the assignment then latches a settled
+  // promise that nothing ever clears. Every later report joins it and returns without resizing.
+  // Measured on three live cards: each reached a size, took one report that matched it, and then
+  // ignored every ask after that, sitting six or seven columns short of the box for good.
+  void applier.finally(() => {
+    if (pane.resizing === applier) pane.resizing = null;
+    // Swallowed HERE only. The applier's rejection is the caller's to report -- this branch of it
+    // exists to clear the latch, and leaving it unhandled makes a failed tmux call an unhandled
+    // rejection as well as a logged one.
+  }).catch(() => {});
+  return applier;
 }
 
 /**

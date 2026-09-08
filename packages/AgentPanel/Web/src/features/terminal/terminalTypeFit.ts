@@ -46,10 +46,9 @@ export function fittedFontSize(reading: {
   grid: { columns: number; rows: number };
   /** The box the whole grid has to fit inside, padding already taken off. */
   available: { width: number; height: number };
-  minimum: number;
   maximum: number;
 }): number | null {
-  const { baseFontSize, cell, grid, available, minimum, maximum } = reading;
+  const { baseFontSize, cell, grid, available, maximum } = reading;
   if (!(cell.width > 0) || !(cell.height > 0)) return null;
   if (!(grid.columns > 0) || !(grid.rows > 0)) return null;
   if (!(available.width > 0) || !(available.height > 0)) return null;
@@ -57,7 +56,13 @@ export function fittedFontSize(reading: {
     available.width / (cell.width * grid.columns),
     available.height / (cell.height * grid.rows),
   );
-  return Math.max(minimum, Math.min(maximum, floorToStep(baseFontSize * scale)));
+  // NO floor beyond the step itself. There used to be one, on the reasoning that type nobody can
+  // read is not a way of showing somebody a terminal -- but the alternative it chose was worse: the
+  // grid stopped shrinking and the screen was CLIPPED, so a 179-column pane in a narrow card lost
+  // its right-hand columns with nothing to say they were gone. Complete and small is recoverable by
+  // widening the card; truncated and legible is not, because the reader cannot see what is missing.
+  // One step is the arithmetic floor rather than a policy: zero or negative is not a font size.
+  return Math.min(maximum, Math.max(FONT_SIZE_STEP, floorToStep(baseFontSize * scale)));
 }
 
 /**
@@ -77,7 +82,6 @@ export function preferredScreenHeight(reading: {
   grid: { columns: number; rows: number };
   /** The width the screen has, padding already taken off. */
   availableWidth: number;
-  minimum: number;
   maximum: number;
 }): number | null {
   const fontSize = fittedFontSize({
@@ -86,7 +90,6 @@ export function preferredScreenHeight(reading: {
     grid: reading.grid,
     // Unbounded on the axis being spent, so only the width decides.
     available: { width: reading.availableWidth, height: Number.POSITIVE_INFINITY },
-    minimum: reading.minimum,
     maximum: reading.maximum,
   });
   if (fontSize === null) return null;

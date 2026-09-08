@@ -536,6 +536,42 @@ The corollary for the other direction: a probe that reports **success** deserves
 when it is the only thing that agrees with you. See also the exit-code rule under Commits, which is
 the same mistake at a different layer.
 
+## A channel that is turned off without being awaited will race its own re-opening
+
+Settled 2026-09-08, on the tmux terminal tiles, and the shape recurs anywhere a resource is
+exclusive: ONE pipe per tmux pane, one pty per session, one encoder per display, one listener per
+port.
+
+`pipeTmuxPane` returned a `stop` that fired `tmux pipe-pane -t <session>` and returned immediately
+-- `void tmux([...])`, not awaited. A viewer leaving and one arriving straight after is not an
+exotic case here: it is a card being toggled, a reader moving between two cards on one session, a
+Vite reload. Those two issue an off and an on for the same pane with nothing ordering them, and the
+off wins about as often as it loses. Measured during a burst of opening and closing: `pane_pipe`
+read **0 with three viewers attached**, and **1 with none**.
+
+The failure is silent and looks like something else entirely. A terminal with no pipe still opens,
+still imports its scrollback through `capture-pane`, still shows a full screen -- and then never
+changes again. Every probe aimed at it finds a healthy layer: the session is alive, the pane has
+content, `send-keys` lands, the SSE stream is connected. It reads as a hung agent, not as a lost
+pipe. The one-line check that settles it is `tmux display -p -t <session> '#{pane_pipe}'`, and the
+rule it stands for is: **when a surface stops updating, ask whether its channel is still open before
+reading the code that writes to it.**
+
+So a teardown for an exclusive resource RESOLVES when the far end has been told, and whoever
+re-opens waits behind it (`TmuxAttachments.closing`). Releasing is called from a viewer detaching,
+which cannot block, so the promise is recorded rather than awaited there; `open` is what waits.
+
+The same debugging pass turned up its mirror image, worth knowing because it is invisible in review:
+**an `async` IIFE that finishes without ever awaiting runs its own `finally` BEFORE the assignment
+that stores it.** The resize applier cleared its in-flight latch inside itself; an applier whose
+every iteration hit the already-there branch completed synchronously, the clear ran first, and the
+assignment then latched a settled promise that nothing would ever clear again. Measured on three
+live cards: each reached a size, took one report that matched it, and ignored every ask after that,
+sitting six or seven columns short of its box for good. Clear a latch from OUTSIDE the promise
+(`void applier.finally(...)`), where the callback is guaranteed to run after the assignment -- and
+swallow that branch's rejection separately, or a failed call becomes an unhandled rejection as well
+as a logged one.
+
 ## Several sessions share one branch, so re-read before you trust anything
 
 Work here is not serialised. More than one session can be on `main` in this single worktree at the

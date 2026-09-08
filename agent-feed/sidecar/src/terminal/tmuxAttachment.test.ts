@@ -259,6 +259,26 @@ test("a client count that cannot be read is not treated as nobody", async () => 
   expect(viewportOf(seen)).toMatchObject({ isOwner: false, sourceColumns: 80 });
 });
 
+test("a report that asks for the size already in force does not deafen the pane to later ones", async () => {
+  // The bug this pins, and it shipped: the applier was cleared by a `finally` INSIDE itself, and an
+  // applier whose every iteration hits the already-there branch finishes synchronously -- so the
+  // clear ran before the assignment and the assignment then latched a settled promise forever.
+  // Measured on three live cards: each reached a size, took one matching report, and then ignored
+  // every ask after that, sitting six or seven columns short of its box for good.
+  const { runtime: tmux, log } = runtime();
+  const attachments = new TmuxAttachments(tmux);
+  const connection = await attachments.open("rags", { columns: 80, rows: 24 });
+
+  // Exactly what the pane already is, so the applier does no work at all.
+  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 80, rows: 24 });
+  await settle();
+  expect(log.resizes).toEqual([]);
+
+  connection.updateViewerState({ sequence: "2", active: true, claim: false, columns: 120, rows: 40 });
+  await settle();
+  expect(log.resizes).toEqual([{ columns: 120, rows: 40 }]);
+});
+
 test("a burst of viewport reports costs the tmux calls for the last size, not all of them", async () => {
   const { runtime: tmux, log } = runtime();
   const attachments = new TmuxAttachments(tmux);

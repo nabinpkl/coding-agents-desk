@@ -116,8 +116,6 @@ function loadXterm(): Promise<typeof import("@xterm/xterm")> {
 
 /** The size the type is authored at, and what a fit scales away from. */
 const BASE_FONT_SIZE = 13;
-/** Below this the screen is not worth reading, so it scrolls instead of shrinking further. */
-const MINIMUM_FONT_SIZE = 8;
 /** Above this a small grid in a large pane stops looking like a terminal. */
 const MAXIMUM_FONT_SIZE = 28;
 
@@ -453,7 +451,6 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           cell: baseCell,
           grid,
           availableWidth: available.width,
-          minimum: MINIMUM_FONT_SIZE,
           maximum: MAXIMUM_FONT_SIZE,
         });
         if (wanted !== null) {
@@ -464,7 +461,6 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           cell: baseCell,
           grid,
           available,
-          minimum: MINIMUM_FONT_SIZE,
           maximum: MAXIMUM_FONT_SIZE,
         });
         // Nothing measurable to fit against, which is every render before the mount has a size.
@@ -479,7 +475,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         for (let step = 0; step < 6; step += 1) {
           // Annotated because the assignment below feeds back into inferring this.
           const size: number = terminal.options.fontSize ?? BASE_FONT_SIZE;
-          if (size <= MINIMUM_FONT_SIZE) break;
+          if (size <= FONT_SIZE_STEP) break;
           const actual = terminal.dimensions?.css.cell;
           if (!actual) break;
           // At or above 1 the screen fits; below it, it is the fraction of the size that would.
@@ -495,7 +491,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           // loop moves at all when the solve rounds back to where it started.
           const solved = floorToStep(size * headroom);
           const next = Math.max(
-            MINIMUM_FONT_SIZE,
+            FONT_SIZE_STEP,
             solved < size ? solved : floorToStep(size - FONT_SIZE_STEP),
           );
           if (next >= size) break;
