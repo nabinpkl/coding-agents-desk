@@ -14,7 +14,7 @@ import {
 } from "react";
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "../profile/ProfileRow";
-import { BotSidebarPanel } from "../bots/BotSidebarPanel";
+import { BotAvatar, BotSidebarPanel } from "../bots/BotSidebarPanel";
 import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import type { UsageHandle } from "../usage/useUsage";
 import { ActivityDot, SessionMeta } from "./SessionMeta";
@@ -70,6 +70,15 @@ interface AgentSidebarProps {
   onSelectBotSession: (bot: BotView, session: SessionSummary) => void;
   onAddBotSession: (bot: BotView) => void;
   onDetachBotSession: (bot: BotView, session: BotSessionRef) => void;
+  /**
+   * The Bots taken off the canvas, in the order the roster gives them.
+   *
+   * Passed in already separated rather than as a set to subtract here, so the canvas and this
+   * panel cannot disagree about which Bots are on it. Empty for every mode but `canvas`, where it
+   * is the only route back: the canvas card that would offer it has gone.
+   */
+  detachedBots: BotView[];
+  onRestoreBot: (bot: BotView) => void;
   onAddBot: () => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
@@ -221,9 +230,40 @@ export function AgentSidebar(props: AgentSidebarProps) {
             <SidebarStatus>
               {props.botsLoading
                 ? "Loading Bots…"
-                : `${props.bots.length} ${props.bots.length === 1 ? "bot" : "bots"} on the canvas`}
+                : (() => {
+                    const shown = props.bots.length - props.detachedBots.length;
+                    return `${shown} ${shown === 1 ? "bot" : "bots"} on the canvas`;
+                  })()}
             </SidebarStatus>
           )}
+          {props.detachedBots.length > 0 ? (
+            // The only way back. Taking a Bot off the canvas removes the card its menu lived on, so
+            // without this the action would be one-way and the Bot would be reachable only from the
+            // Bots tab, which is a different view with a different job.
+            <div className="border-t border-border">
+              <p className="px-3 pt-2 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                Off the canvas
+              </p>
+              <ul role="list" aria-label="Bots off the canvas">
+                {props.detachedBots.map((bot) => (
+                  <li key={bot.botId}>
+                    <button
+                      type="button"
+                      onClick={() => props.onRestoreBot(bot)}
+                      aria-label={`Put ${bot.name} back on the canvas`}
+                      className="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70"
+                    >
+                      <BotAvatar bot={bot} size="size-6" />
+                      <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground">
+                        {bot.name}
+                      </span>
+                      <Plus className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div

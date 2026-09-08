@@ -574,8 +574,11 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("resizes the whole card an open session sits in, and remembers the height", () => {
-    localStorage.setItem("agent-panel.bot-canvas.open-card-height", "900");
+  it("resizes a whole Bot card on both axes, and remembers each Bot's own size", () => {
+    localStorage.setItem(
+      "agent-panel.bot-canvas.card-sizes",
+      JSON.stringify({ "bot-1": { width: 620, height: 900 } }),
+    );
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -599,30 +602,116 @@ describe("App shell", () => {
       });
     });
 
-    // Nothing to resize while the roster is closed: a card with no session in it is as tall as its
-    // own rows, and a height forced on it would be empty space.
-    expect(screen.queryByRole("separator", { name: /Release Captain card/ })).toBeNull();
+    // A card has a width whether or not you are reading it, so this one is there from the start --
+    // while its height is not, because a closed card is as tall as its own rows and a height forced
+    // on it would be empty space.
+    const widen = screen.getByRole("separator", { name: "Widen Release Captain card" });
+    expect(widen).toHaveAttribute("aria-valuenow", "620");
+    expect(widen.closest("li")).toHaveStyle({ width: "620px" });
+    expect(screen.queryByRole("separator", { name: "Resize Release Captain card" })).toBeNull();
+
+    fireEvent.keyDown(widen, { key: "ArrowLeft" });
+    expect(widen).toHaveAttribute("aria-valuenow", "596");
 
     fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
     const grip = screen.getByRole("separator", { name: "Resize Release Captain card" });
-    // The remembered 900 held inside this 768px-tall window, and it is the CARD that carries it.
-    // A card taller than the screen would bury every card under it behind a whole session.
+    // The remembered 900 held inside this 768px-tall window: a card taller than the screen would
+    // bury every card under it behind a whole session.
     expect(grip).toHaveAttribute("aria-valuemax", "653");
     expect(grip).toHaveAttribute("aria-valuenow", "653");
-    expect(grip.closest("li")).toHaveStyle({ height: "653px" });
 
     fireEvent.keyDown(grip, { key: "ArrowUp" });
     expect(grip).toHaveAttribute("aria-valuenow", "629");
-    expect(localStorage.getItem("agent-panel.bot-canvas.open-card-height")).toBe("629");
 
     // Home is the floor rather than nothing, so a card cannot be driven down to an unusable strip.
     fireEvent.keyDown(grip, { key: "Home" });
     expect(grip).toHaveAttribute("aria-valuenow", "360");
 
+    // Both axes are kept under the one Bot, and the width a closed card was given is still there.
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
+      "bot-1": { width: 596, height: 360 },
+    });
+
     // Closing puts the card back on its own content, and the height waits for the next session.
     fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
-    expect(screen.queryByRole("separator", { name: /Release Captain card/ })).toBeNull();
-    expect(localStorage.getItem("agent-panel.bot-canvas.open-card-height")).toBe("360");
+    expect(screen.queryByRole("separator", { name: "Resize Release Captain card" })).toBeNull();
+    expect(screen.getByRole("separator", { name: "Widen Release Captain card" })).toBeInTheDocument();
+    unmount();
+  });
+
+  it("takes a whole Bot off the canvas and puts it back, without touching the Bot", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    const bot = (botId: string, name: string) => ({
+      botId,
+      name,
+      environment: { kind: "directory" as const, path: FIXTURE_PROJECT_A.projectPath },
+      sessionRefs: [],
+      metadata: { labels: [], custom: {} },
+      grants: [],
+      createdAt: 1,
+      createdBy: { kind: "user" as const },
+      environmentAvailability: "available" as const,
+      sessions: [],
+      missingSessionRefs: [],
+    });
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [bot("bot-1", "Release Captain"), bot("bot-2", "Eval Bot")],
+      });
+    });
+    expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Release Captain" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from canvas" }));
+
+    // Gone from the canvas, and the count agrees.
+    expect(screen.queryByRole("region", { name: "Release Captain sessions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add sessions to Release Captain" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add sessions to Eval Bot" })).toBeInTheDocument();
+    expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
+    // Remembered, so the arrangement survives a reload rather than lasting one visit.
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.detached")!)).toEqual(["bot-1"]);
+
+    // The card that offered the action has gone with it, so the sidebar is the only way back.
+    fireEvent.click(screen.getByRole("button", { name: "Put Release Captain back on the canvas" }));
+    expect(screen.getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.detached")!)).toEqual([]);
+    unmount();
+  });
+
+  it("says an empty canvas is empty because its Bots were taken off it, not because there are none", () => {
+    localStorage.setItem("agent-panel.bot-canvas.detached", JSON.stringify(["bot-1"]));
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    expect(screen.getByText(/Every Bot is off the canvas/)).toBeInTheDocument();
+    expect(screen.queryByText("No bots yet")).toBeNull();
+    expect(screen.getByText("0 bots on the canvas")).toBeInTheDocument();
     unmount();
   });
 

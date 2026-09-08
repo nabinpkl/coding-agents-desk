@@ -38,6 +38,11 @@ import { useBots } from "../features/bots/useBots";
 import { BotCanvas } from "../features/bots/BotCanvas";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
+import {
+  loadDetachedBotIds,
+  storeDetachedBotIds,
+  withBotDetached,
+} from "../features/bots/canvasMembership";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
 
@@ -124,6 +129,18 @@ export function App({ feed, host, fill = false }: Props) {
   // and phone drawer must never disagree about which view is selected.
   const [sidebarMode, setSidebarMode] = useState<AgentSidebarMode>("sessions");
   const botsState = useBots(feed);
+  // Which Bots this reader has taken off the canvas. Split here rather than inside the canvas, so
+  // the canvas and the sidebar panel that puts them back cannot disagree about what is on it.
+  const [detachedBotIds, setDetachedBotIds] = useState(loadDetachedBotIds);
+  const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
+  const detachedBots = botsState.bots.filter((bot) => detachedBotIds.has(bot.botId));
+  const setBotOnCanvas = useCallback((bot: BotView, onCanvas: boolean) => {
+    setDetachedBotIds((current) => {
+      const next = withBotDetached(current, bot.botId, !onCanvas);
+      storeDetachedBotIds(next);
+      return next;
+    });
+  }, []);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [botCreatorOpen, setBotCreatorOpen] = useState(false);
   const [botSessionPickerId, setBotSessionPickerId] = useState<string | null>(null);
@@ -619,6 +636,8 @@ export function App({ feed, host, fill = false }: Props) {
     onSelectBotSession: openBotSession,
     onAddBotSession: openBotSessionPicker,
     onDetachBotSession: detachBotSession,
+    detachedBots,
+    onRestoreBot: (bot: BotView) => setBotOnCanvas(bot, true),
     onAddBot: () => {
       setBotCreatorOpen(true);
       setHoverPreviewOpen(false);
@@ -747,7 +766,7 @@ export function App({ feed, host, fill = false }: Props) {
               />
             ) : sidebarMode === "canvas" ? (
               <BotCanvas
-                bots={botsState.bots}
+                bots={canvasBots}
                 loading={botsState.loading}
                 error={botsState.error}
                 sessionContext={sessionViewContext}
@@ -755,6 +774,8 @@ export function App({ feed, host, fill = false }: Props) {
                 onAddSession={openBotSessionPicker}
                 onForkSession={forkSession}
                 onDetachSession={detachBotSession}
+                onDetachBot={(bot) => setBotOnCanvas(bot, false)}
+                detachedCount={detachedBots.length}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
             ) : sidebarMode === "sessions" ? (

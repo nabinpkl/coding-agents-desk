@@ -12,6 +12,7 @@ import {
   loadOpenCardHeight,
   storeOpenCardHeight,
 } from "./botCanvasPreferences";
+import { BotCardMenu } from "./BotCardMenu";
 import { SessionRowMenu } from "./SessionRowMenu";
 
 /**
@@ -41,6 +42,8 @@ export function BotCanvas({
   onAddSession,
   onForkSession,
   onDetachSession,
+  onDetachBot,
+  detachedCount,
   onAddBot,
 }: {
   bots: BotView[];
@@ -70,6 +73,18 @@ export function BotCanvas({
    * be the one entry a Bot can never be rid of.
    */
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  /**
+   * Takes the whole Bot off this canvas. The Bot, its curated sessions and their transcripts are
+   * untouched -- this arranges the view, and the sidebar's canvas panel is where it waits to come
+   * back.
+   */
+  onDetachBot: (bot: BotView) => void;
+  /**
+   * How many Bots are off the canvas, which is only ever asked when `bots` is empty. An empty
+   * canvas that says "No bots yet" over a roster of eight detached ones is a lie, and the reader
+   * would go looking for the Add Bot button rather than the list that has them.
+   */
+  detachedCount: number;
   onAddBot: () => void;
 }) {
   if (loading) {
@@ -91,7 +106,13 @@ export function BotCanvas({
     return (
       <CanvasNotice>
         <Bot className="size-5" aria-hidden />
-        <span>No bots yet</span>
+        <span>
+          {detachedCount > 0
+            ? `Every Bot is off the canvas. Put one back from the sidebar${
+                detachedCount === 1 ? "" : `, where ${detachedCount} are waiting`
+              }.`
+            : "No bots yet"}
+        </span>
         <button
           type="button"
           onClick={onAddBot}
@@ -112,6 +133,7 @@ export function BotCanvas({
       onAddSession={onAddSession}
       onForkSession={onForkSession}
       onDetachSession={onDetachSession}
+      onDetachBot={onDetachBot}
     />
   );
 }
@@ -137,6 +159,7 @@ function BotCanvasList({
   onAddSession,
   onForkSession,
   onDetachSession,
+  onDetachBot,
 }: {
   bots: BotView[];
   sessionContext: SessionViewContext;
@@ -144,6 +167,7 @@ function BotCanvasList({
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  onDetachBot: (bot: BotView) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   // One height for the canvas, not one per Bot: only one card is ever open, so a per-Bot map would
@@ -190,6 +214,7 @@ function BotCanvasList({
             onAddSession={onAddSession}
             onForkSession={onForkSession}
             onDetachSession={onDetachSession}
+            onDetachBot={onDetachBot}
           />
         ))}
       </ul>
@@ -224,6 +249,7 @@ function BotCanvasCard({
   onAddSession,
   onForkSession,
   onDetachSession,
+  onDetachBot,
 }: {
   bot: BotView;
   sessionContext: SessionViewContext;
@@ -238,6 +264,7 @@ function BotCanvasCard({
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  onDetachBot: (bot: BotView) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   const live = bot.sessions.filter((session) => session.activity === "live").length;
@@ -316,6 +343,9 @@ function BotCanvasCard({
         >
           <Plus className="size-4" aria-hidden />
         </button>
+        {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
+            takes the whole Bot off the canvas, and they are not the same scale of act. */}
+        <BotCardMenu bot={bot} onDetach={() => onDetachBot(bot)} />
       </div>
 
       {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 ? (
