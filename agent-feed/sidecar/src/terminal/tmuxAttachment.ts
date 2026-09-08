@@ -281,6 +281,19 @@ export class TmuxSessionConnection {
  * largest, hands the smaller card a grid it has to shrink its type to read, which is the problem
  * this exists to remove.
  *
+ * Two viewers of DIFFERENT widths converge, measured rather than reasoned. Each open viewer
+ * republishes its own box on every checkpoint, and every resize sends a checkpoint, so reading the
+ * code predicts an unbounded trade. It is bounded: two viewers at 48x16 and 132x40 on one pane
+ * moved it four times -- 48, 132, 48, 132 -- and then held for thirty seconds. Two round trips, so
+ * a third attachment has room rather than sitting on the edge.
+ *
+ * The wire-level loop is real and runs hot even so: those two viewers sent 894 viewport reports in
+ * that half minute. What keeps the PANE still is that a report asking for the shape already in
+ * force does no work and sends no checkpoint, so the traffic settles onto a fixed point instead of
+ * driving one. Do not try to measure this from two browser tabs -- a backgrounded tab stops
+ * rendering and stops publishing, so it holds no shape and there is only ever one viewer. Two API
+ * clients on a private sidecar is what worked.
+ *
  * Bursts collapse rather than queue: the loop re-reads `wanted` each time round, so a drag that
  * reports twenty sizes costs the tmux calls for the last one plus whichever was in flight.
  */
