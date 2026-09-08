@@ -14,6 +14,7 @@ import {
   fittedFontSize,
   floorToStep,
   preferredScreenHeight,
+  surfaceInset,
 } from "./terminalTypeFit";
 import {
   applyModifiers,
@@ -395,7 +396,11 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         // the second one sizes the grid to the whole space and then adds the padding to it, which
         // is an overflow and a scrollbar for the sake of eight pixels.
         const padding = paddingOf(mount);
-        const framePadding = terminal.element ? paddingOf(terminal.element) : { width: 0, height: 0 };
+        // Measured with any inset from a previous pass taken back off, because the inset is
+        // derived from the space and would otherwise eat it a little more on every reflow.
+        const frame = terminal.element;
+        if (frame) frame.style.paddingInline = "";
+        const framePadding = frame ? paddingOf(frame) : { width: 0, height: 0 };
         const available = {
           width: mount.clientWidth - padding.width - framePadding.width,
           height: mount.clientHeight - padding.height - framePadding.height,
@@ -456,6 +461,15 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           );
           if (next >= size) break;
           terminal.options.fontSize = next;
+        }
+        const settled = terminal.dimensions?.css.cell;
+        if (frame && settled) {
+          const inset = surfaceInset({
+            availableWidth: available.width,
+            screenWidth: settled.width * grid.columns,
+            basePadding: framePadding.width / 2,
+          });
+          frame.style.paddingInline = inset === null ? "" : `${inset}px`;
         }
       };
 

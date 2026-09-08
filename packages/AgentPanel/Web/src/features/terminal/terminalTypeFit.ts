@@ -94,3 +94,35 @@ export function preferredScreenHeight(reading: {
     reading.cell.height * reading.grid.rows * (fontSize / reading.baseFontSize),
   );
 }
+
+/**
+ * How far in from the band's edge to set the screen's surface, or null to leave it shrink-wrapped.
+ *
+ * The type is sized in tenths of a point, and the height can bind before the width does, so a
+ * screen that has spent all the room it can still ends a few pixels short of the edge. Shrink-
+ * wrapped and centred, that leaves the dark surface set in from the transcript's event cards by
+ * whatever the remainder happened to be -- close enough to the cards to read as a misalignment
+ * rather than as an inset.
+ *
+ * So a screen that nearly fills its band takes the whole band and lines up with the cards, and one
+ * that plainly does not stays an object in the middle of it. The threshold is what separates those
+ * two readings: a 41-column tmux pane in a window-wide band is a third of its width, and painting
+ * a surface across the band for that left most of a black rectangle with nothing in it.
+ */
+export function surfaceInset(reading: {
+  /** The width the screen has to fill, its own surface padding already taken off. */
+  availableWidth: number;
+  screenWidth: number;
+  /** The surface's own padding, per side, when it is shrink-wrapped. */
+  basePadding: number;
+}): number | null {
+  const { availableWidth, screenWidth, basePadding } = reading;
+  if (!(availableWidth > 0) || !(screenWidth > 0)) return null;
+  const slack = availableWidth - screenWidth;
+  if (slack < 0) return null;
+  if (screenWidth < availableWidth * SURFACE_FILL_THRESHOLD) return null;
+  return basePadding + slack / 2;
+}
+
+/** Where "nearly fills its band" stops. */
+const SURFACE_FILL_THRESHOLD = 0.8;

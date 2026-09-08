@@ -231,6 +231,11 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
           type would stop being readable stays readable and moves instead, since clipping it hid the
           part of the screen the cursor was on.
 
+          Vertical padding only. The transcript's event cards run edge to edge across this column,
+          and the screen is another card in that stack: a horizontal inset of its own would set it
+          in from every card above it by the width of that inset, which reads as a misalignment
+          rather than as breathing room. Its own `p-2` is inside the surface, the way a card's is.
+
           Centred by the screen's own auto margins rather than by `justify`/`items`: a flex box
           that centres its item clips the top of one too large to fit, where auto margins fall back
           to the start edge and leave it scrollable. `box-content` for the same reason in the other
@@ -238,7 +243,7 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
           instead of adding to it, and the last row would sit outside the surface it is drawn on. */}
       <div
         ref={mountRef}
-        className="flex min-h-0 flex-1 overflow-auto p-3 [&>.xterm]:m-auto [&>.xterm]:box-content [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
+        className="flex min-h-0 flex-1 overflow-auto py-3 [&>.xterm]:m-auto [&>.xterm]:box-content [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
       />
       {showsKeyRail ? (
         <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />

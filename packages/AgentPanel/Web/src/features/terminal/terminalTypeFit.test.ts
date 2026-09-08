@@ -3,7 +3,7 @@
 // is silent -- a screen that scrolls or a screen in the corner of its own box.
 
 import { expect, test } from "vitest";
-import { fittedFontSize, preferredScreenHeight } from "./terminalTypeFit";
+import { fittedFontSize, preferredScreenHeight, surfaceInset } from "./terminalTypeFit";
 
 const reading = (available: { width: number; height: number }) => ({
   baseFontSize: 13,
@@ -85,4 +85,28 @@ test("stops asking at the largest type it would use", () => {
 
 test("asks for nothing when there is no width to measure", () => {
   expect(preferredScreenHeight(wanting(0))).toBeNull();
+});
+
+test("takes the whole band for a screen that nearly fills it", () => {
+  // 937 of 952 available: the 15 left over are what a tenth of a point could not buy, and setting
+  // the surface in by them would leave it a hair narrower than every event card above it.
+  expect(surfaceInset({ availableWidth: 952, screenWidth: 937, basePadding: 8 })).toBe(15.5);
+  // The whole point of the answer: surface width is screen + both insets, which is the band.
+  expect(937 + 2 * 15.5).toBe(952 + 2 * 8);
+});
+
+test("leaves a screen that does not fill its band shrink-wrapped", () => {
+  // A 41-column tmux pane in a window-wide band. Painting a surface across the band for this
+  // leaves most of a black rectangle with nothing in it, which reads as something failing.
+  expect(surfaceInset({ availableWidth: 952, screenWidth: 308, basePadding: 8 })).toBeNull();
+  expect(surfaceInset({ availableWidth: 952, screenWidth: 761, basePadding: 8 })).toBeNull();
+  expect(surfaceInset({ availableWidth: 952, screenWidth: 762, basePadding: 8 })).toBe(103);
+});
+
+test("leaves an overflowing or unmeasurable screen alone", () => {
+  // Wider than its band is the case the mount scrolls for; an inset cannot help and a negative
+  // one would pull the surface in past its own edges.
+  expect(surfaceInset({ availableWidth: 952, screenWidth: 1200, basePadding: 8 })).toBeNull();
+  expect(surfaceInset({ availableWidth: 0, screenWidth: 937, basePadding: 8 })).toBeNull();
+  expect(surfaceInset({ availableWidth: 952, screenWidth: 0, basePadding: 8 })).toBeNull();
 });
