@@ -76,7 +76,7 @@ interface SharedPane {
   /** The shape the most recent viewport report asked for, waiting for the applier to reach it. */
   wanted: { columns: number; rows: number } | null;
   /** The applier, while one is running. Present means a later ask joins it instead of racing it. */
-  resizing: Promise<boolean> | null;
+  resizing: Promise<void> | null;
 }
 
 /**
@@ -160,17 +160,6 @@ export class TmuxSessionConnection {
   }): void {
     if (this.closed) return;
     void adoptPaneSize(this.runtime, this.pane, options.columns, options.rows)
-      .then((moved) => {
-        if (!moved) return;
-        // A reshaped pane has to be RE-READ, not just relabelled. `pipe-pane` carries what the
-        // program writes, and tmux's own reflow is drawn per client -- with no clients there is
-        // nothing to draw, so not one byte of the new screen reaches the pipe. Measured: a pane
-        // resized under a viewer went completely blank while tmux still held the full screen.
-        //
-        // Every viewer, not just this one: they are all looking at the window that just changed
-        // shape, and a viewer that did not ask for it has no other way to hear about it.
-        for (const viewer of this.pane.viewers) viewer.requestCheckpoint("");
-      })
       .catch((error: unknown) => {
         // Not a failure of the terminal. A pane that would not change shape is the case this
         // viewer already handles by scaling its own type, which is what it did before it could
@@ -281,18 +270,25 @@ export class TmuxSessionConnection {
  * largest, hands the smaller card a grid it has to shrink its type to read, which is the problem
  * this exists to remove.
  *
- * Two viewers of DIFFERENT widths converge, measured rather than reasoned. Each open viewer
- * republishes its own box on every checkpoint, and every resize sends a checkpoint, so reading the
- * code predicts an unbounded trade. It is bounded: two viewers at 48x16 and 132x40 on one pane
- * moved it four times -- 48, 132, 48, 132 -- and then held for thirty seconds. Two round trips, so
- * a third attachment has room rather than sitting on the edge.
+ * KNOWN DEFECT, and the reason to care about the paragraph above: two viewers of DIFFERENT widths
+ * on one pane make it OSCILLATE, and this does not damp. Each open viewer republishes its own box
+ * on every checkpoint and every move sends a checkpoint, so the two trade the window forever.
+ * Measured at 48x16 against 132x40: 145 transitions in 400 samples over half a minute, roughly
+ * five a second, with the pane spending 194 samples at 132 and 164 at 48. A TUI on that pane
+ * reflows every time.
  *
- * The wire-level loop is real and runs hot even so: those two viewers sent 894 viewport reports in
- * that half minute. What keeps the PANE still is that a report asking for the shape already in
- * force does no work and sends no checkpoint, so the traffic settles onto a fixed point instead of
- * driving one. Do not try to measure this from two browser tabs -- a backgrounded tab stops
- * rendering and stops publishing, so it holds no shape and there is only ever one viewer. Two API
- * clients on a private sidecar is what worked.
+ * One viewer per pane is every arrangement this repo actually makes today, which is why it ships,
+ * but a second card on one session is one click away and there is no guard. The fix, when it is
+ * wanted, is to let the most recent SUBSCRIBER own the shape until it leaves, rather than the most
+ * recent report -- that keeps latest-wins for the case it was chosen for and stops the fight.
+ *
+ * Measure this at 50ms or finer. At 500ms a five-a-second oscillation aliases into what looks like
+ * a settled pane: the first run of this test read four transitions and thirty still seconds, and
+ * that reading is what the comment here used to claim. The tell was the checkpoint count -- 447 per
+ * viewer against four apparent moves -- and the number that is not aliased is the checkpoint count,
+ * because one move sends exactly one. And do NOT try this from two browser tabs: a backgrounded tab
+ * stops rendering and stops publishing, so it holds no shape and there is only ever one viewer.
+ * Two API clients against a private sidecar is what worked.
  *
  * Bursts collapse rather than queue: the loop re-reads `wanted` each time round, so a drag that
  * reports twenty sizes costs the tmux calls for the last one plus whichever was in flight.
@@ -302,19 +298,18 @@ async function adoptPaneSize(
   pane: SharedPane,
   columns: number,
   rows: number,
-): Promise<boolean> {
+): Promise<void> {
   pane.wanted = { columns, rows };
   // Joining the running applier rather than starting a second: two resizes racing on one window
   // land in an order neither caller chose, and the loser's shape is what sticks.
   if (pane.resizing) return pane.resizing;
   const applier = (async () => {
-    let moved = false;
     for (let want = pane.wanted; want !== null; want = pane.wanted) {
       pane.wanted = null;
       if (want.columns === pane.columns && want.rows === pane.rows) continue;
       // Asked every pass, not once: a human can attach between two reports, and the whole
       // guarantee is that this never reshapes a session somebody is sitting in front of.
-      if (await runtime.clients(pane.session) > 0) return moved;
+      if (await runtime.clients(pane.session) > 0) return;
       await runtime.resize(pane.session, want.columns, want.rows);
       // Handed straight back. `resize-window -x -y` pins the window to `window-size manual` as a
       // side effect -- measured, and it is what left four sessions stuck that way the last time
@@ -331,11 +326,21 @@ async function adoptPaneSize(
       // shape that lands is not always the shape that was asked for, and the viewer is about to
       // render against whichever it really is.
       const geometry = await runtime.describe(pane.session);
-      moved = geometry.columns !== pane.columns || geometry.rows !== pane.rows;
+      const moved = geometry.columns !== pane.columns || geometry.rows !== pane.rows;
       pane.columns = geometry.columns;
       pane.rows = geometry.rows;
+      if (!moved) continue;
+      // Fanned out HERE, once per actual move, rather than from the caller's continuation.
+      //
+      // Every caller that arrived while an applier was running is handed that applier's promise,
+      // so a `.then` on it runs once PER CALLER. One real resize with forty reports queued behind
+      // it therefore sent forty checkpoints to every viewer, each of which clears and repaints a
+      // whole terminal, and each of which makes a viewer republish -- which queues more callers.
+      // Measured before this moved: two viewers on one pane made it change shape four times and
+      // then hold, while sending 894 viewport reports and taking 447 checkpoints EACH over the
+      // following half minute. The pane was right and the redraws were a storm.
+      for (const viewer of pane.viewers) viewer.requestCheckpoint("");
     }
-    return moved;
   })();
   pane.resizing = applier;
   // Cleared from OUTSIDE the applier, and this is not a style choice. An applier whose every

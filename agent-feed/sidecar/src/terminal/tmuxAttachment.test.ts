@@ -207,6 +207,30 @@ test("a reshaped pane is re-sent to every viewer, because nothing else redraws i
   expect(log.captures).toBeGreaterThan(0);
 });
 
+test("one move sends one checkpoint per viewer, however many reports queued behind it", async () => {
+  // The bug this pins: the fan-out used to live in the CALLER's continuation, and every caller
+  // that arrives while an applier is running is handed that applier's promise -- so a `.then` on
+  // it runs once per caller, not once per move. One real resize with forty reports behind it sent
+  // forty checkpoints to every viewer, each clearing and repainting a whole terminal, and each
+  // making a viewer republish, which queued more callers. Measured on two viewers of one pane:
+  // four pane transitions, 894 viewport reports, and 447 checkpoints EACH over half a minute.
+  const { runtime: tmux } = runtime();
+  const attachments = new TmuxAttachments(tmux);
+  const connection = await attachments.open("rags", { columns: 80, rows: 24 });
+  const seen = collect(connection);
+
+  // The first report starts an applier; the rest arrive while it is in flight and join it. They
+  // all ask for the SAME shape, so between them they are one move.
+  for (let report = 0; report < 20; report += 1) {
+    connection.updateViewerState({
+      sequence: String(report), active: true, claim: false, columns: 120, rows: 40,
+    });
+  }
+  await settle();
+  const checkpoints = seen.filter((envelope) => envelope.terminalCheckpointBegin).length;
+  expect(checkpoints).toBe(1);
+});
+
 test("a pane that did not move is not re-sent", async () => {
   // A checkpoint clears and rewrites the whole terminal, so sending one per viewport report would
   // flash every card on every reflow.
