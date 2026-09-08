@@ -607,6 +607,17 @@ What this actually breaks, observed rather than imagined:
   - The nuance that comes with it: a pathspec commit takes the WORKING TREE version of those paths,
     ignoring anything you staged for them. If you staged part of a file and then kept editing it,
     the whole current file is what lands.
+  - **And a pathspec is not enough when the peer is inside the same FILE.** That is the case that
+    produced `9d286227` below: the paths named were this session's own, and one of them was a file
+    a peer was mid-edit in, so their three functions came along with it. A pathspec bounds which
+    files land, never which HUNKS. So before naming a shared hub -- `AGENTS.md`, `wire/index.ts`,
+    a barrel, a route table -- read `git diff -- <that file>` and check every added line is yours.
+    Where it is not, build that one index entry by hand rather than reaching for `git add -p`,
+    which is blocked here: take `git show HEAD:<path>`, apply only your own change to it, hash it
+    with `git hash-object -w --stdin`, point the index at it with
+    `git update-index --cacheinfo 100644,<blob>,<path>`, and commit the INDEX (no pathspec, which
+    would go back to the working tree and undo the whole exercise). The peer's line stays in the
+    worktree for them. Done this way on 2026-09-08 for a `wire/index.ts` holding one line of each.
   - `git add -A` and `git commit -a` remain out of the question for the older reason: they sweep up
     whoever is mid-edit in the worktree as well.
   - This is not hypothetical in either direction. On the same night, commit `9d286227` swept up THIS
