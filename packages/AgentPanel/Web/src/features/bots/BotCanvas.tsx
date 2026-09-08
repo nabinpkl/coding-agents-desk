@@ -1,16 +1,22 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "../session-view/SessionView";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
 import {
-  MAX_OPEN_CARD_HEIGHT,
-  MIN_OPEN_CARD_HEIGHT,
-  clampOpenCardHeight,
-  loadOpenCardHeight,
-  storeOpenCardHeight,
+  DEFAULT_CARD_SIZE,
+  MAX_CARD_HEIGHT,
+  MAX_CARD_WIDTH,
+  MIN_CARD_HEIGHT,
+  MIN_CARD_WIDTH,
+  clampCardHeight,
+  clampCardWidth,
+  loadBotCardSizes,
+  storeBotCardSizes,
+  type BotCardSize,
+  type BotCardSizes,
 } from "./botCanvasPreferences";
 import { BotCardMenu } from "./BotCardMenu";
 import { SessionRowMenu } from "./SessionRowMenu";
@@ -170,32 +176,49 @@ function BotCanvasList({
   onDetachBot: (bot: BotView) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
-  // One height for the canvas, not one per Bot: only one card is ever open, so a per-Bot map would
-  // hold the same number under a dozen keys. Read once at mount and written on release rather than
-  // on every pointer move, so a drag is one storage write.
-  const [openCardHeight, setOpenCardHeight] = useState(loadOpenCardHeight);
+  // Every Bot's card size, read once at mount and written on release rather than on every pointer
+  // move, so a drag is one storage write.
+  const [sizes, setSizes] = useState<BotCardSizes>(loadBotCardSizes);
+  // How wide a row of cards actually is, which is what a card's width is clamped against. Measured
+  // rather than queried: no breakpoint has to know about the sidebar being dragged, because a card
+  // that cannot be wider than its row already gives a narrow panel one card per row.
+  const list = useRef<HTMLUListElement | null>(null);
+  const [canvasWidth, setCanvasWidth] = useState(0);
+  useEffect(() => {
+    const node = list.current;
+    if (!node || typeof ResizeObserver === "undefined") return undefined;
+    // The list's own padding is not room a card can use.
+    const measure = (): void => setCanvasWidth(Math.max(0, node.clientWidth - 24));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const resize = (botId: string, size: BotCardSize, keep: boolean): void => {
+    const next = { ...sizes, [botId]: size };
+    setSizes(next);
+    if (keep) storeBotCardSizes(next);
+  };
   return (
-    <div className="@container h-full overflow-y-auto overscroll-contain">
-      {/* Three columns once there is room for three, and the query is on the CONTAINER rather than
-          the viewport because this panel is not the window: the sidebar is pinnable and resizable,
-          so a `md:` breakpoint would split into columns while a pinned sidebar leaves the canvas
-          too narrow to hold them.
+    <div className="h-full overflow-y-auto overscroll-contain">
+      {/* Cards FLOW at the widths they were given rather than filling a track template, which is
+          what makes this tiled rather than a grid: widen one and it takes the room, and whatever no
+          longer fits beside it moves to the next row. Nothing here decides how many go in a row,
+          and no breakpoint has to -- a card is clamped to the row it sits in, so a phone, or a Mac
+          with the sidebar dragged out, ends up with one card per row on the same arithmetic.
 
-          The threshold is where three columns are still worth having: below it they are measured
-          at 284px each, which is narrower than the phone this layout was drawn for. Capped and
-          centred at the other end, while the scroller stays full width so its bar sits at the
-          panel's edge rather than floating in the middle of it. The cap holds a column to a card's
-          width instead of letting three of them stretch across a wide Mac, and neither bound does
-          anything on a phone or a split-screen Mac: those get the single column they had before.
+          Capped and centred, while the scroller stays full width so its bar sits at the panel's
+          edge rather than floating in the middle of it.
 
           `items-start` because a card is as tall as its own roster: without it every card in a row
           stretches to the tallest, so a Bot with two sessions beside a Bot with twelve becomes a
           card mostly made of empty. The cost is a ragged bottom edge, which is the honest shape of
           rows that hold different amounts. */}
       <ul
+        ref={list}
         role="list"
         aria-label="Bot canvas"
-        className="mx-auto grid max-w-[1400px] grid-cols-1 items-start gap-3 p-3 @[1100px]:grid-cols-3"
+        className="mx-auto flex max-w-[1400px] flex-wrap items-start gap-3 p-3"
       >
         {bots.map((bot) => (
           <BotCanvasCard
@@ -205,12 +228,10 @@ function BotCanvasList({
             botError={botError}
             openKey={openKey}
             onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
-            openCardHeight={openCardHeight}
-            onOpenCardHeightChange={setOpenCardHeight}
-            onOpenCardHeightCommit={(height) => {
-              setOpenCardHeight(height);
-              storeOpenCardHeight(height);
-            }}
+            size={sizes[bot.botId] ?? DEFAULT_CARD_SIZE}
+            canvasWidth={canvasWidth}
+            onResize={(size) => resize(bot.botId, size, false)}
+            onResizeCommit={(size) => resize(bot.botId, size, true)}
             onAddSession={onAddSession}
             onForkSession={onForkSession}
             onDetachSession={onDetachSession}
@@ -243,9 +264,10 @@ function BotCanvasCard({
   botError,
   openKey,
   onToggleSession,
-  openCardHeight,
-  onOpenCardHeightChange,
-  onOpenCardHeightCommit,
+  size,
+  canvasWidth,
+  onResize,
+  onResizeCommit,
   onAddSession,
   onForkSession,
   onDetachSession,
@@ -256,11 +278,13 @@ function BotCanvasCard({
   botError: string | null;
   openKey: string | null;
   onToggleSession: (key: string) => void;
-  openCardHeight: number;
+  size: BotCardSize;
+  /** How wide a row of cards is, so a card can be held inside the one it sits in. */
+  canvasWidth: number;
   /** Live during a drag, so the card follows the pointer. Not written to storage. */
-  onOpenCardHeightChange: (height: number) => void;
-  /** The height to keep, on pointer release or a key press. */
-  onOpenCardHeightCommit: (height: number) => void;
+  onResize: (size: BotCardSize) => void;
+  /** The size to keep, on pointer release or a key press. */
+  onResizeCommit: (size: BotCardSize) => void;
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -274,230 +298,276 @@ function BotCanvasCard({
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
   // Whether the open session is one of THIS card's, which is what makes this card the sized one.
   const holdsOpen = openKey !== null && bot.sessions.some((session) => sessionKey(session) === openKey);
-  const drag = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
-  // The window the drag is happening in, so pulling past the bottom of the screen stops moving the
-  // card instead of quietly running the number up behind a CSS cap.
+  const drag = useRef<{ pointerId: number; startX: number; startY: number; from: BotCardSize } | null>(null);
+
+  // The room each edge actually has to move in, asked with a finite maximum rather than `Infinity`,
+  // which the clamps read as a number they cannot trust and answer with the default.
+  const widthWithin = (width: number): number => clampCardWidth(width, canvasWidth);
   const heightWithin = (height: number): number =>
-    clampOpenCardHeight(height, typeof window === "undefined" ? undefined : window.innerHeight);
-  // The tallest this card may stand right now. Asking with a finite maximum rather than `Infinity`,
-  // which the clamp reads as a number it cannot trust and answers with the default.
-  const tallest = (): number => heightWithin(MAX_OPEN_CARD_HEIGHT);
-  // What this card actually stands at: the remembered height held inside THIS window. A height
-  // saved on a tall screen would otherwise be reported as the card's size while CSS quietly drew it
-  // shorter, and a drag would then start from a number the card was never at.
-  const height = heightWithin(openCardHeight);
-  const resizeFromKeyboard = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    clampCardHeight(height, typeof window === "undefined" ? undefined : window.innerHeight);
+  const widest = (): number => widthWithin(MAX_CARD_WIDTH);
+  const tallest = (): number => heightWithin(MAX_CARD_HEIGHT);
+  // What this card actually stands at: the remembered size held inside THIS canvas and window. A
+  // size saved on a bigger screen would otherwise be reported as the card's while CSS quietly drew
+  // it smaller, and a drag would then start from a number the card was never at.
+  const width = widthWithin(size.width);
+  const height = heightWithin(size.height);
+  const commit = (next: Partial<BotCardSize>): void =>
+    onResizeCommit({
+      width: widthWithin(next.width ?? width),
+      height: heightWithin(next.height ?? height),
+    });
+  const resizeFromKeyboard = (event: React.KeyboardEvent<HTMLDivElement>, axis: "width" | "height"): void => {
+    const along = axis === "width"
+      ? { less: "ArrowLeft", more: "ArrowRight", at: width, floor: MIN_CARD_WIDTH, ceiling: widest() }
+      : { less: "ArrowUp", more: "ArrowDown", at: height, floor: MIN_CARD_HEIGHT, ceiling: tallest() };
     let next: number | null = null;
-    if (event.key === "ArrowDown") next = height + 24;
-    else if (event.key === "ArrowUp") next = height - 24;
-    else if (event.key === "Home") next = MIN_OPEN_CARD_HEIGHT;
-    else if (event.key === "End") next = tallest();
+    if (event.key === along.more) next = along.at + 24;
+    else if (event.key === along.less) next = along.at - 24;
+    else if (event.key === "Home") next = along.floor;
+    else if (event.key === "End") next = along.ceiling;
     if (next === null) return;
     event.preventDefault();
-    onOpenCardHeightCommit(heightWithin(next));
+    commit({ [axis]: next });
+  };
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    drag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      from: { width, height },
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const dragTo = (event: React.PointerEvent<HTMLDivElement>, axes: { width?: boolean; height?: boolean }): void => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    // Right and down grow the card, which is the direction the edge under the pointer is moving.
+    onResize({
+      width: axes.width
+        ? widthWithin(active.from.width + event.clientX - active.startX)
+        : width,
+      height: axes.height
+        ? heightWithin(active.from.height + event.clientY - active.startY)
+        : height,
+    });
   };
   const finishDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (drag.current?.pointerId !== event.pointerId) return;
     drag.current = null;
+    // Kept before the release, because releasing a capture the browser never granted throws and
+    // would otherwise take the whole drag's result with it.
+    commit({});
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-    onOpenCardHeightCommit(height);
   };
   return (
-    // Sized only while it holds the open session; closed, a card is as tall as its own roster. The
-    // dvh cap is the second half of the drag clamp: it keeps a height remembered on a tall window
-    // from burying the cards below it on a short one.
-    <li
-      className={`flex flex-col overflow-hidden rounded-xl border border-border bg-card${
-        holdsOpen ? " max-h-[85dvh]" : ""
-      }`}
-      style={holdsOpen ? { height } : undefined}
-    >
-      {/* Sticky so the name of whichever Bot you are reading stays overhead through a long
-          roster. The canvas is one scroller, not one per card, so this is the only thing that
-          says which Bot the rows under the fold belong to. */}
-      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2">
-        <BotAvatar bot={bot} size="size-9" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
-            {bot.name}
+    // Width always, height only while it holds the open session: closed, a card is as tall as its
+    // own roster and a remembered height would be empty space. The card is a ROW -- its content
+    // beside the strip that widens it -- because the card clips its own overflow, so a handle
+    // hanging off the border would not be there to grab, and one overlaid on the inside edge would
+    // land on the transcript's scrollbar.
+    <li className="flex overflow-hidden rounded-xl border border-border bg-card" style={{ width }}>
+      <div
+        // The dvh cap is the second half of the height clamp: it keeps a height remembered on a
+        // tall window from burying the cards below it on a short one.
+        className={`flex min-w-0 flex-1 flex-col${holdsOpen ? " max-h-[85dvh]" : ""}`}
+        style={holdsOpen ? { height } : undefined}
+      >
+        {/* Sticky so the name of whichever Bot you are reading stays overhead through a long
+            roster. The canvas is one scroller, not one per card, so this is the only thing that
+            says which Bot the rows under the fold belong to. */}
+        <div className="sticky top-0 z-10 flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2">
+          <BotAvatar bot={bot} size="size-9" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
+              {bot.name}
+            </span>
+            <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+              {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
+              <span className="font-mono">{projectName}</span>
+              {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
+            </span>
           </span>
-          <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-            {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
-            <span className="font-mono">{projectName}</span>
-            {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
+          <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+            {live > 0 ? `${live} live · ` : ""}
+            {bot.sessions.length} {bot.sessions.length === 1 ? "session" : "sessions"}
           </span>
-        </span>
-        <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-          {live > 0 ? `${live} live · ` : ""}
-          {bot.sessions.length} {bot.sessions.length === 1 ? "session" : "sessions"}
-        </span>
-        <button
-          type="button"
-          onClick={() => onAddSession(bot)}
-          disabled={bot.environmentAvailability === "missing"}
-          // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
-          // identically named buttons with no way to tell which card it is on.
-          aria-label={`Add sessions to ${bot.name}`}
-          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
-          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Plus className="size-4" aria-hidden />
-        </button>
-        {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
-            takes the whole Bot off the canvas, and they are not the same scale of act. */}
-        <BotCardMenu bot={bot} onDetach={() => onDetachBot(bot)} />
-      </div>
+          <button
+            type="button"
+            onClick={() => onAddSession(bot)}
+            disabled={bot.environmentAvailability === "missing"}
+            // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
+            // identically named buttons with no way to tell which card it is on.
+            aria-label={`Add sessions to ${bot.name}`}
+            title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
+            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="size-4" aria-hidden />
+          </button>
+          {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
+              takes the whole Bot off the canvas, and they are not the same scale of act. */}
+          <BotCardMenu bot={bot} onDetach={() => onDetachBot(bot)} />
+        </div>
 
-      {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 ? (
-        <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-          No sessions attached
-        </p>
-      ) : (
-        // The one flexible thing in the card: closed rows keep their own height, so a drag lands
-        // entirely on the open session. Squeezed hard enough the session collapses to nothing and
-        // the roster stays readable, which is the recoverable way round -- drag it taller again.
-        <ul role="list" aria-label={`${bot.name} sessions`} className="flex min-h-0 flex-1 flex-col">
-          {bot.sessions.map((session) => {
-            const key = sessionKey(session);
-            const open = key === openKey;
-            return (
-              <li key={key} className={open ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}>
-                {/* A button cannot contain a button, so opening the session, its controls and its
-                    menu are siblings and the open tint moves up to the box that holds them -- the
-                    same shape the sidebar's rows took when they grew this menu. Open, this row is
-                    the session's titlebar: it is where its controls land, the way the app header
-                    is where the thread view's land. */}
-                <div
-                  className={`@container flex shrink-0 flex-wrap items-start border-l-2 pr-1.5 ${
-                    open ? "border-primary bg-muted" : "border-transparent"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onToggleSession(key)}
-                    aria-expanded={open}
-                    className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+        {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 ? (
+          <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+            No sessions attached
+          </p>
+        ) : (
+          // The one flexible thing in the card: closed rows keep their own height, so a drag lands
+          // entirely on the open session. Squeezed hard enough the session collapses to nothing and
+          // the roster stays readable, which is the recoverable way round -- drag it taller again.
+          <ul role="list" aria-label={`${bot.name} sessions`} className="flex min-h-0 flex-1 flex-col">
+            {bot.sessions.map((session) => {
+              const key = sessionKey(session);
+              const open = key === openKey;
+              return (
+                <li key={key} className={open ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}>
+                  {/* A button cannot contain a button, so opening the session, its controls and its
+                      menu are siblings and the open tint moves up to the box that holds them -- the
+                      same shape the sidebar's rows took when they grew this menu. Open, this row is
+                      the session's titlebar: it is where its controls land, the way the app header
+                      is where the thread view's land. */}
+                  <div
+                    className={`@container flex shrink-0 flex-wrap items-start border-l-2 pr-1.5 ${
+                      open ? "border-primary bg-muted" : "border-transparent"
+                    }`}
                   >
-                    <ActivityDot activity={session.activity} className="mt-1.5" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
-                        {session.title || session.sessionId}
+                    <button
+                      type="button"
+                      onClick={() => onToggleSession(key)}
+                      aria-expanded={open}
+                      className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+                    >
+                      <ActivityDot activity={session.activity} className="mt-1.5" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
+                          {session.title || session.sessionId}
+                        </span>
+                        <SessionMeta
+                          source={session.source}
+                          lastEventAt={session.lastEventAt}
+                          activity={session.activity}
+                        />
                       </span>
-                      <SessionMeta
-                        source={session.source}
-                        lastEventAt={session.lastEventAt}
-                        activity={session.activity}
+                      {!session.capabilities.canSend ? (
+                        <span className="mt-0.5 shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                          view only
+                        </span>
+                      ) : null}
+                      <ChevronDown
+                        className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                        aria-hidden
+                      />
+                    </button>
+                    {/* Its own line in a narrow row, inline once there is room. A session's controls
+                        are five icons wide, which in a grid column leaves the title about one
+                        character: the name of the thing is worth more than keeping this to one line.
+                        `order-last` rather than DOM order, so the menu stays beside the title where
+                        it is on every closed row and does not move when one opens.
+
+                        The query is on this ROW, not the viewport. A `sm:` breakpoint asks how wide
+                        the window is, and a grid column on a wide Mac is narrower than a phone: it
+                        kept the controls inline in a 451px column and truncated the title to "CPU
+                        and RA...". What decides here is how much room this row actually has. */}
+                    {open ? (
+                      <span
+                        ref={setControlsHost}
+                        className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0"
+                      />
+                    ) : null}
+                    <span className="mt-1">
+                      <SessionRowMenu
+                        label={session.title || session.sessionId}
+                        onFork={() => onForkSession(session)}
+                        onDetach={() => onDetachSession(bot, session)}
                       />
                     </span>
-                    {!session.capabilities.canSend ? (
-                      <span className="mt-0.5 shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                        view only
-                      </span>
-                    ) : null}
-                    <ChevronDown
-                      className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
-                  </button>
-                  {/* Its own line in a narrow row, inline once there is room. A session's controls
-                      are five icons wide, which in a grid column leaves the title about one
-                      character: the name of the thing is worth more than keeping this to one line.
-                      `order-last` rather than DOM order, so the menu stays beside the title where
-                      it is on every closed row and does not move when one opens.
-
-                      The query is on this ROW, not the viewport. A `sm:` breakpoint asks how wide
-                      the window is, and a grid column on a wide Mac is narrower than a phone: it
-                      kept the controls inline in a 451px column and truncated the title to "CPU
-                      and RA...". What decides here is how much room this row actually has. */}
+                  </div>
                   {open ? (
-                    <span
-                      ref={setControlsHost}
-                      className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0"
-                    />
+                    // A named landmark rather than a bare box: a canvas of open cards is a page with
+                    // several sessions on it, and each one should be reachable by name.
+                    <section
+                      className="min-h-0 flex-1 border-t border-border"
+                      aria-label={`${session.title || session.sessionId} session`}
+                    >
+                      {/* The same component the app's own thread view renders, given a box instead
+                          of the page. It needs nothing said to it about being small: everything in
+                          it measures the column it is, so the box decides. */}
+                      <SessionView
+                        {...sessionContext}
+                        projectPath={bot.environment.path}
+                        session={session}
+                        controlsHost={controlsHost}
+                        externalError={botError}
+                      />
+                    </section>
                   ) : null}
-                  <span className="mt-1">
-                    <SessionRowMenu
-                      label={session.title || session.sessionId}
-                      onFork={() => onForkSession(session)}
-                      onDetach={() => onDetachSession(bot, session)}
-                    />
-                  </span>
-                </div>
-                {open ? (
-                  // A named landmark rather than a bare box: a canvas of open cards is a page with
-                  // several sessions on it, and each one should be reachable by name.
-                  <section
-                    className="min-h-0 flex-1 border-t border-border"
-                    aria-label={`${session.title || session.sessionId} session`}
-                  >
-                    {/* The same component the app's own thread view renders, given a box instead
-                        of the page. It needs nothing said to it about being small: everything in
-                        it measures the column it is, so the box decides. */}
-                    <SessionView
-                      {...sessionContext}
-                      projectPath={bot.environment.path}
-                      session={session}
-                      controlsHost={controlsHost}
-                      externalError={botError}
-                    />
-                  </section>
-                ) : null}
+                </li>
+              );
+            })}
+            {/* Shown rather than hidden: a curated reference whose transcript the catalog has
+                forgotten is the row a reader most needs to see, and removing it is the Bots view's
+                job, not this one's. */}
+            {bot.missingSessionRefs.map((ref) => (
+              <li
+                key={sessionKey(ref)}
+                className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
+              >
+                <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>
+                <SourceBadge source={ref.source} />
+                <span>missing</span>
+                <SessionRowMenu label={ref.sessionId} onDetach={() => onDetachSession(bot, ref)} />
               </li>
-            );
-          })}
-          {/* Shown rather than hidden: a curated reference whose transcript the catalog has
-              forgotten is the row a reader most needs to see, and removing it is the Bots view's
-              job, not this one's. */}
-          {bot.missingSessionRefs.map((ref) => (
-            <li
-              key={sessionKey(ref)}
-              className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
-            >
-              <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>
-              <SourceBadge source={ref.source} />
-              <span>missing</span>
-              <SessionRowMenu label={ref.sessionId} onDetach={() => onDetachSession(bot, ref)} />
-            </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
 
-      {/* A row in the card rather than a strip floating over its bottom edge. Overlaid it would
-          land on the composer's last few pixels, and the card clips its own overflow, so a handle
-          hanging outside the border would not be there to grab. */}
-      {holdsOpen ? (
-        <div
-          role="separator"
-          aria-label={`Resize ${bot.name} card`}
-          aria-orientation="horizontal"
-          aria-valuemin={MIN_OPEN_CARD_HEIGHT}
-          aria-valuemax={tallest()}
-          aria-valuenow={height}
-          aria-valuetext={`${height} pixels`}
-          tabIndex={0}
-          className="group flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border outline-none"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            drag.current = {
-              pointerId: event.pointerId,
-              startY: event.clientY,
-              startHeight: height,
-            };
-            event.currentTarget.setPointerCapture?.(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            const active = drag.current;
-            if (!active || active.pointerId !== event.pointerId) return;
-            // Down grows the card, which is the direction the edge under the pointer is moving.
-            onOpenCardHeightChange(heightWithin(active.startHeight + event.clientY - active.startY));
-          }}
-          onPointerUp={finishDrag}
-          onPointerCancel={finishDrag}
-          onKeyDown={resizeFromKeyboard}
-        >
-          <span className="h-0.5 w-8 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
-        </div>
-      ) : null}
+        {/* A row in the card rather than a strip floating over its bottom edge. Overlaid it would
+            land on the composer's last few pixels, and the card clips its own overflow, so a handle
+            hanging outside the border would not be there to grab. */}
+        {holdsOpen ? (
+          <div
+            role="separator"
+            aria-label={`Resize ${bot.name} card`}
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_CARD_HEIGHT}
+            aria-valuemax={tallest()}
+            aria-valuenow={height}
+            aria-valuetext={`${height} pixels`}
+            tabIndex={0}
+            className="group flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border outline-none"
+            onPointerDown={startDrag}
+            onPointerMove={(event) => dragTo(event, { height: true })}
+            onPointerUp={finishDrag}
+            onPointerCancel={finishDrag}
+            onKeyDown={(event) => resizeFromKeyboard(event, "height")}
+          >
+            <span className="h-0.5 w-8 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
+          </div>
+        ) : null}
+      </div>
+
+      {/* Every card, open or not: a tile has a width whether or not you are reading it. */}
+      <div
+        role="separator"
+        aria-label={`Widen ${bot.name} card`}
+        aria-orientation="vertical"
+        aria-valuemin={MIN_CARD_WIDTH}
+        aria-valuemax={widest()}
+        aria-valuenow={width}
+        aria-valuetext={`${width} pixels`}
+        tabIndex={0}
+        className="group flex w-3 shrink-0 cursor-col-resize touch-none items-center justify-center border-l border-border outline-none"
+        onPointerDown={startDrag}
+        onPointerMove={(event) => dragTo(event, { width: true })}
+        onPointerUp={finishDrag}
+        onPointerCancel={finishDrag}
+        onKeyDown={(event) => resizeFromKeyboard(event, "width")}
+      >
+        <span className="h-8 w-0.5 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
+      </div>
     </li>
   );
 }
