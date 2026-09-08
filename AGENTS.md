@@ -595,8 +595,24 @@ What this actually breaks, observed rather than imagined:
   on a `KeyboardDeck` test belonging to a different session mid-arc, in the middle of an unrelated
   commit. When a leg fails on files your diff never touched, read `git status` before you debug it:
   identifying whose they are is faster than diagnosing someone else's half-written test.
-- **Stage by path, never `git add -A` or `git commit -a`.** Committing "the tree" sweeps up whoever
-  else is mid-edit. Every commit here names its files.
+- **Commit by PATHSPEC, not by index: `git commit -- <paths>`.** Staging by path is necessary and
+  not sufficient, because the index is shared too. A commit takes the WHOLE index, so a peer who has
+  already staged something -- and `git status` says so, with an `R` or `M` in the FIRST column --
+  puts it in your commit no matter how carefully you added only your own files. Measured 2026-09-08:
+  a peer's `forkTitle.ts -> sessionTitles.ts` rename sat staged while this session added six
+  unrelated files, and `git diff --cached --stat` showed all eight. Naming the paths on `git commit`
+  itself commits the working-tree copy of exactly those, leaves every other index entry staged, and
+  needs no `git reset` to arrange. Check `git diff --cached --stat` before every commit anyway: it
+  is the only view that shows what would actually land.
+  - The nuance that comes with it: a pathspec commit takes the WORKING TREE version of those paths,
+    ignoring anything you staged for them. If you staged part of a file and then kept editing it,
+    the whole current file is what lands.
+  - `git add -A` and `git commit -a` remain out of the question for the older reason: they sweep up
+    whoever is mid-edit in the worktree as well.
+  - This is not hypothetical in either direction. On the same night, commit `9d286227` swept up THIS
+    session's uncommitted `tmuxSessions.ts` and landed three unrelated exports under a message about
+    composer cursor reading. The code survived; the history is now wrong about who added what and
+    why, and that is not fixable on a shared branch without a rewrite nobody should do.
 - **Never `git checkout --` a file you did not change.** That is not a revert, it is destroying
   another session's uncommitted work with no undo.
 - **A clean tree can go dirty between two of your own commands.** A `git status` read at the start
