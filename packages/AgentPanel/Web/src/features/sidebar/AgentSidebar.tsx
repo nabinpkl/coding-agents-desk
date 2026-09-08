@@ -1,4 +1,5 @@
 import {
+  Check,
   ChevronDown,
   LoaderCircle,
   Plus,
@@ -71,14 +72,13 @@ interface AgentSidebarProps {
   onAddBotSession: (bot: BotView) => void;
   onDetachBotSession: (bot: BotView, session: BotSessionRef) => void;
   /**
-   * The Bots taken off the canvas, in the order the roster gives them.
+   * The Bots NOT currently on the canvas, by id.
    *
-   * Passed in already separated rather than as a set to subtract here, so the canvas and this
-   * panel cannot disagree about which Bots are on it. Empty for every mode but `canvas`, where it
-   * is the only route back: the canvas card that would offer it has gone.
+   * The same set the canvas subtracts by, rather than a second list computed here, so the roster
+   * below and the cards on the canvas cannot disagree about which is which.
    */
-  detachedBots: BotView[];
-  onRestoreBot: (bot: BotView) => void;
+  detachedBotIds: ReadonlySet<string>;
+  onToggleBotOnCanvas: (bot: BotView) => void;
   onAddBot: () => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
@@ -207,9 +207,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
           )}
         </div>
       ) : props.mode === "canvas" ? (
-        // The canvas itself is the main panel: every bot at once, scrolled rather than switched
-        // between. What is left for the sidebar is the one action the roster needs and a count
-        // that says whether an empty canvas is empty or still arriving.
+        // The roster the canvas is arranged from. Every Bot is listed here whether or not it is on
+        // the canvas, so a Bot taken off is not somewhere else -- it is in the same row it has
+        // always been in, no longer marked as on. A separate list of the ones that are off would be
+        // a second place to look for a Bot, and the canvas already is the first.
         <div
           id={panelId("canvas")}
           role="tabpanel"
@@ -231,38 +232,43 @@ export function AgentSidebar(props: AgentSidebarProps) {
               {props.botsLoading
                 ? "Loading Bots…"
                 : (() => {
-                    const shown = props.bots.length - props.detachedBots.length;
+                    const shown = props.bots.filter((bot) => !props.detachedBotIds.has(bot.botId)).length;
                     return `${shown} ${shown === 1 ? "bot" : "bots"} on the canvas`;
                   })()}
             </SidebarStatus>
           )}
-          {props.detachedBots.length > 0 ? (
-            // The only way back. Taking a Bot off the canvas removes the card its menu lived on, so
-            // without this the action would be one-way and the Bot would be reachable only from the
-            // Bots tab, which is a different view with a different job.
-            <div className="border-t border-border">
-              <p className="px-3 pt-2 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                Off the canvas
-              </p>
-              <ul role="list" aria-label="Bots off the canvas">
-                {props.detachedBots.map((bot) => (
+          {props.bots.length > 0 ? (
+            <ul role="list" aria-label="Bot roster" className="border-t border-border">
+              {props.bots.map((bot) => {
+                const onCanvas = !props.detachedBotIds.has(bot.botId);
+                return (
                   <li key={bot.botId}>
+                    {/* A toggle rather than two different actions, because it is one fact about the
+                        row: `aria-pressed` is what says which way it currently is, and the muted
+                        avatar and name are the same thing said in the other channel. */}
                     <button
                       type="button"
-                      onClick={() => props.onRestoreBot(bot)}
-                      aria-label={`Put ${bot.name} back on the canvas`}
-                      className="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70"
+                      onClick={() => props.onToggleBotOnCanvas(bot)}
+                      aria-pressed={onCanvas}
+                      aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
+                      className={`flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
+                        onCanvas ? "" : "opacity-55"
+                      }`}
                     >
                       <BotAvatar bot={bot} size="size-6" />
                       <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground">
                         {bot.name}
                       </span>
-                      <Plus className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                      {onCanvas ? (
+                        <Check className="size-4 shrink-0 text-primary" aria-hidden />
+                      ) : (
+                        <Plus className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                      )}
                     </button>
                   </li>
-                ))}
-              </ul>
-            </div>
+                );
+              })}
+            </ul>
           ) : null}
         </div>
       ) : (

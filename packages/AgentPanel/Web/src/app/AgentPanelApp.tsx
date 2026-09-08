@@ -38,11 +38,6 @@ import { useBots } from "../features/bots/useBots";
 import { BotCanvas } from "../features/bots/BotCanvas";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
-import {
-  loadDetachedBotIds,
-  storeDetachedBotIds,
-  withBotDetached,
-} from "../features/bots/canvasMembership";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
 
@@ -129,15 +124,18 @@ export function App({ feed, host, fill = false }: Props) {
   // and phone drawer must never disagree about which view is selected.
   const [sidebarMode, setSidebarMode] = useState<AgentSidebarMode>("sessions");
   const botsState = useBots(feed);
-  // Which Bots this reader has taken off the canvas. Split here rather than inside the canvas, so
-  // the canvas and the sidebar panel that puts them back cannot disagree about what is on it.
-  const [detachedBotIds, setDetachedBotIds] = useState(loadDetachedBotIds);
+  // Which Bots are off the canvas right now. Held here rather than inside the canvas so the cards
+  // and the sidebar roster that arranges them read one set, and held in memory rather than stored
+  // because it is not a fact worth keeping: the roster lists every Bot either way, so a canvas that
+  // comes back whole on the next visit costs one click to arrange again and never hides a Bot from
+  // a reader who has forgotten they took it off.
+  const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(() => new Set());
   const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
-  const detachedBots = botsState.bots.filter((bot) => detachedBotIds.has(bot.botId));
-  const setBotOnCanvas = useCallback((bot: BotView, onCanvas: boolean) => {
+  const toggleBotOnCanvas = useCallback((bot: BotView) => {
     setDetachedBotIds((current) => {
-      const next = withBotDetached(current, bot.botId, !onCanvas);
-      storeDetachedBotIds(next);
+      // A new set rather than a mutation, because React decides whether to re-render by identity.
+      const next = new Set(current);
+      if (!next.delete(bot.botId)) next.add(bot.botId);
       return next;
     });
   }, []);
@@ -636,8 +634,8 @@ export function App({ feed, host, fill = false }: Props) {
     onSelectBotSession: openBotSession,
     onAddBotSession: openBotSessionPicker,
     onDetachBotSession: detachBotSession,
-    detachedBots,
-    onRestoreBot: (bot: BotView) => setBotOnCanvas(bot, true),
+    detachedBotIds,
+    onToggleBotOnCanvas: toggleBotOnCanvas,
     onAddBot: () => {
       setBotCreatorOpen(true);
       setHoverPreviewOpen(false);
@@ -774,8 +772,8 @@ export function App({ feed, host, fill = false }: Props) {
                 onAddSession={openBotSessionPicker}
                 onForkSession={forkSession}
                 onDetachSession={detachBotSession}
-                onDetachBot={(bot) => setBotOnCanvas(bot, false)}
-                detachedCount={detachedBots.length}
+                onDetachBot={toggleBotOnCanvas}
+                detachedCount={botsState.bots.length - canvasBots.length}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
             ) : sidebarMode === "sessions" ? (

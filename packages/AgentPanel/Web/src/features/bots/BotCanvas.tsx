@@ -22,12 +22,16 @@ import { BotCardMenu } from "./BotCardMenu";
 import { SessionRowMenu } from "./SessionRowMenu";
 
 /**
- * Every Bot's curated sessions at once, in one scroll.
+ * The Bots put on the canvas, with all of their curated sessions, in one scroll.
  *
  * The Bots view answers "what is this one Bot working on" and pays for it by making the other Bots
  * invisible: picking one is the only way to see anything, so comparing two means switching twice
  * and remembering the first. This is the same roster with that pick removed -- the reader scrolls
  * instead of switching, which is the whole point of it existing beside the tab it came from.
+ *
+ * All of them by default, and any of them can be taken off. Which ones are on is decided by the
+ * sidebar's roster and passed in already filtered; this component is handed a list of Bots and
+ * shows exactly those.
  *
  * The ROSTER costs nothing extra to serve. `/api/bots/stream` already resolves every curated
  * reference to a full catalog summary and republishes when the catalog moves, so every closed row
@@ -86,9 +90,9 @@ export function BotCanvas({
    */
   onDetachBot: (bot: BotView) => void;
   /**
-   * How many Bots are off the canvas, which is only ever asked when `bots` is empty. An empty
-   * canvas that says "No bots yet" over a roster of eight detached ones is a lie, and the reader
-   * would go looking for the Add Bot button rather than the list that has them.
+   * How many Bots exist but are off the canvas, which is only ever asked when `bots` is empty. An
+   * empty canvas that says "No bots yet" over a roster of eight is a lie, and would send the reader
+   * to Add Bot rather than to the roster their Bots are already in.
    */
   detachedCount: number;
   onAddBot: () => void;
@@ -114,9 +118,7 @@ export function BotCanvas({
         <Bot className="size-5" aria-hidden />
         <span>
           {detachedCount > 0
-            ? `Every Bot is off the canvas. Put one back from the sidebar${
-                detachedCount === 1 ? "" : `, where ${detachedCount} are waiting`
-              }.`
+            ? `No Bots on the canvas. Put one on from the roster in the sidebar.`
             : "No bots yet"}
         </span>
         <button

@@ -485,8 +485,11 @@ describe("App shell", () => {
     // The point of the view: both Bots and both their sessions are on screen together, with
     // nothing selected and no Bot picked.
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
-    expect(screen.getByText("Release Captain")).toBeInTheDocument();
-    expect(screen.getByText("Docs Keeper")).toBeInTheDocument();
+    // Scoped to the canvas: each Bot is named twice on this screen now, once on its card and once
+    // in the sidebar roster that decides whether the card is there at all.
+    const canvas = within(screen.getByRole("list", { name: "Bot canvas" }));
+    expect(canvas.getByText("Release Captain")).toBeInTheDocument();
+    expect(canvas.getByText("Docs Keeper")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
     // A reference the catalog has forgotten stays visible rather than silently thinning the list.
@@ -639,7 +642,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("takes a whole Bot off the canvas and puts it back, without touching the Bot", async () => {
+  it("takes a whole Bot off the canvas and puts it back from the sidebar roster", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -673,19 +676,26 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Add sessions to Release Captain" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add sessions to Eval Bot" })).toBeInTheDocument();
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
-    // Remembered, so the arrangement survives a reload rather than lasting one visit.
-    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.detached")!)).toEqual(["bot-1"]);
 
-    // The card that offered the action has gone with it, so the sidebar is the only way back.
-    fireEvent.click(screen.getByRole("button", { name: "Put Release Captain back on the canvas" }));
+    // The Bot did not move anywhere. It is in the same roster row it was always in, no longer
+    // marked as on the canvas, and that row is the way back.
+    const roster = within(screen.getByRole("list", { name: "Bot roster" }));
+    expect(roster.getByRole("button", { name: "Put Release Captain on the canvas" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(roster.getByRole("button", { name: "Take Eval Bot off the canvas" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    fireEvent.click(roster.getByRole("button", { name: "Put Release Captain on the canvas" }));
     expect(screen.getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
     expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.detached")!)).toEqual([]);
     unmount();
   });
 
   it("says an empty canvas is empty because its Bots were taken off it, not because there are none", () => {
-    localStorage.setItem("agent-panel.bot-canvas.detached", JSON.stringify(["bot-1"]));
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -709,7 +719,14 @@ describe("App shell", () => {
       });
     });
 
-    expect(screen.getByText(/Every Bot is off the canvas/)).toBeInTheDocument();
+    // The canvas starts whole every visit, because nothing about the arrangement is stored.
+    expect(screen.getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Release Captain" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));
+
+    expect(screen.getByText(/No Bots on the canvas/)).toBeInTheDocument();
     expect(screen.queryByText("No bots yet")).toBeNull();
     expect(screen.getByText("0 bots on the canvas")).toBeInTheDocument();
     unmount();
