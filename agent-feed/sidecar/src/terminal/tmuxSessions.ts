@@ -79,22 +79,6 @@ export function captureScreenArgs(session: string): string[] {
 }
 
 /**
- * What the pane is showing right now, colour and all.
- *
- * The colour is not incidental to a reader, which is why this shares `captureScreenArgs` with the
- * painting path instead of asking for plain text. Claude draws its composer placeholder in the
- * same box as a real prompt and the only thing separating them is that the placeholder is DIM --
- * measured as `\u001b[2m<no suggestion>\u001b[0m`, where typed text carries no such run. Strip the
- * escapes at the source and the two become one string, and the panel mirrors a hint back into
- * somebody's session as if they had typed it.
- */
-export async function captureTmuxScreen(session: string): Promise<string> {
-  const result = await tmux(captureScreenArgs(session));
-  demand("screen", result);
-  return result.out;
-}
-
-/**
  * How tall that screen is, and where the cursor sits in it.
  *
  * The height says how many rows the viewer has to open. The cursor says where to leave it, which
@@ -108,6 +92,61 @@ export function paneGeometryArgs(session: string): string[] {
   return [
     "display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x}",
   ];
+}
+
+/** What tmux says about a pane right now: the screen it is showing, and where its cursor sits. */
+export interface TmuxPaneView {
+  screen: string;
+  /** The cursor's own row and column in the pane, counted from the top left of the screen. */
+  cursor: { row: number; column: number };
+}
+
+/**
+ * The screen and the cursor, asked for in ONE tmux invocation.
+ *
+ * Two commands separated by `;`, which tmux runs on one client connection and answers in order:
+ * the cursor on the first line, the screen after it. Two spawns would be the obvious spelling and
+ * would cost a second process on every read, and the composer's watcher reads on every burst of
+ * pane output -- up to about seven a second per session somebody is typing in.
+ *
+ * The cursor is not decoration beside the text; it carries what the text CANNOT. tmux pads every
+ * captured row to the pane width, so a composer holding `abc ` and one holding `abc` come back as
+ * the same string and a trailing space is unrecoverable from the capture alone. Measured
+ * 2026-09-08: `abc` reported column 5, `abc ` reported 6, and `abc   ` reported 8, against a box
+ * that starts at column 2. So the column is the true length of the row the cursor is on, and the
+ * row says which line of a wrapped box the reader is actually on.
+ */
+export function capturePaneViewArgs(session: string): string[] {
+  return [
+    "display-message", "-p", "-t", session, "#{cursor_y} #{cursor_x}",
+    ";",
+    ...captureScreenArgs(session),
+  ];
+}
+
+/**
+ * What the pane is showing and where its cursor is, colour and all.
+ *
+ * The colour is not incidental to a reader, which is why this shares `captureScreenArgs` with the
+ * painting path instead of asking for plain text. Claude draws its composer placeholder in the
+ * same box as a real prompt and the only thing separating them is that the placeholder is DIM --
+ * measured as `\u001b[2m<no suggestion>\u001b[0m`, where typed text carries no such run. Strip the
+ * escapes at the source and the two become one string, and the panel mirrors a hint back into
+ * somebody's session as if they had typed it.
+ */
+export async function captureTmuxPaneView(session: string): Promise<TmuxPaneView> {
+  const result = await tmux(capturePaneViewArgs(session));
+  demand("pane view", result);
+  const split = result.out.indexOf("\n");
+  const where = (split === -1 ? result.out : result.out.slice(0, split)).trim().split(/\s+/);
+  const row = Number.parseInt(where[0] ?? "", 10);
+  const column = Number.parseInt(where[1] ?? "", 10);
+  // Loud rather than assumed. A cursor this cannot read is not a cursor at the end of the box, and
+  // treating it as one is exactly the guess that corrupts a composer.
+  if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0) {
+    throw new TmuxUnavailable(`tmux reported an unusable cursor: ${result.out.slice(0, 80)}`);
+  }
+  return { screen: split === -1 ? "" : result.out.slice(split + 1), cursor: { row, column } };
 }
 
 /**
@@ -414,6 +453,69 @@ export async function describeTmuxPane(
     throw new TmuxUnavailable(`tmux reported an unreadable pane: ${out.trim()}`);
   }
   return { pid, columns, rows };
+}
+
+export function attachedClientArgs(session: string): string[] {
+  return ["list-clients", "-t", session, "-F", "#{client_name}"];
+}
+
+/**
+ * How many REAL tmux clients are watching this session.
+ *
+ * The panel is never one of them and cannot be counted by mistake: it drives tmux through
+ * `capture-pane`, `pipe-pane` and `send-keys`, so tmux has never heard of it. Measured across 20
+ * live sessions here, every one of them answered zero.
+ *
+ * This is the whole safety condition for resizing. tmux has ONE window size for everyone, so a
+ * resize while a human is attached reflows the session inside their own terminal -- measured in
+ * ADR terms by the bug this replaces, where a tile opening at 80x24 redrew a live Claude Code TUI
+ * with its composer off the bottom of its frame.
+ *
+ * So an unreadable answer THROWS rather than returning zero. A missing session exits 1, and
+ * reading that as "nobody is attached" would resize on exactly the evidence that says we cannot
+ * tell. A live session with no clients exits 0 with no output, which is the answer we want.
+ */
+export async function attachedTmuxClients(session: string): Promise<number> {
+  const { out, err, code } = await tmux(attachedClientArgs(session));
+  if (code !== 0) {
+    throw new TmuxUnavailable(`tmux list-clients exited ${code}: ${err.trim() || out.trim()}`);
+  }
+  return out.split("\n").filter((line) => line.trim() !== "").length;
+}
+
+export function resizeWindowArgs(session: string, columns: number, rows: number): string[] {
+  return ["resize-window", "-t", session, "-x", String(columns), "-y", String(rows)];
+}
+
+/**
+ * Makes the session's window this shape. It is EVERY client's shape, which is why every caller
+ * checks `attachedTmuxClients` first.
+ */
+export async function resizeTmuxWindow(
+  session: string,
+  columns: number,
+  rows: number,
+): Promise<void> {
+  const { err, code } = await tmux(resizeWindowArgs(session, columns, rows));
+  if (code !== 0) throw new TmuxUnavailable(`tmux resize-window exited ${code}: ${err.trim()}`);
+}
+
+export function releaseWindowSizeArgs(session: string): string[] {
+  return ["set-option", "-w", "-t", session, "-u", "window-size"];
+}
+
+/**
+ * Hands the size back to tmux's own client negotiation, for a window this process resized.
+ *
+ * `resize-window -x -y` pins the window to `window-size manual` as a side effect -- measured, and
+ * it is what left four sessions stuck that way the last time this repo resized panes. A pinned
+ * window no longer follows a human who attaches later, so the pin has to be lifted when the last
+ * panel viewer leaves. Unsetting restores the inherited value (`latest` here) and leaves the size
+ * itself alone, which is the right pair: the shape the reader left it in, free to move again.
+ */
+export async function releaseTmuxWindowSize(session: string): Promise<void> {
+  const { err, code } = await tmux(releaseWindowSizeArgs(session));
+  if (code !== 0) throw new TmuxUnavailable(`tmux set-option exited ${code}: ${err.trim()}`);
 }
 
 /**

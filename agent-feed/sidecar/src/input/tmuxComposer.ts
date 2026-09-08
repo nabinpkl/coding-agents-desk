@@ -16,6 +16,11 @@
 //   Ctrl+U kills one VISUAL row, not the whole prompt: a four-row composer needs four of them.
 //   That is the one exact lever over a composer whose text cannot be read exactly.
 //
+//   A TRAILING SPACE is invisible in the capture and visible in the cursor. tmux pads every
+//   captured row out to the pane width, so a box holding `abc ` and one holding `abc` come back as
+//   the same string; `#{cursor_x}` reported 6 against 5 for exactly that pair. So the reading is
+//   only complete where the cursor is, and `ComposerBox.exact` says whether it was.
+//
 //   An EMPTY box is not always empty-looking. Claude draws a suggestion in it, and the only thing
 //   separating that from typed words is that it is FAINT. So the screen is read with its colour
 //   on, which is the one place an escape sequence here is content rather than noise. The hint
@@ -37,7 +42,12 @@ import {
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
 import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
-import { captureTmuxScreen, hexSend, TmuxUnavailable } from "../terminal/tmuxSessions.ts";
+import {
+  captureTmuxPaneView,
+  hexSend,
+  TmuxUnavailable,
+  type TmuxPaneView,
+} from "../terminal/tmuxSessions.ts";
 
 /** The character Claude draws at the head of its prompt box. */
 const PROMPT = "❯";
@@ -151,18 +161,47 @@ export interface ComposerBox {
   rows: string[];
   /** Claude's suggestion, when the box is holding one instead of somebody's text. */
   hint: string | null;
+  /**
+   * Whether `rows` is the whole truth and the cursor is sitting at the end of it.
+   *
+   * False means the reading is a LOWER BOUND on what the box holds, so only a clear and a retype
+   * is safe. Two things make it false and both are invisible in the text: a cursor parked
+   * somewhere other than the end of the last row, and trailing whitespace past that cursor which
+   * the capture cannot show because tmux pads every row to the pane width anyway.
+   *
+   * It is false rarely, which is what makes paying a retype for it reasonable. The obvious worry
+   * is a session mid-answer, where a retype would also detach any image in the box by retyping its
+   * token as text -- so it was measured rather than assumed: across a seventeen-second turn, read
+   * every 700ms, the cursor stayed inside the composer and the reading was exact throughout.
+   */
+  exact: boolean;
 }
 
+/**
+ * Where the composer's text starts, in the pane's own columns.
+ *
+ * The marker and its gap are two columns, and a continuation row is indented by two spaces, so
+ * one number covers both. Measured 2026-09-08: an empty box reports the cursor at column 2, and
+ * the start of a wrapped box's second row is column 2 as well.
+ */
+const BOX_COLUMN = 2;
+
 /** What the composer box holds, or null when the screen shows no box at all. */
-export function composerBox(screen: string): ComposerBox | null {
-  const raw = screen.split("\n");
+export function composerBox(view: TmuxPaneView): ComposerBox | null {
+  const raw = view.screen.split("\n");
   const lines = raw.map(plainText);
   const head = lastPromptRow(lines);
   if (head === null) return null;
   // A suggestion fills the box and IS the box, so the composer reads as empty and the suggestion
   // travels separately. Asked of the RAW row, because the answer is in the escapes.
   if (isPlaceholder(raw[head]!)) {
-    return { rows: [""], hint: lines[head]!.slice(PROMPT.length).replace(GAP, "") || null };
+    return {
+      rows: [""],
+      hint: lines[head]!.slice(PROMPT.length).replace(GAP, "") || null,
+      // A suggestion is drawn in a box with nothing in it, so there is nothing to be inexact
+      // about. Where the cursor is inside it does not change that.
+      exact: true,
+    };
   }
   const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
   for (let index = head + 1; index < lines.length; index += 1) {
@@ -174,7 +213,15 @@ export function composerBox(screen: string): ComposerBox | null {
     if (!line.startsWith(INDENT)) break;
     rows.push(line.slice(INDENT.length));
   }
-  return { rows, hint: null };
+  const last = rows.length - 1;
+  const column = view.cursor.column - BOX_COLUMN;
+  // Only when the cursor is at or past the end of the LAST row does the reading account for
+  // everything: anywhere else and the rows below or beyond it may hold whitespace this cannot
+  // see. Where it is past the end, the gap IS that whitespace, measured to the character, and
+  // putting it back is what stops the next append inserting a space that is already there.
+  const exact = view.cursor.row - head === last && column >= rows[last]!.length;
+  if (exact) rows[last] = rows[last]!.padEnd(column, " ");
+  return { rows, hint: null, exact };
 }
 
 /** A screen line with its colour taken off and its padding trimmed, which is what parses. */
@@ -231,7 +278,10 @@ export function composerText(rows: readonly string[]): string {
 /**
  * The bytes that turn a composer holding `rows` into one holding `desired`.
  *
- * Three shapes, in the order they are worth trying:
+ * Four shapes, in the order they are worth trying:
+ *
+ *   A clear and a retype, when the reading is not exact -- which is checked FIRST, because every
+ *   other branch here is arithmetic on a text that would then be missing characters.
  *
  *   Nothing, when the box already reads that way. The commonest outcome of all, because the panel
  *   pushes after a debounce and the previous push usually already landed it.
@@ -246,8 +296,14 @@ export function composerText(rows: readonly string[]): string {
  * Inserted text is always a bracketed paste. Claude reads a paste literally, where a bare `/` or
  * `@` at the head of an empty composer opens a menu that then eats what follows it.
  */
-export function keystrokesFor(rows: readonly string[], desired: string): string {
+export function keystrokesFor(box: ComposerBox, desired: string): string {
+  const { rows } = box;
   const current = composerText(rows);
+  // A box that is only a lower bound cannot be edited incrementally at all: an append would land
+  // after whitespace nobody can see, and a backspace count taken from the visible text would rub
+  // out one character too few. The clear below needs none of that -- Ctrl+U kills a whole visual
+  // row whatever is in it, and the row COUNT is exact even when the text is not.
+  if (!box.exact) return END + KILL_ROW.repeat(rows.length) + paste(desired);
   if (current === desired) return "";
   // Every branch below is written as though the text ends at the cursor. Going to the end is what
   // makes that so, and it is free when the cursor is already there.
@@ -440,13 +496,13 @@ async function settle(
   const deadline = Date.now() + REDRAW_LIMIT_MS;
   while (Date.now() < deadline) {
     await new Promise((wake) => setTimeout(wake, REDRAW_POLL_MS));
-    let screen: string;
+    let view: TmuxPaneView;
     try {
-      screen = await runtime.screen(pane);
+      view = await runtime.screen(pane);
     } catch {
       return;
     }
-    const box = composerBox(screen);
+    const box = composerBox(view);
     if (box && composerText(box.rows) !== before) return;
   }
 }
@@ -460,7 +516,15 @@ export interface TmuxComposerRuntime {
    * push that arrives with nothing watching.
    */
   pane: (sessionId: string) => Promise<string | null>;
-  screen: (pane: string) => Promise<string>;
+  /**
+   * What the pane is showing AND where its cursor is, which is one question rather than two.
+   *
+   * The cursor is what makes the reading exact: tmux pads a captured row to the pane width, so a
+   * trailing space is invisible in the text and visible in the column. Splitting these into two
+   * calls would also be splitting them in TIME, and the answer would be a screen from one instant
+   * beside a cursor from another.
+   */
+  screen: (pane: string) => Promise<TmuxPaneView>;
   send: (pane: string, bytes: Uint8Array) => Promise<void>;
   panes: TmuxComposerPanes;
 }
@@ -492,7 +556,7 @@ const COALESCE_MS = 150;
 
 const LIVE: TmuxComposerRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),
-  screen: captureTmuxScreen,
+  screen: captureTmuxPaneView,
   send: hexSend,
   // One registry for the process, so a watch opened through the routes is visible to a push that
   // took the default runtime. Two would be two answers to one question.
@@ -680,7 +744,7 @@ export async function syncTmuxComposer(
       if (!pane) return unavailable("no-pane");
       const box = composerBox(await runtime.screen(pane));
       if (!box) return unavailable("no-composer");
-      const keys = keystrokesFor(box.rows, desired);
+      const keys = keystrokesFor(box, desired);
       if (keys.length > 0) {
         await runtime.send(pane, new TextEncoder().encode(keys));
         await settle(pane, composerText(box.rows), runtime);
@@ -792,7 +856,7 @@ export async function renameTmuxSession(
       const encoder = new TextEncoder();
       // One send, not two: the command and the Return travel together so nothing can be typed
       // between them into the box this just checked was empty.
-      const keys = keystrokesFor(box.rows, `/rename ${title}`);
+      const keys = keystrokesFor(box, `/rename ${title}`);
       await runtime.send(pane, encoder.encode(keys + CARRIAGE_RETURN));
       return { renamed: true };
     } catch (error) {

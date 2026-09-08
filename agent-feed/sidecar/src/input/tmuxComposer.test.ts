@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   acceptTmuxComposerHint,
   composerBox,
+  type ComposerBox,
   composerText,
   keystrokesFor,
   composerPanes,
@@ -14,23 +15,62 @@ import {
   type TmuxComposerRuntime,
   type TmuxComposerWatchRuntime,
 } from "./tmuxComposer.ts";
-import { TmuxUnavailable } from "../terminal/tmuxSessions.ts";
+import { TmuxUnavailable, type TmuxPaneView } from "../terminal/tmuxSessions.ts";
 
 const RULE = "─".repeat(60);
 
-/** A screen as `capture-pane` returns one, with the composer holding `rows`. */
-function screenWith(rows: string[]): string {
-  return [
-    "  Some earlier output from the session.",
-    "",
-    RULE,
-    // A no-break space after the marker, which is what a live pane actually writes.
-    `❯\u00a0${rows[0] ?? ""}`,
-    ...rows.slice(1).map((row) => `  ${row}`),
-    RULE,
-    "  adprobe  Opus 5 (1M context)                    0 tokens",
-    "  ⏵⏵ auto mode on (shift+tab to cycle)                 /rc",
-  ].join("\n");
+/** Where the composer's text begins, which is what the module's own `BOX_COLUMN` measures. */
+const BOX_COLUMN = 2;
+
+/** How many lines stand above the prompt row in `screenWith`, so a cursor can be aimed at one. */
+const ABOVE_PROMPT = 3;
+
+/**
+ * A pane as tmux answers for one: the screen `capture-pane` returns, and where the cursor is.
+ *
+ * The cursor defaults to the end of the last row, which is where a reader who has just typed
+ * leaves it and what makes the reading exact. `cursor` overrides it with a row and a column
+ * counted inside the box, which is how the inexact cases are written.
+ */
+function screenWith(
+  rows: string[],
+  cursor?: { row: number; column: number },
+): TmuxPaneView {
+  const last = Math.max(rows.length - 1, 0);
+  const at = cursor ?? { row: last, column: (rows[last] ?? "").length };
+  return {
+    screen: [
+      "  Some earlier output from the session.",
+      "",
+      RULE,
+      // A no-break space after the marker, which is what a live pane actually writes.
+      `❯\u00a0${rows[0] ?? ""}`,
+      ...rows.slice(1).map((row) => `  ${row}`),
+      RULE,
+      "  adprobe  Opus 5 (1M context)                    0 tokens",
+      "  ⏵⏵ auto mode on (shift+tab to cycle)                 /rc",
+    ].join("\n"),
+    cursor: { row: ABOVE_PROMPT + at.row, column: BOX_COLUMN + at.column },
+  };
+}
+
+/** A hand-written screen, with the cursor put at the end of its last composer row. */
+function paneShowing(screen: string, cursor?: { row: number; column: number }): TmuxPaneView {
+  const lines = screen.split("\n");
+  const head = lines.findLastIndex((line) => line.replace(/\u001b\[[0-9;]*m/g, "").startsWith("❯"));
+  const text = (lines[head] ?? "").replace(/\u001b\[[0-9;]*m/g, "").slice(1).replace(/^[ \u00a0]/, "");
+  const at = cursor ?? { row: 0, column: text.length };
+  return { screen, cursor: { row: head + at.row, column: BOX_COLUMN + at.column } };
+}
+
+/**
+ * A composer box read exactly, which is what a cursor sitting at the end of the last row means.
+ *
+ * The inexact case gets its own tests rather than a default, because it is the one that decides
+ * between an incremental edit and a retype.
+ */
+function held(rows: string[]): ComposerBox {
+  return { rows, hint: null, exact: true };
 }
 
 const KILL = "\u0015";
@@ -53,9 +93,9 @@ const CLOSE = "\u001b[201~";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
   expect(composerBox(screenWith(["make the hover ring stronger"])))
-    .toEqual({ rows: ["make the hover ring stronger"], hint: null });
+    .toEqual({ rows: ["make the hover ring stronger"], hint: null, exact: true });
   // The distinction the whole reconciliation rests on: "" is adopted into the field, null is not.
-  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null });
+  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null, exact: true });
 });
 
 test("keeps every wrapped row, because the row count is what clearing costs", () => {
@@ -82,13 +122,13 @@ test("reads Claude's own hint as an empty box holding a suggestion", () => {
     "\u001b[39m❯\u00a0\u001b[2mstop adding the three suggestions\u001b[0m",
     RULE,
   ].join("\n");
-  expect(composerBox(screen))
-    .toEqual({ rows: [""], hint: "stop adding the three suggestions" });
+  expect(composerBox(paneShowing(screen)))
+    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true });
 });
 
 test("keeps text that merely sits under a colour, because only faint means a hint", () => {
   const screen = [RULE, "\u001b[39m❯\u00a0\u001b[1mtyped in bold\u001b[0m", RULE].join("\n");
-  expect(composerBox(screen)).toEqual({ rows: ["typed in bold"], hint: null });
+  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true });
 });
 
 test("takes the last box, not a turn the transcript echoed with the same marker", () => {
@@ -101,64 +141,108 @@ test("takes the last box, not a turn the transcript echoed with the same marker"
     "❯\u00a0what is being typed now",
     RULE,
   ].join("\n");
-  expect(composerBox(screen)).toEqual({ rows: ["what is being typed now"], hint: null });
+  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["what is being typed now"], hint: null, exact: true });
 });
 
 test("answers nothing for a screen mid-redraw, which is retryable rather than broken", () => {
   // The composer box genuinely vanishes between frames; measured on a live pane right after a
   // Ctrl+U. Reporting "" here would push an empty composer into the reader's field.
-  expect(composerBox(["  adprobe  Opus 5", "  ⏵⏵ auto mode on"].join("\n"))).toBeNull();
+  expect(composerBox({ screen: ["  adprobe  Opus 5", "  ⏵⏵ auto mode on"].join("\n"), cursor: { row: 1, column: 2 } })).toBeNull();
   // A marker with no rule above it is transcript text, not a box.
-  expect(composerBox(["  output", "❯\u00a0quoted, in a message"].join("\n"))).toBeNull();
+  expect(composerBox({ screen: ["  output", "❯\u00a0quoted, in a message"].join("\n"), cursor: { row: 1, column: 2 } })).toBeNull();
+});
+
+test("recovers the trailing space the capture cannot show, from the cursor's column", () => {
+  // tmux pads every captured row to the pane width, so a box holding "abc " and one holding "abc"
+  // come back as the same string and `plainText` trims both to "abc". The cursor is the only thing
+  // that can tell them apart. Measured on a live pane against a box starting at column 2: "abc"
+  // reported column 5, "abc " reported 6, and "abc   " reported 8.
+  expect(composerBox(screenWith(["abc"], { row: 0, column: 3 }))!.rows).toEqual(["abc"]);
+  expect(composerBox(screenWith(["abc"], { row: 0, column: 4 }))!.rows).toEqual(["abc "]);
+  expect(composerBox(screenWith(["abc"], { row: 0, column: 6 }))!.rows).toEqual(["abc   "]);
+});
+
+test("calls a reading inexact when the cursor is anywhere but the end of the last row", () => {
+  // Everything past the cursor is unknowable: the capture pads with spaces either way, so a box
+  // whose cursor sits in the middle may hold trailing whitespace this cannot see, and the rows
+  // BELOW the cursor may too.
+  expect(composerBox(screenWith(["abcdef"]))!.exact).toBe(true);
+  expect(composerBox(screenWith(["abcdef"], { row: 0, column: 3 }))!.exact).toBe(false);
+  expect(composerBox(screenWith(["one", "two"]))!.exact).toBe(true);
+  expect(composerBox(screenWith(["one", "two"], { row: 0, column: 3 }))!.exact).toBe(false);
+  // A box drawn with nothing in it has nothing to be inexact about, suggestion or no suggestion.
+  expect(composerBox(screenWith([]))!.exact).toBe(true);
+});
+
+test("retypes rather than edits when the reading is only a lower bound", () => {
+  // An append would land after whitespace nobody can see, and a backspace count taken from the
+  // visible text would rub out one character too few. Ctrl+U needs neither: it kills a whole
+  // visual row whatever is in it, and the row COUNT is exact even when the text is not.
+  const inexact = { rows: ["hello"], hint: null, exact: false };
+  expect(keystrokesFor(inexact, "hello world"))
+    .toBe(`${END}${KILL}${OPEN}hello world${CLOSE}`);
+  // Including when the box already reads the way it is being asked to: what it reads is not all
+  // it holds, so "nothing to do" would leave the invisible tail in place.
+  expect(keystrokesFor(inexact, "hello")).toBe(`${END}${KILL}${OPEN}hello${CLOSE}`);
+});
+
+test("does not insert a space that is already in the box", () => {
+  // The whole point of reading the cursor. A reader typing "hello world" pauses after the space,
+  // which pushes "hello " and leaves the box holding it; the capture says "hello", so the next
+  // push appends " world" onto a box that already ends in a space. Measured on a live pane before
+  // the cursor was read: the box came back holding "hello  world".
+  const held = composerBox(screenWith(["hello"], { row: 0, column: 6 }))!;
+  expect(composerText(held.rows)).toBe("hello ");
+  expect(keystrokesFor(held, "hello world")).toBe(`${END}${OPEN}world${CLOSE}`);
 });
 
 test("stops at the bottom rule rather than swallowing the status lines", () => {
-  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null });
+  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null, exact: true });
 });
 
 test("sends nothing when the box already reads that way", () => {
-  expect(keystrokesFor(["already there"], "already there")).toBe("");
+  expect(keystrokesFor(held(["already there"]), "already there")).toBe("");
 });
 
 test("appends what was typed, so one keystroke costs one keystroke", () => {
-  expect(keystrokesFor(["make the hover ring"], "make the hover rings"))
+  expect(keystrokesFor(held(["make the hover ring"]), "make the hover rings"))
     .toBe(`${END}${OPEN}s${CLOSE}`);
   // Including from empty, where there is no prefix to match on.
-  expect(keystrokesFor([""], "m")).toBe(`${END}${OPEN}m${CLOSE}`);
+  expect(keystrokesFor(held([""]), "m")).toBe(`${END}${OPEN}m${CLOSE}`);
   // A trailing space is not in the reading -- `capture-pane` strips it -- so the next letter
   // carries it back in. That is why the append is a slice of the DRAFT rather than the character
   // that was typed: sending only "r" here would have closed up a gap the reader had put there.
-  expect(keystrokesFor(["make the hover"], "make the hover r"))
+  expect(keystrokesFor(held(["make the hover"]), "make the hover r"))
     .toBe(`${END}${OPEN} r${CLOSE}`);
 });
 
 test("appends onto a wrapped composer when the reconstruction holds", () => {
   // The hypothesis was right, so a long prompt keeps costing one keystroke per keystroke instead
   // of being retyped from scratch on every letter.
-  expect(keystrokesFor(["alpha bravo", "charlie"], "alpha bravo charlie delta"))
+  expect(keystrokesFor(held(["alpha bravo", "charlie"]), "alpha bravo charlie delta"))
     .toBe(`${END}${OPEN} delta${CLOSE}`);
 });
 
 test("rubs out only what diverged on a row it knows exactly", () => {
-  expect(keystrokesFor(["hello world"], "hello there"))
+  expect(keystrokesFor(held(["hello world"]), "hello there"))
     .toBe(`${END}${BACKSPACE.repeat(5)}${OPEN}there${CLOSE}`);
   // A pure deletion sends no paste at all.
-  expect(keystrokesFor(["hello world"], "hello")).toBe(END + BACKSPACE.repeat(6));
+  expect(keystrokesFor(held(["hello world"]), "hello")).toBe(END + BACKSPACE.repeat(6));
 });
 
 test("counts a backspace per code point, not per UTF-16 unit", () => {
-  expect(keystrokesFor(["hi 🐈"], "hi ")).toBe(END + BACKSPACE);
+  expect(keystrokesFor(held(["hi 🐈"]), "hi ")).toBe(END + BACKSPACE);
 });
 
 test("clears by row count and retypes when the reconstruction was wrong", () => {
   // Two rows, and what is wanted does not start with the guess -- so the guess is abandoned rather
   // than trusted. Three kills would be wrong; two is what the screen said.
-  expect(keystrokesFor(["alpha bravo", "charlie"], "something else entirely"))
+  expect(keystrokesFor(held(["alpha bravo", "charlie"]), "something else entirely"))
     .toBe(`${END}${KILL.repeat(2)}${OPEN}something else entirely${CLOSE}`);
 });
 
 test("renders an escape visibly so a draft cannot smuggle a control sequence into the pane", () => {
-  expect(keystrokesFor([""], "\u001b[31mred")).toBe(`${END}${OPEN}\u241b[31mred${CLOSE}`);
+  expect(keystrokesFor(held([""]), "\u001b[31mred")).toBe(`${END}${OPEN}\u241b[31mred${CLOSE}`);
 });
 
 function runtime(overrides: Partial<TmuxComposerRuntime> = {}): TmuxComposerRuntime & {
@@ -227,7 +311,7 @@ test("a push into a session with no pane sends nothing, and never reaches for a 
     pane: async () => null,
     screen: async () => {
       asked = true;
-      return "";
+      return screenWith([]);
     },
   });
   expect(await syncTmuxComposer("session", "hello", tmux))
@@ -539,10 +623,10 @@ test("rubs out an attachment token with ONE backspace, because that is what the 
   // Measured on a live pane: with `[Image #2] omega` in the box, six presses took " omega" one
   // character at a time and the seventh took the whole token. Counting its characters instead
   // would have sent eleven presses and deleted four characters of whatever sat to its left.
-  expect(keystrokesFor(["alpha [Image #2] omega"], "alpha "))
+  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha "))
     .toBe(END + BACKSPACE.repeat(7));
   // Twenty-six characters, one press, same as the image.
-  expect(keystrokesFor(["[Pasted text #3 +38 lines] tail"], ""))
+  expect(keystrokesFor(held(["[Pasted text #3 +38 lines] tail"]), ""))
     .toBe(END + BACKSPACE.repeat(6));
 });
 
@@ -551,13 +635,13 @@ test("never splits a token, since half of one cannot be deleted", () => {
   // of the token by character and then meet a token that goes whole, taking the neighbours too.
   // Backed up to the token's start, so it is six presses for " after" and one for the token,
   // then the whole tail is retyped.
-  expect(keystrokesFor(["before [Image #12] after"], "before [Image #1] after"))
+  expect(keystrokesFor(held(["before [Image #12] after"]), "before [Image #1] after"))
     .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}[Image #1] after${CLOSE}`);
 });
 
 test("takes a token out of the middle without touching what sits either side", () => {
   // What removing an image from the panel's strip comes to: the token goes and the text does not.
-  expect(keystrokesFor(["alpha [Image #2] omega"], "alpha omega"))
+  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha omega"))
     .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`);
 });
 
@@ -700,10 +784,10 @@ test("goes to the end before editing, because a backspace bites wherever the cur
     [["hello world"], "hello there"],
     [["one", "two"], "something else"],
   ] as const) {
-    expect(keystrokesFor(rows, desired).startsWith(END)).toBe(true);
+    expect(keystrokesFor(held([...rows]), desired).startsWith(END)).toBe(true);
   }
   // Nothing to do stays nothing to do: a box that already agrees is not worth a cursor move.
-  expect(keystrokesFor(["settled"], "settled")).toBe("");
+  expect(keystrokesFor(held(["settled"]), "settled")).toBe("");
   // Named rather than merely asserted through the constant, because the constant is the thing that
   // was wrong: a change back to either End would satisfy every line above it and reinstate the
   // defect. The comparison cannot be made against a pane in this suite -- telling end-of-line from
@@ -711,6 +795,6 @@ test("goes to the end before editing, because a backspace bites wherever the cur
   // end-of-line, which is the part a fake cannot lie about.
   expect(END).toBe("\u0005");
   for (const endOfLine of ["\u001b[F", "\u001bOF"]) {
-    expect(keystrokesFor(["one", "two"], "something else").startsWith(endOfLine)).toBe(false);
+    expect(keystrokesFor(held(["one", "two"]), "something else").startsWith(endOfLine)).toBe(false);
   }
 });
