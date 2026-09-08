@@ -1,5 +1,4 @@
 import {
-  Check,
   ChevronDown,
   LoaderCircle,
   Plus,
@@ -15,7 +14,7 @@ import {
 } from "react";
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "../profile/ProfileRow";
-import { BotAvatar, BotSidebarPanel } from "../bots/BotSidebarPanel";
+import { BotSidebarPanel } from "../bots/BotSidebarPanel";
 import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import type { UsageHandle } from "../usage/useUsage";
 import { ActivityDot, SessionMeta } from "./SessionMeta";
@@ -207,69 +206,43 @@ export function AgentSidebar(props: AgentSidebarProps) {
           )}
         </div>
       ) : props.mode === "canvas" ? (
-        // The roster the canvas is arranged from. Every Bot is listed here whether or not it is on
-        // the canvas, so a Bot taken off is not somewhere else -- it is in the same row it has
-        // always been in, no longer marked as on. A separate list of the ones that are off would be
-        // a second place to look for a Bot, and the canvas already is the first.
+        // The same roster the Bots tab shows, not a lesser copy of it: every Bot with its sessions,
+        // its Add-sessions button and its row menus, plus one thing that only means anything here,
+        // which is whether the Bot is on the canvas. A second, thinner list of names would have
+        // been a second place to look for a Bot and a second thing to keep in step.
         <div
           id={panelId("canvas")}
           role="tabpanel"
           aria-labelledby={tabId("canvas")}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
-          <button
-            type="button"
-            onClick={props.onAddBot}
-            className="flex min-h-11 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-primary/15"
-          >
-            <Plus className="size-4" aria-hidden />
-            Add Bot
-          </button>
-          {props.botsError ? (
-            <SidebarError message={`Bots unavailable: ${props.botsError}`} retrying={false} />
-          ) : (
-            <SidebarStatus>
-              {props.botsLoading
-                ? "Loading Bots…"
-                : (() => {
-                    const shown = props.bots.filter((bot) => !props.detachedBotIds.has(bot.botId)).length;
-                    return `${shown} ${shown === 1 ? "bot" : "bots"} on the canvas`;
-                  })()}
-            </SidebarStatus>
-          )}
-          {props.bots.length > 0 ? (
-            <ul role="list" aria-label="Bot roster" className="border-t border-border">
-              {props.bots.map((bot) => {
-                const onCanvas = !props.detachedBotIds.has(bot.botId);
-                return (
-                  <li key={bot.botId}>
-                    {/* A toggle rather than two different actions, because it is one fact about the
-                        row: `aria-pressed` is what says which way it currently is, and the muted
-                        avatar and name are the same thing said in the other channel. */}
-                    <button
-                      type="button"
-                      onClick={() => props.onToggleBotOnCanvas(bot)}
-                      aria-pressed={onCanvas}
-                      aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
-                      className={`flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
-                        onCanvas ? "" : "opacity-55"
-                      }`}
-                    >
-                      <BotAvatar bot={bot} size="size-6" />
-                      <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground">
-                        {bot.name}
-                      </span>
-                      {onCanvas ? (
-                        <Check className="size-4 shrink-0 text-primary" aria-hidden />
-                      ) : (
-                        <Plus className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
+          <BotSidebarPanel
+            bots={props.bots}
+            loading={props.botsLoading}
+            error={props.botsError}
+            selectedBotId={props.selectedBotId}
+            selectedSessionKey={props.selectedSessionKey}
+            onSelectSession={props.onSelectBotSession}
+            onAddSession={props.onAddBotSession}
+            onDetachSession={props.onDetachBotSession}
+            onAddBot={props.onAddBot}
+            canvas={{
+              detachedBotIds: props.detachedBotIds,
+              onToggle: props.onToggleBotOnCanvas,
+            }}
+            status={
+              props.botsError ? null : (
+                <SidebarStatus>
+                  {props.botsLoading
+                    ? "Loading Bots…"
+                    : (() => {
+                        const shown = props.bots.filter((bot) => !props.detachedBotIds.has(bot.botId)).length;
+                        return `${shown} ${shown === 1 ? "bot" : "bots"} on the canvas`;
+                      })()}
+                </SidebarStatus>
+              )
+            }
+          />
         </div>
       ) : (
         <div

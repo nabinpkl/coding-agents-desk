@@ -1,5 +1,5 @@
-import { Bot, LoaderCircle, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Bot, Circle, CircleCheck, LoaderCircle, Plus } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { SessionRowMenu } from "./SessionRowMenu";
@@ -47,6 +47,8 @@ export function BotSidebarPanel({
   onAddSession,
   onDetachSession,
   onAddBot,
+  status,
+  canvas,
 }: {
   bots: BotView[];
   loading: boolean;
@@ -64,6 +66,24 @@ export function BotSidebarPanel({
    */
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onAddBot: () => void;
+  /**
+   * Rendered between the Add Bot button and the roster.
+   *
+   * A slot rather than a prop of its own, because the two mounts have nothing to say to each
+   * other: the Bots tab says nothing here, and the canvas says how many of these Bots are on it.
+   */
+  status?: ReactNode;
+  /**
+   * Which of these Bots are on the canvas, and how to change that. Absent in the Bots tab, which
+   * is a view of the Bots themselves and has no canvas to be on.
+   *
+   * The set is the Bots that are OFF, the same one the canvas subtracts by, so this roster and the
+   * cards cannot disagree about which is which.
+   */
+  canvas?: {
+    detachedBotIds: ReadonlySet<string>;
+    onToggle: (bot: BotView) => void;
+  };
 }) {
   return (
     <div className="min-h-0">
@@ -75,6 +95,7 @@ export function BotSidebarPanel({
         <Plus className="size-4" aria-hidden />
         Add Bot
       </button>
+      {status}
       {loading ? (
         <div role="status" className="flex min-h-28 items-center justify-center gap-2 p-4 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin" aria-hidden />
@@ -94,8 +115,15 @@ export function BotSidebarPanel({
           {bots.map((bot) => {
             const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
             const selected = bot.botId === selectedBotId;
+            // Off the canvas dims the whole entry, sessions included, because the thing that is
+            // not on the canvas is the Bot rather than its header. Undefined when there is no
+            // canvas in the picture, which is not the same as being off one.
+            const onCanvas = canvas ? !canvas.detachedBotIds.has(bot.botId) : undefined;
             return (
-              <li key={bot.botId} className="border-b border-border/80">
+              <li
+                key={bot.botId}
+                className={`border-b border-border/80 ${onCanvas === false ? "opacity-55" : ""}`}
+              >
                 <div className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${selected ? "border-primary bg-muted" : "border-transparent"}`}>
                   <BotAvatar bot={bot} />
                   <span className="min-w-0 flex-1">
@@ -122,6 +150,25 @@ export function BotSidebarPanel({
                   >
                     <Plus className="size-4" aria-hidden />
                   </button>
+                  {canvas ? (
+                    // A checkbox in behaviour and in wording: `aria-pressed` carries the state that
+                    // the filled circle and the dimming carry visually, so it reads the same to a
+                    // screen reader as it looks.
+                    <button
+                      type="button"
+                      onClick={() => canvas.onToggle(bot)}
+                      aria-pressed={onCanvas}
+                      aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
+                      title={onCanvas ? "On the canvas" : "Off the canvas"}
+                      className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors hover:bg-background focus-visible:ring-2 focus-visible:ring-primary active:bg-background/70"
+                    >
+                      {onCanvas ? (
+                        <CircleCheck className="size-4 text-primary" aria-hidden />
+                      ) : (
+                        <Circle className="size-4 text-muted-foreground" aria-hidden />
+                      )}
+                    </button>
+                  ) : null}
                 </div>
 
                 {bot.sessions.length > 0 || bot.missingSessionRefs.length > 0 ? (

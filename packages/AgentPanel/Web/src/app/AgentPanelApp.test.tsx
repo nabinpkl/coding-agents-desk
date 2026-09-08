@@ -442,6 +442,15 @@ describe("App shell", () => {
     unmount();
   });
 
+  /**
+   * The canvas half of the screen.
+   *
+   * Scoping matters here in a way it did not before: the sidebar beside the canvas is the same Bot
+   * roster with the same session rows and the same buttons, so an unscoped query for "Add sessions
+   * to Release Captain" now finds two. Which one a test means is part of what it is asserting.
+   */
+  const canvas = () => within(screen.getByRole("list", { name: "Bot canvas" }));
+
   it("shows every Bot at once on the canvas, and opens one session inline at a time", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
@@ -485,21 +494,18 @@ describe("App shell", () => {
     // The point of the view: both Bots and both their sessions are on screen together, with
     // nothing selected and no Bot picked.
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
-    // Scoped to the canvas: each Bot is named twice on this screen now, once on its card and once
-    // in the sidebar roster that decides whether the card is there at all.
-    const canvas = within(screen.getByRole("list", { name: "Bot canvas" }));
-    expect(canvas.getByText("Release Captain")).toBeInTheDocument();
-    expect(canvas.getByText("Docs Keeper")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
+    expect(canvas().getByText("Release Captain")).toBeInTheDocument();
+    expect(canvas().getByText("Docs Keeper")).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
     // A reference the catalog has forgotten stays visible rather than silently thinning the list.
-    expect(screen.getByText("sid-gone")).toBeInTheDocument();
+    expect(canvas().getByText("sid-gone")).toBeInTheDocument();
     expect(screen.queryByTestId("activity-feed")).toBeNull();
 
     // A row opens where it sits rather than navigating: the canvas stays up, and the whole session
     // takes a bounded box inside the card -- not a transcript, a session, with the composer it is
     // typed into.
-    fireEvent.click(screen.getByRole("button", { name: /^Session Codex 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Codex 01/ }));
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
@@ -511,11 +517,11 @@ describe("App shell", () => {
 
     // One at a time: opening another Bot's session closes the first, so the roster never holds
     // more than one open stream.
-    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.getAllByTestId("activity-feed")).toHaveLength(1);
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
 
-    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.queryByTestId("activity-feed")).toBeNull();
     unmount();
   });
@@ -544,7 +550,7 @@ describe("App shell", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
 
     // Swapping the row's field for its terminal hands that pane the session's column to be a share
     // of. Left to ask the viewport it would open taller than the card holding it.
@@ -570,7 +576,7 @@ describe("App shell", () => {
 
     // Closing the row ends all of it rather than hiding it, which is what keeps one open session
     // affordable on a roster of thirty.
-    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.queryByTestId("activity-feed")).toBeNull();
     expect(screen.queryByLabelText("Claude composer text")).toBeNull();
     expect(screen.queryByRole("region", { name: "Claude terminal" })).toBeNull();
@@ -616,7 +622,7 @@ describe("App shell", () => {
     fireEvent.keyDown(widen, { key: "ArrowLeft" });
     expect(widen).toHaveAttribute("aria-valuenow", "596");
 
-    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     const grip = screen.getByRole("separator", { name: "Resize Release Captain card" });
     // The remembered 900 held inside this 768px-tall window: a card taller than the screen would
     // bury every card under it behind a whole session.
@@ -649,7 +655,7 @@ describe("App shell", () => {
     });
 
     // Closing puts the card back on its own content, and the height waits for the next session.
-    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.queryByRole("separator", { name: "Resize Release Captain card" })).toBeNull();
     expect(screen.getByRole("separator", { name: "Widen Release Captain card" })).toBeInTheDocument();
     unmount();
@@ -681,18 +687,19 @@ describe("App shell", () => {
     });
     expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for Release Captain" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Release Captain" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from canvas" }));
 
     // Gone from the canvas, and the count agrees.
     expect(screen.queryByRole("region", { name: "Release Captain sessions" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add sessions to Release Captain" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Add sessions to Eval Bot" })).toBeInTheDocument();
+    expect(canvas().queryByRole("button", { name: "Add sessions to Release Captain" })).toBeNull();
+    expect(canvas().getByRole("button", { name: "Add sessions to Eval Bot" })).toBeInTheDocument();
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
 
-    // The Bot did not move anywhere. It is in the same roster row it was always in, no longer
-    // marked as on the canvas, and that row is the way back.
-    const roster = within(screen.getByRole("list", { name: "Bot roster" }));
+    // The Bot did not move anywhere. It is in the same roster row it was always in -- the full
+    // Bots list, with its sessions and its own buttons -- no longer marked as on the canvas, and
+    // that row is the way back.
+    const roster = within(screen.getByRole("list", { name: "Bots" }));
     expect(roster.getByRole("button", { name: "Put Release Captain on the canvas" })).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -703,7 +710,7 @@ describe("App shell", () => {
     );
 
     fireEvent.click(roster.getByRole("button", { name: "Put Release Captain on the canvas" }));
-    expect(screen.getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
     expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
     unmount();
   });
@@ -733,10 +740,10 @@ describe("App shell", () => {
     });
 
     // The canvas starts whole every visit, because nothing about the arrangement is stored.
-    expect(screen.getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for Release Captain" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Release Captain" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));
 
     expect(screen.getByText(/No Bots on the canvas/)).toBeInTheDocument();
@@ -769,7 +776,7 @@ describe("App shell", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
 
     // A fork has no transcript to show: the CLI writes none until its first turn, so the view says
@@ -822,7 +829,7 @@ describe("App shell", () => {
 
     // The menu is a sibling of the row's disclosure, not inside it, so opening the menu must not
     // also open the transcript.
-    fireEvent.click(screen.getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     expect(screen.queryByTestId("activity-feed")).toBeNull();
     await act(async () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
@@ -839,7 +846,7 @@ describe("App shell", () => {
 
     // The row a Bot can otherwise never be rid of: no summary, so no title, and it still has to
     // carry the same action.
-    fireEvent.click(screen.getByRole("button", { name: "Actions for sid-forgotten" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for sid-forgotten" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
     });
@@ -878,7 +885,7 @@ describe("App shell", () => {
 
     // The picker reads the Bot's directory off the inventory stream, so opening it from the canvas
     // has to widen that subscription exactly as opening it from the sidebar does.
-    fireEvent.click(screen.getByRole("button", { name: "Add sessions to Beta Curator" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Beta Curator" }));
     await waitFor(() => {
       expect(transport.subscriptions.map((subscription) => subscription.path)).toContainEqual(
         expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
@@ -932,7 +939,7 @@ describe("App shell", () => {
       });
     });
 
-    expect(screen.getByRole("button", { name: "Add sessions to Orphan" })).toBeDisabled();
+    expect(canvas().getByRole("button", { name: "Add sessions to Orphan" })).toBeDisabled();
     unmount();
   });
 
