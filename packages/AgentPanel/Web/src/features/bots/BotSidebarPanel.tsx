@@ -1,4 +1,4 @@
-import { Bot, Circle, CircleCheck, LoaderCircle, Plus } from "lucide-react";
+import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "../sidebar/SourceBadge";
@@ -125,7 +125,40 @@ export function BotSidebarPanel({
                 className={`border-b border-border/80 ${onCanvas === false ? "opacity-55" : ""}`}
               >
                 <div className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${selected ? "border-primary bg-muted" : "border-transparent"}`}>
-                  <BotAvatar bot={bot} />
+                  {canvas ? (
+                    // The avatar IS the control, and the badge on its corner is what it says. A
+                    // control of its own would be a second 40px column in a sidebar the reader has
+                    // usually dragged narrow, and the Bot's name is what loses those pixels.
+                    //
+                    // The trade is discoverability: a face does not look like a checkbox, so the
+                    // cursor, the tooltip and the badge itself have to carry that. Acceptable
+                    // because the same toggle is on every card's own menu, which is where a reader
+                    // meets it first.
+                    <button
+                      type="button"
+                      onClick={() => canvas.onToggle(bot)}
+                      aria-pressed={onCanvas}
+                      aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
+                      title={onCanvas ? "On the canvas" : "Off the canvas"}
+                      className="relative shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                    >
+                      <BotAvatar bot={bot} />
+                      {/* Ringed in the row's own background so it reads as sitting ON the avatar
+                          rather than being part of the picture. */}
+                      <span
+                        aria-hidden
+                        className={`absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full ring-2 ring-card ${
+                          onCanvas
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-muted-foreground/60 bg-card"
+                        }`}
+                      >
+                        {onCanvas ? <Check className="size-2.5" strokeWidth={3} /> : null}
+                      </span>
+                    </button>
+                  ) : (
+                    <BotAvatar bot={bot} />
+                  )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
                       {bot.name}
@@ -150,25 +183,6 @@ export function BotSidebarPanel({
                   >
                     <Plus className="size-4" aria-hidden />
                   </button>
-                  {canvas ? (
-                    // A checkbox in behaviour and in wording: `aria-pressed` carries the state that
-                    // the filled circle and the dimming carry visually, so it reads the same to a
-                    // screen reader as it looks.
-                    <button
-                      type="button"
-                      onClick={() => canvas.onToggle(bot)}
-                      aria-pressed={onCanvas}
-                      aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
-                      title={onCanvas ? "On the canvas" : "Off the canvas"}
-                      className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors hover:bg-background focus-visible:ring-2 focus-visible:ring-primary active:bg-background/70"
-                    >
-                      {onCanvas ? (
-                        <CircleCheck className="size-4 text-primary" aria-hidden />
-                      ) : (
-                        <Circle className="size-4 text-muted-foreground" aria-hidden />
-                      )}
-                    </button>
-                  ) : null}
                 </div>
 
                 {bot.sessions.length > 0 || bot.missingSessionRefs.length > 0 ? (
