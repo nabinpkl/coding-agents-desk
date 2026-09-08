@@ -574,6 +574,58 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("resizes the whole card an open session sits in, and remembers the height", () => {
+    localStorage.setItem("agent-panel.bot-canvas.open-card-height", "900");
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    // Nothing to resize while the roster is closed: a card with no session in it is as tall as its
+    // own rows, and a height forced on it would be empty space.
+    expect(screen.queryByRole("separator", { name: /Release Captain card/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    const grip = screen.getByRole("separator", { name: "Resize Release Captain card" });
+    // The remembered 900 held inside this 768px-tall window, and it is the CARD that carries it.
+    // A card taller than the screen would bury every card under it behind a whole session.
+    expect(grip).toHaveAttribute("aria-valuemax", "653");
+    expect(grip).toHaveAttribute("aria-valuenow", "653");
+    expect(grip.closest("li")).toHaveStyle({ height: "653px" });
+
+    fireEvent.keyDown(grip, { key: "ArrowUp" });
+    expect(grip).toHaveAttribute("aria-valuenow", "629");
+    expect(localStorage.getItem("agent-panel.bot-canvas.open-card-height")).toBe("629");
+
+    // Home is the floor rather than nothing, so a card cannot be driven down to an unusable strip.
+    fireEvent.keyDown(grip, { key: "Home" });
+    expect(grip).toHaveAttribute("aria-valuenow", "360");
+
+    // Closing puts the card back on its own content, and the height waits for the next session.
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.queryByRole("separator", { name: /Release Captain card/ })).toBeNull();
+    expect(localStorage.getItem("agent-panel.bot-canvas.open-card-height")).toBe("360");
+    unmount();
+  });
+
   it("forks a session from its canvas row menu into a terminal of its own", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

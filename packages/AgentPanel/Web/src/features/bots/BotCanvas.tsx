@@ -1,22 +1,18 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "../session-view/SessionView";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
+import {
+  MAX_OPEN_CARD_HEIGHT,
+  MIN_OPEN_CARD_HEIGHT,
+  clampOpenCardHeight,
+  loadOpenCardHeight,
+  storeOpenCardHeight,
+} from "./botCanvasPreferences";
 import { SessionRowMenu } from "./SessionRowMenu";
-
-/**
- * How tall an opened session is inside its card.
- *
- * Bounded rather than natural, because `SessionView` fills what it is given: it owns its own
- * scroller and everything inside it -- the transcript's virtualizer, the summary band's cap, the
- * terminal's share -- measures this box. Tall enough that a transcript is still readable once the
- * composer and its bands have taken their share, short enough that the cards above and below stay
- * reachable without scrolling a session first.
- */
-const OPEN_SESSION_HEIGHT = "h-[min(75dvh,640px)]";
 
 /**
  * Every Bot's curated sessions at once, in one scroll.
@@ -150,6 +146,10 @@ function BotCanvasList({
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // One height for the canvas, not one per Bot: only one card is ever open, so a per-Bot map would
+  // hold the same number under a dozen keys. Read once at mount and written on release rather than
+  // on every pointer move, so a drag is one storage write.
+  const [openCardHeight, setOpenCardHeight] = useState(loadOpenCardHeight);
   return (
     <div className="@container h-full overflow-y-auto overscroll-contain">
       {/* Three columns once there is room for three, and the query is on the CONTAINER rather than
@@ -181,6 +181,12 @@ function BotCanvasList({
             botError={botError}
             openKey={openKey}
             onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
+            openCardHeight={openCardHeight}
+            onOpenCardHeightChange={setOpenCardHeight}
+            onOpenCardHeightCommit={(height) => {
+              setOpenCardHeight(height);
+              storeOpenCardHeight(height);
+            }}
             onAddSession={onAddSession}
             onForkSession={onForkSession}
             onDetachSession={onDetachSession}
@@ -212,6 +218,9 @@ function BotCanvasCard({
   botError,
   openKey,
   onToggleSession,
+  openCardHeight,
+  onOpenCardHeightChange,
+  onOpenCardHeightCommit,
   onAddSession,
   onForkSession,
   onDetachSession,
@@ -221,6 +230,11 @@ function BotCanvasCard({
   botError: string | null;
   openKey: string | null;
   onToggleSession: (key: string) => void;
+  openCardHeight: number;
+  /** Live during a drag, so the card follows the pointer. Not written to storage. */
+  onOpenCardHeightChange: (height: number) => void;
+  /** The height to keep, on pointer release or a key press. */
+  onOpenCardHeightCommit: (height: number) => void;
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -231,12 +245,50 @@ function BotCanvasCard({
   // is open across the whole canvas; a card with none keeps null and is never asked for. State
   // rather than a ref, because the session has to re-render once the node exists.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
+  // Whether the open session is one of THIS card's, which is what makes this card the sized one.
+  const holdsOpen = openKey !== null && bot.sessions.some((session) => sessionKey(session) === openKey);
+  const drag = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
+  // The window the drag is happening in, so pulling past the bottom of the screen stops moving the
+  // card instead of quietly running the number up behind a CSS cap.
+  const heightWithin = (height: number): number =>
+    clampOpenCardHeight(height, typeof window === "undefined" ? undefined : window.innerHeight);
+  // The tallest this card may stand right now. Asking with a finite maximum rather than `Infinity`,
+  // which the clamp reads as a number it cannot trust and answers with the default.
+  const tallest = (): number => heightWithin(MAX_OPEN_CARD_HEIGHT);
+  // What this card actually stands at: the remembered height held inside THIS window. A height
+  // saved on a tall screen would otherwise be reported as the card's size while CSS quietly drew it
+  // shorter, and a drag would then start from a number the card was never at.
+  const height = heightWithin(openCardHeight);
+  const resizeFromKeyboard = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    let next: number | null = null;
+    if (event.key === "ArrowDown") next = height + 24;
+    else if (event.key === "ArrowUp") next = height - 24;
+    else if (event.key === "Home") next = MIN_OPEN_CARD_HEIGHT;
+    else if (event.key === "End") next = tallest();
+    if (next === null) return;
+    event.preventDefault();
+    onOpenCardHeightCommit(heightWithin(next));
+  };
+  const finishDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    onOpenCardHeightCommit(height);
+  };
   return (
-    <li className="overflow-hidden rounded-xl border border-border bg-card">
+    // Sized only while it holds the open session; closed, a card is as tall as its own roster. The
+    // dvh cap is the second half of the drag clamp: it keeps a height remembered on a tall window
+    // from burying the cards below it on a short one.
+    <li
+      className={`flex flex-col overflow-hidden rounded-xl border border-border bg-card${
+        holdsOpen ? " max-h-[85dvh]" : ""
+      }`}
+      style={holdsOpen ? { height } : undefined}
+    >
       {/* Sticky so the name of whichever Bot you are reading stays overhead through a long
           roster. The canvas is one scroller, not one per card, so this is the only thing that
           says which Bot the rows under the fold belong to. */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-card px-3 py-2">
+      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2">
         <BotAvatar bot={bot} size="size-9" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
@@ -271,19 +323,22 @@ function BotCanvasCard({
           No sessions attached
         </p>
       ) : (
-        <ul role="list" aria-label={`${bot.name} sessions`}>
+        // The one flexible thing in the card: closed rows keep their own height, so a drag lands
+        // entirely on the open session. Squeezed hard enough the session collapses to nothing and
+        // the roster stays readable, which is the recoverable way round -- drag it taller again.
+        <ul role="list" aria-label={`${bot.name} sessions`} className="flex min-h-0 flex-1 flex-col">
           {bot.sessions.map((session) => {
             const key = sessionKey(session);
             const open = key === openKey;
             return (
-              <li key={key}>
+              <li key={key} className={open ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}>
                 {/* A button cannot contain a button, so opening the session, its controls and its
                     menu are siblings and the open tint moves up to the box that holds them -- the
                     same shape the sidebar's rows took when they grew this menu. Open, this row is
                     the session's titlebar: it is where its controls land, the way the app header
                     is where the thread view's land. */}
                 <div
-                  className={`@container flex flex-wrap items-start border-l-2 pr-1.5 ${
+                  className={`@container flex shrink-0 flex-wrap items-start border-l-2 pr-1.5 ${
                     open ? "border-primary bg-muted" : "border-transparent"
                   }`}
                 >
@@ -342,7 +397,7 @@ function BotCanvasCard({
                   // A named landmark rather than a bare box: a canvas of open cards is a page with
                   // several sessions on it, and each one should be reachable by name.
                   <section
-                    className={`${OPEN_SESSION_HEIGHT} border-t border-border`}
+                    className="min-h-0 flex-1 border-t border-border"
                     aria-label={`${session.title || session.sessionId} session`}
                   >
                     {/* The same component the app's own thread view renders, given a box instead
@@ -366,7 +421,7 @@ function BotCanvasCard({
           {bot.missingSessionRefs.map((ref) => (
             <li
               key={sessionKey(ref)}
-              className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
+              className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
             >
               <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>
               <SourceBadge source={ref.source} />
@@ -376,6 +431,43 @@ function BotCanvasCard({
           ))}
         </ul>
       )}
+
+      {/* A row in the card rather than a strip floating over its bottom edge. Overlaid it would
+          land on the composer's last few pixels, and the card clips its own overflow, so a handle
+          hanging outside the border would not be there to grab. */}
+      {holdsOpen ? (
+        <div
+          role="separator"
+          aria-label={`Resize ${bot.name} card`}
+          aria-orientation="horizontal"
+          aria-valuemin={MIN_OPEN_CARD_HEIGHT}
+          aria-valuemax={tallest()}
+          aria-valuenow={height}
+          aria-valuetext={`${height} pixels`}
+          tabIndex={0}
+          className="group flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border outline-none"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            drag.current = {
+              pointerId: event.pointerId,
+              startY: event.clientY,
+              startHeight: height,
+            };
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const active = drag.current;
+            if (!active || active.pointerId !== event.pointerId) return;
+            // Down grows the card, which is the direction the edge under the pointer is moving.
+            onOpenCardHeightChange(heightWithin(active.startHeight + event.clientY - active.startY));
+          }}
+          onPointerUp={finishDrag}
+          onPointerCancel={finishDrag}
+          onKeyDown={resizeFromKeyboard}
+        >
+          <span className="h-0.5 w-8 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
+        </div>
+      ) : null}
     </li>
   );
 }
