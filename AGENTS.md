@@ -486,6 +486,18 @@ Five traps, each of which cost real time:
   cross-session message. Attribute by that join and never by who created the file: on 2026-09-07 a
   peer inferred authorship from file ownership, and sent a handoff about work in `BotCanvas.tsx` to
   the session that owned the file rather than the one that had written the change.
+  - **What produces the wrong guess is ADJACENCY, and it wears more than one costume.** On the
+    night of 2026-09-08 three sessions each misattributed the same staged rename within an hour,
+    from three different inputs: two from PATH adjacency, because `git status` sorts by path so a
+    peer's files and yours interleave by directory and read as one arc, and one from
+    CONVERSATIONAL recency, because the peer who last messaged you is the one in front of you. A
+    fourth instance in the same hour was about a tmux pane rather than a file -- "that is your
+    session's pane", said of a pane that was merely the next card along on a canvas -- which is the
+    same substitution of proximity for ownership with no file involved at all. Every one of those
+    sessions had this bullet in context. So it is not three mistakes, it is one missing step in
+    three places, and the step is cheap: the join below is a grep. Spend it at the moment the
+    question comes up, which is while reading `git status` or an incoming message, not afterwards
+    when a handoff has already gone to the wrong session.
 - **A fork inherits BOTH names verbatim, and the CLI adds no suffix of its own.** Measured
   2026-09-07: `claude --resume <id> --fork-session` with no `-n` produced a session whose registry
   `name` and transcript `customTitle` were byte-identical to its source's. So the `(fork 3)` that
