@@ -93,21 +93,28 @@ const CARRIAGE_RETURN = "\r";
 /** What accepts Claude's suggestion. Measured: the row comes back with no faint run at all. */
 const TAB = "\t";
 /**
- * End, which puts the cursor after the last character of the box.
+ * Ctrl+E, which puts the cursor after the last character of the WHOLE box.
  *
- * Every edit this module computes assumes the text ENDS at the cursor: a backspace bites to the
- * left of it and a paste lands at it. Nothing made that true, and a reader on a phone breaks it by
- * tapping in the middle of their own sentence to fix a typo -- after which the corrections eat the
- * wrong characters and the new text is inserted in the wrong place. Measured on a live pane: a box
- * reading `abXcdef` with the cursor after the X, pushed `abcdef`, came back `cdefcdef`. The reader
- * sees their words twice, which is the same symptom two overlapping pushes used to produce and has
- * nothing to do with them.
+ * Every edit this module computes assumes the text ends at the cursor: a backspace bites to the
+ * left of it, a paste lands at it, and one Ctrl+U per row clears the box only if the cursor starts
+ * on the last of them. Nothing made that true, and a reader breaks it by tapping into the middle
+ * of their own sentence to fix a typo -- or, now, by pressing the key rail's own arrows. So the
+ * assumption is made true rather than assumed, by going to the end first.
  *
- * So the assumption is now made true rather than assumed, by going to the end first. Measured the
- * same day: `Ctrl+E` does NOT do this in Claude's box -- it is bound to something else -- while
- * both spellings of End (`ESC [ F` and `ESC O F`) do.
+ * It is Ctrl+E rather than End, and that difference IS the bug this replaces. Measured 2026-09-08
+ * on a live pane against tmux's own `#{cursor_x}`/`#{cursor_y}` rather than inferred from the
+ * text: both spellings of End (`ESC [ F` and `ESC O F`) are end-of-VISUAL-LINE. On a wrapped box
+ * with the cursor on the first row they left it at the wrap boundary, so the row-count clear then
+ * killed upward from the middle and every row BELOW the cursor survived -- a box cleared that way
+ * came back still holding `the end`, and the paste that followed landed on top of it. The reader
+ * sees their words twice. Ctrl+E from that same position reached the true end of the buffer, and
+ * the identical clear emptied the box.
+ *
+ * The note that used to stand here said Ctrl+E does not move Claude's cursor. That was measured on
+ * a single-row box, where end-of-line and end-of-buffer are the same column and no key can be told
+ * apart from any other.
  */
-const END = "\u001b[F";
+const END = "\u0005";
 const PASTE_START = "\u001b[200~";
 const PASTE_END = "\u001b[201~";
 

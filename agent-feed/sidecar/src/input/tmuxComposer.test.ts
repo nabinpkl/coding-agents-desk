@@ -34,13 +34,13 @@ function screenWith(rows: string[]): string {
 }
 
 const KILL = "\u0015";
-/** End, which every computed edit now leads with so the text really does end at the cursor. */
-const END = "\u001b[F";
+/** Ctrl+E, which every computed edit leads with so the text really does end at the cursor. */
+const END = "\u0005";
 
 /**
  * What a pane would actually show, given the bytes sent to it.
  *
- * The paste brackets and the End are instructions, not characters: a real composer moves its
+ * The paste brackets and Ctrl+E are instructions, not characters: a real composer moves its
  * cursor and takes the text between the brackets. A fake that appended them verbatim would show
  * the escape sequences in the box and fail for the wrong reason.
  */
@@ -691,7 +691,9 @@ test("goes to the end before editing, because a backspace bites wherever the cur
   // answered 200 and left `cdefcdef` -- five backspaces ate `abX` and stopped at the start, and
   // the paste landed at position zero instead of after `ab`. The reader sees their words twice.
   //
-  // Also measured: Ctrl+E does not move the cursor in Claude's box, and End does.
+  // The key is Ctrl+E rather than End, measured against tmux's own cursor report: End is
+  // end-of-VISUAL-LINE, so on a wrapped box it leaves the cursor at the wrap boundary and the
+  // row-count clear below then spares every row under it. See `END` in the module.
   for (const [rows, desired] of [
     [[""], "typed from nothing"],
     [["hello"], "hello world"],
@@ -702,4 +704,13 @@ test("goes to the end before editing, because a backspace bites wherever the cur
   }
   // Nothing to do stays nothing to do: a box that already agrees is not worth a cursor move.
   expect(keystrokesFor(["settled"], "settled")).toBe("");
+  // Named rather than merely asserted through the constant, because the constant is the thing that
+  // was wrong: a change back to either End would satisfy every line above it and reinstate the
+  // defect. The comparison cannot be made against a pane in this suite -- telling end-of-line from
+  // end-of-buffer needs a real cursor -- so it is made against the two sequences measured to be
+  // end-of-line, which is the part a fake cannot lie about.
+  expect(END).toBe("\u0005");
+  for (const endOfLine of ["\u001b[F", "\u001bOF"]) {
+    expect(keystrokesFor(["one", "two"], "something else").startsWith(endOfLine)).toBe(false);
+  }
 });
