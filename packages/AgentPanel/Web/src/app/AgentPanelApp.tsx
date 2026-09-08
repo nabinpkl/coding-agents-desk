@@ -45,6 +45,7 @@ import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { SessionRenameDialog } from "../features/bots/SessionRenameDialog";
 import { ForkSessionDialog } from "../features/bots/ForkSessionDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
+import type { NewBotSession } from "../features/bots/BotNewSessionCard";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
 
@@ -268,6 +269,25 @@ export function App({ feed, host, fill = false }: Props) {
       projectPath: string;
     } | null
   >(null);
+  /**
+   * Sessions this panel has started fresh, until the catalog has heard of them.
+   *
+   * Held here for the same reason the fork above is, and it is the same gap: `claude` writes no
+   * transcript until its first turn, and the sidecar refuses a Bot reference to a session that is
+   * not in the catalog. So there is a window -- one turn long -- in which the session is running,
+   * has a name, has a pane, and cannot be attached to anything. The canvas renders it from this
+   * list during that window, and the effect below hands it over the moment it can.
+   *
+   * A list rather than one, unlike the fork, because these are cards on a canvas that already
+   * holds as many as the reader opens: starting a second before the first has spoken is an
+   * ordinary thing to do, and the fork's single slot would have silently replaced it.
+   *
+   * Not persisted, deliberately. It is a record the stream is about to own, not an arrangement of
+   * the reader's -- so a reload during that window shows the Bot without the card, and the session
+   * appears on it a turn later like any other. Storing it would make the panel a second source of
+   * truth for which sessions exist.
+   */
+  const [newSessions, setNewSessions] = useState<readonly NewBotSession[]>([]);
   /** The session whose fork is being named, if any. Nothing is started until it is confirmed. */
   const [forkRequest, setForkRequest] = useState<
     { session: SessionSummary; botId: string; projectPath: string } | null
@@ -278,6 +298,24 @@ export function App({ feed, host, fill = false }: Props) {
    * rows the reader can see -- a second reading could be a moment ahead of them and propose a
    * number for a fork that is not on screen yet.
    */
+  /**
+   * The names already standing where a new session would be started, which is what its number
+   * counts past. The catalog's titles plus the ones this panel has started and the catalog has not
+   * heard of yet -- without the second half, two presses in one minute propose the same name, and
+   * `-n` would then address neither of them.
+   */
+  const sessionTitlesInBot = useMemo(
+    () => botSessionPicker
+      ? [
+        ...(sessionsByProject.get(botSessionPicker.environment.path) ?? [])
+          .map((session) => session.title),
+        ...newSessions
+          .filter((started) => started.botId === botSessionPicker.botId)
+          .map((started) => started.title),
+      ]
+      : [],
+    [botSessionPicker, newSessions, sessionsByProject],
+  );
   const forkTitlesInProject = useMemo(
     () => forkRequest
       ? (sessionsByProject.get(forkRequest.projectPath) ?? []).map((session) => session.title)
@@ -296,8 +334,11 @@ export function App({ feed, host, fill = false }: Props) {
     // turn writes a transcript. That is the only way to learn it: a fork has nothing in the
     // catalog until then, and the Bot stream cannot show a session nobody has attached yet.
     if (forkedSession) paths.push(forkedSession.projectPath);
+    // Every started session's directory, for exactly the same reason: it is the only place its
+    // first turn can be noticed, and noticing it is what attaches it to its Bot.
+    for (const started of newSessions) paths.push(started.projectPath);
     return [...new Set(paths)].sort().join("\0");
-  }, [botSessionPicker, expandedProjectPaths, forkedSession]);
+  }, [botSessionPicker, expandedProjectPaths, forkedSession, newSessions]);
   const subscribedProjectPaths = useMemo(
     () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
     [subscribedProjectKey],
@@ -639,6 +680,74 @@ export function App({ feed, host, fill = false }: Props) {
   }, [feed, forkedSession, botsState.bots, sessionsByProject]);
 
   /**
+   * Starts a session in a Bot's directory and puts it on the canvas.
+   *
+   * Nothing is attached here, because nothing can be: the sidecar refuses a Bot reference to a
+   * session the catalog does not hold, and this one will not be in it until its first turn. The id
+   * is minted here so there is something to recognise it BY when that turn comes -- it is passed
+   * to the CLI as `--session-id`, so the transcript lands exactly where the effect below is
+   * watching.
+   *
+   * The card is opened and the Bot is put back on the canvas in the same act, for the reason
+   * `openSessionOnCanvas` does both: a session started into a card nobody is rendering is a press
+   * that appears to have done nothing, and this one has a terminal waiting to be typed into.
+   */
+  const startNewSession = useCallback((bot: BotView, title: string) => {
+    const sessionId = crypto.randomUUID();
+    setBotSessionPickerId(null);
+    setBotCommandError(null);
+    setNewSessions((current) => [
+      ...current,
+      { botId: bot.botId, sessionId, title, projectPath: bot.environment.path },
+    ]);
+    setDetachedBotIds((current) => {
+      if (!current.has(bot.botId)) return current;
+      const next = new Set(current);
+      next.delete(bot.botId);
+      return next;
+    });
+    setCanvasOpenKeys((current) => new Set(current).add(`claude:${sessionId}`));
+  }, []);
+
+  /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
+  const closeNewSession = useCallback((sessionId: string) => {
+    setNewSessions((current) => current.filter((started) => started.sessionId !== sessionId));
+  }, []);
+
+  /**
+   * Gives a started session to its Bot, once there is a session to give.
+   *
+   * The same wait the fork takes, for the same reason, and the entry is dropped from the list at
+   * the same time: the canvas already stops rendering a started session the moment its Bot carries
+   * it, so holding the entry past the attach would only keep this effect re-running.
+   *
+   * Attached once per session, tracked by id rather than by the list, because the list is not gone
+   * until React has re-rendered and the effect re-runs on every inventory push in between.
+   */
+  const attachedNewSessionIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const started of newSessions) {
+      if (attachedNewSessionIds.current.has(started.sessionId)) continue;
+      // The Bot can be removed while its session is still open, and attaching to one that is gone
+      // would answer with an error the reader can do nothing about.
+      if (!botsState.bots.some((candidate) => candidate.botId === started.botId)) continue;
+      const appeared = sessionsByProject.get(started.projectPath)
+        ?.some((session) => session.source === "claude" && session.sessionId === started.sessionId);
+      if (!appeared) continue;
+      attachedNewSessionIds.current.add(started.sessionId);
+      void feed
+        .attachBotSessions(started.botId, {
+          sessionRefs: [{ source: "claude", sessionId: started.sessionId }],
+        })
+        // Reported on the same band every other Bot command failure uses. A session that silently
+        // failed to attach is indistinguishable from one that was never meant to be.
+        .catch((error: unknown) => {
+          setBotCommandError(error instanceof Error ? error.message : String(error));
+        });
+    }
+  }, [feed, newSessions, botsState.bots, sessionsByProject]);
+
+  /**
    * The session whose title is being edited, if any.
    *
    * Held by identity rather than by summary so the dialog is opened by the row that has one; the
@@ -867,8 +976,10 @@ export function App({ feed, host, fill = false }: Props) {
           open={botSessionPicker !== null}
           bot={botSessionPicker}
           sessions={botSessionPicker ? sessionsByProject.get(botSessionPicker.environment.path) : undefined}
+          takenTitles={sessionTitlesInBot}
           onClose={() => setBotSessionPickerId(null)}
           onAttach={attachBotSessions}
+          onStartNew={startNewSession}
         />
         {usesModalSidebar ? (
           <AgentSidebarDialog
@@ -981,6 +1092,8 @@ export function App({ feed, host, fill = false }: Props) {
                 openKeys={canvasOpenKeys}
                 onToggleSession={toggleCanvasSession}
                 onAddBot={() => setBotCreatorOpen(true)}
+                newSessions={newSessions}
+                onCloseNewSession={closeNewSession}
               />
             ) : sidebarMode === "sessions" ? (
               <div className="flex h-full items-center justify-center p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">

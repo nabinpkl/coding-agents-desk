@@ -411,10 +411,17 @@ function serviceWithSessionTmux(
   return service;
 }
 
-async function sessionTmuxService(
+/**
+ * The fixture above, plus the project directory it made.
+ *
+ * `session-new` is the one kind handed a directory rather than resolving one from a session, so a
+ * test of it has to know which directory this fixture created. Split rather than changed in place
+ * so the dozen tests that only want the service keep reading as they did.
+ */
+async function sessionTmuxFixture(
   fakes: SessionTmuxFakes,
   attached: { session: string; columns: number; rows: number }[],
-): Promise<AgentTerminalService> {
+): Promise<{ service: AgentTerminalService; project: string }> {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);
   const project = join(home, "projects", "agent-desk");
@@ -427,7 +434,17 @@ async function sessionTmuxService(
     async () => "",
     async () => {},
   );
-  return serviceWithSessionTmux(serviceWithTmux(service, attached), fakes);
+  return {
+    service: serviceWithSessionTmux(serviceWithTmux(service, attached), fakes),
+    project,
+  };
+}
+
+async function sessionTmuxService(
+  fakes: SessionTmuxFakes,
+  attached: { session: string; columns: number; rows: number }[],
+): Promise<AgentTerminalService> {
+  return (await sessionTmuxFixture(fakes, attached)).service;
 }
 
 test("joins the tmux session a live agent session is already running in", async () => {
@@ -628,6 +645,113 @@ test("waits for a pane it just created to settle, and never for one it merely jo
     { columns: 100, rows: 30 },
   );
   expect(joined.settled).toEqual([]);
+});
+
+const NEW_SESSION_ID = "3a1d7f22-90b4-4c6e-b3a5-8e2d0c9f4711";
+const NEW_SESSION_TITLE = "AD 2";
+
+test("starts a session that does not exist yet, in the directory it was handed", async () => {
+  // Nothing to resolve: the catalog has never heard of this id and will not until the session's
+  // first turn. That is the whole reason this kind exists -- a Bot whose directory has no sessions
+  // can reach no other one.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const { service, project } = await sessionTmuxFixture(fakes, attached);
+
+  const descriptor = await service.open(
+    {
+      kind: "session-new",
+      source: "claude",
+      projectPath: project,
+      sessionId: NEW_SESSION_ID,
+      title: NEW_SESSION_TITLE,
+    },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(fakes.created).toEqual([{
+    // The pane the session's own `session-tmux` open will go looking for once it is real, which is
+    // what keeps the card's terminal on one pane across that transition.
+    session: `agentdesk-${NEW_SESSION_ID}`,
+    // Resolved, not echoed: `realpath` is what makes the home check mean anything, and on macOS
+    // it turns the fixture's `/tmp` root into `/private/tmp` on the way through.
+    cwd: expect.stringContaining("projects/agent-desk"),
+    // `--session-id` stands alone, without `--resume`: the transcript lands at an id the caller
+    // already knows, which is the only way to recognise this session when it finally writes one.
+    command: ["claude", "--session-id", NEW_SESSION_ID, "-n", NEW_SESSION_TITLE],
+    columns: 100,
+    rows: 30,
+  }]);
+  expect(attached).toEqual([{ session: `agentdesk-${NEW_SESSION_ID}`, columns: 100, rows: 30 }]);
+  // The caller has nowhere else to read this from: there is no transcript to carry the name yet.
+  expect(descriptor.startedSession).toEqual({
+    sessionId: NEW_SESSION_ID,
+    title: NEW_SESSION_TITLE,
+  });
+});
+
+test("joins a started session's pane on a second open, and reports starting nothing", async () => {
+  // Re-opening the card must not run a second `claude` in a second pane against one id. The
+  // reported name would be wrong as well: `-n` was spent when the pane was created.
+  const fakes: SessionTmuxFakes = {
+    owner: null,
+    running: new Set([`agentdesk-${NEW_SESSION_ID}`]),
+    created: [],
+  };
+  const { service, project } = await sessionTmuxFixture(fakes, []);
+
+  const descriptor = await service.open(
+    {
+      kind: "session-new",
+      source: "claude",
+      projectPath: project,
+      sessionId: NEW_SESSION_ID,
+      title: NEW_SESSION_TITLE,
+    },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(fakes.created).toEqual([]);
+  expect(descriptor.startedSession).toBeUndefined();
+});
+
+test("refuses to start a session outside the user home, or under a name it cannot pass on", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const { service, project } = await sessionTmuxFixture(fakes, []);
+  const start = (projectPath: string, title: string) => service.open(
+    { kind: "session-new" as const, source: "claude" as const, projectPath, sessionId: NEW_SESSION_ID, title },
+    { columns: 100, rows: 30 },
+  );
+
+  // The directory is the only thing standing between this kind and an arbitrary path on the
+  // machine, because there is no session to check it against.
+  await expect(start(tmpdir(), NEW_SESSION_TITLE)).rejects.toThrow(/inside the user home/);
+  await expect(start("relative/path", NEW_SESSION_TITLE)).rejects.toThrow(/must be absolute/);
+  await expect(start(join(project, "nowhere"), NEW_SESSION_TITLE)).rejects.toThrow(/does not exist/);
+  // Naming one for the reader would start a session under a name they did not choose and cannot
+  // see until it has taken a turn.
+  await expect(start(project, "   ")).rejects.toThrow(/cannot be empty/);
+  await expect(start(project, "two\nlines")).rejects.toThrow(/line break/);
+  expect(fakes.created).toEqual([]);
+});
+
+test("refuses to start a codex session, which cannot be named or found before it speaks", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const { service, project } = await sessionTmuxFixture(fakes, []);
+
+  // `--session-id` and `-n` are Claude CLI flags. Codex has neither, so a Codex session started
+  // here could not be recognised when its transcript appeared, nor addressed by other agents.
+  await expect(service.open(
+    {
+      kind: "session-new",
+      source: "codex" as "claude",
+      projectPath: project,
+      sessionId: NEW_SESSION_ID,
+      title: NEW_SESSION_TITLE,
+    },
+    { columns: 100, rows: 30 },
+  )).rejects.toThrow(/only claude sessions can be started/);
+  expect(fakes.created).toEqual([]);
 });
 
 test("refuses to fork a codex session", async () => {

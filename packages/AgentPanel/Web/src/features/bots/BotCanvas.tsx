@@ -18,6 +18,7 @@ import {
   type BotCardSizes,
 } from "./botCanvasPreferences";
 import { BotCardMenu } from "./BotCardMenu";
+import { BotNewSessionCard, type NewBotSession } from "./BotNewSessionCard";
 import { SessionRowMenu } from "./SessionRowMenu";
 import { useCardResize } from "./useCardResize";
 
@@ -73,6 +74,8 @@ export function BotCanvas({
   openKeys,
   onToggleSession,
   onAddBot,
+  newSessions,
+  onCloseNewSession,
 }: {
   bots: BotView[];
   loading: boolean;
@@ -126,6 +129,17 @@ export function BotCanvas({
   /** Opens that session, or closes it if it is already open. */
   onToggleSession: (key: string) => void;
   onAddBot: () => void;
+  /**
+   * Sessions this panel has started that the catalog does not know yet.
+   *
+   * They cannot arrive through `bots` and that is not an omission: a Bot curates references the
+   * sidecar resolved, and the sidecar refuses a reference to a session with no transcript. So a
+   * session lives here from the moment it is started until its first turn writes one, at which
+   * point the shell attaches it and it becomes an ordinary row on its Bot. See `BotNewSessionCard`.
+   */
+  newSessions: readonly NewBotSession[];
+  /** Takes the card away. The tmux session keeps running; nothing was attached to detach. */
+  onCloseNewSession: (sessionId: string) => void;
 }) {
   if (loading) {
     return (
@@ -175,6 +189,8 @@ export function BotCanvas({
       onDetachBot={onDetachBot}
       openKeys={openKeys}
       onToggleSession={onToggleSession}
+      newSessions={newSessions}
+      onCloseNewSession={onCloseNewSession}
     />
   );
 }
@@ -207,6 +223,8 @@ function BotCanvasList({
   onDetachBot,
   openKeys,
   onToggleSession,
+  newSessions,
+  onCloseNewSession,
 }: {
   bots: BotView[];
   sessionContext: SessionViewContext;
@@ -219,6 +237,8 @@ function BotCanvasList({
   onDetachBot: (bot: BotView) => void;
   openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
+  newSessions: readonly NewBotSession[];
+  onCloseNewSession: (sessionId: string) => void;
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
@@ -248,7 +268,13 @@ function BotCanvasList({
     if (keep) {
       storeSessionCardSizes(
         next,
-        bots.flatMap((each) => each.sessions.map((session) => sessionKey(session))),
+        [
+          ...bots.flatMap((each) => each.sessions.map((session) => sessionKey(session))),
+          // A session that has been started but has not spoken is on the canvas and is not in any
+          // Bot yet, so a prune that only read the Bots would throw away the width of the card the
+          // reader is dragging.
+          ...newSessions.map((each) => `claude:${each.sessionId}`),
+        ],
       );
     }
   };
@@ -287,6 +313,8 @@ function BotCanvasList({
             onRenameSession={onRenameSession}
             onDetachSession={onDetachSession}
             onDetachBot={onDetachBot}
+            newSessions={newSessions.filter((each) => each.botId === bot.botId)}
+            onCloseNewSession={onCloseNewSession}
           />
         ))}
       </ul>
@@ -614,6 +642,8 @@ function BotCanvasCard({
   onRenameSession,
   onDetachSession,
   onDetachBot,
+  newSessions,
+  onCloseNewSession,
 }: {
   bot: BotView;
   sessionContext: SessionViewContext;
@@ -640,8 +670,17 @@ function BotCanvasCard({
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  /** This Bot's share of the sessions the panel has started, already filtered to it. */
+  newSessions: readonly NewBotSession[];
+  onCloseNewSession: (sessionId: string) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
+  // Dropped as soon as the Bot itself carries the session, rather than when the shell decides it
+  // should be gone. The two happen a snapshot apart, and rendering both for that moment would put
+  // two cards with one identity side by side.
+  const starting = newSessions.filter(
+    (each) => !bot.sessions.some((session) => session.sessionId === each.sessionId),
+  );
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
   // pixels while clicking "Add sessions" would reorder the canvas.
@@ -774,7 +813,7 @@ function BotCanvasCard({
           />
         </div>
 
-        {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 ? (
+        {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 && starting.length === 0 ? (
           <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
             No sessions attached
           </p>
@@ -813,6 +852,22 @@ function BotCanvasCard({
                   session.source === "claude" ? () => onRenameSession(session) : undefined
                 }
                 onDetach={() => onDetachSession(bot, session)}
+              />
+            ))}
+            {/* After the Bot's own sessions, because that is where each one lands the moment its
+                first turn writes a transcript: the card keeps its place in the row rather than
+                jumping to the end of it. */}
+            {starting.map((each) => (
+              <BotNewSessionCard
+                key={`claude:${each.sessionId}`}
+                feed={sessionContext.feed}
+                session={each}
+                open={openKeys.has(`claude:${each.sessionId}`)}
+                onToggle={() => onToggleSession(`claude:${each.sessionId}`)}
+                size={sessionSizes[`claude:${each.sessionId}`] ?? DEFAULT_CARD_SIZE}
+                onResize={(next) => onResizeSession(`claude:${each.sessionId}`, next, false)}
+                onResizeCommit={(next) => onResizeSession(`claude:${each.sessionId}`, next, true)}
+                onClose={() => onCloseNewSession(each.sessionId)}
               />
             ))}
             {/* Shown rather than hidden: a curated reference whose transcript the catalog has

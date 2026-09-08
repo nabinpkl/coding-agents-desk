@@ -8,6 +8,7 @@ import type {
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
+  NewSessionTerminalContext,
   SessionForkTerminalContext,
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
@@ -186,10 +187,10 @@ export class AgentTerminalService {
         // would otherwise pipe every byte of that startup live and make the viewer emulate it.
         await this.sessionTmux.settle(identity.tmuxSession);
       }
-      // A second open of one fork joins the pane that is already running, so nothing was started
-      // and there is no name to report. The identity would happily offer one -- `identify` counts
-      // `(fork n)` fresh every call, and by now the first fork's own title is among the taken
-      // ones, so it would answer with a NUMBER THE RUNNING SESSION DOES NOT HAVE.
+      // A second open of one fork or one new session joins the pane that is already running, so
+      // nothing was started and there is no name to report. The identity would happily offer one,
+      // and it would be a name the running session does not answer to: `-n` was spent at the
+      // moment the pane was created and this call's title never reached the CLI at all.
       return this.attachTmux(
         created ? identity : { ...identity, startedSession: null },
         identity.tmuxSession,
@@ -467,6 +468,7 @@ export class AgentTerminalService {
     if (context.kind === "tmux") return this.identifyTmux(context);
     if (context.kind === "session-tmux") return this.identifySessionTmux(context);
     if (context.kind === "session-fork") return this.identifySessionFork(context);
+    if (context.kind === "session-new") return this.identifyNewSession(context);
     return this.identifyAgentSession(context);
   }
 
@@ -505,28 +507,7 @@ export class AgentTerminalService {
       throw new AgentTerminalInvalidError("terminal source must be claude or codex");
     }
     const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
-    if (!context.projectPath.startsWith("/")) {
-      throw new AgentTerminalInvalidError("terminal project path must be absolute");
-    }
-
-    let projectPath: string;
-    let homePath: string;
-    try {
-      [projectPath, homePath] = await Promise.all([
-        realpath(resolve(context.projectPath)),
-        realpath(resolve(this.userHomeDirectory)),
-      ]);
-      if (!(await stat(projectPath)).isDirectory()) {
-        throw new AgentTerminalInvalidError("terminal project path must be a directory");
-      }
-    } catch (error) {
-      if (error instanceof AgentTerminalInvalidError) throw error;
-      throw new AgentTerminalInvalidError("terminal project directory does not exist");
-    }
-    const fromHome = relative(homePath, projectPath);
-    if (!fromHome || fromHome.startsWith("..") || fromHome.startsWith("/")) {
-      throw new AgentTerminalInvalidError("terminal project directory must be inside the user home");
-    }
+    const projectPath = await this.projectDirectory(context.projectPath);
 
     const session = this.resolveSession(context.source, sessionId);
     if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
@@ -557,6 +538,95 @@ export class AgentTerminalService {
       refuseNew: null,
       createTmux: null,
       startedSession: null,
+    };
+  }
+
+  /**
+   * A caller-supplied directory, resolved and vouched for, or a refusal naming what was wrong.
+   *
+   * Shared by the two kinds that are handed a path rather than resolving one from a session, which
+   * is why it is here and not inlined in either: the checks are what stand between a terminal
+   * request and an arbitrary directory on this machine, and two copies of them are two chances for
+   * one to drift.
+   */
+  private async projectDirectory(path: string): Promise<string> {
+    if (!path.startsWith("/")) {
+      throw new AgentTerminalInvalidError("terminal project path must be absolute");
+    }
+    let projectPath: string;
+    let homePath: string;
+    try {
+      [projectPath, homePath] = await Promise.all([
+        realpath(resolve(path)),
+        realpath(resolve(this.userHomeDirectory)),
+      ]);
+      if (!(await stat(projectPath)).isDirectory()) {
+        throw new AgentTerminalInvalidError("terminal project path must be a directory");
+      }
+    } catch (error) {
+      if (error instanceof AgentTerminalInvalidError) throw error;
+      throw new AgentTerminalInvalidError("terminal project directory does not exist");
+    }
+    const fromHome = relative(homePath, projectPath);
+    if (!fromHome || fromHome.startsWith("..") || fromHome.startsWith("/")) {
+      throw new AgentTerminalInvalidError("terminal project directory must be inside the user home");
+    }
+    return projectPath;
+  }
+
+  /**
+   * A session that does not exist yet, started in a directory.
+   *
+   * The one identity that resolves NOTHING against the catalog, and it has to be: the session it
+   * names has never run, so there is no transcript, no summary and no project row for it. What it
+   * is checked against instead is the directory, by the same rules the resumed-CLI kind uses.
+   *
+   * The pane is `resumedPaneName`, not a name of its own, and that is the whole reason the two
+   * kinds agree afterwards. Once this session has taken a turn it is an ordinary catalog session,
+   * and a `session-tmux` open of it looks for the pane a live process is in -- which is this one.
+   * Giving it a private name would have made the card's terminal jump to a second pane the moment
+   * the session became real, or worse, resumed the transcript beside the process still writing it.
+   *
+   * A second open of the same new session joins rather than starts, because `open` checks whether
+   * the pane exists before running `createTmux`. So re-opening a card that is already running is
+   * the same act as re-opening a fork's.
+   */
+  private async identifyNewSession(
+    context: NewSessionTerminalContext,
+  ): Promise<TerminalIdentity> {
+    if (context.source !== "claude") {
+      throw new AgentTerminalInvalidError("only claude sessions can be started");
+    }
+    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
+    const projectPath = await this.projectDirectory(context.projectPath);
+    // Taken from the caller, never derived, for the reason the fork's title is: the reader named
+    // it before anything started, and `-n` is an argument of the command below.
+    const title = context.title.trim();
+    const refusal = sessionTitleRefusal(title);
+    if (refusal) throw new AgentTerminalInvalidError(refusal);
+    const pane = resumedPaneName(sessionId);
+    return {
+      ptySessionName: `agent-tmux-${pane}`,
+      tmuxSession: pane,
+      cwd: projectPath,
+      command: [],
+      refuseNew: null,
+      createTmux: {
+        cwd: projectPath,
+        command: [
+          "claude",
+          // Stands alone, without `--resume`: measured against the CLI's own help on 2026-09-08.
+          // It is what makes the transcript land at an id the caller already knows, which is the
+          // only way to recognise this session when its first turn finally writes one.
+          "--session-id",
+          sessionId,
+          "-n",
+          title,
+        ],
+      },
+      // The second path that brings a session into existence, and it reports the same way the fork
+      // does: the caller chose the name, so this says which open was the one that started it.
+      startedSession: { sessionId, title },
     };
   }
 
@@ -773,11 +843,15 @@ function forkedPaneName(forkId: string): string {
 }
 
 /**
- * The pane name this sidecar resumes a session into.
+ * The pane name this sidecar runs a session in: resumed, or started fresh there.
  *
  * Derived from the session id rather than random so a second viewer of one session lands on the
  * first's pane instead of starting a second resume of one transcript, and shared with the owner
  * lookup above so the two agree on which pane is ours.
+ *
+ * A session STARTED by `session-new` uses this name too, which is what makes the card's terminal
+ * survive the session becoming real: the pane it was started in is the pane the ordinary
+ * "watch this session" path goes looking for once the catalog knows the id.
  */
 function resumedPaneName(sessionId: string): string {
   return `agentdesk-${sessionId}`;

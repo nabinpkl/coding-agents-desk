@@ -86,12 +86,51 @@ export interface SessionForkTerminalContext {
   title: string;
 }
 
+/**
+ * A session that does not exist yet, started fresh in a directory.
+ *
+ * The sibling of the fork above, and the one kind that resolves nothing: every other kind names a
+ * session or a pane that already exists, so the sidecar looks it up and refuses what it cannot
+ * find. This one names a DIRECTORY and an id nobody has issued yet, so there is nothing to look up
+ * -- which is exactly why it exists. A Bot with no sessions cannot reach any of the other kinds:
+ * its picker is empty, and there is nothing to fork.
+ *
+ * `sessionId` is minted by the caller and passed to the CLI as `--session-id`, so the transcript
+ * lands where the caller is already watching for it. Measured 2026-09-08: the flag stands alone,
+ * without `--resume`, and the session writes no transcript at all until its first turn -- so the
+ * id is the only way to recognise the session when it finally appears.
+ *
+ * The pane is the one this sidecar would have resumed the session into, which is deliberate: after
+ * the first turn a `session-tmux` open of the same id finds this very pane instead of starting a
+ * second client onto the transcript.
+ *
+ * Claude only, for the same reason forking is: `--session-id` and `-n` are Claude CLI flags, and
+ * Codex offers neither, so a Codex session cannot be named or found before it speaks.
+ */
+export interface NewSessionTerminalContext {
+  kind: "session-new";
+  source: "claude";
+  /** Where it runs. The Bot's own directory, and the one thing a fresh session cannot infer. */
+  projectPath: string;
+  /** This session's own identity, minted by the caller. See above. */
+  sessionId: string;
+  /**
+   * What to call it, decided by the caller and passed to the CLI as `-n`.
+   *
+   * Required, and the sidecar derives nothing, for the reason the fork's is: `-n` sets the
+   * session's ADDRESS as well as its title, so the name chosen here is the one every other agent
+   * finds it by from its first moment.
+   */
+  title: string;
+}
+
 /** What a terminal is pointed at. */
 export type AgentTerminalContext =
   | AgentSessionTerminalContext
   | TmuxTerminalContext
   | SessionTmuxTerminalContext
-  | SessionForkTerminalContext;
+  | SessionForkTerminalContext
+  | NewSessionTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {

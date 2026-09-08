@@ -13,6 +13,10 @@ export function terminalContextKey(context: AgentTerminalContext): string {
   // The fork, not its source: two forks of one session are two terminals, and keying them by the
   // session they came from would collapse them into one.
   if (context.kind === "session-fork") return `session-fork:${context.forkId}`;
+  // Its own prefix rather than the session's, because a card holds this terminal until the catalog
+  // knows the session and its own `session-tmux` one after: two contexts for one id, and one key
+  // for both would let a stale state update land on the wrong one.
+  if (context.kind === "session-new") return `session-new:${context.sessionId}`;
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
@@ -28,6 +32,7 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return context.session;
   const provider = context.source === "claude" ? "Claude" : "Codex";
   if (context.kind === "session-fork") return `${provider} fork`;
+  if (context.kind === "session-new") return `New ${provider} session`;
   return context.kind === "session-tmux" ? `${provider} session` : provider;
 }
 
@@ -42,5 +47,6 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
 export function isTmuxAttach(context: AgentTerminalContext): boolean {
   return context.kind === "tmux"
     || context.kind === "session-tmux"
-    || context.kind === "session-fork";
+    || context.kind === "session-fork"
+    || context.kind === "session-new";
 }

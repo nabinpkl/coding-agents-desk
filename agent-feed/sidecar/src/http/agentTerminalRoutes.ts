@@ -106,9 +106,21 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
       title: stringValue(context.title, "context.title"),
     };
   }
+  // A fresh session names the directory to run in and the id it will be known by. No source
+  // session to resolve, which is the point of it: this is the only kind that can be asked for
+  // when the directory has no sessions at all.
+  if (kind === "session-new") {
+    return {
+      kind,
+      source: stringValue(context.source, "context.source") as "claude",
+      projectPath: stringValue(context.projectPath, "context.projectPath"),
+      sessionId: stringValue(context.sessionId, "context.sessionId"),
+      title: stringValue(context.title, "context.title"),
+    };
+  }
   if (kind !== "agent-session") {
     throw new AgentTerminalInvalidError(
-      "context.kind must be agent-session, tmux, session-tmux or session-fork",
+      "context.kind must be agent-session, tmux, session-tmux, session-fork or session-new",
     );
   }
   return {

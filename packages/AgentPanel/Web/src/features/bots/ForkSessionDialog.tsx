@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { nextForkTitle } from "./forkTitle";
+import { nextForkTitle } from "./sessionTitles";
 
 /**
  * Naming a fork before it is started.

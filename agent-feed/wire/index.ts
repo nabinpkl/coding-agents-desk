@@ -150,6 +150,7 @@ export type {
 export type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
+  NewSessionTerminalContext,
   SessionForkTerminalContext,
   SessionTmuxTerminalContext,
   AgentTerminalDescriptor,

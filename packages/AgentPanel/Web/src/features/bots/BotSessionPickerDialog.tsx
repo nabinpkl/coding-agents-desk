@@ -1,30 +1,53 @@
-import { LoaderCircle, Plus, X } from "lucide-react";
+import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
+import { nextSessionTitle } from "./sessionTitles";
 
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;
 }
 
+/**
+ * Which sessions this Bot should curate, and where its first one comes from.
+ *
+ * Two answers, in one dialog, because they are one question asked at one moment: a Bot owns a
+ * directory, and the reader wants a session of that directory on it. The list answers it when the
+ * directory already has sessions. Nothing answered it when the directory had none -- which is
+ * every Bot on the day it is created, and the state this dialog opened in most often. So the other
+ * answer stands above the list: start one here, now, named.
+ */
 export function BotSessionPickerDialog({
   open,
   bot,
   sessions,
+  takenTitles,
   onClose,
   onAttach,
+  onStartNew,
 }: {
   open: boolean;
   bot: BotView | null;
   sessions: SessionSummary[] | undefined;
+  /** Every title standing in the Bot's directory, which is how the proposal picks its number. */
+  takenTitles: readonly string[];
   onClose: () => void;
   onAttach: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
+  /**
+   * Starts a fresh session in the Bot's directory under this name, and closes the dialog.
+   *
+   * Nothing is awaited and nothing is reported back here: the session becomes a card on the canvas
+   * with its terminal in it, so the pane itself is where a failure to start would show. A dialog
+   * left open over that card would only be in the way of the thing it just made.
+   */
+  onStartNew: (bot: BotView, title: string) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [newTitle, setNewTitle] = useState("");
   const attachedKeys = useMemo(
     () => new Set(bot?.sessionRefs.map(sessionKey) ?? []),
     [bot],
@@ -35,6 +58,10 @@ export function BotSessionPickerDialog({
     setSelectedKeys(new Set());
     setPending(false);
     setError(null);
+    setNewTitle(bot ? nextSessionTitle(bot.name, takenTitles) : "");
+    // Deliberately not keyed on `takenTitles`: it is rebuilt on every inventory push, and
+    // depending on it would retype the reader's field underneath them while they are in it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bot?.botId, open]);
 
   useEffect(() => {
@@ -58,6 +85,13 @@ export function BotSessionPickerDialog({
   }, [open]);
 
   if (!open || !bot) return null;
+
+  const startNew = (event: FormEvent) => {
+    event.preventDefault();
+    const chosen = newTitle.trim();
+    if (!chosen || pending || bot.environmentAvailability === "missing") return;
+    onStartNew(bot, chosen);
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -106,6 +140,41 @@ export function BotSessionPickerDialog({
           </button>
         </header>
 
+        {/* Above the list, not beside it. The list is the answer when this directory already has
+            sessions; this is the answer when it has none, and that reader must not have to read
+            past an empty state to find it. Its own form because a form cannot nest inside
+            another, and the two do different things with the same Return key. */}
+        <form
+          onSubmit={startNew}
+          className="flex shrink-0 flex-wrap items-end gap-2 border-b border-border px-4 py-3"
+        >
+          <label className="min-w-40 flex-1 text-sm font-medium">
+            Start a new session here
+            {/* Capped where the catalog truncates, so a stored title is always the one shown. */}
+            <input
+              value={newTitle}
+              onChange={(event) => setNewTitle(event.target.value)}
+              maxLength={240}
+              disabled={pending || bot.environmentAvailability === "missing"}
+              className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!newTitle.trim() || pending || bot.environmentAvailability === "missing"}
+            title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : undefined}
+            className="flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border px-4 text-sm font-semibold text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <SquareTerminal className="size-4" aria-hidden />
+            Start
+          </button>
+          {/* Said before rather than discovered later: this is the one moment the name is free. */}
+          <p className="basis-full text-xs text-muted-foreground">
+            Runs Claude in {bot.environment.path} and opens it on the canvas. The name is the one
+            <code> /resume</code> shows and the one other agents message it by.
+          </p>
+        </form>
+
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {!sessions ? (
@@ -115,7 +184,7 @@ export function BotSessionPickerDialog({
               </div>
             ) : sessions.length === 0 ? (
               <div role="status" className="flex min-h-40 items-center justify-center p-4 text-center text-sm text-muted-foreground">
-                AgentDesk has no sessions correlated to this directory.
+                AgentDesk has no sessions correlated to this directory. Start one above.
               </div>
             ) : (
               <fieldset className="min-w-0">

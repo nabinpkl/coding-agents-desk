@@ -209,6 +209,43 @@ test("carries a fork's own id through to the service, not just the session it ca
   expect(calls).toHaveLength(1);
 });
 
+test("carries a new session's directory and name through, both of which it alone supplies", async () => {
+  // This kind resolves nothing, so every field it carries is the only copy: the directory is what
+  // the service checks instead of a session, and the name is what the reader chose. A dropped
+  // directory would start the session wherever the sidecar happened to be, and a dropped name
+  // would start it under one nobody picked.
+  const { calls, route } = fakeService();
+  const context = {
+    kind: "session-new",
+    source: "claude",
+    projectPath: "/Users/someone/projects/agent-desk",
+    sessionId: SESSION_ID,
+    title: "AD 2",
+  };
+  const response = await call(route, "POST", "/api/terminals", {
+    context,
+    columns: 100,
+    rows: 30,
+  });
+
+  expect(response?.status).toBe(201);
+  expect(calls).toEqual([{ open: { context, dimensions: { columns: 100, rows: 30 } } }]);
+
+  // And one with no title is refused by the parser, not passed on as undefined.
+  const untitled = await call(route, "POST", "/api/terminals", {
+    context: {
+      kind: "session-new",
+      source: "claude",
+      projectPath: "/Users/someone/projects/agent-desk",
+      sessionId: SESSION_ID,
+    },
+    columns: 100,
+    rows: 30,
+  });
+  expect(untitled?.status).toBe(400);
+  expect(calls).toHaveLength(1);
+});
+
 test("a context without a known kind is refused before the service sees it", async () => {
   const { calls, route } = fakeService();
   const response = await call(route, "POST", "/api/terminals", {
