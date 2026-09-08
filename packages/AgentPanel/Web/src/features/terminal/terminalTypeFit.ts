@@ -1,4 +1,31 @@
 /**
+ * How finely the type is sized.
+ *
+ * Whole points waste up to a point's worth of whichever axis binds, and at the floor a point is an
+ * eighth of the size. Measured on a 179-column tmux pane in a 968-pixel band: the largest whole
+ * point that fitted left 53 pixels dead down EACH side, which reads as padding nobody asked for
+ * rather than as type that stopped growing. A tenth of a point is not a size anyone can see, and
+ * the same pane fits at 8.6 with only the band's own padding left over.
+ *
+ * It buys real width rather than rounding back to the same layout: measured across 8.0 to 9.5 in
+ * tenths, every step moved the cell (4.816, 4.877, 4.937, ...), because the font's metrics are
+ * continuous in its size.
+ */
+export const FONT_SIZE_STEP = 0.1;
+
+const STEPS_PER_POINT = 1 / FONT_SIZE_STEP;
+
+/**
+ * The largest size at or below `size` that the fit is allowed to use.
+ *
+ * Floored, so the screen never overflows by the rounding in a cell's own metrics -- with a hair of
+ * tolerance, because an exact fit computes as 0.99999 often enough to cost a step for nothing.
+ */
+export function floorToStep(size: number): number {
+  return Math.floor(size * STEPS_PER_POINT + 0.01) / STEPS_PER_POINT;
+}
+
+/**
  * How large the type may be, for a terminal whose grid this side does not own.
  *
  * A tmux pane is whatever shape its own terminal made it -- 41 columns by 20 rows, measured -- and
@@ -7,9 +34,9 @@
  * its owner has it open in, which is why `tmuxAttachment` reports the pane's size and never sets
  * it. So the grid keeps its shape and the type grows or shrinks until the whole screen fits.
  *
- * Arithmetic rather than measurement: cell metrics are proportional to the font, so one reading at
- * the base size answers every size after it. Re-measuring after each change instead reads a layout
- * xterm has not finished writing, and iterating on that oscillates.
+ * Arithmetic from one reading at the base size, which gets close and not all the way: a cell is
+ * NOT quite proportional to its font (13pt gives one 16 tall, 28pt gives 35.5, where the ratio
+ * predicts 34.5), so whoever calls this settles the answer downward against real metrics.
  */
 export function fittedFontSize(reading: {
   /** The size the cell below was measured at. */
@@ -30,10 +57,7 @@ export function fittedFontSize(reading: {
     available.width / (cell.width * grid.columns),
     available.height / (cell.height * grid.rows),
   );
-  // Floored, so the screen never overflows by the rounding in a cell's own metrics -- with a hair
-  // of tolerance, because an exact fit computes as 0.99999 often enough to cost a whole point of
-  // type for nothing.
-  return Math.max(minimum, Math.min(maximum, Math.floor(baseFontSize * scale + 0.001)));
+  return Math.max(minimum, Math.min(maximum, floorToStep(baseFontSize * scale)));
 }
 
 /**

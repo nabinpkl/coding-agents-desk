@@ -9,7 +9,12 @@ import type {
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
 import { cycleModifier, releaseArmed, type ModifierState } from "../keyboard/modifierLatch";
 import { isTmuxAttach, terminalContextKey } from "./terminalContext";
-import { fittedFontSize, preferredScreenHeight } from "./terminalTypeFit";
+import {
+  FONT_SIZE_STEP,
+  fittedFontSize,
+  floorToStep,
+  preferredScreenHeight,
+} from "./terminalTypeFit";
 import {
   applyModifiers,
   bytesForRailKey,
@@ -427,16 +432,30 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         // few percent -- enough for a scrollbar -- and xterm updates `dimensions` synchronously
         // with the option, so the overshoot is readable straight away. Only ever downward, so this
         // settles instead of hunting.
-        for (let step = 0; step < 4; step += 1) {
+        for (let step = 0; step < 6; step += 1) {
           // Annotated because the assignment below feeds back into inferring this.
           const size: number = terminal.options.fontSize ?? BASE_FONT_SIZE;
           if (size <= MINIMUM_FONT_SIZE) break;
           const actual = terminal.dimensions?.css.cell;
           if (!actual) break;
-          const fits = actual.height * grid.rows <= available.height
-            && actual.width * grid.columns <= available.width;
-          if (fits) break;
-          terminal.options.fontSize = size - 1;
+          // At or above 1 the screen fits; below it, it is the fraction of the size that would.
+          const headroom = Math.min(
+            available.width / (actual.width * grid.columns),
+            available.height / (actual.height * grid.rows),
+          );
+          // A hair of tolerance, for the same reason the fit itself carries one: an exact fit
+          // computes as 0.99999 often enough to cost a step for nothing.
+          if (headroom >= 0.999) break;
+          // Re-solved from the size actually in force rather than stepped down blindly, so an
+          // overshoot of any size is answered in one move; the second term only guarantees the
+          // loop moves at all when the solve rounds back to where it started.
+          const solved = floorToStep(size * headroom);
+          const next = Math.max(
+            MINIMUM_FONT_SIZE,
+            solved < size ? solved : floorToStep(size - FONT_SIZE_STEP),
+          );
+          if (next >= size) break;
+          terminal.options.fontSize = next;
         }
       };
 

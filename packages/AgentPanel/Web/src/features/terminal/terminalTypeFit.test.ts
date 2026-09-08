@@ -28,10 +28,24 @@ test("takes the tighter of the two axes", () => {
 });
 
 test("shrinks rather than scrolls, down to a floor", () => {
-  expect(fittedFontSize(reading({ width: 942, height: 235 }))).toBe(9);
+  // 13 x (235/320) is 9.55, and the tenth below it is the answer: rounding that down to 9 would
+  // leave half a point of the binding axis unspent, which is dead space down both sides of a
+  // screen that has already stopped growing.
+  expect(fittedFontSize(reading({ width: 942, height: 235 }))).toBe(9.5);
   // Below the floor the screen stops shrinking and the pane scrolls instead: type nobody can read
   // is not a way of showing them a terminal.
   expect(fittedFontSize(reading({ width: 942, height: 60 }))).toBe(8);
+});
+
+test("sizes to a tenth of a point, and never past what fits", () => {
+  // Every tenth in the range is a size the font actually renders differently -- measured, the cell
+  // moved at each of 8.0, 8.1, 8.2 -- so the finer step buys width rather than the same layout.
+  const sizes = [235, 236, 237, 238, 239, 240].map((height) =>
+    fittedFontSize(reading({ width: 942, height })));
+  expect(sizes).toEqual([9.5, 9.5, 9.6, 9.6, 9.7, 9.7]);
+  for (const [index, size] of sizes.entries()) {
+    expect(size! * (16 / 13) * 20).toBeLessThanOrEqual(235 + index);
+  }
 });
 
 test("stops growing before a small screen stops looking like a terminal", () => {
