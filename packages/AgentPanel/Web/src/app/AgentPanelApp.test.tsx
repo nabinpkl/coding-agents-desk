@@ -635,6 +635,19 @@ describe("App shell", () => {
       "bot-1": { width: 596, height: 360 },
     });
 
+    // The corner moves both at once, which is the only thing on the card a keyboard cannot express.
+    // It carries no name, so it is found the way a pointer finds it: by its tooltip.
+    const corner = document.querySelector<HTMLElement>('[title="Resize both ways"]');
+    expect(corner).not.toBeNull();
+    fireEvent.pointerDown(corner!, { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(corner!, { pointerId: 1, clientX: 40, clientY: 40 });
+    fireEvent.pointerUp(corner!, { pointerId: 1, clientX: 40, clientY: 40 });
+    expect(widen).toHaveAttribute("aria-valuenow", "636");
+    expect(grip).toHaveAttribute("aria-valuenow", "400");
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
+      "bot-1": { width: 636, height: 400 },
+    });
+
     // Closing puts the card back on its own content, and the height waits for the next session.
     fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.queryByRole("separator", { name: "Resize Release Captain card" })).toBeNull();

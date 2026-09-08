@@ -551,24 +551,54 @@ function BotCanvasCard({
         ) : null}
       </div>
 
-      {/* Every card, open or not: a tile has a width whether or not you are reading it. */}
-      <div
-        role="separator"
-        aria-label={`Widen ${bot.name} card`}
-        aria-orientation="vertical"
-        aria-valuemin={MIN_CARD_WIDTH}
-        aria-valuemax={widest()}
-        aria-valuenow={width}
-        aria-valuetext={`${width} pixels`}
-        tabIndex={0}
-        className="group flex w-3 shrink-0 cursor-col-resize touch-none items-center justify-center border-l border-border outline-none"
-        onPointerDown={startDrag}
-        onPointerMove={(event) => dragTo(event, { width: true })}
-        onPointerUp={finishDrag}
-        onPointerCancel={finishDrag}
-        onKeyDown={(event) => resizeFromKeyboard(event, "width")}
-      >
-        <span className="h-8 w-0.5 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
+      {/* The card's right edge, which is the width grip and -- once there is a bottom edge to meet
+          -- the corner where the two of them join. */}
+      <div className="flex w-3 shrink-0 flex-col">
+        {/* Every card, open or not: a tile has a width whether or not you are reading it. */}
+        <div
+          role="separator"
+          aria-label={`Widen ${bot.name} card`}
+          aria-orientation="vertical"
+          aria-valuemin={MIN_CARD_WIDTH}
+          aria-valuemax={widest()}
+          aria-valuenow={width}
+          aria-valuetext={`${width} pixels`}
+          tabIndex={0}
+          className="group flex min-h-0 flex-1 cursor-col-resize touch-none items-center justify-center border-l border-border outline-none"
+          onPointerDown={startDrag}
+          onPointerMove={(event) => dragTo(event, { width: true })}
+          onPointerUp={finishDrag}
+          onPointerCancel={finishDrag}
+          onKeyDown={(event) => resizeFromKeyboard(event, "width")}
+        >
+          <span className="h-8 w-0.5 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
+        </div>
+
+        {/* Both axes in one drag, sitting where the two edges already meet.
+
+            Hidden from assistive technology and left out of the tab order on purpose, which is not
+            the usual answer for a control: it does nothing the two separators either side of it
+            cannot already do, including from the keyboard, so exposing it would be a third name for
+            the same card offering no third capability. It is a pointer shortcut over two controls
+            that are properly labelled, and a pointer is the only thing that can express a diagonal.
+
+            Only when the card has a height to drag. Closed, there is no bottom edge for a corner to
+            be the corner of. */}
+        {holdsOpen ? (
+          <div
+            aria-hidden
+            // A tooltip because there is no label: the two separators say what they do through
+            // their names, and this one has none to say it with.
+            title="Resize both ways"
+            className="group flex size-3 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border"
+            onPointerDown={startDrag}
+            onPointerMove={(event) => dragTo(event, { width: true, height: true })}
+            onPointerUp={finishDrag}
+            onPointerCancel={finishDrag}
+          >
+            <span className="size-1.5 rounded-[1px] bg-border transition-colors group-hover:bg-primary/60" />
+          </div>
+        ) : null}
       </div>
     </li>
   );
