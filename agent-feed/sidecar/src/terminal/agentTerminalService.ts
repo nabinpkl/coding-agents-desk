@@ -17,12 +17,15 @@ import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
 import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
 import {
+  attachedTmuxClients,
   captureTmuxHistory,
   createTmuxSession,
   waitForPaneToSettle,
   describeTmuxPane,
   hexSend,
   pipeTmuxPane,
+  releaseTmuxWindowSize,
+  resizeTmuxWindow,
   restoreTmuxMouse,
   tmuxSessionExists,
 } from "./tmuxSessions.ts";
@@ -128,6 +131,9 @@ export class AgentTerminalService {
       capture: captureTmuxHistory,
       pipe: pipeTmuxPane,
       send: hexSend,
+      clients: attachedTmuxClients,
+      resize: resizeTmuxWindow,
+      releaseSize: releaseTmuxWindowSize,
     }),
     /**
      * Resolving a session id to a tmux pane, and starting one when there is none.

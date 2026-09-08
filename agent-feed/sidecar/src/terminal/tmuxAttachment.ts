@@ -8,8 +8,11 @@
 //   pipe-pane       the pane's raw output, live, from the moment it is set
 //   send-keys -H    arbitrary bytes in, as hex, so no key-name table is needed
 //
-// It deliberately does NOT resize. tmux has one window size for everyone, so a viewer that set it
-// would reflow the session in its owner's own terminal.
+// It resizes ONLY when tmux reports no clients attached. tmux has one window size for everyone, so
+// a viewer that set it while a human was attached would reflow the session inside their own
+// terminal -- which is exactly the bug that made this module stop resizing at all. The condition
+// that made it harmful is somebody else watching, and tmux can be asked that directly, so the
+// guard is the client count rather than a blanket refusal. See `adoptPaneSize`.
 //
 // What it does NOT do is create a session. The PTY path exists to launch and own a process; this
 // path only ever joins one a human already started, which is the whole point of the terminals wall.
@@ -33,10 +36,21 @@ export interface TmuxPaneRuntime {
   describe(session: string): Promise<{ pid: number; columns: number; rows: number }>;
   /** The scrollback and the screen, composed for a terminal to write directly. */
   capture(session: string, lines: number): Promise<string>;
-  /** Sets THE pipe for this pane and resolves with the function that closes it. */
-  pipe(session: string, onData: (chunk: Uint8Array) => void): Promise<() => void>;
+  /**
+   * Sets THE pipe for this pane and resolves with the function that closes it.
+   *
+   * Closing RESOLVES when tmux has been told, so an off and a following on cannot land in the
+   * wrong order. See `open`.
+   */
+  pipe(session: string, onData: (chunk: Uint8Array) => void): Promise<() => Promise<void>>;
   /** Raw bytes into the pane. */
   send(session: string, bytes: Uint8Array): Promise<void>;
+  /** How many real tmux clients are attached. Throws when it cannot tell. */
+  clients(session: string): Promise<number>;
+  /** Sets the window size, which is every client's. Guarded by `clients` at the call site. */
+  resize(session: string, columns: number, rows: number): Promise<void>;
+  /** Lifts the `window-size manual` pin that resizing leaves behind, keeping the size. */
+  releaseSize(session: string): Promise<void>;
 }
 
 type EnvelopeListener = (envelope: PtyEnvelope) => void;
@@ -54,11 +68,15 @@ const CHECKPOINT_LINES = 50_000;
 interface SharedPane {
   readonly session: string;
   readonly viewers: Set<TmuxSessionConnection>;
-  readonly stop: () => void;
+  readonly stop: () => Promise<void>;
   pid: number;
   columns: number;
   rows: number;
   revision: number;
+  /** The shape the most recent viewport report asked for, waiting for the applier to reach it. */
+  wanted: { columns: number; rows: number } | null;
+  /** The applier, while one is running. Present means a later ask joins it instead of racing it. */
+  resizing: Promise<boolean> | null;
 }
 
 /**
@@ -123,16 +141,15 @@ export class TmuxSessionConnection {
   }
 
   /**
-   * Reports the pane's geometry. It never changes it.
+   * Asks the pane to become the shape this viewer's box wants, then reports what it actually is.
    *
-   * A viewer used to be able to claim the size, and tmux has one window size for everyone, so the
-   * claim reflowed the session in whatever terminal its owner had it open in. Measured on a live
-   * Claude Code pane: a viewer opening at 80x24 shrank the window under it, and the TUI redrew
-   * with its composer off the bottom of its own frame -- keystrokes were landing the whole time,
-   * in a box that was no longer where the screen said it was.
+   * Always reports, whether the resize happened, was refused or failed. A viewer that hears
+   * nothing back cannot tell a pane it does not own from a sidecar that dropped the message, and
+   * the two need different reactions: the first is scaled to, the second is a bug.
    *
-   * So the pane is authoritative and the viewer adopts what it finds. `isOwner` is false for the
-   * same reason: nobody watching through this path owns the size.
+   * `isOwner` is therefore derived rather than asserted -- true exactly when the pane came out the
+   * shape that was asked for. That makes the footer a live read of whether this viewer's size is
+   * the one in force, which is the diagnostic a reader wants when the type looks wrong.
    */
   updateViewerState(options: {
     sequence: string;
@@ -142,19 +159,40 @@ export class TmuxSessionConnection {
     rows: number;
   }): void {
     if (this.closed) return;
-    this.deliver({
-      protocolVersion: 1,
-      sessionName: this.pane.session,
-      terminalViewportStatus: {
-        isOwner: false,
-        ownerClientId: "0",
-        ownerTitle: "tmux",
-        sourceColumns: this.pane.columns,
-        sourceRows: this.pane.rows,
-        viewColumns: options.columns,
-        viewRows: options.rows,
-      },
-    });
+    void adoptPaneSize(this.runtime, this.pane, options.columns, options.rows)
+      .then((moved) => {
+        if (!moved) return;
+        // A reshaped pane has to be RE-READ, not just relabelled. `pipe-pane` carries what the
+        // program writes, and tmux's own reflow is drawn per client -- with no clients there is
+        // nothing to draw, so not one byte of the new screen reaches the pipe. Measured: a pane
+        // resized under a viewer went completely blank while tmux still held the full screen.
+        //
+        // Every viewer, not just this one: they are all looking at the window that just changed
+        // shape, and a viewer that did not ask for it has no other way to hear about it.
+        for (const viewer of this.pane.viewers) viewer.requestCheckpoint("");
+      })
+      .catch((error: unknown) => {
+        // Not a failure of the terminal. A pane that would not change shape is the case this
+        // viewer already handles by scaling its own type, which is what it did before it could
+        // resize at all -- so it is reported and the report below still goes out.
+        console.error(`tmux pane ${this.pane.session} could not adopt a viewer's size`, asError(error));
+      })
+      .finally(() => {
+        if (this.closed) return;
+        this.deliver({
+          protocolVersion: 1,
+          sessionName: this.pane.session,
+          terminalViewportStatus: {
+            isOwner: this.pane.columns === options.columns && this.pane.rows === options.rows,
+            ownerClientId: "0",
+            ownerTitle: "tmux",
+            sourceColumns: this.pane.columns,
+            sourceRows: this.pane.rows,
+            viewColumns: options.columns,
+            viewRows: options.rows,
+          },
+        });
+      });
   }
 
   /**
@@ -228,6 +266,72 @@ export class TmuxSessionConnection {
 }
 
 /**
+ * Makes the pane the shape a viewer asked for, when tmux says nobody else is watching.
+ *
+ * The guard is the whole design. tmux has ONE window size per session, so setting it is setting it
+ * for every client -- and the last time this repo resized panes, a tile opening at 80x24 reflowed a
+ * live Claude Code TUI inside the human's own terminal and left its composer drawing off the bottom
+ * of its frame. What made that harmful was a client being attached, and tmux answers that question
+ * directly, so the resize is conditional rather than forbidden. Being a real tmux client instead
+ * would not help: measured, a control-mode client's `refresh-client -C` reshapes the window for
+ * everyone the same way, and the window keeps the new shape after that client detaches.
+ *
+ * LATEST WINS, deliberately, and it is also what tmux's own `window-size latest` means. Two cards
+ * on one session are two boxes of different shapes with one answer between them; the alternative,
+ * largest, hands the smaller card a grid it has to shrink its type to read, which is the problem
+ * this exists to remove.
+ *
+ * Bursts collapse rather than queue: the loop re-reads `wanted` each time round, so a drag that
+ * reports twenty sizes costs the tmux calls for the last one plus whichever was in flight.
+ */
+async function adoptPaneSize(
+  runtime: TmuxPaneRuntime,
+  pane: SharedPane,
+  columns: number,
+  rows: number,
+): Promise<boolean> {
+  pane.wanted = { columns, rows };
+  // Joining the running applier rather than starting a second: two resizes racing on one window
+  // land in an order neither caller chose, and the loser's shape is what sticks.
+  if (pane.resizing) return pane.resizing;
+  pane.resizing = (async () => {
+    let moved = false;
+    try {
+      for (let want = pane.wanted; want !== null; want = pane.wanted) {
+        pane.wanted = null;
+        if (want.columns === pane.columns && want.rows === pane.rows) continue;
+        // Asked every pass, not once: a human can attach between two reports, and the whole
+        // guarantee is that this never reshapes a session somebody is sitting in front of.
+        if (await runtime.clients(pane.session) > 0) return moved;
+        await runtime.resize(pane.session, want.columns, want.rows);
+        // Handed straight back. `resize-window -x -y` pins the window to `window-size manual` as a
+        // side effect -- measured, and it is what left four sessions stuck that way the last time
+        // this repo resized panes. Unsetting keeps the size and restores tmux's own negotiation, so
+        // a human who attaches a moment later gets their own terminal's shape at once instead of
+        // the 44x23 some card left behind. Measured end to end: resize to 44x23, unset, attach a
+        // client at 150x45, window is 150x45.
+        //
+        // Immediately rather than when the last viewer leaves, which is where this lived first: a
+        // pin held for the life of a card is a pin held across exactly the window in which somebody
+        // might attach, which is the case it exists to protect.
+        await runtime.releaseSize(pane.session);
+        // Read back rather than assumed. tmux clamps a window to what its layout can hold, so the
+        // shape that lands is not always the shape that was asked for, and the viewer is about to
+        // render against whichever it really is.
+        const geometry = await runtime.describe(pane.session);
+        moved = geometry.columns !== pane.columns || geometry.rows !== pane.rows;
+        pane.columns = geometry.columns;
+        pane.rows = geometry.rows;
+      }
+    } finally {
+      pane.resizing = null;
+    }
+    return moved;
+  })();
+  return pane.resizing;
+}
+
+/**
  * One shared pipe per tmux session, handed to as many viewers as ask for it.
  *
  * Held here rather than per connection because a pane has exactly one pipe: opening a second
@@ -235,6 +339,17 @@ export class TmuxSessionConnection {
  */
 export class TmuxAttachments {
   private readonly panes = new Map<string, SharedPane>();
+  /**
+   * Panes whose pipe is being torn down, so a viewer arriving now waits for it.
+   *
+   * A pane has ONE pipe, and both setting and clearing it are tmux commands that take a moment. A
+   * viewer leaving and another arriving straight after -- which is what a card being toggled, or a
+   * reader moving between two cards on one session, actually is -- issue a clear and a set with
+   * nothing ordering them. Measured during a burst of that: `pane_pipe` read 0 while three viewers
+   * were attached, and 1 while none were. The first is a terminal that shows its imported screen
+   * and then never moves again, which reads as a frozen session rather than as a lost pipe.
+   */
+  private readonly closing = new Map<string, Promise<void>>();
 
   constructor(private readonly runtime: TmuxPaneRuntime) {}
 
@@ -244,13 +359,20 @@ export class TmuxAttachments {
   }
 
   /**
-   * Joins a session. `dimensions` is what the viewer would like and is deliberately ignored: the
-   * pane's own size is returned instead, for the viewer to adopt. See `updateViewerState`.
+   * Joins a session, at whatever shape it currently is.
+   *
+   * `dimensions` is not applied here. The viewer publishes its box a moment later and that report
+   * is what resizes the pane, so the sizing lives in one place instead of two that can disagree --
+   * and joining first means a pane that refuses to resize still opens and still shows its screen.
    */
   async open(
     session: string,
     _dimensions: { columns: number; rows: number },
   ): Promise<TmuxSessionConnection> {
+    // Behind any teardown for this pane, so the new pipe is set after the old one is cleared
+    // rather than racing it.
+    const closing = this.closing.get(session);
+    if (closing) await closing;
     const existing = this.panes.get(session);
     if (existing) {
       const connection = new TmuxSessionConnection(existing, this.runtime, (leaving) =>
@@ -266,11 +388,13 @@ export class TmuxAttachments {
     const pane: SharedPane = {
       session,
       viewers: new Set(),
-      stop: () => {},
+      stop: async () => {},
       pid: geometry.pid,
       columns: geometry.columns,
       rows: geometry.rows,
       revision: 0,
+      wanted: null,
+      resizing: null,
     };
     const stop = await this.runtime.pipe(session, (chunk) => {
       const envelope: PtyEnvelope = {
@@ -292,7 +416,16 @@ export class TmuxAttachments {
     pane.viewers.delete(leaving);
     if (pane.viewers.size > 0) return;
     this.panes.delete(pane.session);
-    pane.stop();
+    // Recorded rather than awaited: releasing is called from a viewer detaching, which cannot
+    // block. `open` is what waits.
+    const closed = pane.stop().catch((error: unknown) => {
+      console.error(`tmux pane ${pane.session} did not release its pipe`, asError(error));
+    });
+    this.closing.set(pane.session, closed);
+    void closed.finally(() => {
+      // Only if no later teardown has replaced it, or a slow close would clear a fast one's entry.
+      if (this.closing.get(pane.session) === closed) this.closing.delete(pane.session);
+    });
   }
 }
 

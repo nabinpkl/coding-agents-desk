@@ -254,6 +254,14 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       let descriptor: AgentTerminalDescriptor | null = null;
       let unsubscribe: (() => void) | null = null;
       let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+      // The cell at the BASE type size, measured once by `fitType`. Kept up here because two
+      // readers need it: the fit itself, and the viewport report, which must describe the box in
+      // grid cells the far end can act on rather than in whatever the fit has shrunk them to.
+      let baseCell: { width: number; height: number } | null = null;
+      // Whether the far end took the shape this viewer asked for, straight from its own report.
+      // What it decides is which of TWO ways of making a screen fit a box is in force, and only
+      // ever one of them: see `fitType`.
+      let ownsPaneShape = false;
       let viewportSequence = 0;
       let remoteClosed = false;
       let writes = Promise.resolve();
@@ -266,13 +274,14 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       };
       const publishViewport = (claim: boolean): void => {
         if (!descriptor || disposed || remoteClosed) return;
-        // A tmux pane's geometry is the pane's. Reporting anything else here would relabel the
-        // terminal with a grid it is not rendering at.
-        const dimensions = paneAuthoritative
-          ? { columns: descriptor.columns, rows: descriptor.rows }
-          : sizing.kind === "fixed"
-            ? { columns: sizing.columns, rows: sizing.rows }
-            : proposedDimensions(terminal, mount);
+        // What this viewer's BOX would hold, which is what the far end resizes to. Measured at
+        // the base type rather than the fitted one: the fit shrinks the type to squeeze an
+        // oversized grid in, so reporting the fitted cell would describe the grid already in force
+        // and ask the pane to stay exactly as it is. `baseCell` is null only before the first fit,
+        // when nothing has been scaled and the current cell IS the base one.
+        const dimensions = sizing.kind === "fixed"
+          ? { columns: sizing.columns, rows: sizing.rows }
+          : proposedDimensions(terminal, mount, paneAuthoritative ? baseCell : null);
         if (!dimensions) return;
         viewportSequence += 1;
         setViewLabel(`View ${dimensions.columns}×${dimensions.rows}`);
@@ -340,6 +349,14 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
             );
             setSourceLabel(`Source ${message.sourceColumns}×${message.sourceRows}`);
             setViewLabel(`View ${message.viewColumns}×${message.viewRows}`);
+            // Which of the two fits is in force, and it can change under a viewer: a pane stops
+            // being ours the moment somebody attaches a terminal to it, and starts being ours
+            // again when they leave. Re-fit on the change so the type moves with it rather than
+            // staying at whatever the other regime left behind.
+            if (paneAuthoritative && message.isOwner !== ownsPaneShape) {
+              ownsPaneShape = message.isOwner;
+              enqueueWrite(() => fitType());
+            }
             break;
           case "exited":
             finishRemote({ kind: "ended", exitStatus: message.status });
@@ -388,7 +405,6 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
        * everything after that is arithmetic. Re-measuring after each change instead reads a layout
        * xterm has not finished writing, and iterating on that oscillates.
        */
-      let baseCell: { width: number; height: number } | null = null;
       const fitType = (): void => {
         const cell = terminal.dimensions?.css.cell;
         if (!cell || cell.width <= 0 || cell.height <= 0) return;
@@ -397,6 +413,22 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         if (!baseCell) {
           if (terminal.options.fontSize !== BASE_FONT_SIZE) return;
           baseCell = { width: cell.width, height: cell.height };
+        }
+        // A grid this viewer ASKED for already fits the box at base type, because that is exactly
+        // what it was computed from. Scaling it as well puts two controllers on one box, and they
+        // do not agree: the fit stretches the type to fill the width, that changes the rendered
+        // height and whether a scrollbar is there, the next report measures a different box and
+        // asks for a different grid. Measured on two live cards that nobody was touching -- both
+        // cycled 40 -> 45 -> 50 -> 40 columns twice a second for as long as they were open.
+        //
+        // So exactly one of the two runs. Ours: the type stays at base and the grid follows the
+        // box. Not ours: the grid is fixed and the type follows it, which is everything below.
+        if (ownsPaneShape) {
+          if (terminal.options.fontSize !== BASE_FONT_SIZE) terminal.options.fontSize = BASE_FONT_SIZE;
+          // The band sizes itself from this, and a height asked for on behalf of a grid that is
+          // already the right shape is the loop's other half.
+          setContentHeight(null);
+          return;
         }
         // Both boxes: the mount is the space the band gives, and the terminal element carries the
         // padding that makes the screen read as a screen rather than as a block of text. Missing
@@ -481,10 +513,13 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       };
 
       // A fixed grid has nothing to observe: its size is the one it was given, and re-fitting it
-      // would push a new size onto the PTY every time the page reflowed. A tmux attach observes for
-      // the opposite reason: its grid never follows the mount, so the type has to.
+      // would push a new size onto the PTY every time the page reflowed. A tmux attach does both,
+      // in that order: the type follows the new box IMMEDIATELY, so a card being dragged stays
+      // readable throughout, and the pane is asked to take the new shape on the debounce behind
+      // it. The fit is what covers the case where the pane refuses -- a session somebody else is
+      // attached to still gets a box-sized picture, just by scaling rather than by reshaping.
       const observer = paneAuthoritative
-        ? new ResizeObserver(() => fitType())
+        ? new ResizeObserver(() => { fitType(); scheduleViewport(); })
         : sizing.kind === "fit"
           ? new ResizeObserver(() => scheduleViewport())
           : null;
@@ -607,9 +642,20 @@ function sizingKey(sizing: TerminalSizing): string {
 }
 
 
-function proposedDimensions(terminal: XtermTerminal, mount: HTMLElement): Dimensions | null {
+/**
+ * How many cells this viewer's box holds.
+ *
+ * `at` is the cell to measure in, for a caller that must not be answered in the cell currently
+ * rendered: a fitted terminal has already shrunk its type to hold an oversized grid, so measuring
+ * in that cell returns the oversized grid back. Omitted, it measures what is on screen.
+ */
+function proposedDimensions(
+  terminal: XtermTerminal,
+  mount: HTMLElement,
+  at: { width: number; height: number } | null = null,
+): Dimensions | null {
   if (mount.clientWidth <= 0 || mount.clientHeight <= 0) return null;
-  const cell = terminal.dimensions?.css.cell;
+  const cell = at ?? terminal.dimensions?.css.cell;
   if (!cell || cell.width <= 0 || cell.height <= 0) return null;
   const terminalElement = terminal.element;
   if (!terminalElement) return null;

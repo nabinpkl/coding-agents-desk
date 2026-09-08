@@ -570,7 +570,7 @@ export async function sendTmuxBytes(session: string, hex: readonly string[]): Pr
 export async function pipeTmuxPane(
   session: string,
   onData: (chunk: Uint8Array) => void,
-): Promise<() => void> {
+): Promise<() => Promise<void>> {
   let stopped = false;
   let connected: { end: () => void } | null = null;
   const server = Bun.listen<undefined>({
@@ -598,13 +598,21 @@ export async function pipeTmuxPane(
     throw new TmuxUnavailable(`tmux pipe-pane exited ${code}: ${err.trim()}`);
   }
 
-  return () => {
+  // Awaitable, because a pane has ONE pipe and turning it off is a command like any other: a
+  // viewer that leaves and one that arrives a moment later issue an off and an on for the same
+  // pane, and fire-and-forget lets them land in that order or the other one. Measured on a live
+  // pane during a burst of opening and closing: `pane_pipe` read 0 with three viewers attached,
+  // and 1 with none. A terminal with no pipe is not broken-looking -- it shows the screen it
+  // imported and then never changes again.
+  return async () => {
     if (stopped) return;
     stopped = true;
     // Tell tmux first, so its writer is not still writing into a socket being torn down.
-    void tmux(["pipe-pane", "-t", session]).finally(() => {
+    try {
+      await tmux(["pipe-pane", "-t", session]);
+    } finally {
       connected?.end();
       server.stop(true);
-    });
+    }
   };
 }
