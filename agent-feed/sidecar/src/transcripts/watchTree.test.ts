@@ -28,8 +28,17 @@ function track<T extends TreeWatch>(watch: T): T {
   return watch;
 }
 
-/** Waits for a condition the watcher has to deliver, rather than for a fixed delay. */
-async function until(predicate: () => boolean, budgetMs = 4000): Promise<void> {
+/**
+ * Waits for a condition the watcher has to deliver, rather than for a fixed delay.
+ *
+ * The budget is generous because it is a ceiling, not a delay: a satisfied predicate returns on
+ * the next poll, so a longer budget costs nothing when the watcher is working. It was 4 seconds
+ * and that was not enough -- these tests passed alone and failed inside the full suite, where the
+ * process holds many other watches, and FSEvents delivery for a path under a subdirectory is
+ * measurably slower under that load. A budget tuned to an idle process is a test that fails for a
+ * reason that has nothing to do with what it is checking.
+ */
+async function until(predicate: () => boolean, budgetMs = 20_000): Promise<void> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
