@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BotSessionRef, SessionSummary } from "@agentdesk/agent-feed-wire";
@@ -13,6 +13,7 @@ import {
   type BotRegistryCatalog,
   type BotSessionLauncher,
 } from "./botRegistry.ts";
+import { forgetWorktrees } from "../git/worktree.ts";
 
 const temporaryDirectories: string[] = [];
 const projects = new Set<string>();
@@ -35,6 +36,9 @@ const catalog: BotRegistryCatalog = {
 };
 
 afterEach(async () => {
+  // Worktrees here are created and destroyed inside one run, so a remembered answer would outlive
+  // the directory it describes.
+  forgetWorktrees();
   projects.clear();
   sessions.clear();
   listeners.clear();
@@ -414,4 +418,89 @@ test("resending a request whose launch failed starts the session it still owes",
   expect(recovered.sessionRefs).toEqual([{ source: "claude", sessionId: "started-2" }]);
   // Still one Bot: the replay finished the command rather than making a second.
   expect((await registry.snapshot()).bots).toHaveLength(1);
+});
+
+async function git(command: string[], cwd: string): Promise<void> {
+  const process = Bun.spawn(["git", ...command], { cwd, stdout: "ignore", stderr: "ignore" });
+  const code = await process.exited;
+  if (code !== 0) throw new Error(`git ${command.join(" ")} exited ${code}`);
+}
+
+/** A Bot's directory as a real repository, with one linked worktree beside it. */
+async function checkoutWithWorktree(): Promise<{ checkout: string; worktree: string }> {
+  const created = await mkdtemp(join(tmpdir(), "agentdesk-bots-worktree-"));
+  temporaryDirectories.push(created);
+  const root = await realpath(created);
+  const checkout = join(root, "checkout");
+  await git(["init", "-q", "-b", "main", checkout], root);
+  await writeFile(join(checkout, "README"), "x\n");
+  await git(["add", "README"], checkout);
+  await git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"], checkout);
+  const worktree = join(root, "side");
+  await git(["worktree", "add", "-q", worktree, "-b", "side"], checkout);
+  return { checkout, worktree };
+}
+
+test("attaches a session working in a git worktree of the Bot's directory", async () => {
+  // A worktree is the same project by every meaning a reader has, and refusing it made isolation
+  // cost a Bot its view of the work being done for it.
+  const { registry } = await fixture();
+  const { checkout, worktree } = await checkoutWithWorktree();
+  projects.add(checkout);
+  const ref = { source: "claude" as const, sessionId: "in-worktree" };
+  sessions.set("claude:in-worktree", { projectPath: worktree, summary: summary(ref) });
+
+  const bot = await registry.add(
+    { requestId: "r1", name: "Repo bot", directoryPath: checkout },
+    { kind: "user" },
+  );
+  const attached = await registry.attachSessions(
+    bot.botId,
+    { requestId: "r2", sessionRefs: [ref] },
+    { kind: "user" },
+  );
+
+  expect(attached.sessions.map((session) => session.sessionId)).toEqual(["in-worktree"]);
+  expect(attached.missingSessionRefs).toEqual([]);
+  // And the row says which branch, because otherwise it is indistinguishable from a session in the
+  // checkout itself while editing entirely different files.
+  expect(attached.sessions[0]!.worktree).toEqual({ path: worktree, branch: "side" });
+});
+
+test("still refuses a session from a directory that is not the Bot's and not a worktree of it", async () => {
+  const { registry, secondProject, secondRef } = await fixture();
+  const { checkout } = await checkoutWithWorktree();
+  projects.add(checkout);
+  sessions.set(`codex:${secondRef.sessionId}`, {
+    projectPath: secondProject,
+    summary: summary(secondRef),
+  });
+
+  const bot = await registry.add(
+    { requestId: "r1", name: "Repo bot", directoryPath: checkout },
+    { kind: "user" },
+  );
+
+  await expect(registry.attachSessions(
+    bot.botId,
+    { requestId: "r2", sessionRefs: [secondRef] },
+    { kind: "user" },
+  )).rejects.toThrow(BotConflictError);
+});
+
+test("leaves a session in the Bot's own directory unlabelled, so the label means something", async () => {
+  // A field present and empty on every ordinary row is one every reader learns to ignore.
+  const { registry, project, ref } = await fixture();
+
+  const bot = await registry.add(
+    { requestId: "r1", name: "Plain bot", directoryPath: project },
+    { kind: "user" },
+  );
+  const attached = await registry.attachSessions(
+    bot.botId,
+    { requestId: "r2", sessionRefs: [ref] },
+    { kind: "user" },
+  );
+
+  expect(attached.sessions[0]!.worktree).toBeUndefined();
 });

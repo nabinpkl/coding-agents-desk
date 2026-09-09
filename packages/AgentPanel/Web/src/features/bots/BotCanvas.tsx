@@ -611,6 +611,7 @@ function BotSessionCard({
                   source={session.source}
                   lastEventAt={session.lastEventAt}
                   activity={session.activity}
+                  worktree={session.worktree}
                 />
               </span>
               <ChevronDown
