@@ -2,13 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import type { UsageDay, UsageQuota, UsageTotals, VendorUsage } from "@agentdesk/agent-feed-wire";
+import type {
+  UsageDay,
+  UsageQuota,
+  UsageTotals,
+  UsageVendorId,
+  VendorUsage,
+} from "@agentdesk/agent-feed-wire";
 import {
+  formatAge,
   formatCount,
   formatDay,
   formatPercent,
   formatResetIn,
   formatTokens,
+  STALE_QUOTA_MS,
 } from "./formatTokens";
 import { UsageCalendar, UsageLegend } from "./UsageCalendar";
 import {
@@ -107,7 +115,17 @@ function UsageModalBody({
 }) {
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
   const [activeDate, setActiveDate] = useState<string | null>(null);
-  const vendor = state.kind === "ready" ? state.report.vendors[0] ?? null : null;
+  // Which vendor's grid is showing. React state and nothing more: choosing a tab is one click,
+  // the modal is not open across a reload for a stored value to come back to, and the panel's
+  // rule for storage is a fact whose absence would cost the reader real work to re-establish.
+  const [chosenVendor, setChosenVendor] = useState<UsageVendorId | null>(null);
+  const vendors = state.kind === "ready" ? state.report.vendors : [];
+  // Falls back to the first INSTALLED vendor rather than the first listed, so a machine with only
+  // one of the two opens on the tab that has something to show.
+  const vendor = vendors.find((entry) => entry.vendor === chosenVendor)
+    ?? vendors.find((entry) => entry.installed)
+    ?? vendors[0]
+    ?? null;
   // The first sweep on a cold cache reads gigabytes and takes seconds. The panel is drawn at its
   // final size throughout and withholds the figures rather than the layout, so nothing moves when
   // the report finally lands.
@@ -116,10 +134,7 @@ function UsageModalBody({
   return (
     <div className="flex max-h-[88dvh] flex-col">
       <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          Usage
-          {vendor ? <span className="ml-2 font-normal text-muted-foreground">{vendor.displayName}</span> : null}
-        </h2>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">Usage</h2>
         {loading || vendor?.installed ? (
           <div role="group" aria-label="Range" className="flex items-center gap-0.5">
             {RANGES.map((range) => {
@@ -155,6 +170,18 @@ function UsageModalBody({
         </button>
       </div>
 
+      <VendorTabs
+        vendors={vendors}
+        selected={vendor?.vendor ?? null}
+        onSelect={(next) => {
+          setChosenVendor(next);
+          // The hovered day belongs to the grid that was showing. Carrying it across would point
+          // the readout at a date the new vendor may have no record of, which renders as the
+          // fallback day and reads as the tab having ignored the click.
+          setActiveDate(null);
+        }}
+      />
+
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {state.kind === "error" ? (
           <p className="py-6 text-center text-sm text-destructive">Usage unavailable: {state.message}</p>
@@ -177,6 +204,64 @@ function UsageModalBody({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One tab per vendor, on their own row rather than beside the title.
+ *
+ * Beside the title they competed with the range group and the close button for a header that is
+ * 359px wide on a phone, and the first thing to truncate would have been the vendor names -- the
+ * one control on the row whose whole job is to say which numbers are on screen.
+ *
+ * Every vendor gets a tab, installed or not. A machine with no Codex records shows a Codex tab
+ * that says so, which is a different and more useful answer than a tab bar that silently omits it
+ * and leaves a reader wondering whether the panel can read Codex at all.
+ *
+ * The row is rendered at its full height while the report is still loading, holding an empty
+ * tablist, for the same reason every other height in this modal is fixed: the grid below must not
+ * move when the numbers land.
+ */
+function VendorTabs({
+  vendors,
+  selected,
+  onSelect,
+}: {
+  vendors: VendorUsage[];
+  selected: UsageVendorId | null;
+  onSelect: (vendor: UsageVendorId) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Vendor"
+      className="flex h-9 shrink-0 items-stretch gap-1 border-b border-border px-3"
+    >
+      {vendors.map((vendor) => {
+        const active = vendor.vendor === selected;
+        return (
+          <button
+            key={vendor.vendor}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onSelect(vendor.vendor)}
+            className={"-mb-px border-b-2 px-2 text-xs transition-colors "
+              + "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary "
+              + (active
+                ? "border-primary font-medium text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground active:text-foreground/80")}
+          >
+            {vendor.displayName}
+            {/* Said on the tab, not only inside it, so a reader can see which vendor has records
+                without opening each one. */}
+            {vendor.installed ? null : (
+              <span className="ml-1 text-muted-foreground/70">not found</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -305,7 +390,14 @@ function Figure({ name, value }: { name: string; value: string }) {
   );
 }
 
-/** One row tall whether or not the vendor publishes a limit, so its absence moves nothing. */
+/**
+ * One row tall whether or not the vendor publishes a limit, so its absence moves nothing.
+ *
+ * The reset and the reading's age share one slot rather than taking two. A fresh sample answers
+ * "when does this clear"; a stale one cannot, because its reset has usually already passed -- so
+ * it answers "how old is this" instead, which is the only true thing left to say about it. Both
+ * are always on the element's title for a reader who wants the other.
+ */
 function QuotaRow({ quota, now }: { quota: UsageQuota | null; now: () => number }) {
   // Two lines at phone width, one from `sm` up, both fixed: the row's contents do not change while
   // a day is hovered, but a height that depended on how they wrapped would still move the grid on
@@ -321,9 +413,22 @@ function QuotaRow({ quota, now }: { quota: UsageQuota | null; now: () => number 
         />
       </span>
       <span className="shrink-0 font-mono">{quota.usedPercent}%</span>
-      <span className="shrink-0">resets in {formatResetIn(quota.resetsAt, now())}</span>
+      <QuotaFreshness quota={quota} now={now} />
       {quota.planType ? <span className="truncate">plan {quota.planType}</span> : null}
     </div>
+  );
+}
+
+function QuotaFreshness({ quota, now }: { quota: UsageQuota; now: () => number }) {
+  const at = now();
+  const stale = at - quota.sampledAt > STALE_QUOTA_MS;
+  return (
+    <span
+      className={`shrink-0 ${stale ? "text-foreground/70" : ""}`}
+      title={`read ${formatAge(quota.sampledAt, at)}, resets in ${formatResetIn(quota.resetsAt, at)}`}
+    >
+      {stale ? `reading ${formatAge(quota.sampledAt, at)}` : `resets in ${formatResetIn(quota.resetsAt, at)}`}
+    </span>
   );
 }
 
@@ -386,7 +491,16 @@ function DayFacts({ day, days }: { day: UsageDay | null; days: UsageDay[] }) {
       >
         {(day?.byModel ?? []).map((entry) => (
           <li key={entry.model} className="flex items-center gap-2 text-xs">
-            <span className="w-40 shrink-0 truncate font-mono text-muted-foreground">{entry.model}</span>
+            {/* The alias leads because five rows of `claude-…-…-…` read as one blur at 160px, and
+                the exact id is what the row is really keyed by -- so it stays, as the title and as
+                the text a screen reader gets, rather than being dropped for the short name. */}
+            <span
+              className="w-40 shrink-0 truncate font-mono text-muted-foreground"
+              title={entry.model}
+            >
+              {entry.alias ?? entry.model}
+              {entry.alias ? <span className="sr-only"> ({entry.model})</span> : null}
+            </span>
             <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
               <span
                 className="block h-full bg-foreground/50"

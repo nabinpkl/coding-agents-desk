@@ -51,3 +51,22 @@ export function formatResetIn(resetsAt: number, now: number): string {
   if (hours >= 1) return `${hours}h ${Math.floor((remaining % 3_600_000) / 60_000)}m`;
   return `${Math.max(1, Math.floor(remaining / 60_000))}m`;
 }
+
+/**
+ * How long ago a reading was taken, as a coarse duration.
+ *
+ * Exists because the two vendors' quota meters age very differently. Codex stamps its rate limits
+ * on the newest rollout record, so a sample is minutes old at worst; Claude's comes from a config
+ * cache the CLI refreshes on its own schedule, measured 45 hours stale on a machine that had run
+ * sessions throughout. A reader shown 92% with no age would take a two-day-old meter as current.
+ */
+export function formatAge(sampledAt: number, now: number): string {
+  const elapsed = Math.max(0, now - sampledAt);
+  const hours = Math.floor(elapsed / 3_600_000);
+  if (hours >= 24) return `${Math.floor(hours / 24)}d old`;
+  if (hours >= 1) return `${hours}h old`;
+  return `${Math.floor(elapsed / 60_000)}m old`;
+}
+
+/** A quota reading older than this is reported by its age instead of by its reset. */
+export const STALE_QUOTA_MS = 60 * 60 * 1000;

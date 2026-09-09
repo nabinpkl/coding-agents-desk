@@ -160,6 +160,17 @@ export const config = {
     "AGENT_FEED_CLAUDE_PROJECTS_DIR",
     join(userHomeDirectory, ".claude", "projects"),
   ),
+  // The harness's own top-level config, `~/.claude.json`.
+  //
+  // Read for one field, `cachedUsageUtilization`, which is the only place Claude's rate limits are
+  // written to disk: the five-hour and seven-day meters the CLI feeds to a statusline through
+  // `.rate_limits.five_hour.used_percentage`. It is a CACHE the CLI refreshes on its own schedule
+  // rather than a per-request stamp -- measured 45 hours stale on this machine while sessions ran
+  // throughout -- which is why `UsageQuota` carries `sampledAt` and the panel shows the age.
+  claudeConfigPath: resolve(
+    process.env.AGENT_FEED_CLAUDE_CONFIG_PATH?.trim()
+      || join(userHomeDirectory, ".claude.json"),
+  ),
   // The harness's own pid -> session registry. Each `<pid>.json` names the session a
   // running Claude process is serving, which is the only bridge between a transcript on
   // disk and the live process running it: the one that owns its background shells

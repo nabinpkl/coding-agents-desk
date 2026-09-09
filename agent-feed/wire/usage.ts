@@ -43,7 +43,19 @@ export interface UsageTotals {
 }
 
 export interface UsageModelTotals {
+  /**
+   * The model id exactly as the vendor's record states it, minus the two spellings that are the
+   * same model: a `[...]` variant suffix and a trailing release date. Those are stripped so one
+   * model cannot become two rows; nothing else is folded, because `claude-fable-5` and
+   * `claude-fable-5-1` are different models and a rule that merged them would be silently wrong.
+   */
   model: string;
+  /**
+   * The short name a reader recognises (`opus 5`, `sonnet 5`), or null where the vendor's own id
+   * already is one. Both are carried: the id is what the record says and what a later question
+   * about pricing needs, the alias is what makes a list of five ids readable at a glance.
+   */
+  alias: string | null;
   totals: UsageTotals;
 }
 
@@ -70,6 +82,16 @@ export interface UsageQuota {
   /** Epoch milliseconds. */
   resetsAt: number;
   planType: string | null;
+  /**
+   * Epoch milliseconds the vendor published this reading.
+   *
+   * Not decoration, and not the same as `VendorUsage.scannedAt`: the two vendors' meters age very
+   * differently. Codex stamps its `rate_limits` on the newest rollout record, so the sample is as
+   * fresh as the last request. Claude's lives in a config cache the CLI refreshes on its own
+   * schedule -- measured 45 hours stale on this machine, with a `resetsAt` already in the past --
+   * so a reader shown the number alone would read a two-day-old meter as current.
+   */
+  sampledAt: number;
 }
 
 export interface UsageCoverage {

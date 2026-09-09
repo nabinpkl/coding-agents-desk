@@ -1,26 +1,46 @@
-// One sweep of a vendor's local records, folded into the report the panel renders.
+// One sweep of every vendor's local records, folded into the report the panel renders.
 //
 // The sweep is incremental against `usageCache`, coalesced so two readers cannot start two of
 // them, and it keeps its last answer so a reader gets something to paint before it runs.
+//
+// The two vendors are scanned by separate functions rather than one parameterised over a vendor
+// seam, because what they share is the shape of the OUTPUT and almost nothing about the work. A
+// Codex rollout is a private ledger, so its files are summed and the sums added. A Claude
+// transcript is not: the same request appears in several files, so its rows are merged under a
+// global identity set and only then summed (`claudeUsage.ts` carries the measurements). A seam
+// wide enough to hold both would be the two functions with an interface stretched over them.
 
 import { stat } from "node:fs/promises";
+import { config } from "../config.ts";
 import type {
   UsageCoverage,
   UsageDay,
   UsageModelTotals,
-  UsageQuota,
   UsageReport,
   UsageVendorId,
   VendorUsage,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
+import type {
+  CachedDaysSession,
+  CachedRowsSession,
+  CachedSession,
+  UsageCache,
+} from "./usageCache.ts";
+import {
+  claudeInstalled,
+  findClaudeSessionFiles,
+  scanClaudeSession,
+  type ClaudeUsageRow,
+} from "./claudeUsage.ts";
+import { claudeModelAlias } from "./claudeModels.ts";
+import { readClaudeQuota } from "./claudeQuota.ts";
 import {
   codexInstalled,
   findCodexSessionFiles,
   scanCodexSession,
-  type QuotaSample,
 } from "./codexUsage.ts";
-import { loadUsageCache, saveUsageCache, type UsageCache } from "./usageCache.ts";
+import { describeQuota, type QuotaSample } from "./quotaSample.ts";
+import { loadUsageCache, saveUsageCache } from "./usageCache.ts";
 import {
   addInto,
   emptyTuple,
@@ -38,14 +58,27 @@ import {
  */
 const SCAN_CONCURRENCY = 8;
 
+export interface UsageVendorPaths {
+  codexHome: string;
+  claudeProjects: string;
+  claudeConfig: string;
+}
+
 /**
  * Which vendors this machine has records for, for `/api/config`.
  *
  * Answers the panel's "should I offer this at all" without sweeping anything. Empty means the
  * Profile popup shows Usage as unavailable rather than opening onto an empty grid.
+ *
+ * Ordered as `UsageVendorId` declares, not by what is installed, so the modal's tabs do not
+ * reorder themselves on a machine where one vendor is later removed.
  */
-export function detectUsageVendors(codexHome: string = config.codexHomeDirectory): UsageVendorId[] {
-  return codexInstalled(codexHome) ? ["codex"] : [];
+export function detectUsageVendors(paths: Partial<UsageVendorPaths> = {}): UsageVendorId[] {
+  const resolved = resolvePaths(paths);
+  const vendors: UsageVendorId[] = [];
+  if (codexInstalled(resolved.codexHome)) vendors.push("codex");
+  if (claudeInstalled(resolved.claudeProjects)) vendors.push("claude");
+  return vendors;
 }
 
 export interface UsageScanner {
@@ -55,14 +88,13 @@ export interface UsageScanner {
   scan(): Promise<UsageReport>;
 }
 
-export interface UsageScannerOptions {
-  codexHome?: string;
+export interface UsageScannerOptions extends Partial<UsageVendorPaths> {
   cachePath?: string;
   now?: () => number;
 }
 
 export function createUsageScanner(options: UsageScannerOptions = {}): UsageScanner {
-  const codexHome = options.codexHome ?? config.codexHomeDirectory;
+  const paths = resolvePaths(options);
   const cachePath = options.cachePath ?? config.usageCachePath;
   const now = options.now ?? Date.now;
 
@@ -72,15 +104,22 @@ export function createUsageScanner(options: UsageScannerOptions = {}): UsageScan
 
   async function sweep(): Promise<UsageReport> {
     cache ??= await loadUsageCache(cachePath);
-    const codex = await scanCodexVendor(codexHome, cache, now());
+    const scannedAt = now();
+    const codex = await scanCodexVendor(paths.codexHome, cache, scannedAt);
+    const claude = await scanClaudeVendor(paths, cache, scannedAt);
+    const cacheChanged = codex.cacheChanged || claude.cacheChanged;
     // Nothing was re-read, so nothing can have changed: the PREVIOUS report object is returned,
     // identity and all. The route compares by identity to decide whether a second message is
     // worth sending, and this is what lets a reader whose files have not moved paint once
     // instead of twice. `scannedAt` therefore means "when this data was produced", not "when we
     // last looked", which is the honest reading of a stamp on unchanged numbers.
-    if (!codex.cacheChanged && last) return last;
-    if (codex.cacheChanged) await saveUsageCache(cachePath, cache);
-    const report: UsageReport = { vendors: [codex.vendor] };
+    //
+    // The quota is deliberately outside that test. It is a live meter read from a file the sweep
+    // does not otherwise touch, so a report withheld because no transcript moved would pin a
+    // reader to a limit reading from whenever they last opened a session.
+    if (!cacheChanged && last && !quotaMoved(last, codex.vendor, claude.vendor)) return last;
+    if (cacheChanged) await saveUsageCache(cachePath, cache);
+    const report: UsageReport = { vendors: [codex.vendor, claude.vendor] };
     last = report;
     return report;
   }
@@ -98,38 +137,132 @@ export function createUsageScanner(options: UsageScannerOptions = {}): UsageScan
   };
 }
 
+function quotaMoved(previous: UsageReport, ...vendors: VendorUsage[]): boolean {
+  return vendors.some((vendor) => {
+    const before = previous.vendors.find((entry) => entry.vendor === vendor.vendor)?.quota ?? null;
+    return JSON.stringify(before) !== JSON.stringify(vendor.quota);
+  });
+}
+
 async function scanCodexVendor(
   codexHome: string,
   cache: UsageCache,
   scannedAt: number,
 ): Promise<{ vendor: VendorUsage; cacheChanged: boolean }> {
-  const installed = codexInstalled(codexHome);
-  if (!installed) {
-    return {
-      vendor: {
-        vendor: "codex",
-        displayName: "Codex",
-        installed: false,
-        days: [],
-        quota: null,
-        coverage: { from: null, to: null, sessions: 0, unreadable: 0 },
-        scannedAt,
-      },
-      cacheChanged: false,
-    };
+  if (!codexInstalled(codexHome)) {
+    return { vendor: uninstalled("codex", "Codex", scannedAt), cacheChanged: false };
   }
 
   const files = await findCodexSessionFiles(codexHome);
-  const present = new Set(files);
-  let cacheChanged = false;
-  let unreadable = 0;
+  const swept = await sweepFiles(codexHome, files, cache, async (path) => {
+    const scanned = await scanCodexSession(path);
+    return { kind: "days" as const, days: scanned.days, quota: scanned.quota };
+  });
+
   let newest: QuotaSample | null = null;
   const totals: DayModelTotals = {};
+  for (const entry of swept.entries) {
+    if (entry.kind !== "days") continue;
+    mergeDayModelTotals(totals, entry.days);
+    if (entry.quota && (!newest || entry.quota.atMs > newest.atMs)) newest = entry.quota;
+  }
+
+  const days = buildDays(totals, () => null);
+  return {
+    vendor: {
+      vendor: "codex",
+      displayName: "Codex",
+      installed: true,
+      days,
+      quota: newest ? describeQuota(newest) : null,
+      coverage: buildCoverage(days, files.length, swept.unreadable),
+      scannedAt,
+    },
+    cacheChanged: swept.cacheChanged,
+  };
+}
+
+async function scanClaudeVendor(
+  paths: UsageVendorPaths,
+  cache: UsageCache,
+  scannedAt: number,
+): Promise<{ vendor: VendorUsage; cacheChanged: boolean }> {
+  if (!claudeInstalled(paths.claudeProjects)) {
+    return { vendor: uninstalled("claude", "Claude", scannedAt), cacheChanged: false };
+  }
+
+  const files = await findClaudeSessionFiles(paths.claudeProjects);
+  const swept = await sweepFiles(paths.claudeProjects, files, cache, async (path) => ({
+    kind: "rows" as const,
+    rows: await scanClaudeSession(path),
+  }));
+
+  // The global dedup, and the reason Claude's cache holds rows at all. Files are visited in the
+  // sorted order `findClaudeSessionFiles` returns, so which copy of a shared request wins is
+  // decided the same way on every sweep -- and the copies agree anyway: of 105,452 distinct
+  // requests on this machine, 58 differ in their token figures and 5 in their calendar day.
+  const seen = new Set<string>();
+  const totals: DayModelTotals = {};
+  for (const entry of swept.entries) {
+    if (entry.kind !== "rows") continue;
+    for (const row of entry.rows) {
+      if (seen.has(row[0])) continue;
+      seen.add(row[0]);
+      addRow(totals, row);
+    }
+  }
+
+  const days = buildDays(totals, claudeModelAlias);
+  return {
+    vendor: {
+      vendor: "claude",
+      displayName: "Claude",
+      installed: true,
+      days,
+      quota: await quotaOf(paths.claudeConfig),
+      coverage: buildCoverage(days, files.length, swept.unreadable),
+      scannedAt,
+    },
+    cacheChanged: swept.cacheChanged,
+  };
+}
+
+async function quotaOf(configPath: string) {
+  const sample = await readClaudeQuota(configPath);
+  return sample ? describeQuota(sample) : null;
+}
+
+function addRow(totals: DayModelTotals, row: ClaudeUsageRow): void {
+  const byModel = (totals[row[1]] ??= {});
+  addInto((byModel[row[2]] ??= emptyTuple()), [row[3], row[4], row[5], row[6], 1]);
+}
+
+/**
+ * Reads every file whose bytes have moved, reusing the cache for the rest.
+ *
+ * Shared by both vendors because this half genuinely is the same work: stat, compare, scan the
+ * few that changed, and forget the entries whose file is gone. What differs is only what a scan
+ * produces, which is why the caller passes that in and reads the entries back.
+ */
+async function sweepFiles(
+  root: string,
+  files: string[],
+  cache: UsageCache,
+  scan: (path: string) => Promise<ScannedBody>,
+): Promise<{ entries: CachedSession[]; unreadable: number; cacheChanged: boolean }> {
+  const present = new Set(files);
+  const entries: CachedSession[] = [];
+  let cacheChanged = false;
+  let unreadable = 0;
 
   // Entries whose file is gone stop contributing. Without this a deleted or archived-then-purged
   // session would keep inflating its days for as long as the cache file survived.
+  //
+  // Scoped to paths under this vendor's own root, because the two vendors share one `sessions`
+  // map: an unscoped eviction would let the Codex sweep delete every Claude entry as "gone", and
+  // the Claude sweep behind it would then re-read 2.6 GB to put them back.
   for (const path of Object.keys(cache.sessions)) {
-    if (present.has(path)) continue;
+    if (present.has(path) || !path.startsWith(root)) continue;
     delete cache.sessions[path];
     cacheChanged = true;
   }
@@ -143,17 +276,8 @@ async function scanCodexVendor(
         if (known && known.size === metadata.size && known.mtimeMs === metadata.mtimeMs) {
           return { path, entry: known, fresh: false as const };
         }
-        const scanned = await scanCodexSession(path);
-        return {
-          path,
-          entry: {
-            size: metadata.size,
-            mtimeMs: metadata.mtimeMs,
-            days: scanned.days,
-            quota: scanned.quota,
-          },
-          fresh: true as const,
-        };
+        const scanned = await scan(path);
+        return { path, entry: stamp(scanned, metadata.size, metadata.mtimeMs), fresh: true as const };
       } catch {
         // Counted and surfaced on the report rather than swallowed: a file skipped in silence is
         // a total that is wrong without saying so.
@@ -170,34 +294,44 @@ async function scanCodexVendor(
         cache.sessions[result.path] = result.entry;
         cacheChanged = true;
       }
-      mergeDayModelTotals(totals, result.entry.days);
-      const quota = result.entry.quota;
-      if (quota && (!newest || quota.atMs > newest.atMs)) newest = quota;
+      entries.push(result.entry);
     }
   }
 
-  const days = buildDays(totals);
+  return { entries, unreadable, cacheChanged };
+}
+
+/** What a scan produces, before the sweep stamps the file's size and mtime onto it. */
+type ScannedBody =
+  | Omit<CachedDaysSession, "size" | "mtimeMs">
+  | Omit<CachedRowsSession, "size" | "mtimeMs">;
+
+/** Written out per arm rather than spread, so the entry stays a discriminated union. */
+function stamp(body: ScannedBody, size: number, mtimeMs: number): CachedSession {
+  return body.kind === "days"
+    ? { kind: "days", size, mtimeMs, days: body.days, quota: body.quota }
+    : { kind: "rows", size, mtimeMs, rows: body.rows };
+}
+
+function uninstalled(vendor: UsageVendorId, displayName: string, scannedAt: number): VendorUsage {
   return {
-    vendor: {
-      vendor: "codex",
-      displayName: "Codex",
-      installed: true,
-      days,
-      quota: newest ? describeQuota(newest) : null,
-      coverage: buildCoverage(days, files.length, unreadable),
-      scannedAt,
-    },
-    cacheChanged,
+    vendor,
+    displayName,
+    installed: false,
+    days: [],
+    quota: null,
+    coverage: { from: null, to: null, sessions: 0, unreadable: 0 },
+    scannedAt,
   };
 }
 
-function buildDays(totals: DayModelTotals): UsageDay[] {
+function buildDays(totals: DayModelTotals, alias: (model: string) => string | null): UsageDay[] {
   const days: UsageDay[] = [];
   for (const date of Object.keys(totals).sort()) {
     const byModel: UsageModelTotals[] = [];
     const dayTotal: UsageTuple = emptyTuple();
     for (const [model, tuple] of Object.entries(totals[date]!)) {
-      byModel.push({ model, totals: toTotals(tuple) });
+      byModel.push({ model, alias: alias(model), totals: toTotals(tuple) });
       addInto(dayTotal, tuple);
     }
     // Heaviest first, by the same number the calendar colours by, so the detail list reads in
@@ -217,28 +351,10 @@ function buildCoverage(days: UsageDay[], sessions: number, unreadable: number): 
   };
 }
 
-/**
- * Names the window a rate limit covers.
- *
- * Reported, not interpreted. Codex publishes a percentage and a window; the panel shows both and
- * says nothing about whether either has moved.
- */
-function describeQuota(sample: QuotaSample): UsageQuota {
+function resolvePaths(options: Partial<UsageVendorPaths>): UsageVendorPaths {
   return {
-    label: quotaLabel(sample.windowMinutes),
-    usedPercent: sample.usedPercent,
-    windowMinutes: sample.windowMinutes,
-    resetsAt: sample.resetsAtMs,
-    planType: sample.planType,
+    codexHome: options.codexHome ?? config.codexHomeDirectory,
+    claudeProjects: options.claudeProjects ?? config.claudeProjectsDirectory,
+    claudeConfig: options.claudeConfig ?? config.claudeConfigPath,
   };
-}
-
-function quotaLabel(windowMinutes: number): string {
-  if (windowMinutes <= 0) return "Rate limit";
-  if (windowMinutes % (24 * 60) === 0) {
-    const days = windowMinutes / (24 * 60);
-    return days === 7 ? "Weekly limit" : days === 1 ? "Daily limit" : `${days}-day limit`;
-  }
-  if (windowMinutes % 60 === 0) return `${windowMinutes / 60}-hour limit`;
-  return `${windowMinutes}-minute limit`;
 }

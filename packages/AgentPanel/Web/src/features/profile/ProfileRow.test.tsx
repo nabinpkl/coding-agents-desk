@@ -38,6 +38,7 @@ function report(): UsageReport {
           },
           byModel: [{
             model: "gpt-5.6-sol",
+            alias: null,
             totals: {
               inputTokens: 485_224_170,
               cachedInputTokens: 476_362_112,
@@ -65,6 +66,7 @@ function report(): UsageReport {
         windowMinutes: 10_080,
         resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
         planType: "prolite",
+        sampledAt: TODAY,
       },
       coverage: { from: "2026-08-01", to: "2026-08-18", sessions: 977, unreadable: 0 },
       scannedAt: TODAY,
@@ -111,6 +113,52 @@ function parkHandle(overrides: Partial<DesktopParkHandle> = {}): DesktopParkHand
 
 function openMenu() {
   fireEvent.click(screen.getByRole("button", { name: /^Profile/ }));
+}
+
+/** The same report with a second vendor on it, which is what the modal's tabs are built from. */
+function twoVendorReport(): UsageReport {
+  const base = report();
+  return {
+    vendors: [base.vendors[0]!, {
+      vendor: "claude",
+      displayName: "Claude",
+      installed: true,
+      days: [{
+        date: "2026-08-17",
+        totals: {
+          inputTokens: 28_245_702_083,
+          cachedInputTokens: 27_795_005_326,
+          outputTokens: 76_015_475,
+          reasoningTokens: 11_871_275,
+          requests: 105_365,
+        },
+        byModel: [{
+          model: "claude-opus-5",
+          alias: "opus 5",
+          totals: {
+            inputTokens: 28_245_702_083,
+            cachedInputTokens: 27_795_005_326,
+            outputTokens: 76_015_475,
+            reasoningTokens: 11_871_275,
+            requests: 105_365,
+          },
+        }],
+      }],
+      // Stamped against the wall clock, not the fixture's TODAY: the modal ages a quota against
+      // the real `Date.now`, and a fixed stamp would make the assertion drift with the calendar.
+      quota: {
+        label: "5-hour limit",
+        usedPercent: 92,
+        // A reset already in the past, which is what a 45-hour-old reading has.
+        resetsAt: Date.now() - 40 * 60 * 60 * 1000,
+        windowMinutes: 300,
+        planType: null,
+        sampledAt: Date.now() - 45 * 60 * 60 * 1000,
+      },
+      coverage: { from: "2026-05-16", to: "2026-08-17", sessions: 1_388, unreadable: 0 },
+      scannedAt: TODAY,
+    }],
+  };
 }
 
 describe("the profile row", () => {
@@ -312,6 +360,57 @@ describe("the usage modal", () => {
   it("says a sweep failed instead of showing an empty calendar", () => {
     openModal(handle({ state: { kind: "error", message: "disk went away" } }));
     expect(screen.getByText(/disk went away/)).toBeInTheDocument();
+  });
+
+  it("offers a tab per vendor and shows the one selected", () => {
+    openModal(handle({ state: { kind: "ready", report: twoVendorReport(), settled: true } }));
+    const tabs = screen.getByRole("tablist", { name: "Vendor" });
+    expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent))
+      .toEqual(["Codex", "Claude"]);
+    expect(within(tabs).getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(within(tabs).getByRole("tab", { name: "Claude" }));
+    expect(within(tabs).getByRole("tab", { name: "Claude" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText(/1,388 sessions/)).toBeInTheDocument();
+  });
+
+  it("opens on a vendor that has records rather than on the first one listed", () => {
+    // A machine with only Claude would otherwise open onto an empty Codex grid and read as a
+    // feature that cannot see Claude at all.
+    const oneVendor = twoVendorReport();
+    oneVendor.vendors[0]!.installed = false;
+    oneVendor.vendors[0]!.days = [];
+    openModal(handle({ state: { kind: "ready", report: oneVendor, settled: true } }));
+    const tabs = screen.getByRole("tablist", { name: "Vendor" });
+    expect(within(tabs).getByRole("tab", { name: /Claude/ })).toHaveAttribute("aria-selected", "true");
+    expect(within(tabs).getByRole("tab", { name: /Codex/ })).toHaveTextContent("not found");
+  });
+
+  it("forgets the hovered day when the tab changes", () => {
+    // The readout points at a date the other vendor may have no record of. Left alone it would
+    // fall back to that vendor's most recent day, which reads as the tab having ignored the click.
+    openModal(handle({ state: { kind: "ready", report: twoVendorReport(), settled: true } }));
+    fireEvent.mouseEnter(document.querySelector('[data-date="2026-08-13"]')!);
+    fireEvent.click(screen.getByRole("tab", { name: "Claude" }));
+    expect(within(dayFigures()).getByText("28.25B")).toBeInTheDocument();
+  });
+
+  it("names a model by its short name and keeps the exact id", () => {
+    openModal(handle({ state: { kind: "ready", report: twoVendorReport(), settled: true } }));
+    fireEvent.click(screen.getByRole("tab", { name: "Claude" }));
+    const model = within(screen.getByRole("list", { name: "Models used" })).getByTitle("claude-opus-5");
+    expect(model).toHaveTextContent("opus 5");
+    expect(model).toHaveTextContent("claude-opus-5");
+  });
+
+  it("reports a stale quota by its age rather than by a reset that has passed", () => {
+    // The Claude meter comes from a config cache the CLI refreshes on its own schedule, measured
+    // 45 hours old on a machine that ran sessions throughout. "resets in now" would be a true
+    // sentence about a reading nobody should act on.
+    openModal(handle({ state: { kind: "ready", report: twoVendorReport(), settled: true } }));
+    fireEvent.click(screen.getByRole("tab", { name: "Claude" }));
+    expect(screen.getByText("reading 1d old")).toBeInTheDocument();
+    expect(screen.queryByText(/resets in/)).toBeNull();
   });
 
   it("tells an uninstalled vendor apart from one that ran nothing", () => {

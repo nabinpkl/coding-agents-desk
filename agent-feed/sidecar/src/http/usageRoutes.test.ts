@@ -16,6 +16,7 @@ function report(inputTokens: number): UsageReport {
         totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
         byModel: [{
           model: "gpt-5.6-sol",
+          alias: null,
           totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
         }],
       }],

@@ -9,33 +9,62 @@
 // the handful touched today. Size and mtime together decide; a file whose bytes moved is summed
 // again and its previous contribution replaced wholesale, never added to.
 //
-// One JSON file rather than SQLite, on purpose. At 949 sessions it is about 150 KB and a full
-// rewrite per sweep costs nothing, where a schema would be a migration surface for a cache that
-// can always be thrown away and rebuilt. The trigger for changing that is stated rather than
-// left to taste: when this file passes a few megabytes, or when a query wants a GROUP BY the
-// panel cannot do itself, it should become a table.
+// One JSON file rather than SQLite, on purpose. A full rewrite per sweep costs nothing, where a
+// schema would be a migration surface for a cache that can always be thrown away and rebuilt. The
+// trigger for changing that is stated rather than left to taste: when this file passes a few
+// megabytes, or when a query wants a GROUP BY the panel cannot do itself, it should become a
+// table.
+//
+// Claude has now taken it past that first trigger, and the number is recorded rather than quietly
+// absorbed: 949 Codex sessions stored about 150 KB of pre-summed days, while 1,388 Claude
+// transcripts store roughly 164,000 per-request rows. The rows are not an implementation taste --
+// a Claude request appears in several files at once and only its identity can settle which file
+// gets to count it (see `claudeUsage.ts`) -- so shrinking this file means moving to a table, not
+// summing earlier. Whoever crosses the second trigger should do that rather than truncating ids.
+//
+// The two vendors therefore store different things, and the entry says which:
+//
+//   - Codex, `kind: "days"`: pre-summed day/model totals, because a rollout is a private ledger
+//     and summing files then adding the sums is correct.
+//   - Claude, `kind: "rows"`: one row per request, because it is not, and adding the sums would
+//     have reported this machine's history at 283% of its real size.
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { QuotaSample } from "./codexUsage.ts";
+import type { ClaudeUsageRow } from "./claudeUsage.ts";
+import type { QuotaSample } from "./quotaSample.ts";
 import type { DayModelTotals } from "./usageTotals.ts";
 
-export interface CachedSession {
+interface CachedFile {
   size: number;
   mtimeMs: number;
+}
+
+export interface CachedDaysSession extends CachedFile {
+  kind: "days";
   days: DayModelTotals;
   quota: QuotaSample | null;
 }
+
+export interface CachedRowsSession extends CachedFile {
+  kind: "rows";
+  rows: ClaudeUsageRow[];
+}
+
+export type CachedSession = CachedDaysSession | CachedRowsSession;
 
 export interface UsageCache {
   version: number;
   /** The zone the day keys were bucketed in; see `localDayKey`. */
   timezone: string;
-  /** Absolute session-file path -> what summing it produced. */
+  /** Absolute session-file path -> what summing it produced. Vendor-safe: the two roots differ. */
   sessions: Record<string, CachedSession>;
 }
 
-const CACHE_VERSION = 1;
+// 2: entries gained a `kind`, and Claude's carry rows rather than days. Bumped rather than
+// migrated -- the whole file is derived from vendor records and rebuilt by rereading them, so a
+// migration would be code written to avoid one slow sweep exactly once.
+const CACHE_VERSION = 2;
 
 function currentTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";

@@ -7,6 +7,11 @@ import { createUsageScanner, detectUsageVendors } from "./usageReport.ts";
 
 interface Fixture {
   codexHome: string;
+  // Pointed at nothing on purpose. Both vendors are swept on every scan, so a fixture that let
+  // these fall back to the config defaults would read the developer's own 2.6 GB of transcripts
+  // into a unit test and make its assertions depend on the machine it ran on.
+  claudeProjects: string;
+  claudeConfig: string;
   cachePath: string;
   write: (name: string, records: unknown[]) => Promise<string>;
 }
@@ -18,6 +23,8 @@ async function fixture(): Promise<Fixture> {
   await mkdir(day, { recursive: true });
   return {
     codexHome: home,
+    claudeProjects: join(root, "no-claude"),
+    claudeConfig: join(root, "no-claude.json"),
     cachePath: join(root, "cache.json"),
     write: async (name, records) => {
       const path = join(day, name);
@@ -45,6 +52,8 @@ test("a vendor with no records reports itself uninstalled rather than empty", as
   const root = await mkdtemp(join(tmpdir(), "usage-empty-"));
   const report = await createUsageScanner({
     codexHome: join(root, "nothing-here"),
+    claudeProjects: join(root, "nothing-here"),
+    claudeConfig: join(root, "nothing-here.json"),
     cachePath: join(root, "cache.json"),
   }).scan();
 
@@ -54,7 +63,10 @@ test("a vendor with no records reports itself uninstalled rather than empty", as
   // Two different facts, and the panel says different things about them: "Codex is not on this
   // machine" is not "Codex ran nothing".
   expect(codex.coverage.sessions).toBe(0);
-  expect(detectUsageVendors(join(root, "nothing-here"))).toEqual([]);
+  expect(detectUsageVendors({
+    codexHome: join(root, "nothing-here"),
+    claudeProjects: join(root, "nothing-here"),
+  })).toEqual([]);
 });
 
 test("days carry a total and a per-model split, heaviest model first", async () => {
@@ -205,6 +217,7 @@ test("the quota is the newest reading across every session", async () => {
     windowMinutes: 10_080,
     resetsAt: 1_787_801_862_000,
     planType: "prolite",
+    sampledAt: Date.parse("2026-08-13T09:00:00.000Z"),
   });
 });
 
@@ -239,4 +252,124 @@ test("nothing is cached before the first sweep", async () => {
   expect(scanner.cached()).toBeNull();
   const report = await scanner.scan();
   expect(scanner.cached()).toBe(report);
+});
+
+interface ClaudeFixture {
+  codexHome: string;
+  claudeProjects: string;
+  claudeConfig: string;
+  cachePath: string;
+  write: (name: string, records: unknown[]) => Promise<string>;
+}
+
+async function claudeFixture(): Promise<ClaudeFixture> {
+  const root = await mkdtemp(join(tmpdir(), "usage-claude-"));
+  const slug = join(root, "projects", "-Users-dev-projects-agent-desk");
+  await mkdir(slug, { recursive: true });
+  return {
+    codexHome: join(root, "no-codex"),
+    claudeProjects: join(root, "projects"),
+    claudeConfig: join(root, "no-claude.json"),
+    cachePath: join(root, "cache.json"),
+    write: async (name, records) => {
+      const path = join(slug, name);
+      await writeFile(path, records.map((record) => JSON.stringify(record)).join("\n"), "utf8");
+      return path;
+    },
+  };
+}
+
+function claudeUsage(id: string, input: number, cacheRead = 0, at = NOON) {
+  return {
+    type: "assistant",
+    timestamp: at,
+    message: {
+      id,
+      model: "claude-opus-5",
+      usage: {
+        input_tokens: input,
+        cache_read_input_tokens: cacheRead,
+        cache_creation_input_tokens: 0,
+        output_tokens: 1,
+      },
+    },
+  };
+}
+
+test("a forked session does not count its parent's requests a second time", async () => {
+  // `claude --resume <id> --fork-session` copies the parent's history verbatim into a new file,
+  // so both files carry the pre-fork requests. Measured on one real pair on this machine: 1.344
+  // billion input tokens naively against 522 million deduped, a 61.2% overcount. Summing per
+  // file and adding the sums would report a machine's whole history at 283% of its real size.
+  const context = await claudeFixture();
+  await context.write("parent.jsonl", [claudeUsage("msg_a", 100), claudeUsage("msg_b", 200)]);
+  await context.write("fork.jsonl", [
+    claudeUsage("msg_a", 100),
+    claudeUsage("msg_b", 200),
+    claudeUsage("msg_c", 400),
+  ]);
+
+  const report = await createUsageScanner(context).scan();
+  const claude = report.vendors.find((vendor) => vendor.vendor === "claude")!;
+  expect(claude.days[0]!.totals.inputTokens).toBe(700);
+  expect(claude.days[0]!.totals.requests).toBe(3);
+});
+
+test("both vendors are reported, whether or not either is installed", async () => {
+  // The modal's tabs are built from this list, so a vendor that is absent still has to appear --
+  // as installed: false, which the panel says something different about than "ran nothing".
+  const context = await claudeFixture();
+  await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
+
+  const report = await createUsageScanner(context).scan();
+  expect(report.vendors.map((vendor) => vendor.vendor)).toEqual(["codex", "claude"]);
+  expect(report.vendors[0]!.installed).toBe(false);
+  expect(report.vendors[1]!.installed).toBe(true);
+});
+
+test("one vendor's sweep does not evict the other's cache entries", async () => {
+  // Both vendors share one `sessions` map keyed by absolute path. An eviction that read the whole
+  // map rather than its own root would have the Codex sweep delete every Claude entry as "gone",
+  // and the Claude sweep behind it would re-read the lot to put them back -- on this machine,
+  // 2.6 GB, every time the modal was opened.
+  const context = await claudeFixture();
+  await mkdir(join(context.codexHome, "sessions"), { recursive: true });
+  await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
+
+  await createUsageScanner(context).scan();
+  const cache = await loadUsageCache(context.cachePath);
+  expect(Object.keys(cache.sessions)).toHaveLength(1);
+});
+
+test("the Claude quota comes from the CLI's config, stamped with when it was taken", async () => {
+  const context = await claudeFixture();
+  await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
+  await writeFile(context.claudeConfig, JSON.stringify({
+    cachedUsageUtilization: {
+      fetchedAtMs: 1_788_687_158_244,
+      utilization: {
+        five_hour: { utilization: 92, resets_at: "2026-09-06T10:30:00.000Z" },
+        seven_day: { utilization: 36, resets_at: "2026-09-06T16:00:00.000Z" },
+      },
+    },
+  }), "utf8");
+
+  const report = await createUsageScanner(context).scan();
+  expect(report.vendors[1]!.quota).toEqual({
+    label: "5-hour limit",
+    usedPercent: 92,
+    windowMinutes: 300,
+    resetsAt: Date.parse("2026-09-06T10:30:00.000Z"),
+    planType: null,
+    sampledAt: 1_788_687_158_244,
+  });
+});
+
+test("days carry the model id and the alias, not one instead of the other", async () => {
+  const context = await claudeFixture();
+  await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
+
+  const report = await createUsageScanner(context).scan();
+  expect(report.vendors[1]!.days[0]!.byModel[0])
+    .toMatchObject({ model: "claude-opus-5", alias: "opus 5" });
 });

@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readJsonLines } from "./readJsonLines.ts";
+import type { QuotaSample } from "./quotaSample.ts";
 import {
   addInto,
   emptyTuple,
@@ -19,15 +20,6 @@ import {
   type DayModelTotals,
   type UsageTuple,
 } from "./usageTotals.ts";
-
-/** A rate-limit reading, stamped so the newest across all files wins. */
-export interface QuotaSample {
-  atMs: number;
-  usedPercent: number;
-  windowMinutes: number;
-  resetsAtMs: number;
-  planType: string | null;
-}
 
 export interface ScannedSession {
   days: DayModelTotals;

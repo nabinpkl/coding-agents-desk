@@ -26,7 +26,7 @@ function totals(input: number, cached = 0): UsageTotals {
 }
 
 function day(date: string, input: number, cached = 0): UsageDay {
-  return { date, totals: totals(input, cached), byModel: [{ model: "m", totals: totals(input, cached) }] };
+  return { date, totals: totals(input, cached), byModel: [{ model: "m", alias: null, totals: totals(input, cached) }] };
 }
 
 /** A Wednesday, so an off-by-one in the weekday mapping cannot pass unnoticed. */
