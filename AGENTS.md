@@ -33,9 +33,6 @@ infer backwards from the shape of the tree:
 - `docs/dormant-native.md` operating detail for the arcs that are no longer the path -- the iPhone app, host app build variants, on-device diagnostics, the simulator drives. A record to restore from, not a section to extend.
 - `README.md` external-facing one-pager. Points at `PRD.md`.
 - `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
-- `evals/` prompts from real sessions here whose correct answer depended on a constraint the
-  prompt never stated, with where each constraint was recoverable. A record of what this repo
-  demands of an agent working in it, and the candidate pool for the Evals Lab.
 - `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
 - `TASKS.md` (created when the next iteration opens; there is none right now, the last was retired to `tasks/archive/` on 2026-09-05) the iteration ledger, following the guidelines file linked in the load-first section. Retire a ledger to `tasks/archive/` when its arcs are done, before starting new ones, and carry any still-open task's ID forward unchanged.
 
