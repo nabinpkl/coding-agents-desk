@@ -42,6 +42,7 @@ import {
   storeCanvasOpenKeys,
 } from "../features/bots/botCanvasPreferences";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
+import { botCanvasHues } from "../features/bots/botSurface";
 import { SessionRenameDialog } from "../features/bots/SessionRenameDialog";
 import { ForkSessionDialog } from "../features/bots/ForkSessionDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
@@ -325,6 +326,14 @@ export function App({ feed, host, fill = false }: Props) {
       : [],
     [botSessionPicker, newSessions, sessionsByProject],
   );
+  /**
+   * Every Bot's colour, derived from the WHOLE roster rather than from the cards on the canvas.
+   *
+   * Computed here for the same reason `detachedCount` is: the canvas is handed the Bots it shows,
+   * and a colour ranked over that subset would repaint the whole strip whenever a reader took one
+   * off it. The full list is what makes a Bot's colour its own.
+   */
+  const botHues = useMemo(() => botCanvasHues(botsState.bots), [botsState.bots]);
   const forkTitlesInProject = useMemo(
     () => forkRequest
       ? (sessionsByProject.get(forkRequest.projectPath) ?? []).map((session) => session.title)
@@ -1114,6 +1123,7 @@ export function App({ feed, host, fill = false }: Props) {
             ) : sidebarMode === "canvas" ? (
               <BotCanvas
                 bots={canvasBots}
+                hues={botHues}
                 loading={botsState.loading}
                 error={botsState.error}
                 sessionContext={sessionViewContext}
