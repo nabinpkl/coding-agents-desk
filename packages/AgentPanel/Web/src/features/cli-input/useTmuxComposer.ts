@@ -345,10 +345,35 @@ export function useTmuxComposer(
     return feed.subscribeTmuxComposer(sessionRef.current, receive);
   }, [feed, key, receive]);
 
+  /**
+   * Whether the last reading found a box that can be written to.
+   *
+   * A boolean rather than the reason itself, so this only moves on the two transitions that
+   * matter and not on every message the stream sends. Null state is not reachable: nothing has
+   * been read yet, and the first reading is what says whether there is anything there.
+   */
+  const reachable = state !== null && state.reason === null;
+
   // The debounced push behind edits. One effect on the value rather than a call beside each of the
   // places that change it, which is how one of them ends up forgotten.
+  //
+  // `reachable` is in here for both of its directions, and the second one is the bug it fixes.
+  //
+  //   Going false, it CANCELS. Typing into a session showing a dialog would otherwise spend a
+  //   request per debounce window on a box that cannot be written, each answering `no-composer`.
+  //
+  //   Going true, it PUSHES -- and this is the fix. A draft typed while the pane was unreachable
+  //   is still unsent, because the push it wanted was refused and `edited` stayed set. Nothing
+  //   else would carry it: the stream will not adopt over an unsent edit, and this effect used to
+  //   wake only on the draft moving, so the text sat in a field the band had just stopped warning
+  //   about. The panel looked mirrored and was not, which is the failure this module cares about
+  //   most. Now the reading that says the box is back is what sends it.
+  //
+  // Safe on the FIRST reading of a session because `edited` is false until somebody types: a
+  // reader who has typed nothing pushes nothing, so opening a card cannot blank the box of
+  // whoever is sitting at that keyboard.
   useEffect(() => {
-    if (!key || !edited.current) return;
+    if (!key || !edited.current || !reachable) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
       pushTimer.current = null;
@@ -357,7 +382,7 @@ export function useTmuxComposer(
     return () => {
       if (pushTimer.current) clearTimeout(pushTimer.current);
     };
-  }, [draft, key, push]);
+  }, [draft, key, push, reachable]);
 
   const submit = useCallback(async () => {
     if (pushTimer.current) {

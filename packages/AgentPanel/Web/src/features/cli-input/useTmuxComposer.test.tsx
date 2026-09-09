@@ -292,6 +292,57 @@ describe("tmux composer", () => {
     expect(draft()).toBe("");
   });
 
+  it("sends the draft typed during a dialog once the composer comes back", async () => {
+    // A `/model` picker, a `/resume` list or a permission prompt replaces the box with an option
+    // list, and the sidecar reads that as `no-composer` for as long as it is open -- measured at
+    // fourteen seconds for a picker, against milliseconds for the redraw this reason used to be
+    // named after. A reader typing through one gets their push refused, which is correct.
+    //
+    // What was wrong is what happened next. The refusal leaves `edited` set, the stream will not
+    // adopt over an unsent edit, and the push only ever woke on the draft moving -- so a reader
+    // who typed during the dialog and then waited had text in a field the band had just stopped
+    // warning about, mirroring nothing.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    const dialog = { text: null, hint: null, reason: "no-composer" as const, exact: true, commands: [] };
+    feed.syncTmuxComposer = async () => dialog;
+    await act(async () => feed.emit(dialog));
+
+    await type("the sentence the reader cares about");
+    await settle(200);
+    // Refused, and not retried into a box that cannot take it.
+    expect(feed.pushes).toEqual([]);
+    expect(screen.getByTestId("reason").textContent).toBe("no-composer");
+    expect(draft()).toBe("the sentence the reader cares about");
+
+    // Escape, in the pane. The picker closes, Claude draws its box again, and the watcher says so.
+    feed.syncTmuxComposer = async (_session, text) => {
+      feed.pushes.push(text);
+      feed.box = text;
+      return holding(text);
+    };
+    await act(async () => feed.emit(holding("")));
+    // Without a keystroke of its own: the reading that says the box is back is what sends it.
+    await settle(200);
+    expect(feed.pushes).toEqual(["the sentence the reader cares about"]);
+    expect(feed.box).toBe("the sentence the reader cares about");
+    expect(screen.getByTestId("reason").textContent).toBe("-");
+  });
+
+  it("does not blank the box of a session it has only just opened", async () => {
+    // The other direction of the same wake-up, and the one that would be a disaster. Coming back
+    // reachable pushes, so a card opening on a session whose reader has typed nothing must not
+    // count as an edit: `edited` is what separates them, and it is false until somebody types.
+    const feed = pane("what the person at that keyboard was writing");
+    render(<Probe feed={feed} />);
+    await settle(200);
+    await act(async () => feed.emit(holding(feed.box)));
+    await settle(200);
+    expect(feed.pushes).toEqual([]);
+    expect(feed.box).toBe("what the person at that keyboard was writing");
+  });
+
   it("keeps mirroring a session that left its pane, and says what happened", async () => {
     // Latched on purpose. Dropping the flag would swap the whole band out from under whoever was
     // mid-sentence and take their draft with it, explaining nothing; this keeps the field where
