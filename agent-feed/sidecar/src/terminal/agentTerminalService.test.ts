@@ -791,18 +791,63 @@ test("attaches a session's own pane a second time instead of resuming it twice",
 test("prefers a human's pane over the one the sidecar resumed for the same session", async () => {
   // Three rows for one id is what the machine actually looks like once a session has been resumed
   // here: the resumed process registers under the id it resumed, beside the original.
+  // Passed explicitly so these stay unit tests: the default consults the REAL tmux on this
+  // machine, which would make the answer depend on whatever happens to be running.
+  const unstamped = async (): Promise<string | null> => null;
   const rows = [
     { sessionId: SESSION_ID, tmuxSession: `agentdesk-${SESSION_ID}` },
     { sessionId: SESSION_ID, tmuxSession: null },
     { sessionId: SESSION_ID, tmuxSession: "agent-desk" },
     { sessionId: "another", tmuxSession: "elsewhere" },
   ];
-  expect(await liveTmuxSession("claude", SESSION_ID, async () => rows)).toBe("agent-desk");
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => rows, unstamped))
+    .toBe("agent-desk");
 
   // Ours when it is the only one, so a second viewer joins the first's pane.
-  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[0]!]))
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[0]!], unstamped))
     .toBe(`agentdesk-${SESSION_ID}`);
-  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[1]!])).toBe(null);
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[1]!], unstamped))
+    .toBe(null);
   // Codex publishes no registry, so it has nothing to look up and lands on the resume path.
   expect(await liveTmuxSession("codex", SESSION_ID, async () => rows)).toBe(null);
+});
+
+// Which pane a session is running in, when its tmux has been renamed underneath the answer.
+
+test("the stamp wins over the registry, which cached a name that no longer exists", async () => {
+  // The registry row is written by the CLI, which resolved the name ONCE at startup and never
+  // re-reads it. Measured: after a rename, `has-session` on that name exits 1 while the pane sits
+  // there running. The stamp is set on the session itself and rides through the rename.
+  const found = await liveTmuxSession(
+    "claude",
+    "b18b005e",
+    async () => [{ sessionId: "b18b005e", tmuxSession: "agentdesk-b18b005e" }],
+    async () => "terminal-tiles",
+  );
+  expect(found).toBe("terminal-tiles");
+});
+
+test("an unstamped pane still resolves through the registry", async () => {
+  // Every pane started before the stamp existed, which is why the fallback stays.
+  const found = await liveTmuxSession(
+    "claude",
+    "b18b005e",
+    async () => [{ sessionId: "b18b005e", tmuxSession: "agentdesk-b18b005e" }],
+    async () => null,
+  );
+  expect(found).toBe("agentdesk-b18b005e");
+});
+
+test("a tmux that cannot be asked falls back rather than failing the lookup", async () => {
+  // No tmux on the machine is ordinary. A throwing stamp lookup must not take the registry answer
+  // down with it, or a terminal that used to open stops opening.
+  const found = await liveTmuxSession(
+    "claude",
+    "b18b005e",
+    async () => [{ sessionId: "b18b005e", tmuxSession: "agentdesk-b18b005e" }],
+    async () => {
+      throw new Error("no tmux");
+    },
+  );
+  expect(found).toBe("agentdesk-b18b005e");
 });

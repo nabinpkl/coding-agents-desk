@@ -16,6 +16,9 @@
  * outcome this exists to avoid, so it is refused with a reason instead.
  */
 import { renameTmuxSession } from "../input/tmuxComposer.ts";
+import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
+import { uniqueTmuxSessionName } from "../terminal/tmuxSessionNames.ts";
+import { listTmuxSessions, renameTmuxSessionTo } from "../terminal/tmuxSessions.ts";
 import { findSession } from "./transcriptCatalog.ts";
 import { sessionTitleRefusal } from "./sessionTitle.ts";
 
@@ -43,7 +46,37 @@ export async function renameClaudeSession(
 
   const outcome = await renameTmuxSession(sessionId, title);
   if (!outcome.renamed) throw new SessionRenameUnavailableError(refusal(outcome.reason));
+  await relabelTmuxSession(sessionId, title);
   return title;
+}
+
+/**
+ * Gives the session's tmux the same name the session just took.
+ *
+ * The point is `tmux attach -t canvas-session` on the machine the work is running on. A pane used
+ * to be named for the session UUID because the name WAS the lookup key -- two viewers computed it
+ * independently to converge on one pane -- so it could not be changed without stranding them.
+ * Identity now lives in a stamp on the session (`@agentdesk-session`) that rides through renames,
+ * which is what makes the name free to be something a person can type.
+ *
+ * Best effort, and after the rename that matters rather than before it. The session HAS been
+ * renamed by this point; failing the call over a label would report a rename that plainly
+ * happened as one that did not, and leave the caller with no way to tell which half was true.
+ */
+async function relabelTmuxSession(sessionId: string, title: string): Promise<void> {
+  try {
+    const current = await liveTmuxSession("claude", sessionId);
+    if (!current) return;
+    // Its own name excluded from the taken set: a session renamed in place would otherwise collide
+    // with itself and take a suffix for a name that was already free.
+    const taken = (await listTmuxSessions())
+      .map((session) => session.name)
+      .filter((name) => name !== current);
+    const next = uniqueTmuxSessionName(title, sessionId, taken);
+    if (next !== current) await renameTmuxSessionTo(current, next);
+  } catch {
+    // No tmux, no pane, or a name tmux refused. The session is renamed either way.
+  }
 }
 
 /** Why the rename did not happen, in terms of what the reader can do about it. */

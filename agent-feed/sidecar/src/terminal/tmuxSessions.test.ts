@@ -4,6 +4,9 @@ import {
   captureHistoryArgs,
   captureScreenArgs,
   hasSessionArgs,
+  parseTmuxSessionIdentities,
+  renameSessionArgs,
+  setSessionIdentityArgs,
   newSessionArgs,
   paneGeometryArgs,
   historyForTerminal,
@@ -251,4 +254,54 @@ test("stops waiting when the pane cannot be described at all", async () => {
   // The attach that follows reports the real failure; waiting on it would only delay that.
   expect(result.settled).toBe(false);
   expect(result.waitedMs).toBe(0);
+});
+
+// The session identity stamp: what makes a pane findable after its name changes.
+
+test("the stamp target carries no '=', because set-option refuses one", () => {
+  // Measured 2026-09-08: `set-option -t =name` answers `no such session: =name` for a session
+  // that is right there, and fails with the option silently unset -- so a later lookup finds
+  // nothing and concludes the pane is gone. `has-session` is the opposite and requires it.
+  expect(setSessionIdentityArgs("canvas-session", "b18b005e")).toEqual([
+    "set-option", "-t", "canvas-session", "@agentdesk-session", "b18b005e",
+  ]);
+  expect(hasSessionArgs("canvas-session")).toEqual(["has-session", "-t", "=canvas-session"]);
+});
+
+test("a rename targets exactly, so a prefix cannot rename somebody else's session", () => {
+  // tmux resolves a bare -t by exact match, then PREFIX: `-t canvas` would find `canvas-session`.
+  expect(renameSessionArgs("canvas", "terminal-tiles")).toEqual([
+    "rename-session", "-t", "=canvas", "terminal-tiles",
+  ]);
+});
+
+test("sessions without a stamp are skipped rather than failing the query", () => {
+  // Every session tmux holds that this sidecar did not start prints an empty option. That is the
+  // common case on this machine, not an error.
+  const found = parseTmuxSessionIdentities([
+    "someones-shell|",
+    "canvas-session|b18b005e",
+    "|orphan-with-no-name",
+  ].join("\n"));
+  expect(found.get("b18b005e")).toBe("canvas-session");
+  expect(found.size).toBe(1);
+});
+
+test("two panes claiming one session keep the reader on the first", () => {
+  // A bug elsewhere, but picking the later one would move a viewer off the pane it was reading.
+  const found = parseTmuxSessionIdentities("first|shared\nsecond|shared");
+  expect(found.get("shared")).toBe("first");
+});
+
+test("a line with no separator is not a session", () => {
+  // Format drift rather than data. Reading it as a bare name would map a session id of "" onto
+  // it, and the first lookup for an unstamped session would then answer with that pane.
+  const found = parseTmuxSessionIdentities("no-separator-here\ncanvas-session|b18b005e");
+  expect(found.size).toBe(1);
+  expect(found.get("b18b005e")).toBe("canvas-session");
+});
+
+test("the id is trimmed, so a trailing newline is not part of it", () => {
+  const found = parseTmuxSessionIdentities("canvas-session|b18b005e  \n");
+  expect(found.get("b18b005e")).toBe("canvas-session");
 });

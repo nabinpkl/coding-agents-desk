@@ -23,6 +23,8 @@ import {
   createTmuxSession,
   waitForPaneToSettle,
   describeTmuxPane,
+  findTmuxSessionByIdentity,
+  stampTmuxSessionIdentity,
   hexSend,
   pipeTmuxPane,
   releaseTmuxWindowSize,
@@ -74,6 +76,16 @@ interface TerminalIdentity {
    * time later could answer differently.
    */
   startedSession: { sessionId: string; title: string } | null;
+  /**
+   * The Claude session to stamp on the pane, so it can be found again after it is renamed.
+   *
+   * null for a raw tmux target: that pane is somebody else's, named by a human, and claiming it
+   * for a session id would make this sidecar the answer to a question about a session it does not
+   * run. Set for every session-backed kind, including a fork, where it is the FORK's id -- the
+   * fork is the session that pane is running, and stamping its parent would put two panes on one
+   * id and move a reader's terminal between them.
+   */
+  stampSession: string | null;
 }
 
 /**
@@ -162,6 +174,14 @@ export class AgentTerminalService {
       create: createTmuxSession,
       settle: (session: string) => waitForPaneToSettle(session).then(() => {}),
     },
+    /**
+     * Records which Claude session a pane is running, so a rename cannot lose it.
+     *
+     * Its own parameter rather than a member of `sessionTmux`, because that object is injected
+     * WHOLE: a test hands over its own four functions, and a fifth added to the shape is undefined
+     * at run time in every one of them while the types still agree.
+     */
+    private readonly stampSessionIdentity = stampTmuxSessionIdentity,
   ) {
   }
 
@@ -186,6 +206,16 @@ export class AgentTerminalService {
         // startup into scrollback, which is what makes joining one feel instant; a newborn one
         // would otherwise pipe every byte of that startup live and make the viewer emulate it.
         await this.sessionTmux.settle(identity.tmuxSession);
+      }
+      // Stamped on every open, not only on the one that created the pane. That is what adopts a
+      // pane started before this existed, and what re-stamps one whose option was lost -- and it
+      // is idempotent, so the ordinary case costs one tmux call that changes nothing.
+      //
+      // Best effort, deliberately: the stamp makes a pane findable AFTER a rename, and a terminal
+      // that opens is worth more than one refused because its label could not be written.
+      if (identity.stampSession) {
+        await this.stampSessionIdentity(identity.tmuxSession, identity.stampSession)
+          .catch(() => {});
       }
       // A second open of one fork or one new session joins the pane that is already running, so
       // nothing was started and there is no name to report. The identity would happily offer one,
@@ -497,6 +527,7 @@ export class AgentTerminalService {
       refuseNew: null,
       createTmux: null,
       startedSession: null,
+      stampSession: null,
     };
   }
 
@@ -538,6 +569,7 @@ export class AgentTerminalService {
       refuseNew: null,
       createTmux: null,
       startedSession: null,
+      stampSession: null,
     };
   }
 
@@ -627,6 +659,7 @@ export class AgentTerminalService {
       // The second path that brings a session into existence, and it reports the same way the fork
       // does: the caller chose the name, so this says which open was the one that started it.
       startedSession: { sessionId, title },
+      stampSession: sessionId,
     };
   }
 
@@ -673,6 +706,7 @@ export class AgentTerminalService {
         refuseNew: null,
         createTmux: null,
         startedSession: null,
+        stampSession: sessionId,
       };
     }
 
@@ -691,6 +725,7 @@ export class AgentTerminalService {
       },
       // Resuming, not creating: the session already exists and already has whatever name it has.
       startedSession: null,
+      stampSession: sessionId,
     };
   }
 
@@ -761,6 +796,7 @@ export class AgentTerminalService {
       // has no other way to learn it: until the first turn there is no transcript to read it from,
       // which is exactly when a fork is on screen with nothing else to call it.
       startedSession: { sessionId: forkId, title },
+      stampSession: forkId,
     };
   }
 
@@ -814,8 +850,15 @@ export async function liveTmuxSession(
   sessionId: string,
   processes: () => Promise<{ sessionId: string; tmuxSession: string | null }[]> =
     async () => liveSessionProcesses(await currentProcessTable()),
+  stamped: (sessionId: string) => Promise<string | null> = findTmuxSessionByIdentity,
 ): Promise<string | null> {
   if (source !== "claude") return null;
+  // The stamp first, because the registry's answer is a NAME the CLI resolved once at startup and
+  // then cached. It never re-reads it, so a renamed session leaves that row pointing at a name
+  // tmux no longer has -- measured: `has-session` on it exits 1 while the pane sits there running.
+  // The stamp is set on the tmux session itself and rides through any number of renames.
+  const byStamp = await stamped(sessionId).catch(() => null);
+  if (byStamp) return byStamp;
   const panes = (await processes())
     .filter((entry) => entry.sessionId === sessionId)
     .map((entry) => entry.tmuxSession)

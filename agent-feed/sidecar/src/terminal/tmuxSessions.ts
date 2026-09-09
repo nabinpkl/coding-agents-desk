@@ -363,6 +363,89 @@ export async function tmuxSessionExists(session: string): Promise<boolean> {
 }
 
 /**
+ * The tmux option carrying which Claude session a tmux session is running.
+ *
+ * A user option (`@`) rather than the session NAME, which is what this used to be. The name was
+ * derived from the session uuid so two viewers could agree on one pane without coordinating --
+ * real work, but it made the name a lookup key, and a key cannot be renamed. Measured: renaming a
+ * session left the sidecar addressing a name tmux no longer had, and the panel minted a second
+ * session beside it.
+ *
+ * An option separates the two jobs. It rides through every rename (measured), so identity is
+ * stable while the name is free to be something a person can type at `tmux attach -t`.
+ */
+const SESSION_IDENTITY_OPTION = "@agentdesk-session";
+
+/**
+ * Stamps which Claude session this tmux session is running.
+ *
+ * No `=` prefix on the target, unlike `has-session` below: `set-option` does not accept one and
+ * answers `no such session: =name` for a session that is right there. Measured 2026-09-08, and it
+ * fails in the worst way -- exit non-zero with the option silently unset, so a later lookup finds
+ * nothing and concludes the session is gone.
+ */
+export function setSessionIdentityArgs(session: string, sessionId: string): string[] {
+  return ["set-option", "-t", session, SESSION_IDENTITY_OPTION, sessionId];
+}
+
+export async function stampTmuxSessionIdentity(
+  session: string,
+  sessionId: string,
+): Promise<void> {
+  const { err, code } = await tmux(setSessionIdentityArgs(session, sessionId));
+  if (code !== 0) throw new TmuxUnavailable(`tmux set-option exited ${code}: ${err.trim()}`);
+}
+
+/** One line per session: the name, and the Claude session it is running if it says. */
+const IDENTITY_FORMAT = `#{session_name}|#{${SESSION_IDENTITY_OPTION}}`;
+
+export function parseTmuxSessionIdentities(stdout: string): Map<string, string> {
+  const bySessionId = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const separator = line.indexOf("|");
+    if (separator < 0) continue;
+    const name = line.slice(0, separator);
+    const sessionId = line.slice(separator + 1).trim();
+    // Empty is ordinary and by far the common case: every session tmux holds that this sidecar
+    // did not start prints an empty option rather than failing the query.
+    if (!name || !sessionId) continue;
+    // First wins. Two panes claiming one session is a bug elsewhere, and picking the later one
+    // would move a viewer off the pane it was already reading.
+    if (!bySessionId.has(sessionId)) bySessionId.set(sessionId, name);
+  }
+  return bySessionId;
+}
+
+/** Which tmux session is running this Claude session, by the stamp rather than by its name. */
+export async function findTmuxSessionByIdentity(sessionId: string): Promise<string | null> {
+  const { out, err, code } = await tmux(["list-sessions", "-F", IDENTITY_FORMAT]);
+  if (code !== 0) {
+    if (/no server running|no sessions/i.test(err)) return null;
+    throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
+  }
+  return parseTmuxSessionIdentities(out).get(sessionId) ?? null;
+}
+
+/**
+ * Renames a tmux session, which is now only a change of label.
+ *
+ * Safe precisely because nothing resolves by name any more: the stamp above is what a viewer finds
+ * a pane by, and the pane id in every open attachment is untouched. `=` for exactness, so a
+ * prefix hit cannot rename somebody else's session.
+ */
+export function renameSessionArgs(session: string, name: string): string[] {
+  return ["rename-session", "-t", `=${session}`, name];
+}
+
+export async function renameTmuxSessionTo(session: string, name: string): Promise<void> {
+  const { err, out, code } = await tmux(renameSessionArgs(session, name));
+  if (code !== 0) {
+    throw new TmuxUnavailable(`tmux rename-session exited ${code}: ${err.trim() || out.trim()}`);
+  }
+}
+
+/**
  * Starts a detached session running one command, at the size the viewer asked for.
  *
  * The geometry is passed because this session has no other client to take it from: a detached
