@@ -264,6 +264,14 @@ export function App({ feed, host, fill = false }: Props) {
       sessionId: string;
       forkId: string;
       forkTitle: string;
+      /**
+       * The fork's first turn, empty when the reader gave none.
+       *
+       * Held beside the ids rather than sent separately because it is part of the fork's identity
+       * for exactly as long as the fork has not started: the terminal below is what starts it, and
+       * it starts once, from this object.
+       */
+      brief: string;
       /** What it was forked FROM, which is the one thing the empty view has to say. */
       sourceTitle: string;
       botId: string;
@@ -626,6 +634,7 @@ export function App({ feed, host, fill = false }: Props) {
     (
       request: { session: SessionSummary; botId: string; projectPath: string },
       forkTitle: string,
+      brief: string,
     ) => {
       setForkRequest(null);
       setForkedSession({
@@ -635,6 +644,7 @@ export function App({ feed, host, fill = false }: Props) {
         // leaves no id behind and two confirms of one row are two different forks.
         forkId: crypto.randomUUID(),
         forkTitle,
+        brief,
         sourceTitle: request.session.title || request.session.sessionId,
         botId: request.botId,
         projectPath: request.projectPath,
@@ -1136,6 +1146,10 @@ export function App({ feed, host, fill = false }: Props) {
                 sessionId: forkedSession.sessionId,
                 forkId: forkedSession.forkId,
                 title: forkedSession.forkTitle,
+                // Omitted rather than sent empty: the sidecar reads an absent brief as "no first
+                // turn", and an empty string would be a brief that says nothing, prefixed by a
+                // handoff note explaining that it says nothing.
+                ...(forkedSession.brief.trim() ? { brief: forkedSession.brief } : {}),
               }}
               layout="band"
             />

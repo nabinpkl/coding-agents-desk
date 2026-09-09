@@ -13,7 +13,12 @@ import type {
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
-import { claudeSessionPaneName, newClaudeSessionCommand } from "./claudeSessionLaunch.ts";
+import {
+  claudeForkPaneName,
+  claudeSessionPaneName,
+  forkClaudeSessionCommand,
+  newClaudeSessionCommand,
+} from "./claudeSessionLaunch.ts";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
 import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
@@ -733,6 +738,10 @@ export class AgentTerminalService {
    * The pane is named after the fork rather than its source, so forking one session twice gives
    * two panes rather than one pane the second fork silently lands in.
    *
+   * A brief, when the caller sends one, becomes the fork's first turn -- prefixed with the standing
+   * handoff statement, because a fork otherwise cannot tell that the context it is holding belongs
+   * to a session that is still running and still going to finish it.
+   *
    * `--fork-session` copies from the source's LAST COMPACTION forward, not its whole history.
    * Measured on a transcript with compactions at lines 419 and 653 of 1247: the fork carried lines
    * 686 onward and no earlier record, including under the CLI's own "resume full session as-is"
@@ -755,13 +764,14 @@ export class AgentTerminalService {
       throw new AgentTerminalConflictError("agent session project directory is no longer available");
     }
 
-    const pane = forkedPaneName(forkId);
+    const pane = claudeForkPaneName(forkId);
     // Taken from the caller, never derived. The panel proposes a name and the reader may type over
     // it before the fork starts, so a title computed here would be a second answer to a question
     // that has already been asked -- and it would silently win.
     const title = context.title.trim();
     const refusal = sessionTitleRefusal(title);
     if (refusal) throw new AgentTerminalInvalidError(refusal);
+    const brief = forkBrief(context.brief);
     return {
       ptySessionName: `agent-tmux-${pane}`,
       tmuxSession: pane,
@@ -770,19 +780,11 @@ export class AgentTerminalService {
       refuseNew: null,
       createTmux: {
         cwd: projectPath,
-        command: [
-          "claude",
-          "--resume",
-          sessionId,
-          "--fork-session",
-          // The fork's transcript lands at exactly this id, so the pane name and the file agree
-          // instead of the pane being named after a uuid nothing else knows. Measured accepted
-          // alongside `--fork-session` on 2026-09-07.
-          "--session-id",
-          forkId,
-          "-n",
-          title,
-        ],
+        // The argv, the pane name and the handoff statement all live in `claudeSessionLaunch.ts`,
+        // beside the ones the new-session path uses. A fork assembled here would be a second answer
+        // to questions that path has already settled -- and the brief's composition in particular
+        // has to be one answer, or the copy that says least about leaving the parent alone wins.
+        command: forkClaudeSessionCommand({ sessionId, forkId, title, brief }),
       },
       // The one path that creates a session, and so the one that has a name to report. The caller
       // has no other way to learn it: until the first turn there is no transcript to read it from,
@@ -873,8 +875,36 @@ function requiredSessionUuid(value: string, field: string): string {
 }
 
 /** The pane a fork runs in, named for the fork rather than the session it came from. */
-function forkedPaneName(forkId: string): string {
-  return `agentdesk-fork-${forkId}`;
+/**
+ * How long a fork's brief is allowed to be.
+ *
+ * It becomes one argument of a shell command line, so the ceiling that matters is `ARG_MAX`, which
+ * is a megabyte here -- this is far below it. What the limit is actually for is the other
+ * direction: a caller that sends a file it did not mean to send finds out at the boundary rather
+ * than by watching a pane fail to start.
+ */
+const MAXIMUM_FORK_BRIEF = 32_768;
+
+/**
+ * A brief, or nothing.
+ *
+ * Whitespace-only is nothing rather than an error: it is what an empty textarea sends, and refusing
+ * the fork over it would refuse the ordinary case -- a reader who opened the field, looked at it,
+ * and decided to type into the pane instead.
+ */
+function forkBrief(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new AgentTerminalInvalidError("context.brief must be a string");
+  }
+  const brief = value.trim();
+  if (!brief) return undefined;
+  if (brief.length > MAXIMUM_FORK_BRIEF) {
+    throw new AgentTerminalInvalidError(
+      `context.brief must be at most ${MAXIMUM_FORK_BRIEF} characters`,
+    );
+  }
+  return brief;
 }
 
 function requiredDimension(value: number, name: string): number {

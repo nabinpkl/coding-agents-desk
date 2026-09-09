@@ -84,6 +84,20 @@ export interface SessionForkTerminalContext {
    * which is what keeps one title on the wire instead of one here and another in the sidecar.
    */
   title: string;
+  /**
+   * The fork's first turn: what this fork is for, as opposed to what its parent was doing.
+   *
+   * Composed rather than delivered verbatim, which is the difference between this field and
+   * `BotLaunchCommand.prompt`. A fork wakes up holding a context it did not build, mid-task, with
+   * its parent still running and still holding those files -- so the sidecar prefixes a standing
+   * handoff statement saying exactly that before the brief. Sending the statement from here
+   * instead would put one copy on every caller, and the shortest copy would win.
+   *
+   * Absent means an ordinary fork: a pane branched from a session for a reader to type into. No
+   * first turn is injected then, because there is no way to tell a session it is a fork without
+   * also making it answer something.
+   */
+  brief?: string;
 }
 
 /**

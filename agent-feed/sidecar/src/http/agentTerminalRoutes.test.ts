@@ -207,6 +207,18 @@ test("carries a fork's own id through to the service, not just the session it ca
   });
   expect(untitled?.status).toBe(400);
   expect(calls).toHaveLength(1);
+
+  // The brief rides along untouched, whitespace included. Deciding what counts as empty here as
+  // well as in the service would give the two layers separate opinions about an untouched field.
+  const briefed = await call(route, "POST", "/api/terminals", {
+    context: { ...context, brief: "  " },
+    columns: 100,
+    rows: 30,
+  });
+  expect(briefed?.status).toBe(201);
+  expect(calls.at(-1)).toEqual({
+    open: { context: { ...context, brief: "  " }, dimensions: { columns: 100, rows: 30 } },
+  });
 });
 
 test("carries a new session's directory and name through, both of which it alone supplies", async () => {

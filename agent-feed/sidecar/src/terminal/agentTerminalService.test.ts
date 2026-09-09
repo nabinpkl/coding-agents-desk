@@ -520,6 +520,62 @@ test("forks a session into a pane of its own, never joining the one it came from
   expect(attached).toEqual([{ session: `agentdesk-fork-${FORK_ID}`, columns: 100, rows: 30 }]);
 });
 
+test("hands a fork its brief as one first turn, with the handoff note in front of it", async () => {
+  // What is being pinned is the ORDER: a fork reads its first turn holding a context it did not
+  // build, so the sentence that says the context is borrowed has to arrive before the instruction
+  // that would otherwise read as the next step of it.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  await service.open(
+    {
+      kind: "session-fork",
+      source: "claude",
+      sessionId: SESSION_ID,
+      forkId: FORK_ID,
+      title: FORK_TITLE,
+      brief: "Give each Bot card its own background colour.",
+    },
+    { columns: 100, rows: 30 },
+  );
+
+  const command = fakes.created[0]!.command;
+  expect(command.slice(0, 8)).toEqual([
+    "claude",
+    "--resume",
+    SESSION_ID,
+    "--fork-session",
+    "--session-id",
+    FORK_ID,
+    "-n",
+    FORK_TITLE,
+  ]);
+  expect(command).toHaveLength(9);
+  const turn = command[8]!;
+  expect(turn.indexOf("You are a fork")).toBeLessThan(turn.indexOf("Give each Bot card"));
+});
+
+test("treats a blank brief as no brief, so an untouched field does not start a turn", async () => {
+  // An empty textarea is what most forks send. Composing a first turn out of it would spend the
+  // fork's opening turn on a handoff note with nothing after it.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  await service.open(
+    {
+      kind: "session-fork",
+      source: "claude",
+      sessionId: SESSION_ID,
+      forkId: FORK_ID,
+      title: FORK_TITLE,
+      brief: "   \n  ",
+    },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(fakes.created[0]!.command).toHaveLength(8);
+});
+
 test("refuses a fork title it cannot pass to the CLI, rather than substituting one", async () => {
   // The reader types this, so it can be anything. A blank field and a title past the catalog's
   // cap are both refused here: naming one for them would start a session under a name they did

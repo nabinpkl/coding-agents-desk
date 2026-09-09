@@ -1,11 +1,16 @@
 // Starting a Claude session in a tmux pane this sidecar owns.
 //
-// There are two callers and they must not disagree. The panel's new-session terminal starts one
+// There are three callers and they must not disagree. The panel's new-session terminal starts one
 // because a reader asked for a pane; the Bot roster starts one because a Bot is being created
-// around a directory. Both need the same three decisions -- which pane name, which argv, and the
-// identity stamp that survives a rename -- and the pane name in particular is not cosmetic: a
-// session started in a pane named anything else is one the card's terminal will not join, so
-// opening it would resume the transcript a second time beside the process still writing it.
+// around a directory; the fork starts one because a reader branched a session that already exists.
+// All three need the same decisions -- which pane name, which argv, and the identity stamp that
+// survives a rename -- and the pane name in particular is not cosmetic: a session started in a
+// pane named anything else is one the card's terminal will not join, so opening it would resume
+// the transcript a second time beside the process still writing it.
+//
+// A fork differs from the other two in exactly one way, and it is the reason its argv lives here
+// rather than being assembled at its call site: it inherits a context it did not build. Everything
+// else about it -- the pane, the quoting, the stamp -- is the same problem solved once.
 
 import {
   createTmuxSession,
@@ -93,4 +98,107 @@ export async function startClaudeSession(options: {
   });
   await stampTmuxSessionIdentity(tmuxSession, options.sessionId).catch(() => {});
   return { sessionId: options.sessionId, title: options.title, tmuxSession };
+}
+
+/**
+ * The pane a fork runs in.
+ *
+ * Named after the fork rather than the session it branched from, which is the one thing that keeps
+ * two forks of one session from landing in one pane -- and re-opening a fork from landing back in
+ * the transcript the reader asked to branch away from.
+ */
+export function claudeForkPaneName(forkId: string): string {
+  return `agentdesk-fork-${forkId}`;
+}
+
+/**
+ * What a fork is told before it is told anything else.
+ *
+ * A fork wakes up holding another session's context and no way to tell that it is holding it. Its
+ * transcript reads as its own work, mid-task, with the parent's next step implied by everything
+ * above -- and the parent is still running, still holding those files, still going to finish it. So
+ * the failure this exists to prevent is not confusion, it is DUPLICATION: two sessions completing
+ * the same edit, on one branch, neither knowing the other is there.
+ *
+ * The second half is the part that is easy to leave out and expensive to omit. Saying "you are a
+ * fork" is not enough, because a fork that knows it is a fork still has the parent's unfinished
+ * work in front of it and no instruction to leave it alone.
+ */
+export const FORK_HANDOFF_PREAMBLE =
+  `You are a fork of the session whose context you are holding.
+
+Everything above this turn is that session's work, not yours. You did not start it, and the
+session it came from is still running and still has it.
+
+What follows is your task. It may continue that work, extend it, or sit beside it as a sibling of
+it. Whichever it is, it is now the whole of what you are doing. Do not pick up what the parent was
+in the middle of, do not finish it, and do not edit the files it is holding -- the parent is
+handling that. Take the instruction below as yours alone.`;
+
+/**
+ * The preamble and the caller's brief, as one first turn.
+ *
+ * Composed here rather than by the caller so that every fork started through this sidecar carries
+ * the same statement. A caller free to write its own would eventually write a shorter one.
+ */
+export function forkFirstTurn(brief: string): string {
+  return `${FORK_HANDOFF_PREAMBLE}\n\n---\n\n${brief.trim()}`;
+}
+
+/**
+ * The argv that forks an existing session into a new one at a known id.
+ *
+ * `--session-id` is accepted alongside `--fork-session` and the fork's transcript lands at exactly
+ * that uuid, which is what lets a caller name a fork before it exists and find its file afterwards
+ * without searching. Measured 2026-09-07; re-measured 2026-09-09 with a positional prompt on the
+ * same command line, which arrives as the fork's first turn with the source's context already
+ * loaded.
+ *
+ * The brief is optional and its absence is not a default to fill in. A fork opened with no brief is
+ * a reader branching a session to type into it themselves, and a first turn injected there would
+ * spend a turn answering nobody. So the preamble rides WITH a brief rather than alone: there is no
+ * way to say "you are a fork" to a session that has not been given anything to do without also
+ * making it do something.
+ */
+export function forkClaudeSessionCommand(
+  options: { sessionId: string; forkId: string; title: string; brief?: string },
+): string[] {
+  const command = [
+    "claude",
+    "--resume",
+    options.sessionId,
+    "--fork-session",
+    "--session-id",
+    options.forkId,
+    "-n",
+    options.title,
+  ];
+  if (options.brief) command.push(forkFirstTurn(options.brief));
+  return command;
+}
+
+/**
+ * Forks a session into its own detached pane, with nobody watching.
+ *
+ * The sibling of `startClaudeSession`, and the answer to "fork this and hand it a brief" without a
+ * terminal being open to watch it happen. Same stamp, same geometry, same best-effort reasoning:
+ * a fork that is running is worth more than one refused because its label could not be written.
+ */
+export async function startForkedClaudeSession(options: {
+  cwd: string;
+  sessionId: string;
+  forkId: string;
+  title: string;
+  brief?: string;
+}): Promise<StartedClaudeSession> {
+  const tmuxSession = claudeForkPaneName(options.forkId);
+  await createTmuxSession({
+    session: tmuxSession,
+    cwd: options.cwd,
+    command: forkClaudeSessionCommand(options),
+    columns: UNATTENDED_COLUMNS,
+    rows: UNATTENDED_ROWS,
+  });
+  await stampTmuxSessionIdentity(tmuxSession, options.forkId).catch(() => {});
+  return { sessionId: options.forkId, title: options.title, tmuxSession };
 }

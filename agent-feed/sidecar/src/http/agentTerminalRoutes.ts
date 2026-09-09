@@ -97,6 +97,10 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
   // says what to resume, the second names the pane, and without it two forks of one session would
   // land in one terminal. The title comes with them because the reader chose it before the fork
   // started; the service refuses one it cannot use rather than substituting its own.
+  //
+  // The brief is passed through untouched, including whitespace-only. What counts as absent is the
+  // service's decision, not this layer's -- it is the one that has to compose the first turn, and
+  // splitting that judgment across two files is how the two come to disagree about an empty field.
   if (kind === "session-fork") {
     return {
       kind,
@@ -104,6 +108,7 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
       sessionId: stringValue(context.sessionId, "context.sessionId"),
       forkId: stringValue(context.forkId, "context.forkId"),
       title: stringValue(context.title, "context.title"),
+      ...(context.brief === undefined ? {} : { brief: context.brief as string }),
     };
   }
   // A fresh session names the directory to run in and the id it will be known by. No source
