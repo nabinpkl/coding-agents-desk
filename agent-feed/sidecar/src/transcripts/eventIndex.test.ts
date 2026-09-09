@@ -33,8 +33,10 @@ afterEach(async () => {
   state.indexResyncs.clear();
   state.indexReferences.clear();
   state.sessionUsage.clear();
-  for (const follow of state.transcriptFollows.values()) await follow.watcher.close();
+  for (const follow of state.transcriptFollows.values()) await (await follow.watcher).close();
   state.transcriptFollows.clear();
+  await Promise.all(state.transcriptFollowClosing.values());
+  state.transcriptFollowClosing.clear();
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -326,6 +328,37 @@ test("the last reader leaving mid-build does not silence the session's events", 
 
   expect(notices.length).toBe(2);
   unsubscribe();
+  refollow();
+});
+
+test("a reader coming back waits for the leaving reader's watch to close", async () => {
+  // The case this is about is ordinary, not exotic: a card toggled, a reader moving between two
+  // cards on one session, a Vite reload. Each is a close and an open on one path with nothing
+  // ordering them. What loses that race is not this follow -- every watch in the process shares
+  // one watcher thread, and an open contending with a close is contending for the lock that
+  // thread holds against the main thread. Measured once as a sidecar that answered its port and
+  // nothing else, main thread parked in `_os_unfair_lock_lock_slow` for every sample.
+  const transcriptPath = await interleavedTranscript();
+  const key = sessionKey(source, sessionId);
+
+  const release = followTranscript(source, sessionId, transcriptPath, () => {});
+  await state.transcriptFollows.get(key)!.watcher;
+
+  release();
+  expect(state.transcriptFollowClosing.has(key)).toBe(true);
+
+  const refollow = followTranscript(source, sessionId, transcriptPath, () => {});
+  // Still closing, so the new watch is not open yet. Before this ordering existed the watch was
+  // opened synchronously here, while the previous one was still tearing down.
+  const raced = await Promise.race([
+    state.transcriptFollows.get(key)!.watcher.then(() => "opened"),
+    Promise.resolve("still closing"),
+  ]);
+  expect(raced).toBe("still closing");
+
+  // And it does open, once the close is done. A latch that never lifts is the other failure.
+  await state.transcriptFollows.get(key)!.watcher;
+  expect(state.transcriptFollowClosing.has(key)).toBe(false);
   refollow();
 });
 

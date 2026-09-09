@@ -370,21 +370,33 @@ export function followTranscript(
   acquireIndex(source, sessionId);
   let follow = state.transcriptFollows.get(key);
   if (!follow) {
-    const watcher = chokidar.watch(transcriptPath, {
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: false,
-    });
-    const entry: TranscriptFollow = { watcher, handlers: new Set() };
+    const handlers = new Set<(error: unknown) => void>();
     const report = (error: unknown): void => {
-      for (const handler of entry.handlers) handler(error);
+      for (const handler of handlers) handler(error);
     };
     const sync = (): void => {
       void syncIndex(source, sessionId, transcriptPath).catch(report);
     };
-    watcher.on("add", sync);
-    watcher.on("change", sync);
-    watcher.on("error", report);
+    // Behind any teardown for this path, so the new watch opens after the old one has closed
+    // rather than racing it. What loses that race is not this follow: every watch in this
+    // process shares one watcher thread, and an open contending with a close on the same path
+    // is contending for the lock that thread holds against the main thread.
+    const previous = state.transcriptFollowClosing.get(key);
+    const watcher = (previous ?? Promise.resolve()).then(() => {
+      const opened = chokidar.watch(transcriptPath, {
+        ignoreInitial: true,
+        persistent: true,
+        awaitWriteFinish: false,
+      });
+      opened.on("add", sync);
+      opened.on("change", sync);
+      opened.on("error", report);
+      // Released while it was still opening: the release has already taken this entry out of
+      // the map and has nothing to close, so the watch that just opened is nobody's.
+      if (state.transcriptFollows.get(key) !== entry) void opened.close();
+      return opened;
+    });
+    const entry: TranscriptFollow = { watcher, handlers };
     state.transcriptFollows.set(key, entry);
     follow = entry;
   }
@@ -401,7 +413,20 @@ export function followTranscript(
       current.handlers.delete(handler);
       if (current.handlers.size === 0) {
         state.transcriptFollows.delete(key);
-        void current.watcher.close();
+        // Recorded rather than awaited: releasing is called from a reader detaching, which
+        // cannot block. `followTranscript` is what waits.
+        const closed = current.watcher
+          .then((watcher) => watcher.close())
+          .catch((error: unknown) => {
+            console.error(`transcript follow ${key} did not release its watch`, error);
+          });
+        state.transcriptFollowClosing.set(key, closed);
+        void closed.finally(() => {
+          // Only if no later teardown has replaced it, or a slow close clears a fast one's entry.
+          if (state.transcriptFollowClosing.get(key) === closed) {
+            state.transcriptFollowClosing.delete(key);
+          }
+        });
       }
     }
     releaseIndex(source, sessionId);

@@ -105,7 +105,16 @@ export class BotStore {
   private snapshotValue: StoredBotSnapshot = emptySnapshot();
   private mutationTail: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<(snapshot: StoredBotSnapshot) => void>();
-  private watcher: FSWatcher | null = null;
+  private watcher: Promise<FSWatcher> | null = null;
+  /**
+   * The teardown of the previous watch, so the next one opens behind it.
+   *
+   * The last reader leaving and the next arriving is the ordinary case, not an exotic one: it
+   * is a panel tab closing and reopening, or a Vite reload. Those issue a close and an open on
+   * one directory with nothing ordering them, and every watch in this process shares one
+   * watcher thread, so the two contend for the lock that thread holds against the main thread.
+   */
+  private closing: Promise<void> | null = null;
 
   constructor(private readonly path: string) {
     this.loaded = this.load();
@@ -140,30 +149,43 @@ export class BotStore {
     // The DIRECTORY, not the file: `write` lands as a temp file plus a `rename`, so the path being
     // watched is replaced rather than modified, and a watch bound to the old inode would see one
     // change and then nothing. `depth: 0` keeps it to that directory's own entries.
-    const watcher = chokidar.watch(dirname(this.path), {
-      ignoreInitial: true,
-      depth: 0,
-      persistent: true,
-      awaitWriteFinish: false,
-    });
     const reload = (changed: string): void => {
       if (changed !== this.path) return;
       void this.announceExternalChange().catch((error) => {
         console.error("agent feed bot store reload failed", error);
       });
     };
-    watcher.on("add", reload);
-    watcher.on("change", reload);
-    watcher.on("unlink", reload);
-    watcher.on("error", (error) => console.error("agent feed bot store watcher failed", error));
-    this.watcher = watcher;
+    const opening = (this.closing ?? Promise.resolve()).then(() => {
+      const watcher = chokidar.watch(dirname(this.path), {
+        ignoreInitial: true,
+        depth: 0,
+        persistent: true,
+        awaitWriteFinish: false,
+      });
+      watcher.on("add", reload);
+      watcher.on("change", reload);
+      watcher.on("unlink", reload);
+      watcher.on("error", (error) => console.error("agent feed bot store watcher failed", error));
+      // Stopped while it was still opening: nothing else holds this watch, because
+      // `stopWatching` had no watcher to close when it ran.
+      if (this.watcher !== opening) void watcher.close();
+      return watcher;
+    });
+    this.watcher = opening;
   }
 
   private stopWatching(): void {
     const watcher = this.watcher;
     if (!watcher) return;
     this.watcher = null;
-    void watcher.close();
+    // Recorded rather than awaited: unsubscribing cannot block. `startWatching` is what waits.
+    const closed = watcher
+      .then((opened) => opened.close())
+      .catch((error: unknown) => console.error("agent feed bot store watcher close failed", error));
+    this.closing = closed;
+    void closed.finally(() => {
+      if (this.closing === closed) this.closing = null;
+    });
   }
 
   /**

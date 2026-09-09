@@ -18,7 +18,11 @@ export interface OpenStream {
  * that dies silently looks exactly like a session that stopped writing.
  */
 export interface TranscriptFollow {
-  watcher: FSWatcher;
+  /**
+   * Promised, because opening this watch may have to wait for the previous one on the same
+   * path to finish closing. See `transcriptFollowClosing`.
+   */
+  watcher: Promise<FSWatcher>;
   handlers: Set<(error: unknown) => void>;
 }
 
@@ -51,6 +55,13 @@ export interface TranscriptState {
   indexReferences: Map<string, number>;
   // One watch per followed transcript, shared by every reader of it.
   transcriptFollows: Map<string, TranscriptFollow>;
+  // Follows whose watch is being closed, so a reader arriving now waits for it.
+  //
+  // A reader leaving and another arriving straight after is the ordinary case here, not an
+  // exotic one: it is a card being toggled, a reader moving between two cards on one session,
+  // a Vite reload. Those issue a close and an open for the same path with nothing ordering
+  // them, and the close is a watcher teardown that takes a moment.
+  transcriptFollowClosing: Map<string, Promise<void>>;
   // Latest context-window occupancy per indexed session, folded line by line as
   // the index is built and extended. Lives here rather than in the catalog
   // because the indexing pass is the one place that already reads every line;
@@ -75,6 +86,7 @@ export const state: TranscriptState = {
   indexResyncs: new Set(),
   indexReferences: new Map(),
   transcriptFollows: new Map(),
+  transcriptFollowClosing: new Map(),
   sessionUsage: new Map(),
   eventSubscribers: new Map(),
   openStreams: new Set(),
