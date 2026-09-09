@@ -47,8 +47,24 @@ export function fittedFontSize(reading: {
   /** The box the whole grid has to fit inside, padding already taken off. */
   available: { width: number; height: number };
   maximum: number;
+  /**
+   * The smallest size worth rendering. Below it the screen overflows its box and SCROLLS.
+   *
+   * There was no floor here, deliberately, because the floor that existed before clipped: the grid
+   * stopped shrinking and a wide pane in a narrow card lost its right-hand columns with nothing to
+   * say they were gone. That is no longer what overflow does. The mount is `overflow-auto` and the
+   * screen inside it `shrink-0`, so a screen larger than its box is reachable by scrolling --
+   * measured 2026-09-08 on a live band: forced 700px wide inside a 458px mount, `scrollWidth` went
+   * to 725 and `scrollLeft` moved to 267.
+   *
+   * So the trade is no longer complete-and-tiny against truncated-and-legible; it is
+   * scroll-a-little against unreadable. A tmux pane is 80 columns wide by convention and a card's
+   * band is narrower than that at any readable size, so without this every session on the canvas
+   * renders at about nine pixels.
+   */
+  minimum: number;
 }): number | null {
-  const { baseFontSize, cell, grid, available, maximum } = reading;
+  const { baseFontSize, cell, grid, available, maximum, minimum } = reading;
   if (!(cell.width > 0) || !(cell.height > 0)) return null;
   if (!(grid.columns > 0) || !(grid.rows > 0)) return null;
   if (!(available.width > 0) || !(available.height > 0)) return null;
@@ -56,13 +72,12 @@ export function fittedFontSize(reading: {
     available.width / (cell.width * grid.columns),
     available.height / (cell.height * grid.rows),
   );
-  // NO floor beyond the step itself. There used to be one, on the reasoning that type nobody can
-  // read is not a way of showing somebody a terminal -- but the alternative it chose was worse: the
-  // grid stopped shrinking and the screen was CLIPPED, so a 179-column pane in a narrow card lost
-  // its right-hand columns with nothing to say they were gone. Complete and small is recoverable by
-  // widening the card; truncated and legible is not, because the reader cannot see what is missing.
-  // One step is the arithmetic floor rather than a policy: zero or negative is not a font size.
-  return Math.min(maximum, Math.max(FONT_SIZE_STEP, floorToStep(baseFontSize * scale)));
+  // `minimum` is a policy and one step is the arithmetic floor beneath it: zero or negative is not
+  // a font size. See the field for why a floor is safe here now and was not before.
+  return Math.min(
+    maximum,
+    Math.max(minimum, FONT_SIZE_STEP, floorToStep(baseFontSize * scale)),
+  );
 }
 
 /**
@@ -83,6 +98,8 @@ export function preferredScreenHeight(reading: {
   /** The width the screen has, padding already taken off. */
   availableWidth: number;
   maximum: number;
+  /** The same floor the fit uses, so the height asked for is the height the floored type needs. */
+  minimum: number;
 }): number | null {
   const fontSize = fittedFontSize({
     baseFontSize: reading.baseFontSize,
@@ -91,6 +108,7 @@ export function preferredScreenHeight(reading: {
     // Unbounded on the axis being spent, so only the width decides.
     available: { width: reading.availableWidth, height: Number.POSITIVE_INFINITY },
     maximum: reading.maximum,
+    minimum: reading.minimum,
   });
   if (fontSize === null) return null;
   return Math.round(

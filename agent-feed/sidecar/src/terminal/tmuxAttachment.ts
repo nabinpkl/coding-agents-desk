@@ -165,7 +165,7 @@ export class TmuxSessionConnection {
     if (this.closed) return;
     const shaped = options.claim
       ? adoptPaneSize(this.runtime, this.pane, options.columns, options.rows)
-      : Promise.resolve();
+      : refreshPaneSize(this.runtime, this.pane);
     void shaped
       .catch((error: unknown) => {
         // Not a failure of the terminal. A pane that would not change shape is the case this
@@ -300,6 +300,29 @@ export class TmuxSessionConnection {
  * Bursts collapse rather than queue: the loop re-reads `wanted` each time round, so a drag that
  * reports twenty sizes costs the tmux calls for the last one plus whichever was in flight.
  */
+/**
+ * Re-reads the pane's shape for a viewer that does not claim it, and redraws if it moved.
+ *
+ * A follower renders at the PANE's grid rather than its own, so it needs the current one -- and
+ * geometry was only ever re-read as a side effect of this side's own resize, which a follower by
+ * definition never performs. Without this, a pane that changes shape underneath one (somebody
+ * attaches a terminal, or resizes the window it is open in) leaves every follower rendering an
+ * absolutely-addressed screen into the grid the pane had when they opened, which is how text lands
+ * a row off from where the screen says it is.
+ *
+ * The redraw is the one a reshape needs and for the same reason: tmux draws a reflow per client,
+ * so with no clients not one byte of the new screen reaches the pipe. Sent only on an actual move,
+ * because a checkpoint clears and repaints every viewer -- see `adoptPaneSize` for the storm that
+ * fanning these out per caller produced.
+ */
+async function refreshPaneSize(runtime: TmuxPaneRuntime, pane: SharedPane): Promise<void> {
+  const geometry = await runtime.describe(pane.session);
+  if (geometry.columns === pane.columns && geometry.rows === pane.rows) return;
+  pane.columns = geometry.columns;
+  pane.rows = geometry.rows;
+  for (const viewer of pane.viewers) viewer.requestCheckpoint("");
+}
+
 async function adoptPaneSize(
   runtime: TmuxPaneRuntime,
   pane: SharedPane,

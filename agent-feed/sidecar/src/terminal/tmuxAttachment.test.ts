@@ -21,7 +21,9 @@ interface Recorded {
   emit: (chunk: Uint8Array) => void;
 }
 
-function runtime(overrides: Partial<TmuxPaneRuntime> = {}): { runtime: TmuxPaneRuntime; log: Recorded } {
+function runtime(
+  overrides: Partial<TmuxPaneRuntime> = {},
+): { runtime: TmuxPaneRuntime; log: Recorded; pane: { pid: number; columns: number; rows: number } } {
   const log: Recorded = {
     pipes: 0, stops: 0, sent: [], captures: 0, resizes: [], clientChecks: 0, releases: 0,
     emit: () => {},
@@ -47,7 +49,7 @@ function runtime(overrides: Partial<TmuxPaneRuntime> = {}): { runtime: TmuxPaneR
     },
     releaseSize: async () => { log.releases += 1; },
   };
-  return { runtime: { ...base, ...overrides }, log };
+  return { runtime: { ...base, ...overrides }, log, pane };
 }
 
 function collect(connection: { onEnvelope: (l: (e: PtyEnvelope) => void) => () => void }): PtyEnvelope[] {
@@ -213,6 +215,29 @@ test("a viewer that does not claim leaves the session at the shape it already ha
     viewColumns: 48,
     viewRows: 9,
   });
+});
+
+test("a follower re-reads the pane's shape, and redraws when it moved", async () => {
+  // Geometry used to be re-read only as a side effect of THIS side's resize, which a follower never
+  // performs -- so a pane that changed shape underneath one left it rendering an absolutely
+  // addressed screen into the grid the pane had when it opened.
+  const { runtime: tmux, log, pane } = runtime();
+  const attachments = new TmuxAttachments(tmux);
+  const connection = await attachments.open("rags", { columns: 200, rows: 50 });
+  const seen = collect(connection);
+
+  // The pane moves for a reason this side had nothing to do with: somebody attached a terminal.
+  pane.columns = 120;
+  pane.rows = 40;
+  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 48, rows: 9 });
+  await settle();
+
+  // Still no resize -- reading is not claiming.
+  expect(log.resizes).toEqual([]);
+  expect(viewportOf(seen)).toMatchObject({ sourceColumns: 120, sourceRows: 40 });
+  // And redrawn, because tmux draws a reflow per client and there are none: without a checkpoint
+  // not one byte of the new screen would reach the pipe.
+  expect(log.captures).toBeGreaterThan(0);
 });
 
 test("a reshaped pane is re-sent to every viewer, because nothing else redraws it", async () => {

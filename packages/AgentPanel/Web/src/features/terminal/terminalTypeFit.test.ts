@@ -11,6 +11,9 @@ const reading = (available: { width: number; height: number }) => ({
   grid: { columns: 41, rows: 20 },
   available,
   maximum: 28,
+  // Most cases here are about the arithmetic between the floor and the ceiling, so they set it out
+  // of the way; the two that are ABOUT the floor say so.
+  minimum: 0,
 });
 
 test("keeps the base size when the screen already fits exactly", () => {
@@ -26,16 +29,28 @@ test("takes the tighter of the two axes", () => {
   expect(fittedFontSize(reading({ width: 308, height: 640 }))).toBe(13);
 });
 
-test("shrinks as far as the box demands, with no floor to clip against", () => {
+test("shrinks as far as the box demands, down to the floor it is given", () => {
   // 13 x (235/320) is 9.55, and the tenth below it is the answer: rounding that down to 9 would
   // leave half a point of the binding axis unspent, which is dead space down both sides of a
   // screen that has already stopped growing.
   expect(fittedFontSize(reading({ width: 942, height: 235 }))).toBe(9.5);
-  // There used to be a floor of 8 here, and below it the screen was CLIPPED -- a wide pane in a
-  // narrow card lost its right-hand columns with nothing on screen to say they were gone.
-  // Complete and small is recoverable by widening the card; truncated and legible is not.
   expect(fittedFontSize(reading({ width: 942, height: 60 }))).toBe(2.4);
   expect(fittedFontSize(reading({ width: 942, height: 20 }))).toBe(0.8);
+});
+
+test("stops shrinking at the floor, and lets the screen overflow instead", () => {
+  // The floor that used to be here CLIPPED, which is why there was none: the grid stopped
+  // shrinking and a wide pane in a narrow card lost its right-hand columns silently. Overflow
+  // scrolls now -- measured on a live band, a screen forced wider than its mount moved
+  // `scrollLeft` -- so the trade is a short scroll against type nobody can read, and the screen
+  // stays complete either way.
+  const floored = (available: { width: number; height: number }) =>
+    fittedFontSize({ ...reading(available), minimum: 11 });
+  expect(floored({ width: 942, height: 235 })).toBe(11);
+  expect(floored({ width: 942, height: 20 })).toBe(11);
+  // The floor never pushes type UP past what the box can hold at the ceiling, nor overrides a fit
+  // that is already comfortable.
+  expect(floored({ width: 942, height: 640 })).toBe(26);
 });
 
 test("sizes to a tenth of a point, and never past what fits", () => {
@@ -67,6 +82,7 @@ const wanting = (availableWidth: number) => ({
   grid: { columns: 53, rows: 15 },
   availableWidth,
   maximum: 28,
+  minimum: 0,
 });
 
 test("asks for the height that spends the width, not the height at the base size", () => {

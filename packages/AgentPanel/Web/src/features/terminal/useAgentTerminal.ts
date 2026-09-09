@@ -118,6 +118,19 @@ function loadXterm(): Promise<typeof import("@xterm/xterm")> {
 const BASE_FONT_SIZE = 13;
 /** Above this a small grid in a large pane stops looking like a terminal. */
 const MAXIMUM_FONT_SIZE = 28;
+/**
+ * Below this the screen is not worth rendering small enough to fit, so it overflows and scrolls.
+ *
+ * A tmux pane is 80 columns wide by convention, and a card's band on the canvas is a few hundred
+ * pixels: fitting the whole width put the type at about nine pixels, which is smaller than any
+ * label around it. This is a couple of points below the base size rather than the base itself,
+ * because holding out for 13 would push a third of an 80-column screen off the side, where 11
+ * costs a much shorter scroll for type that reads.
+ *
+ * The screen stays COMPLETE either way -- this is the size it stops shrinking at, not a crop. See
+ * `fittedFontSize`'s own note on why overflow scrolls here rather than clipping.
+ */
+const MINIMUM_FONT_SIZE = 11;
 
 /**
  * One xterm bound to one sidecar terminal: the stream, the input, the size negotiation, the theme.
@@ -479,6 +492,7 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
           grid,
           availableWidth: available.width,
           maximum: MAXIMUM_FONT_SIZE,
+          minimum: MINIMUM_FONT_SIZE,
         });
         if (wanted !== null) {
           setContentHeight(wanted + padding.height + framePadding.height);
@@ -489,6 +503,7 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
           grid,
           available,
           maximum: MAXIMUM_FONT_SIZE,
+          minimum: MINIMUM_FONT_SIZE,
         });
         // Nothing measurable to fit against, which is every render before the mount has a size.
         if (fitted === null) return;
@@ -502,7 +517,11 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
         for (let step = 0; step < 6; step += 1) {
           // Annotated because the assignment below feeds back into inferring this.
           const size: number = terminal.options.fontSize ?? BASE_FONT_SIZE;
-          if (size <= FONT_SIZE_STEP) break;
+          // The floor binds here too. This loop only ever shrinks, so without the guard it walks
+          // straight back through a floored fit to whatever fits exactly -- measured on an
+          // 80-column pane in a card's band: the fit floored at 11 and this settled it to 9.4.
+          // Below the floor the answer is to overflow and scroll, not to keep shrinking.
+          if (size <= Math.max(MINIMUM_FONT_SIZE, FONT_SIZE_STEP)) break;
           const actual = terminal.dimensions?.css.cell;
           if (!actual) break;
           // At or above 1 the screen fits; below it, it is the fraction of the size that would.
@@ -518,6 +537,7 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
           // loop moves at all when the solve rounds back to where it started.
           const solved = floorToStep(size * headroom);
           const next = Math.max(
+            MINIMUM_FONT_SIZE,
             FONT_SIZE_STEP,
             solved < size ? solved : floorToStep(size - FONT_SIZE_STEP),
           );
