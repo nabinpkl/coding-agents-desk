@@ -1,4 +1,5 @@
-import chokidar, { type FSWatcher } from "chokidar";
+import chokidar from "chokidar";
+import { watchTree, watchTreeEntries } from "./watchTree.ts";
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
@@ -583,22 +584,20 @@ function scheduleCodexReconcile(): void {
 }
 
 function attachSourceWatchers(): void {
-  const claudeWatcher = chokidar.watch(config.claudeProjectsDirectory, {
-    ignoreInitial: true,
+  // One tree watch rather than one per transcript. All three of appearing, growing and being
+  // deleted reconcile the same way here, so the event kind was never read and nothing is lost by
+  // `fs.watch` not reporting it. See `watchTree` for what that saves.
+  const claudeWatcher = watchTree({
+    root: config.claudeProjectsDirectory,
     depth: 1,
-    persistent: true,
-    awaitWriteFinish: false,
-  });
-  const onClaudeCandidate = (path: string): void => {
-    void refreshClaudeSession(path).catch((error) => {
-      console.error("agent feed Claude candidate reconcile failed", error);
-    });
-  };
-  claudeWatcher.on("add", onClaudeCandidate);
-  claudeWatcher.on("change", onClaudeCandidate);
-  claudeWatcher.on("unlink", onClaudeCandidate);
-  claudeWatcher.on("error", (error) => {
-    console.error("agent feed Claude catalog watcher failed", error);
+    onPath: (path) => {
+      void refreshClaudeSession(path).catch((error) => {
+        console.error("agent feed Claude candidate reconcile failed", error);
+      });
+    },
+    onError: (error) => {
+      console.error("agent feed Claude catalog watcher failed", error);
+    },
   });
   state.sourceWatchers.push(claudeWatcher);
 
@@ -618,37 +617,31 @@ function attachSourceWatchers(): void {
   }
 
   const rolloutRoot = join(config.codexHomeDirectory, "sessions");
-  const rolloutWatcher = chokidar.watch(rolloutRoot, {
-    ignoreInitial: true,
+  // The one corpus here that reads the event kind, so it is the one that pays for rebuilding it:
+  // appearing and disappearing change what the catalog CONTAINS, which only the database can
+  // answer, while growing changes what one record SAYS, which the file can. `watchTreeEntries`
+  // asks the filesystem for that distinction instead of holding a descriptor per rollout to be
+  // told it -- there are over a thousand of those on this machine and only the handful being
+  // written ever fire.
+  const rolloutWatcher = watchTreeEntries({
+    root: rolloutRoot,
     depth: 3,
-    persistent: true,
-    awaitWriteFinish: false,
-  });
-  // Appearing and disappearing change what the catalog CONTAINS, which only the
-  // database can answer. Growing changes what one record SAYS, which the file can.
-  const onRolloutMembership = (path: string): void => {
-    if (ROLLOUT_PATTERN.test(basename(path))) scheduleCodexReconcile();
-  };
-  const onRolloutWritten = (path: string): void => {
-    if (!ROLLOUT_PATTERN.test(basename(path))) return;
-    void refreshCodexRollout(path).catch((error) => {
-      console.error("agent feed Codex rollout refresh failed", error);
-    });
-  };
-  rolloutWatcher.on("add", onRolloutMembership);
-  rolloutWatcher.on("change", onRolloutWritten);
-  rolloutWatcher.on("unlink", onRolloutMembership);
-  rolloutWatcher.on("error", (error) => {
-    console.error("agent feed Codex rollout watcher failed", error);
+    accepts: (path) => ROLLOUT_PATTERN.test(basename(path)),
+    onEntry: (path, change) => {
+      if (change === "written") {
+        void refreshCodexRollout(path).catch((error) => {
+          console.error("agent feed Codex rollout refresh failed", error);
+        });
+        return;
+      }
+      scheduleCodexReconcile();
+    },
+    onError: (error) => {
+      console.error("agent feed Codex rollout watcher failed", error);
+    },
   });
   state.sourceWatchers.push(rolloutWatcher);
 
-  const piWatcher = chokidar.watch(config.piSessionsDirectory, {
-    ignoreInitial: true,
-    depth: 2,
-    persistent: true,
-    awaitWriteFinish: false,
-  });
   const schedulePi = (): void => {
     if (piReconcileTimer) clearTimeout(piReconcileTimer);
     piReconcileTimer = setTimeout(() => {
@@ -658,10 +651,14 @@ function attachSourceWatchers(): void {
       });
     }, 40);
   };
-  piWatcher.on("add", schedulePi);
-  piWatcher.on("change", schedulePi);
-  piWatcher.on("unlink", schedulePi);
-  piWatcher.on("error", (error) => console.error("agent feed Pi catalog watcher failed", error));
+  // Same reconcile whatever happened, so again the event kind was never read. The root
+  // legitimately does not exist until pi has run once, which `watchTree` waits out.
+  const piWatcher = watchTree({
+    root: config.piSessionsDirectory,
+    depth: 2,
+    onPath: schedulePi,
+    onError: (error) => console.error("agent feed Pi catalog watcher failed", error),
+  });
   state.sourceWatchers.push(piWatcher);
 }
 
