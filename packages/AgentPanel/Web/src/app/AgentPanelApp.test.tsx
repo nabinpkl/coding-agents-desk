@@ -569,6 +569,135 @@ describe("App shell", () => {
     unmount();
   });
 
+  /** Both Bots on the canvas, each with one session, which is the shape the multi-session bugs need. */
+  function deliverTwoBots(transport: FakeHttpTransport) {
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { role: "Coordinates releases", labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+          {
+            botId: "bot-2",
+            name: "Docs Keeper",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+            sessionRefs: [{ source: "codex", sessionId: "sid-codex-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 2,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[1]!],
+            missingSessionRefs: [],
+          },
+        ],
+      });
+    });
+  }
+
+  /** Puts one running task on that session, which is the only thing that offers its chip. */
+  function deliverRunningTask(transport: FakeHttpTransport, sessionId: string) {
+    act(() => {
+      transport.deliver(`/${sessionId}/tasks`, {
+        ownerAlive: true,
+        finished: [],
+        running: [{
+          taskId: `task-${sessionId}`,
+          kind: "bash",
+          description: "Run the full test suite",
+          command: "just check",
+          startedAt: Date.now() - 1000,
+          state: { status: "running" },
+          elapsedMs: 1000,
+          hasOutput: false,
+          corroborated: true,
+          activity: null,
+        }],
+      });
+    });
+  }
+
+  // Two open sessions each portalled their tasks panel into ONE node the app owned, and the panel
+  // is absolutely placed -- so both landed at the same coordinates, stacked, with nothing saying
+  // which session either belonged to. Each card carries its own now.
+  it("puts each session's tasks panel inside that session's own card", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    deliverTwoBots(transport);
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Codex 01/ }));
+    deliverRunningTask(transport, "sid-claude-01");
+    deliverRunningTask(transport, "sid-codex-01");
+
+    const chips = screen.getAllByTestId("running-tasks-chip");
+    expect(chips).toHaveLength(2);
+    for (const chip of chips) fireEvent.click(chip);
+
+    // One panel per session, and each inside the card whose session it is about. Landing in one
+    // shared host put both in the same place instead, which is the bug this pins.
+    // The session's whole card, which is what the panel is positioned against and what has to
+    // contain it: one shared host put both panels outside either card, on the app itself.
+    const card = (name: RegExp) =>
+      screen.getByRole("region", { name }).closest("li") as HTMLElement;
+    const panels = screen.getAllByTestId("tasks-column");
+    expect(panels).toHaveLength(2);
+    expect(panels.filter((panel) => card(/^Session Claude 01 session/).contains(panel)))
+      .toHaveLength(1);
+    expect(panels.filter((panel) => card(/^Session Codex 01 session/).contains(panel)))
+      .toHaveLength(1);
+    unmount();
+  });
+
+  // One error string was handed to every open session, so a failure that happened to ONE of them
+  // was painted on all of them and named none of them.
+  it("shows a failed detach on that session's band and no other", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    deliverTwoBots(transport);
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Codex 01/ }));
+
+    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+      status: 500,
+      body: JSON.stringify({
+        error: { code: "detach-failed", message: "the Bot would not let go" },
+      }),
+    });
+    await act(async () => {
+      fireEvent.click(
+        canvas().getByRole("button", { name: "Actions for Session Claude 01" }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+    });
+
+    // On the card whose session the detach was about, and on no other. One string handed to
+    // every open session said it as many times as the reader had sessions open, and named none.
+    const card = (name: RegExp) =>
+      screen.getByRole("region", { name }).closest("li") as HTMLElement;
+    expect(within(card(/^Session Claude 01 session/)).getByRole("alert"))
+      .toHaveTextContent("would not let go");
+    expect(within(card(/^Session Codex 01 session/)).queryByRole("alert")).toBeNull();
+    unmount();
+  });
+
   it("reopens the canvas card that was open before a reload", () => {
     const openOneBot = () => {
       const harness = setup();
@@ -2177,6 +2306,78 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Session Claude 01"));
     expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
+    unmount();
+  });
+
+  /**
+   * The session this session's composer is mirroring, so the tmux band is the one on screen.
+   *
+   * That band is the only one with a box an image can go into -- Claude's own composer is what
+   * turns a pasted path into an image -- so it is what a drop test has to be standing on.
+   */
+  function mirrorClaudeComposer(transport: FakeHttpTransport) {
+    act(() => {
+      transport.deliver("/composer/stream", {
+        text: "",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [],
+      });
+    });
+  }
+
+  /** The session's own box: what the card is, from the inside of it. */
+  function sessionCard(): HTMLElement {
+    const field = screen.getByLabelText("Type into this session's terminal composer");
+    const card = field.closest(".bg-card");
+    if (!(card instanceof HTMLElement)) throw new Error("the session has no card");
+    return card;
+  }
+
+  function drop(target: HTMLElement, files: File[]) {
+    fireEvent.drop(target, { dataTransfer: { files, types: ["Files"] } });
+  }
+
+  // The whole session takes the image, not the little box at the bottom of it. A reader aiming a
+  // file at a session is aiming at the session, and on the canvas the field is a thin strip on a
+  // card that may be showing its terminal instead.
+  it("takes an image dropped anywhere on the session, once", async () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    mirrorClaudeComposer(transport);
+
+    await act(async () => {
+      drop(sessionCard(), [new File(["png"], "shot.png", { type: "image/png" })]);
+    });
+
+    // Exactly one. The composer box used to carry its own copy of these handlers, and a drop that
+    // landed on it would now be taken by the box AND again by the card it bubbled up to, which
+    // puts the same image in the composer twice.
+    const drops = transport.requests.filter((request) =>
+      request.method === "POST" && request.path.endsWith("/composer/image")
+    );
+    expect(drops).toHaveLength(1);
+    expect(drops[0]!.path).toContain("sid-claude-01");
+    unmount();
+  });
+
+  // A session with no box to put one in is not a drop target at all, rather than one that takes a
+  // file and drops it on the floor: without `onDragOver` the browser navigates to the file, which
+  // is a worse answer than the page refusing to accept it.
+  it("is not a drop target while nothing on the session can hold an image", async () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+
+    const field = screen.getByLabelText("Claude composer text");
+    const card = field.closest(".bg-card");
+    if (!(card instanceof HTMLElement)) throw new Error("the session has no card");
+    await act(async () => {
+      drop(card, [new File(["png"], "shot.png", { type: "image/png" })]);
+    });
+
+    expect(transport.requests.filter((request) => request.path.endsWith("/composer/image")))
+      .toHaveLength(0);
     unmount();
   });
 

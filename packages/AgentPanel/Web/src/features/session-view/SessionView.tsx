@@ -200,6 +200,29 @@ export function SessionView({
   // right answer only while this view is the page. State rather than a ref, because the pane has to
   // render again once the node exists; a ref would still be null when its own effects ran.
   const [column, setColumn] = useState<HTMLDivElement | null>(null);
+  /**
+   * What takes an image dropped anywhere on this session, or null while nothing here can hold one.
+   *
+   * Held here rather than in the band below so the WHOLE session is the drop target. A reader
+   * aiming a file at a session is aiming at the session, and the field is a thin strip at the
+   * bottom of it that on a canvas card may not even be on screen -- the terminal replaces it.
+   *
+   * Published upward by the band rather than reached down for, because only the band knows whether
+   * there is a box to put an image in; see `onFileDrop` there.
+   *
+   * Wrapped in an object because `setFileDrop` would take a bare function as an updater and call
+   * it rather than store it.
+   */
+  const [fileDrop, setFileDrop] = useState<{ accept: (files: readonly File[]) => void } | null>(
+    null,
+  );
+  /**
+   * Whether files are over this session right now. Only for the ring.
+   *
+   * A drop target with no visible edge is one nobody discovers, and the browser gives no hint of
+   * its own: the cursor says "you may drop" over the whole page.
+   */
+  const [dragging, setDragging] = useState(false);
 
   const summary = useSummary(feed, { source, sessionId });
   // Whether this is a Claude Code process in someone's terminal, which is what decides between the
@@ -334,7 +357,35 @@ export function SessionView({
   ) : null;
 
   return (
-    <div ref={setColumn} className="flex h-full min-h-0 flex-col bg-card">
+    <div
+      ref={setColumn}
+      className={`flex h-full min-h-0 flex-col bg-card ${
+        dragging ? "ring-2 ring-primary ring-inset" : ""
+      }`}
+      // The whole session takes the image, not just the composer box. Absent rather than inert
+      // where nothing can hold one: without `onDragOver` preventing the default no drop event
+      // fires at all, and the browser navigates to the file instead of this staying a no-op.
+      {...(fileDrop === null ? {} : {
+        onDragOver: (event: DragEvent<HTMLDivElement>) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragging(true);
+        },
+        // Only when the pointer has actually left the card. `dragleave` also fires when it crosses
+        // onto a child -- the transcript, the bands, the field -- and dropping the ring there makes
+        // it flicker over exactly the area somebody is aiming at.
+        onDragLeave: (event: DragEvent<HTMLDivElement>) => {
+          const to = event.relatedTarget;
+          if (to instanceof Node && event.currentTarget.contains(to)) return;
+          setDragging(false);
+        },
+        onDrop: (event: DragEvent<HTMLDivElement>) => {
+          event.preventDefault();
+          setDragging(false);
+          fileDrop.accept([...event.dataTransfer.files]);
+        },
+      })}
+    >
       {controlsHost
         ? createPortal(
           <>
@@ -424,6 +475,7 @@ export function SessionView({
           }
           : null}
         terminalHeightBasis={column}
+        onFileDrop={setFileDrop}
         onSendMessage={sendPrompt}
         onAbort={abortRun}
       />
@@ -458,6 +510,7 @@ function SessionComposer({
   agentTerminal,
   terminalComposer,
   terminalHeightBasis,
+  onFileDrop,
   onSendMessage,
   onAbort,
 }: {
@@ -504,6 +557,11 @@ function SessionComposer({
    * once the real reference arrives.
    */
   terminalHeightBasis: HTMLElement | null;
+  /**
+   * Publishes what can take a dropped image, so the whole session is the target rather than this
+   * band. Called with null whenever nothing here holds one, including on unmount.
+   */
+  onFileDrop: (drop: { accept: (files: readonly File[]) => void } | null) => void;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
@@ -577,6 +635,24 @@ function SessionComposer({
   const tmuxBand = transport.kind === "tmux-composer";
   const inboxBand = transport.kind === "cli-inbox";
   const agentTerminalBand = transport.kind === "agent-terminal";
+
+  /**
+   * Hands the session the function that takes a dropped image, so the card is the target.
+   *
+   * `tmuxComposer.drop` rather than `editor.onFiles`, which is the same function behind a fresh
+   * arrow every render and would re-register on each keystroke. The tmux band is the only one with
+   * a box to put an image in: Claude's own composer is what turns a pasted path into an image, and
+   * nothing on the window, inbox or pty bands holds one.
+   *
+   * It stays registered while the terminal is showing instead of the field. The pane IS the
+   * composer, so an image dropped then lands in the box the reader is already looking at.
+   */
+  const acceptFiles = tmuxBand ? tmuxComposer.drop : null;
+  useEffect(() => {
+    onFileDrop(acceptFiles === null ? null : { accept: acceptFiles });
+    return () => onFileDrop(null);
+  }, [onFileDrop, acceptFiles]);
+
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
   // the focus-gated watch for live state and the press actions.
@@ -601,13 +677,6 @@ function SessionComposer({
   // somebody has already typed, hand that exact draft to the selected local transport before the
   // native watcher releases ownership.
   const [localDraft, setLocalDraft] = useState("");
-  /**
-   * Whether files are being dragged over the field right now.
-   *
-   * Only for the ring. A drop target with no visible edge is one nobody discovers, and the browser
-   * gives no hint of its own -- the cursor says "you may drop" over the whole page.
-   */
-  const [dragging, setDragging] = useState(false);
   /**
    * The file picker behind the paperclip.
    *
@@ -1116,33 +1185,11 @@ function SessionComposer({
           // The box is this wrapper rather than the field, so the images sit INSIDE it, above the
           // text, the way the composer they are mirroring holds them. The field keeps its own
           // scrolling and auto-grow and gives up only its border.
-          className={`flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${
-            dragging ? "border-primary ring-2 ring-primary/25" : "border-border"
-          } ${editor.disabled ? "opacity-40" : ""}`}
-          // Offered only where the other end can hold an image, so these are absent rather than
-          // inert on the other bands: without `onDragOver` preventing the default, no drop event
-          // fires at all and the browser navigates to the file instead. On the wrapper rather than
-          // the field so the images are a drop target too.
-          {...(editor.onFiles === undefined ? {} : {
-            onDragOver: (event: DragEvent<HTMLDivElement>) => {
-              if (!event.dataTransfer.types.includes("Files")) return;
-              event.preventDefault();
-              setDragging(true);
-            },
-            // Only when the pointer has actually left the box. `dragleave` also fires when it
-            // crosses onto a child -- the images, the field -- and dropping the ring there makes
-            // it flicker over exactly the area somebody is aiming at.
-            onDragLeave: (event: DragEvent<HTMLDivElement>) => {
-              const to = event.relatedTarget;
-              if (to instanceof Node && event.currentTarget.contains(to)) return;
-              setDragging(false);
-            },
-            onDrop: (event: DragEvent<HTMLDivElement>) => {
-              event.preventDefault();
-              setDragging(false);
-              editor.onFiles?.([...event.dataTransfer.files]);
-            },
-          })}
+          // No drop handlers of its own: the whole session card is the target, and a second set
+          // here would take the same drop again on the way past, putting the image in twice.
+          className={`flex min-w-0 flex-1 flex-col rounded-xl border border-border bg-background shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${
+            editor.disabled ? "opacity-40" : ""
+          }`}
         >
           {editor.images && editor.onRemoveImage ? (
             <ComposerImageStrip

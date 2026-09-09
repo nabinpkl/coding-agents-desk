@@ -36,7 +36,7 @@ import {
 import { searchWithSidebarMode, sidebarModeFromSearch } from "../features/sidebar/sidebarRoute";
 import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
 import { useBots } from "../features/bots/useBots";
-import { BotCanvas } from "../features/bots/BotCanvas";
+import { BotCanvas, type BotCommandError } from "../features/bots/BotCanvas";
 import {
   loadCanvasOpenKeys,
   storeCanvasOpenKeys,
@@ -106,8 +106,9 @@ export function App({ feed, host, fill = false }: Props) {
   const [creatingProjectPath, setCreatingProjectPath] = useState<string | null>(null);
   const [creationErrors, setCreationErrors] = useState<Map<string, string>>(new Map());
   // A failure from a command the shell issues rather than the thread -- today, editing a Bot.
-  // Handed to the open session's view, which is the only band on screen able to show it.
-  const [botCommandError, setBotCommandError] = useState<string | null>(null);
+  // Carries the session it is about, because the canvas shows several at once and a bare string was
+  // painted on every one of them; see `BotCommandError`.
+  const [botCommandError, setBotCommandError] = useState<BotCommandError | null>(null);
   // This machine's per-day token usage, behind the sidebar's Profile section. The stream opens
   // when somebody asks for it, not on mount.
   const usage = useUsage(feed);
@@ -672,10 +673,16 @@ export function App({ feed, host, fill = false }: Props) {
     attachedForkIds.current.add(forkId);
     void feed
       .attachBotSessions(botId, { sessionRefs: [{ source: "claude", sessionId: forkId }] })
-      // Reported on the same band every other Bot command failure uses. A fork that silently
-      // failed to attach is indistinguishable from one that was never meant to be.
+      // Named rather than attributed to a session: the attach is what failed, so the fork is on
+      // no Bot and has no card of its own to say so. A fork that silently failed to attach is
+      // indistinguishable from one that was never meant to be.
       .catch((error: unknown) => {
-        setBotCommandError(error instanceof Error ? error.message : String(error));
+        setBotCommandError({
+          session: null,
+          message: `Could not add the new session to the Bot: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
       });
   }, [feed, forkedSession, botsState.bots, sessionsByProject]);
 
@@ -739,10 +746,16 @@ export function App({ feed, host, fill = false }: Props) {
         .attachBotSessions(started.botId, {
           sessionRefs: [{ source: "claude", sessionId: started.sessionId }],
         })
-        // Reported on the same band every other Bot command failure uses. A session that silently
-        // failed to attach is indistinguishable from one that was never meant to be.
+        // Same as the fork above: the attach is what failed, so there is no card for it to land
+        // on. A session that silently failed to attach is indistinguishable from one that was
+        // never meant to be.
         .catch((error: unknown) => {
-          setBotCommandError(error instanceof Error ? error.message : String(error));
+          setBotCommandError({
+            session: null,
+            message: `Could not add the new session to the Bot: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
         });
     }
   }, [feed, newSessions, botsState.bots, sessionsByProject]);
@@ -819,11 +832,14 @@ export function App({ feed, host, fill = false }: Props) {
     void feed
       .detachBotSessions(bot.botId, { sessionRefs: [target] })
       .catch((error: unknown) => {
-        setBotCommandError(
-          `Could not remove ${label} from ${bot.name}: ${
+        // Named: the detach failed, so the session is still on the canvas and its own card is
+        // what says the removal did not happen.
+        setBotCommandError({
+          session: `${target.source}:${target.sessionId}`,
+          message: `Could not remove ${label} from ${bot.name}: ${
             error instanceof Error ? error.message : String(error)
           }`,
-        );
+        });
       });
   }, [feed]);
 
@@ -1074,7 +1090,16 @@ export function App({ feed, host, fill = false }: Props) {
                 projectPath={displayedThread.project.projectPath}
                 session={displayedThread.session}
                 controlsHost={threadControlsHost}
-                externalError={botCommandError}
+                // The thread view shows one session, so it takes a failure about that session and
+                // one about no session at all. Note the composer band outranks this caption for
+                // every Claude and Codex session, which is why the canvas puts it on the card
+                // instead; here there is nowhere else to put it.
+                externalError={botCommandError
+                    && (botCommandError.session === null
+                      || botCommandError.session
+                        === `${displayedThread.session.source}:${displayedThread.session.sessionId}`)
+                  ? botCommandError.message
+                  : null}
               />
             ) : sidebarMode === "canvas" ? (
               <BotCanvas

@@ -38,6 +38,24 @@ const STRIP_GAP = 12;
 const CLOSED_SESSION_WIDTH = 260;
 
 /**
+ * A failed Bot command, and which session it was about.
+ *
+ * The session is carried because the canvas holds several at once and the failure belongs to one of
+ * them: a bare string was shown on every open card, which named none of them and repeated itself
+ * once per session the reader had open.
+ *
+ * Null where the failure is not about one particular session. So is a failure about a session the
+ * canvas is not showing, which an attach that did not happen always is -- the session never joined
+ * the Bot, so no card exists to carry it. Those go to the canvas's own band, said once rather than
+ * lost.
+ */
+export interface BotCommandError {
+  /** `source:sessionId`, or null when no card can carry it. */
+  session: string | null;
+  message: string;
+}
+
+/**
  * The Bots put on the canvas, with all of their curated sessions, in one scroll.
  *
  * The Bots view answers "what is this one Bot working on" and pays for it by making the other Bots
@@ -56,8 +74,10 @@ const CLOSED_SESSION_WIDTH = 260;
  *
  * An OPEN row is a different thing entirely: the whole session, the same component the app's own
  * thread view renders, with its transcript, its controls, its terminal and the composer it is typed
- * into. It is not a preview of a session, it is one -- which is why one is open at a time and why
- * closing it unmounts rather than hides it. See `BotCanvasList`.
+ * into. It is not a preview of a session, it is one -- which is why closing it unmounts rather than
+ * hides it. As many can be open at once as the reader opens; see `BotCanvasList` for the budget
+ * that rule was measured against, and note that anything a card portals out of itself needs a node
+ * of its own rather than the app's, or the open sessions land on top of each other.
  */
 export function BotCanvas({
   bots,
@@ -87,12 +107,13 @@ export function BotCanvas({
    */
   sessionContext: SessionViewContext;
   /**
-   * A failure from editing a Bot, shown on the open session's own error band.
+   * A failure from editing a Bot, shown on the card of the session it was about.
    *
    * This surface is where a detach is most likely to be pressed -- the action is in every row's
-   * menu -- and the open session's band is the only one on screen able to say that one failed.
+   * menu -- so the card that failed to go away is what says so. One about no session, or about a
+   * session this canvas is not showing, goes to the canvas's own band instead.
    */
-  botError: string | null;
+  botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
   /** Branches a new session from this one, in its own pane, and gives it to the Bot. */
   onForkSession: (bot: BotView, session: SessionSummary) => void;
@@ -228,7 +249,7 @@ function BotCanvasList({
 }: {
   bots: BotView[];
   sessionContext: SessionViewContext;
-  botError: string | null;
+  botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
   onForkSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
@@ -278,8 +299,22 @@ function BotCanvasList({
       );
     }
   };
+  // A failure no card can carry: one about no session, or about a session that is not on this
+  // canvas. An attach that FAILED is exactly that -- the session never joined the Bot, so nothing
+  // shows it -- and without this the only report of it would be dropped on the floor.
+  const carried = botError !== null && botError.session !== null
+    && standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
+  const orphanedError = botError !== null && !carried ? botError.message : null;
   return (
     <div ref={canvas} className="h-full overflow-auto overscroll-contain">
+      {orphanedError ? (
+        <div
+          role="alert"
+          className="mx-3 mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive"
+        >
+          {orphanedError}
+        </div>
+      ) : null}
       {/* One strip, and nothing wraps out of it. A card widened here takes the room and pushes the
           cards after it along; none of them can drop to a line below, because there is no line
           below. That is the whole difference from the grid this replaced, and it is why the canvas
@@ -490,7 +525,7 @@ function BotSessionCard({
   onResize: (size: BotCardSize) => void;
   onResizeCommit: (size: BotCardSize) => void;
   sessionContext: SessionViewContext;
-  botError: string | null;
+  botError: BotCommandError | null;
   /** Absent on a Codex session: only the Claude CLI has a fork to ask for. */
   onFork?: () => void;
   /** Absent on a Codex session, whose title this panel does not own. */
@@ -502,6 +537,15 @@ function BotSessionCard({
   // which is what lets two of them be open at once without their controls landing in the same
   // place. State rather than a ref, because the session has to render again once the node exists.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
+  /**
+   * Where this session's background-tasks panel lands, for the same reason `controlsHost` exists.
+   *
+   * The app offers ONE host for it, which is right for the thread view where one session is the
+   * page and wrong here: the panel is `absolute inset-y-0 right-0`, so two open sessions portalling
+   * into that one node put two panels at the same coordinates, stacked, with nothing saying which
+   * session either belongs to. Given its own node inside the card, each lands over its own session.
+   */
+  const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -519,7 +563,10 @@ function BotSessionCard({
     // an empty body and a one-pixel sliver where the roster should be.
     <li className="shrink-0" style={{ width: open ? resize.width : CLOSED_SESSION_WIDTH }}>
       <div
-        className={`flex overflow-hidden rounded-lg border ${
+        // `relative` so this card is what the session's tasks panel is positioned against. That
+        // panel is absolutely placed against its nearest positioned ancestor, which without this
+        // is the app itself -- and then every open session's panel lands in the same place.
+        className={`relative flex overflow-hidden rounded-lg border ${
           open ? "border-primary" : "border-border"
         }`}
         style={open ? { height: resize.height } : undefined}
@@ -582,6 +629,21 @@ function BotSessionCard({
               />
             </span>
           </div>
+          {/* On the card rather than handed to the session as an `externalError`.
+              A Bot failure is about the session's place on this canvas, not about its composer,
+              and the composer band would not show it anyway: every Claude and Codex session is on
+              the window, inbox or tmux band, each of which captions itself and outranks it. So
+              routing it there addressed the right session and then said nothing to anybody. It is
+              also shown whether or not the card is open, because closing a session is a plausible
+              thing to do right after failing to remove it. */}
+          {botError && botError.session === sessionKey(session) ? (
+            <p
+              role="alert"
+              className="border-t border-destructive/40 bg-destructive/10 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive"
+            >
+              {botError.message}
+            </p>
+          ) : null}
           {open ? (
             // A named landmark rather than a bare box: a canvas of open sessions is a page with
             // several of them on it, and each one should be reachable by name.
@@ -594,12 +656,14 @@ function BotSessionCard({
                 projectPath={bot.environment.path}
                 session={session}
                 controlsHost={controlsHost}
-                externalError={botError}
+                tasksHost={tasksHost}
               />
             </section>
           ) : null}
           {resize.bottom}
         </div>
+        {/* `contents` so this box is not one: the panel inside it positions against the card. */}
+        <div ref={setTasksHost} className="contents" />
         {resize.edge}
       </div>
     </li>
@@ -647,7 +711,7 @@ function BotCanvasCard({
 }: {
   bot: BotView;
   sessionContext: SessionViewContext;
-  botError: string | null;
+  botError: BotCommandError | null;
   openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
   /** Every session's own size, by `source:sessionId`. */
