@@ -13,6 +13,7 @@ import type {
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
+import { claudeSessionPaneName, newClaudeSessionCommand } from "./claudeSessionLaunch.ts";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
 import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
@@ -613,8 +614,8 @@ export class AgentTerminalService {
    * names has never run, so there is no transcript, no summary and no project row for it. What it
    * is checked against instead is the directory, by the same rules the resumed-CLI kind uses.
    *
-   * The pane is `resumedPaneName`, not a name of its own, and that is the whole reason the two
-   * kinds agree afterwards. Once this session has taken a turn it is an ordinary catalog session,
+   * The pane is `claudeSessionPaneName`, not a name of its own, and that is the whole reason
+   * the two kinds agree afterwards. Once this session has taken a turn it is an ordinary catalog session,
    * and a `session-tmux` open of it looks for the pane a live process is in -- which is this one.
    * Giving it a private name would have made the card's terminal jump to a second pane the moment
    * the session became real, or worse, resumed the transcript beside the process still writing it.
@@ -636,7 +637,7 @@ export class AgentTerminalService {
     const title = context.title.trim();
     const refusal = sessionTitleRefusal(title);
     if (refusal) throw new AgentTerminalInvalidError(refusal);
-    const pane = resumedPaneName(sessionId);
+    const pane = claudeSessionPaneName(sessionId);
     return {
       ptySessionName: `agent-tmux-${pane}`,
       tmuxSession: pane,
@@ -645,16 +646,7 @@ export class AgentTerminalService {
       refuseNew: null,
       createTmux: {
         cwd: projectPath,
-        command: [
-          "claude",
-          // Stands alone, without `--resume`: measured against the CLI's own help on 2026-09-08.
-          // It is what makes the transcript land at an id the caller already knows, which is the
-          // only way to recognise this session when its first turn finally writes one.
-          "--session-id",
-          sessionId,
-          "-n",
-          title,
-        ],
+        command: newClaudeSessionCommand({ sessionId, title }),
       },
       // The second path that brings a session into existence, and it reports the same way the fork
       // does: the caller chose the name, so this says which open was the one that started it.
@@ -710,7 +702,7 @@ export class AgentTerminalService {
       };
     }
 
-    const pane = resumedPaneName(sessionId);
+    const pane = claudeSessionPaneName(sessionId);
     return {
       ptySessionName: `agent-tmux-${pane}`,
       tmuxSession: pane,
@@ -863,7 +855,7 @@ export async function liveTmuxSession(
     .filter((entry) => entry.sessionId === sessionId)
     .map((entry) => entry.tmuxSession)
     .filter((pane): pane is string => pane !== null);
-  return panes.find((pane) => pane !== resumedPaneName(sessionId)) ?? panes[0] ?? null;
+  return panes.find((pane) => pane !== claudeSessionPaneName(sessionId)) ?? panes[0] ?? null;
 }
 
 /**
@@ -883,21 +875,6 @@ function requiredSessionUuid(value: string, field: string): string {
 /** The pane a fork runs in, named for the fork rather than the session it came from. */
 function forkedPaneName(forkId: string): string {
   return `agentdesk-fork-${forkId}`;
-}
-
-/**
- * The pane name this sidecar runs a session in: resumed, or started fresh there.
- *
- * Derived from the session id rather than random so a second viewer of one session lands on the
- * first's pane instead of starting a second resume of one transcript, and shared with the owner
- * lookup above so the two agree on which pane is ours.
- *
- * A session STARTED by `session-new` uses this name too, which is what makes the card's terminal
- * survive the session becoming real: the pane it was started in is the pane the ordinary
- * "watch this session" path goes looking for once the catalog knows the id.
- */
-function resumedPaneName(sessionId: string): string {
-  return `agentdesk-${sessionId}`;
 }
 
 function requiredDimension(value: number, name: string): number {

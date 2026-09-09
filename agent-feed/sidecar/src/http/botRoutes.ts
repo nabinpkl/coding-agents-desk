@@ -7,6 +7,7 @@ import {
   BotConflictError,
   BotForbiddenError,
   BotInvalidError,
+  BotLaunchError,
   BotNotFoundError,
   type BotRegistry,
 } from "../bots/botRegistry.ts";
@@ -144,6 +145,12 @@ function routeError(error: unknown): Response {
   if (error instanceof BotNotFoundError) return errorResponse("bot-resource-not-found", error.message, 404);
   if (error instanceof BotConflictError) return errorResponse("bot-conflict", error.message, 409);
   if (error instanceof BotForbiddenError) return errorResponse("bot-forbidden", error.message, 403);
+  // 502 rather than 500: the request was valid and the Bot was written. What failed is the thing
+  // this sidecar delegates to -- tmux, or the CLI it starts -- and the message says the Bot
+  // survived, so a caller retrying the identical command would collide with its own Bot.
+  if (error instanceof BotLaunchError) {
+    return errorResponse("bot-launch-failed", error.message, 502);
+  }
   console.error("Bot route failed", error);
   return errorResponse("bot-store-failed", error instanceof Error ? error.message : String(error), 500);
 }

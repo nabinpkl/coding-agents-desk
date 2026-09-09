@@ -37,6 +37,7 @@ export type {
   BotCreatedBy,
   BotDirectoryEnvironment,
   BotGrant,
+  BotLaunchCommand,
   BotMetadata,
   BotRecord,
   BotSessionRef,

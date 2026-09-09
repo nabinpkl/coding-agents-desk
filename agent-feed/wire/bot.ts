@@ -54,12 +54,41 @@ export interface BotSnapshot {
   bots: BotView[];
 }
 
+/**
+ * Starting the Bot's first session as part of creating it.
+ *
+ * A Bot is a directory plus the sessions working in it, and until now those were two calls with a
+ * hand-rolled `tmux new-session` between them: the caller had to choose a session id, build the
+ * `claude` argv, pick a pane name, and only then attach what it had started. Every one of those is
+ * a decision this sidecar already makes for the panel's own new-session terminal, so the caller
+ * making them again was a second answer to a settled question -- and a pane named by hand is one
+ * the Bot's terminal will not join.
+ *
+ * Absent, a Bot is still just a directory. That is deliberate: the roster holds Bots whose sessions
+ * were started elsewhere, and adopting one of those must not spawn a process.
+ */
+export interface BotLaunchCommand {
+  /** The session's name and title. Defaults to the Bot's name. */
+  title?: string;
+  /**
+   * The session's first turn, delivered as the CLI's prompt argument.
+   *
+   * Text rather than a file, in both senses: a short instruction is typed here directly, and a
+   * brief that lives in a file is read by whoever is calling. The sidecar deliberately does not
+   * open a path handed to it over HTTP -- that is a file-read primitive on an API whose only
+   * boundary is the tailnet, bought for something every caller can already do.
+   */
+  prompt?: string;
+}
+
 export interface AddBotCommand {
   requestId: string;
   name: string;
   iconUrl?: string;
   /** Must exactly name an existing AgentDesk project directory. */
   directoryPath: string;
+  /** Start a tmux-backed Claude session in that directory and attach it to the new Bot. */
+  launch?: BotLaunchCommand;
   metadata?: {
     role?: string;
     description?: string;

@@ -7,9 +7,11 @@ import { BotStore } from "./botStore.ts";
 import {
   BotConflictError,
   BotForbiddenError,
+  BotLaunchError,
   BotNotFoundError,
   BotRegistry,
   type BotRegistryCatalog,
+  type BotSessionLauncher,
 } from "./botRegistry.ts";
 
 const temporaryDirectories: string[] = [];
@@ -58,7 +60,29 @@ function summary(ref: BotSessionRef, canSend = true): SessionSummary {
   };
 }
 
-async function fixture() {
+interface LaunchRecord {
+  cwd: string;
+  sessionId: string;
+  title: string;
+  prompt?: string;
+}
+
+/** Records what would have been started, so the sequence around it can be checked without tmux. */
+function recordingLauncher(fail?: Error): { launched: LaunchRecord[]; launcher: BotSessionLauncher } {
+  const launched: LaunchRecord[] = [];
+  return {
+    launched,
+    launcher: {
+      async start(options) {
+        launched.push({ ...options });
+        if (fail) throw fail;
+        return options;
+      },
+    },
+  };
+}
+
+async function fixture(launcher?: BotSessionLauncher) {
   const directory = await mkdtemp(join(tmpdir(), "agentdesk-bots-registry-"));
   temporaryDirectories.push(directory);
   const project = join(directory, "project");
@@ -71,12 +95,20 @@ async function fixture() {
   sessions.set("pi:session-1", { projectPath: project, summary: summary(ref) });
   sessions.set("codex:session-2", { projectPath: project, summary: summary(secondRef, false) });
   let nextId = 0;
+  let nextSessionId = 0;
   return {
     project,
     secondProject,
     ref,
     secondRef,
-    registry: new BotRegistry(new BotStore(join(directory, "bots.json")), catalog, () => 123, () => `bot-${++nextId}`),
+    registry: new BotRegistry(
+      new BotStore(join(directory, "bots.json")),
+      catalog,
+      () => 123,
+      () => `bot-${++nextId}`,
+      launcher ?? { start: async () => undefined },
+      () => `started-${++nextSessionId}`,
+    ),
   };
 }
 
@@ -235,4 +267,151 @@ test("refuses to detach what a Bot does not hold, and refuses agent actors entir
     session: ref,
   })).rejects.toBeInstanceOf(BotForbiddenError);
   expect((await registry.snapshot()).bots[0]!.sessionRefs).toEqual([ref]);
+});
+
+test("creating a Bot with launch starts a session in its directory and attaches it", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
+
+  const bot = await registry.add({
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: { prompt: "Familiarize yourself with the repo." },
+  }, { kind: "user" });
+
+  // The title defaults to the Bot's name, which is what makes one call enough: `-n` sets the
+  // session's address, and a Bot whose session answers to something else is a Bot nobody can
+  // message.
+  expect(launched).toEqual([{
+    cwd: project,
+    sessionId: "started-1",
+    title: "OSS agent",
+    prompt: "Familiarize yourself with the repo.",
+  }]);
+  expect(bot.sessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
+  // Not in `sessions` yet: the catalog cannot resolve a session whose transcript does not exist,
+  // and saying so is more honest than pretending it is live.
+  expect(bot.sessions).toEqual([]);
+  expect(bot.missingSessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
+});
+
+test("a launch title overrides the Bot's name, and a prompt is optional", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
+
+  await registry.add({
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: { title: "OSS agent familiarization" },
+  }, { kind: "user" });
+
+  expect(launched).toEqual([{
+    cwd: project,
+    sessionId: "started-1",
+    title: "OSS agent familiarization",
+    prompt: undefined,
+  }]);
+});
+
+test("replaying a launch request returns the same Bot without starting a second session", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
+  const command = {
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: { prompt: "Read AGENTS.md." },
+  } as const;
+
+  const first = await registry.add(command, { kind: "user" });
+  const replay = await registry.add(command, { kind: "user" });
+
+  expect(replay.botId).toBe(first.botId);
+  expect(replay.sessionRefs).toEqual(first.sessionRefs);
+  expect(launched).toHaveLength(1);
+});
+
+test("a launch failure leaves the Bot behind and says so", async () => {
+  const { launched, launcher } = recordingLauncher(new Error("tmux is not installed"));
+  const { project, registry } = await fixture(launcher);
+
+  await expect(registry.add({
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: {},
+  }, { kind: "user" })).rejects.toBeInstanceOf(BotLaunchError);
+
+  expect(launched).toHaveLength(1);
+  const snapshot = await registry.snapshot();
+  // The Bot survives, with nothing attached: a retry of the same command would collide with it,
+  // so the error has to be the thing that says the name is now taken.
+  expect(snapshot.bots.map((bot) => [bot.name, bot.sessionRefs])).toEqual([["OSS agent", []]]);
+});
+
+test("an agent may add a Bot but may not start a session for it", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, ref, registry } = await fixture(launcher);
+  await registry.add({
+    requestId: "request-1",
+    name: "Owner",
+    directoryPath: project,
+    grants: ["add_bot"],
+  }, { kind: "user" });
+  await registry.attachSessions("bot-1", { requestId: "attach-1", sessionRefs: [ref] }, { kind: "user" });
+
+  await expect(registry.add({
+    requestId: "request-2",
+    name: "Spawned",
+    directoryPath: project,
+    launch: { prompt: "do the thing" },
+  }, { kind: "agent", session: ref })).rejects.toBeInstanceOf(BotForbiddenError);
+
+  expect(launched).toEqual([]);
+});
+
+test("refuses a launch title that would not survive being one argument", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
+
+  await expect(registry.add({
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: { title: "line\nbreak" },
+  }, { kind: "user" })).rejects.toThrow(/line break/);
+
+  expect(launched).toEqual([]);
+  expect((await registry.snapshot()).bots).toEqual([]);
+});
+
+test("resending a request whose launch failed starts the session it still owes", async () => {
+  const failure = new Error("tmux is not installed");
+  const launched: LaunchRecord[] = [];
+  let broken = true;
+  const launcher: BotSessionLauncher = {
+    async start(options) {
+      launched.push({ ...options });
+      if (broken) throw failure;
+      return options;
+    },
+  };
+  const { project, registry } = await fixture(launcher);
+  const command = {
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: { prompt: "Read AGENTS.md." },
+  } as const;
+
+  await expect(registry.add(command, { kind: "user" })).rejects.toBeInstanceOf(BotLaunchError);
+  broken = false;
+  const recovered = await registry.add(command, { kind: "user" });
+
+  expect(launched).toHaveLength(2);
+  expect(recovered.sessionRefs).toEqual([{ source: "claude", sessionId: "started-2" }]);
+  // Still one Bot: the replay finished the command rather than making a second.
+  expect((await registry.snapshot()).bots).toHaveLength(1);
 });

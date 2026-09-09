@@ -4,6 +4,7 @@ import type {
   AttachBotSessionsCommand,
   BotCreatedBy,
   BotGrant,
+  BotLaunchCommand,
   BotMetadata,
   BotRecord,
   BotSessionRef,
@@ -12,6 +13,8 @@ import type {
   DetachBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
+import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
+import { startClaudeSession } from "../terminal/claudeSessionLaunch.ts";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "./botStore.ts";
 
 export type BotActor =
@@ -33,6 +36,31 @@ export class BotInvalidError extends Error {}
 export class BotNotFoundError extends Error {}
 export class BotConflictError extends Error {}
 export class BotForbiddenError extends Error {}
+/**
+ * The Bot exists; its session does not.
+ *
+ * Its own class because it is the one failure here that leaves something behind. Every other
+ * refusal happens before the record is written, so the caller can retry the identical command;
+ * this one has already spent a name and a directory, and a retry would collide with the Bot it
+ * just made. The message therefore names what to do with it rather than only what went wrong.
+ */
+export class BotLaunchError extends Error {}
+
+/**
+ * What actually starts a Bot's session, injected so the tests never spawn one.
+ *
+ * A seam rather than a direct call because the alternative is a test suite that either runs tmux
+ * or does not exercise this path at all, and the second is how the ordering below stops being
+ * checked.
+ */
+export interface BotSessionLauncher {
+  start(options: {
+    cwd: string;
+    sessionId: string;
+    title: string;
+    prompt?: string;
+  }): Promise<unknown>;
+}
 
 const MAX_NAME = 64;
 const MAX_DIRECTORY_PATH = 4_096;
@@ -44,6 +72,15 @@ const MAX_CUSTOM_ENTRIES = 16;
 const MAX_CUSTOM_KEY = 64;
 const MAX_CUSTOM_VALUE = 256;
 const MAX_ICON_URL = 2_048;
+/**
+ * How long a launch prompt may be.
+ *
+ * It becomes one argv element passed through two shells, where the ceiling is the kernel's
+ * argument limit, about a megabyte -- so this is not that constraint. It is the size at which a
+ * "first turn" has stopped being one: a grounding brief written by hand runs a few thousand
+ * characters, and something ten times that belongs in a file the session reads for itself.
+ */
+const MAX_LAUNCH_PROMPT = 32_768;
 const MAX_SESSION_REFS_PER_COMMAND = 64;
 const MAX_IDEMPOTENCY_ENTRIES = 512;
 
@@ -55,6 +92,12 @@ interface NormalizedAddBot {
   directoryPath: string;
   metadata: BotMetadata;
   grants: BotGrant[];
+  launch?: NormalizedLaunch;
+}
+
+interface NormalizedLaunch {
+  title: string;
+  prompt?: string;
 }
 
 interface NormalizedSessionRefCommand {
@@ -153,6 +196,30 @@ function normalizeSessionRef(value: unknown): BotSessionRef {
   return { source: ref.source, sessionId: ref.sessionId };
 }
 
+/**
+ * The launch options, with the Bot's own name standing in for a title nobody gave.
+ *
+ * The title is validated by the same rule a rename obeys, because it is the same field: `-n`
+ * writes it to the session registry, and a line break in it would split the argument rather than
+ * the name. A Bot name is already bounded well inside that, so the default never refuses.
+ */
+function normalizeLaunch(value: unknown, botName: string): NormalizedLaunch | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BotInvalidError("launch must be an object");
+  }
+  const command = value as BotLaunchCommand;
+  const title = compactOptional(command.title, "launch.title", MAX_NAME) ?? botName;
+  const refusal = sessionTitleRefusal(title);
+  if (refusal) throw new BotInvalidError(`launch.title: ${refusal}`);
+  return {
+    title,
+    // Only trimmed, never reshaped: the prompt is the session's first turn and its line breaks
+    // are the reader's.
+    prompt: compactOptional(command.prompt, "launch.prompt", MAX_LAUNCH_PROMPT),
+  };
+}
+
 function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
   const { name, normalizedName } = normalizeName(command.name);
   const directoryPath = compactOptional(command.directoryPath, "directoryPath", MAX_DIRECTORY_PATH);
@@ -172,6 +239,7 @@ function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
       custom: normalizeCustom(command.metadata?.custom),
     },
     grants: normalizeGrants(command.grants),
+    launch: normalizeLaunch(command.launch, name),
   };
 }
 
@@ -247,22 +315,48 @@ export class BotRegistry {
     private readonly catalog: BotRegistryCatalog,
     private readonly now: () => number = Date.now,
     private readonly newId: () => string = () => crypto.randomUUID(),
+    private readonly launcher: BotSessionLauncher = { start: startClaudeSession },
+    /**
+     * Separate from `newId`, and it must produce a real UUID.
+     *
+     * The Bot id is opaque and anything unique will do; this one is handed to `--session-id`,
+     * names the transcript file, and derives the pane the Bot's terminal later joins. Sharing the
+     * generator would let a test's readable stand-in reach a place that needs the real shape.
+     */
+    private readonly newSessionId: () => string = () => crypto.randomUUID(),
   ) {}
 
   async snapshot(): Promise<BotSnapshot> {
     return this.view(await this.store.snapshot());
   }
 
+  /**
+   * Creates the Bot, and -- when asked -- starts the session that works in it.
+   *
+   * The order is deliberate and it is the whole design of this method. Creating first means the
+   * likely failures (a name or a directory already taken) cost nothing but an error, where
+   * launching first would spawn an agent into the user's repository and then have to hunt it down
+   * again. The unlikely failure, an environment with no tmux or no `claude`, leaves a Bot with no
+   * sessions: inert, visible, and one attach away from correct.
+   *
+   * A replayed `requestId` returns the Bot it made the first time and starts nothing. Idempotency
+   * that spawned a second agent per retry would be worse than none.
+   */
   async add(command: AddBotCommand, actor: BotActor): Promise<BotView> {
     const normalized = normalizeAddBot(command);
     const project = this.catalog.resolveProject(normalized.directoryPath);
     if (!project) throw new BotNotFoundError("selected directory is not in the current AgentDesk project catalog");
+    if (normalized.launch && actor.kind !== "user") {
+      // Adding a row and starting a process are different powers. `add_bot` grants the first; a
+      // Bot that could also spawn agents would be granting itself the second.
+      throw new BotForbiddenError("only the authenticated user may start a Bot's session");
+    }
     const signature = commandSignature(normalized);
     const idempotencyKey = `add:${actorKey(actor)}:${normalized.requestId}`;
 
-    const record = await this.store.mutate((snapshot) => {
+    const created = await this.store.mutate((snapshot) => {
       const prior = priorBot(snapshot, idempotencyKey, signature);
-      if (prior) return { snapshot, value: prior };
+      if (prior) return { snapshot, value: { bot: prior, fresh: false } };
 
       let createdBy: BotCreatedBy = { kind: "user" };
       if (actor.kind === "agent") {
@@ -302,9 +396,67 @@ export class BotRegistry {
         bots: [...snapshot.bots, bot],
         idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
       };
-      return { snapshot: next, value: bot };
+      return { snapshot: next, value: { bot, fresh: true } };
     });
-    return this.viewRecord(record);
+
+    if (!normalized.launch) return this.viewRecord(created.bot);
+    // A replay normally starts nothing -- idempotency that spawned an agent per retry would be
+    // worse than none. The exception is a replay of a command whose launch FAILED: the Bot is
+    // there and holds no sessions, so starting one finishes the original command rather than
+    // repeating it, and resending the identical request is the obvious move once the cause is
+    // fixed.
+    if (!created.fresh && created.bot.sessionRefs.length > 0) return this.viewRecord(created.bot);
+
+    const sessionId = this.newSessionId();
+    try {
+      await this.launcher.start({
+        cwd: project.projectPath,
+        sessionId,
+        title: normalized.launch.title,
+        prompt: normalized.launch.prompt,
+      });
+    } catch (error) {
+      throw new BotLaunchError(
+        `Bot "${created.bot.name}" was created, but its session could not be started. `
+          + "Resend this request once the cause is fixed, or attach a session to "
+          + `${created.bot.botId} by hand.`,
+        { cause: error },
+      );
+    }
+    return this.viewRecord(
+      await this.recordStartedSession(created.bot.botId, { source: "claude", sessionId }),
+    );
+  }
+
+  /**
+   * Attaches a session this registry just started.
+   *
+   * Deliberately not `attachSessions`, which resolves every reference against the catalog and
+   * refuses one it cannot find. That check is right for a reference a caller supplies -- it is the
+   * only thing stopping a Bot claiming another directory's session -- and wrong here, because the
+   * session was started seconds ago in the Bot's own directory and has not written a transcript
+   * yet, so there is nothing for the catalog to have seen. The id is known-good by construction:
+   * this method's caller generated it and passed it to `--session-id`.
+   *
+   * Until the first turn lands the reference sits in `missingSessionRefs`, which is the honest
+   * reading of it, and moves to `sessions` on its own when the catalog picks the file up.
+   */
+  private async recordStartedSession(botId: string, ref: BotSessionRef): Promise<BotRecord> {
+    return this.store.mutate((snapshot) => {
+      const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
+      if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
+      const bot = snapshot.bots[index]!;
+      if (bot.sessionRefs.some((existing) => sessionKey(existing) === sessionKey(ref))) {
+        return { snapshot, value: bot };
+      }
+      const updated: BotRecord = { ...bot, sessionRefs: [...bot.sessionRefs, ref] };
+      const bots = [...snapshot.bots];
+      bots[index] = updated;
+      return {
+        snapshot: { ...snapshot, revision: snapshot.revision + 1, bots },
+        value: updated,
+      };
+    });
   }
 
   async attachSessions(

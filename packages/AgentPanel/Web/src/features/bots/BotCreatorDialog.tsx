@@ -1,7 +1,13 @@
-import { Folder, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Folder, LoaderCircle, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
 import { BotAvatar } from "./BotSidebarPanel";
+
+/**
+ * The registry's own cap on a first turn, repeated here so the dialog refuses before the round
+ * trip rather than after it.
+ */
+const MAXIMUM_FIRST_TURN = 32_768;
 
 function metadataLines(value: string): Record<string, string> {
   const metadata: Record<string, string> = {};
@@ -41,6 +47,11 @@ export function BotCreatorDialog({
   const [labels, setLabels] = useState("");
   const [customMetadata, setCustomMetadata] = useState("");
   const [canAddBots, setCanAddBots] = useState(false);
+  // On by default: a Bot is a directory and the sessions working in it, and creating one almost
+  // always means starting the first. Turning it off is how an existing session's directory gets
+  // adopted without spawning a second agent into it.
+  const [startSession, setStartSession] = useState(true);
+  const [firstTurn, setFirstTurn] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,6 +70,8 @@ export function BotCreatorDialog({
     setLabels("");
     setCustomMetadata("");
     setCanAddBots(false);
+    setStartSession(true);
+    setFirstTurn("");
     setPending(false);
     setError(null);
   }, [open]);
@@ -75,6 +88,30 @@ export function BotCreatorDialog({
   }, [selectedProject]);
 
   if (!open) return null;
+
+  /**
+   * Loads a brief from a file into the first turn.
+   *
+   * The file is read HERE and sent as text, rather than handing the sidecar a path to open. A
+   * grounding brief is usually a file and typing one into a textarea is absurd, but an API that
+   * opens arbitrary paths on request is a file-read primitive, and this one is reachable by
+   * anything on the tailnet. Reading it in the page costs nothing and keeps that door shut.
+   */
+  const loadBrief = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (text.length > MAXIMUM_FIRST_TURN) {
+        throw new Error(`${file.name} is longer than ${MAXIMUM_FIRST_TURN} characters`);
+      }
+      setFirstTurn(text);
+      setError(null);
+    } catch (reason) {
+      setError(String((reason as Error).message ?? reason));
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -93,6 +130,9 @@ export function BotCreatorDialog({
           custom: metadataLines(customMetadata),
         },
         grants: canAddBots ? ["add_bot"] : [],
+        // The title is left to the sidecar, which defaults it to the Bot's name. Two places
+        // deciding what a session is called is how the canvas and `ListAgents` end up disagreeing.
+        ...(startSession ? { launch: firstTurn.trim() ? { prompt: firstTurn } : {} } : {}),
       });
     } catch (reason) {
       setError(String((reason as Error).message ?? reason));
@@ -117,7 +157,7 @@ export function BotCreatorDialog({
         <header className="flex min-h-12 shrink-0 items-center border-b border-border px-4">
           <div className="min-w-0 flex-1">
             <h2 id="bot-creator-title" className="text-base font-semibold">Add Bot</h2>
-            <p className="text-xs text-muted-foreground">Name a Bot and bind its existing project directory. Attach sessions afterward.</p>
+            <p className="text-xs text-muted-foreground">Name a Bot, bind its project directory, and start the session that works in it.</p>
           </div>
           <button
             type="button"
@@ -258,6 +298,47 @@ export function BotCreatorDialog({
                     className="mt-1 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
                 </label>
+                <div className="rounded-lg border border-border">
+                  <label className="flex cursor-pointer items-start gap-2 p-3 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-primary active:bg-muted/70">
+                    <input
+                      type="checkbox"
+                      checked={startSession}
+                      onChange={(event) => setStartSession(event.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm">
+                      <span className="block font-medium">Start a Claude session in this directory</span>
+                      <span className="block text-xs text-muted-foreground">Runs in its own tmux pane, named after the Bot, and appears on the canvas.</span>
+                    </span>
+                  </label>
+                  {startSession ? (
+                    <div className="border-t border-border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">
+                          First turn <span className="font-normal text-muted-foreground">optional</span>
+                        </span>
+                        <label className="flex min-h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-within:ring-2 focus-within:ring-primary">
+                          <Upload className="size-3.5" aria-hidden />
+                          Load a brief
+                          <input type="file" accept=".md,.txt,text/*" onChange={loadBrief} className="sr-only" />
+                        </label>
+                      </div>
+                      <textarea
+                        value={firstTurn}
+                        onChange={(event) => setFirstTurn(event.target.value)}
+                        maxLength={MAXIMUM_FIRST_TURN}
+                        rows={5}
+                        placeholder="Familiarize yourself with the existing work, then report what the last arc left open."
+                        className="mt-2 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {firstTurn.trim()
+                          ? `${firstTurn.length.toLocaleString()} characters`
+                          : "Left empty, the session starts and waits."}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
                 <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border p-3 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-primary active:bg-muted/70">
                   <input
                     type="checkbox"
