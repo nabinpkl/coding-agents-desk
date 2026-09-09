@@ -126,10 +126,21 @@ const MAXIMUM_FONT_SIZE = 28;
  * same chrome. The alternative was a second copy of the checkpoint/output/viewport switch, which is
  * the part where a divergence would be invisible until a screen failed to paint.
  */
-export function useAgentTerminal({ feed, context, sizing, onState }: {
+export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", onState }: {
   feed: SidecarDataSource;
   context: AgentTerminalContext;
   sizing: TerminalSizing;
+  /**
+   * What this surface does about the far end's shape, for a tmux pane it does not own.
+   *
+   * `adopt` asks the pane to become this box's shape, which is right for a surface somebody works
+   * in. `follow` leaves the pane alone and scales the type until its screen fits instead -- for a
+   * surface that is a glance at a session living somewhere else, where reshaping would reflow the
+   * agent's whole screen to whatever size this box happens to be. See `AgentTerminalViewport.claim`.
+   *
+   * Ignored where there is no pane to reshape: an owned PTY is sized by whoever opened it.
+   */
+  paneShape?: "adopt" | "follow";
   /** Optional: a pane with nothing to learn from the state passes nothing. */
   onState?: (context: AgentTerminalContext, state: AgentTerminalState) => void;
 }): AgentTerminal {
@@ -270,7 +281,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       const write = (encoded: string): void => {
         enqueueWrite(() => new Promise<void>((resolve) => terminal.write(bytesFromBase64(encoded), resolve)));
       };
-      const publishViewport = (claim: boolean): void => {
+      const publishViewport = (): void => {
         if (!descriptor || disposed || remoteClosed) return;
         // What this viewer's BOX would hold, which is what the far end resizes to. Measured at
         // the base type rather than the fitted one: the fit shrinks the type to squeeze an
@@ -286,13 +297,16 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         void feed.updateTerminalViewport(descriptor.terminalId, {
           sequence: String(viewportSequence),
           active: true,
-          claim,
+          // A property of the SURFACE, not of the occasion. It used to be false on a resize and
+          // true on a checkpoint, which described nothing: the sidecar read neither and reshaped
+          // the pane every time.
+          claim: adoptsPaneShape,
           ...dimensions,
         }).catch(fail);
       };
-      const scheduleViewport = (claim = false): void => {
+      const scheduleViewport = (): void => {
         if (resizeTimer !== null) clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => publishViewport(claim), 120);
+        resizeTimer = setTimeout(() => publishViewport(), 120);
       };
       const finishRemote = (state: AgentTerminalState): void => {
         remoteClosed = true;
@@ -308,6 +322,9 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       const closeMode = isTmuxAttach(context) ? "kill" : "detach";
       // Whether the far end owns the grid. True for tmux, where the pane is the size of record.
       const paneAuthoritative = isTmuxAttach(context);
+      // Whether this surface asks the pane to take its shape. Only a tmux pane has a shape to ask
+      // about; an owned PTY is sized by whoever opened it and never reads this.
+      const adoptsPaneShape = !paneAuthoritative || paneShape === "adopt";
       const release = (terminalId: string): void => {
         void feed.closeTerminal(terminalId, closeMode).catch((error) => {
           console.error(`Agent terminal ${closeMode} failed`, error);
@@ -334,16 +351,25 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
           case "checkpointEnd":
             enqueueWrite(() => {
               setSyncLabel(`Revision ${message.revision}`);
-              scheduleViewport(true);
+              scheduleViewport();
             });
             break;
-          case "viewport":
+          case "viewport": {
+            // A follower never reports controlling the layout, even where the shapes happen to
+            // agree: it did not ask for this one and will not keep it if the pane moves. Braced
+            // because a declaration in a bare `case` shares the whole switch's scope.
+            const controls = message.isOwner && adoptsPaneShape;
             setOwnershipLabel(
-              message.isOwner
+              // Three different things, and a follower is not the third: "frozen" is a pane that
+              // would not take a shape it was ASKED for, which is a fault worth reading, where
+              // this one is a surface that deliberately never asks.
+              controls
                 ? "Controls layout"
-                : message.ownerClientId !== "0"
-                  ? `Following ${message.ownerTitle || "viewer"}`
-                  : "Source frozen",
+                : !adoptsPaneShape
+                  ? "Follows the pane"
+                  : message.ownerClientId !== "0"
+                    ? `Following ${message.ownerTitle || "viewer"}`
+                    : "Source frozen",
             );
             setSourceLabel(`Source ${message.sourceColumns}×${message.sourceRows}`);
             setViewLabel(`View ${message.viewColumns}×${message.viewRows}`);
@@ -351,11 +377,12 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
             // being ours the moment somebody attaches a terminal to it, and starts being ours
             // again when they leave. Re-fit on the change so the type moves with it rather than
             // staying at whatever the other regime left behind.
-            if (paneAuthoritative && message.isOwner !== ownsPaneShape) {
-              ownsPaneShape = message.isOwner;
+            if (paneAuthoritative && controls !== ownsPaneShape) {
+              ownsPaneShape = controls;
               enqueueWrite(() => fitType());
             }
             break;
+          }
           case "exited":
             finishRemote({ kind: "ended", exitStatus: message.status });
             break;
@@ -564,8 +591,9 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
             setSyncLabel("Attached");
             setSourceLabel(`Source ${opened.columns}×${opened.rows}`);
           }
-          // Never a claim for a pane-authoritative target: there is no size to claim.
-          scheduleViewport(!paneAuthoritative);
+          // The first report, which is what tells a claiming surface's pane to take this shape and
+          // a following one what shape the pane already is.
+          scheduleViewport();
         })
         .catch(fail);
 
@@ -609,7 +637,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
     };
     // Keyed by what the terminal points at rather than by the context object, which is rebuilt on
     // every render and would restart the session each time.
-  }, [terminalContextKey(context), sizingKey(sizing), feed, onState]);
+  }, [terminalContextKey(context), sizingKey(sizing), paneShape, feed, onState]);
 
   return {
     mountRef,

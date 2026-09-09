@@ -225,6 +225,22 @@ export interface AgentTerminalInput {
 export interface AgentTerminalViewport {
   sequence: string;
   active: boolean;
+  /**
+   * Whether this viewer's box should become the pane's shape.
+   *
+   * A tmux window has ONE size for everyone, so a viewer that claims it reshapes the session in
+   * whatever terminal its owner has it open in, and for the agent running there that is a reflow
+   * of its whole screen. A surface big enough to be somewhere you work claims; a surface that is a
+   * glance at a session living elsewhere does not, and scales its own type to fit instead.
+   *
+   * Measured 2026-09-08, which is why this is a field rather than an assumption: the composer's
+   * terminal band on a canvas card claimed, and left two live sessions pinned at 48x9 and 56x16 --
+   * small enough that Claude's TUI redrew its entire frame continuously, and still that size after
+   * the band was closed.
+   *
+   * `columns` and `rows` are reported either way: the reply carries the pane's real shape and
+   * whether it matches, which is what a follower scales against.
+   */
   claim: boolean;
   columns: number;
   rows: number;

@@ -143,13 +143,17 @@ export class TmuxSessionConnection {
   /**
    * Asks the pane to become the shape this viewer's box wants, then reports what it actually is.
    *
-   * Always reports, whether the resize happened, was refused or failed. A viewer that hears
-   * nothing back cannot tell a pane it does not own from a sidecar that dropped the message, and
-   * the two need different reactions: the first is scaled to, the second is a bug.
+   * Always reports, whether the resize happened, was refused, was never asked for, or failed. A
+   * viewer that hears nothing back cannot tell a pane it does not own from a sidecar that dropped
+   * the message, and the two need different reactions: the first is scaled to, the second is a bug.
    *
    * `isOwner` is therefore derived rather than asserted -- true exactly when the pane came out the
    * shape that was asked for. That makes the footer a live read of whether this viewer's size is
    * the one in force, which is the diagnostic a reader wants when the type looks wrong.
+   *
+   * A viewer that does not `claim` never reaches the resize at all. See the field's own note: a
+   * tmux window has one size for everyone, so a small surface that claims shrinks the session for
+   * the agent living in it.
    */
   updateViewerState(options: {
     sequence: string;
@@ -159,7 +163,10 @@ export class TmuxSessionConnection {
     rows: number;
   }): void {
     if (this.closed) return;
-    void adoptPaneSize(this.runtime, this.pane, options.columns, options.rows)
+    const shaped = options.claim
+      ? adoptPaneSize(this.runtime, this.pane, options.columns, options.rows)
+      : Promise.resolve();
+    void shaped
       .catch((error: unknown) => {
         // Not a failure of the terminal. A pane that would not change shape is the case this
         // viewer already handles by scaling its own type, which is what it did before it could

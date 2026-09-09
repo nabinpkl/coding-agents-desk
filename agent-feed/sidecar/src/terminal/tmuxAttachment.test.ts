@@ -176,7 +176,7 @@ test("the pane takes the viewer's shape when tmux says nobody else is attached",
   expect(log.resizes).toEqual([]);
 
   const seen = collect(connection);
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 120, rows: 40 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 120, rows: 40 });
   await settle();
   expect(log.resizes).toEqual([{ columns: 120, rows: 40 }]);
   expect(viewportOf(seen)).toMatchObject({
@@ -185,6 +185,33 @@ test("the pane takes the viewer's shape when tmux says nobody else is attached",
     sourceRows: 40,
     viewColumns: 120,
     viewRows: 40,
+  });
+});
+
+test("a viewer that does not claim leaves the session at the shape it already had", async () => {
+  // The composer's terminal band is a glance at a session running in somebody's tmux, and a card's
+  // band is a strip: claiming left two live sessions pinned at 48x9 and 56x16, small enough that
+  // Claude's TUI redrew its whole frame continuously, and still that size after the band closed.
+  // A tmux window has ONE size for everyone, so the only viewer allowed to set it is one big
+  // enough to be somewhere you work.
+  const { runtime: tmux, log } = runtime();
+  const attachments = new TmuxAttachments(tmux);
+  const connection = await attachments.open("rags", { columns: 200, rows: 50 });
+  const seen = collect(connection);
+
+  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 48, rows: 9 });
+  await settle();
+  expect(log.resizes).toEqual([]);
+
+  // Still answered, and with the pane's real shape rather than the one asked for: that report is
+  // what a follower scales its type against, and silence would be indistinguishable from a
+  // dropped message.
+  expect(viewportOf(seen)).toMatchObject({
+    isOwner: false,
+    sourceColumns: 80,
+    sourceRows: 24,
+    viewColumns: 48,
+    viewRows: 9,
   });
 });
 
@@ -198,7 +225,7 @@ test("a reshaped pane is re-sent to every viewer, because nothing else redraws i
   const bystander = await attachments.open("rags", { columns: 200, rows: 50 });
   const seenByBystander = collect(bystander);
 
-  asked.updateViewerState({ sequence: "1", active: true, claim: false, columns: 120, rows: 40 });
+  asked.updateViewerState({ sequence: "1", active: true, claim: true, columns: 120, rows: 40 });
   await settle();
   // The viewer that never asked for anything is looking at the same window, and has no other way
   // to hear that it changed shape.
@@ -223,7 +250,7 @@ test("one move sends one checkpoint per viewer, however many reports queued behi
   // all ask for the SAME shape, so between them they are one move.
   for (let report = 0; report < 20; report += 1) {
     connection.updateViewerState({
-      sequence: String(report), active: true, claim: false, columns: 120, rows: 40,
+      sequence: String(report), active: true, claim: true, columns: 120, rows: 40,
     });
   }
   await settle();
@@ -238,7 +265,7 @@ test("a pane that did not move is not re-sent", async () => {
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 80, rows: 24 });
   const seen = collect(connection);
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 80, rows: 24 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 80, rows: 24 });
   await settle();
   expect(seen.some((envelope) => envelope.terminalCheckpointBegin)).toBe(false);
 });
@@ -254,7 +281,7 @@ test("a pane somebody is attached to is left exactly as it is", async () => {
   const connection = await attachments.open("rags", { columns: 200, rows: 50 });
 
   const seen = collect(connection);
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 120, rows: 40 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 120, rows: 40 });
   await settle();
   expect(log.resizes).toEqual([]);
   // Still reported, and reported honestly: the viewer scales its own type to the shape it finds,
@@ -277,7 +304,7 @@ test("a client count that cannot be read is not treated as nobody", async () => 
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 200, rows: 50 });
   const seen = collect(connection);
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 120, rows: 40 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 120, rows: 40 });
   await settle();
   expect(log.resizes).toEqual([]);
   expect(viewportOf(seen)).toMatchObject({ isOwner: false, sourceColumns: 80 });
@@ -294,11 +321,11 @@ test("a report that asks for the size already in force does not deafen the pane 
   const connection = await attachments.open("rags", { columns: 80, rows: 24 });
 
   // Exactly what the pane already is, so the applier does no work at all.
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 80, rows: 24 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 80, rows: 24 });
   await settle();
   expect(log.resizes).toEqual([]);
 
-  connection.updateViewerState({ sequence: "2", active: true, claim: false, columns: 120, rows: 40 });
+  connection.updateViewerState({ sequence: "2", active: true, claim: true, columns: 120, rows: 40 });
   await settle();
   expect(log.resizes).toEqual([{ columns: 120, rows: 40 }]);
 });
@@ -308,7 +335,7 @@ test("a burst of viewport reports costs the tmux calls for the last size, not al
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 200, rows: 50 });
   for (const columns of [90, 100, 110, 120]) {
-    connection.updateViewerState({ sequence: "1", active: true, claim: false, columns, rows: 40 });
+    connection.updateViewerState({ sequence: "1", active: true, claim: true, columns, rows: 40 });
   }
   await settle();
   // The first ask is in flight when the rest arrive, so it lands; the three behind it collapse to
@@ -326,7 +353,7 @@ test("every resize hands the size straight back to tmux's own negotiation", asyn
   const { runtime: tmux, log } = runtime();
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 200, rows: 50 });
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 120, rows: 40 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 120, rows: 40 });
   await settle();
   expect(log.resizes).toHaveLength(1);
   expect(log.releases).toBe(1);
@@ -373,7 +400,7 @@ test("a window this process never resized is left entirely alone", async () => {
   const { runtime: tmux, log } = runtime();
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 80, rows: 24 });
-  connection.updateViewerState({ sequence: "1", active: true, claim: false, columns: 80, rows: 24 });
+  connection.updateViewerState({ sequence: "1", active: true, claim: true, columns: 80, rows: 24 });
   await settle();
   connection.detach();
   await settle();

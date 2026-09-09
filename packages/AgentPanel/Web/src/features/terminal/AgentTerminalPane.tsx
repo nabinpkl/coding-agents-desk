@@ -73,10 +73,17 @@ interface Props {
    * arrives as a prop, which means it arrives in a render, which is when it can be used.
    */
   heightBasis?: HTMLElement | null;
+  /**
+   * Whether this pane asks a tmux session to take its shape, or leaves it alone and scales the
+   * type. See `useAgentTerminal`; a surface small enough to be a glance should follow.
+   */
+  paneShape?: "adopt" | "follow";
 }
 
 /** The resizable terminal under one thread. The protocol is the hook's; this is its chrome. */
-export function AgentTerminalPane({ feed, context, onState, layout = "column", heightBasis }: Props) {
+export function AgentTerminalPane(
+  { feed, context, onState, layout = "column", heightBasis, paneShape }: Props,
+) {
   const paneRef = useRef<HTMLDivElement>(null);
   const removeResizeListenersRef = useRef<() => void>(() => {});
   // Whether the viewer has sized this pane themselves, which outranks anything the grid prefers.
@@ -92,6 +99,7 @@ export function AgentTerminalPane({ feed, context, onState, layout = "column", h
     feed,
     context,
     sizing: { kind: "fit" },
+    paneShape,
     onState,
   });
   // Read once per pane rather than at import: a browser does not grow a software keyboard part way
