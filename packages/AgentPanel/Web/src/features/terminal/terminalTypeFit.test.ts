@@ -3,7 +3,7 @@
 // is silent -- a screen that scrolls or a screen in the corner of its own box.
 
 import { expect, test } from "vitest";
-import { fittedFontSize, preferredScreenHeight, surfaceInset } from "./terminalTypeFit";
+import { fittedFontSize, preferredScreenHeight, surfaceInset, viewerSetsGrid } from "./terminalTypeFit";
 
 const reading = (available: { width: number; height: number }) => ({
   baseFontSize: 13,
@@ -125,4 +125,21 @@ test("leaves an overflowing or unmeasurable screen alone", () => {
   expect(surfaceInset({ availableWidth: 952, screenWidth: 1200, basePadding: 8 })).toBeNull();
   expect(surfaceInset({ availableWidth: 0, screenWidth: 937, basePadding: 8 })).toBeNull();
   expect(surfaceInset({ availableWidth: 952, screenWidth: 0, basePadding: 8 })).toBeNull();
+});
+
+test("a terminal with no pane behind it sets its own grid", () => {
+  // The case that regressed: only this box is asking, and the PTY takes every shape it is given,
+  // so scaling the type as well is the second controller that made the grid walk.
+  expect(viewerSetsGrid(false, "fit")).toBe(true);
+});
+
+test("a pane is asked rather than assumed, because somebody else may hold it", () => {
+  // A tmux window has one size for everyone, so who owns it comes from the pane's own report and
+  // not from the fact that this viewer would like to.
+  expect(viewerSetsGrid(true, "fit")).toBe(false);
+});
+
+test("a fixed grid belongs to the caller, so the type follows it", () => {
+  expect(viewerSetsGrid(false, "fixed")).toBe(false);
+  expect(viewerSetsGrid(true, "fixed")).toBe(false);
 });

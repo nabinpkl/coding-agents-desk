@@ -26,6 +26,29 @@ export function floorToStep(size: number): number {
 }
 
 /**
+ * Whether this viewer decides the grid, before any report has said who does.
+ *
+ * The two ways of making a screen fit a box are exclusive: the grid follows the box, or the type
+ * follows the grid. Running both puts two controllers on one box and they do not agree -- the fit
+ * stretches the type to fill the width, that changes the rendered height, the next report measures
+ * a different box and asks for a different grid.
+ *
+ * Which one is in force was read off a tmux pane's ownership report and nothing else, so a terminal
+ * with no pane behind it answered "neither" and quietly got both. Measured on a resumed CLI in a
+ * card: the footer read `Controls layout` while the type sat at 11pt against a base of 13, which
+ * cannot both be true, and the grid walked 75 -> 78 columns with the revision climbing 200 in a few
+ * minutes while every tmux pane on the machine held steady at 80x24.
+ *
+ * A pane is the only thing that can be owned by somebody else, so it is the only thing that has to
+ * ask. An owned PTY in `fit` mode is sized by this box alone and takes every shape it is given, so
+ * this viewer sets its grid from the first frame. A `fixed` grid was set by the caller and is not
+ * this viewer's to move, so there the type follows it.
+ */
+export function viewerSetsGrid(paneAuthoritative: boolean, sizing: "fit" | "fixed"): boolean {
+  return !paneAuthoritative && sizing === "fit";
+}
+
+/**
  * How large the type may be, for a terminal whose grid this side does not own.
  *
  * A tmux pane is whatever shape its own terminal made it -- 41 columns by 20 rows, measured -- and
