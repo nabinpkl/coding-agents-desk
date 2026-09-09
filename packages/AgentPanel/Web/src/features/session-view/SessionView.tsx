@@ -206,7 +206,7 @@ export function SessionView({
   // window composer and a plain send. Asked only for claude rows; every other source leaves the
   // hook inert and never issues a request.
   const cliInput = useCliInput(feed, { source, sessionId }, source === "claude");
-  const terminalComposerShown = useTerminalComposerShown();
+  const terminalComposerShown = useTerminalComposerShown({ source, sessionId });
 
   const terminalComposer = useMemo<AgentTerminalComposer | null>(() => {
     if (terminal.kind !== "ready") return null;
@@ -420,7 +420,7 @@ export function SessionView({
           ? {
             context: composerTerminal,
             shown: terminalComposerShown,
-            toggle: toggleTerminalComposer,
+            toggle: () => toggleTerminalComposer({ source, sessionId }),
           }
           : null}
         terminalHeightBasis={column}

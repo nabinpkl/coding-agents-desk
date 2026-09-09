@@ -2160,6 +2160,26 @@ describe("App shell", () => {
     unmount();
   });
 
+  // The choice is about ONE session. It was a single flag, and a single flag meant showing the
+  // terminal here replaced the field on every other session too -- including the one the reader
+  // was about to type into, which is the worst moment to swap a surface out.
+  it("shows a terminal on the session it was asked for, and leaves the others on their field", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
+    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Session Codex 01"));
+    expect(screen.getByLabelText("Codex composer text")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show the terminal" })).toBeInTheDocument();
+
+    // And coming back finds the terminal still standing, which is what remembering it is for.
+    fireEvent.click(screen.getByText("Session Claude 01"));
+    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
+    unmount();
+  });
+
   it("unmounts the Agent Feed terminal when the viewer closes it", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
