@@ -23,6 +23,24 @@
 //   here, and deliberately: the box is genuinely not on the screen either way, and this module
 //   reports the absence rather than guessing at a cause it cannot see.
 //
+//   TELLING THEM APART FROM TMUX WAS TRIED, AND DOES NOT WORK. `#{cursor_flag}` looks like the
+//   answer, because Claude hides the cursor when there is nothing to type into: measured
+//   2026-09-09, it reads 1 at a normal composer and 0 for as long as a `/model` picker, a
+//   `/resume` list or a `Do you want to proceed?` prompt is up. But it reads 0 during a redraw
+//   too. Each repaint is bracketed by `ESC[?25l` ... `ESC[?25h`, and the whole screen -- both
+//   rules and every marker -- is erased and rewritten INSIDE that bracket (measured across
+//   seven resizes: 30 erase-lines, 2 rules and 3 markers per bracket). So a capture taken mid-
+//   redraw sees exactly what a dialog shows it. The one thing the flag does separate is a
+//   session that exited: a shell prompt keeps the cursor shown, and reads 1 with no box.
+//
+//   Nothing else in tmux carries it either. Its vocabulary is the cursor's position, shape and
+//   colour and tmux's OWN modes; there is no widget model to ask, because a pane is a cell grid.
+//   Claude publishes no marker of its own: a census of every escape sequence it emits across a
+//   start, a turn and a shutdown found cursor moves, SGR, erase-line, OSC 8 hyperlinks,
+//   bracketed paste, focus and theme reporting, and the Kitty keyboard protocol -- no OSC 133
+//   semantic prompt marking, no private payload, and no alternate screen, since it draws inline.
+//   If that ever changes, OSC 133 is what would replace this parser outright.
+//
 //   Claude WORD-WRAPS the box itself, emitting a real row per visual line rather than letting the
 //   terminal wrap. `capture-pane -J` therefore does not rejoin them -- it joins only terminal-
 //   wrapped lines, which was measured on a `cat` pane and does not apply here -- and the space the
