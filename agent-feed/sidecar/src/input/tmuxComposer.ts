@@ -6,7 +6,22 @@
 // column pane) rather than an assumption about TUIs in general:
 //
 //   The box is a rule line, a row beginning `❯ `, zero or more rows indented by two, and a rule.
-//   An empty composer still draws it, as `❯ ` alone; a pane mid-redraw draws none of it at all.
+//   An empty composer still draws it, as `❯ ` alone.
+//
+//   TWO things draw none of it, and they are not the same thing to whoever is reading the panel.
+//   A pane mid-redraw is one, and it is over in milliseconds: measured 2026-09-09 across a burst
+//   of `resize-window` calls, polling every ~5ms, the box was missing for exactly one poll -- so
+//   that window is at most ~5ms and the measurement cannot say how much less. `COALESCE_MS` below
+//   is what keeps the watcher out of it: ten resizes through the live watcher reported none of
+//   them. The other is a DIALOG -- `/model`, `/resume`, a permission prompt -- which replaces the
+//   box with an option list and stands until somebody answers it IN THE PANE. Measured the same
+//   day through the live watcher: `/model` reported `no-composer` for the full fourteen seconds
+//   the picker was open, clearing on Escape.
+//
+//   That second one is the common producer of `no-composer` and the reason the panel's own
+//   wording for it must not promise the composer is coming back. Both reasons look identical
+//   here, and deliberately: the box is genuinely not on the screen either way, and this module
+//   reports the absence rather than guessing at a cause it cannot see.
 //
 //   Claude WORD-WRAPS the box itself, emitting a real row per visual line rather than letting the
 //   terminal wrap. `capture-pane -J` therefore does not rejoin them -- it joins only terminal-

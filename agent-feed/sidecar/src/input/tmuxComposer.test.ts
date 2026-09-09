@@ -157,6 +157,62 @@ test("answers nothing for a screen mid-redraw, which is retryable rather than br
   expect(composerBox({ screen: ["  output", "❯\u00a0quoted, in a message"].join("\n"), cursor: { row: 1, column: 2 } })).toBeNull();
 });
 
+/**
+ * A live capture of a `/model` picker, taken 2026-09-09 on an 80-column pane at the moment the
+ * watcher reported `no-composer`. Rows in the middle of the option list are dropped, and the
+ * colour is kept on the rows that carried it verbatim and dropped from the prose rows, which
+ * `plainText` strips either way before anything looks at them.
+ *
+ * Kept from a real screen rather than hand-written because it is what produced the reader-facing
+ * message, and because a hand-written one would not have thought to include the trap: this screen
+ * holds a rule, and TWO `❯` that are not composers.
+ */
+const MODEL_PICKER = [
+  "  - If this was a misfire, re-send the command you meant.",
+  "",
+  "\u001b[38;5;246m✻\u001b[39m Churned for 9s · done 2:28 AM",
+  "",
+  // The reader's own turn, echoed into the transcript with the same marker. No rule above it.
+  "\u001b[38;5;239m\u001b[48;5;237m❯ \u001b[38;5;231m/model\u001b[39m",
+  "",
+  `\u001b[38;5;153m\u001b[49m${"─".repeat(80)}`,
+  "\u001b[39m  \u001b[1m\u001b[38;5;153mSelect model\u001b[0m",
+  "  Switch between Claude models. Your pick becomes the default for new",
+  "  sessions. For other/previous model names, specify with --model.",
+  "",
+  "    1. Default (recommended)  Opus 5 with 1M context · Best for everyday,",
+  "                              complex tasks",
+  // The trap: a marker that is a menu cursor. Indented, and the only rule on the screen is seven
+  // rows above it rather than directly over it, so both of `lastPromptRow`'s guards decline it.
+  "  \u001b[38;5;153m❯\u001b[39m 2. \u001b[38;5;114mOpus (1M context)\u001b[39m ✔    Opus 5 with 1M context · Best for",
+  "                              complex tasks",
+  "    3. Fable                  Fable 5.1 · Most capable for your hardest and",
+  "",
+  "  ● High effort (default) ←/→ to adjust",
+  "",
+  "  Enter to set as default · s to use this session only · Esc to cancel",
+].join("\n");
+
+test("answers nothing for a dialog, whose menu cursor is not a prompt to type into", () => {
+  // The other producer of `no-composer`, and the one a reader actually meets: a picker replaces
+  // the box entirely and stands until somebody answers it in the pane. Measured 2026-09-09
+  // through the live watcher, `/model` held this state for fourteen seconds.
+  //
+  // The reason this is a test rather than a note: the obvious way to stop the panel saying "no
+  // composer" is to widen `lastPromptRow`, and this screen is what each widening costs. Both of
+  // its guards are load-bearing here, and they fail differently.
+  //
+  //   Drop the RULE anchor and the scan reaches row 4, the reader's own `/model` echoed into the
+  //   transcript, and the mirror puts "/model" in their field as text they appear to have typed.
+  //
+  //   Trim the row before matching the marker as well, and it reaches row 13, the menu cursor:
+  //   the field fills with "2. Opus (1M context) ✔ Opus 5 with 1M context · Best for", and the
+  //   next push types that back into a picker where every keystroke is a selection.
+  //
+  // Declining is the correct answer, and it has to stay expensive to undo by accident.
+  expect(composerBox({ screen: MODEL_PICKER, cursor: { row: 13, column: 2 } })).toBeNull();
+});
+
 test("recovers the trailing space the capture cannot show, from the cursor's column", () => {
   // tmux pads every captured row to the pane width, so a box holding "abc " and one holding "abc"
   // come back as the same string and `plainText` trims both to "abc". The cursor is the only thing

@@ -541,7 +541,21 @@ export function tmuxComposerReasonText(reason: TmuxComposerUnavailableReason): s
       return "This session is not running in a terminal, so there is no composer to mirror.";
     case "tmux-unavailable":
       return "tmux is not answering, so this session's composer cannot be reached.";
+    // Named for the absence rather than for a cause, because the sidecar reads a screen with no
+    // box on it and cannot tell which of two things put it there. This line used to name only
+    // the rarer one, and told the reader to wait for something that was not coming.
+    //
+    // Measured 2026-09-09. A pane mid-redraw really does lose its box, but that window came and
+    // went inside a single ~5ms poll and the watcher's trailing coalesce steps over it. What a
+    // reader actually meets is a DIALOG -- `/model`, `/resume`, a permission prompt -- which
+    // replaces the box with an option list and stands until somebody answers it in the pane:
+    // `/model` held this state for the full fourteen seconds its picker was open.
+    //
+    // So the line says where to look instead of promising a return, and says the draft is safe,
+    // because it is: a push that lands on this reason sends nothing and `submit` refuses to send
+    // after it, so the text stays in the field and the next push or send puts it in the box.
     case "no-composer":
-      return "This session's terminal is redrawing. Its composer will come back.";
+      return "This session's terminal is not showing its composer, usually because a dialog is "
+        + "open in it. What you have typed is kept here.";
   }
 }

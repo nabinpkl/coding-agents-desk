@@ -1061,9 +1061,14 @@ function SessionComposer({
     captionIsError = windowComposer.error != null;
   } else if (tmuxBand) {
     // This band latches, so a reason here is a pane that WAS being mirrored and now cannot be
-    // reached: a redraw between frames, or a session that exited under the field. Same precedence
-    // as the inbox next door -- the reason outranks a request's own error, because "that session
-    // is gone" explains the failure where a request that had nowhere to go does not.
+    // reached: a dialog open in the pane, a redraw between frames, or a session that exited under
+    // the field. The first of those is the one a reader meets -- measured 2026-09-09, a `/model`
+    // picker holds `no-composer` for as long as it is open, where a redraw holds it for less than
+    // one ~5ms poll -- which is why `tmuxComposerReasonText` sends them to look at the session
+    // rather than telling them to wait. Same precedence as the inbox next door: the reason
+    // outranks a request's own error, because "that session is gone" explains the failure where a
+    // request that had nowhere to go does not.
+    //
     // Only when something is wrong. The standing lines that used to sit here -- what the field
     // was for, and that Tab takes the suggestion -- were true of every session all the time, so
     // they said nothing about THIS one and cost a row under the composer to say it.
