@@ -116,6 +116,28 @@ const MENU_WRAP = /^ {3,}(\S.*)$/;
 
 /** Kill to the start of the visual row. One per row is what empties the box. */
 const KILL_ROW = "\u0015";
+/**
+ * The narrowest pane a clear has to survive being reflowed into.
+ *
+ * The row count comes from a screen read, and the pane can change shape between that read and the
+ * send: `inTurn` serialises composer turns against each other, but nothing serialises them against
+ * `adoptPaneSize`, which any viewer reaches by publishing a viewport -- a card being dragged or a
+ * phone rotating is enough, with no second viewer anywhere. Narrowing is the hazard, because the
+ * same text then occupies MORE rows than were counted and the leftover rows survive the clear for
+ * the paste to land on top of.
+ *
+ * Measured 2026-09-08 by reflowing a pane inside the turn: a two-row box at 132 columns, reflowed
+ * to 40 and pushed `replaced entirely`, came back holding the whole original sentence with
+ * `replaced entirely` on the end. The reader's words twice, which is this module's oldest bug
+ * arriving through a door that only opened when panes started being resized at all.
+ *
+ * The fix is to overshoot, because overshooting is free: measured on the same pane, twenty Ctrl+U
+ * against a three-character box and against an already-empty one both left it empty and typing
+ * afterwards behaved normally. So the count is what the text would need at a pane this narrow.
+ * Twenty is a floor rather than a measurement -- a composer in a pane narrower than that is not
+ * usable by a person -- and it is stated here rather than buried so the next reader can raise it.
+ */
+const NARROWEST_PANE = 20;
 const BACKSPACE = "\u007f";
 const CARRIAGE_RETURN = "\r";
 /** What accepts Claude's suggestion. Measured: the row comes back with no faint run at all. */
@@ -170,6 +192,14 @@ const REDRAW_POLL_MS = 5;
 
 /** What the box is showing: what is in it, and what Claude is offering to put there. */
 export interface ComposerBox {
+  /**
+   * How many Ctrl+U certainly empty this box, even if the pane reflows before they arrive.
+   *
+   * Not `rows.length`. That is the count the screen showed, and the screen can be out of date by
+   * the time the keystrokes land; see `NARROWEST_PANE` for what that costs and why overshooting
+   * is the answer rather than serialising against whoever resized the pane.
+   */
+  clearPresses: number;
   /**
    * The composer's rows as the screen shows them.
    *
@@ -229,6 +259,8 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
       exact: true,
       // A menu needs text to filter, and a box holding a suggestion is a box holding nothing.
       commands: [],
+      // One row, and it holds nothing to begin with, so nothing a reflow does to it can matter.
+      clearPresses: 1,
     };
   }
   const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
@@ -254,7 +286,18 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
   // putting it back is what stops the next append inserting a space that is already there.
   const exact = view.cursor.row - head === last && column >= rows[last]!.length;
   if (exact) rows[last] = rows[last]!.padEnd(column, " ");
-  return { rows, hint: null, exact, commands: menuUnder(raw, lines, below) };
+  return {
+    rows,
+    hint: null,
+    exact,
+    commands: menuUnder(raw, lines, below),
+    // What this text would need if the pane narrowed to the floor before the keystrokes arrived,
+    // never fewer than the rows actually seen.
+    clearPresses: Math.max(
+      rows.length,
+      Math.ceil([...composerText(rows)].length / NARROWEST_PANE),
+    ),
+  };
 }
 
 /**
@@ -393,8 +436,8 @@ export function keystrokesFor(box: ComposerBox, desired: string): string {
   // A box that is only a lower bound cannot be edited incrementally at all: an append would land
   // after whitespace nobody can see, and a backspace count taken from the visible text would rub
   // out one character too few. The clear below needs none of that -- Ctrl+U kills a whole visual
-  // row whatever is in it, and the row COUNT is exact even when the text is not.
-  if (!box.exact) return END + KILL_ROW.repeat(rows.length) + paste(desired);
+  // row whatever is in it, whether or not the text in it was read correctly.
+  if (!box.exact) return END + KILL_ROW.repeat(box.clearPresses) + paste(desired);
   if (current === desired) return "";
   // Every branch below is written as though the text ends at the cursor. Going to the end is what
   // makes that so, and it is free when the cursor is already there.
@@ -408,7 +451,7 @@ export function keystrokesFor(box: ComposerBox, desired: string): string {
     const removed = backspacesFor(current.slice(shared));
     return END + BACKSPACE.repeat(removed) + paste(desired.slice(shared));
   }
-  return END + KILL_ROW.repeat(rows.length) + paste(desired);
+  return END + KILL_ROW.repeat(box.clearPresses) + paste(desired);
 }
 
 /** Nothing to insert sends nothing: an empty bracketed paste still makes Claude redraw the box. */

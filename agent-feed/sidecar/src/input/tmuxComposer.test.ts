@@ -70,7 +70,12 @@ function paneShowing(screen: string, cursor?: { row: number; column: number }): 
  * between an incremental edit and a retype.
  */
 function held(rows: string[]): ComposerBox {
-  return { rows, hint: null, exact: true, commands: [] };
+  return { rows, hint: null, exact: true, commands: [], clearPresses: clearPressesFor(rows) };
+}
+
+/** What `composerBox` would compute: enough Ctrl+U for the narrowest pane a reflow could give. */
+function clearPressesFor(rows: readonly string[]): number {
+  return Math.max(rows.length, Math.ceil([...composerText(rows)].length / 20));
 }
 
 const KILL = "\u0015";
@@ -93,9 +98,9 @@ const CLOSE = "\u001b[201~";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
   expect(composerBox(screenWith(["make the hover ring stronger"])))
-    .toEqual({ rows: ["make the hover ring stronger"], hint: null, exact: true, commands: [] });
+    .toEqual({ rows: ["make the hover ring stronger"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["make the hover ring stronger"]) });
   // The distinction the whole reconciliation rests on: "" is adopted into the field, null is not.
-  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null, exact: true, commands: [] });
+  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null, exact: true, commands: [], clearPresses: clearPressesFor([""]) });
 });
 
 test("keeps every wrapped row, because the row count is what clearing costs", () => {
@@ -123,12 +128,12 @@ test("reads Claude's own hint as an empty box holding a suggestion", () => {
     RULE,
   ].join("\n");
   expect(composerBox(paneShowing(screen)))
-    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true, commands: [] });
+    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true, commands: [], clearPresses: clearPressesFor([""]) });
 });
 
 test("keeps text that merely sits under a colour, because only faint means a hint", () => {
   const screen = [RULE, "\u001b[39m❯\u00a0\u001b[1mtyped in bold\u001b[0m", RULE].join("\n");
-  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true, commands: [] });
+  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["typed in bold"]) });
 });
 
 test("takes the last box, not a turn the transcript echoed with the same marker", () => {
@@ -141,7 +146,7 @@ test("takes the last box, not a turn the transcript echoed with the same marker"
     "❯\u00a0what is being typed now",
     RULE,
   ].join("\n");
-  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["what is being typed now"], hint: null, exact: true, commands: [] });
+  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["what is being typed now"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["what is being typed now"]) });
 });
 
 test("answers nothing for a screen mid-redraw, which is retryable rather than broken", () => {
@@ -174,11 +179,37 @@ test("calls a reading inexact when the cursor is anywhere but the end of the las
   expect(composerBox(screenWith([]))!.exact).toBe(true);
 });
 
+test("clears for the narrowest pane the box could reflow into, not the one it was read in", () => {
+  // The row count comes from a screen read and the pane can change shape before the keystrokes
+  // land: nothing serialises a composer turn against `adoptPaneSize`, which any viewer reaches by
+  // publishing a viewport -- a card dragged, a phone rotated, no second viewer needed. Narrowing
+  // is the hazard, because the same text then occupies more rows than were counted and the
+  // leftovers survive the clear.
+  //
+  // Measured on a live pane before this: a two-row box at 132 columns, reflowed to 40 inside the
+  // turn and pushed "replaced entirely", came back holding the whole original sentence with
+  // "replaced entirely" on the end. Overshooting is what fixes it, and overshooting is free --
+  // twenty Ctrl+U against a three-character box and against an empty one both left it empty.
+  const wide = composerBox(screenWith([
+    "the quick brown fox jumps over the lazy dog and then keeps running well past the end",
+    "of any one line at all",
+  ]))!;
+  expect(wide.rows).toHaveLength(2);
+  // 105 characters would need six rows at the twenty-column floor, so two is not enough to send.
+  expect(wide.clearPresses).toBeGreaterThan(wide.rows.length);
+  expect(keystrokesFor(wide, "replaced entirely"))
+    .toBe(`${END}${KILL.repeat(wide.clearPresses)}${OPEN}replaced entirely${CLOSE}`);
+
+  // A short box needs no more than the rows it has, so the common case pays nothing.
+  const small = composerBox(screenWith(["one", "two"]))!;
+  expect(small.clearPresses).toBe(2);
+});
+
 test("retypes rather than edits when the reading is only a lower bound", () => {
   // An append would land after whitespace nobody can see, and a backspace count taken from the
   // visible text would rub out one character too few. Ctrl+U needs neither: it kills a whole
   // visual row whatever is in it, and the row COUNT is exact even when the text is not.
-  const inexact = { rows: ["hello"], hint: null, exact: false, commands: [] };
+  const inexact = { rows: ["hello"], hint: null, exact: false, commands: [], clearPresses: 1 };
   expect(keystrokesFor(inexact, "hello world"))
     .toBe(`${END}${KILL}${OPEN}hello world${CLOSE}`);
   // Including when the box already reads the way it is being asked to: what it reads is not all
@@ -256,7 +287,7 @@ test("does not read a path in the footer as a command", () => {
 });
 
 test("stops at the bottom rule rather than swallowing the status lines", () => {
-  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null, exact: true, commands: [] });
+  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["hello"]) });
 });
 
 test("sends nothing when the box already reads that way", () => {
