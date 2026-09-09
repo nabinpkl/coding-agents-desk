@@ -10,7 +10,7 @@ import { join, sep } from "node:path";
  * in an otherwise empty process --
  *
  *   chokidar.watch(root, { depth: 1 })      1033 open descriptors, 950 of them .jsonl files
- *   fs.watch(root, { recursive: true })       11 open descriptors, none of them .jsonl
+ *   fs.watch(root, { recursive: true })     11-14 open descriptors, none of them .jsonl
  *
  * -- and this sidecar watches three such corpora, which is where its ~2000 descriptors came from.
  * Those are not free: every watch in the process shares one watcher thread, and on 2026-09-09 the
