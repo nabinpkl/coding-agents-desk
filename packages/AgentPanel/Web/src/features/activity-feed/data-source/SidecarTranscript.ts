@@ -133,6 +133,7 @@ export class SidecarTranscript extends SidecarRoutes {
             total: envelope.total,
             usage: envelope.usage ?? null,
             windowStart: envelope.windowStart ?? 0,
+            stableIndices: envelope.stableIndices,
             state,
           });
           return;

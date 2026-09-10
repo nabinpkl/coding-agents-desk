@@ -10,6 +10,7 @@
 
 import { stat } from "node:fs/promises";
 import type {
+  AgentRunDetail,
   BackgroundTask,
   BackgroundTaskSnapshot,
   RunningBackgroundTask,
@@ -25,6 +26,7 @@ import {
   type TaskShell,
 } from "@/tasks/processProbe";
 import {
+  type AgentIdentity,
   claudeTranscriptPath,
   type MonitorIdentity,
   scanSessionTasks,
@@ -77,6 +79,8 @@ export interface SnapshotSources {
   processes: readonly ProcessRow[];
   /** Monitor watchers the transcript recorded, keyed by task id. */
   monitors: ReadonlyMap<string, MonitorIdentity>;
+  /** Subagents the transcript recorded, keyed by agent id. */
+  agents: ReadonlyMap<string, AgentIdentity>;
   /** The pid whose direct children are this session's task shells. */
   ownerPid: number;
   /** How long an uncorroborated shell must have run before it is shown. */
@@ -114,6 +118,16 @@ export interface SnapshotSources {
  * the command is the join. Measured: two watchers the harness's own panel listed as running were
  * invisible here for their whole lives.
  */
+/** The wire's view of a run, which is the identity minus what only the sidecar needs. */
+function detailOf(agent: AgentIdentity): AgentRunDetail {
+  return {
+    subagentType: agent.subagentType,
+    model: agent.model,
+    resolvedModel: agent.resolvedModel,
+    launchedAsync: agent.launchedAsync,
+  };
+}
+
 export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapshot {
   const running: RunningBackgroundTask[] = [];
   const finished: BackgroundTask[] = [];
@@ -136,6 +150,10 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
         command: watcher.command,
         startedAt: watcher.startedAt,
       };
+    }
+    const agent = sources.agents.get(taskId);
+    if (agent) {
+      return { description: agent.description, command: null, startedAt: agent.startedAt };
     }
     const notification = sources.notifications.get(taskId);
     return {
@@ -215,9 +233,41 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
     });
   }
 
+  // Subagents, which no descriptor and no command can find. A subagent has no shell at all: it
+  // runs inside the session's own process, so the kernel has nothing to say about it and the two
+  // joins above are both unavailable. Its evidence is entirely the transcript -- launched, and no
+  // completion recorded yet -- which is exactly why the missing notification shape had to be
+  // fixed first. Without that, every subagent ever launched would read as running forever.
+  for (const [agentId, agent] of sources.agents) {
+    if (seen.has(agentId)) continue;
+    const notification = sources.notifications.get(agentId);
+    if (notification?.kind === "completion") continue;
+    // A synchronous subagent's result only exists once it is over, so a launch record with no
+    // completion cannot mean "running" for one. It falls through to `finished` below.
+    if (!agent.launchedAsync) continue;
+    seen.add(agentId);
+    running.push({
+      taskId: agentId,
+      kind: "agent",
+      agent: detailOf(agent),
+      description: agent.description,
+      command: null,
+      startedAt: agent.startedAt,
+      state: { status: "running" },
+      elapsedMs: agent.startedAt === null ? 0 : Math.max(0, sources.now - agent.startedAt),
+      // Its readable trace is a transcript on its own route, not bytes on the task output stream.
+      // Claiming output here would open a stream that resolves to nothing.
+      hasOutput: false,
+      corroborated: true,
+      // No process, so nothing to report. Null is the truth rather than a gap.
+      activity: null,
+    });
+  }
+
   const candidates = new Set<string>([
     ...sources.identities.keys(),
     ...sources.monitors.keys(),
+    ...sources.agents.keys(),
     ...sources.notifications.keys(),
   ]);
   for (const taskId of candidates) {
@@ -249,9 +299,17 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
       taskId,
       kind: sources.monitors.has(taskId)
         ? "monitor"
+        // A launch record is stronger evidence than a notification's tags: it says what this run
+        // WAS, where the tags only say what its ending looked like. A completion whose notification
+        // aged out of the window would otherwise demote a finished subagent to a shell.
+        : sources.agents.has(taskId)
+        ? "agent"
         : notification?.kind === "completion"
         ? notification.taskKind
         : "bash",
+      ...(sources.agents.has(taskId)
+        ? { agent: detailOf(sources.agents.get(taskId)!) }
+        : {}),
       state,
     });
   }
@@ -291,6 +349,7 @@ export async function backgroundTaskSnapshot(
     : {
       starts: new Map<string, TaskIdentity>(),
       monitors: new Map<string, MonitorIdentity>(),
+      agents: new Map<string, AgentIdentity>(),
       notifications: new Map<string, TaskNotification>(),
     };
 
@@ -323,6 +382,7 @@ export async function backgroundTaskSnapshot(
     captureSizes,
     processes,
     monitors: scan.monitors,
+    agents: scan.agents,
     ownerPid: owner.pid,
     uncorroboratedAfterMs: config.backgroundTaskUncorroboratedMs,
     ownerAlive: true,

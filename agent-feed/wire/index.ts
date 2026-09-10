@@ -145,6 +145,7 @@ export type {
 } from "./usage.ts";
 
 export type {
+  AgentRunDetail,
   BackgroundTask,
   BackgroundTaskKind,
   BackgroundTaskProgress,

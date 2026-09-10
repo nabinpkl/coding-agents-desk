@@ -164,6 +164,18 @@ test("a thread opens at its end, not at its beginning", async () => {
   await leave();
 });
 
+test("a backend-backed thread does not claim its indices are stable", async () => {
+  // Pi is durable in its backend rather than on disk, and that projection renumbers,
+  // so a reader must drop whatever it paged in when the window is re-sent. The panel
+  // reads this flag and nothing else to decide that, so a backend session answering
+  // `true` here would silently merge one session's indices into another's.
+  const recorded = recorder();
+  const { messages, leave } = await openTimeline(routesFor(fakeBackend(250, recorded)));
+
+  expect(envelopeOf(messages[0]).stableIndices).toBe(false);
+  await leave();
+});
+
 test("a session shorter than the window opens at zero with everything it has", async () => {
   const recorded = recorder();
   const { messages, leave } = await openTimeline(routesFor(fakeBackend(3, recorded)));

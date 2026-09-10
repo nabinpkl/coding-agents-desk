@@ -72,9 +72,40 @@ export interface TaskActivity {
   elapsedMs: number;
 }
 
+/**
+ * What a subagent run is, beyond being a task.
+ *
+ * Present only on `kind: "agent"` rows. Two facts a reader wants that no other task has: which
+ * agent definition was used, and which model actually answered -- `resolvedModel` is what ran,
+ * where `model` is only what the caller asked for, and the two differ often enough that showing
+ * the request as though it were the outcome would be a lie.
+ *
+ * There is no output path here on purpose. A subagent's readable trace is its own transcript,
+ * which is a stream of events rather than a file of bytes, and it is served on its own route
+ * keyed by this same id. See the note on `hasOutput`.
+ */
+export interface AgentRunDetail {
+  /** The agent definition asked for: "fork", "Explore", "general-purpose", a plugin's name. */
+  subagentType: string | null;
+  /** The model the caller asked for, which is often absent. */
+  model: string | null;
+  /** The model that actually ran. */
+  resolvedModel: string | null;
+  /**
+   * Whether the run was launched to the background.
+   *
+   * False means a synchronous subagent, which is never observed running -- its result exists only
+   * once it is over -- but whose transcript is on disk and readable all the same. A viewer must
+   * not render that as "finished in zero seconds".
+   */
+  launchedAsync: boolean;
+}
+
 export interface BackgroundTask {
   taskId: string;
   kind: BackgroundTaskKind;
+  /** Present exactly when `kind` is `"agent"`. */
+  agent?: AgentRunDetail;
   /** The agent's own words for what it started, from the tool call's `description`. */
   description: string;
   /** The command, when the transcript still carries it. Null once it has aged out of reach. */

@@ -16,6 +16,8 @@ import { join } from "node:path";
 import { config } from "@/config";
 import { isInsideTaskRoot } from "@/tasks/processProbe";
 import {
+  type AgentLaunch,
+  parseAgentLaunch,
   parseBackgroundStart,
   parseMonitorStart,
   parseTaskNotification,
@@ -46,9 +48,33 @@ export interface MonitorIdentity {
   timeoutMs: number | null;
 }
 
+/**
+ * A subagent the session launched, as the transcript describes it.
+ *
+ * Distinct from `TaskIdentity` because a subagent has no shell: the kernel knows nothing about
+ * it, there is no capture file to hold open and no process tree to probe. Everything observable
+ * about one is in the two transcripts -- the parent's, which says it was launched, and its own,
+ * which says how far it has got. So this carries no `capturePath`, and its liveness is decided
+ * by the absence of a completion rather than by a descriptor.
+ *
+ * `subagentType` and `model` come from the tool_use half of the pair and are null when that half
+ * fell outside the read window, which is normal at a window's edge.
+ */
+export interface AgentIdentity {
+  agentId: string;
+  description: string;
+  subagentType: string | null;
+  model: string | null;
+  resolvedModel: string | null;
+  startedAt: number | null;
+  launchedAsync: boolean;
+}
+
 export interface TranscriptTaskScan {
   starts: Map<string, TaskIdentity>;
   monitors: Map<string, MonitorIdentity>;
+  /** Subagents launched from this session, keyed by agent id. */
+  agents: Map<string, AgentIdentity>;
   /** Keyed by task id; a later record replaces an earlier one, so a completion beats a tick. */
   notifications: Map<string, TaskNotification>;
 }
@@ -57,6 +83,10 @@ interface ToolUseInput {
   command?: unknown;
   description?: unknown;
   run_in_background?: unknown;
+  /** Agent only: which agent definition was asked for. */
+  subagent_type?: unknown;
+  /** Agent only: the model override the caller asked for, which need not be the one resolved. */
+  model?: unknown;
 }
 
 /**
@@ -69,6 +99,7 @@ interface ToolUseInput {
 export function parseTranscriptWindow(text: string): TranscriptTaskScan {
   const starts = new Map<string, TaskIdentity>();
   const monitors = new Map<string, MonitorIdentity>();
+  const agents = new Map<string, AgentIdentity>();
   const notifications = new Map<string, TaskNotification>();
   // tool_use id -> what that call asked for, held until its result names the task id.
   const pending = new Map<string, { input: ToolUseInput; at: number | null; name: string }>();
@@ -94,6 +125,19 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
 
     const message = record.message as { content?: unknown } | undefined;
     const blocks = message?.content;
+    // The SAME notification reaches the transcript in two shapes, and only one of them was being
+    // read. A notification that arrives while the session is mid-turn is queued and lands as a
+    // `queued_command` attachment; one that arrives while it is idle is delivered straight into
+    // the conversation as an ordinary user message whose content is a plain string. Measured on
+    // this repo's own transcript: three of each, for BASH tasks as well as subagents. Missing the
+    // second shape leaves a finished task showing as running until something else retires it,
+    // which for a subagent is never, because a subagent has no shell for the kernel to contradict
+    // the transcript with.
+    if (typeof blocks === "string") {
+      const notification = parseTaskNotification(blocks);
+      if (notification) notifications.set(notification.taskId, notification);
+      continue;
+    }
     if (!Array.isArray(blocks)) continue;
     for (const block of blocks) {
       if (!block || typeof block !== "object") continue;
@@ -101,18 +145,26 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
       if (typed.type === "tool_use") {
         const input = typed.input as ToolUseInput | undefined;
         const name = typeof typed.name === "string" ? typed.name : "";
-        // A Monitor is pended on its NAME, where a backgrounded shell is pended on the flag it
-        // set: Monitor has no `run_in_background`, it is background by nature.
-        if (!input?.run_in_background && name !== "Monitor") continue;
+        // A Monitor and an Agent are pended on their NAME, where a backgrounded shell is pended
+        // on the flag it set: neither has `run_in_background`, both are background by nature.
+        if (!input?.run_in_background && name !== "Monitor" && name !== "Agent") continue;
         if (typeof typed.id === "string") pending.set(typed.id, { input: input ?? {}, at: timestamp, name });
         continue;
       }
       if (typed.type !== "tool_result") continue;
+      const callId = typeof typed.tool_use_id === "string" ? typed.tool_use_id : undefined;
+      // A subagent's start is the only one carried BESIDE the message rather than inside it, so
+      // it is read off the record while the block supplies the id that pairs the two.
+      const launch = parseAgentLaunch(record.toolUseResult);
+      if (launch) {
+        recordAgent(agents, launch, callId ? pending.get(callId) : undefined, timestamp);
+        continue;
+      }
       const content = typed.content;
       const asText = typeof content === "string" ? content : JSON.stringify(content ?? "");
       const watcher = parseMonitorStart(asText);
       if (watcher) {
-        const call = typeof typed.tool_use_id === "string" ? pending.get(typed.tool_use_id) : undefined;
+        const call = callId ? pending.get(callId) : undefined;
         const command = typeof call?.input.command === "string" ? call.input.command : null;
         // Without the command there is no way to find this watcher's process, and a Monitor row
         // that cannot be shown to be alive is worse than no row. Dropped rather than guessed at.
@@ -131,7 +183,7 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
       }
       const started = parseBackgroundStart(asText);
       if (!started) continue;
-      const call = typeof typed.tool_use_id === "string" ? pending.get(typed.tool_use_id) : undefined;
+      const call = callId ? pending.get(callId) : undefined;
       const input = call?.input;
       starts.set(started.taskId, {
         taskId: started.taskId,
@@ -149,7 +201,37 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
       });
     }
   }
-  return { starts, monitors, notifications };
+  return { starts, monitors, agents, notifications };
+}
+
+type PendingCall = { input: ToolUseInput; at: number | null; name: string };
+
+/**
+ * Fold one launch and the call that made it into a row.
+ *
+ * Split out because the pairing has three fallbacks and inlining them made the parse loop
+ * unreadable. The description falls back to the launch's own copy and then to the agent id,
+ * because a row a reader cannot name is worse than a terse one.
+ */
+function recordAgent(
+  agents: Map<string, AgentIdentity>,
+  launch: AgentLaunch,
+  call: PendingCall | undefined,
+  timestamp: number | null,
+): void {
+  const asked = call?.input;
+  const description = (typeof asked?.description === "string" && asked.description.trim()
+    ? asked.description.trim()
+    : launch.description) ?? launch.agentId;
+  agents.set(launch.agentId, {
+    agentId: launch.agentId,
+    description,
+    subagentType: typeof asked?.subagent_type === "string" ? asked.subagent_type : null,
+    model: typeof asked?.model === "string" ? asked.model : null,
+    resolvedModel: launch.resolvedModel,
+    startedAt: call?.at ?? timestamp,
+    launchedAsync: launch.launchedAsync,
+  });
 }
 
 /**
@@ -232,6 +314,7 @@ export async function scanSessionTasks(
         const fresh = parseTranscriptWindow(text);
         for (const [id, identity] of fresh.starts) cached.starts.set(id, identity);
         for (const [id, watcher] of fresh.monitors) cached.monitors.set(id, watcher);
+        for (const [id, agent] of fresh.agents) cached.agents.set(id, agent);
         for (const [id, notification] of fresh.notifications) {
           cached.notifications.set(id, notification);
         }
@@ -240,12 +323,18 @@ export async function scanSessionTasks(
       return {
         starts: cached.starts,
         monitors: cached.monitors,
+        agents: cached.agents,
         notifications: cached.notifications,
       };
     }
   }
 
-  let scan: TranscriptTaskScan = { starts: new Map(), monitors: new Map(), notifications: new Map() };
+  let scan: TranscriptTaskScan = {
+    starts: new Map(),
+    monitors: new Map(),
+    agents: new Map(),
+    notifications: new Map(),
+  };
   let size = 0;
   for (const bytes of WINDOW_BYTES) {
     const window = await readBackwardWindow(transcriptPath, bytes);

@@ -48,9 +48,10 @@ export interface EventsPage {
 /**
  * One message of a timeline stream.
  *
- * `snapshot` replaces the visible window authoritatively; `upsert` appends or revises within it;
+ * `snapshot` re-states the visible window authoritatively; `upsert` appends or revises within it;
  * `state` carries run/queue movement with no events. Runtime-local indices and revisions cannot be
- * merged across a snapshot boundary, which is why the kind is on the wire rather than inferred.
+ * merged across a snapshot boundary, which is why the kind is on the wire rather than inferred --
+ * and `stableIndices` is what says whether THIS session's indices are runtime-local at all.
  */
 export interface TimelineEnvelope {
   kind: "snapshot" | "upsert" | "state";
@@ -61,6 +62,20 @@ export interface TimelineEnvelope {
   total: number;
   runState: AgentRunState;
   queue: AgentQueueState;
+  /**
+   * Whether an event's index means the same line on every open of this session.
+   *
+   * True for a session whose durable record is a transcript on disk: lines are only ever appended,
+   * so index 5231 is the same line before and after a reconnect, and a snapshot is a WINDOW onto a
+   * record the reader may already hold more of. False (or absent, for a sender that predates this
+   * field) for a runtime-backed session, whose projection renumbers: there the snapshot is a
+   * REPLACEMENT and anything the reader still holds is a different session's arithmetic.
+   *
+   * It exists because the receiver cannot work this out. Both kinds arrive on one stream shape, and
+   * the sidecar has already decided which it is -- a source with a transcript adapter and a catalog
+   * entry -- before the first byte is written.
+   */
+  stableIndices?: boolean;
   /**
    * Session occupancy as of this message, not page occupancy.
    *
