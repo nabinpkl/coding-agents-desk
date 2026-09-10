@@ -25,3 +25,15 @@ describe("panelEntry", () => {
     expect(panelEntry("feed", "?entry=desktop")).toBe("feed");
   });
 });
+
+describe("the workspace IDE entry", () => {
+  it("is named by a container, the way the iOS shell names the desktop", () => {
+    expect(panelEntry("ide", "")).toBe("ide");
+  });
+
+  it("is NOT reachable from the query, which belongs to the tab bar", () => {
+    // `?entry=ide` falls through to `BrowserSurfaces`, so a browser tab gets the IDE beside the
+    // other surfaces while a container that declares it gets the whole page (ADR-0115).
+    expect(panelEntry(undefined, "?entry=ide")).toBe("feed");
+  });
+});

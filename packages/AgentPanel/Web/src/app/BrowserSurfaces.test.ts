@@ -15,6 +15,12 @@ describe("initialSurface", () => {
 
   it("opens on the screen when asked, which is the surface a locked-out Mac needs", () => {
     expect(initialSurface("?entry=screen")).toBe("screen");
+  });
+
+  it("opens the workspace IDE when the link asks for it", () => {
+    // `?entry=ide` reaches the tab bar rather than the container branch in `main.tsx`: only a
+    // native shell can declare the IDE as the whole page (ADR-0115, panelEntry.ts).
+    expect(initialSurface("?entry=ide")).toBe("ide");
     expect(initialSurface("?entry=screen&fixture")).toBe("screen");
   });
 

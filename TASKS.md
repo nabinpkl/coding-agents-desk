@@ -17,10 +17,36 @@ Gates: `just check` for every task, `just swift-check` additionally for R7-R9.
 | R4 | R | `sidecar/src/workspace/workspaceFiles.ts`: list, read, write, atomic rename, sha256 revisions, the 12-case failure taxonomy. |
 | R5 | R | `sidecar/src/workspace/workspaceStore.ts` and `workspaceSharedState.ts`: the roster, and the open-tab/expanded-directory state with revisions and operation idempotency. |
 | R6 | R | `sidecar/src/workspace/workspaceGit.ts` and `http/workspace-routes/`: git status, the routes, the SSE stream, registration in `server.ts`. |
-| R7 | R | `panel/src/features/workspace-ide/`: the surface. Sidebar, editor, tabs, preview, reusing `features/terminal` and `features/activity-feed/markdown`. |
-| R8 | R | `?entry=ide`: `panelEntry.ts`, `main.tsx`, `BrowserSurfaces.tsx`. |
+| R7 | D | `panel/src/features/workspace-ide/`: the surface. Sidebar, editor, tabs, preview, reusing `features/terminal` and `features/activity-feed/markdown`. |
+| R8 | D | `?entry=ide`: `panelEntry.ts`, `main.tsx`, `BrowserSurfaces.tsx`. |
 | R9 | R | The `＋ IDE` window becomes one `AgentPanelWebViewController` with an entry user script. Dividers, region webviews and the PTY terminal pane go. |
 | R10 | R | Delete `packages/WorkspaceIDE/Web`, the committed resource trees, the QUIC workspace lane, and the `workspace-ide-*` justfile recipes. |
+
+## Open, and blocked on the environment rather than the design
+
+| ID | State | Task |
+|---|---|---|
+| R11 | R | Swap `features/workspace-ide/editor/CodeEditor.tsx` onto CodeMirror, and restore the Word preview in `FilePreview.tsx`. |
+
+`bun add` cannot reach the npm registry from this machine: every run fails
+`UNABLE_TO_VERIFY_LEAF_SIGNATURE` on a different package, including ones it fetched a moment
+earlier, while `npm view` against the same registry succeeds. It is bun's bundled CA store against
+something intercepting TLS here; `--cafile` with the exported system roots does not fix it.
+
+The two ways past it are both worse than waiting: turning off certificate verification, or adding a
+second lockfile, which `ensure-js-dependencies.mjs` refuses on purpose (one lockfile per project,
+`--frozen-lockfile`). So the editor ships on the panel's own `shiki` -- a textarea over a
+highlighted layer -- and the Word preview says what it needs instead of drawing nothing.
+
+What that costs today, so it is not discovered as a surprise: no bracket matching, no multiple
+cursors, no folding, and no virtualisation, so a very large file lays out every line. What it keeps:
+highlighting, the browser's own undo and find, and a caret that behaves like every other text field.
+Both are one file each when the registry is reachable:
+
+```
+bun add @codemirror/state @codemirror/view @codemirror/commands \
+        @codemirror/language @codemirror/language-data @codemirror/theme-one-dark docx-preview
+```
 
 ## Not in this arc
 

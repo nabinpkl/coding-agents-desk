@@ -17,13 +17,14 @@ import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
 import { installWindowDrag } from "@/app/page/windowDrag";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
+import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 
 declare global {
   interface Window {
     /** Set by the native container (or a test) to force host-free fixture mode. */
     __agentFeedFixture?: boolean;
     /** Selects a first-party page entry before React mounts. */
-    __agentPanelEntry?: "feed" | "desktop";
+    __agentPanelEntry?: "feed" | "desktop" | "ide";
   }
 }
 
@@ -53,7 +54,21 @@ if (isFixtureMode()) installFixture();
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");
 
-if (panelEntry() === "desktop") {
+const entry = panelEntry();
+
+if (entry === "ide") {
+  // The workspace IDE, filling a container that asked for it -- today the `＋ IDE` window, which
+  // declares `window.__agentPanelEntry` in a user script the way the iOS shell declares `desktop`
+  // (ADR-0115). Like the desktop entry it takes no native message transport: it talks to the
+  // origin's `/api` proxy, because its whole backend is the sidecar. A browser tab reaches the
+  // same surface through the tab bar instead, so this branch is never the browser's.
+  const transport: AgentHttpTransport = new FetchHttpTransport();
+  createRoot(root).render(
+    <StrictMode>
+      <WorkspaceIdeSurface transport={transport} feed={new SidecarDataSource(transport)} />
+    </StrictMode>,
+  );
+} else if (entry === "desktop") {
   // The desktop entry is served from the host's live HTTPS origin and talks to that origin's
   // authenticated `/api` proxy. It deliberately has no native message transport: Swift chooses
   // the entry and owns visibility, while the page owns every desktop and pointer concern.

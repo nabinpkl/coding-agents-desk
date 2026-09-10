@@ -3,19 +3,21 @@ import { App } from "@/app/AgentPanelApp";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
 import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
+import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { sessionTransport } from "@/features/activity-feed/transport/SessionTransport";
 import { parseSessionIndex, type PanelSessionRef } from "@/app/panelSessions";
 
-export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals";
+export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals" | "ide";
 
 const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
   { name: "desktop", label: "Desktop" },
   { name: "feed", label: "Feed" },
   { name: "screen", label: "Screen" },
   { name: "terminals", label: "Terminals" },
+  { name: "ide", label: "IDE" },
 ];
 
 const NAMED = new Set<string>(SURFACES.map((surface) => surface.name));
@@ -267,6 +269,14 @@ export function BrowserSurfaces({
           />
         ) : surface === "screen" ? (
           <ScreenViewer />
+        ) : surface === "ide" ? (
+          // Keyed by session for the same reason the others are: the workspace roster, the shared
+          // open-tab state and every file it can reach belong to the sidecar that answered.
+          <WorkspaceIdeSurface
+            key={sessionId ?? "default"}
+            transport={sessionTransport(transport, sessionId)}
+            feed={sessionFeed}
+          />
         ) : surface === "terminals" ? (
           // Keyed by session for the same reason the desktop is: the tmux attaches, the terminal
           // stream and every subscription belong to the sidecar that answered, and none of them
