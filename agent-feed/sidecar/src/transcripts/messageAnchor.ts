@@ -174,3 +174,79 @@ function messageText(parsed: { blocks: readonly { kind: string; text?: string }[
   }
   return "";
 }
+
+/**
+ * The first message a person wrote after the session's newest compaction, or null when there is
+ * no compaction or nothing has been said since one.
+ *
+ * This is what "fork from the last compaction" resolves to, and the indirection is the whole
+ * point: a compaction is not a row the rewind picker offers. Claude's own filter drops it twice
+ * over -- the boundary is a `system` record and the summary carries `isCompactSummary` -- so the
+ * nearest point a fork can actually be moved to is the first thing said after it. Rewinding there
+ * restores the conversation to just before that message, which is the compacted context and
+ * nothing that followed it.
+ *
+ * Returning null when nothing has been said since is not a failure to report as one. Every
+ * `compact_boundary` is written with `parentUuid: null`, so the CLI's own chain walk stops there
+ * and a fork already begins at the last compaction; with no message after it, an ordinary fork IS
+ * this, and there is nothing to move.
+ *
+ * The backward walk is the expensive half and only for a session that never compacted, which is
+ * the one case it reads the whole index. Measured in this module's header: a full pass over an
+ * 80MB transcript is about 300ms warm, paid once per click on a menu item, against a reader who
+ * asked for it. A compacted session stops at its newest boundary, which for an active one is near
+ * the end.
+ */
+export async function lastCompactionMessage(
+  sessionId: string,
+  transcriptPath: string,
+): Promise<{ eventId: string; text: string } | null> {
+  acquireIndex("claude", sessionId);
+  try {
+    await ensureIndexed("claude", sessionId, transcriptPath);
+    const total = getEventCount("claude", sessionId, "raw");
+    const compaction = await newestCompaction(sessionId, transcriptPath, total);
+    if (compaction === null) return null;
+    // Forward from the boundary rather than from the summary that follows it: both carry the same
+    // block, and starting at whichever came first cannot skip a message that sits between them.
+    for (let offset = compaction + 1; offset < total; offset += MESSAGE_PAGE) {
+      const page = await readEvents(
+        "claude",
+        sessionId,
+        transcriptPath,
+        offset,
+        Math.min(MESSAGE_PAGE, total - offset),
+      );
+      for (const event of page) {
+        if (event.humanTurn !== true) continue;
+        const text = messageText(event);
+        // Same skip `lastHumanMessage` makes: an anchor with no prose is one the picker could
+        // only be walked to blind, and this repository does not walk blind.
+        if (text) return { eventId: event.id, text };
+      }
+    }
+    return null;
+  } finally {
+    releaseIndex("claude", sessionId);
+  }
+}
+
+/** The index of the newest event carrying a compaction block, or null when the session has none. */
+async function newestCompaction(
+  sessionId: string,
+  transcriptPath: string,
+  total: number,
+): Promise<number | null> {
+  let end = total;
+  while (end > 0) {
+    const offset = Math.max(0, end - MESSAGE_PAGE);
+    const page = await readEvents("claude", sessionId, transcriptPath, offset, end - offset);
+    for (let at = page.length - 1; at >= 0; at -= 1) {
+      // The one thing both records a compaction writes have in common, and the one the panel
+      // already draws its banner from, so this asks the same question the feed answers.
+      if (page[at]!.blocks.some((block) => block.kind === "compaction")) return offset + at;
+    }
+    end = offset;
+  }
+  return null;
+}

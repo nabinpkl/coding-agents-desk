@@ -1,4 +1,4 @@
-import { EyeOff, GitBranch, GitFork, Pencil, Unlink } from "lucide-react";
+import { EyeOff, GitBranch, GitFork, Pencil, Scissors, Unlink } from "lucide-react";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 
 /**
@@ -12,6 +12,7 @@ export function SessionRowMenu({
   onRename,
   onFork,
   onForkFromLastMessage,
+  onForkFromLastCompaction,
   onDetach,
   onRemoveFromCanvas,
 }: {
@@ -38,6 +39,16 @@ export function SessionRowMenu({
    * about a transcript, so a row with none has no answer.
    */
   onForkFromLastMessage?: () => void;
+  /**
+   * Starts a new session branched at this one's newest compaction.
+   *
+   * The narrowest of the three, and the one a reader reaches for after a turn went wrong on a
+   * summarised context: it drops everything said since the summary rather than everything said
+   * since their last message. Absent for `onFork`'s reason, plus its own -- a session that has
+   * never been compacted has no such point, and one that has not been spoken to since a compaction
+   * is already at it, which is what the plain fork above does.
+   */
+  onForkFromLastCompaction?: () => void;
   onDetach: () => void;
   /**
    * Takes this session's card off the canvas and changes nothing about the Bot.
@@ -55,6 +66,16 @@ export function SessionRowMenu({
   // it: one takes the conversation entire, this one stops just before the last thing you said.
   if (onForkFromLastMessage) {
     items.push({ label: "Fork from last message", icon: GitBranch, onSelect: onForkFromLastMessage });
+  }
+  // Under that one, and narrower again: a compaction is further back than the last thing you said,
+  // so the three read as one list widening from "the whole conversation" down to "since the
+  // context was summarised".
+  if (onForkFromLastCompaction) {
+    items.push({
+      label: "Fork from last compaction",
+      icon: Scissors,
+      onSelect: onForkFromLastCompaction,
+    });
   }
   // "from bot", not "from canvas": this drops the Bot's reference to the session wherever the row
   // is being read, and is the only one of the two that asks the sidecar for anything. Both survive

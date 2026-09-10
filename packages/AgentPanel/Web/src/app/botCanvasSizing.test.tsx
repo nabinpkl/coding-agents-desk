@@ -285,6 +285,7 @@ describe("App shell", () => {
         "Rename session",
         "Fork session",
         "Fork from last message",
+        "Fork from last compaction",
         "Remove from bot",
         "Remove from canvas",
       ]);

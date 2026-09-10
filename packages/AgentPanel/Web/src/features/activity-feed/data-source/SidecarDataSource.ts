@@ -257,6 +257,26 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
     );
   }
 
+  /**
+   * The first message a person wrote after this session's newest compaction.
+   *
+   * The point a fork can be moved to that drops everything done since the context was summarised,
+   * and it is a message rather than the compaction itself because the compaction is not a row the
+   * rewind picker offers -- Claude filters both records it writes out of that list. Same shape as
+   * `lastMessage` because it is the same kind of answer, and the fork dialog takes either.
+   *
+   * Rejects with the sidecar's reason when there is no such point: a session that was never
+   * compacted, or one nothing has been said to since, where an ordinary fork already starts there.
+   */
+  async lastCompaction(sessionId: string): Promise<LastSessionMessage> {
+    return parse<LastSessionMessage>(
+      await this.transport.request(
+        "GET",
+        `/api/sessions/claude/${encodeURIComponent(sessionId)}/last-compaction`,
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------
   // Commands
   // ---------------------------------------------------------------------

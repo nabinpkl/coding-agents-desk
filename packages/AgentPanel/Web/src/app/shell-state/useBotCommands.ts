@@ -160,6 +160,33 @@ export function useBotCommands(
     }
   }, [feed]);
 
+  /**
+   * The same dialog again, anchored at the last compaction rather than the last message.
+   *
+   * What a reader wants after a turn that went the wrong way with a summarised context behind it:
+   * a session holding the compaction summary and none of what followed. A plain fork does not give
+   * that -- it inherits everything after the summary too -- and finding the right row by hand means
+   * scrolling back past the whole wrong turn to the message under the compaction banner.
+   *
+   * The sidecar decides which row that is, for `forkFromLastMessage`'s reason and one more: a
+   * compaction is two records the panel draws as one banner, and which message sits after them is
+   * a question about a file rather than about what happens to be rendered.
+   */
+  const forkFromLastCompaction = useCallback(async (session: SessionSummary, projectPath: string) => {
+    if (session.source !== "claude") return;
+    setBotCommandError(null);
+    try {
+      setForkRequest({ session, projectPath, from: await feed.lastCompaction(session.sessionId) });
+    } catch (error) {
+      setBotCommandError({
+        session: `${session.source}:${session.sessionId}`,
+        message: `Could not find a compaction to fork from: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }, [feed]);
+
   const startFork = useCallback(
     async (
       request: ForkRequest,
@@ -344,6 +371,7 @@ export function useBotCommands(
     forkSession,
     forkFromMessage,
     forkFromLastMessage,
+    forkFromLastCompaction,
     startFork,
     startNewSession,
     closeNewSession,

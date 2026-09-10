@@ -42,6 +42,7 @@ export function BotSessionCard({
   botError,
   onFork,
   onForkFromLastMessage,
+  onForkFromLastCompaction,
   onRename,
   onDetach,
   onRemoveFromCanvas,
@@ -63,6 +64,7 @@ export function BotSessionCard({
   onFork?: () => void;
   /** The same fork, starting just before the last thing a person said. Codex-absent likewise. */
   onForkFromLastMessage?: () => void;
+  onForkFromLastCompaction?: () => void;
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
   onDetach: () => void;
@@ -203,6 +205,7 @@ export function BotSessionCard({
                 onRename={onRename}
                 onFork={onFork}
                 onForkFromLastMessage={onForkFromLastMessage}
+                onForkFromLastCompaction={onForkFromLastCompaction}
                 onDetach={onDetach}
                 onRemoveFromCanvas={onRemoveFromCanvas}
               />

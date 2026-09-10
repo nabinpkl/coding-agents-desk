@@ -421,6 +421,7 @@ export function App({ feed, host, fill = false }: Props) {
                 onAddSession={commands.openBotSessionPicker}
                 onForkSession={commands.forkSession}
                 onForkFromLastMessage={commands.forkFromLastMessage}
+                onForkFromLastCompaction={commands.forkFromLastCompaction}
                 onRenameSession={commands.setRenamingSession}
                 onDetachSession={commands.detachBotSession}
                 onRemoveSessionFromCanvas={roster.removeSessionFromCanvas}

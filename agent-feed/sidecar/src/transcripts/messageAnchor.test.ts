@@ -7,7 +7,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { anchorAtLine, lineFromEventId, MessageAnchorError } from "@/transcripts/messageAnchor";
+import {
+  anchorAtLine,
+  lastCompactionMessage,
+  lineFromEventId,
+  MessageAnchorError,
+} from "@/transcripts/messageAnchor";
 
 const roots: string[] = [];
 const SESSION = "99999999-9999-4999-8999-999999999999";
@@ -47,6 +52,35 @@ function replied(text: string): string {
     timestamp: "2026-09-09T05:00:02.000Z",
     uuid: crypto.randomUUID(),
   });
+}
+
+/**
+ * The two records a compaction writes, in the order the CLI writes them.
+ *
+ * Both are needed: the boundary is a `system` record and the summary is a `user` one carrying
+ * `isCompactSummary`, and a resolver that knew only one of them would find the wrong line by
+ * however far apart they sit.
+ */
+function compacted(): readonly string[] {
+  return [
+    JSON.stringify({
+      type: "system",
+      subtype: "compact_boundary",
+      content: "Conversation compacted",
+      compactMetadata: { trigger: "manual", preTokens: 100000 },
+      cwd: "/tmp/project",
+      timestamp: "2026-09-09T05:00:03.000Z",
+      uuid: crypto.randomUUID(),
+    }),
+    JSON.stringify({
+      type: "user",
+      isCompactSummary: true,
+      message: { role: "user", content: "This session is being continued from a previous..." },
+      cwd: "/tmp/project",
+      timestamp: "2026-09-09T05:00:04.000Z",
+      uuid: crypto.randomUUID(),
+    }),
+  ];
 }
 
 async function transcript(lines: readonly string[]): Promise<string> {
@@ -125,4 +159,41 @@ test("refuses an event that belongs to another session", () => {
 test("refuses an id that is not one, and a source that cannot be forked", () => {
   expect(() => lineFromEventId("nonsense", SESSION)).toThrow(MessageAnchorError);
   expect(() => lineFromEventId(`codex:${SESSION}:line:3`, SESSION)).toThrow(MessageAnchorError);
+});
+
+test("finds the first thing said after the newest compaction", async () => {
+  // Two compactions, so the answer has to be the newer one rather than the first one found walking
+  // forwards. The envelope after it is what a real `/compact` leaves behind and is not the answer.
+  const path = await transcript([
+    said("ALPHA one"),
+    ...compacted(),
+    said("BRAVO two"),
+    replied("OK"),
+    ...compacted(),
+    said("<local-command-stdout>Compacted</local-command-stdout>"),
+    toolResult(),
+    said("CHARLIE three"),
+    replied("OK"),
+    said("DELTA four"),
+  ]);
+
+  const found = await lastCompactionMessage(SESSION, path);
+
+  expect(found?.text).toBe("CHARLIE three");
+  // Addressed the way the fork command takes it, so the panel hands this straight back.
+  expect(found?.eventId).toBe(`claude:${SESSION}:line:9`);
+  // And it is an anchor the picker can actually be walked to: two messages sit after it.
+  expect(await anchorAtLine(SESSION, path, 9)).toEqual({ fromEnd: 2, text: "CHARLIE three" });
+});
+
+test("a session that was never compacted has no such point", async () => {
+  expect(await lastCompactionMessage(SESSION, await transcript(conversation()))).toBeNull();
+});
+
+test("a compaction nobody has spoken since has no such point either", async () => {
+  // Not a failure: every compact boundary is written with `parentUuid: null`, so a fork already
+  // starts at the last compaction, and with nothing said after it the ordinary fork IS this.
+  const path = await transcript([said("ALPHA one"), replied("OK"), ...compacted()]);
+
+  expect(await lastCompactionMessage(SESSION, path)).toBeNull();
 });

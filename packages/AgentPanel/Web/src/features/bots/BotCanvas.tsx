@@ -68,6 +68,7 @@ export function BotCanvas({
   onAddSession,
   onForkSession,
   onForkFromLastMessage,
+  onForkFromLastCompaction,
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
@@ -110,6 +111,7 @@ export function BotCanvas({
   onForkSession: (bot: BotView, session: SessionSummary) => void;
   /** The same fork, starting just before the last thing a person said in that session. */
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
+  onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   /**
@@ -216,6 +218,7 @@ export function BotCanvas({
       onAddSession={onAddSession}
       onForkSession={onForkSession}
       onForkFromLastMessage={onForkFromLastMessage}
+      onForkFromLastCompaction={onForkFromLastCompaction}
       onRenameSession={onRenameSession}
       onDetachSession={onDetachSession}
       onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
@@ -254,6 +257,7 @@ function BotCanvasList({
   onAddSession,
   onForkSession,
   onForkFromLastMessage,
+  onForkFromLastCompaction,
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
@@ -272,6 +276,7 @@ function BotCanvasList({
   onForkSession: (bot: BotView, session: SessionSummary) => void;
   /** The same fork, starting just before the last thing a person said in that session. */
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
+  onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -378,6 +383,7 @@ function BotCanvasList({
             onAddSession={onAddSession}
             onForkSession={onForkSession}
             onForkFromLastMessage={onForkFromLastMessage}
+            onForkFromLastCompaction={onForkFromLastCompaction}
             onRenameSession={onRenameSession}
             onDetachSession={onDetachSession}
             onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}

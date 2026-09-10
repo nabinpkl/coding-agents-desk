@@ -1,15 +1,19 @@
 /**
- * Forking from the last thing a person said, asked for from the session rather than from a row.
+ * The two forks that look their own anchor up rather than being pointed at one: from the last
+ * thing a person said, and from the last compaction.
  *
  * The row menu on a message can only be reached by scrolling to that message, and one turn of tool
  * calls is enough to put the last one off the screen -- so the affordance was furthest away exactly
- * when the transcript was longest. This is the same fork with the message looked up instead of
- * pointed at, which makes the lookup the part that can be silently wrong: an anchor the rewind
- * picker does not have reads as a fork that worked and did not.
+ * when the transcript was longest. A compaction is worse than that and worse in kind: it is not a
+ * row the rewind picker offers at all, so the reader cannot point at it even after scrolling to
+ * it, and the message under the banner is what a fork can actually be moved to.
  *
- * Three seams, because they fail differently. The menu decides whether to offer it, the data source
- * decides what it asks, and the command decides what the dialog is opened with -- or, when there is
- * nothing to fork from, what the reader is told instead of a dialog.
+ * Looking the anchor up is what makes both of them silently wrong-able: an anchor the picker does
+ * not have reads as a fork that worked and did not.
+ *
+ * Three seams, because they fail differently. The menu decides whether to offer them, the data
+ * source decides what it asks for, and the command decides what the dialog is opened with -- or,
+ * when there is nothing to fork from, what the reader is told instead of a dialog.
  */
 
 import { describe, expect, it } from "vitest";
@@ -47,14 +51,17 @@ describe("the item on the session menu", () => {
         label="Picker driver"
         onFork={() => {}}
         onForkFromLastMessage={() => {}}
+        onForkFromLastCompaction={() => {}}
         onDetach={() => {}}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Actions for/ }));
-    // Two forks that answer different questions: all of it, or up to the last thing you said.
+    // Three forks that answer different questions, widening from all of it, to the last thing you
+    // said, to since the context was summarised.
     expect(screen.getByRole("menuitem", { name: "Fork session" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Fork from last message" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Fork from last compaction" })).toBeTruthy();
   });
 
   it("is absent on a row that cannot be forked from, rather than inert", () => {
@@ -64,6 +71,7 @@ describe("the item on the session menu", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Actions for/ }));
     expect(screen.queryByRole("menuitem", { name: "Fork from last message" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Fork from last compaction" })).toBeNull();
   });
 });
 
@@ -147,5 +155,72 @@ describe("what the command does with it", () => {
 
     expect(result.current.forkRequest).toBeNull();
     expect(transport.requests).toEqual([]);
+  });
+});
+
+describe("finding the compaction", () => {
+  it("asks its own endpoint, because a compaction is not a row anybody can point at", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 200,
+      body: JSON.stringify({ eventId: "claude:sid-1:line:88", text: "Now do the other half" }),
+    };
+
+    const message = await new SidecarDataSource(transport).lastCompaction("sid-1");
+
+    expect(transport.requests.at(-1)).toEqual({
+      method: "GET",
+      path: "/api/sessions/claude/sid-1/last-compaction",
+      body: undefined,
+    });
+    // The message AFTER the compaction, in the units the fork takes: rewinding to it restores the
+    // conversation to just before it, which is the summarised context and nothing after.
+    expect(message).toEqual({ eventId: "claude:sid-1:line:88", text: "Now do the other half" });
+  });
+
+  it("opens the same dialog, seeded with the message under the banner", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 200,
+      body: JSON.stringify({ eventId: "claude:sid-1:line:88", text: "Now do the other half" }),
+    };
+    const result = commands(new SidecarDataSource(transport));
+
+    await act(async () => {
+      await result.current.forkFromLastCompaction(SOURCE, "/repo");
+    });
+
+    expect(result.current.forkRequest).toEqual({
+      session: SOURCE,
+      projectPath: "/repo",
+      from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
+    });
+  });
+
+  it("says why when the session has no compaction to start from", async () => {
+    // Two states wear this 404: never compacted, and compacted with nothing said since. Neither is
+    // an error to swallow, and the second one has an answer the reader can act on -- the ordinary
+    // fork above it in the menu already starts there.
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 404,
+      body: JSON.stringify({
+        error: {
+          code: "no-compaction-point",
+          message: "this session has nothing said after a compaction to start from",
+        },
+      }),
+    };
+    const result = commands(new SidecarDataSource(transport));
+
+    await act(async () => {
+      await result.current.forkFromLastCompaction(SOURCE, "/repo");
+    });
+
+    expect(result.current.forkRequest).toBeNull();
+    expect(result.current.botCommandError).toEqual({
+      session: "claude:sid-1",
+      message: expect.stringContaining("nothing said after a compaction"),
+    });
   });
 });
