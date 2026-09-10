@@ -353,7 +353,12 @@ export function SessionView({
   ) : null;
 
   return (
-    <div ref={setColumn} className="flex h-full min-h-0 flex-col bg-card">
+    // `session-view-surface` rather than `bg-card`, and the transcript's ground below likewise.
+    // Both resolve to the token they name unless something above them published a colour, which
+    // only a Bot card's shaded session does (`styles.css`, `.bot-session-fill`). Putting the
+    // utility back would repaint an open session plain over the top of the shade that says which
+    // session it is -- which is the bug these replaced.
+    <div ref={setColumn} className="flex h-full min-h-0 flex-col session-view-surface">
       {controlsHost
         ? createPortal(
           <>
@@ -380,7 +385,7 @@ export function SessionView({
       {/* ActivityFeed remains the thread's only scroll owner: the bands below it are outside its
           box, so sticky transcript headers and virtualization read the same scrollTop whether this
           view is the whole page or a card. */}
-      <div key={`${sessionId}:${eventMode}`} className="min-h-0 flex-1 overflow-hidden bg-background">
+      <div key={`${sessionId}:${eventMode}`} className="min-h-0 flex-1 overflow-hidden session-view-ground">
         <ActivityFeed
           source={source}
           sessionId={sessionId}
