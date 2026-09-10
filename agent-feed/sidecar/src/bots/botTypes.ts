@@ -44,11 +44,11 @@ export class BotLaunchError extends Error {}
  * checked.
  */
 /**
- * How a Bot starts a session, which is how ANY caller starts one.
+ * How a Bot starts and ends a session, which is how ANY caller does.
  *
- * An alias rather than a second declaration of the same four methods. It kept its name because the
- * Bot's own vocabulary is what its callers read, and it stopped being its own shape when forking
- * became a session operation: two identical interfaces are two things to keep in step, and the
- * moment they drift the Bot is launching sessions a different way from everything else.
+ * An alias rather than a second declaration of the same three methods. It kept its name because
+ * the Bot's own vocabulary is what its callers read, and it stopped being its own shape when
+ * forking became a session operation: two identical interfaces are two things to keep in step, and
+ * the moment they drift the Bot is launching sessions a different way from everything else.
  */
 export type BotSessionLauncher = SessionLauncher;

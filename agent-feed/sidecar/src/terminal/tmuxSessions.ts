@@ -31,6 +31,8 @@ export {
   createTmuxSession,
   findTmuxSessionByIdentity,
   hasSessionArgs,
+  killSessionArgs,
+  killTmuxSession,
   listTmuxSessions,
   newSessionArgs,
   parseTmuxSessionIdentities,

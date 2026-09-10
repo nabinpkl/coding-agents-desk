@@ -70,6 +70,9 @@ const forkAction: typeof forkClaudeSession = (sessionId, command) => forkClaudeS
     start: async () => {
       throw new Error("a fork must never start a session with no history");
     },
+    end: async () => {
+      throw new Error("a fork must never end a session");
+    },
     fork: async (options) => {
       forked.push(options);
       if (forkFailure) throw forkFailure;

@@ -19,6 +19,7 @@
 import type { ForkSessionCommand, StartedSession } from "@agentdesk/agent-feed-wire";
 import { branchFromTitle, prepareWorktree, worktreeOf } from "@/git/worktree";
 import {
+  endClaudeSession,
   startClaudeSession,
   startForkedClaudeSession,
 } from "@/terminal/claudeSessionLaunch";
@@ -64,12 +65,16 @@ export type ForkRewinder = (options: {
 }) => Promise<{ done: true } | { done: false; reason: string }>;
 
 /**
- * How a session actually gets started, injectable so the decisions above can be tested without
- * tmux and without a Claude CLI.
+ * How a session is actually started and ended, injectable so the decisions above can be tested
+ * without tmux and without a Claude CLI.
  *
- * The two halves are genuinely different commands rather than one with a flag: a fresh session is
- * `--session-id`, a fork is `--resume ... --fork-session --session-id`, and the fork's brief rides
- * behind a standing handoff note that the fresh one must not get.
+ * The two starting halves are genuinely different commands rather than one with a flag: a fresh
+ * session is `--session-id`, a fork is `--resume ... --fork-session --session-id`, and the fork's
+ * brief rides behind a standing handoff note that the fresh one must not get.
+ *
+ * Ending is on the same seam for a stronger version of the same reason. A test that started a pane
+ * would need tmux; a test that ENDED one would need tmux and would be the only test here that can
+ * destroy something outside its own fixture.
  */
 export interface SessionLauncher {
   /** A session with no history, in `cwd`. */
@@ -87,6 +92,8 @@ export interface SessionLauncher {
     title: string;
     brief?: string;
   }): Promise<{ tmuxSession: string }>;
+  /** Ends the pane a session runs in, answering with its name or null when there was none. */
+  end(options: { sessionId: string }): Promise<string | null>;
 }
 
 /**
@@ -101,6 +108,7 @@ export interface SessionLauncher {
 export const LIVE_SESSION_LAUNCHER: SessionLauncher = {
   start: (options) => startClaudeSession(options),
   fork: (options) => startForkedClaudeSession(options),
+  end: (options) => endClaudeSession(options),
 };
 
 

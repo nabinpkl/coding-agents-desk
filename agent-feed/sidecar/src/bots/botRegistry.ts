@@ -7,10 +7,12 @@ import type {
   BotRecord,
   BotSessionRef,
   BotSessionsAdded,
+  BotSessionsRetired,
   BotSnapshot,
   BotView,
   StartedSession,
   DetachBotSessionsCommand,
+  RetireBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import { LIVE_SESSION_LAUNCHER } from "@/transcripts/forkSession";
@@ -19,12 +21,14 @@ import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "@/bots
 import {
   normalizeAddBot,
   normalizeLaunchFor,
+  normalizeRetire,
   normalizeSessionRef,
   normalizeSessionRefCommand,
   type NormalizedLaunch,
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { BotSessionStarter } from "@/bots/botSessionLaunch";
+import { BotSessionRetirer, detachRefs } from "@/bots/botSessionRemoval";
 import {
   BotConflictError,
   BotForbiddenError,
@@ -62,6 +66,8 @@ async function directoryAvailability(path: string): Promise<"available" | "missi
 export class BotRegistry {
   /** Bringing a session into existence, which is its own act. See `botSessionLaunch.ts`. */
   private readonly starter: BotSessionStarter;
+  /** And taking one out of it again. See `botSessionRemoval.ts`. */
+  private readonly retirer: BotSessionRetirer;
 
   constructor(
     private readonly store: BotStore,
@@ -79,6 +85,7 @@ export class BotRegistry {
     private readonly newSessionId: () => string = () => crypto.randomUUID(),
   ) {
     this.starter = new BotSessionStarter(store, catalog, launcher, newSessionId);
+    this.retirer = new BotSessionRetirer(store, catalog, launcher);
   }
 
   async snapshot(): Promise<BotSnapshot> {
@@ -300,34 +307,31 @@ export class BotRegistry {
     const signature = commandSignature({ botId, ...normalized });
     const idempotencyKey = `detach:${actorKey(actor)}:${normalized.requestId}`;
 
-    const record = await this.store.mutate((snapshot) => {
-      const prior = priorBot(snapshot, idempotencyKey, signature);
-      if (prior) return { snapshot, value: prior };
-      const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
-      if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
-      const bot = snapshot.bots[index]!;
-      const attached = new Set(bot.sessionRefs.map(sessionKey));
-      const absent = normalized.sessionRefs.find((ref) => !attached.has(sessionKey(ref)));
-      if (absent) {
-        throw new BotNotFoundError(`session ${sessionKey(absent)} is not attached to this Bot`);
-      }
-
-      const removing = new Set(normalized.sessionRefs.map(sessionKey));
-      const updated: BotRecord = {
-        ...bot,
-        sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))),
-      };
-      const bots = [...snapshot.bots];
-      bots[index] = updated;
-      const next: StoredBotSnapshot = {
-        ...snapshot,
-        revision: snapshot.revision + 1,
-        bots,
-        idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
-      };
-      return { snapshot: next, value: updated };
-    });
+    const record = await this.store.mutate((snapshot) =>
+      detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
+    );
     return this.viewRecord(record);
+  }
+
+  /**
+   * Retires sessions: the inverse of the launch that created them.
+   *
+   * Detaching is the half of this that forgets; retiring also ends the session and disposes of the
+   * worktree, the branch and the branch's remote copy, each only when asked. It is one endpoint
+   * because it is one act with one ordering, and doing it as five calls is how a worktree gets
+   * removed while its pane is still live in it.
+   */
+  async retireSessions(
+    botId: string,
+    command: RetireBotSessionsCommand,
+    actor: BotActor,
+  ): Promise<BotSessionsRetired> {
+    if (actor.kind !== "user") {
+      throw new BotForbiddenError("only the authenticated user may retire a Bot's sessions");
+    }
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
+    const { record, retired } = await this.retirer.retire(botId, normalizeRetire(command), actor);
+    return { bot: await this.viewRecord(record), retired };
   }
 
   async botAllowedToAdd(session: BotSessionRef): Promise<boolean> {

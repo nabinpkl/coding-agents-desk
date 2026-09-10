@@ -161,3 +161,66 @@ export interface DetachBotSessionsCommand {
   requestId: string;
   sessionRefs: BotSessionRef[];
 }
+
+/**
+ * Retires sessions: ends them, forgets them, and disposes of what their launch created.
+ *
+ * The inverse of `BotLaunchCommand`. Starting a session in a worktree is one call; tearing one
+ * down was six separate acts -- end the pane, detach the reference, remove the worktree, delete the
+ * branch, delete it on the remote, prune -- which is the kind of sequence that gets done three
+ * times out of four and leaves a directory nobody remembers making.
+ *
+ * Every disposal defaults to KEEP. A caller that says nothing gets the session ended and forgotten
+ * and nothing on disk touched, because the destructive half is the half worth naming out loud.
+ * `remote` is separate from `branch` for the same reason one step further out: a deleted local
+ * branch still exists in every clone that has it, and a deleted remote branch reaches all of them
+ * at once.
+ *
+ * The two combinations that are refused rather than silently reinterpreted, because allowing them
+ * would make this shape lie about what it does:
+ *
+ * - `branch: "delete"` requires `worktree: "remove"`. Git will not delete a branch that a worktree
+ *   has checked out, so the pair that keeps the worktree can never delete the branch.
+ * - `remote: "delete"` requires `branch: "delete"`. The local `git branch -d` is the only check
+ *   that the branch is merged; deleting the remote copy without it removes the one guard, and it
+ *   is the guard on the copy that is hardest to get back.
+ */
+export interface RetireBotSessionsCommand {
+  requestId: string;
+  sessionRefs: BotSessionRef[];
+  /** Remove the git worktree the session was working in. Only ever a worktree of the Bot's own. */
+  worktree?: "remove" | "keep";
+  /** Delete the branch that worktree had checked out, once the worktree is gone. */
+  branch?: "delete" | "keep";
+  /** Delete that same branch on the remote it tracks. */
+  remote?: "delete" | "keep";
+}
+
+/**
+ * What retiring one session actually did.
+ *
+ * Every field records what HAPPENED rather than what was asked for, and `failed` carries the gap
+ * between the two. Partial success is the ordinary outcome here rather than an edge case: a branch
+ * git will not delete still leaves a pane ended and a worktree removed, and a caller told only
+ * that the call failed cannot tell which of the remaining steps it now has to do by hand.
+ */
+export interface RetiredBotSession extends BotSessionRef {
+  /** The tmux pane that was ended. Absent when there was none, which is the ordinary case. */
+  endedPane?: string;
+  removedWorktree?: string;
+  deletedBranch?: string;
+  /** The remote the branch was deleted from, present only when it was. */
+  deletedRemoteBranch?: string;
+  /** Asked for, and did not happen. Empty when everything asked for ran. */
+  failed: { step: "pane" | "worktree" | "branch" | "remote"; reason: string }[];
+}
+
+/** `POST /api/bots/:botId/sessions/retire` response. */
+export interface BotSessionsRetired {
+  bot: BotView;
+  /**
+   * One entry per session retired, in the order asked. Empty on a replayed `requestId`, which
+   * ends and removes nothing: none of the acts above is idempotent on its own.
+   */
+  retired: RetiredBotSession[];
+}

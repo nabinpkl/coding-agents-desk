@@ -42,6 +42,9 @@ const launcher: SessionLauncher = {
     asked.push({ kind: "fork", ...options });
     return { tmuxSession: `fork-pane-${options.forkId}` };
   },
+  async end() {
+    throw new Error("nothing here ends a session");
+  },
 };
 
 const newForkId = () => FORK_ID;
