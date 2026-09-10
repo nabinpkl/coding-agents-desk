@@ -156,11 +156,18 @@ panel that remembers its font size and forgets which session it was reading.
 > re-establish after a reload. Do not persist anything the sidecar already knows, anything derivable
 > from what it sends, or anything whose absence a reader cannot see.
 
-That last clause has a scar behind it, and it is the one to reread before storing something: which
-Bots are on the canvas is deliberately NOT stored (`AgentPanelApp.tsx`, `detachedBotIds`), because a
-canvas that comes back whole costs one click to arrange again, where one that comes back missing a
-Bot hides it from a reader who has forgotten they took it off. **Cheap to redo beats quietly
-wrong.** Store identity, never a record the stream owns: `selectionStore` keeps three strings and
+That last clause is the one to reread before storing something, and the example that used to sit
+here is now the example of the clause being SATISFIED rather than of it biting. What is off the
+canvas -- whole Bots, and single sessions -- was deliberately not stored, because a canvas that came
+back whole cost one click to arrange again where one that came back missing a Bot hid it from a
+reader who had forgotten taking it off. That absence is no longer unseeable: the sidebar roster
+lists every Bot and every session either way, dims the ones that are off, and carries the control
+that puts them back, so both sets are now remembered (`botCanvasPreferences.ts`,
+`loadDetachedBotIds` / `loadDetachedSessionKeys`). **Cheap to redo beats quietly wrong** still
+decides it -- what changed is that the panel stopped being quiet, not that the cost changed. The
+rule is about whether the reader can SEE what was kept, so re-ask that question of the surface as it
+is now rather than inheriting an answer. Store identity, never a record the stream owns:
+`selectionStore` keeps three strings and
 re-resolves them against the inventory, because a stored `SessionSummary` would be a second source
 of truth that nothing refreshes.
 

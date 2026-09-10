@@ -169,8 +169,64 @@ test("reads Claude's own hint as an empty box holding a suggestion", () => {
     "\u001b[39m❯\u00a0\u001b[2mstop adding the three suggestions\u001b[0m",
     RULE,
   ].join("\n");
-  expect(composerBox(paneShowing(screen)))
-    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true, commands: [], clearPresses: clearPressesFor([""]) });
+  // The caret at the START of the marker row, which is where an empty box keeps it: measured
+  // 2026-09-09, an empty composer reports column 2 and a typed one reports further along.
+  expect(composerBox(paneShowing(screen, { row: 0, column: 0 })))
+    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true, commands: [], clearPresses: 1 });
+});
+
+test("will not call a faint row exact when the caret says somebody is typing in it", () => {
+  // The placeholder branch says a box is EMPTY on the evidence of one colour, and that is the
+  // weakest claim in this module -- it was wrong for every truecolor run until the parameters
+  // were walked properly, and a reader's sentence read as a suggestion. The caret is the one
+  // thing on the screen that can disagree: a suggestion sits in an empty box, and an empty box
+  // keeps the caret at the start of the marker row.
+  //
+  // Marked inexact rather than rejected, deliberately. Rejecting would risk mirroring a REAL
+  // suggestion into somebody's field, which is the older and worse bug; inexact only sends this
+  // down the clear-and-retype path. So the check costs a retype when it is wrong, where its
+  // absence cost a reader their sentence.
+  const screen = [
+    RULE,
+    "\u001b[39m❯\u00a0\u001b[2mwhat the reader is typing\u001b[0m",
+    RULE,
+  ].join("\n");
+  const typing = composerBox(paneShowing(screen, { row: 0, column: 25 }))!;
+  expect(typing.exact).toBe(false);
+  expect(keystrokesFor(typing, "replaced")).toContain(KILL);
+  // And the clear is sized for the rows the box DRAWS, not for the one row a suggestion needs,
+  // so a wrong reading is cleared out of the way rather than pasted on top of.
+  const tall = [
+    RULE,
+    "\u001b[39m❯\u00a0\u001b[2malpha bravo\u001b[0m",
+    "  charlie delta",
+    "  echo foxtrot",
+    RULE,
+  ].join("\n");
+  expect(composerBox(paneShowing(tall, { row: 0, column: 11 }))!.clearPresses).toBe(3);
+});
+
+test("reads the queued-message placeholder a busy session draws, and keeps it exact", () => {
+  // Captured from a live pane 2026-09-09, mid-turn with a message already queued: Claude draws a
+  // SECOND box under the first, and its row is a placeholder rather than anybody's text. Kept
+  // verbatim because it is the only real suggestion this repo has caught in the wild, and it is
+  // what says the cursor corroboration above does not reject one -- the caret sits at the start
+  // of the marker row, exactly where an empty box keeps it.
+  //
+  // Note the ORDINARY space after the marker here, where a typed composer writes a no-break one.
+  const screen = [
+    RULE,
+    "\u001b[38;5;246m❯ \u001b[2m\u001b[39mPress up to edit queued messages\u001b[0m",
+    RULE,
+    "  busycwd  Opus 5 (1M context)  ctx:5%                    48402 tokens",
+  ].join("\n");
+  const box = composerBox({ screen, cursor: { row: 1, column: BOX_COLUMN } })!;
+  expect(box.rows).toEqual([""]);
+  expect(box.hint).toBe("Press up to edit queued messages");
+  expect(box.exact).toBe(true);
+  // And nothing is typed back into it: the box reads empty, so a push of the same nothing is a
+  // push of nothing at all.
+  expect(keystrokesFor(box, "")).toBe("");
 });
 
 test("keeps text that merely sits under a colour, because only faint means a hint", () => {

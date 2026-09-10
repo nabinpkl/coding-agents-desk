@@ -1115,6 +1115,120 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("brings back the canvas the reader tidied, not the one the sidecar sends", async () => {
+    // Both removals used to be in-memory only, so every reload -- and a Vite save is a reload --
+    // undid the tidying and the reader arranged the canvas again. The absence is announced in the
+    // roster at both levels, which is what makes remembering it safe rather than merely convenient.
+    const evalBot = {
+      ...BOT_WITH_ONE_SESSION,
+      botId: "bot-2",
+      name: "Eval Bot",
+      sessionRefs: [],
+      sessions: [],
+    };
+    const deliver = (transport: FakeHttpTransport) => {
+      act(() => {
+        transport.deliver("/api/bots/stream", {
+          version: 2,
+          revision: 1,
+          bots: [BOT_WITH_ONE_SESSION, evalBot],
+        });
+      });
+    };
+
+    const first = setup();
+    deliverProjects(first.transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    deliver(first.transport);
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Eval Bot" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from canvas" }));
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));
+    });
+    expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
+    first.unmount();
+
+    // A reload: new app, same storage, and the bots arrive from the stream exactly as before.
+    const second = setup();
+    deliverProjects(second.transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    deliver(second.transport);
+
+    expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
+    expect(canvas().queryByRole("button", { name: "Add sessions to Eval Bot" })).toBeNull();
+    expect(canvas().getByText("Its session is off the canvas")).toBeInTheDocument();
+
+    // And the way back is the same click it was before the reload, at both levels.
+    const roster = () => within(screen.getByRole("list", { name: "Bots" }));
+    fireEvent.click(roster().getByRole("button", { name: "Put Eval Bot on the canvas" }));
+    fireEvent.click(roster().getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
+    // Restoring writes as reliably as hiding did, so the next reload is not the old canvas again.
+    expect(localStorage.getItem("agent-panel.bot-canvas.off-canvas-bots")).toBeNull();
+    expect(localStorage.getItem("agent-panel.bot-canvas.off-canvas-sessions")).toBeNull();
+    second.unmount();
+  });
+
+  it("forgets an open card whose session no Bot holds, and keeps one the sidecar merely cannot read", () => {
+    // An open key is an address nothing resolved, so one pointing at a session that has left its
+    // Bot opened nothing, was invisible for exactly that reason, and stayed in the store for good.
+    localStorage.setItem(
+      "agent-panel.bot-canvas.open-session",
+      JSON.stringify(["claude:sid-claude-01", "codex:sid-codex-01", "claude:sid-gone"]),
+    );
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          ...BOT_WITH_ONE_SESSION,
+          sessionRefs: [
+            { source: "claude", sessionId: "sid-claude-01" },
+            // Held by the Bot, but not resolving right now, so its card is not on the canvas.
+            { source: "codex", sessionId: "sid-codex-01" },
+          ],
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [{ source: "codex", sessionId: "sid-codex-01" }],
+        }],
+      });
+    });
+
+    // The reference the Bot no longer holds is gone; the one it holds but cannot read is kept, so
+    // a session the sidecar recovers comes back open rather than collapsed.
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.open-session")!).sort()).toEqual([
+      "claude:sid-claude-01",
+      "codex:sid-codex-01",
+    ]);
+    unmount();
+  });
+
+  it("keeps every open card when no roster has arrived, because an empty list is not an answer", () => {
+    // Two ways to have no Bots to check against, and neither may throw the canvas away: `loading`
+    // goes false on a stream FAILURE as well as on a snapshot, and a snapshot itself arrives before
+    // the Bots are in it. Either one pruned would forget the whole canvas when the sidecar blinked.
+    localStorage.setItem(
+      "agent-panel.bot-canvas.open-session",
+      JSON.stringify(["claude:sid-claude-01"]),
+    );
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.fail("/api/bots/stream", "sidecar is restarting");
+    });
+
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.open-session")!)).toEqual([
+      "claude:sid-claude-01",
+    ]);
+    unmount();
+  });
+
   it("opens a session picked in the canvas roster on the canvas, and scrolls its card to it", () => {
     const scrolled: Element[] = [];
     const scrollIntoView = vi
