@@ -1,6 +1,6 @@
 import type {
   AddBotCommand,
-  AttachBotSessionsCommand,
+  AddBotSessionsCommand,
   DetachBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
 import {
@@ -52,7 +52,7 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     }
     const sessionsMatch = /^\/api\/bots\/([^/]+)\/sessions$/.exec(url.pathname);
     if (request.method === "POST" && sessionsMatch) {
-      return attachBotSessions(request, sessionsMatch[1]!, registry);
+      return addBotSessions(request, sessionsMatch[1]!, registry);
     }
     // Removal is a POST to its own path rather than a DELETE on the one above, because the panel's
     // only route to this sidecar inside the WKWebView is the host relay, and that relay admits GET
@@ -77,7 +77,7 @@ async function createBot(request: Request, registry: BotRegistry): Promise<Respo
   }
 }
 
-async function attachBotSessions(
+async function addBotSessions(
   request: Request,
   botId: string,
   registry: BotRegistry,
@@ -87,7 +87,7 @@ async function attachBotSessions(
     const body = await requestObject(request);
     if (body instanceof Response) return body;
     return jsonResponse(
-      await registry.attachSessions(decodedBotId, body as unknown as AttachBotSessionsCommand, { kind: "user" }),
+      await registry.addSessions(decodedBotId, body as unknown as AddBotSessionsCommand, { kind: "user" }),
     );
   } catch (error) {
     return routeError(error);

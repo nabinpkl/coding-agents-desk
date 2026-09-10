@@ -53,12 +53,12 @@ test("creates a Bot through the authenticated user route and returns its durable
   }]);
 });
 
-test("attaches selected sessions through the Bot-scoped route", async () => {
+test("adds sessions through the Bot-scoped route, existing or newly started", async () => {
   const calls: unknown[] = [];
   const registry = {
-    async attachSessions(botId: string, command: unknown, actor: unknown) {
+    async addSessions(botId: string, command: unknown, actor: unknown) {
       calls.push({ botId, command, actor });
-      return bot;
+      return { bot };
     },
   } as unknown as BotRegistry;
   const route = createBotRoutes(registry);
@@ -73,7 +73,9 @@ test("attaches selected sessions through the Bot-scoped route", async () => {
   const response = await route(request, new URL(request.url), server);
 
   expect(response?.status).toBe(200);
-  expect(await response?.json()).toEqual(bot);
+  // The envelope, not the Bot: this route can now start a session, and the caller has nowhere else
+  // to read the pane it landed in from.
+  expect(await response?.json()).toEqual({ bot });
   expect(calls).toEqual([{
     botId: "bot-1",
     command: {

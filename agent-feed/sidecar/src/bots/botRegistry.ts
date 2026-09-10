@@ -1,21 +1,29 @@
 import { stat } from "node:fs/promises";
 import type {
   AddBotCommand,
-  AttachBotSessionsCommand,
+  AddBotSessionsCommand,
   BotCreatedBy,
   BotGrant,
   BotLaunchCommand,
   BotMetadata,
   BotRecord,
   BotSessionRef,
+  BotSessionsAdded,
   BotSnapshot,
   BotView,
+  StartedBotSession,
   DetachBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
-import { startClaudeSession } from "../terminal/claudeSessionLaunch.ts";
-import { directoryBelongsTo, worktreeOf } from "../git/worktree.ts";
+import { startClaudeSession, startForkedClaudeSession } from "../terminal/claudeSessionLaunch.ts";
+import {
+  branchFromTitle,
+  directoryBelongsTo,
+  prepareWorktree,
+  worktreeOf,
+  WorktreeError,
+} from "../git/worktree.ts";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "./botStore.ts";
 
 export type BotActor =
@@ -55,12 +63,21 @@ export class BotLaunchError extends Error {}
  * checked.
  */
 export interface BotSessionLauncher {
+  /** A session with no history, in `cwd`. */
   start(options: {
     cwd: string;
     sessionId: string;
     title: string;
     prompt?: string;
-  }): Promise<unknown>;
+  }): Promise<{ tmuxSession: string }>;
+  /** A session that starts where `sessionId` is, running in `cwd` under `forkId`. */
+  fork(options: {
+    cwd: string;
+    sessionId: string;
+    forkId: string;
+    title: string;
+    brief?: string;
+  }): Promise<{ tmuxSession: string }>;
 }
 
 const MAX_NAME = 64;
@@ -99,6 +116,8 @@ interface NormalizedAddBot {
 interface NormalizedLaunch {
   title: string;
   prompt?: string;
+  from?: BotSessionRef;
+  worktree?: { branch?: string };
 }
 
 interface NormalizedSessionRefCommand {
@@ -213,12 +232,33 @@ function normalizeLaunch(value: unknown, botName: string): NormalizedLaunch | un
   const title = compactOptional(command.title, "launch.title", MAX_NAME) ?? botName;
   const refusal = sessionTitleRefusal(title);
   if (refusal) throw new BotInvalidError(`launch.title: ${refusal}`);
+  if (command.from !== undefined && normalizeSessionRef(command.from).source !== "claude") {
+    // `--fork-session` is a Claude CLI flag. Codex has `resume` and no fork, so a Codex source
+    // would be silently resumed into the original transcript rather than branched from it.
+    throw new BotInvalidError("launch.from must name a claude session");
+  }
   return {
     title,
     // Only trimmed, never reshaped: the prompt is the session's first turn and its line breaks
     // are the reader's.
     prompt: compactOptional(command.prompt, "launch.prompt", MAX_LAUNCH_PROMPT),
+    ...(command.from === undefined ? {} : { from: normalizeSessionRef(command.from) }),
+    ...(command.worktree === undefined ? {} : { worktree: normalizeWorktree(command.worktree) }),
   };
+}
+
+/**
+ * The worktree request, if there is one.
+ *
+ * The branch is optional and the sidecar derives it from the title, so `{}` is the ordinary thing
+ * to send: a reader ticking a box has an opinion about isolation and none about branch names.
+ */
+function normalizeWorktree(value: unknown): { branch?: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BotInvalidError("launch.worktree must be an object");
+  }
+  const branch = compactOptional((value as { branch?: unknown }).branch, "launch.worktree.branch", MAX_NAME);
+  return branch === undefined ? {} : { branch };
 }
 
 function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
@@ -244,9 +284,31 @@ function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
   };
 }
 
+/**
+ * A launch on an existing Bot, whose title cannot default to the Bot's name.
+ *
+ * At creation the Bot's name is the obvious title for its only session. On a Bot that already has
+ * sessions it is the opposite: every session would be called the same thing, and `-n` makes that
+ * name the address other agents send to. So a title is required here and defaulted there.
+ */
+function normalizeLaunchFor(botId: string, value: unknown): NormalizedLaunch | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BotInvalidError("launch must be an object");
+  }
+  if (compactOptional((value as BotLaunchCommand).title, "launch.title", MAX_NAME) === undefined) {
+    throw new BotInvalidError("launch.title is required when adding a session to an existing Bot");
+  }
+  return normalizeLaunch(value, botId);
+}
+
 function normalizeSessionRefCommand(
-  command: AttachBotSessionsCommand | DetachBotSessionsCommand,
+  command: { requestId: string; sessionRefs?: BotSessionRef[] },
+  { optional = false }: { optional?: boolean } = {},
 ): NormalizedSessionRefCommand {
+  if (optional && command.sessionRefs === undefined) {
+    return { requestId: normalizeRequestId(command.requestId), sessionRefs: [] };
+  }
   if (!Array.isArray(command.sessionRefs) || command.sessionRefs.length === 0) {
     throw new BotInvalidError("sessionRefs must contain at least one session");
   }
@@ -316,7 +378,10 @@ export class BotRegistry {
     private readonly catalog: BotRegistryCatalog,
     private readonly now: () => number = Date.now,
     private readonly newId: () => string = () => crypto.randomUUID(),
-    private readonly launcher: BotSessionLauncher = { start: startClaudeSession },
+    private readonly launcher: BotSessionLauncher = {
+      start: startClaudeSession,
+      fork: startForkedClaudeSession,
+    },
     /**
      * Separate from `newId`, and it must produce a real UUID.
      *
@@ -343,7 +408,7 @@ export class BotRegistry {
    * A replayed `requestId` returns the Bot it made the first time and starts nothing. Idempotency
    * that spawned a second agent per retry would be worse than none.
    */
-  async add(command: AddBotCommand, actor: BotActor): Promise<BotView> {
+  async add(command: AddBotCommand, actor: BotActor): Promise<BotSessionsAdded> {
     const normalized = normalizeAddBot(command);
     const project = this.catalog.resolveProject(normalized.directoryPath);
     if (!project) throw new BotNotFoundError("selected directory is not in the current AgentDesk project catalog");
@@ -400,33 +465,117 @@ export class BotRegistry {
       return { snapshot: next, value: { bot, fresh: true } };
     });
 
-    if (!normalized.launch) return this.viewRecord(created.bot);
+    if (!normalized.launch) return { bot: await this.viewRecord(created.bot) };
     // A replay normally starts nothing -- idempotency that spawned an agent per retry would be
     // worse than none. The exception is a replay of a command whose launch FAILED: the Bot is
     // there and holds no sessions, so starting one finishes the original command rather than
     // repeating it, and resending the identical request is the obvious move once the cause is
     // fixed.
-    if (!created.fresh && created.bot.sessionRefs.length > 0) return this.viewRecord(created.bot);
+    if (!created.fresh && created.bot.sessionRefs.length > 0) {
+      return { bot: await this.viewRecord(created.bot) };
+    }
 
-    const sessionId = this.newSessionId();
+    // Everything after this point has already written a Bot, so every failure here is a
+    // `BotLaunchError`: the caller cannot simply retry a different command, and the message has to
+    // say what survived.
+    const started = await this.launchOrExplain(created.bot, normalized.launch);
+    return {
+      bot: await this.viewRecord(
+        await this.recordStartedSession(created.bot.botId, { source: "claude", sessionId: started.sessionId }),
+      ),
+      started,
+    };
+  }
+
+  /**
+   * Starts a session for a Bot that already exists, saying what survived when it cannot.
+   *
+   * Split out because the two callers differ only in what they have already spent. Creating a Bot
+   * has spent a name and a directory by the time it gets here; adding a session to one has spent
+   * nothing, and its own failures are ordinary refusals raised before anything is written.
+   */
+  private async launchOrExplain(
+    bot: BotRecord,
+    launch: NormalizedLaunch,
+  ): Promise<StartedBotSession> {
     try {
-      await this.launcher.start({
-        cwd: project.projectPath,
-        sessionId,
-        title: normalized.launch.title,
-        prompt: normalized.launch.prompt,
-      });
+      return await this.launchSession(bot, launch);
     } catch (error) {
+      if (error instanceof BotLaunchError) throw error;
       throw new BotLaunchError(
-        `Bot "${created.bot.name}" was created, but its session could not be started. `
+        `Bot "${bot.name}" was created, but its session could not be started. `
           + "Resend this request once the cause is fixed, or attach a session to "
-          + `${created.bot.botId} by hand.`,
+          + `${bot.botId} by hand.`,
         { cause: error },
       );
     }
-    return this.viewRecord(
-      await this.recordStartedSession(created.bot.botId, { source: "claude", sessionId }),
-    );
+  }
+
+  /**
+   * The one path that brings a session into existence, whichever endpoint asked for it.
+   *
+   * Creating a Bot with its first session and adding a session to an existing Bot are the same
+   * act -- start something in this directory -- and they used to be three different mechanisms:
+   * this one, a terminal context that created a session as a side effect of attaching a viewer,
+   * and a hand-rolled `tmux new-session` for anyone who had neither. All of them made the same
+   * four decisions, and only one of them made all four correctly.
+   *
+   * The four are: which directory it runs in, whether it starts empty or from another session's
+   * context, what its first turn is, and which pane it lands in. They are made here, once.
+   */
+  private async launchSession(
+    bot: BotRecord,
+    launch: NormalizedLaunch,
+  ): Promise<StartedBotSession> {
+    const checkout = bot.environment.path;
+    // A fork runs where its source runs unless it asked for a tree of its own, so a fork of a
+    // session already in a worktree stays in that worktree rather than being pulled back into the
+    // checkout it branched away from.
+    const source = launch.from ? this.resolveOwnSession(bot, launch.from) : undefined;
+    const cwd = launch.worktree
+      ? (await this.prepare(checkout, launch)).path
+      : source?.projectPath ?? checkout;
+
+    const sessionId = this.newSessionId();
+    const started = launch.from
+      ? await this.launcher.fork({
+        cwd,
+        sessionId: launch.from.sessionId,
+        forkId: sessionId,
+        title: launch.title,
+        brief: launch.prompt,
+      })
+      : await this.launcher.start({ cwd, sessionId, title: launch.title, prompt: launch.prompt });
+    return { sessionId, title: launch.title, projectPath: cwd, tmuxSession: started.tmuxSession };
+  }
+
+  /** The worktree a launch asked for, refused in this Bot's own words when git will not make it. */
+  private async prepare(checkout: string, launch: NormalizedLaunch): Promise<{ path: string }> {
+    const branch = launch.worktree?.branch ?? branchFromTitle(launch.title);
+    try {
+      return await prepareWorktree({ checkout, branch });
+    } catch (error) {
+      if (error instanceof WorktreeError) throw new BotConflictError(error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * The session a fork branches from, which must be one of this Bot's own.
+   *
+   * A Bot is what says which sessions belong to a directory, so "fork that one" is only meaningful
+   * about a session it holds. Resolving it here also gives the fork its source's directory, which
+   * is not always the Bot's: a session in a worktree forks inside that worktree.
+   */
+  private resolveOwnSession(bot: BotRecord, ref: BotSessionRef): ResolvedBotSession {
+    if (!bot.sessionRefs.some((held) => sessionKey(held) === sessionKey(ref))) {
+      throw new BotNotFoundError(`session ${sessionKey(ref)} is not attached to this Bot`);
+    }
+    const resolved = this.catalog.resolveSession(ref);
+    if (!resolved) {
+      throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
+    }
+    return resolved;
   }
 
   /**
@@ -460,16 +609,31 @@ export class BotRegistry {
     });
   }
 
-  async attachSessions(
+  /**
+   * Adds sessions to a Bot: ones that already exist, one this call starts, or both.
+   *
+   * One method because they are one act -- put a session on this Bot -- and because the split is
+   * what produced the shape this replaced, where starting a session meant asking a different
+   * subsystem for a terminal and letting the creation happen as a side effect.
+   *
+   * The references are attached first and the launch runs after. A launch that forks names one of
+   * the Bot's own sessions, so a command that attaches a session and then forks it in the same
+   * breath has to see its own attach.
+   */
+  async addSessions(
     botId: string,
-    command: AttachBotSessionsCommand,
+    command: AddBotSessionsCommand,
     actor: BotActor,
-  ): Promise<BotView> {
+  ): Promise<BotSessionsAdded> {
     if (actor.kind !== "user") {
-      throw new BotForbiddenError("only the authenticated user may attach sessions to a Bot");
+      throw new BotForbiddenError("only the authenticated user may add sessions to a Bot");
     }
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
-    const normalized = normalizeSessionRefCommand(command);
+    const normalized = normalizeSessionRefCommand(command, { optional: true });
+    const launch = normalizeLaunchFor(botId, command.launch);
+    if (normalized.sessionRefs.length === 0 && !launch) {
+      throw new BotInvalidError("sessionRefs or launch is required");
+    }
     const resolved = normalized.sessionRefs.map((ref) => {
       const session = this.catalog.resolveSession(ref);
       if (!session) throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
@@ -489,15 +653,25 @@ export class BotRegistry {
     for (const path of new Set(resolved.map((session) => session.projectPath))) {
       belongs.set(path, directory ? await directoryBelongsTo(path, directory) : false);
     }
-    const signature = commandSignature({ botId, ...normalized });
-    const idempotencyKey = `attach:${actorKey(actor)}:${normalized.requestId}`;
+    const signature = commandSignature({ botId, ...normalized, launch });
+    const idempotencyKey = `sessions:${actorKey(actor)}:${normalized.requestId}`;
 
     const record = await this.store.mutate((snapshot) => {
       const prior = priorBot(snapshot, idempotencyKey, signature);
-      if (prior) return { snapshot, value: prior };
+      if (prior) return { snapshot, value: { bot: prior, fresh: false } };
       const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
       if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
       const bot = snapshot.bots[index]!;
+      if (normalized.sessionRefs.length === 0) {
+        return {
+          snapshot: {
+            ...snapshot,
+            revision: snapshot.revision + 1,
+            idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
+          },
+          value: { bot, fresh: true },
+        };
+      }
       const outside = resolved.find((session) =>
         session.projectPath !== bot.environment.path && !belongs.get(session.projectPath)
       );
@@ -522,9 +696,25 @@ export class BotRegistry {
         bots,
         idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
       };
-      return { snapshot: next, value: updated };
+      return { snapshot: next, value: { bot: updated, fresh: true } };
     });
-    return this.viewRecord(record);
+
+    if (!launch) return { bot: await this.viewRecord(record.bot) };
+    // A replay attaches nothing and starts nothing. Unlike Bot creation there is no half-done
+    // state to finish: the references landed or they did not, and a Bot that already holds them
+    // is the answer to the same question being asked twice.
+    if (!record.fresh) return { bot: await this.viewRecord(record.bot) };
+
+    // Nothing durable has been spent on the launch itself yet, so its refusals stay ordinary
+    // refusals -- a branch that exists, a source that is not this Bot's -- and the caller can fix
+    // the command and send a different one.
+    const started = await this.launchSession(record.bot, launch);
+    return {
+      bot: await this.viewRecord(
+        await this.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }),
+      ),
+      started,
+    };
   }
 
   async detachSessions(

@@ -197,6 +197,21 @@ const FIXTURE_SESSIONS = [
   },
 ];
 
+/** One Bot holding the fixture's first session, which is what a fork branches from. */
+const BOT_WITH_ONE_SESSION = {
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        };
+
 const originalMatchMedia = globalThis.matchMedia;
 
 function installViewport({
@@ -1190,7 +1205,7 @@ describe("App shell", () => {
     second.unmount();
   });
 
-  it("forks a session from its canvas row menu into a terminal of its own", async () => {
+  it("forks a session by asking its Bot, and attaches the pane the Bot answers with", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -1198,20 +1213,20 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [BOT_WITH_ONE_SESSION],
       });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({
+        bot: BOT_WITH_ONE_SESSION,
+        started: {
+          sessionId: "fork-1",
+          title: "Retry the flaky gate",
+          projectPath: FIXTURE_PROJECT_A.projectPath,
+          tmuxSession: "agentdesk-fork-fork-1",
+        },
+      }),
     });
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
@@ -1227,30 +1242,42 @@ describe("App shell", () => {
     fireEvent.change(field, { target: { value: "Retry the flaky gate" } });
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
 
-    // Its own name from the first paint, with no round trip through the pane: the shell chose it.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Retry the flaky gate");
+    // Creating a session is the Bot's business: the terminal resource attaches to panes and does
+    // not make them. The unticked worktree box sends nothing rather than sending false.
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
+        .toEqual({
+          requestId: expect.any(String),
+          launch: {
+            title: "Retry the flaky gate",
+            from: { source: "claude", sessionId: "sid-claude-01" },
+          },
+        });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Retry the flaky gate");
+    });
     // A fork has no transcript to show: the CLI writes none until its first turn, so the view says
     // that rather than spinning on a file that is not coming, and it names where it came from.
     expect(screen.getByText(/appears here once you send the first message/)).toBeInTheDocument();
     expect(screen.getByText(/Forked from/)).toBeInTheDocument();
     expect(screen.queryByTestId("activity-feed")).toBeNull();
 
-    // The terminal is the whole session until then, and it points at the fork rather than at the
-    // session it branched from -- carrying the name, which is an argument of its command.
-    expect(terminalPaneMock.context).toEqual({
-      kind: "session-fork",
-      source: "claude",
-      sessionId: "sid-claude-01",
-      forkId: expect.any(String),
-      title: "Retry the flaky gate",
-    });
+    // The pane the Bot named, attached rather than created. The panel does not rebuild that name:
+    // it is the sidecar's rule, and a second copy of it here would go wrong silently.
+    expect(terminalPaneMock.context).toEqual({ kind: "tmux", session: "agentdesk-fork-fork-1" });
 
     fireEvent.click(screen.getByRole("button", { name: "Close fork" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     unmount();
   });
 
-  it("gives a fork back to its Bot once its first turn writes a transcript", async () => {
+  it("does not wait for a fork's first turn to give it to its Bot", async () => {
+    // The Bot attached it at the moment it started it, so the transcript landing later is not an
+    // event this panel acts on. It used to be: the shell watched the fork's project, recognised
+    // the id it had minted, and posted an attach of its own -- three steps that existed only
+    // because creation happened somewhere that could not attach anything.
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -1258,38 +1285,34 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [BOT_WITH_ONE_SESSION],
       });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({
+        bot: BOT_WITH_ONE_SESSION,
+        started: {
+          sessionId: "fork-1",
+          title: "Session Claude 01 (fork 1)",
+          projectPath: FIXTURE_PROJECT_A.projectPath,
+          tmuxSession: "agentdesk-fork-fork-1",
+        },
+      }),
     });
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
-    const forkId = terminalPaneMock.context!.forkId as string;
+    await waitFor(() => {
+      expect(terminalPaneMock.context).toEqual({ kind: "tmux", session: "agentdesk-fork-fork-1" });
+    });
 
-    // Nothing yet: a fork writes no transcript until its first turn, and the sidecar refuses a
-    // session that is not in the catalog rather than recording a reference to a maybe.
-    expect(transport.requests.some((request) => request.path === "/api/bots/bot-1/sessions"))
-      .toBe(false);
-
-    // The first turn. The session appears under the id the fork was STARTED with, which is the
-    // only reason the shell can recognize it.
+    // The first turn lands. Nothing follows it.
     deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, [
       ...FIXTURE_SESSIONS,
       {
-        sessionId: forkId,
+        sessionId: "fork-1",
         source: "claude",
         title: "Session Claude 01 (fork 1)",
         lastEventAt: 9,
@@ -1298,31 +1321,10 @@ describe("App shell", () => {
       },
     ]);
 
-    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
-      .toEqual({
-        sessionRefs: [{ source: "claude", sessionId: forkId }],
-        requestId: expect.any(String),
-      });
-
-    // Once, not once per inventory push: the Bot snapshot that would make it a no-op arrives a
-    // moment after the attach, and every push in between re-runs the effect.
-    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, [
-      ...FIXTURE_SESSIONS,
-      {
-        sessionId: forkId,
-        source: "claude",
-        title: "Session Claude 01 (fork 1)",
-        lastEventAt: 10,
-        activity: "live",
-        capabilities: FIXTURE_SESSIONS[0]!.capabilities,
-      },
-    ]);
-    expect(
-      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions"),
-    ).toHaveLength(1);
+    expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions"))
+      .toHaveLength(1);
     unmount();
   });
-
   it("starts nothing when the fork dialog is cancelled", async () => {
     // The dialog is the whole commitment point. Backing out of it must leave no pane, no tmux
     // session and no `claude --fork-session`, because a fork that exists is already listed under

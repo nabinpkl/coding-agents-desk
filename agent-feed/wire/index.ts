@@ -33,11 +33,13 @@ export {
 
 export type {
   AddBotCommand,
-  AttachBotSessionsCommand,
+  AddBotSessionsCommand,
   BotCreatedBy,
   BotDirectoryEnvironment,
   BotGrant,
   BotLaunchCommand,
+  BotSessionsAdded,
+  StartedBotSession,
   BotMetadata,
   BotRecord,
   BotSessionRef,
@@ -151,8 +153,6 @@ export type {
 export type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
-  NewSessionTerminalContext,
-  SessionForkTerminalContext,
   SessionTmuxTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalHistory,

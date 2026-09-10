@@ -11,12 +11,20 @@ import type { BotCardSize } from "./botCanvasPreferences";
 /** A session this panel started, before the catalog has ever heard of it. */
 export interface NewBotSession {
   botId: string;
-  /** Minted by the shell, passed to the CLI as `--session-id`, and the id it will be listed under. */
+  /** The id the Bot started it under, and the one it will be listed under. */
   sessionId: string;
   /** Chosen by the reader before anything started, and passed to the CLI as `-n`. */
   title: string;
-  /** The Bot's directory, which is where the process runs. */
+  /** Where it is running: the Bot's directory, or a worktree the Bot made for it. */
   projectPath: string;
+  /**
+   * The pane it is running in, as the Bot reported it.
+   *
+   * Taken rather than derived. The pane name is the sidecar's rule -- `agentdesk-<id>` for a fresh
+   * session, `agentdesk-fork-<id>` for a fork -- and a card that rebuilt it here would be a second
+   * copy of that rule, in a page, that goes wrong silently the day the first one changes.
+   */
+  tmuxSession: string;
 }
 
 /**
@@ -140,13 +148,9 @@ export function BotNewSessionCard({
               </div>
               <AgentTerminalPane
                 feed={feed}
-                context={{
-                  kind: "session-new",
-                  source: "claude",
-                  projectPath: session.projectPath,
-                  sessionId: session.sessionId,
-                  title: session.title,
-                }}
+                // Attaching, not starting. The session is already running: the Bot started it
+                // before this card existed, and opening this pane twice is the same as once.
+                context={{ kind: "tmux", session: session.tmuxSession }}
                 layout="band"
                 heightBasis={body}
               />

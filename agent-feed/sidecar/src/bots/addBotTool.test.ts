@@ -8,10 +8,12 @@ test("maps a Pi tool call onto the provider-neutral Bot registry command", async
     async add(command: unknown, actor: unknown) {
       calls.push({ command, actor });
       return {
-        botId: "bot-1",
-        name: "Reviewer",
-        environment: { kind: "directory", path: "/projects/reviewer" },
-        sessionRefs: [],
+        bot: {
+          botId: "bot-1",
+          name: "Reviewer",
+          environment: { kind: "directory", path: "/projects/reviewer" },
+          sessionRefs: [],
+        },
       };
     },
   } as unknown as BotRegistry;

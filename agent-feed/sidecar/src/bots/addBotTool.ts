@@ -26,7 +26,7 @@ export function createAddBotTool(registry: BotRegistry, caller: BotSessionRef) {
     }),
     execute: async (toolCallId, params, signal) => {
       if (signal?.aborted) throw new DOMException("add_bot aborted", "AbortError");
-      const bot = await registry.add({
+      const added = await registry.add({
         requestId: toolCallId,
         name: params.name,
         iconUrl: params.icon_url,
@@ -38,6 +38,7 @@ export function createAddBotTool(registry: BotRegistry, caller: BotSessionRef) {
           custom: params.metadata,
         },
       }, { kind: "agent", session: caller });
+      const bot = added.bot;
       return {
         content: [{
           type: "text",

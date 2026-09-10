@@ -46,119 +46,22 @@ export interface SessionTmuxTerminalContext {
   sessionId: string;
 }
 
-/**
- * A NEW session forked from an existing transcript, run in its own tmux pane.
+/*
+ * Two contexts used to live here: `session-fork` and `session-new`, which named a session that did
+ * not exist and started it as a side effect of attaching a viewer to it. They moved to
+ * `BotLaunchCommand`, on the Bot that owns the directory the session works in.
  *
- * Distinct from `session-tmux` because the two want opposite things. That one is "show me this
- * session", and it joins a live pane when there is one, precisely so two viewers never open two
- * clients onto one transcript. A fork is "give me a session that starts where this one is", so it
- * must never join anything: it always starts a process, and the process it starts writes a
- * different transcript.
- *
- * `forkId` names this fork rather than the thing it came from, so asking twice makes two forks and
- * re-opening one lands back on its own pane. The pane cannot be named after `sessionId` for the
- * same reason -- every fork of one session would collide on it.
- *
- * Claude only. `claude --resume <id> --fork-session` is a verified capability; Codex has `resume`
- * and no fork, so a Codex context is refused rather than silently resumed into the original.
+ * What is left is the property worth keeping: every context below names something that ALREADY
+ * EXISTS, so opening a terminal has no side effects and asking twice is the same as asking once.
+ * A session started through the Bot reports the tmux session it runs in, which is what
+ * `TmuxTerminalContext` above takes.
  */
-export interface SessionForkTerminalContext {
-  kind: "session-fork";
-  source: "claude";
-  /** The transcript to fork FROM. Untouched: forking never writes to it. */
-  sessionId: string;
-  /**
-   * This fork's own identity, minted by the caller.
-   *
-   * Also the session id the fork is STARTED with, so its transcript lands at this uuid rather than
-   * one only the CLI knows. That is what lets a caller name a fork before it exists and find its
-   * transcript afterwards without searching for it.
-   */
-  forkId: string;
-  /**
-   * What to call the fork, decided by the caller and passed to the CLI as `-n`.
-   *
-   * Required, and the sidecar derives nothing: naming a fork is the reader's act, taken in the
-   * dialog that opens before the fork starts, so there is no second name for a default to be. A
-   * caller with no opinion sends the proposal the panel offered rather than omitting the field,
-   * which is what keeps one title on the wire instead of one here and another in the sidecar.
-   */
-  title: string;
-  /**
-   * The fork's first turn: what this fork is for, as opposed to what its parent was doing.
-   *
-   * Composed rather than delivered verbatim, which is the difference between this field and
-   * `BotLaunchCommand.prompt`. A fork wakes up holding a context it did not build, mid-task, with
-   * its parent still running and still holding those files -- so the sidecar prefixes a standing
-   * handoff statement saying exactly that before the brief. Sending the statement from here
-   * instead would put one copy on every caller, and the shortest copy would win.
-   *
-   * Absent means an ordinary fork: a pane branched from a session for a reader to type into. No
-   * first turn is injected then, because there is no way to tell a session it is a fork without
-   * also making it answer something.
-   */
-  brief?: string;
-  /**
-   * Run this fork in a NEW git worktree of its source's repository, rather than beside it.
-   *
-   * Present means make one. A fork is a second agent on work that is already in progress, and two
-   * agents in one checkout share an index, a `git status` and every uncommitted file -- which is
-   * survivable when they are working on the same thing and is not when they are not. A worktree
-   * gives the fork its own tree and its own branch, and the Bot the fork's source belongs to can
-   * hold it either way (`SessionSummary.worktree`).
-   *
-   * `branch` is the fork's branch, defaulting to a slug of its title. The sidecar chooses the
-   * DIRECTORY and does not take one: a path arriving over HTTP is a path this sidecar would then
-   * create a checkout at, and the one place worktrees go is a decision worth having exactly once.
-   */
-  worktree?: { branch?: string };
-}
-
-/**
- * A session that does not exist yet, started fresh in a directory.
- *
- * The sibling of the fork above, and the one kind that resolves nothing: every other kind names a
- * session or a pane that already exists, so the sidecar looks it up and refuses what it cannot
- * find. This one names a DIRECTORY and an id nobody has issued yet, so there is nothing to look up
- * -- which is exactly why it exists. A Bot with no sessions cannot reach any of the other kinds:
- * its picker is empty, and there is nothing to fork.
- *
- * `sessionId` is minted by the caller and passed to the CLI as `--session-id`, so the transcript
- * lands where the caller is already watching for it. Measured 2026-09-08: the flag stands alone,
- * without `--resume`, and the session writes no transcript at all until its first turn -- so the
- * id is the only way to recognise the session when it finally appears.
- *
- * The pane is the one this sidecar would have resumed the session into, which is deliberate: after
- * the first turn a `session-tmux` open of the same id finds this very pane instead of starting a
- * second client onto the transcript.
- *
- * Claude only, for the same reason forking is: `--session-id` and `-n` are Claude CLI flags, and
- * Codex offers neither, so a Codex session cannot be named or found before it speaks.
- */
-export interface NewSessionTerminalContext {
-  kind: "session-new";
-  source: "claude";
-  /** Where it runs. The Bot's own directory, and the one thing a fresh session cannot infer. */
-  projectPath: string;
-  /** This session's own identity, minted by the caller. See above. */
-  sessionId: string;
-  /**
-   * What to call it, decided by the caller and passed to the CLI as `-n`.
-   *
-   * Required, and the sidecar derives nothing, for the reason the fork's is: `-n` sets the
-   * session's ADDRESS as well as its title, so the name chosen here is the one every other agent
-   * finds it by from its first moment.
-   */
-  title: string;
-}
 
 /** What a terminal is pointed at. */
 export type AgentTerminalContext =
   | AgentSessionTerminalContext
   | TmuxTerminalContext
-  | SessionTmuxTerminalContext
-  | SessionForkTerminalContext
-  | NewSessionTerminalContext;
+  | SessionTmuxTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {
@@ -174,30 +77,6 @@ export interface AgentTerminalDescriptor {
   pid: number;
   columns: number;
   rows: number;
-  /**
-   * The session this terminal BROUGHT INTO EXISTENCE, when it did that.
-   *
-   * Only a fork does: every other kind resumes or attaches a session that already had a name.
-   *
-   * The caller named it, so this is not how the name is learned. What it reports is that THIS open
-   * is the one that started the session -- a second open of a live fork joins its pane and says
-   * nothing, which is the difference between a session to attach to a Bot and one already attached.
-   * The title travels with it as the name after trimming, so the two sides cannot drift.
-   *
-   * Absent means nothing was started.
-   */
-  startedSession?: {
-    sessionId: string;
-    title: string;
-    /**
-     * Where it was started, which the caller cannot always predict.
-     *
-     * Usually the directory the caller named. Not when the fork asked for a worktree: the sidecar
-     * chooses that path, and the caller has to be told it or it will watch the wrong directory for
-     * the session to appear.
-     */
-    projectPath: string;
-  };
 }
 
 /** One terminal's message, carried inside an envelope on the shared stream. */
