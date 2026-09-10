@@ -65,6 +65,19 @@ const liveRow: ActivityEvent = {
   blocks: [{ kind: "text", text: "the message being written" }],
 };
 
+/** The mirror's next row: the turn moved on to a second message before the file caught up. */
+const laterLiveRow: ActivityEvent = {
+  id: "claude-live:msg_live_2",
+  index: 4,
+  otherModeIndex: 4,
+  revision: 0,
+  phase: "streaming",
+  ts: 9100,
+  type: "assistant",
+  messageId: "msg_live_2",
+  blocks: [{ kind: "text", text: "the next message of the same turn" }],
+};
+
 const systemRow: ActivityEvent = {
   id: "claude:line:system",
   index: 0,
@@ -227,5 +240,55 @@ describe("live tail collapse state", () => {
     expect(screen.getAllByTestId("markdown-view")).toHaveLength(1);
     // ...and the one still open is the durable row beside it, untouched.
     expect(screen.getByTestId("markdown-view").textContent).toBe("a durable message");
+  });
+
+  it("collapses one live row without folding the rest of the turn", async () => {
+    // The preview carries every message the transcript has not reached, which on a turn
+    // with tool steps is several rows. A single boolean for all of them meant a click on
+    // one heading folded the whole turn away, which reads as the thread emptying itself.
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    render(
+      <DataSourceProvider source={source}>
+        <ActivityFeed
+          source="claude"
+          sessionId="sid-many"
+          mode="nice"
+          onToggleMode={() => {}}
+          showCacheHits={false}
+          onToggleCacheHits={() => {}}
+          controlsHost={null}
+        />
+      </DataSourceProvider>,
+    );
+
+    act(() => {
+      transport.deliver("sid-many", {
+        type: "timeline",
+        envelope: {
+          kind: "snapshot",
+          sequence: 1,
+          mode: "nice",
+          events: [durable(3, "a durable message")],
+          windowStart: 0,
+          total: 1,
+          runState: "running",
+          queue: { steer: 0, followUp: 0 },
+        },
+      });
+    });
+    act(() => { transport.deliver("sid-many", { type: "tail", event: liveRow }); });
+    act(() => { transport.deliver("sid-many", { type: "tail", event: laterLiveRow }); });
+
+    const liveToggles = await screen.findAllByLabelText(/, streaming/);
+    expect(liveToggles).toHaveLength(2);
+    expect(screen.getAllByTestId("markdown-view")).toHaveLength(3);
+
+    // Collapse the FIRST of the two live rows.
+    act(() => liveToggles[0]!.click());
+
+    // Its body goes, and only its body: the second live row and the durable row stay open.
+    expect(screen.getAllByTestId("markdown-view")).toHaveLength(2);
+    expect(screen.getAllByLabelText(/, streaming/)).toHaveLength(2);
   });
 });

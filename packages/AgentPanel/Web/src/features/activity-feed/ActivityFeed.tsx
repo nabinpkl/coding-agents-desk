@@ -177,8 +177,8 @@ export function ActivityFeed({
     expandedTools,
     flashHighlight,
     highlightedEvIdx,
+    collapsedTails,
     items,
-    liveTailCollapsed,
     pairedToolResults,
     rowItems,
     toggleEvent,
@@ -218,7 +218,7 @@ export function ActivityFeed({
     estimateSize: (i) => {
       const it = rowItems[i];
       if (!it) return 88;
-      if (it.kind === "tail") return liveTailCollapsed ? 32 : 88;
+      if (it.kind === "tail") return collapsedTails.has(liveRowKey(it.ev)) ? 32 : 88;
       // A folded cluster is always one line, whatever it holds.
       if (it.kind === "cluster") return 32;
       if (collapsed.has(it.ev.index)) return 32;
@@ -380,7 +380,7 @@ export function ActivityFeed({
                 expandCluster={expandCluster}
                 highlightedEvIdx={highlightedEvIdx}
                 it={it}
-                liveTailCollapsed={liveTailCollapsed}
+                collapsedTails={collapsedTails}
                 rowContext={rowContext}
                 rowVirtualizer={rowVirtualizer}
                 toggleEvent={toggleEvent}

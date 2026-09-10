@@ -6,7 +6,7 @@
 // ref are what make it a virtualised row rather than a row.
 
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
-import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { liveRowKey, type ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import {
   ClusterRow,
@@ -22,7 +22,7 @@ export function ActivityFeedRow({
   expandCluster,
   highlightedEvIdx,
   it,
-  liveTailCollapsed,
+  collapsedTails,
   rowContext,
   rowVirtualizer,
   toggleEvent,
@@ -33,11 +33,11 @@ export function ActivityFeedRow({
   expandCluster: (leadIndex: number) => void;
   highlightedEvIdx: number | null;
   it: DisplayItem | { kind: "tail"; ev: ActivityEvent } | undefined;
-  liveTailCollapsed: boolean;
+  collapsedTails: ReadonlySet<string>;
   rowContext: EventRowContext;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   toggleEvent: (eventIdx: number) => void;
-  toggleLiveTail: () => void;
+  toggleLiveTail: (key: string) => void;
   virtualRow: VirtualItem;
 }) {
   if (!it) return null;
@@ -62,8 +62,8 @@ export function ActivityFeedRow({
           // not lines in the transcript, so it is not a key those share.
           // The durable row that takes the message over arrives under its
           // own transcript index, expanded.
-          isCollapsed={liveTailCollapsed}
-          onToggle={toggleLiveTail}
+          isCollapsed={collapsedTails.has(liveRowKey(it.ev))}
+          onToggle={() => toggleLiveTail(liveRowKey(it.ev))}
         />
       ) : it.kind === "cluster" ? (
         <ClusterRow

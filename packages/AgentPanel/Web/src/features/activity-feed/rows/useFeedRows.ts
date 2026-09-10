@@ -130,18 +130,27 @@ export function useFeedRows({
     });
   }, [pause]);
 
-  // The live tail's own collapse state, deliberately NOT a member of `collapsed`.
+  // The live rows' own collapse state, deliberately NOT a member of `collapsed`.
   //
-  // Those are transcript indices. The tail's index is a position in the sidecar's live
+  // Those are transcript indices. A live row's index is a position in the sidecar's live
   // projection -- a different space entirely, counted per session from the mirror's
   // first row, where the transcript counts lines. On a live thread the two overlap
-  // constantly (a tail at 418 while the transcript is at 2965), so sharing the set made
-  // collapsing one unrelated row hundreds of messages back also collapse the message
-  // being written. One boolean, because the tail is one row.
-  const [liveTailCollapsed, setLiveTailCollapsed] = useState(false);
-  const toggleLiveTail = useCallback(() => {
+  // constantly (a live row at 418 while the transcript is at 2965), so sharing the set
+  // made collapsing one unrelated row hundreds of messages back also collapse the message
+  // being written.
+  //
+  // Keyed by `liveRowKey`, which is the mirror's own row id, because the preview carries
+  // the whole part of the turn the transcript has not reached and that is several rows.
+  // A single boolean was right while it was one row and wrong the moment it was not: it
+  // folded the entire turn away on a click meant for one message.
+  const [collapsedTails, setCollapsedTails] = useState<Set<string>>(new Set());
+  const toggleLiveTail = useCallback((key: string) => {
     pause();
-    setLiveTailCollapsed((previous) => !previous);
+    setCollapsedTails((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   }, [pause]);
 
   const collapseAll = useCallback(() => {
@@ -166,8 +175,8 @@ export function useFeedRows({
     expandedTools,
     flashHighlight,
     highlightedEvIdx,
+    collapsedTails,
     items,
-    liveTailCollapsed,
     pairedToolResults,
     rowItems,
     toggleEvent,
