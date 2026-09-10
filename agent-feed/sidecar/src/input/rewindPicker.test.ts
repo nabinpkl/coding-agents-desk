@@ -3,6 +3,11 @@
 // job is agreeing with a renderer nobody here controls, so a fixture written from the parser's own
 // assumptions would agree with the parser and prove nothing.
 //
+// The three knobs on `PickerShape` are the exception. Those shapes were read out of the CLI bundle
+// (2.1.267) rather than captured off a pane: they are here because the parser has to survive them,
+// and the honest thing to say is that nobody has seen them on a screen. If one of them turns out
+// to render differently, the fixture is what is wrong, not the renderer.
+//
 // What is deliberately NOT asserted is the colour. The live picker paints the selected row bold
 // `38;5;153`, and the parser reads the marker instead, so the fixtures carry the marker and leave
 // the escapes out. If the marker ever goes away, colour is the fallback these would be rewritten
@@ -30,22 +35,59 @@ const ESCAPE = bytesForRailKey("escape");
 const CARRIAGE_RETURN = "\r";
 const RULE = "─".repeat(120);
 
+/** How the list is shaped around its entries, which is not the same on every session. */
+interface PickerShape {
+  /**
+   * Whether code restore is available. Without it no entry carries a status row, the block is a
+   * line shorter, and the header offers a fork rather than a code restore.
+   */
+  codeRestore?: boolean;
+  /** The `/resume <id> (previous session)` row a session with a parent opens the list with. */
+  previousSession?: string;
+  /**
+   * How many entries a scrolled list says are off the top.
+   *
+   * Its line is drawn with one space of padding rather than the marker's two, and drawn DIRECTLY
+   * above the first entry with no blank between them, so a parser that let an unparsable line open
+   * a block would eat that entry on every list long enough to scroll.
+   */
+  moreAbove?: number;
+}
+
 /**
  * The picker as it opens: every message oldest first, then `(current)` with the selection on it.
  *
  * `selected` counts from the end the way the driver does -- 0 is `(current)`, 1 is the newest
- * message -- so a fixture reads the way the thing it is standing in for is addressed.
+ * message -- so a fixture reads the way the thing it is standing in for is addressed. A
+ * previous-session row, when there is one, sits one further back than the oldest message.
  */
-function picker(messages: readonly string[], selected: number): string {
-  const rows = [RULE, "  Rewind", "", "  Restore the code and/or conversation to the point before…", ""];
-  messages.forEach((text, index) => {
-    const fromEnd = messages.length - index;
+function picker(messages: readonly string[], selected: number, shape: PickerShape = {}): string {
+  const codeRestore = shape.codeRestore ?? true;
+  // Every row is one block of this height: its text, its status row when it has one, then blanks
+  // out to the height. Three lines with code restore available, two without.
+  const height = codeRestore ? 3 : 2;
+  const rows = [
+    RULE,
+    "  Rewind",
+    "",
+    codeRestore
+      ? "  Restore the code and/or conversation to the point before…"
+      : "  Restore and fork the conversation to the point before…",
+    "",
+  ];
+  const block = (fromEnd: number, text: string, status: string | null): void => {
+    const start = rows.length;
     rows.push(`${fromEnd === selected ? `  ❯${NBSP}` : "    "}${text}`);
-    rows.push("    ⚠ No code restore");
-    rows.push("");
+    if (status) rows.push(`    ${status}`);
+    while (rows.length - start < height) rows.push("");
+  };
+  if (shape.moreAbove) rows.push(`   ↑ ${shape.moreAbove} more above`);
+  if (shape.previousSession) block(messages.length + 1, shape.previousSession, null);
+  messages.forEach((text, index) => {
+    block(messages.length - index, text, codeRestore ? "⚠ No code restore" : null);
   });
-  rows.push(`${selected === 0 ? `  ❯${NBSP}` : "    "}(current)`);
-  rows.push("", "", "  Enter to continue · Esc to cancel", `${RULE} Rewind probe ─`);
+  block(0, "(current)", null);
+  rows.push("  Enter to continue · Esc to cancel", `${RULE} Rewind probe ─`);
   return rows.join("\n");
 }
 
@@ -95,9 +137,13 @@ function pane(options: {
   /** A pane that ignores `/rewind`, standing in for one that is busy or not Claude at all. */
   deaf?: boolean;
   composerHolds?: string;
+  shape?: PickerShape;
 }): RewindRuntime & { sent: string[] } {
   const confirmOptions = options.confirmOptions ?? ["Restore conversation", "Never mind"];
   const sent: string[] = [];
+  // Where Up stops. A previous-session row is one more position back than the message count, which
+  // is why the clamp is not simply the number of messages.
+  const oldest = options.messages.length + (options.shape?.previousSession ? 1 : 0);
   let state: "composer" | "picker" | "confirm" = "composer";
   let selected = options.opensAt ?? 0;
   let option = 0;
@@ -112,7 +158,7 @@ function pane(options: {
     pane: async () => PANE,
     screen: async () => view(
       state === "picker"
-        ? picker(options.messages, selected)
+        ? picker(options.messages, selected, options.shape ?? {})
         : state === "confirm"
         ? confirm(confirmOptions, option)
         : composer(box),
@@ -133,7 +179,7 @@ function pane(options: {
       if (state === "picker") {
         // Up walks toward the oldest and stops there. Measured: six presses against four positions
         // sat on the first entry rather than wrapping.
-        if (keys === UP) selected = Math.min(selected + 1, options.messages.length);
+        if (keys === UP) selected = Math.min(selected + 1, oldest);
         else if (keys === DOWN) selected = Math.max(selected - 1, 0);
         else if (keys === CARRIAGE_RETURN && selected > 0) {
           state = "confirm";
@@ -176,6 +222,37 @@ test("the status row under an entry is skipped rather than read as a message", (
   const screen = rewindScreen(view(picker(THREE, 0)));
   if (screen?.kind !== "messages") throw new Error("not a message list");
   expect(screen.entries.map((entry) => entry.text)).not.toContain("⚠ No code restore");
+});
+
+test("reads a list whose entries carry no status row at all", () => {
+  // Code restore unavailable, so every block is a message and one blank. Skipping one row after
+  // each entry reads this an entry out of step and loses every other message.
+  const screen = rewindScreen(view(picker(THREE, 0, { codeRestore: false })));
+
+  if (screen?.kind !== "messages") throw new Error("not a message list");
+  expect(screen.entries.map((entry) => entry.text)).toEqual([...THREE]);
+  expect(screen.currentSelected).toBe(true);
+});
+
+test("the previous-session row does not cost the message under it its entry", () => {
+  // It has no status row, so the message below it lands where a status row was expected. This is
+  // the shape a FORK opens, which is the only shape this module is ever driven in.
+  const screen = rewindScreen(view(picker(THREE, 0, {
+    previousSession: "/resume 77777777 (previous session)",
+  })));
+
+  if (screen?.kind !== "messages") throw new Error("not a message list");
+  expect(screen.entries.map((entry) => entry.text)).toEqual([
+    "/resume 77777777 (previous session)",
+    ...THREE,
+  ]);
+});
+
+test("a scrolled list does not lose the entry under its `more above` line", () => {
+  const screen = rewindScreen(view(picker(THREE, 0, { moreAbove: 5 })));
+
+  if (screen?.kind !== "messages") throw new Error("not a message list");
+  expect(screen.entries.map((entry) => entry.text)).toEqual([...THREE]);
 });
 
 test("finds which row the marker is on", () => {
@@ -240,6 +317,54 @@ test("reports what the rewind left in the composer, rather than clearing it", as
   const outcome = await rewindTmuxSession(SESSION, { fromEnd: 1, text: "CHARLIE three." }, driven);
 
   expect(outcome).toEqual({ rewound: true, composer: "CHARLIE three." });
+});
+
+test("walks back through a list whose entries carry no status row", async () => {
+  const driven = pane({ messages: THREE, shape: { codeRestore: false } });
+
+  const outcome = await rewindTmuxSession(
+    SESSION,
+    { fromEnd: 2, text: "BRAVO two. Reply with just OK." },
+    driven,
+  );
+
+  expect(outcome).toEqual({ rewound: true, composer: "BRAVO two. Reply with just OK." });
+  expect(driven.sent.filter((keys) => keys === UP).length).toBe(2);
+});
+
+test("reaches the oldest message in a list that opens with a previous-session row", async () => {
+  // The row is above the oldest message, so the clamp is one position further back than the
+  // message count -- and the message the caller asked for is still exactly where counting says.
+  const driven = pane({
+    messages: THREE,
+    shape: { previousSession: "/resume 77777777 (previous session)" },
+  });
+
+  const outcome = await rewindTmuxSession(
+    SESSION,
+    { fromEnd: 3, text: "ALPHA one. Reply with just OK." },
+    driven,
+  );
+
+  expect(outcome).toEqual({ rewound: true, composer: "ALPHA one. Reply with just OK." });
+});
+
+test("refuses the previous-session row rather than rewinding onto it", async () => {
+  // Overshooting no longer clamps on the oldest message, it clamps on a row that resumes another
+  // session entirely. Taking that row would abandon the fork this was asked to move.
+  const driven = pane({
+    messages: THREE,
+    shape: { previousSession: "/resume 77777777 (previous session)" },
+  });
+
+  const outcome = await rewindTmuxSession(
+    SESSION,
+    { fromEnd: 4, text: "a message this conversation never held" },
+    driven,
+  );
+
+  expect(outcome).toEqual({ rewound: false, reason: "wrong-message" });
+  expect(driven.sent.filter((keys) => keys === ESCAPE).length).toBe(2);
 });
 
 test("walks the confirm menu to the conversation option instead of assuming it is first", async () => {

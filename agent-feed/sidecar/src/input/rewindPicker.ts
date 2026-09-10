@@ -9,15 +9,31 @@
  * `/rename` is asked, and the cost is that the answer has to be read off a screen.
  *
  * Everything below is a measured property of Claude Code 2.1.266 on a 120x40 pane, taken by hand
- * before any of it was written:
+ * before any of it was written, except the one paragraph that says it was read out of the bundle
+ * instead:
  *
  *   The picker draws a title row `Rewind`, a line beginning `Restore the code and/or
  *   conversation`, then one entry per message of the LIVE conversation, oldest first, then a final
  *   `(current)` row, then `Enter to continue · Esc to cancel`.
  *
- *   Each entry is TWO rows: the message text, and under it a dim status row (`⚠ No code restore`,
- *   or `No code changes`). The status row is not parsed for meaning, only skipped, because its
- *   wording varies with what the turn touched and nothing here needs it.
+ *   Each entry is a fixed-height BLOCK, and what fills it varies: the message text on its first
+ *   line, a dim status row under it (`⚠ No code restore`, or `No code changes`) when there is one,
+ *   then blank lines out to the block's height. The status row is not parsed for meaning, only
+ *   skipped, because its wording varies with what the turn touched and nothing here needs it.
+ *
+ * And two things about that block are CONDITIONAL, which is why the blank line at its end is what
+ * this parses on. Both were read out of the CLI bundle (2.1.267) rather than captured off a pane,
+ * so they are weaker evidence than the measurements around them, and are written down as the
+ * reason for a structure rather than as screens anybody here has seen:
+ *
+ *   The status row renders only when code restore is available at all, and then only for a row
+ *   that has a diff behind it. `(current)` never has one -- which this always knew -- and neither
+ *   does the `/resume <id> (previous session)` row that a session with a parent opens the list
+ *   with. So there are three shapes: text, status, blank; text, blank, blank; and, with code
+ *   restore unavailable, text and one blank. A parser that skipped one row after every entry read
+ *   the second and third an entry out of step and swallowed every other message. That fails loud
+ *   rather than quietly, because the selected row goes missing and the text check below refuses --
+ *   but it fails, and it fails in a fork, which is the only place this is ever driven from.
  *
  *   The selected row carries `❯` where the others have two more spaces of indent. Colour agrees
  *   -- bold `38;5;153` against plain -- but the marker is what is read, because it is structural
@@ -193,25 +209,33 @@ function messageList(lines: readonly string[]): RewindMessages | null {
 
   const entries: RewindEntry[] = [];
   let currentSelected = false;
-  // Entries alternate with their status rows, so the status is skipped by POSITION -- the row
-  // after an entry -- rather than by matching its words. Its wording moves with what the turn
-  // touched (`⚠ No code restore`, `No code changes`, and whatever a turn that edited files says),
-  // and a parser that knew those would quietly promote the next new one to a message.
-  let expectStatus = false;
+  // A blank line ends a block, so the message is the FIRST line of one and a status row is any
+  // line after it -- which is the same rule whether that block holds a status row, two blanks, or
+  // one. Nothing here reads what the status SAYS: its wording moves with what the turn touched
+  // (`⚠ No code restore`, `No code changes`, and whatever a turn that edited files says), and a
+  // parser that knew those would quietly promote the next new one to a message.
+  let inBlock = false;
   for (let index = title + 1; index < footer; index += 1) {
-    const row = entryRow(lines[index]!);
-    if (!row) continue;
-    if (row.text === "(current)") {
-      currentSelected = row.selected;
-      expectStatus = false;
+    const line = lines[index]!;
+    if (line.trim().length === 0) {
+      inBlock = false;
       continue;
     }
-    if (expectStatus) {
-      expectStatus = false;
+    const row = entryRow(line);
+    // A line this cannot parse says nothing about blocks either way, and deliberately: `↑ 5 more
+    // above` is drawn with one space of padding rather than the marker's two, and it is drawn
+    // directly above the first entry with no blank between them. Letting it open a block would
+    // cost that entry its row on every list long enough to scroll.
+    if (!row) continue;
+    if (inBlock) continue;
+    inBlock = true;
+    // No longer a special case for the row that follows it: `(current)` ends with a blank like
+    // every other block, and that blank is what says the next line starts a new one.
+    if (row.text === "(current)") {
+      currentSelected = row.selected;
       continue;
     }
     entries.push(row);
-    expectStatus = true;
   }
   return entries.length > 0 || currentSelected
     ? { kind: "messages", entries, currentSelected }
