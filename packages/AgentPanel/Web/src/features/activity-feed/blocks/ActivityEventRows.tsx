@@ -259,10 +259,10 @@ export function SegmentEventRow({
   const wrapperClass = isNice
     ? "rounded-md border px-[0.6em] py-[0.3em] transition-shadow duration-300 " +
       (niceCardKind === "tool"
-        ? "border-border bg-muted/60 "
-        : "border-border/60 bg-card ") +
+        ? "border-border session-view-row-tool "
+        : "border-border/60 session-view-row ") +
       (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "")
-    : "border-x border-border bg-muted/60 px-[0.6em] transition-shadow duration-300 " +
+    : "border-x border-border session-view-row-tool px-[0.6em] transition-shadow duration-300 " +
       (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
       (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
       (!isLast ? "border-b border-dashed border-border/60 " : "") +
@@ -347,7 +347,7 @@ export function ClusterRow({
   onExpand: () => void;
 }) {
   const wrapperClass =
-    "border-x border-border bg-muted/60 px-[0.6em] " +
+    "border-x border-border session-view-row-tool px-[0.6em] " +
     (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
     (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
     (!isLast ? "border-b border-dashed border-border/60 " : "");

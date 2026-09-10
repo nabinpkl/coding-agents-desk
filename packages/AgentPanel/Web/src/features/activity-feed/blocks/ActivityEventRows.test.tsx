@@ -153,9 +153,11 @@ describe("event heading", () => {
     const textCard = view.container.querySelector('[data-feed-card="text"]');
     const toolCard = view.container.querySelector('[data-feed-card="tool"]');
     expect(textCard?.className).toContain("rounded-md");
-    expect(textCard?.className).toContain("bg-card");
+    // The two row surfaces are named rather than painted, so a session inside a shaded Bot card
+    // can hand them its colour and every other reader of this feed gets the grey they always had.
+    expect(textCard?.className).toContain("session-view-row");
     expect(toolCard?.className).toContain("rounded-md");
-    expect(toolCard?.className).toContain("bg-muted/60");
+    expect(toolCard?.className).toContain("session-view-row-tool");
     expect(textCard?.className).not.toContain("border-dashed");
     expect(toolCard?.className).not.toContain("border-dashed");
     expect(textCard?.parentElement?.className).toContain("py-[0.1em]");

@@ -211,6 +211,22 @@
   --bot-session-ground-c: 0.0125;
   --bot-session-interior-dl: 0;
   --bot-session-interior-dc: 0;
+  /* The three surfaces INSIDE an open session: its titlebar, and the two cards its transcript
+     draws rows on. Each is measured against what it replaces rather than against AA alone, because
+     two of them do not reach AA untinted: `--muted-foreground` on today's `--muted` titlebar is
+     4.34:1 and on today's `bg-muted/60` tool row 4.49:1. So the bar here is "no worse", and both
+     of these clear it -- the titlebar goes to 4.40:1 and the tool row to 4.50:1, each better than
+     the grey it replaces. The text row is the one that gives something up: 4.55:1 against 4.73:1
+     on the untinted card, which is the same 4.55 the Bot's own surface already sits at. */
+  --bot-session-header-l: 0.978;
+  --bot-session-header-c: 0.014;
+  /* The text row's base is `--card`, which is also the column's, so these two pairs carry the
+     same numbers in both themes and are still two facts: a change to what a ROW sits on must not
+     move the column out from under it. */
+  --bot-session-row-l: 0.9915;
+  --bot-session-row-c: 0.0125;
+  --bot-session-row-tool-l: 0.988;
+  --bot-session-row-tool-c: 0.014;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -241,6 +257,22 @@
     --bot-session-ground-c: 0.022;
     --bot-session-interior-dl: 0.012;
     --bot-session-interior-dc: 0.003;
+    /* The titlebar goes DOWN in lightness where every other surface here goes up, and that is what
+       lets it be the most saturated thing in the card without becoming the least readable. Light
+       text on a dark ground gains contrast as the ground darkens, so 0.185 buys the room for a
+       chroma of 0.030 -- above the card's own 0.022 -- and still reads `--muted-foreground` at
+       6.15:1 against 5.83:1 on the grey bar it replaces. It is also the only surface here that
+       reverses direction between the themes, because light text and dark text want opposite
+       things and the titlebar is the one asking for a tint you cannot miss.
+       The two row surfaces keep their existing order: the text card sits below the transcript
+       ground and the tool card above it, so a tinted transcript stacks the way the grey one did.
+       `--muted-foreground` holds 5.82:1 on the text row and 5.01:1 on the tool row. */
+    --bot-session-header-l: 0.185;
+    --bot-session-header-c: 0.030;
+    --bot-session-row-l: 0.205;
+    --bot-session-row-c: 0.022;
+    --bot-session-row-tool-l: 0.249;
+    --bot-session-row-tool-c: 0.022;
   }
 }
 
@@ -308,6 +340,21 @@
       calc(var(--bot-session-ground-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
       var(--bot-hue)
     );
+    --session-view-header: oklch(
+      calc(var(--bot-session-header-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
+      calc(var(--bot-session-header-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
+      var(--bot-hue)
+    );
+    --session-view-row: oklch(
+      calc(var(--bot-session-row-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
+      calc(var(--bot-session-row-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
+      var(--bot-hue)
+    );
+    --session-view-row-tool: oklch(
+      calc(var(--bot-session-row-tool-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
+      calc(var(--bot-session-row-tool-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
+      var(--bot-hue)
+    );
     background-color: oklch(
       calc(var(--bot-surface-l) + var(--bot-session-step) * var(--bot-session-surface-dl))
       calc(var(--bot-surface-c) + var(--bot-session-step) * var(--bot-session-surface-dc))
@@ -327,6 +374,26 @@
 
   .session-view-ground {
     background-color: var(--session-view-ground, var(--background));
+  }
+
+  /* An open session's titlebar, and the two cards its transcript draws rows on. Same fallback
+     rule as the two above, and the same reason: outside a Bot card these resolve to the grey each
+     one used to name, so the app's thread view is untouched. The tool row's fallback spells out
+     what `bg-muted/60` compiled to, because a row that sits ON the transcript ground has to keep
+     letting it through when there is no tint to inherit. */
+  .session-view-header {
+    background-color: var(--session-view-header, var(--muted));
+  }
+
+  .session-view-row {
+    background-color: var(--session-view-row, var(--card));
+  }
+
+  .session-view-row-tool {
+    background-color: var(
+      --session-view-row-tool,
+      color-mix(in oklab, var(--muted) 60%, transparent)
+    );
   }
 
   /* Split from the fill because the sidebar wants only this half: its session rows carry the shade

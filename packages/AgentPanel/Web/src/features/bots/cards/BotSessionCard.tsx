@@ -154,10 +154,16 @@ export function BotSessionCard({
               are siblings and the open tint moves up to the box that holds them -- the same shape
               the sidebar's rows took when they grew this menu. Open, this row is the session's
               titlebar: it is where its controls land, the way the app header is where the thread
-              view's land. */}
+              view's land.
+
+              `session-view-header` rather than `bg-muted` resolves to `--muted` unless a shaded
+              card published a colour, so an unshaded titlebar is the grey it always was. The
+              tinted one is the only surface in the card that goes DARKER in dark and lighter in
+              light: it carries the strongest tint AND the most readable text, and those want
+              opposite directions in the two themes. `styles.css` carries the numbers. */}
           <div
             className={`@container flex shrink-0 flex-wrap items-start pr-1.5 ${
-              open ? "bg-muted" : ""
+              open ? "session-view-header" : ""
             }`}
           >
             <button
