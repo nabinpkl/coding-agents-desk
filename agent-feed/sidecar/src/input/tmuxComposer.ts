@@ -23,6 +23,24 @@
 //   here, and deliberately: the box is genuinely not on the screen either way, and this module
 //   reports the absence rather than guessing at a cause it cannot see.
 //
+//   TELLING THEM APART FROM TMUX WAS TRIED, AND DOES NOT WORK. `#{cursor_flag}` looks like the
+//   answer, because Claude hides the cursor when there is nothing to type into: measured
+//   2026-09-09, it reads 1 at a normal composer and 0 for as long as a `/model` picker, a
+//   `/resume` list or a `Do you want to proceed?` prompt is up. But it reads 0 during a redraw
+//   too. Each repaint is bracketed by `ESC[?25l` ... `ESC[?25h`, and the whole screen -- both
+//   rules and every marker -- is erased and rewritten INSIDE that bracket (measured across
+//   seven resizes: 30 erase-lines, 2 rules and 3 markers per bracket). So a capture taken mid-
+//   redraw sees exactly what a dialog shows it. The one thing the flag does separate is a
+//   session that exited: a shell prompt keeps the cursor shown, and reads 1 with no box.
+//
+//   Nothing else in tmux carries it either. Its vocabulary is the cursor's position, shape and
+//   colour and tmux's OWN modes; there is no widget model to ask, because a pane is a cell grid.
+//   Claude publishes no marker of its own: a census of every escape sequence it emits across a
+//   start, a turn and a shutdown found cursor moves, SGR, erase-line, OSC 8 hyperlinks,
+//   bracketed paste, focus and theme reporting, and the Kitty keyboard protocol -- no OSC 133
+//   semantic prompt marking, no private payload, and no alternate screen, since it draws inline.
+//   If that ever changes, OSC 133 is what would replace this parser outright.
+//
 //   Claude WORD-WRAPS the box itself, emitting a real row per visual line rather than letting the
 //   terminal wrap. `capture-pane -J` therefore does not rejoin them -- it joins only terminal-
 //   wrapped lines, which was measured on a `cat` pane and does not apply here -- and the space the
@@ -394,7 +412,43 @@ function isPlaceholder(rawPromptRow: string): boolean {
   if (!rest.startsWith(PROMPT)) return false;
   rest = rest.slice(PROMPT.length).replace(GAP, "");
   const head = SGR_HEAD.exec(rest);
-  return head !== null && head[1]!.split(";").includes(FAINT);
+  return head !== null && setsFaint(head[1]!);
+}
+
+/**
+ * Whether an SGR parameter list actually turns FAINT on.
+ *
+ * A walk rather than a search, and the difference is the whole of a bug that ate people's
+ * sentences. This used to ask whether `2` appeared anywhere among the parameters, which is true
+ * of every truecolor run there is: `38`, `48` and `58` introduce a colour whose FORM is named by
+ * the parameter after them -- `5` for a 256-colour index, `2` for r;g;b -- so `38;2;255;0;0` is
+ * red and `38;5;2` is green, and neither is faint. A terminal that advertises RGB is enough to
+ * make Claude draw in the first form, and this repo hands sessions `COLORTERM=truecolor`
+ * (`terminal/pty-manager/src/vault_sessions.rs`) while tmux carries `xterm-256color:RGB`.
+ *
+ * What that cost is out of all proportion to the mistake. A composer whose text is coloured that
+ * way reads as a PLACEHOLDER, so the box comes back empty and exact; `keystrokesFor` then takes
+ * the single-row branch, computes no backspaces because it believes there is nothing there, and
+ * pastes the whole draft on top of what is already in the box. Once per keystroke, which is how a
+ * reader gets every prefix of their sentence back, joined end to end.
+ *
+ * So the parameters are consumed in the order a terminal consumes them, and only a standalone `2`
+ * is faint.
+ */
+function setsFaint(parameters: string): boolean {
+  const parts = parameters.split(";");
+  for (let at = 0; at < parts.length; at += 1) {
+    // An omitted parameter is a zero, which is what makes `ESC[;2m` a reset and then a faint.
+    const value = parts[at] === "" ? "0" : parts[at]!;
+    if (value === "38" || value === "48" || value === "58") {
+      // `5` takes one parameter after it and `2` takes three. Anything else is malformed, and
+      // consuming nothing lets the walk carry on rather than swallowing the rest of the list.
+      at += parts[at + 1] === "5" ? 2 : parts[at + 1] === "2" ? 4 : 0;
+      continue;
+    }
+    if (value === FAINT) return true;
+  }
+  return false;
 }
 
 /**

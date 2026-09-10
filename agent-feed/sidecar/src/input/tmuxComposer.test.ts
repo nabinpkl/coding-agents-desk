@@ -136,6 +136,42 @@ test("keeps text that merely sits under a colour, because only faint means a hin
   expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["typed in bold"]) });
 });
 
+test("reads a colour that merely contains a 2 as a colour, not as faint", () => {
+  // The `2` in `38;2;r;g;b` is truecolor's colour SPACE and the `2` in `38;5;2` is green, and a
+  // parameter search finds both. Every one of these is somebody's own typing.
+  for (const colour of [
+    "\u001b[38;2;255;0;0m", // truecolor red, which a terminal advertising RGB gets
+    "\u001b[38;2;255;255;255m",
+    "\u001b[48;2;0;0;0m", // and the same as a background
+    "\u001b[38;5;2m", // 256-colour green, whose index IS 2
+    "\u001b[48;5;2m",
+    "\u001b[58;2;1;2;3m", // underline colour, which takes its parameters the same way
+  ]) {
+    const screen = [RULE, `\u001b[39m❯\u00a0${colour}what the reader typed\u001b[0m`, RULE].join("\n");
+    const box = composerBox(paneShowing(screen));
+    expect({ colour, rows: box?.rows, hint: box?.hint })
+      .toEqual({ colour, rows: ["what the reader typed"], hint: null });
+  }
+  // Still a hint when the run really does turn faint on, including after a reset.
+  for (const faint of ["\u001b[2m", "\u001b[0;2m", "\u001b[;2m", "\u001b[1;2m"]) {
+    const screen = [RULE, `\u001b[39m❯\u00a0${faint}a suggestion\u001b[0m`, RULE].join("\n");
+    expect(composerBox(paneShowing(screen))?.rows).toEqual([""]);
+  }
+});
+
+test("appends to a coloured composer instead of pasting the whole draft onto it", () => {
+  // The reader's bug, at the layer where it cost them their sentence. A composer misread as a
+  // placeholder comes back EMPTY and EXACT, so this branch computes no backspaces -- there is
+  // nothing to rub out -- and pastes the whole desired text on top of what is really in the box.
+  // Once per keystroke, which is how every prefix of a sentence ends up in the pane joined end to
+  // end, while the panel's own field goes on showing it correctly.
+  const screen = [RULE, "\u001b[39m❯\u00a0\u001b[38;2;200;200;200mhello wor\u001b[0m", RULE].join("\n");
+  const box = composerBox(paneShowing(screen))!;
+  expect(composerText(box.rows)).toBe("hello wor");
+  // One keystroke costs one keystroke, and nothing is retyped over what is already there.
+  expect(typed(keystrokesFor(box, "hello worl"))).toBe("l");
+});
+
 test("takes the last box, not a turn the transcript echoed with the same marker", () => {
   const screen = [
     RULE,

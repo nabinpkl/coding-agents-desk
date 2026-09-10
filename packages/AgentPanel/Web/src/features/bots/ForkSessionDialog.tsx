@@ -38,12 +38,14 @@ export function ForkSessionDialog({
     request: { session: SessionSummary; botId: string; projectPath: string },
     title: string,
     brief: string,
+    worktree: boolean,
   ) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
+  const [worktree, setWorktree] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** The text this opening wants selected, until it has been. Null once it is, or when closed. */
   const wantsSelected = useRef<string | null>(null);
@@ -53,6 +55,7 @@ export function ForkSessionDialog({
     const seed = nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
     setTitle(seed);
     setBrief("");
+    setWorktree(false);
     setError(null);
     wantsSelected.current = seed;
     // Deliberately keyed on the request alone: `takenTitles` is rebuilt on every inventory push,
@@ -115,7 +118,7 @@ export function ForkSessionDialog({
     event.preventDefault();
     const chosen = title.trim();
     if (!chosen) return;
-    onFork(request, chosen, brief);
+    onFork(request, chosen, brief, worktree);
   };
 
   const source = request.session.title || request.session.sessionId;
@@ -183,6 +186,24 @@ export function ForkSessionDialog({
               : "Left empty, the fork opens holding the parent's context and waits for you to type."}
           </p>
         </div>
+        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border p-3 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-primary active:bg-muted/70">
+          <input
+            type="checkbox"
+            checked={worktree}
+            onChange={(event) => setWorktree(event.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="text-sm">
+            <span className="block font-medium">Give it its own tree and branch</span>
+            {/* The cost is named, not just the benefit. Two agents in one checkout share an index
+                and every uncommitted file, which is fine while they are doing the same thing and
+                is not the moment they are not. */}
+            <span className="block text-xs text-muted-foreground">
+              A git worktree, on a branch named after the fork. Without it the fork edits the same
+              files as the session it came from.
+            </span>
+          </span>
+        </label>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <button

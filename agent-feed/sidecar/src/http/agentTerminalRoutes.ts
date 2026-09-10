@@ -109,6 +109,11 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
       forkId: stringValue(context.forkId, "context.forkId"),
       title: stringValue(context.title, "context.title"),
       ...(context.brief === undefined ? {} : { brief: context.brief as string }),
+      // Presence is the request. The branch inside it is optional and the service fills it from
+      // the title, so `{}` is a valid and common thing to send.
+      ...(context.worktree === undefined
+        ? {}
+        : { worktree: worktreeRequest(context.worktree) }),
     };
   }
   // A fresh session names the directory to run in and the id it will be known by. No source
@@ -250,6 +255,12 @@ async function requestObject(request: Request): Promise<Record<string, unknown> 
     return errorResponse("invalid-request", "request body must be an object", 400);
   }
   return body as Record<string, unknown>;
+}
+
+function worktreeRequest(value: unknown): { branch?: string } {
+  const request = objectValue(value, "context.worktree");
+  if (request.branch === undefined) return {};
+  return { branch: stringValue(request.branch, "context.worktree.branch") };
 }
 
 function objectValue(value: unknown, name: string): Record<string, unknown> {

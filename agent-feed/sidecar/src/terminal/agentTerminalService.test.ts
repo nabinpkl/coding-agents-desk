@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -520,6 +520,72 @@ test("forks a session into a pane of its own, never joining the one it came from
   expect(attached).toEqual([{ session: `agentdesk-fork-${FORK_ID}`, columns: 100, rows: 30 }]);
 });
 
+/** Runs a git command in the fixture's project, so the worktree path has a repository to be in. */
+async function repositoryProject(project: string): Promise<string> {
+  const run = async (args: string[]) => {
+    const process = Bun.spawn(["git", ...args], { cwd: project, stdout: "ignore", stderr: "ignore" });
+    if (await process.exited !== 0) throw new Error(`git ${args.join(" ")} failed`);
+  };
+  await run(["init", "-q", "-b", "main"]);
+  await writeFile(join(project, "README"), "x\n");
+  await run(["add", "README"]);
+  await run(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"]);
+  await writeFile(join(project, ".git", "info", "exclude"), ".claude/worktrees/\n");
+  return realpath(project);
+}
+
+test("starts a worktree fork in the tree it made, and reports where that is", async () => {
+  // The whole point of the option: the caller cannot predict this directory, so a descriptor that
+  // did not carry it would leave the panel watching the source's project for a session that is
+  // never going to appear there.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const { service, project } = await sessionTmuxFixture(fakes, []);
+  const checkout = await repositoryProject(project);
+
+  const descriptor = await service.open(
+    {
+      kind: "session-fork",
+      source: "claude",
+      sessionId: SESSION_ID,
+      forkId: FORK_ID,
+      title: FORK_TITLE,
+      worktree: {},
+    },
+    { columns: 100, rows: 30 },
+  );
+
+  // The branch comes from the title, so a reader finds the tree by the same word as the card.
+  const expected = join(checkout, ".claude", "worktrees", "source-session-fork-2");
+  expect(fakes.created[0]!.cwd).toBe(expected);
+  expect(descriptor.startedSession?.projectPath).toBe(expected);
+  // The pane is still named after the fork, not after its tree: a second viewer of one fork has
+  // only the id, and finds the pane by it whichever directory the fork is running in.
+  expect(fakes.created[0]!.session).toBe(`agentdesk-fork-${FORK_ID}`);
+});
+
+test("refuses a worktree fork the repository cannot take, rather than starting one beside it", async () => {
+  // Without the ignore rule the directory would show up in every session's `git status`. Falling
+  // back to the source's checkout would be worse than refusing: the reader asked for isolation and
+  // would get a second agent in the tree they were protecting.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const { service, project } = await sessionTmuxFixture(fakes, []);
+  const checkout = await repositoryProject(project);
+  await writeFile(join(checkout, ".git", "info", "exclude"), "\n");
+
+  await expect(service.open(
+    {
+      kind: "session-fork",
+      source: "claude",
+      sessionId: SESSION_ID,
+      forkId: FORK_ID,
+      title: FORK_TITLE,
+      worktree: {},
+    },
+    { columns: 100, rows: 30 },
+  )).rejects.toThrow(/git status/);
+  expect(fakes.created).toEqual([]);
+});
+
 test("hands a fork its brief as one first turn, with the handoff note in front of it", async () => {
   // What is being pinned is the ORDER: a fork reads its first turn holding a context it did not
   // build, so the sentence that says the context is borrowed has to arrive before the instruction
@@ -604,7 +670,13 @@ test("reports the name it was given for the session it started, since nothing el
     { columns: 100, rows: 30 },
   );
 
-  expect(descriptor.startedSession).toEqual({ sessionId: FORK_ID, title: FORK_TITLE });
+  expect(descriptor.startedSession).toEqual({
+    sessionId: FORK_ID,
+    title: FORK_TITLE,
+    // Where it started, which for an ordinary fork is its source's directory and for a worktree
+    // fork is one only the sidecar knows.
+    projectPath: expect.stringContaining("projects/agent-desk"),
+  });
 });
 
 test("reports no started session on a second open of one fork, which starts nothing", async () => {
@@ -623,7 +695,11 @@ test("reports no started session on a second open of one fork, which starts noth
   const first = await service.open(context, { columns: 100, rows: 30 });
   const second = await service.open(context, { columns: 100, rows: 30 });
 
-  expect(first.startedSession).toEqual({ sessionId: FORK_ID, title: FORK_TITLE });
+  expect(first.startedSession).toEqual({
+    sessionId: FORK_ID,
+    title: FORK_TITLE,
+    projectPath: expect.stringContaining("projects/agent-desk"),
+  });
   expect(second.startedSession).toBeUndefined();
   // And it joined rather than starting a second process for one fork.
   expect(fakes.created).toHaveLength(1);
@@ -743,6 +819,7 @@ test("starts a session that does not exist yet, in the directory it was handed",
   expect(descriptor.startedSession).toEqual({
     sessionId: NEW_SESSION_ID,
     title: NEW_SESSION_TITLE,
+    projectPath: expect.stringContaining("projects/agent-desk"),
   });
 });
 

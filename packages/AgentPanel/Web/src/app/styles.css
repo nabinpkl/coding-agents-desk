@@ -156,6 +156,74 @@
   }
 }
 
+/* Each Bot's card on the canvas wears its own hue, so a reader picks one out of a strip of six
+   before reading any of their names. `botSurface.ts` decides WHICH hue and sets `--bot-hue`; the
+   lightness and chroma live here, once per theme, and that split is the whole mechanism: only the
+   hue turns, so every Bot's card sits at the same contrast against the text on it whatever colour
+   it is. Stated in oklch for that reason rather than as hex, which is also how every token above
+   is written.
+
+   The two themes are not symmetric, and the asymmetry is a property of the palette rather than a
+   preference. `--card` in light is pure white, the top of the range, so any tint at all can only
+   cost contrast -- there is nothing above it to move to. So light keeps its surface at a whisper
+   and puts the chroma in the BORDER, where no text sits and it is free. Dark has room in both
+   directions and carries the colour on the surface itself.
+
+   Measured across 36 hues in both themes, against the sRGB values a display would actually paint:
+   `--foreground` never falls below 19:1 in light or 15.9:1 in dark, and `--muted-foreground` --
+   the one with anything to lose -- holds 4.55:1 in light against 4.73:1 on the untinted card, and
+   6.40:1 in dark against 6.91:1. WCAG AA wants 4.5 for text this size.
+
+   The light surface sits just outside sRGB for the blue and cyan hues, deliberately. Every
+   combination that stays inside sRGB at every hue drops the muted line to 4.32 and fails AA, so
+   the choice was between a colour a wide-gamut display shows exactly and an sRGB display maps to
+   its nearest neighbour, or a surface that is legibly worse everywhere. The numbers above are the
+   CLIPPED ones, so 4.55 is the sRGB-display floor and a P3 display is better than it. */
+:root {
+  --bot-surface-l: 0.9915;
+  --bot-surface-c: 0.0125;
+  --bot-border-l: 0.865;
+  --bot-border-c: 0.050;
+  --bot-accent-l: 0.860;
+  --bot-accent-c: 0.075;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bot-surface-l: 0.234;
+    --bot-surface-c: 0.022;
+    --bot-border-l: 0.400;
+    --bot-border-c: 0.055;
+    --bot-accent-l: 0.380;
+    --bot-accent-c: 0.060;
+  }
+}
+
+@layer components {
+  /* In `components` rather than beside the utilities on purpose: a lifted card carries
+     `border-primary`, and Tailwind's utility layer comes after this one, so the drag highlight
+     still wins over the Bot's own border without needing an `!important` to say so. */
+  .bot-surface {
+    background-color: oklch(var(--bot-surface-l) var(--bot-surface-c) var(--bot-hue));
+    border-color: oklch(var(--bot-border-l) var(--bot-border-c) var(--bot-hue));
+  }
+
+  /* The third step of the ramp, for objects small enough that a whisper is not a colour: the
+     avatar is a 40px disc in a sidebar a reader has usually dragged narrow, and the tint that
+     names a whole card is invisible at that size. Chroma goes up and lightness comes in from
+     both ends, which is affordable here for a reason the card surface did not have -- the only
+     thing written on an avatar is its initials, in `--foreground`, so the fill is free to leave
+     the neighbourhood of `--card`.
+
+     Measured over 36 hues: the initials hold 12.5:1 in light and 9.3:1 in dark. The disc itself
+     sits at 1.48:1 against the light panel ground, against 1.09:1 for the `bg-muted` disc it
+     replaces -- which is why a tinted avatar drops the border ring that was there to give an
+     almost-invisible circle an edge. */
+  .bot-accent {
+    background-color: oklch(var(--bot-accent-l) var(--bot-accent-c) var(--bot-hue));
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

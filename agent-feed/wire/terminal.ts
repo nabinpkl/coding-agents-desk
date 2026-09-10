@@ -98,6 +98,20 @@ export interface SessionForkTerminalContext {
    * also making it answer something.
    */
   brief?: string;
+  /**
+   * Run this fork in a NEW git worktree of its source's repository, rather than beside it.
+   *
+   * Present means make one. A fork is a second agent on work that is already in progress, and two
+   * agents in one checkout share an index, a `git status` and every uncommitted file -- which is
+   * survivable when they are working on the same thing and is not when they are not. A worktree
+   * gives the fork its own tree and its own branch, and the Bot the fork's source belongs to can
+   * hold it either way (`SessionSummary.worktree`).
+   *
+   * `branch` is the fork's branch, defaulting to a slug of its title. The sidecar chooses the
+   * DIRECTORY and does not take one: a path arriving over HTTP is a path this sidecar would then
+   * create a checkout at, and the one place worktrees go is a decision worth having exactly once.
+   */
+  worktree?: { branch?: string };
 }
 
 /**
@@ -172,7 +186,18 @@ export interface AgentTerminalDescriptor {
    *
    * Absent means nothing was started.
    */
-  startedSession?: { sessionId: string; title: string };
+  startedSession?: {
+    sessionId: string;
+    title: string;
+    /**
+     * Where it was started, which the caller cannot always predict.
+     *
+     * Usually the directory the caller named. Not when the fork asked for a worktree: the sidecar
+     * chooses that path, and the caller has to be told it or it will watch the wrong directory for
+     * the session to appear.
+     */
+    projectPath: string;
+  };
 }
 
 /** One terminal's message, carried inside an envelope on the shared stream. */

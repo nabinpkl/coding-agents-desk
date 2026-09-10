@@ -15,6 +15,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
 import { startClaudeSession } from "../terminal/claudeSessionLaunch.ts";
+import { directoryBelongsTo, worktreeOf } from "../git/worktree.ts";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "./botStore.ts";
 
 export type BotActor =
@@ -474,6 +475,20 @@ export class BotRegistry {
       if (!session) throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
       return session;
     });
+    // Asked out here because the mutation below is synchronous, and because it is a question about
+    // the disk rather than about the snapshot: whether each session's directory is the Bot's
+    // directory or a git worktree of it.
+    //
+    // Read against the Bot as it stands now, which the mutation then re-reads. A Bot cannot change
+    // its directory, so the two readings cannot disagree about the thing this is asking; a Bot
+    // that has been deleted in between fails inside the mutation with its own error, which is the
+    // one worth reporting.
+    const directory = (await this.store.snapshot()).bots
+      .find((bot) => bot.botId === botId)?.environment.path;
+    const belongs = new Map<string, boolean>();
+    for (const path of new Set(resolved.map((session) => session.projectPath))) {
+      belongs.set(path, directory ? await directoryBelongsTo(path, directory) : false);
+    }
     const signature = commandSignature({ botId, ...normalized });
     const idempotencyKey = `attach:${actorKey(actor)}:${normalized.requestId}`;
 
@@ -483,9 +498,13 @@ export class BotRegistry {
       const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
       if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
       const bot = snapshot.bots[index]!;
-      const outside = resolved.find((session) => session.projectPath !== bot.environment.path);
+      const outside = resolved.find((session) =>
+        session.projectPath !== bot.environment.path && !belongs.get(session.projectPath)
+      );
       if (outside) {
-        throw new BotConflictError("every attached session must belong to the Bot's directory");
+        throw new BotConflictError(
+          "every attached session must belong to the Bot's directory, or a git worktree of it",
+        );
       }
       const attached = new Set(bot.sessionRefs.map(sessionKey));
       const duplicate = normalized.sessionRefs.find((ref) => attached.has(sessionKey(ref)));
@@ -607,12 +626,39 @@ export class BotRegistry {
     };
   }
 
+  /**
+   * Says which worktree a session is working in, when it is not the Bot's own directory.
+   *
+   * Only for the rows that need it. A Bot's sessions are usually all in its directory, and a field
+   * that is present and empty on every one of those is a field every reader has to learn to
+   * ignore. Absent means the ordinary case: this session is in the checkout the Bot names.
+   *
+   * The branch rather than the path, because the path is what a reader already sees on the Bot and
+   * the branch is what they do not. Two sessions on one repository editing two branches look
+   * identical without it, which is the failure that made accepting them worth guarding.
+   */
+  private async withWorktree(
+    summary: SessionSummary,
+    projectPath: string,
+    botPath: string,
+  ): Promise<SessionSummary> {
+    if (projectPath === botPath) return summary;
+    const worktree = await worktreeOf(projectPath);
+    if (!worktree) return summary;
+    return { ...summary, worktree: { path: projectPath, branch: worktree.branch } };
+  }
+
   private async viewRecord(record: BotRecord): Promise<BotView> {
     const sessions: SessionSummary[] = [];
     const missingSessionRefs: BotSessionRef[] = [];
     for (const ref of record.sessionRefs) {
       const resolved = this.catalog.resolveSession(ref);
-      if (resolved && resolved.projectPath === record.environment.path) sessions.push(resolved.summary);
+      // The same predicate the attach used, and it has to be: a Bot that accepts a session and
+      // then reports it missing would be worse than one that refused it, because the refusal at
+      // least says so at the moment somebody can act on it.
+      const inside = resolved
+        && await directoryBelongsTo(resolved.projectPath, record.environment.path);
+      if (resolved && inside) sessions.push(await this.withWorktree(resolved.summary, resolved.projectPath, record.environment.path));
       else missingSessionRefs.push(ref);
     }
     return {

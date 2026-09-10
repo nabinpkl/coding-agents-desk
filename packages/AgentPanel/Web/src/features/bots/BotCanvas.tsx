@@ -18,6 +18,7 @@ import {
   type BotCardSize,
   type BotCardSizes,
 } from "./botCanvasPreferences";
+import { botSurfaceStyle } from "./botSurface";
 import { BotCardMenu } from "./BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "./BotNewSessionCard";
 import { SessionRowMenu } from "./SessionRowMenu";
@@ -82,6 +83,7 @@ export interface BotCommandError {
  */
 export function BotCanvas({
   bots,
+  hues,
   loading,
   error,
   sessionContext,
@@ -99,6 +101,14 @@ export function BotCanvas({
   onCloseNewSession,
 }: {
   bots: BotView[];
+  /**
+   * Every Bot's hue, by id, computed over the WHOLE roster rather than over the cards below.
+   *
+   * It arrives as a prop for that reason alone: this component is given the Bots on the canvas, and
+   * ranking those would recolour the strip every time a reader took one off it. See
+   * `botSurface.ts`.
+   */
+  hues: ReadonlyMap<string, number>;
   loading: boolean;
   error: string | null;
   /**
@@ -202,6 +212,7 @@ export function BotCanvas({
   return (
     <BotCanvasList
       bots={bots}
+      hues={hues}
       sessionContext={sessionContext}
       botError={botError}
       onAddSession={onAddSession}
@@ -236,6 +247,7 @@ export function BotCanvas({
  */
 function BotCanvasList({
   bots,
+  hues,
   sessionContext,
   botError,
   onAddSession,
@@ -249,6 +261,7 @@ function BotCanvasList({
   onCloseNewSession,
 }: {
   bots: BotView[];
+  hues: ReadonlyMap<string, number>;
   sessionContext: SessionViewContext;
   botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
@@ -338,6 +351,7 @@ function BotCanvasList({
             canMoveLeft={index > 0}
             canMoveRight={index < standing.length - 1}
             bot={bot}
+            hue={hues.get(bot.botId)}
             sessionContext={sessionContext}
             botError={botError}
             openKeys={openKeys}
@@ -619,6 +633,7 @@ function BotSessionCard({
                   source={session.source}
                   lastEventAt={session.lastEventAt}
                   activity={session.activity}
+                  worktree={session.worktree}
                 />
               </span>
               <ChevronDown
@@ -722,6 +737,7 @@ function sessionKey(session: BotSessionRef): string {
 
 function BotCanvasCard({
   bot,
+  hue,
   sessionContext,
   botError,
   openKeys,
@@ -745,6 +761,8 @@ function BotCanvasCard({
   onCloseNewSession,
 }: {
   bot: BotView;
+  /** This Bot's place on the colour wheel, or nothing if the roster does not know it yet. */
+  hue: number | undefined;
   sessionContext: SessionViewContext;
   botError: BotCommandError | null;
   openKeys: ReadonlySet<string>;
@@ -825,6 +843,13 @@ function BotCanvasCard({
     if (!holdsOpen) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }, [holdsOpen]);
+  // `bot-surface` sets the background and the border together, because a tinted card inside a
+  // neutral border reads as a mistake rather than as a colour. A Bot the roster has not ranked
+  // falls back to the plain card it was, which is defensive rather than expected: the canvas shows
+  // a subset of the roster the hues are built from.
+  const surface = hue === undefined ? "bg-card" : "bot-surface";
+  // A card being carried says something about right now, which outranks saying whose it is.
+  const edge = lifted ? "z-10 border-primary shadow-xl" : surface === "bg-card" ? "border-border" : "";
   return (
     // Width always, height only while it holds the open session: closed, a card is as tall as its
     // own roster and a remembered height would be empty space. The card is a ROW -- its content
@@ -833,10 +858,9 @@ function BotCanvasCard({
     // land on the transcript's scrollbar.
     <li
       ref={card}
-      className={`flex shrink-0 overflow-hidden rounded-xl border bg-card ${
-        lifted ? "z-10 border-primary shadow-xl" : "border-border"
-      }`}
+      className={`flex shrink-0 overflow-hidden rounded-xl border ${surface} ${edge}`}
       style={{
+        ...botSurfaceStyle(hue),
         // No size of its own, at any panel width. A Bot card is exactly as big as the sessions
         // standing in it, in both directions: it once held a width and a height, and both turned
         // into empty space the moment the sessions carried their own. A narrow panel is not an
@@ -861,13 +885,16 @@ function BotCanvasCard({
             min-width cannot be resolved while that measurement is happening, so the header counts
             as zero then and stretches to the answer afterwards. */}
         <div
-          className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border bg-card px-3 py-2 select-none active:cursor-grabbing"
+          // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
+          // the same colour and so invisible; now that the card carries a hue, repainting the band
+          // that holds the Bot's name would be the one part of the card not wearing it.
+          className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border px-3 py-2 select-none active:cursor-grabbing"
           onPointerDown={grabHeader}
           onPointerMove={carryHeader}
           onPointerUp={dropHeader}
           onPointerCancel={dropHeader}
         >
-          <BotAvatar bot={bot} size="size-9" />
+          <BotAvatar bot={bot} hue={hue} size="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
               {bot.name}
