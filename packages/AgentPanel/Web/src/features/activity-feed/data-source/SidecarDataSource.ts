@@ -13,7 +13,8 @@
 
 import type {
   AddBotCommand,
-  AttachBotSessionsCommand,
+  AddBotSessionsCommand,
+  BotSessionsAdded,
   ActivityEvent,
   ComposerImageDrop,
   ComposerKeyPress,
@@ -318,11 +319,11 @@ export class SidecarDataSource implements AgentDataSource {
     );
   }
 
-  async attachBotSessions(
+  async addBotSessions(
     botId: string,
-    command: Omit<AttachBotSessionsCommand, "requestId">,
-  ): Promise<BotView> {
-    return parse<BotView>(
+    command: Omit<AddBotSessionsCommand, "requestId">,
+  ): Promise<BotSessionsAdded> {
+    return parse<BotSessionsAdded>(
       await this.transport.request(
         "POST",
         `/api/bots/${encodeURIComponent(botId)}/sessions`,

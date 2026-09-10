@@ -8,22 +8,16 @@ import type {
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
-  NewSessionTerminalContext,
-  SessionForkTerminalContext,
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import {
-  claudeForkPaneName,
   claudeSessionPaneName,
   forkClaudeSessionCommand,
-  newClaudeSessionCommand,
 } from "./claudeSessionLaunch.ts";
-import { branchFromTitle, prepareWorktree, WorktreeError } from "../git/worktree.ts";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
 import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
-import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
 import {
   attachedTmuxClients,
   captureTmuxHistory,
@@ -82,7 +76,6 @@ interface TerminalIdentity {
    * where the command is built -- it IS an argument of that command -- and deriving it a second
    * time later could answer differently.
    */
-  startedSession: { sessionId: string; title: string; projectPath: string } | null;
   /**
    * The Claude session to stamp on the pane, so it can be found again after it is renamed.
    *
@@ -224,15 +217,7 @@ export class AgentTerminalService {
         await this.stampSessionIdentity(identity.tmuxSession, identity.stampSession)
           .catch(() => {});
       }
-      // A second open of one fork or one new session joins the pane that is already running, so
-      // nothing was started and there is no name to report. The identity would happily offer one,
-      // and it would be a name the running session does not answer to: `-n` was spent at the
-      // moment the pane was created and this call's title never reached the CLI at all.
-      return this.attachTmux(
-        created ? identity : { ...identity, startedSession: null },
-        identity.tmuxSession,
-        { columns, rows },
-      );
+      return this.attachTmux(identity, identity.tmuxSession, { columns, rows });
     }
 
     let sessions: PtySessionSummary[];
@@ -347,7 +332,6 @@ export class AgentTerminalService {
       pid: connection.attachment.pid,
       columns: connection.attachment.columns,
       rows: connection.attachment.rows,
-      ...(identity.startedSession ? { startedSession: identity.startedSession } : {}),
     };
     const active: ActiveTerminal = {
       descriptor,
@@ -504,8 +488,6 @@ export class AgentTerminalService {
   private async identify(context: AgentTerminalContext): Promise<TerminalIdentity> {
     if (context.kind === "tmux") return this.identifyTmux(context);
     if (context.kind === "session-tmux") return this.identifySessionTmux(context);
-    if (context.kind === "session-fork") return this.identifySessionFork(context);
-    if (context.kind === "session-new") return this.identifyNewSession(context);
     return this.identifyAgentSession(context);
   }
 
@@ -533,7 +515,6 @@ export class AgentTerminalService {
       // A tmux session is meant to be watched from more than one place, so nothing to refuse.
       refuseNew: null,
       createTmux: null,
-      startedSession: null,
       stampSession: null,
     };
   }
@@ -575,7 +556,6 @@ export class AgentTerminalService {
       command: [],
       refuseNew: null,
       createTmux: null,
-      startedSession: null,
       stampSession: null,
     };
   }
@@ -611,54 +591,6 @@ export class AgentTerminalService {
       throw new AgentTerminalInvalidError("terminal project directory must be inside the user home");
     }
     return projectPath;
-  }
-
-  /**
-   * A session that does not exist yet, started in a directory.
-   *
-   * The one identity that resolves NOTHING against the catalog, and it has to be: the session it
-   * names has never run, so there is no transcript, no summary and no project row for it. What it
-   * is checked against instead is the directory, by the same rules the resumed-CLI kind uses.
-   *
-   * The pane is `claudeSessionPaneName`, not a name of its own, and that is the whole reason
-   * the two kinds agree afterwards. Once this session has taken a turn it is an ordinary catalog session,
-   * and a `session-tmux` open of it looks for the pane a live process is in -- which is this one.
-   * Giving it a private name would have made the card's terminal jump to a second pane the moment
-   * the session became real, or worse, resumed the transcript beside the process still writing it.
-   *
-   * A second open of the same new session joins rather than starts, because `open` checks whether
-   * the pane exists before running `createTmux`. So re-opening a card that is already running is
-   * the same act as re-opening a fork's.
-   */
-  private async identifyNewSession(
-    context: NewSessionTerminalContext,
-  ): Promise<TerminalIdentity> {
-    if (context.source !== "claude") {
-      throw new AgentTerminalInvalidError("only claude sessions can be started");
-    }
-    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
-    const projectPath = await this.projectDirectory(context.projectPath);
-    // Taken from the caller, never derived, for the reason the fork's title is: the reader named
-    // it before anything started, and `-n` is an argument of the command below.
-    const title = context.title.trim();
-    const refusal = sessionTitleRefusal(title);
-    if (refusal) throw new AgentTerminalInvalidError(refusal);
-    const pane = claudeSessionPaneName(sessionId);
-    return {
-      ptySessionName: `agent-tmux-${pane}`,
-      tmuxSession: pane,
-      cwd: projectPath,
-      command: [],
-      refuseNew: null,
-      createTmux: {
-        cwd: projectPath,
-        command: newClaudeSessionCommand({ sessionId, title }),
-      },
-      // The second path that brings a session into existence, and it reports the same way the fork
-      // does: the caller chose the name, so this says which open was the one that started it.
-      startedSession: { sessionId, title, projectPath },
-      stampSession: sessionId,
-    };
   }
 
   /**
@@ -703,8 +635,7 @@ export class AgentTerminalService {
         command: [],
         refuseNew: null,
         createTmux: null,
-        startedSession: null,
-        stampSession: sessionId,
+          stampSession: sessionId,
       };
     }
 
@@ -722,83 +653,7 @@ export class AgentTerminalService {
           : ["codex", "resume", sessionId],
       },
       // Resuming, not creating: the session already exists and already has whatever name it has.
-      startedSession: null,
       stampSession: sessionId,
-    };
-  }
-
-  /**
-   * A new session forked from an existing transcript.
-   *
-   * Deliberately the opposite of the resume above in the one way that matters: it NEVER joins a
-   * live pane. Resuming asks "where is this session", and joining is right because two viewers of
-   * one transcript should not become two clients of it. Forking asks for a session that did not
-   * exist a moment ago, so there is nothing to join, and joining would be the bug -- it would put
-   * the reader back in the transcript they asked to branch away from.
-   *
-   * The pane is named after the fork rather than its source, so forking one session twice gives
-   * two panes rather than one pane the second fork silently lands in.
-   *
-   * A brief, when the caller sends one, becomes the fork's first turn -- prefixed with the standing
-   * handoff statement, because a fork otherwise cannot tell that the context it is holding belongs
-   * to a session that is still running and still going to finish it.
-   *
-   * `--fork-session` copies from the source's LAST COMPACTION forward, not its whole history.
-   * Measured on a transcript with compactions at lines 419 and 653 of 1247: the fork carried lines
-   * 686 onward and no earlier record, including under the CLI's own "resume full session as-is"
-   * option. Anything before that boundary stays in the source's file and is not in the fork's.
-   */
-  private async identifySessionFork(
-    context: SessionForkTerminalContext,
-  ): Promise<TerminalIdentity> {
-    if (context.source !== "claude") {
-      throw new AgentTerminalInvalidError("only claude sessions can be forked");
-    }
-    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
-    const forkId = requiredSessionUuid(context.forkId, "terminal fork id");
-    const session = this.resolveSession(context.source, sessionId);
-    if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
-    let projectPath: string;
-    try {
-      projectPath = await realpath(resolve(session.projectPath));
-    } catch {
-      throw new AgentTerminalConflictError("agent session project directory is no longer available");
-    }
-
-    const pane = claudeForkPaneName(forkId);
-    // Taken from the caller, never derived. The panel proposes a name and the reader may type over
-    // it before the fork starts, so a title computed here would be a second answer to a question
-    // that has already been asked -- and it would silently win.
-    const title = context.title.trim();
-    const refusal = sessionTitleRefusal(title);
-    if (refusal) throw new AgentTerminalInvalidError(refusal);
-    const brief = forkBrief(context.brief);
-    // The fork's own tree, when it asked for one. Prepared here rather than at the moment the pane
-    // is created because the branch is part of what this fork IS: a second open of the same fork
-    // has to land in the same directory, and `prepareWorktree` returning the existing one is what
-    // makes that true without this path having to know which open it is.
-    const cwd = context.worktree
-      ? (await prepareForkWorktree(projectPath, context.worktree, title)).path
-      : projectPath;
-    return {
-      ptySessionName: `agent-tmux-${pane}`,
-      tmuxSession: pane,
-      cwd,
-      command: [],
-      refuseNew: null,
-      createTmux: {
-        cwd,
-        // The argv, the pane name and the handoff statement all live in `claudeSessionLaunch.ts`,
-        // beside the ones the new-session path uses. A fork assembled here would be a second answer
-        // to questions that path has already settled -- and the brief's composition in particular
-        // has to be one answer, or the copy that says least about leaving the parent alone wins.
-        command: forkClaudeSessionCommand({ sessionId, forkId, title, brief }),
-      },
-      // The one path that creates a session, and so the one that has a name to report. The caller
-      // has no other way to learn it: until the first turn there is no transcript to read it from,
-      // which is exactly when a fork is on screen with nothing else to call it.
-      startedSession: { sessionId: forkId, title, projectPath: cwd },
-      stampSession: forkId,
     };
   }
 
@@ -880,64 +735,6 @@ function requiredSessionUuid(value: string, field: string): string {
     throw new AgentTerminalInvalidError(`${field} must be a canonical UUID`);
   }
   return canonical;
-}
-
-/** The pane a fork runs in, named for the fork rather than the session it came from. */
-/**
- * The worktree a fork asked for, made or found.
- *
- * The branch defaults to a slug of the fork's title, which is the name the reader already chose.
- * A caller with an opinion sends one; a caller without gets a branch it can recognise rather than
- * a uuid, and the fork's tree is then findable by the same word as its card.
- *
- * `WorktreeError` becomes a conflict rather than an invalid request: every one of its cases is
- * about what is already on disk -- a directory in the way, a branch that exists, an ignore rule
- * that is missing -- and none of them is fixed by sending a different request.
- */
-async function prepareForkWorktree(
-  checkout: string,
-  request: { branch?: string },
-  title: string,
-): Promise<{ path: string }> {
-  const branch = request.branch?.trim() || branchFromTitle(title);
-  try {
-    return await prepareWorktree({ checkout, branch });
-  } catch (error) {
-    if (error instanceof WorktreeError) throw new AgentTerminalConflictError(error.message);
-    throw error;
-  }
-}
-
-/**
- * How long a fork's brief is allowed to be.
- *
- * It becomes one argument of a shell command line, so the ceiling that matters is `ARG_MAX`, which
- * is a megabyte here -- this is far below it. What the limit is actually for is the other
- * direction: a caller that sends a file it did not mean to send finds out at the boundary rather
- * than by watching a pane fail to start.
- */
-const MAXIMUM_FORK_BRIEF = 32_768;
-
-/**
- * A brief, or nothing.
- *
- * Whitespace-only is nothing rather than an error: it is what an empty textarea sends, and refusing
- * the fork over it would refuse the ordinary case -- a reader who opened the field, looked at it,
- * and decided to type into the pane instead.
- */
-function forkBrief(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") {
-    throw new AgentTerminalInvalidError("context.brief must be a string");
-  }
-  const brief = value.trim();
-  if (!brief) return undefined;
-  if (brief.length > MAXIMUM_FORK_BRIEF) {
-    throw new AgentTerminalInvalidError(
-      `context.brief must be at most ${MAXIMUM_FORK_BRIEF} characters`,
-    );
-  }
-  return brief;
 }
 
 function requiredDimension(value: number, name: string): number {

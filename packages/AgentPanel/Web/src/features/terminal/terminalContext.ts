@@ -10,13 +10,6 @@ import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 export function terminalContextKey(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return `tmux:${context.session}`;
   if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
-  // The fork, not its source: two forks of one session are two terminals, and keying them by the
-  // session they came from would collapse them into one.
-  if (context.kind === "session-fork") return `session-fork:${context.forkId}`;
-  // Its own prefix rather than the session's, because a card holds this terminal until the catalog
-  // knows the session and its own `session-tmux` one after: two contexts for one id, and one key
-  // for both would let a stale state update land on the wrong one.
-  if (context.kind === "session-new") return `session-new:${context.sessionId}`;
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
@@ -31,8 +24,6 @@ export function terminalContextKey(context: AgentTerminalContext): string {
 export function terminalContextLabel(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return context.session;
   const provider = context.source === "claude" ? "Claude" : "Codex";
-  if (context.kind === "session-fork") return `${provider} fork`;
-  if (context.kind === "session-new") return `New ${provider} session`;
   return context.kind === "session-tmux" ? `${provider} session` : provider;
 }
 
@@ -43,10 +34,10 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
  * tmux-backed kind existed -- geometry ownership, history import, replay, and how a viewer leaves.
  * They are all the same question, so it is asked once here: a predicate that misses a kind is a
  * terminal that resizes somebody's live session or replays over its imported history.
+ *
+ * A session the Bot just started arrives as the plain `tmux` kind, because by the time this panel
+ * has a pane name the pane already exists.
  */
 export function isTmuxAttach(context: AgentTerminalContext): boolean {
-  return context.kind === "tmux"
-    || context.kind === "session-tmux"
-    || context.kind === "session-fork"
-    || context.kind === "session-new";
+  return context.kind === "tmux" || context.kind === "session-tmux";
 }

@@ -245,40 +245,20 @@ export function App({ feed, host, fill = false }: Props) {
    * identity has to outlive the row that started it: the source session can be detached from its
    * Bot while its fork is still open.
    *
-   * `forkId` is minted here, once, and never derived from `sessionId` -- forking one session twice
-   * has to give two panes, and a pane named after the source would give the second fork the
-   * first's terminal.
-   *
-   * `forkTitle` is the fork's own name, chosen in the dialog before any of this exists. It used to
-   * arrive from the sidecar after the pane opened, because the sidecar derived it -- so the header
-   * read "Fork of X" until the terminal was up, and the reader had no say in it at all. The name
-   * is settled first now, which is what `-n` requires of it: that flag sets the session's ADDRESS
-   * as well as its title, so a fork is listed under this name from its first moment.
-   *
-   * `botId` and `projectPath` are the Bot it was forked FROM, kept so the fork can be given back
-   * to it once it exists. They are the Bot's rather than the source session's because that is
-   * what the attach is checked against.
+   * Everything in it comes back from `POST /api/bots/:id/sessions` and none of it is predicted.
+   * The panel used to mint the fork's id, name its pane by the sidecar's own rule, and then open a
+   * terminal whose context created the session as a side effect of attaching to it -- so the page
+   * held a second copy of three decisions the sidecar owns, and the fork reached its Bot only
+   * after its first turn had landed. The Bot creates and attaches it now, and this is the receipt.
    */
   const [forkedSession, setForkedSession] = useState<
     {
-      source: "claude";
       sessionId: string;
-      forkId: string;
-      forkTitle: string;
-      /**
-       * The fork's first turn, empty when the reader gave none.
-       *
-       * Held beside the ids rather than sent separately because it is part of the fork's identity
-       * for exactly as long as the fork has not started: the terminal below is what starts it, and
-       * it starts once, from this object.
-       */
-      brief: string;
-      /** Whether it was asked to run in a worktree of its source's repository. */
-      worktree: boolean;
+      title: string;
+      /** The pane the Bot started it in. Taken from the Bot, never rebuilt here. */
+      tmuxSession: string;
       /** What it was forked FROM, which is the one thing the empty view has to say. */
       sourceTitle: string;
-      botId: string;
-      projectPath: string;
     } | null
   >(null);
   /**
@@ -350,15 +330,13 @@ export function App({ feed, host, fill = false }: Props) {
   const subscribedProjectKey = useMemo(() => {
     const paths = [...expandedProjectPaths];
     if (botSessionPicker) paths.push(botSessionPicker.environment.path);
-    // An open fork's project, so the shell can see the fork's own session the moment its first
-    // turn writes a transcript. That is the only way to learn it: a fork has nothing in the
-    // catalog until then, and the Bot stream cannot show a session nobody has attached yet.
-    if (forkedSession) paths.push(forkedSession.projectPath);
-    // Every started session's directory, for exactly the same reason: it is the only place its
-    // first turn can be noticed, and noticing it is what attaches it to its Bot.
+    // A started session's own directory, which is not always its Bot's: a session in a worktree
+    // is listed under the worktree. Subscribed so the canvas sees it become a real session and
+    // stops rendering the placeholder card, not so it can be attached -- the Bot did that when it
+    // started it.
     for (const started of newSessions) paths.push(started.projectPath);
     return [...new Set(paths)].sort().join("\0");
-  }, [botSessionPicker, expandedProjectPaths, forkedSession, newSessions]);
+  }, [botSessionPicker, expandedProjectPaths, newSessions]);
   const subscribedProjectPaths = useMemo(
     () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
     [subscribedProjectKey],
@@ -642,146 +620,83 @@ export function App({ feed, host, fill = false }: Props) {
     });
   }, []);
   const startFork = useCallback(
-    (
+    async (
       request: { session: SessionSummary; botId: string; projectPath: string },
       forkTitle: string,
       brief: string,
       worktree: boolean,
     ) => {
       setForkRequest(null);
-      setForkedSession({
-        source: "claude",
-        sessionId: request.session.sessionId,
-        // Minted at the moment the fork is actually started, so a dialog opened and cancelled
-        // leaves no id behind and two confirms of one row are two different forks.
-        forkId: crypto.randomUUID(),
-        forkTitle,
-        brief,
-        worktree,
-        sourceTitle: request.session.title || request.session.sessionId,
-        botId: request.botId,
-        projectPath: request.projectPath,
-      });
-    },
-    [],
-  );
-
-  /**
-   * Gives a fork back to the Bot its source belongs to, once there is a session to give.
-   *
-   * Not at the moment of forking, because there is nothing to attach then: a fork writes no
-   * transcript until its first turn, and the sidecar refuses a session that is not in the catalog
-   * rather than recording a reference to something that may never exist. So the shell subscribes
-   * the Bot's directory while the fork is open and waits for the session to appear under the id it
-   * chose -- which it can only do because the fork is started with that id.
-   *
-   * Attached once per fork, tracked by id rather than by a flag: the effect re-runs on every
-   * inventory push, and the Bot snapshot that would make it a no-op arrives a moment later. The
-   * set is never pruned because it cannot grow past the forks one reader makes in one page.
-   *
-   * Closing the pane before that first turn attaches nothing, which is the right reading of it:
-   * the fork is a session on disk either way, and it can be attached by hand like any other.
-   */
-  const attachedForkIds = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!forkedSession) return;
-    const { forkId, botId, projectPath } = forkedSession;
-    if (attachedForkIds.current.has(forkId)) return;
-    // The Bot can be removed while its fork is still open, and attaching to one that is gone would
-    // answer with an error the reader can do nothing about.
-    if (!botsState.bots.some((candidate) => candidate.botId === botId)) return;
-    const appeared = sessionsByProject.get(projectPath)
-      ?.some((session) => session.source === "claude" && session.sessionId === forkId);
-    if (!appeared) return;
-    attachedForkIds.current.add(forkId);
-    void feed
-      .attachBotSessions(botId, { sessionRefs: [{ source: "claude", sessionId: forkId }] })
-      // Named rather than attributed to a session: the attach is what failed, so the fork is on
-      // no Bot and has no card of its own to say so. A fork that silently failed to attach is
-      // indistinguishable from one that was never meant to be.
-      .catch((error: unknown) => {
+      setBotCommandError(null);
+      try {
+        const added = await feed.addBotSessions(request.botId, {
+          launch: {
+            title: forkTitle,
+            from: { source: "claude", sessionId: request.session.sessionId },
+            ...(brief.trim() ? { prompt: brief } : {}),
+            ...(worktree ? { worktree: {} } : {}),
+          },
+        });
+        if (!added.started) return;
+        setForkedSession({
+          sessionId: added.started.sessionId,
+          title: added.started.title,
+          tmuxSession: added.started.tmuxSession,
+          sourceTitle: request.session.title || request.session.sessionId,
+        });
+      } catch (error) {
+        // Named rather than attributed to a session: the fork does not exist, so there is no card
+        // for this to land on. A fork that silently failed to start is indistinguishable from one
+        // that was never asked for.
         setBotCommandError({
           session: null,
-          message: `Could not add the new session to the Bot: ${
+          message: `Could not fork the session: ${
             error instanceof Error ? error.message : String(error)
           }`,
         });
-      });
-  }, [feed, forkedSession, botsState.bots, sessionsByProject]);
+      }
+    },
+    [feed],
+  );
 
-  /**
-   * Starts a session in a Bot's directory and puts it on the canvas.
-   *
-   * Nothing is attached here, because nothing can be: the sidecar refuses a Bot reference to a
-   * session the catalog does not hold, and this one will not be in it until its first turn. The id
-   * is minted here so there is something to recognise it BY when that turn comes -- it is passed
-   * to the CLI as `--session-id`, so the transcript lands exactly where the effect below is
-   * watching.
-   *
-   * The card is opened and the Bot is put back on the canvas in the same act, for the reason
-   * `openSessionOnCanvas` does both: a session started into a card nobody is rendering is a press
-   * that appears to have done nothing, and this one has a terminal waiting to be typed into.
-   */
-  const startNewSession = useCallback((bot: BotView, title: string) => {
-    const sessionId = crypto.randomUUID();
+  const startNewSession = useCallback(async (bot: BotView, title: string) => {
     setBotSessionPickerId(null);
     setBotCommandError(null);
-    setNewSessions((current) => [
-      ...current,
-      { botId: bot.botId, sessionId, title, projectPath: bot.environment.path },
-    ]);
-    setDetachedBotIds((current) => {
-      if (!current.has(bot.botId)) return current;
-      const next = new Set(current);
-      next.delete(bot.botId);
-      return next;
-    });
-    setCanvasOpenKeys((current) => new Set(current).add(`claude:${sessionId}`));
-  }, []);
+    try {
+      const added = await feed.addBotSessions(bot.botId, { launch: { title } });
+      if (!added.started) return;
+      const started = added.started;
+      setNewSessions((current) => [
+        ...current,
+        {
+          botId: bot.botId,
+          sessionId: started.sessionId,
+          title: started.title,
+          projectPath: started.projectPath,
+          tmuxSession: started.tmuxSession,
+        },
+      ]);
+      setDetachedBotIds((current) => {
+        if (!current.has(bot.botId)) return current;
+        const next = new Set(current);
+        next.delete(bot.botId);
+        return next;
+      });
+      setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
+    } catch (error) {
+      setBotCommandError({
+        session: null,
+        message: `Could not start the session: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }, [feed]);
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
   const closeNewSession = useCallback((sessionId: string) => {
     setNewSessions((current) => current.filter((started) => started.sessionId !== sessionId));
   }, []);
-
-  /**
-   * Gives a started session to its Bot, once there is a session to give.
-   *
-   * The same wait the fork takes, for the same reason, and the entry is dropped from the list at
-   * the same time: the canvas already stops rendering a started session the moment its Bot carries
-   * it, so holding the entry past the attach would only keep this effect re-running.
-   *
-   * Attached once per session, tracked by id rather than by the list, because the list is not gone
-   * until React has re-rendered and the effect re-runs on every inventory push in between.
-   */
-  const attachedNewSessionIds = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const started of newSessions) {
-      if (attachedNewSessionIds.current.has(started.sessionId)) continue;
-      // The Bot can be removed while its session is still open, and attaching to one that is gone
-      // would answer with an error the reader can do nothing about.
-      if (!botsState.bots.some((candidate) => candidate.botId === started.botId)) continue;
-      const appeared = sessionsByProject.get(started.projectPath)
-        ?.some((session) => session.source === "claude" && session.sessionId === started.sessionId);
-      if (!appeared) continue;
-      attachedNewSessionIds.current.add(started.sessionId);
-      void feed
-        .attachBotSessions(started.botId, {
-          sessionRefs: [{ source: "claude", sessionId: started.sessionId }],
-        })
-        // Same as the fork above: the attach is what failed, so there is no card for it to land
-        // on. A session that silently failed to attach is indistinguishable from one that was
-        // never meant to be.
-        .catch((error: unknown) => {
-          setBotCommandError({
-            session: null,
-            message: `Could not add the new session to the Bot: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          });
-        });
-    }
-  }, [feed, newSessions, botsState.bots, sessionsByProject]);
 
   /**
    * The session whose title is being edited, if any.
@@ -827,7 +742,7 @@ export function App({ feed, host, fill = false }: Props) {
   }, [feed]);
 
   const attachBotSessions = useCallback(async (bot: BotView, sessionRefs: BotSessionRef[]) => {
-    await feed.attachBotSessions(bot.botId, { sessionRefs });
+    await feed.addBotSessions(bot.botId, { sessionRefs });
     setBotSessionPickerId(null);
   }, [feed]);
 
@@ -1082,7 +997,7 @@ export function App({ feed, host, fill = false }: Props) {
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
               {forkedSession
-                ? forkedSession.forkTitle
+                ? forkedSession.title
                 : sidebarMode === "canvas"
                 ? "Canvas"
                 : sidebarMode === "bots"
@@ -1152,36 +1067,11 @@ export function App({ feed, host, fill = false }: Props) {
           </main>
           {forkedSession ? (
             <AgentTerminalPane
-              key={forkedSession.forkId}
+              key={forkedSession.sessionId}
               feed={feed}
-              context={{
-                kind: "session-fork",
-                source: forkedSession.source,
-                sessionId: forkedSession.sessionId,
-                forkId: forkedSession.forkId,
-                title: forkedSession.forkTitle,
-                // Omitted rather than sent empty: the sidecar reads an absent brief as "no first
-                // turn", and an empty string would be a brief that says nothing, prefixed by a
-                // handoff note explaining that it says nothing.
-                ...(forkedSession.brief.trim() ? { brief: forkedSession.brief } : {}),
-                // Presence is the request; the branch is the sidecar's to derive from the title.
-                ...(forkedSession.worktree ? { worktree: {} } : {}),
-              }}
-              // A worktree fork runs in a directory this panel did not choose and cannot predict,
-              // and the attach below waits for the session to appear in a NAMED project. Without
-              // this it would watch the source's checkout for a session that is never going to
-              // show up there, and the fork would silently never reach its Bot.
-              onState={(_, state) => {
-                if (state.kind !== "ready") return;
-                const started = state.descriptor.startedSession;
-                if (!started) return;
-                setForkedSession((current) =>
-                  current && current.forkId === started.sessionId
-                      && current.projectPath !== started.projectPath
-                    ? { ...current, projectPath: started.projectPath }
-                    : current
-                );
-              }}
+              // Attaching, not starting: the Bot started this fork before this pane existed, so
+              // opening it twice is the same as opening it once.
+              context={{ kind: "tmux", session: forkedSession.tmuxSession }}
               layout="band"
             />
           ) : null}

@@ -93,44 +93,12 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
       sessionId: stringValue(context.sessionId, "context.sessionId"),
     };
   }
-  // A fork names the session it branches FROM plus its own identity. Both are needed: the first
-  // says what to resume, the second names the pane, and without it two forks of one session would
-  // land in one terminal. The title comes with them because the reader chose it before the fork
-  // started; the service refuses one it cannot use rather than substituting its own.
-  //
-  // The brief is passed through untouched, including whitespace-only. What counts as absent is the
-  // service's decision, not this layer's -- it is the one that has to compose the first turn, and
-  // splitting that judgment across two files is how the two come to disagree about an empty field.
-  if (kind === "session-fork") {
-    return {
-      kind,
-      source: stringValue(context.source, "context.source") as "claude",
-      sessionId: stringValue(context.sessionId, "context.sessionId"),
-      forkId: stringValue(context.forkId, "context.forkId"),
-      title: stringValue(context.title, "context.title"),
-      ...(context.brief === undefined ? {} : { brief: context.brief as string }),
-      // Presence is the request. The branch inside it is optional and the service fills it from
-      // the title, so `{}` is a valid and common thing to send.
-      ...(context.worktree === undefined
-        ? {}
-        : { worktree: worktreeRequest(context.worktree) }),
-    };
-  }
-  // A fresh session names the directory to run in and the id it will be known by. No source
-  // session to resolve, which is the point of it: this is the only kind that can be asked for
-  // when the directory has no sessions at all.
-  if (kind === "session-new") {
-    return {
-      kind,
-      source: stringValue(context.source, "context.source") as "claude",
-      projectPath: stringValue(context.projectPath, "context.projectPath"),
-      sessionId: stringValue(context.sessionId, "context.sessionId"),
-      title: stringValue(context.title, "context.title"),
-    };
-  }
+  // Nothing below creates anything. The two contexts that did -- a fork and a fresh session --
+  // moved to the Bot that owns the directory they run in, so this resource is an attachment
+  // capability again and asking for one twice is the same as asking once.
   if (kind !== "agent-session") {
     throw new AgentTerminalInvalidError(
-      "context.kind must be agent-session, tmux, session-tmux, session-fork or session-new",
+      "context.kind must be agent-session, tmux or session-tmux",
     );
   }
   return {
@@ -255,12 +223,6 @@ async function requestObject(request: Request): Promise<Record<string, unknown> 
     return errorResponse("invalid-request", "request body must be an object", 400);
   }
   return body as Record<string, unknown>;
-}
-
-function worktreeRequest(value: unknown): { branch?: string } {
-  const request = objectValue(value, "context.worktree");
-  if (request.branch === undefined) return {};
-  return { branch: stringValue(request.branch, "context.worktree.branch") };
 }
 
 function objectValue(value: unknown, name: string): Record<string, unknown> {

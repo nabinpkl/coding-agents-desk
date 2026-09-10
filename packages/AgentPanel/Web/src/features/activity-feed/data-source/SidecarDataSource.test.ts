@@ -242,7 +242,7 @@ describe("SidecarDataSource", () => {
     });
     const source = new SidecarDataSource(transport);
 
-    await source.attachBotSessions("bot-1", {
+    await source.addBotSessions("bot-1", {
       sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
     });
 
