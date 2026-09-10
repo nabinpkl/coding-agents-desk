@@ -233,7 +233,6 @@ extension ControlSurface {
         case .terminal: .terminal
         case .browser: .browser
         case .workspace: .workspace
-        case .ide: .ide
         case .voice: .voice
         }
     }

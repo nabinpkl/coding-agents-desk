@@ -467,15 +467,15 @@ ensure-webview-placeholder:
     test -f '{{justfile_directory()}}/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelFixture/index.html'
     mkdir -p '{{webview_out}}'
 
-# Test and build the shared Workspace IDE web project used by both macOS and iOS.
-# One dependency tree emits the retained single-file viewer and the paired IDE regions.
+# Test and build the single-file workspace viewer shipped in WorkspaceFileViewer.
+# It used to emit the paired IDE regions from the same dependency tree; the IDE is the Agent Panel
+# and the sidecar now (ADR-0115), so only the viewer is published from here.
 workspace-ide-web:
     #!/usr/bin/env bash
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
     WEB="$ROOT/packages/WorkspaceIDE/Web"
     VIEWER_OUT="$ROOT/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer"
-    IDE_OUT="$ROOT/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide"
     STAGING="$(mktemp -d "${TMPDIR:-/tmp}/agentdesk-workspace-ide.XXXXXX")"
     cleanup() {
       rm -rf "$STAGING"
@@ -485,7 +485,6 @@ workspace-ide-web:
     pnpm --dir "$WEB" test
     pnpm --dir "$WEB" run build "$STAGING"
     node "$ROOT/tools/build-system/publish-generated-tree.mjs" "$STAGING/viewer" "$VIEWER_OUT"
-    node "$ROOT/tools/build-system/publish-generated-tree.mjs" "$STAGING/ide" "$IDE_OUT"
     just workspace-ide-fitness
 
 # Package-move fitness: no stale package tree or generated dependency tree may enter Swift resources.
@@ -494,15 +493,16 @@ workspace-ide-fitness:
     set -euo pipefail
     test ! -e '{{justfile_directory()}}/packages/WorkspaceEditorViewer'
     test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Package.swift'
-    # Each published tree is a self-contained document: its own index.html plus the hashed assets
+    # The published tree is a self-contained document: its own index.html plus the hashed assets
     # Vite emitted for it. Asserting the directory rather than a filename keeps this honest across
     # content hashes, which change on every meaningful edit.
     test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/index.html'
     test -d '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/assets'
-    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/index.html'
-    test -d '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/assets'
     test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/viewerBootstrap.ts'
-    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/ide.ts'
+    # The IDE's document used to be published beside the viewer. It is the Agent Panel's
+    # `?entry=ide` surface now (ADR-0115), so its absence is the fitness check.
+    test ! -e '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE'
+    test ! -e '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/ide.ts'
     if find '{{justfile_directory()}}/packages/WorkspaceIDE/Sources' -type d -name node_modules -print -quit | grep -q .; then
         echo 'workspace-ide-fitness: node_modules found inside Swift package resources' >&2
         exit 1

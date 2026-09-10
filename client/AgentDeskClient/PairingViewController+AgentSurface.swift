@@ -217,7 +217,6 @@ extension PairingViewController {
         // remains mounted when the host is absent or disconnects.
         teardownDomMirrorSurface()
         teardownWorkspaceSurface()
-        teardownIDESurface()
 
         // The buttons outlive the session they open. Emptying the rail on
         // disconnect made the app look like it had lost features rather than a
@@ -371,8 +370,6 @@ extension PairingViewController {
         case .workspace:
             // Open the .files lane and build the workbench on first switch to Workspace.
             ensureWorkspaceSurface()
-        case .ide:
-            ensureIDESurface()
         case .voice:
             ensureVoiceSurface()
         }
@@ -399,7 +396,6 @@ extension PairingViewController {
     func rebindActiveSurfaceAfterReconnect() {
         rebindAgentSurfaceAfterReconnectIfNeeded()
         rebindWorkspaceSurfaceAfterReconnectIfNeeded()
-        rebindIDESurfaceAfterReconnectIfNeeded()
 
         switch activeControlSurface {
         case .control:
@@ -417,8 +413,6 @@ extension PairingViewController {
             }
         case .workspace:
             ensureWorkspaceSurface()
-        case .ide:
-            ensureIDESurface()
         case .voice:
             // Nothing to rebind: the probe holds no session lane.
             ensureVoiceSurface()
@@ -527,8 +521,6 @@ extension PairingViewController {
         applyVideoTouchState()
         workspaceSurface?.isHidden = v.workspaceHidden
         workspaceSurface?.setViewportPresented(!v.workspaceHidden)
-        ideSurface?.isHidden = v.ideHidden
-        ideSurface?.setViewportPresented(!v.ideHidden)
         voiceSurface?.isHidden = v.voiceHidden
 
         Self.logger.debug("active surface: \(String(describing: surface))")

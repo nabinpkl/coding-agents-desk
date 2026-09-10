@@ -1,18 +1,20 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// WorkspaceIDE owns the shared embedded workspace presentation (ADR-0062). The authored web project
-// lives in `Web/`. WorkspaceFileViewer keeps the existing single-file surfaces alive during the
-// parallel rollout, while WorkspaceIDE owns the paired sidebar/editor coordinator.
+// WorkspaceFileViewer is the single-file workspace surface: one WKWebView over the `app://` scheme
+// showing one file. The authored web project lives in `Web/`.
+//
+// The package is named for the paired sidebar/editor coordinator it used to also hold (ADR-0062).
+// That is the Agent Panel's `?entry=ide` surface and the sidecar now (ADR-0115), so the name
+// outlives its second target; renaming the directory would rewrite the host's project references
+// for no behaviour, and is deliberately not being paid for here.
 let package = Package(
     name: "WorkspaceIDE",
     platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "WorkspaceFileViewer", targets: ["WorkspaceFileViewer"]),
-        .library(name: "WorkspaceIDE", targets: ["WorkspaceIDE"]),
     ],
     dependencies: [
-        .package(path: "../AgentDeskWire"),
         .package(path: "../WorkspaceKit"),
     ],
     targets: [
@@ -26,25 +28,9 @@ let package = Package(
                 .copy("Resources/viewer/assets"),
             ]
         ),
-        .target(
-            name: "WorkspaceIDE",
-            dependencies: [
-                "WorkspaceFileViewer",
-                .product(name: "AgentDeskWire", package: "AgentDeskWire"),
-                .product(name: "WorkspaceKit", package: "WorkspaceKit"),
-            ],
-            resources: [
-                .copy("Resources/ide/index.html"),
-                .copy("Resources/ide/assets"),
-            ]
-        ),
         .testTarget(
             name: "WorkspaceFileViewerTests",
             dependencies: ["WorkspaceFileViewer", "WorkspaceKit"]
-        ),
-        .testTarget(
-            name: "WorkspaceIDETests",
-            dependencies: ["WorkspaceIDE", "WorkspaceKit", "AgentDeskWire"]
         ),
     ]
 )

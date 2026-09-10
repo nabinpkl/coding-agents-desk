@@ -1,12 +1,15 @@
 import Foundation
 import OSLog
-import WorkspaceIDE
 
+/// What is remembered about one `＋ IDE` window between launches.
+///
+/// It used to carry the IDE's local state too -- the selection, the pane fractions, the zoom. That
+/// belongs to the reader rather than to the window now, and lives in the panel's own storage under
+/// the dev origin (ADR-0115), so what a window remembers is where it was.
 struct WorkspaceIDEWindowPresentationDescriptor: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     var placement: WorkspaceWindowPlacement
     let cascadeOrdinal: Int
-    var localState: WorkspaceIDELocalState
 }
 
 enum WorkspaceIDEWindowPresentationStoreError: Error, Equatable {

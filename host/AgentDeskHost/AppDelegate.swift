@@ -673,28 +673,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ideWindows = WorkspaceIDEWindowRegistry(
             store: WorkspaceIDEWindowPresentationStore(url: Config.workspaceIDEWindowPresentationsURL),
             activateDesktop: { await desktopSwitcher.activate($0) },
-            endpointFactory: { [unowned self] id in
-                WorkspaceTerminalEndpoint(
-                    coordinator: workspaceTerminalCoordinator,
-                    requestNamespace: "workspace-macos-ide-\(id.uuidString)",
-                    clientTitle: "Workspace IDE macOS",
-                    tombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
-                    push: nil
-                )
-            },
-            controllerFactory: { [unowned self] id, placement, stateStore, terminalStore, endpoint, onClosed in
-                WorkspaceIDEWindowController(
-                    windowID: id,
-                    files: workspaceFilesResponder,
-                    workspaces: workspaceCoordinator,
-                    ideState: workspaceIDEStateCoordinator,
-                    observation: workspaceObservationCoordinator,
-                    terminalEndpoint: endpoint,
-                    terminalStore: terminalStore,
-                    localStateStore: stateStore,
+            // The window is a container for the panel now (ADR-0115): its files, git, terminal and
+            // open-tab state all come from the sidecar the panel talks to, so nothing about the
+            // host's own workspace services reaches this factory any more.
+            controllerFactory: { [unowned self] id, placement, onClosed in
+                _ = id
+                return WorkspaceIDEWindowController(
                     initialPlacement: placement,
                     placementCoordinator: desktopWindowPlacementCoordinator,
-                    spacesProvider: spacesProvider,
                     onClosed: onClosed
                 )
             }
@@ -1730,7 +1716,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func routeWorkspaceTerminalEvent(
         _ event: WorkspaceTerminalCoordinatorEvent
     ) async {
-        await workspaceIDEWindowRegistry?.handleCoordinatorEvent(event)
+        // The `＋ IDE` windows are no longer terminal clients: their terminal pane is the panel's
+        // own, over tmux through the sidecar (ADR-0115), so this coordinator has nothing to tell
+        // them. Only the phone's endpoints remain.
         for endpoint in workspaceTerminalEndpoints.activeEndpoints {
             await endpoint.handleCoordinatorEvent(event)
         }

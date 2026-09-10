@@ -10,9 +10,9 @@ enum PanelWindowZoomCommand: Equatable {
 ///
 /// Steps keep the round trip exact: zooming in and back out lands on precisely 1.0, where
 /// multiplying and dividing by a factor accumulates error and leaves the panel a fraction of a
-/// percent off its own default. The range matches the one the Workspace IDE window already settled
-/// on (`WorkspaceIDELocalState.zoomStepRange`) so the two windows do not disagree about how far
-/// zoom goes.
+/// percent off its own default. The range is the one the Workspace IDE window settled on before it
+/// became a panel surface itself (ADR-0115); both windows are panels now, so one range is what they
+/// share rather than what they agree on.
 struct PanelWindowZoom: Equatable {
     static let stepRange = -4...10
 

@@ -341,7 +341,6 @@ public enum ClientRuntimeSurface: String, Codable, Equatable, Sendable {
     case terminal
     case browser
     case workspace
-    case ide
     case voice
 }
 

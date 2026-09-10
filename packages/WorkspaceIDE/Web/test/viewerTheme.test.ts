@@ -6,13 +6,11 @@ import { fileURLToPath } from 'node:url'
 const readFixture = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 
 const css = readFixture('../file-content.css')
-const ideCss = readFixture('../ide.css')
 const viewerCss = readFixture('../viewer.css')
 const viewer = readFixture('../src/viewer.ts')
 const markdownPresentation = readFixture('../src/markdownPresentation.ts')
 
-test('both webview documents register the official Tailwind Typography plugin', () => {
-  assert.match(ideCss, /@plugin\s+["']@tailwindcss\/typography["']/)
+test('the viewer document registers the official Tailwind Typography plugin', () => {
   assert.match(viewerCss, /@plugin\s+["']@tailwindcss\/typography["']/)
 })
 

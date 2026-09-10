@@ -996,7 +996,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 self.terminalSurface?.flushViewportResize()
             }
             self.workspaceSurface?.flushViewportResize()
-            self.ideSurface?.flushViewportResize()
         })
     }
 

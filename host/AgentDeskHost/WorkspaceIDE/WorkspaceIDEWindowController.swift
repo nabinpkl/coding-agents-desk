@@ -1,64 +1,42 @@
 import AppKit
+import AgentPanel
 import OSLog
-import WorkspaceIDE
+import WebKit
 
+/// One `＋ IDE` window.
+///
+/// It used to own the IDE: a `WorkspaceIDEController` holding two webviews, an AppKit split view
+/// measuring them, a PTY terminal in the third pane, and a lane bridge carrying files and git in
+/// from the host's own services. All of that is the Agent Panel and the sidecar now (ADR-0115), so
+/// what is left here is the part that genuinely needs AppKit: a window, where it sits, which
+/// Desktop it belongs to, and what closing it means.
+///
+/// The surface is chosen the way the iOS client chooses the desktop viewer -- a user script setting
+/// `window.__agentPanelEntry` before the page's first script runs -- rather than by a query on the
+/// URL, because the panel's dev origin is loaded verbatim and the bundled build has no query to
+/// carry one.
 @MainActor
 final class WorkspaceIDEWindowController: NSWindowController,
     NSWindowDelegate,
-    WorkspaceIDEDelegate,
     WorkspaceIDEWindowControlling
 {
-    private let laneBridge: WorkspaceIDELocalLaneBridge
-    private let workspaceCoordinator: WorkspaceCoordinator
-    private let desktopSwitcher: WorkspaceDesktopSwitcher
-    private let ideController: WorkspaceIDEController
-    private let terminalController: WorkspaceIDEMacTerminalController
-    private let terminalStore: WorkspaceIDETerminalWorkspaceStore
-    private let ideContentView: WorkspaceIDEWindowContentView
+    private static let entryScript = WKUserScript(
+        source: "window.__agentPanelEntry = 'ide';",
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+    )
+
     private let placementSession: DesktopWindowPlacementSession
-    private let draftDirectory: URL
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-ide-window")
+    private var panelController: AgentPanelWebViewController?
     private var onClosed: (@MainActor () -> Void)?
     private var isStopping = false
 
     init(
-        windowID: UUID,
-        files: WorkspaceFilesResponder,
-        workspaces: WorkspaceCoordinator,
-        ideState: WorkspaceIDEStateCoordinator,
-        observation: WorkspaceObservationCoordinator,
-        terminalEndpoint: WorkspaceTerminalEndpoint,
-        terminalStore: WorkspaceIDETerminalWorkspaceStore,
-        localStateStore: WorkspaceIDEWindowLocalStateStore,
         initialPlacement: WorkspaceWindowPlacement,
         placementCoordinator: DesktopWindowPlacementCoordinator,
-        spacesProvider: SpacesProvider,
         onClosed: @escaping @MainActor () -> Void
     ) {
-        laneBridge = WorkspaceIDELocalLaneBridge(
-            files: files,
-            workspaces: workspaces,
-            ideState: ideState,
-            observation: observation
-        )
-        workspaceCoordinator = workspaces
-        desktopSwitcher = WorkspaceDesktopSwitcher(spaces: spacesProvider)
-        draftDirectory = Config.workspaceIDEDraftsDirectory
-            .appendingPathComponent(windowID.uuidString, isDirectory: true)
-        ideController = WorkspaceIDEController(
-            dataSource: laneBridge.dataSource,
-            capabilities: .macOSWorkspaceManagement,
-            localStateStore: localStateStore,
-            draftStore: WorkspaceIDEFileDraftStore(directory: draftDirectory)
-        )
-        self.terminalStore = terminalStore
-        terminalController = WorkspaceIDEMacTerminalController(
-            endpoint: terminalEndpoint,
-            store: terminalStore
-        )
-        ideContentView = WorkspaceIDEWindowContentView(
-            controller: ideController,
-            terminalController: terminalController
-        )
         placementSession = DesktopWindowPlacementSession(
             placement: initialPlacement,
             coordinator: placementCoordinator,
@@ -76,12 +54,25 @@ final class WorkspaceIDEWindowController: NSWindowController,
         window.minSize = NSSize(width: 720, height: 480)
         window.collectionBehavior = [.fullScreenPrimary]
         window.isReleasedWhenClosed = false
-        window.contentView = ideContentView
         super.init(window: window)
         window.delegate = self
-        ideController.delegate = self
-        terminalController.setZoomScale(ideController.currentLocalState.zoomScale)
-        ideController.start()
+
+        do {
+            let controller = try AgentPanelWebViewController(
+                transport: nil,
+                additionalUserScripts: [Self.entryScript]
+            )
+            controller.webView.setAccessibilityIdentifier("workspace-ide-panel")
+            panelController = controller
+            window.contentView = controller.webView
+        } catch {
+            // Loud, and visible: a window that opened onto nothing is indistinguishable from a
+            // window that opened onto a panel which failed to render.
+            logger.error(
+                "Workspace IDE panel could not be created: \(String(describing: error), privacy: .public)"
+            )
+            window.contentView = Self.unavailableView()
+        }
     }
 
     @available(*, unavailable)
@@ -93,8 +84,7 @@ final class WorkspaceIDEWindowController: NSWindowController,
 
     func show(activating: Bool) {
         guard let window, !isStopping else { return }
-        let presented = placementSession.present(window, focus: activating)
-        terminalController.setWindowPresented(presented)
+        _ = placementSession.present(window, focus: activating)
     }
 
     /// Raises this window and gives it key status, without re-running the placement restore `show`
@@ -111,10 +101,8 @@ final class WorkspaceIDEWindowController: NSWindowController,
         guard !isStopping else { return }
         isStopping = true
         placementSession.stop()
-        terminalController.stop()
-        ideController.stop()
-        ideController.delegate = nil
-        laneBridge.stop()
+        panelController?.teardown()
+        panelController = nil
         window?.delegate = nil
         window?.orderOut(nil)
         window?.close()
@@ -128,7 +116,7 @@ final class WorkspaceIDEWindowController: NSWindowController,
 
     /// The one user-initiated close, whether it came from the window's own close button or from the
     /// top bar's list of open windows. Reporting the close is what makes the registry forfeit the
-    /// stored placement and local state, which is what closing a window means and quitting does not.
+    /// stored placement, which is what closing a window means and quitting does not.
     func beginUserClose() {
         guard !isStopping else { return }
         let closed = onClosed
@@ -136,119 +124,27 @@ final class WorkspaceIDEWindowController: NSWindowController,
         closed?()
     }
 
-    func workspaceIDEController(_ controller: WorkspaceIDEController, didSelectWorkspace id: String?) {
-        terminalController.selectWorkspace(id: id, name: id.flatMap { controller.workspaceName(for: $0) })
-    }
-
-    func workspaceIDEController(_ controller: WorkspaceIDEController, handle intent: WorkspaceIDEPlatformIntent) {
-        switch intent {
-        case .setSidebarVisible, .setTerminalVisible:
-            ideContentView.applyLayoutState()
-        case .setZoomScale(let scale):
-            terminalController.setZoomScale(scale)
-        case .addWorkspace:
-            addWorkspace()
-        case .removeWorkspace(let id):
-            mutate(id: id) { .remove($0) }
-        case .reorderWorkspaces(let ids):
-            guard ids.allSatisfy({ UUID(uuidString: $0) != nil }) else { return }
-            Task { [weak self] in
-                await self?.apply(.reorder(ids.compactMap(UUID.init(uuidString:))))
-            }
-        case .assignDesktop(let id):
-            guard let workspaceID = UUID(uuidString: id),
-                  let assignment = desktopSwitcher.currentAssignment() else { return }
-            Task { [weak self] in
-                await self?.apply(.setDesktopAssignment(assignment, workspaceID: workspaceID))
-            }
-        case .setAutoAssignDesktop(let id, let enabled):
-            guard let workspaceID = UUID(uuidString: id) else { return }
-            Task { [weak self] in
-                await self?.apply(.setDesktopAutoAssign(enabled, workspaceID: workspaceID))
-            }
-        }
-    }
-
-    func windowDidEndLiveResize(_ notification: Notification) {
-        terminalController.contentView.flushViewportResize()
-        reportPlacementChange()
-    }
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        terminalController.claimViewportOwnership()
-    }
-
-    func windowDidMove(_ notification: Notification) {
-        reportPlacementChange()
-    }
-
-    func windowDidResize(_ notification: Notification) {
-        reportPlacementChange()
-    }
-
-    func windowDidChangeScreen(_ notification: Notification) {
-        reportPlacementChange()
-    }
-
-    func windowDidMiniaturize(_ notification: Notification) {
-        terminalController.setWindowPresented(false)
-    }
-
-    func windowDidDeminiaturize(_ notification: Notification) {
-        terminalController.setWindowPresented(true)
-    }
+    func windowDidEndLiveResize(_ notification: Notification) { reportPlacementChange() }
+    func windowDidMove(_ notification: Notification) { reportPlacementChange() }
+    func windowDidResize(_ notification: Notification) { reportPlacementChange() }
+    func windowDidChangeScreen(_ notification: Notification) { reportPlacementChange() }
 
     private func reportPlacementChange() {
         guard let window, !isStopping else { return }
         placementSession.windowDidChange(window)
     }
 
-    func discardLocalPersistence() {
-        terminalStore.removeAll()
-        guard FileManager.default.fileExists(atPath: draftDirectory.path) else { return }
-        do {
-            try FileManager.default.removeItem(at: draftDirectory)
-        } catch {
-            Logger(subsystem: Config.logSubsystem, category: "workspace-ide-window").error(
-                "Workspace IDE draft cleanup failed: \(String(describing: error), privacy: .public)"
-            )
-        }
-    }
-
-    private func addWorkspace() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Add"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let workspace = try Workspace.registering(root: url, name: url.lastPathComponent)
-            Task { [weak self] in await self?.apply(.add(workspace)) }
-        } catch {
-            presentFailure("Could not add workspace", error)
-        }
-    }
-
-    private func mutate(id: String, mutation: (UUID) -> WorkspaceMutation) {
-        guard let workspaceID = UUID(uuidString: id) else { return }
-        let resolvedMutation = mutation(workspaceID)
-        Task { [weak self] in await self?.apply(resolvedMutation) }
-    }
-
-    private func apply(_ mutation: WorkspaceMutation) async {
-        do {
-            _ = try await workspaceCoordinator.apply(mutation)
-        } catch {
-            presentFailure("Could not update workspace", error)
-        }
-    }
-
-    private func presentFailure(_ title: String, _ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = String(describing: error)
-        alert.alertStyle = .warning
-        alert.runModal()
+    private static func unavailableView() -> NSView {
+        let container = NSView()
+        let label = NSTextField(labelWithString: "The workspace IDE panel is unavailable.")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.textColor = .secondaryLabelColor
+        container.addSubview(label)
+        container.setAccessibilityIdentifier("workspace-ide-unavailable")
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        return container
     }
 }

@@ -111,7 +111,7 @@ struct SurfaceControlRailTests {
         )
 
         rail.setSurfaces(
-            [.control, .agent, .terminal, .browser, .workspace, .ide],
+            [.control, .agent, .terminal, .browser, .workspace],
             selected: .control,
             onSelection: { _ in }
         )
@@ -183,12 +183,12 @@ struct SurfaceControlRailTests {
         )
 
         rail.setSurfaces(
-            [.control, .agent, .terminal, .browser, .workspace, .ide],
+            [.control, .agent, .terminal, .browser, .workspace],
             selected: .browser,
             onSelection: { _ in }
         )
         rail.setSurfaces(
-            [.control, .agent, .terminal, .workspace, .ide],
+            [.control, .agent, .terminal, .workspace],
             selected: .control,
             onSelection: { _ in }
         )
@@ -393,7 +393,7 @@ struct SurfaceControlRailTests {
         )
         var selections: [ControlSurface] = []
         rail.setSurfaces(
-            [.control, .agent, .terminal, .workspace, .ide],
+            [.control, .agent, .terminal, .workspace],
             selected: .control,
             onSelection: { selections.append($0) }
         )

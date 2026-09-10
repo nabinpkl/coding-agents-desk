@@ -28,7 +28,6 @@ struct ControlSurfaceVisibilityTests {
         #expect(!visibility(for: .browser).browserHidden)
         #expect(!visibility(for: .terminal).terminalHidden)
         #expect(!visibility(for: .workspace).workspaceHidden)
-        #expect(!visibility(for: .ide).ideHidden)
         #expect(!visibility(for: .voice).voiceHidden)
     }
 
@@ -151,12 +150,12 @@ struct VoiceSavedAttemptPresentationTests {
 // labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
 // switcher builds from (and that a11y-driven flows target by label).
 struct SurfaceSwitcherTests {
-    @Test func withoutBrowserOffersFiveHostSurfacesInOrder() {
-        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .workspace, .ide])
+    @Test func withoutBrowserOffersFourHostSurfacesInOrder() {
+        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .workspace])
     }
 
-    @Test func withBrowserOffersSixHostSurfacesInOrder() {
-        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .workspace, .ide])
+    @Test func withBrowserOffersFiveHostSurfacesInOrder() {
+        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .workspace])
     }
 
     @Test func voiceIsNotGatedByHostSurfaceAvailability() {
@@ -178,7 +177,6 @@ struct SurfaceSwitcherTests {
         #expect(ControlSurface.workspace.switcherSymbolName == "rectangle.split.3x1")
         #expect(UIImage(systemName: ControlSurface.workspace.switcherSymbolName) != nil)
         #expect(ControlSurface.workspace.switcherAccessibilityLabel == "Workspace")
-        #expect(ControlSurface.ide.switcherAccessibilityLabel == "IDE")
         #expect(ControlSurface.voice.switcherAccessibilityLabel == "Voice")
         #expect(UIImage(systemName: ControlSurface.voice.switcherSymbolName) != nil)
     }

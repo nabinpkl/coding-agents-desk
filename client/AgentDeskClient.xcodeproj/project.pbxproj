@@ -33,8 +33,6 @@
 		D0000000000000000000C505 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C503 /* WorkspaceKit */; };
 		D0000000000000000000E504 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E502 /* WorkspaceFileViewer */; };
 		D0000000000000000000E505 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E503 /* WorkspaceFileViewer */; };
-		D0000000000000000000E508 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E506 /* WorkspaceIDE */; };
-		D0000000000000000000E509 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E507 /* WorkspaceIDE */; };
 		DD267F34301871FD00A2FF1F /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000012 /* KeyboardDictation */; };
 		E14000000000000000000003 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = E14000000000000000000002 /* onnxruntime */; };
 		E14000000000000000000005 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = E14000000000000000000004 /* onnxruntime */; };
@@ -118,7 +116,6 @@
 				"PairingViewController+Stages.swift",
 				"PairingViewController+VideoTouch.swift",
 				"PairingViewController+Voice.swift",
-				"PairingViewController+WorkspaceIDE.swift",
 				SceneDelegate.swift,
 				SettingsViewController.swift,
 			);
@@ -142,7 +139,6 @@
 				D00000000000000000001C04 /* InteractionPanel in Frameworks */,
 				D0000000000000000000C504 /* WorkspaceKit in Frameworks */,
 				D0000000000000000000E504 /* WorkspaceFileViewer in Frameworks */,
-				D0000000000000000000E508 /* WorkspaceIDE in Frameworks */,
 				D0000000000000000000B603 /* BrowserProjection in Frameworks */,
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
@@ -161,7 +157,6 @@
 				D00000000000000000001C05 /* InteractionPanel in Frameworks */,
 				D0000000000000000000C505 /* WorkspaceKit in Frameworks */,
 				D0000000000000000000E505 /* WorkspaceFileViewer in Frameworks */,
-				D0000000000000000000E509 /* WorkspaceIDE in Frameworks */,
 				D0000000000000000000B605 /* BrowserProjection in Frameworks */,
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
@@ -241,7 +236,6 @@
 				D00000000000000000001C02 /* InteractionPanel */,
 				D0000000000000000000C502 /* WorkspaceKit */,
 				D0000000000000000000E502 /* WorkspaceFileViewer */,
-				D0000000000000000000E506 /* WorkspaceIDE */,
 				D0000000000000000000B602 /* BrowserProjection */,
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				C0000000000000000000EE03 /* PtyClientSwift */,
@@ -277,7 +271,6 @@
 				D00000000000000000001C03 /* InteractionPanel */,
 				D0000000000000000000C503 /* WorkspaceKit */,
 				D0000000000000000000E503 /* WorkspaceFileViewer */,
-				D0000000000000000000E507 /* WorkspaceIDE */,
 				D0000000000000000000B604 /* BrowserProjection */,
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				C0000000000000000000EE05 /* PtyClientSwift */,
@@ -893,16 +886,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
 			productName = WorkspaceFileViewer;
-		};
-		D0000000000000000000E506 /* WorkspaceIDE */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
-			productName = WorkspaceIDE;
-		};
-		D0000000000000000000E507 /* WorkspaceIDE */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
-			productName = WorkspaceIDE;
 		};
 		E14000000000000000000002 /* onnxruntime */ = {
 			isa = XCSwiftPackageProductDependency;

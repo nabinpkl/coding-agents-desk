@@ -100,7 +100,10 @@ app. The panel picks its transport by whether a native message handler is presen
   the voice arc, last touched 2026-08-14 and older.
 - `chrome-extension/`, `dom-bridge/`, `chrome-test/`, `packages/BrowserProjection/` the browser
   projection arc.
-- `packages/WorkspaceIDE/`, `packages/WorkspaceKit/` the IDE surface.
+- `packages/WorkspaceIDE/`, `packages/WorkspaceKit/`. The name is now wider than the contents: the
+  IDE half moved to the panel and the sidecar on 2026-09-10 (ADR-0115) and was deleted from here.
+  What is left is `WorkspaceFileViewer`, the single-file `app://` viewer, which is NOT dormant --
+  `host/AgentDeskHost/WorkspaceShell/Editor/FileViewer.swift` opens it.
 - `mock-design/` a visual reference from June, explicitly not an implementation target.
 - `spikes/`, `tests/`, `agent-learning/` experiments and one-off harnesses.
 - `ad` a June "agent say" Swift script at the root; `hooks.json.tmp` a temp file committed in July
@@ -109,7 +112,8 @@ app. The panel picks its transport by whether a native message handler is presen
 **Stale documents that read as current, and are not:**
 
 - `HANDOVER.md` is the 2026-08-25 desktop-park arc, already carrying a 2026-08-28 correction.
-- There is no root `TASKS.md`. The one that headed a July voice arc was retired on 2026-09-05 to
+- `TASKS.md` at the root is the v17 workspace-IDE arc, opened 2026-09-10. The one that headed a
+  July voice arc was retired on 2026-09-05 to
   `tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md`, which names the single
   task still open (R278, a post-approval `just host-run` deployment check).
 

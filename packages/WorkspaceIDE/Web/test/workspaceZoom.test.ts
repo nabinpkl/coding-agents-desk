@@ -28,12 +28,11 @@ test('workspace zoom rejects invalid values and remains within the native range'
   assert.equal(normalizeWorkspaceZoom(4), 2)
 })
 
-test('each entry pulls in exactly one stylesheet that lays its document out', () => {
+test('the entry pulls in exactly one stylesheet that lays its document out', () => {
   // Zooming out sizes a region's root to 100/scale% so scaling it back down covers the window.
   // That collapses the moment a second stylesheet turns the root into a flex or grid item, because
   // such an item shrinks to fit — which is what a shared stylesheet laying out `body` would do.
   assert.deepEqual(stylesheetsOf(read('src/viewerBootstrap.ts')), ['file-content.css', 'viewer.css'])
-  assert.deepEqual(stylesheetsOf(read('src/ide.ts')), ['file-content.css', 'ide.css'])
 })
 
 test('viewer.css reaches the viewer entry and nothing else', () => {
@@ -61,8 +60,6 @@ test('the shared content stylesheet never lays out the document that loads it', 
   assert.deepEqual(layoutTargets, [], 'file-content.css must not style html or body')
   // Nor reach for the standalone viewer's container, which only that one document has.
   assert.deepEqual(shared.filter((selector) => selector.includes('#content')), [])
-  // Both roots are still laid out, by their own documents, and they disagree on purpose: the
-  // viewer says so in CSS, the IDE says so in the class it puts on its root.
+  // The root is still laid out, by the document that loads it.
   assert.match(read('viewer.css'), /body\s*\{[^}]*display:\s*flex;/s)
-  assert.match(read('src/ide.ts'), /root\.className[\s\S]*?grid grid-rows-/)
 })

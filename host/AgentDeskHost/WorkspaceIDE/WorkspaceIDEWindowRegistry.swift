@@ -1,7 +1,6 @@
 import AppKit
 import CoreGraphics
 import OSLog
-import WorkspaceIDE
 
 @MainActor
 protocol WorkspaceIDEWindowControlling: AnyObject {
@@ -13,36 +12,28 @@ protocol WorkspaceIDEWindowControlling: AnyObject {
     func focus()
 
     /// Closes on the user's behalf, along the same path as clicking the window's own close button:
-    /// the window forfeits its stored placement and its local IDE state. Distinct from `stop`, which
-    /// is host termination and preserves both for the next launch.
+    /// the window forfeits its stored placement. Distinct from `stop`, which is host termination
+    /// and preserves it for the next launch.
     func beginUserClose()
 
     func stop()
-    func discardLocalPersistence()
 }
 
 @MainActor
 final class WorkspaceIDEWindowRegistry {
-    typealias EndpointFactory = @MainActor (UUID) -> WorkspaceTerminalEndpoint
     typealias ControllerFactory = @MainActor (
         _ id: UUID,
         _ placement: WorkspaceWindowPlacement,
-        _ localStateStore: WorkspaceIDEWindowLocalStateStore,
-        _ terminalStore: WorkspaceIDETerminalWorkspaceStore,
-        _ endpoint: WorkspaceTerminalEndpoint,
         _ onClosed: @escaping @MainActor () -> Void
     ) -> any WorkspaceIDEWindowControlling
 
     private struct Entry {
         let cascadeOrdinal: Int
         let controller: any WorkspaceIDEWindowControlling
-        let endpoint: WorkspaceTerminalEndpoint
         var placement: WorkspaceWindowPlacement
-        var localState: WorkspaceIDELocalState
     }
 
     private let store: WorkspaceIDEWindowPresentationStore
-    private let endpointFactory: EndpointFactory
     private let controllerFactory: ControllerFactory
     private let activateDesktop: DesktopActivating?
     private let cascadeStep: CGFloat
@@ -50,7 +41,6 @@ final class WorkspaceIDEWindowRegistry {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-ide-window")
     private var entries: [UUID: Entry] = [:]
     private var persistTasks: [UUID: Task<Void, Never>] = [:]
-    private var endpointShutdownTasks: [UUID: Task<Void, Never>] = [:]
     private var stopTask: Task<Void, Never>?
     private var hasRestored = false
     private var isStopping = false
@@ -60,19 +50,17 @@ final class WorkspaceIDEWindowRegistry {
         cascadeStep: CGFloat = 28,
         persistDelay: Duration = .milliseconds(200),
         activateDesktop: DesktopActivating? = nil,
-        endpointFactory: @escaping EndpointFactory,
         controllerFactory: @escaping ControllerFactory
     ) {
         self.store = store
         self.cascadeStep = cascadeStep
         self.persistDelay = persistDelay
         self.activateDesktop = activateDesktop
-        self.endpointFactory = endpointFactory
         self.controllerFactory = controllerFactory
     }
 
     var requiresTerminationWait: Bool {
-        !entries.isEmpty || !endpointShutdownTasks.isEmpty || stopTask != nil
+        !entries.isEmpty || stopTask != nil
     }
 
     var openWindowCountForTesting: Int { entries.count }
@@ -139,7 +127,6 @@ final class WorkspaceIDEWindowRegistry {
                 )
             ),
             cascadeOrdinal: cascadeOrdinal,
-            localState: WorkspaceIDELocalState(),
             activating: true
         )
     }
@@ -158,15 +145,8 @@ final class WorkspaceIDEWindowRegistry {
                     )
                 ),
                 cascadeOrdinal: descriptor.cascadeOrdinal,
-                localState: descriptor.localState,
                 activating: false
             )
-        }
-    }
-
-    func handleCoordinatorEvent(_ event: WorkspaceTerminalCoordinatorEvent) async {
-        for endpoint in entries.values.map(\.endpoint) {
-            await endpoint.handleCoordinatorEvent(event)
         }
     }
 
@@ -177,13 +157,11 @@ final class WorkspaceIDEWindowRegistry {
         for task in persistTasks.values { task.cancel() }
         persistTasks.removeAll()
         for id in entries.keys { persist(id: id) }
-        let stoppingEntries = Array(entries.values)
-        for entry in stoppingEntries { entry.controller.stop() }
-        let existingShutdowns = Array(endpointShutdownTasks.values)
-        let task = Task { @MainActor in
-            for entry in stoppingEntries { await entry.endpoint.shutdown() }
-            for shutdown in existingShutdowns { await shutdown.value }
-        }
+        for entry in entries.values { entry.controller.stop() }
+        // Nothing is awaited any more -- the panel's own teardown is synchronous and the sidecar
+        // owns everything that used to need draining -- but the task is kept so termination has one
+        // handle to wait on whatever a window comes to own next.
+        let task = Task { @MainActor in }
         stopTask = task
         return task
     }
@@ -192,30 +170,16 @@ final class WorkspaceIDEWindowRegistry {
         id: UUID,
         placement: WorkspaceWindowPlacement,
         cascadeOrdinal: Int,
-        localState: WorkspaceIDELocalState,
         activating: Bool
     ) {
-        let endpoint = endpointFactory(id)
-        let localStateStore = WorkspaceIDEWindowLocalStateStore(state: localState)
-        let controller = controllerFactory(
-            id,
-            placement,
-            localStateStore,
-            WorkspaceIDETerminalWorkspaceStore(windowID: id),
-            endpoint
-        ) { [weak self] in
+        let controller = controllerFactory(id, placement) { [weak self] in
             self?.removeWindow(id)
         }
         entries[id] = Entry(
             cascadeOrdinal: cascadeOrdinal,
             controller: controller,
-            endpoint: endpoint,
-            placement: placement,
-            localState: localState
+            placement: placement
         )
-        localStateStore.onSave = { [weak self] state in
-            self?.recordLocalState(state, id: id)
-        }
         controller.observePlacement { [weak self] placement in
             self?.recordPlacement(placement, id: id)
         }
@@ -226,12 +190,6 @@ final class WorkspaceIDEWindowRegistry {
     private func recordPlacement(_ placement: WorkspaceWindowPlacement, id: UUID) {
         guard !isStopping, entries[id] != nil else { return }
         entries[id]?.placement = placement
-        schedulePersist(id: id)
-    }
-
-    private func recordLocalState(_ state: WorkspaceIDELocalState, id: UUID) {
-        guard !isStopping, entries[id]?.localState != state else { return }
-        entries[id]?.localState = state
         schedulePersist(id: id)
     }
 
@@ -252,8 +210,7 @@ final class WorkspaceIDEWindowRegistry {
             try store.upsert(WorkspaceIDEWindowPresentationDescriptor(
                 id: id,
                 placement: entry.placement,
-                cascadeOrdinal: entry.cascadeOrdinal,
-                localState: entry.localState
+                cascadeOrdinal: entry.cascadeOrdinal
             ))
         } catch {
             logger.error("Workspace IDE presentation persist failed: \(String(describing: error), privacy: .public)")
@@ -266,15 +223,8 @@ final class WorkspaceIDEWindowRegistry {
         guard !isStopping else { return }
         do {
             try store.remove(id: id)
-            entry.controller.discardLocalPersistence()
         } catch {
             logger.error("Workspace IDE presentation removal failed: \(String(describing: error), privacy: .public)")
-        }
-        let task = Task { await entry.endpoint.shutdown() }
-        endpointShutdownTasks[id] = task
-        Task { @MainActor [weak self] in
-            await task.value
-            self?.endpointShutdownTasks.removeValue(forKey: id)
         }
     }
 }

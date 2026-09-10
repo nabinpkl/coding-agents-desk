@@ -2,7 +2,6 @@ import AgentDeskWire
 import CoreGraphics
 import Foundation
 import Testing
-import WorkspaceIDE
 
 @testable import AgentDeskHost
 
@@ -28,7 +27,7 @@ struct WorkspaceIDEWindowRegistryTests {
         #expect(fixture.controllers.map(\.activations) == [[true], [true], [true]])
     }
 
-    @Test func restartRestoresEveryWindowStatePlacementAndIdentityWithoutFocus() async {
+    @Test func restartRestoresEveryWindowPlacementAndIdentityWithoutFocus() async {
         let url = Fixture.makeStoreURL()
         let before = Fixture(storeURL: url)
         defer { before.remove() }
@@ -37,9 +36,6 @@ struct WorkspaceIDEWindowRegistryTests {
         before.registry.open(placement(spaceID: 99, frame: originalFrame))
         let moved = CGRect(x: 620, y: 80, width: 1_000, height: 680)
         before.controllers[0].move(to: moved)
-        var state = before.controllers[0].localStateStore.load()
-        state.sidebarVisible = false
-        before.controllers[0].localStateStore.save(state)
         await before.registry.beginStopAll().value
 
         let after = Fixture(storeURL: url)
@@ -50,7 +46,6 @@ struct WorkspaceIDEWindowRegistryTests {
         #expect(Set(after.ids) == Set(before.ids))
         #expect(Set(after.controllers.map(\.placement.frame)) == [moved, originalFrame])
         #expect(after.controllers.map(\.activations) == [[false], [false]])
-        #expect(after.controllers.contains { !$0.localStateStore.load().sidebarVisible })
     }
 
     @Test func userCloseDeletesOnlyThatWindowButHostTerminationPreservesTheRest() async {
@@ -254,26 +249,12 @@ private final class Fixture {
         self.storeURL = storeURL
         let recorder = Recorder()
         self.recorder = recorder
-        let coordinator = FakeWorkspaceTerminalCoordinator()
         registry = WorkspaceIDEWindowRegistry(
             store: WorkspaceIDEWindowPresentationStore(url: storeURL),
             persistDelay: .milliseconds(1),
             activateDesktop: activateDesktop,
-            endpointFactory: { id in
-                WorkspaceTerminalEndpoint(
-                    coordinator: coordinator,
-                    requestNamespace: "test-workspace-ide-\(id.uuidString)",
-                    clientTitle: "test",
-                    tombstoneLimit: 8,
-                    push: nil
-                )
-            },
-            controllerFactory: { id, placement, stateStore, _, _, onClosed in
-                let controller = FakeWorkspaceIDEWindow(
-                    placement: placement,
-                    localStateStore: stateStore,
-                    onClosed: onClosed
-                )
+            controllerFactory: { id, placement, onClosed in
+                let controller = FakeWorkspaceIDEWindow(placement: placement, onClosed: onClosed)
                 recorder.ids.append(id)
                 recorder.controllers.append(controller)
                 return controller
@@ -295,7 +276,6 @@ private final class Recorder {
 @MainActor
 private final class FakeWorkspaceIDEWindow: WorkspaceIDEWindowControlling {
     private(set) var placement: WorkspaceWindowPlacement
-    let localStateStore: WorkspaceIDEWindowLocalStateStore
     private var placementChanged: ((WorkspaceWindowPlacement) -> Void)?
     private var onClosed: (@MainActor () -> Void)?
     private(set) var activations: [Bool] = []
@@ -303,13 +283,8 @@ private final class FakeWorkspaceIDEWindow: WorkspaceIDEWindowControlling {
     private(set) var userCloseCount = 0
     private(set) var stopCount = 0
 
-    init(
-        placement: WorkspaceWindowPlacement,
-        localStateStore: WorkspaceIDEWindowLocalStateStore,
-        onClosed: @escaping @MainActor () -> Void
-    ) {
+    init(placement: WorkspaceWindowPlacement, onClosed: @escaping @MainActor () -> Void) {
         self.placement = placement
-        self.localStateStore = localStateStore
         self.onClosed = onClosed
     }
 
@@ -341,20 +316,5 @@ private final class FakeWorkspaceIDEWindow: WorkspaceIDEWindowControlling {
         stopCount += 1
         onClosed = nil
     }
-
-    func discardLocalPersistence() {}
 }
 
-private actor FakeWorkspaceTerminalCoordinator: WorkspaceTerminalCoordinating {
-    func open(_ request: WorkspaceTerminalOpenRequest) async throws -> WorkspaceTerminalCoordinatorReady {
-        throw FakeWorkspaceTerminalCoordinatorError.unexpectedOpen
-    }
-
-    func acknowledgeAttachment(requestID: String, workspaceID: String, ptySessionName: String) async {}
-
-    func cancel(requestID: String, workspaceID: String, ptySessionName: String?) async {}
-}
-
-private enum FakeWorkspaceTerminalCoordinatorError: Error {
-    case unexpectedOpen
-}

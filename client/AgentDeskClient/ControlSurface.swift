@@ -23,7 +23,6 @@ enum ControlSurface: CaseIterable {
     case browser  // DomMirrorSurface (browser-only DOM path)
     case terminal  // native web terminal PTY client over the dedicated terminal lane
     case workspace // WorkspaceWorkbenchSurface over the dedicated .files lane
-    case ide // shared responsive Workspace IDE over its own workspace lane
     case voice // VoicePlaygroundSurface: fully on-device, no session lane
 }
 
@@ -120,7 +119,6 @@ struct SurfaceVisibility: Equatable {
     var browserHidden: Bool { isHidden(.browser) }
     var terminalHidden: Bool { isHidden(.terminal) }
     var workspaceHidden: Bool { isHidden(.workspace) }
-    var ideHidden: Bool { isHidden(.ide) }
     var voiceHidden: Bool { isHidden(.voice) }
 
     /// Voice replaces the host root and the root navigation rail rather than
@@ -144,7 +142,6 @@ extension ControlSurface {
         case .terminal: return "terminal"
         case .browser: return "globe"
         case .workspace: return "rectangle.split.3x1"
-        case .ide: return "chevron.left.forwardslash.chevron.right"
         case .voice: return "waveform"
         }
     }
@@ -159,7 +156,6 @@ extension ControlSurface {
         case .terminal: return "Terminal"
         case .browser: return "Browser"
         case .workspace: return "Workspace"
-        case .ide: return "IDE"
         case .voice: return "Voice"
         }
     }
@@ -183,7 +179,6 @@ func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
         surfaces.append(.browser)
     }
     surfaces.append(.workspace)
-    surfaces.append(.ide)
     return surfaces
 }
 
