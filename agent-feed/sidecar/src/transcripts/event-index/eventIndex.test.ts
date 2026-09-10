@@ -19,6 +19,19 @@ import {
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 
+/**
+ * Waits for a filesystem event to be delivered, or gives up.
+ *
+ * Polled rather than awaited on a promise because the thing under test IS the delivery: a
+ * watch that never fires has to fail this as a timeout, not hang the suite.
+ */
+async function waitFor(settled: () => boolean, timeoutMs = 4000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!settled() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 const roots: string[] = [];
 const source = "codex" as const;
 const sessionId = "11111111-1111-1111-1111-111111111111";
@@ -33,10 +46,13 @@ afterEach(async () => {
   state.indexResyncs.clear();
   state.indexReferences.clear();
   state.sessionUsage.clear();
-  for (const follow of state.transcriptFollows.values()) await (await follow.watcher).close();
   state.transcriptFollows.clear();
-  await Promise.all(state.transcriptFollowClosing.values());
-  state.transcriptFollowClosing.clear();
+  // The process keeps one watcher and never takes a path off it, so a test that wants a clean
+  // one closes it here. Safe between tests only because each builds its own temp transcript:
+  // re-watching a path that has been closed is what this whole area is about.
+  await state.transcriptWatcher?.close();
+  state.transcriptWatcher = null;
+  state.transcriptWatchedPaths.clear();
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -331,34 +347,44 @@ test("the last reader leaving mid-build does not silence the session's events", 
   refollow();
 });
 
-test("a reader coming back waits for the leaving reader's watch to close", async () => {
-  // The case this is about is ordinary, not exotic: a card toggled, a reader moving between two
-  // cards on one session, a Vite reload. Each is a close and an open on one path with nothing
-  // ordering them. What loses that race is not this follow -- every watch in the process shares
-  // one watcher thread, and an open contending with a close is contending for the lock that
-  // thread holds against the main thread. Measured once as a sidecar that answered its port and
-  // nothing else, main thread parked in `_os_unfair_lock_lock_slow` for every sample.
+test("a reader coming back to a thread still hears what is appended to it", async () => {
+  // The case is ordinary, not exotic: a card toggled, a reader moving between two cards on one
+  // session, a Vite reload. Each takes the last reader off a transcript and puts one back.
+  //
+  // Under Bun that used to end the session's updates, because the watch was closed with the
+  // last reader and re-opened with the next, and Bun leaves the second watch on a path inert.
+  // Measured 2026-09-10: six open/close cycles on one file delivered `3, 0, 3, 0, 3, 0` events,
+  // the same script on Node delivered `3, 3, 3, 3, 3, 3`. On a live session that showed up as
+  // 320 seconds of a thread not advancing while its file grew the whole time.
+  //
+  // So this drives the real watcher rather than asserting the bookkeeping: bookkeeping is
+  // exactly what looked correct while nothing was being delivered.
   const transcriptPath = await interleavedTranscript();
   const key = sessionKey(source, sessionId);
+  const notices: number[] = [];
+  const unsubscribe = subscribeEvents(source, sessionId, ({ event }) => notices.push(event.index));
 
   const release = followTranscript(source, sessionId, transcriptPath, () => {});
-  await state.transcriptFollows.get(key)!.watcher;
+  await ensureIndexed(source, sessionId, transcriptPath);
+  const watcher = state.transcriptWatcher;
+  expect(watcher).not.toBeNull();
 
+  // The reader leaves. The follow goes; the path stays on the watcher.
   release();
-  expect(state.transcriptFollowClosing.has(key)).toBe(true);
+  expect(state.transcriptFollows.has(key)).toBe(false);
+  expect(state.transcriptWatchedPaths.has(transcriptPath)).toBe(true);
 
+  // And comes back, onto the same watcher rather than a fresh one.
   const refollow = followTranscript(source, sessionId, transcriptPath, () => {});
-  // Still closing, so the new watch is not open yet. Before this ordering existed the watch was
-  // opened synchronously here, while the previous one was still tearing down.
-  const raced = await Promise.race([
-    state.transcriptFollows.get(key)!.watcher.then(() => "opened"),
-    Promise.resolve("still closing"),
-  ]);
-  expect(raced).toBe("still closing");
+  await ensureIndexed(source, sessionId, transcriptPath);
+  expect(state.transcriptWatcher).toBe(watcher);
 
-  // And it does open, once the close is done. A latch that never lifts is the other failure.
-  await state.transcriptFollows.get(key)!.watcher;
-  expect(state.transcriptFollowClosing.has(key)).toBe(false);
+  notices.length = 0;
+  await appendFile(transcriptPath, `${contentLine(101)}\n`);
+  await waitFor(() => notices.length === 1);
+  expect(notices.length).toBe(1);
+
+  unsubscribe();
   refollow();
 });
 

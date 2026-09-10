@@ -18,11 +18,9 @@ export interface OpenStream {
  * that dies silently looks exactly like a session that stopped writing.
  */
 export interface TranscriptFollow {
-  /**
-   * Promised, because opening this watch may have to wait for the previous one on the same
-   * path to finish closing. See `transcriptFollowClosing`.
-   */
-  watcher: Promise<FSWatcher>;
+  /** Re-reads the transcript from where the index left off. The watcher calls it; which file
+   *  it reads is closed over, and `transcriptWatchedPaths` is what maps the other way. */
+  sync: () => void;
   handlers: Set<(error: unknown) => void>;
 }
 
@@ -58,13 +56,22 @@ export interface TranscriptState {
   indexReferences: Map<string, number>;
   // One watch per followed transcript, shared by every reader of it.
   transcriptFollows: Map<string, TranscriptFollow>;
-  // Follows whose watch is being closed, so a reader arriving now waits for it.
+  // ONE watcher for every transcript this process follows, created with the first path and
+  // never closed. Under Bun, closing a watch on a path leaves the NEXT watch on that same path
+  // inert -- measured 2026-09-10 as a clean alternation, `3, 0, 3, 0, 3, 0` events delivered
+  // over six open/close cycles, against `3, 3, 3, 3, 3, 3` on Node for the same script, and
+  // reproduced on raw `node:fs.watch` with no chokidar involved. A reader leaving and another
+  // arriving straight after is the ordinary case here -- a card toggled, a reader moving
+  // between two cards on one session, a Vite reload -- so every second visit to a thread got a
+  // dead watch and a transcript that only advanced when some other reader forced a scan.
   //
-  // A reader leaving and another arriving straight after is the ordinary case here, not an
-  // exotic one: it is a card being toggled, a reader moving between two cards on one session,
-  // a Vite reload. Those issue a close and an open for the same path with nothing ordering
-  // them, and the close is a watcher teardown that takes a moment.
-  transcriptFollowClosing: Map<string, Promise<void>>;
+  // A path is therefore added once and never removed, which also makes the open-contending-
+  // with-close deadlock unreachable rather than merely ordered around. Measured cost of 500
+  // watched paths: no RSS change.
+  transcriptWatcher: FSWatcher | null;
+  // Which session each watched path belongs to. Outlives the follow, because the path stays on
+  // the watcher after its last reader leaves.
+  transcriptWatchedPaths: Map<string, string>;
   // Latest context-window occupancy per indexed session, folded line by line as
   // the index is built and extended. Lives here rather than in the catalog
   // because the indexing pass is the one place that already reads every line;
@@ -89,7 +96,8 @@ export const state: TranscriptState = {
   indexResyncs: new Set(),
   indexReferences: new Map(),
   transcriptFollows: new Map(),
-  transcriptFollowClosing: new Map(),
+  transcriptWatcher: null,
+  transcriptWatchedPaths: new Map(),
   sessionUsage: new Map(),
   eventSubscribers: new Map(),
   openStreams: new Set(),

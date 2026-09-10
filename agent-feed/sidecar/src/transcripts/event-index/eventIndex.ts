@@ -61,19 +61,75 @@ export function releaseIndex(source: TranscriptSourceId, sessionId: string): voi
 }
 
 /**
- * Follows a transcript for as long as anyone is reading it, and keeps its index
- * alive for the same span. Returns the release.
+ * The process's one transcript watcher, and the paths on it.
  *
- * One watch per file, not one per reader. Everything under this line was already
- * shared per session -- the index is refcounted, the parse is deduped through
- * `indexBuilds`, and parsed events fan out through `subscribeEvents` -- so a second
- * viewer of one thread cost nothing except the `chokidar.watch` each subscription
- * opened for itself, which is the one thing that was per-reader. Two agent windows
- * on the same session now share this.
+ * One watcher, not one per file, and a path is added once and NEVER removed. Under Bun,
+ * closing a watch on a path leaves the next watch on that same path inert: measured
+ * 2026-09-10, six open/close cycles on one file delivered `3, 0, 3, 0, 3, 0` events, the
+ * same script on Node delivered `3, 3, 3, 3, 3, 3`, and raw `node:fs.watch` alternates the
+ * same way with no chokidar in it. Chokidar's own `unwatch`/`add` alternates too, so there
+ * is no escape except not to take the path off.
  *
- * `onError` is per follower because a shared watcher has no single subscriber to
- * report to, and a watch that dies quietly is indistinguishable from a session that
- * stopped writing.
+ * What that cost, before it was understood: a thread's transcript stopped advancing on
+ * every second visit. The live mirror kept streaming, so the thread looked alive while the
+ * file it is a preview of sat still, and the durable rows only appeared when some unrelated
+ * reader opened the same session and forced a scan. Measured on one session: 320s, 124s and
+ * 33s of silence inside ten minutes, while the file grew the whole time.
+ *
+ * Never closing also makes the deadlock this area was ordered around unreachable rather than
+ * merely avoided -- an open can no longer contend with a close on one path, because there are
+ * no closes. The measured cost of 500 watched paths is no RSS change at all.
+ */
+function watchTranscript(key: string, transcriptPath: string): void {
+  if (state.transcriptWatchedPaths.has(transcriptPath)) {
+    // Already on the watcher, from this follow or from a reader who has since left. Re-point
+    // it at the session that is asking now; a transcript belongs to one session, so this is
+    // the same key every time except after a catalog rebuild.
+    state.transcriptWatchedPaths.set(transcriptPath, key);
+    return;
+  }
+  state.transcriptWatchedPaths.set(transcriptPath, key);
+  const notify = (path: string): void => {
+    const followed = state.transcriptWatchedPaths.get(path);
+    if (followed === undefined) return;
+    // No reader for it any more: the path stays watched, and its events cost a map lookup.
+    state.transcriptFollows.get(followed)?.sync();
+  };
+  let watcher = state.transcriptWatcher;
+  if (!watcher) {
+    // Started WITH its first path. An empty `chokidar.watch([])` never reaches `ready`, so a
+    // watcher created bare and filled by `add` hangs instead of watching.
+    watcher = chokidar.watch(transcriptPath, {
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: false,
+    });
+    watcher.on("add", notify);
+    watcher.on("change", notify);
+    // Not path-scoped, so it reaches every follower. A watcher-level failure is the whole
+    // process's, and a watch that dies quietly is indistinguishable from a session that
+    // stopped writing.
+    watcher.on("error", (error) => {
+      for (const follow of state.transcriptFollows.values()) {
+        for (const handler of follow.handlers) handler(error);
+      }
+    });
+    state.transcriptWatcher = watcher;
+    return;
+  }
+  watcher.add(transcriptPath);
+}
+
+/**
+ * Follows a transcript for as long as anyone is reading it, and keeps its index alive for
+ * the same span. Returns the release.
+ *
+ * Everything under this line is shared per session -- the index is refcounted, the parse is
+ * deduped through `indexBuilds`, and parsed events fan out through `subscribeEvents` -- so two
+ * agent windows on one thread cost one of each. The watch is shared more widely still: see
+ * `watchTranscript`, which owns the one watcher this process has.
+ *
+ * `onError` is per follower because a shared watcher has no single subscriber to report to.
  */
 export function followTranscript(
   source: TranscriptSourceId,
@@ -89,32 +145,15 @@ export function followTranscript(
     const report = (error: unknown): void => {
       for (const handler of handlers) handler(error);
     };
-    const sync = (): void => {
-      void syncIndex(source, sessionId, transcriptPath).catch(report);
+    follow = {
+      handlers,
+      sync: () => {
+        void syncIndex(source, sessionId, transcriptPath).catch(report);
+      },
     };
-    // Behind any teardown for this path, so the new watch opens after the old one has closed
-    // rather than racing it. What loses that race is not this follow: every watch in this
-    // process shares one watcher thread, and an open contending with a close on the same path
-    // is contending for the lock that thread holds against the main thread.
-    const previous = state.transcriptFollowClosing.get(key);
-    const watcher = (previous ?? Promise.resolve()).then(() => {
-      const opened = chokidar.watch(transcriptPath, {
-        ignoreInitial: true,
-        persistent: true,
-        awaitWriteFinish: false,
-      });
-      opened.on("add", sync);
-      opened.on("change", sync);
-      opened.on("error", report);
-      // Released while it was still opening: the release has already taken this entry out of
-      // the map and has nothing to close, so the watch that just opened is nobody's.
-      if (state.transcriptFollows.get(key) !== entry) void opened.close();
-      return opened;
-    });
-    const entry: TranscriptFollow = { watcher, handlers };
-    state.transcriptFollows.set(key, entry);
-    follow = entry;
+    state.transcriptFollows.set(key, follow);
   }
+  watchTranscript(key, transcriptPath);
   // A fresh closure per follower, so identical handlers never collapse into one Set
   // entry and take another follower's slot with them.
   const handler = (error: unknown): void => onError(error);
@@ -126,23 +165,9 @@ export function followTranscript(
     const current = state.transcriptFollows.get(key);
     if (current) {
       current.handlers.delete(handler);
-      if (current.handlers.size === 0) {
-        state.transcriptFollows.delete(key);
-        // Recorded rather than awaited: releasing is called from a reader detaching, which
-        // cannot block. `followTranscript` is what waits.
-        const closed = current.watcher
-          .then((watcher) => watcher.close())
-          .catch((error: unknown) => {
-            console.error(`transcript follow ${key} did not release its watch`, error);
-          });
-        state.transcriptFollowClosing.set(key, closed);
-        void closed.finally(() => {
-          // Only if no later teardown has replaced it, or a slow close clears a fast one's entry.
-          if (state.transcriptFollowClosing.get(key) === closed) {
-            state.transcriptFollowClosing.delete(key);
-          }
-        });
-      }
+      // The follow goes; the watch stays. Reading the same thread again re-registers a
+      // handler against a watcher that never stopped delivering.
+      if (current.handlers.size === 0) state.transcriptFollows.delete(key);
     }
     releaseIndex(source, sessionId);
   };

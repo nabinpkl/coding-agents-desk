@@ -693,6 +693,34 @@ sitting six or seven columns short of its box for good. Clear a latch from OUTSI
 swallow that branch's rejection separately, or a failed call becomes an unhandled rejection as well
 as a logged one.
 
+### And under Bun, a watch you close poisons the NEXT watch on that path
+
+Settled 2026-09-10, and it is the rule above failing in the one way ordering cannot fix. **Every
+second `fs.watch` on a path is inert.** Measured with six open/close cycles on one file: Bun 1.3.13
+delivered `3, 0, 3, 0, 3, 0` events, Node 26.7.0 delivered `3, 3, 3, 3, 3, 3` for the same script.
+It reproduces on raw `node:fs.watch` with no chokidar in it, so it is not chokidar's, and
+chokidar's own `unwatch` then `add` alternates identically -- there is no escape except never to
+take the path off.
+
+Waiting for the close to finish does NOT help, which is the trap: the close resolves, the guard
+that was supposed to order them is satisfied, and the watch that opens next is still dead. Nor
+does a gap; it is parity, not timing, and a two-second wait fails exactly as a zero-second one
+does.
+
+What it cost: `agent-feed/sidecar` opened one chokidar per followed transcript and closed it with
+the last reader, so every second visit to a thread got a dead watch. A card toggled, a reader
+moving between two cards on one session, a Vite reload -- each is a close and an open on one path.
+The live mirror kept streaming, so the thread looked alive while the file it previews sat still,
+and the durable rows appeared only when an unrelated reader opened the same session and forced a
+scan. Measured on one session: 320s, 124s and 33s of silence inside ten minutes while the file grew
+throughout. Every probe aimed at it found a healthy layer, including a standalone chokidar watch on
+the same path in another process, which fired perfectly -- it was the first watch in ITS process.
+
+So a watched path is added once and never removed (`eventIndex.ts`, `watchTranscript`), on one
+watcher for the process. Two details that bite on the way there: `chokidar.watch([])` never reaches
+`ready`, so a watcher created bare and filled by `add` hangs rather than watching; and 500 watched
+paths cost no measurable RSS, so never closing is not the expensive half of this.
+
 ## Several sessions share one branch, so re-read before you trust anything
 
 Work here is not serialised. More than one session can be on `main` in this single worktree at the
