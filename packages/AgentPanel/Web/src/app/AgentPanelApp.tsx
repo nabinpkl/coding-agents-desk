@@ -273,6 +273,8 @@ export function App({ feed, host, fill = false }: Props) {
        * it starts once, from this object.
        */
       brief: string;
+      /** Whether it was asked to run in a worktree of its source's repository. */
+      worktree: boolean;
       /** What it was forked FROM, which is the one thing the empty view has to say. */
       sourceTitle: string;
       botId: string;
@@ -644,6 +646,7 @@ export function App({ feed, host, fill = false }: Props) {
       request: { session: SessionSummary; botId: string; projectPath: string },
       forkTitle: string,
       brief: string,
+      worktree: boolean,
     ) => {
       setForkRequest(null);
       setForkedSession({
@@ -654,6 +657,7 @@ export function App({ feed, host, fill = false }: Props) {
         forkId: crypto.randomUUID(),
         forkTitle,
         brief,
+        worktree,
         sourceTitle: request.session.title || request.session.sessionId,
         botId: request.botId,
         projectPath: request.projectPath,
@@ -1160,6 +1164,23 @@ export function App({ feed, host, fill = false }: Props) {
                 // turn", and an empty string would be a brief that says nothing, prefixed by a
                 // handoff note explaining that it says nothing.
                 ...(forkedSession.brief.trim() ? { brief: forkedSession.brief } : {}),
+                // Presence is the request; the branch is the sidecar's to derive from the title.
+                ...(forkedSession.worktree ? { worktree: {} } : {}),
+              }}
+              // A worktree fork runs in a directory this panel did not choose and cannot predict,
+              // and the attach below waits for the session to appear in a NAMED project. Without
+              // this it would watch the source's checkout for a session that is never going to
+              // show up there, and the fork would silently never reach its Bot.
+              onState={(_, state) => {
+                if (state.kind !== "ready") return;
+                const started = state.descriptor.startedSession;
+                if (!started) return;
+                setForkedSession((current) =>
+                  current && current.forkId === started.sessionId
+                      && current.projectPath !== started.projectPath
+                    ? { ...current, projectPath: started.projectPath }
+                    : current
+                );
               }}
               layout="band"
             />

@@ -5,7 +5,14 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { directoryBelongsTo, forgetWorktrees, readWorktree } from "./worktree.ts";
+import {
+  branchFromTitle,
+  directoryBelongsTo,
+  forgetWorktrees,
+  prepareWorktree,
+  readWorktree,
+  WorktreeError,
+} from "./worktree.ts";
 
 const roots: string[] = [];
 
@@ -95,4 +102,56 @@ test("ignores a .git file that is not a worktree pointer", async () => {
   roots.push(root);
   await writeFile(join(root, ".git"), "gitdir: ../.git/modules/thing\n");
   expect(await readWorktree(root)).toBeNull();
+});
+
+test("makes a worktree on a branch named after the fork, inside the checkout", async () => {
+  const checkout = await repository();
+  await writeFile(join(checkout, ".git", "info", "exclude"), ".claude/worktrees/\n");
+
+  const made = await prepareWorktree({ checkout, branch: branchFromTitle("Image drop (fork 1)") });
+
+  expect(made.path).toBe(join(checkout, ".claude", "worktrees", "image-drop-fork-1"));
+  expect(made.branch).toBe("image-drop-fork-1");
+  expect(made.mainCheckout).toBe(checkout);
+});
+
+test("returns the worktree it already made, so re-opening a fork is not an error", async () => {
+  // A terminal is opened more than once for one fork: the second open joins the pane the first
+  // made and runs through this on the way. Refusing there would make re-opening a running fork
+  // fail with a complaint about the directory it is running in.
+  const checkout = await repository();
+  await writeFile(join(checkout, ".git", "info", "exclude"), ".claude/worktrees/\n");
+
+  const first = await prepareWorktree({ checkout, branch: "side" });
+  const second = await prepareWorktree({ checkout, branch: "side" });
+
+  expect(second).toEqual(first);
+});
+
+test("refuses a branch that already exists rather than checking out a peer's work", async () => {
+  const checkout = await repository();
+  await writeFile(join(checkout, ".git", "info", "exclude"), ".claude/worktrees/\n");
+  await run(["git", "branch", "taken"], checkout);
+
+  await expect(prepareWorktree({ checkout, branch: "taken" })).rejects.toThrow(/already exists/);
+});
+
+test("refuses when the directory would show up in git status, and names the fix", async () => {
+  // `git status` is how sessions here find out what their peers are doing, so an untracked
+  // worktree directory is noise in the one signal that coordinates them -- and every session sees
+  // it, not only the one that made it.
+  const checkout = await repository();
+
+  await expect(prepareWorktree({ checkout, branch: "side" }))
+    .rejects.toThrow(/\.git\/info\/exclude/);
+});
+
+test("refuses a branch name git will not take", async () => {
+  const checkout = await repository();
+  await expect(prepareWorktree({ checkout, branch: "has spaces" })).rejects.toThrow(WorktreeError);
+});
+
+test("falls back to a usable branch when a title slugifies to nothing", () => {
+  expect(branchFromTitle("!!!")).toBe("fork");
+  expect(branchFromTitle("AD composer fix")).toBe("ad-composer-fix");
 });

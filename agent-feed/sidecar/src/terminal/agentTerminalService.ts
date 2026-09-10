@@ -19,6 +19,7 @@ import {
   forkClaudeSessionCommand,
   newClaudeSessionCommand,
 } from "./claudeSessionLaunch.ts";
+import { branchFromTitle, prepareWorktree, WorktreeError } from "../git/worktree.ts";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
 import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
@@ -81,7 +82,7 @@ interface TerminalIdentity {
    * where the command is built -- it IS an argument of that command -- and deriving it a second
    * time later could answer differently.
    */
-  startedSession: { sessionId: string; title: string } | null;
+  startedSession: { sessionId: string; title: string; projectPath: string } | null;
   /**
    * The Claude session to stamp on the pane, so it can be found again after it is renamed.
    *
@@ -655,7 +656,7 @@ export class AgentTerminalService {
       },
       // The second path that brings a session into existence, and it reports the same way the fork
       // does: the caller chose the name, so this says which open was the one that started it.
-      startedSession: { sessionId, title },
+      startedSession: { sessionId, title, projectPath },
       stampSession: sessionId,
     };
   }
@@ -772,14 +773,21 @@ export class AgentTerminalService {
     const refusal = sessionTitleRefusal(title);
     if (refusal) throw new AgentTerminalInvalidError(refusal);
     const brief = forkBrief(context.brief);
+    // The fork's own tree, when it asked for one. Prepared here rather than at the moment the pane
+    // is created because the branch is part of what this fork IS: a second open of the same fork
+    // has to land in the same directory, and `prepareWorktree` returning the existing one is what
+    // makes that true without this path having to know which open it is.
+    const cwd = context.worktree
+      ? (await prepareForkWorktree(projectPath, context.worktree, title)).path
+      : projectPath;
     return {
       ptySessionName: `agent-tmux-${pane}`,
       tmuxSession: pane,
-      cwd: projectPath,
+      cwd,
       command: [],
       refuseNew: null,
       createTmux: {
-        cwd: projectPath,
+        cwd,
         // The argv, the pane name and the handoff statement all live in `claudeSessionLaunch.ts`,
         // beside the ones the new-session path uses. A fork assembled here would be a second answer
         // to questions that path has already settled -- and the brief's composition in particular
@@ -789,7 +797,7 @@ export class AgentTerminalService {
       // The one path that creates a session, and so the one that has a name to report. The caller
       // has no other way to learn it: until the first turn there is no transcript to read it from,
       // which is exactly when a fork is on screen with nothing else to call it.
-      startedSession: { sessionId: forkId, title },
+      startedSession: { sessionId: forkId, title, projectPath: cwd },
       stampSession: forkId,
     };
   }
@@ -875,6 +883,31 @@ function requiredSessionUuid(value: string, field: string): string {
 }
 
 /** The pane a fork runs in, named for the fork rather than the session it came from. */
+/**
+ * The worktree a fork asked for, made or found.
+ *
+ * The branch defaults to a slug of the fork's title, which is the name the reader already chose.
+ * A caller with an opinion sends one; a caller without gets a branch it can recognise rather than
+ * a uuid, and the fork's tree is then findable by the same word as its card.
+ *
+ * `WorktreeError` becomes a conflict rather than an invalid request: every one of its cases is
+ * about what is already on disk -- a directory in the way, a branch that exists, an ignore rule
+ * that is missing -- and none of them is fixed by sending a different request.
+ */
+async function prepareForkWorktree(
+  checkout: string,
+  request: { branch?: string },
+  title: string,
+): Promise<{ path: string }> {
+  const branch = request.branch?.trim() || branchFromTitle(title);
+  try {
+    return await prepareWorktree({ checkout, branch });
+  } catch (error) {
+    if (error instanceof WorktreeError) throw new AgentTerminalConflictError(error.message);
+    throw error;
+  }
+}
+
 /**
  * How long a fork's brief is allowed to be.
  *

@@ -138,3 +138,119 @@ export async function worktreeOf(directory: string): Promise<Worktree | null> {
 export function forgetWorktrees(): void {
   cache.clear();
 }
+
+/** A worktree could not be prepared, with a reason worth putting in front of the reader. */
+export class WorktreeError extends Error {}
+
+async function git(
+  args: string[],
+  cwd: string,
+): Promise<{ code: number; out: string; err: string }> {
+  const process = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  return { code, out: out.trim(), err: err.trim() };
+}
+
+/**
+ * Where this sidecar puts a worktree it makes.
+ *
+ * `.claude/worktrees/` because that is where the worktrees on this machine already are, and one
+ * place to look beats a second convention that is only correct for whoever wrote it. It is inside
+ * the checkout on purpose: a reader who wonders what branches are open finds them beside the
+ * repository rather than having to remember a directory somewhere else.
+ */
+export function forkWorktreePath(checkout: string, branch: string): string {
+  return join(checkout, ".claude", "worktrees", branch);
+}
+
+/**
+ * A branch name from a session title, for a caller who named the fork and not the branch.
+ *
+ * Not clever: a reader who wants a particular branch says so. This exists so that the ordinary
+ * fork -- named in a dialog, with nobody thinking about git -- lands somewhere recognisable
+ * instead of on a uuid.
+ */
+export function branchFromTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/, "");
+  return slug || "fork";
+}
+
+/**
+ * Makes a worktree of `checkout` on `branch`, or returns the one that is already there.
+ *
+ * Idempotent because a terminal is opened more than once for one fork. The second open joins the
+ * pane the first made rather than starting anything, and it runs through this on the way -- so
+ * refusing an existing worktree would turn re-opening a fork into an error about a directory the
+ * fork is happily running in.
+ *
+ * Refuses rather than reuses in the two cases where the directory or the branch belongs to someone
+ * else. Several sessions share this repository, and quietly checking out a peer's branch into a
+ * worktree they did not ask for is the kind of help nobody can undo.
+ */
+export async function prepareWorktree(options: {
+  checkout: string;
+  branch: string;
+}): Promise<Worktree & { path: string }> {
+  const { checkout, branch } = options;
+  const valid = await git(["check-ref-format", "--branch", branch], checkout);
+  if (valid.code !== 0) throw new WorktreeError(`"${branch}" is not a usable branch name`);
+
+  const path = forkWorktreePath(checkout, branch);
+  const existing = await readWorktree(path);
+  if (existing) {
+    if (existing.mainCheckout !== checkout) {
+      throw new WorktreeError(`${path} is already a worktree of ${existing.mainCheckout}`);
+    }
+    if (existing.branch !== branch) {
+      throw new WorktreeError(`${path} is already checked out at ${existing.branch ?? "a commit"}`);
+    }
+    return { ...existing, path };
+  }
+  if (await exists(path)) throw new WorktreeError(`${path} already exists and is not a worktree`);
+
+  const branchExists = await git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], checkout);
+  if (branchExists.code === 0) {
+    throw new WorktreeError(
+      `branch "${branch}" already exists. Name the fork's branch explicitly to work on it.`,
+    );
+  }
+
+  // Checked BEFORE creating, and refused rather than fixed. In this repository `git status` is how
+  // sessions find out what their peers are doing, so a worktree directory that shows up there as
+  // untracked is noise in the one signal that coordinates them -- and it is noise every session
+  // sees, not just the one that made it. The line to add is named because the reader can add it
+  // once and never think about this again.
+  const ignored = await git(["check-ignore", "-q", path], checkout);
+  if (ignored.code !== 0) {
+    throw new WorktreeError(
+      `${path} would show up in git status. Add ".claude/worktrees/" to .git/info/exclude first.`,
+    );
+  }
+
+  const added = await git(["worktree", "add", "-b", branch, path], checkout);
+  if (added.code !== 0) {
+    throw new WorktreeError(`git worktree add failed: ${added.err || added.out || added.code}`);
+  }
+  forgetWorktrees();
+  const created = await readWorktree(path);
+  if (!created) throw new WorktreeError(`${path} was created but does not read as a worktree`);
+  return { ...created, path };
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
