@@ -15,12 +15,12 @@
  * no fallback to writing the record. A half rename that silently leaves the address behind is the
  * outcome this exists to avoid, so it is refused with a reason instead.
  */
-import { renameTmuxSession } from "../input/composer/composerDrive.ts";
-import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
-import { uniqueTmuxSessionName } from "../terminal/tmuxSessionNames.ts";
-import { listTmuxSessions, renameTmuxSessionTo } from "../terminal/tmuxSessions.ts";
-import { findSession } from "./transcriptCatalog.ts";
-import { sessionTitleRefusal } from "./sessionTitle.ts";
+import { renameTmuxSession } from "@/input/tmuxComposer";
+import { liveTmuxSession } from "@/terminal/agentTerminalService";
+import { uniqueTmuxSessionName } from "@/terminal/tmuxSessionNames";
+import { listTmuxSessions, renameTmuxSessionTo } from "@/terminal/tmuxSessions";
+import { findSession } from "@/transcripts/transcriptCatalog";
+import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
 
 export class SessionRenameInvalidError extends Error {}
 export class SessionRenameNotFoundError extends Error {}

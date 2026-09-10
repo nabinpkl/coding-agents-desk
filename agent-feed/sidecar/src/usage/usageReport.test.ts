@@ -2,8 +2,8 @@ import { chmod, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { loadUsageCache } from "./usageCache.ts";
-import { createUsageScanner, detectUsageVendors } from "./usageReport.ts";
+import { loadUsageCache } from "@/usage/usageCache";
+import { createUsageScanner, detectUsageVendors } from "@/usage/usageReport";
 
 interface Fixture {
   codexHome: string;

@@ -1,9 +1,9 @@
 import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SourceBadge } from "../sidebar/SourceBadge";
-import { botCanvasHues, botSurfaceStyle } from "./botSurface";
-import { SessionRowMenu } from "./SessionRowMenu";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { botCanvasHues, botSurfaceStyle } from "@/features/bots/botSurface";
+import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
 
 /**
  * A Bot's face: its picture, or its initials on its own colour.
@@ -111,6 +111,14 @@ export function BotSidebarPanel({
    */
   canvas?: {
     detachedBotIds: ReadonlySet<string>;
+    /**
+     * The sessions that are off the canvas, as `source:sessionId`.
+     *
+     * Their rows stay in this list and are dimmed, which is the whole point of taking one off: the
+     * card goes, the session does not, and this is where it is found again. Clicking one is what
+     * puts it back, the same click that opens any other row here.
+     */
+    detachedSessionKeys: ReadonlySet<string>;
     onToggle: (bot: BotView) => void;
   };
 }) {
@@ -232,6 +240,10 @@ export function BotSidebarPanel({
                     {bot.sessions.map((session) => {
                       const key = attachedSessionKey(session);
                       const active = selected && selectedSessionKeys.has(key);
+                      // Dimmed the way a Bot that is off the canvas is, and for the same reason:
+                      // a row that looks identical to the ones with cards would make the canvas
+                      // look as though it had lost one.
+                      const offCanvas = canvas?.detachedSessionKeys.has(key) ?? false;
                       return (
                         // The row was one button until it grew a second action. A button cannot
                         // contain a button, so opening the session and opening its menu are now
@@ -239,12 +251,15 @@ export function BotSidebarPanel({
                         // both.
                         <li
                           key={key}
-                          className={`flex items-center pr-1.5 ${active ? "bg-muted" : ""}`}
+                          className={`flex items-center pr-1.5 ${active ? "bg-muted" : ""} ${
+                            offCanvas ? "opacity-55" : ""
+                          }`}
                         >
                           <button
                             type="button"
                             onClick={() => onSelectSession(bot, session)}
                             aria-current={active ? "page" : undefined}
+                            title={offCanvas ? "Off the canvas" : undefined}
                             className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-14 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
                           >
                             <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px)">

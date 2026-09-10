@@ -5,7 +5,7 @@ import {
   MIN_SIDEBAR_WIDTH,
   loadSidebarPreferences,
   storeSidebarPreferences,
-} from "./sidebarPreferences";
+} from "@/features/sidebar/sidebarPreferences";
 
 describe("sidebar preferences", () => {
   beforeEach(() => localStorage.clear());

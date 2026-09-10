@@ -1,4 +1,4 @@
-import type { TokenUsage } from "./useSessionEventsStream";
+import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 
 /** Fill fraction above which the meter reads as a warning rather than a fact. */
 const WARN_FRACTION = 0.75;

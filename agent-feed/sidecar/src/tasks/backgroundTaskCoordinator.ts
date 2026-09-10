@@ -23,8 +23,8 @@
 // available; deleting it was not.
 
 import type { BackgroundTaskSnapshot } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import { backgroundTaskSnapshot } from "./backgroundTasks.ts";
+import { config } from "@/config";
+import { backgroundTaskSnapshot } from "@/tasks/backgroundTasks";
 import {
   type CommandRunner,
   currentProcessTable,
@@ -32,8 +32,8 @@ import {
   runCommand,
   type TaskShell,
   taskShellsByOwner,
-} from "./processProbe.ts";
-import { type ClaudeSessionProcess, liveSessionProcesses } from "./sessionRegistry.ts";
+} from "@/tasks/processProbe";
+import { type ClaudeSessionProcess, liveSessionProcesses } from "@/tasks/sessionRegistry";
 
 export type BackgroundTaskListener = (snapshot: BackgroundTaskSnapshot) => void;
 

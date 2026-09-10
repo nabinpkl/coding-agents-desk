@@ -22,10 +22,10 @@ import type {
   ParkPlanResponse,
   ParkStateResponse,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import { packFromTopLeft, usableArea } from "../park/grid.ts";
-import { plan as planLadder } from "../park/ladder.ts";
-import { park, restore } from "../park/park.ts";
+import { config } from "@/config";
+import { packFromTopLeft, usableArea } from "@/park/grid";
+import { plan as planLadder } from "@/park/ladder";
+import { park, restore } from "@/park/park";
 import {
   activeSpace,
   displays,
@@ -36,9 +36,9 @@ import {
   spaces,
   windows,
   YabaiUnavailable,
-} from "../park/yabai.ts";
-import { jsonResponse } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/park/yabai";
+import { jsonResponse } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const STATE_ROUTE = "/api/park/state";
 const PLAN_ROUTE = "/api/park/plan";

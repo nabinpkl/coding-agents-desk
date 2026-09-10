@@ -14,7 +14,7 @@ import {
   resumePids,
   sessionOwner,
   target,
-} from "./claudeSessionResolver.ts";
+} from "@/desktop/claudeSessionResolver";
 
 const CLAUDE_MAIN = "/Applications/Claude.app/Contents/MacOS/Claude";
 const FLAG = "--resume";

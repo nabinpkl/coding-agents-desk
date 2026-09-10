@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { DesktopAuditSnapshot } from "@agentdesk/agent-feed-wire";
-import { createComposerCoordinator, type ComposerEnvelope } from "./composerCoordinator.ts";
-import { ControlHelperError, type ControlHelper } from "./controlHelper.ts";
-import type { ProcessRow } from "./claudeSessionResolver.ts";
+import { createComposerCoordinator, type ComposerEnvelope } from "@/desktop/composerCoordinator";
+import { ControlHelperError, type ControlHelper } from "@/desktop/controlHelper";
+import type { ProcessRow } from "@/desktop/claudeSessionResolver";
 
 /**
  * The coordinator's window-borrowing sequence.

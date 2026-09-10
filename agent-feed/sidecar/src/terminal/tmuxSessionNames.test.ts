@@ -2,7 +2,7 @@
 // tmux's target syntax, and a person typing one from memory.
 
 import { expect, test } from "bun:test";
-import { tmuxSessionSlug, uniqueTmuxSessionName } from "./tmuxSessionNames.ts";
+import { tmuxSessionSlug, uniqueTmuxSessionName } from "@/terminal/tmuxSessionNames";
 
 test("the title a shell could not hold becomes one it can", () => {
   // The exact title behind `invalid mode specification`: zsh read `(fork 1)` as a glob qualifier

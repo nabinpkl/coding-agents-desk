@@ -2,16 +2,16 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createSessionRoutes } from "./sessionRoutes.ts";
+import { createSessionRoutes } from "@/http/sessionRoutes";
 import {
+  SessionRenameInvalidError,
   SessionRenameNotFoundError,
   SessionRenameUnavailableError,
-} from "../transcripts/renameSession.ts";
-import { forkClaudeSession } from "../transcripts/forkSession.ts";
-import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
-import { SessionRenameInvalidError } from "../transcripts/renameSession.ts";
-import { sessionKey } from "../transcripts/transcriptCatalog.ts";
-import { state } from "../transcripts/transcriptState.ts";
+} from "@/transcripts/renameSession";
+import { forkClaudeSession } from "@/transcripts/forkSession";
+import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { state } from "@/transcripts/transcriptState";
 
 const server = { timeout() {} } as never;
 const roots: string[] = [];

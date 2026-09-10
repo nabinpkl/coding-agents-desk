@@ -6,14 +6,14 @@ import {
   sessionSummaries,
   subscribeCatalog,
   type AgentSessionDescriptorResolver,
-} from "../transcripts/transcriptCatalog.ts";
-import type { Session } from "../transcripts/sources/transcriptTypes.ts";
+} from "@/transcripts/transcriptCatalog";
+import type { Session } from "@/transcripts/sources/transcriptTypes";
 import {
   encodeServerSentEvent,
   jsonResponse,
   startServerSentEventStream,
-} from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 /**
  * Which projects this surface has open, of the ones it asked for.

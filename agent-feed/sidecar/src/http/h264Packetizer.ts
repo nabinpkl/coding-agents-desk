@@ -6,7 +6,7 @@
 // unit packet, a bigger one is fragmented as FU-A. werift owns everything with
 // judgment in it (SRTP, sequence numbers on the wire, feedback, connectivity).
 
-import { splitAnnexB } from "./annexB.ts";
+import { splitAnnexB } from "@/http/annexB";
 
 export interface H264Payload {
   payload: Uint8Array;

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { BotRegistry } from "./botRegistry.ts";
-import { createAddBotTool } from "./addBotTool.ts";
+import type { BotRegistry } from "@/bots/botRegistry";
+import { createAddBotTool } from "@/bots/addBotTool";
 
 test("maps a Pi tool call onto the provider-neutral Bot registry command", async () => {
   const calls: unknown[] = [];

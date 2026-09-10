@@ -3,7 +3,7 @@ import {
   LiveAgentProjection,
   sanitizeAgentValue,
   type TimelineEnvelope,
-} from "./liveAgentProjection.ts";
+} from "@/agents/liveAgentProjection";
 
 describe("LiveAgentProjection", () => {
   test("replaces one stable item with increasing revisions", () => {

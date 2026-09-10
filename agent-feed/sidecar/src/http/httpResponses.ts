@@ -1,5 +1,5 @@
 import type { Server } from "bun";
-import { state, type OpenStream } from "../transcripts/transcriptState.ts";
+import { state, type OpenStream } from "@/transcripts/transcriptState";
 
 export const JSON_HEADERS: Record<string, string> = {
   "content-type": "application/json",

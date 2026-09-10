@@ -1,4 +1,4 @@
-import type { AgentSidebarMode } from "./AgentSidebar";
+import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
 
 /**
  * Which sidebar view the address bar is asking for.

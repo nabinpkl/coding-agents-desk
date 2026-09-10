@@ -20,7 +20,11 @@
     // The one definition of everything that crosses the HTTP boundary, shared with the Agent
     // Panel. Types only, so every import of it is erased and neither project bundles it.
     "paths": {
-      "@agentdesk/agent-feed-wire": ["../wire/index.ts"]
+      "@agentdesk/agent-feed-wire": ["../wire/index.ts"],
+      // `@/` is this project's own src and `@repo/` is the repository, so an import says
+      // where a module lives rather than how far away the reader happens to be sitting.
+      "@/*": ["./src/*"],
+      "@repo/*": ["../../*"]
     }
   },
   // The wire module is typechecked here rather than in both consumers: one owner for the check,

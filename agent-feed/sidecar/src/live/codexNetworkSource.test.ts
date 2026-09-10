@@ -7,7 +7,7 @@ import {
   extractCodexSessionId,
   mapCodexMessage,
   type ObservedRequestHeader,
-} from "./codexNetworkSource.ts";
+} from "@/live/codexNetworkSource";
 
 function header(name: string, value: string): ObservedRequestHeader {
   return { name, value };

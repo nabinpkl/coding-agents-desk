@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { packetizeH265 } from "./h265Packetizer.ts";
+import { packetizeH265 } from "@/http/h265Packetizer";
 
 function hevcHeader(type: number, layerId = 0, temporalIdPlusOne = 1, forbidden = 0): number[] {
   const packed = (forbidden << 15) | (type << 9) | (layerId << 3) | temporalIdPlusOne;

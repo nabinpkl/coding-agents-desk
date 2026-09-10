@@ -31,9 +31,9 @@
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { ClaudeUsageRow } from "./claudeUsage.ts";
-import type { QuotaSample } from "./quotaSample.ts";
-import type { DayModelTotals } from "./usageTotals.ts";
+import type { ClaudeUsageRow } from "@/usage/claudeUsage";
+import type { QuotaSample } from "@/usage/quotaSample";
+import type { DayModelTotals } from "@/usage/usageTotals";
 
 interface CachedFile {
   size: number;

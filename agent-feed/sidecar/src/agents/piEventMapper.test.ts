@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { LiveAgentProjection } from "./liveAgentProjection.ts";
-import { PiEventMapper } from "./piEventMapper.ts";
+import { LiveAgentProjection } from "@/agents/liveAgentProjection";
+import { PiEventMapper } from "@/agents/piEventMapper";
 
 function assistant(text: string, stopReason: "pending" | "stop" | "error" = "pending") {
   return {

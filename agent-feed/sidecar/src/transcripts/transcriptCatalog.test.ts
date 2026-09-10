@@ -13,11 +13,11 @@ import {
   sessionKey,
   subscribeCatalog,
   stopCatalog,
-} from "./transcriptCatalog.ts";
-import { PI_AGENT_CAPABILITIES } from "../agents/piAgentBackend.ts";
-import type { Session } from "./sources/transcriptTypes.ts";
-import { state } from "./transcriptState.ts";
-import { claudeAdapter } from "./sources/claudeTranscript.ts";
+} from "@/transcripts/transcriptCatalog";
+import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
+import type { Session } from "@/transcripts/sources/transcriptTypes";
+import { state } from "@/transcripts/transcriptState";
+import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
 
 const temporaryDirectories: string[] = [];
 

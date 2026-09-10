@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { panelEntry } from "./panelEntry";
+import { panelEntry } from "@/app/panelEntry";
 
 describe("panelEntry", () => {
   it("selects the desktop viewer when the native shell names it", () => {

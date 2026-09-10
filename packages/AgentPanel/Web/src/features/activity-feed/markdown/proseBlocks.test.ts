@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createStreamingBlocks, toBlocks } from "./proseBlocks";
+import { createStreamingBlocks, toBlocks } from "@/features/activity-feed/markdown/proseBlocks";
 
 // The whole point of the incremental reader is that it is not a different renderer.
 // So the test is not "does it produce something reasonable" but "is it the same

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { lastUsageFromEvents, parseUsageText } from "./usageFromEvents";
-import type { ActivityEvent } from "./useSessionEventsStream";
+import { lastUsageFromEvents, parseUsageText } from "@/features/activity-feed/usageFromEvents";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 function event(index: number, blocks: ActivityEvent["blocks"], ts = 1000 + index): ActivityEvent {
   return { index, id: `e-${index}`, revision: 0, phase: "complete", ts, type: "assistant", blocks };

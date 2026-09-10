@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { BotConflictError, type BotRegistry } from "../bots/botRegistry.ts";
-import { createBotRoutes } from "./botRoutes.ts";
+import { BotConflictError, type BotRegistry } from "@/bots/botRegistry";
+import { createBotRoutes } from "@/http/botRoutes";
 
 const server = { timeout() {} } as never;
 const bot: BotView = {

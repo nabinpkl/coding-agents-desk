@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import type { CliInputStatus } from "@agentdesk/agent-feed-wire";
-import type { SessionAddress } from "../activity-feed/data-source/SidecarDataSource";
-import { cliInputReasonText, useCliInput } from "./useCliInput";
+import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { cliInputReasonText, useCliInput } from "@/features/cli-input/useCliInput";
 
 const TERMINAL: CliInputStatus = {
   available: true, entrypoint: "cli", reason: null, tmuxSession: "keyboard",

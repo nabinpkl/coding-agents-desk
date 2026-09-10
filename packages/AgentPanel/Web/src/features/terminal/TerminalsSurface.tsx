@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { TerminalTile } from "./TerminalTile";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { TerminalTile } from "@/features/terminal/TerminalTile";
 
 type Listing =
   | { kind: "loading" }

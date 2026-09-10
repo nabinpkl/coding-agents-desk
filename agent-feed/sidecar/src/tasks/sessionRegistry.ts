@@ -12,9 +12,9 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ClaudeSessionEntrypoint } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import type { ProcessRow } from "./processProbe.ts";
-import { parseRegistryProcStart, startTimesAgree } from "./processStartTime.ts";
+import { config } from "@/config";
+import type { ProcessRow } from "@/tasks/processProbe";
+import { parseRegistryProcStart, startTimesAgree } from "@/tasks/processStartTime";
 
 export interface ClaudeSessionProcess {
   pid: number;

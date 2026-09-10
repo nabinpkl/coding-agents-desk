@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AgentUiBroker, extensionUiContext } from "./agentUiBroker.ts";
+import { AgentUiBroker, extensionUiContext } from "@/agents/agentUiBroker";
 
 test("the first viewer response resolves a shared extension prompt", async () => {
   const broker = new AgentUiBroker(1000);

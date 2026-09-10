@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { AgentUiEvent, AgentUiRequest, AgentUiResponseResult } from "./agentBackend.ts";
+import type { AgentUiEvent, AgentUiRequest, AgentUiResponseResult } from "@/agents/agentBackend";
 
 type UiListener = (event: AgentUiEvent) => void;
 

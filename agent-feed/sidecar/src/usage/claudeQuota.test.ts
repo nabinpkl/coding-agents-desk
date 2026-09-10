@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { readClaudeQuota } from "./claudeQuota.ts";
+import { readClaudeQuota } from "@/usage/claudeQuota";
 
 async function configWith(body: unknown): Promise<string> {
   const path = join(await mkdtemp(join(tmpdir(), "claude-quota-")), "config.json");

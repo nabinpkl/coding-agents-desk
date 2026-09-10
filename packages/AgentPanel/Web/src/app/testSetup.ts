@@ -37,6 +37,26 @@ Object.defineProperty(Element.prototype, "scrollIntoView", {
   value: function scrollIntoView() {},
 });
 
+// `scrollTo` is absent for the same reason, and unlike `scrollIntoView` its absence is not
+// harmless: the virtualiser reaches its scroller through it, so `scrollToIndex` silently does
+// nothing and a component that scrolls itself looks broken only in the browser. jsdom does keep an
+// assigned `scrollTop`, so writing the offset through is the behaviour a browser has, minus the
+// scroll event a real one dispatches -- a test that needs the listeners to hear it still fires
+// that itself.
+Object.defineProperty(Element.prototype, "scrollTo", {
+  configurable: true,
+  writable: true,
+  value: function scrollTo(this: Element, options?: number | ScrollToOptions, y?: number) {
+    if (typeof options === "number") {
+      this.scrollLeft = options;
+      if (typeof y === "number") this.scrollTop = y;
+      return;
+    }
+    if (typeof options?.left === "number") this.scrollLeft = options.left;
+    if (typeof options?.top === "number") this.scrollTop = options.top;
+  },
+});
+
 // jsdom implements no PointerEvent, and Testing Library's fallback drops the coordinates with it,
 // so a pointer-driven component reads `clientX` as undefined and every drag assertion passes or
 // fails for the wrong reason. MouseEvent already carries the coordinate contract these components

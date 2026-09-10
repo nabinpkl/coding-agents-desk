@@ -6,11 +6,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
-import { terminalContextLabel } from "./terminalContext";
-import { TerminalKeyRail } from "./TerminalKeyRail";
-import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
+import { terminalContextLabel } from "@/features/terminal/terminalContext";
+import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
+import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;

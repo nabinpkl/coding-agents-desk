@@ -1,4 +1,4 @@
-import type { AgentSidebarMode } from "./AgentSidebar";
+import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
 
 export const MIN_SIDEBAR_WIDTH = 220;
 export const MAX_SIDEBAR_WIDTH = 420;

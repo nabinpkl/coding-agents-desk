@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { UsageReport, UsageStreamMessage } from "@agentdesk/agent-feed-wire";
-import type { UsageScanner } from "../usage/usageReport.ts";
-import { createUsageRoutes } from "./usageRoutes.ts";
+import type { UsageScanner } from "@/usage/usageReport";
+import { createUsageRoutes } from "@/http/usageRoutes";
 
 const server = { timeout() {} } as never;
 

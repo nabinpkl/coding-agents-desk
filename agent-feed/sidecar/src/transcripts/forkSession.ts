@@ -17,20 +17,20 @@
  * three separate mechanisms not long ago, and only one of the three made all four correctly.
  */
 import type { ForkSessionCommand, StartedSession } from "@agentdesk/agent-feed-wire";
-import { branchFromTitle, prepareWorktree, worktreeOf } from "../git/worktree.ts";
+import { branchFromTitle, prepareWorktree, worktreeOf } from "@/git/worktree";
 import {
   startClaudeSession,
   startForkedClaudeSession,
-} from "../terminal/claudeSessionLaunch.ts";
-import { LIVE_FORK_REWINDER } from "./forkRewind.ts";
+} from "@/terminal/claudeSessionLaunch";
+import { LIVE_FORK_REWINDER } from "@/transcripts/forkRewind";
 import {
   anchorAtLine,
   lineFromEventId,
   MessageAnchorError,
   type MessageAnchor,
-} from "./messageAnchor.ts";
-import { sessionTitleRefusal } from "./sessionTitle.ts";
-import { findSession } from "./transcriptCatalog.ts";
+} from "@/transcripts/messageAnchor";
+import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+import { findSession } from "@/transcripts/transcriptCatalog";
 
 /**
  * How long a first turn may be.

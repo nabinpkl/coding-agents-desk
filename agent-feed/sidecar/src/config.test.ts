@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { runtimePaths } from "../../../tools/runtime-paths.mjs";
+import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 
 test("sidecar helper discovery agrees with deployment for default and overridden runtime roots", async () => {
   for (const override of [undefined, "/private/agentdesk-test-runtime"]) {

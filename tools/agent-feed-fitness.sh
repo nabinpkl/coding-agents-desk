@@ -71,4 +71,43 @@ if [ -n "$bad_tags" ]; then
     exit 1
 fi
 
+# 5. No file in the two live TypeScript trees runs past 500 lines. Not a style rule: a file that
+#    long has stopped being one idea, and the reader who needs one of the ideas in it pays for
+#    all of them. The cap is what makes a growing file split at the moment it stops being about
+#    one thing, rather than at the moment somebody has an afternoon to spend on it. Both trees
+#    were brought under it file by file; this is what keeps them there.
+oversize="$(
+    find packages/AgentPanel/Web/src agent-feed/sidecar/src \
+        \( -name '*.ts' -o -name '*.tsx' \) -print0 \
+        | xargs -0 wc -l \
+        | awk '$2 != "total" && $1 > 500 { print "  " $1 " " $2 }'
+)"
+if [ -n "$oversize" ]; then
+    echo "agent-feed-fitness: these files are past the 500-line cap:" >&2
+    printf '%s\n' "$oversize" >&2
+    exit 1
+fi
+
+# 6. No relative import inside the two live TypeScript trees. `@/` is the project's own src and
+#    `@repo/` is the repository; both say where a module lives, while `../../..` says how far away
+#    the reader happens to be sitting. The difference is not style, it is what a file move costs: a
+#    relative import breaks when EITHER end moves, so clustering one directory rewrote every file
+#    inside it AND every importer of it. An aliased one names only the thing that moved.
+#
+#    Three patterns, because a specifier is written three ways here: a static import or re-export,
+#    a bare side-effect import, and a call form (`import()`, `vi.mock()`, `require()`). Anchored or
+#    parenthesised so a specifier quoted INSIDE a string stays legal -- `config.test.ts` embeds one
+#    in a script it hands to `bun -e`, and that one is a real relative import, just not this file's.
+relative_imports="$(
+    git grep -nE \
+        '^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|require)\([[:space:]]*["'"'"']\.' \
+        -- 'packages/AgentPanel/Web/src/*.ts' 'packages/AgentPanel/Web/src/*.tsx' \
+           'agent-feed/sidecar/src/*.ts' 'agent-feed/sidecar/src/*.tsx' || true
+)"
+if [ -n "$relative_imports" ]; then
+    echo "agent-feed-fitness: these are relative imports; write @/ or @repo/ instead:" >&2
+    printf '%s\n' "$relative_imports" >&2
+    exit 1
+fi
+
 echo "agent-feed-fitness: OK"

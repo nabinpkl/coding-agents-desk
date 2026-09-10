@@ -5,7 +5,7 @@ import {
   HEVC_FRAGMENT_TYPE,
   type MediaScope,
   summarizeMediaCapabilities,
-} from "./mediaCapabilities";
+} from "@/features/profile/mediaCapabilities";
 
 function scope(overrides: Partial<MediaScope> = {}): MediaScope {
   return overrides;

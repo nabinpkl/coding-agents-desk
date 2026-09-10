@@ -7,7 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { watchTree, watchTreeEntries, type EntryChange, type TreeWatch } from "./watchTree.ts";
+import { watchTree, watchTreeEntries, type EntryChange, type TreeWatch } from "@/transcripts/watchTree";
 
 const roots: string[] = [];
 const watches: TreeWatch[] = [];

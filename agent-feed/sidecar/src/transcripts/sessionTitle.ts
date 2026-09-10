@@ -10,7 +10,7 @@
  * Returns the reason it is not a title, or null when it is. A reason rather than a thrown error so
  * each caller keeps its own error type and its own status code.
  */
-import { SUMMARY_TITLE_CHARACTERS } from "./transcriptCatalog.ts";
+import { SUMMARY_TITLE_CHARACTERS } from "@/transcripts/transcriptCatalog";
 
 export function sessionTitleRefusal(title: string): string | null {
   if (!title) return "a session title cannot be empty";

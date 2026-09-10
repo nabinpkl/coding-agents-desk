@@ -12,16 +12,16 @@
 
 import { describe, expect, it } from "vitest";
 import type { SummaryResult, SummaryStreamMessage, UsageReport } from "@agentdesk/agent-feed-wire";
-import { formatTokens } from "../../usage/formatTokens";
-import { buildUsageGrid, cachedShare, uncachedInput } from "../../usage/usageGrid";
-import fixture from "../../../../../../../agent-feed/wire/contract-fixture.json";
-import { SidecarDataSource } from "./SidecarDataSource";
-import { FakeHttpTransport } from "../transport/FakeHttpTransport";
-import type { SessionEventsHandlers, SessionEventsSnapshot } from "./AgentDataSource";
+import { formatTokens } from "@/features/usage/formatTokens";
+import { buildUsageGrid, cachedShare, uncachedInput } from "@/features/usage/usageGrid";
+import fixture from "@repo/agent-feed/wire/contract-fixture.json";
+import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
+import type { SessionEventsHandlers, SessionEventsSnapshot } from "@/features/activity-feed/data-source/AgentDataSource";
 // The panel's own event type, not the wire's. They are deliberately different: this one is the
 // normalization target `activityNormalization.ts` rebuilds every event into, and it is looser
 // (optional `id`, an extra `"error"` phase) because a malformed event still has to render.
-import type { ActivityEvent, TokenUsage } from "../useSessionEventsStream";
+import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { AgentUiEvent } from "@agentdesk/agent-feed-wire";
 
 const SESSION = { source: "pi", sessionId: "s1", mode: "nice" as const };

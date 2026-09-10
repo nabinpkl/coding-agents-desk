@@ -13,7 +13,7 @@ import {
   uncachedInput,
   weekBounds,
   weekdayIndex,
-} from "./usageGrid";
+} from "@/features/usage/usageGrid";
 
 function totals(input: number, cached = 0): UsageTotals {
   return {

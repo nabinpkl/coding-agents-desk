@@ -7,7 +7,7 @@ import type {
   ParkRestoreReport,
   ParkStateResponse,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 export type ParkView =
   | { kind: "idle" }

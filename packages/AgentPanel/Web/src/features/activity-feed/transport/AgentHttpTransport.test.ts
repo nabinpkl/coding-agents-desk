@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { RelayHttpTransport } from "./AgentHttpTransport";
-import { FakeHostBridge } from "../data-source/HostBridge";
+import { RelayHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import { FakeHostBridge } from "@/features/activity-feed/data-source/HostBridge";
 
 function lastRequest(bridge: FakeHostBridge) {
   return [...bridge.posted]

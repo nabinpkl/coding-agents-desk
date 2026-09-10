@@ -7,7 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { anchorAtLine, lineFromEventId, MessageAnchorError } from "./messageAnchor.ts";
+import { anchorAtLine, lineFromEventId, MessageAnchorError } from "@/transcripts/messageAnchor";
 
 const roots: string[] = [];
 const SESSION = "99999999-9999-4999-8999-999999999999";

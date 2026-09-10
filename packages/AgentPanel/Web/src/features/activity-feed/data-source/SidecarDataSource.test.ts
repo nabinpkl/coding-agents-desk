@@ -8,9 +8,9 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SidecarDataSource, SidecarError } from "./SidecarDataSource";
-import { FakeHttpTransport } from "../transport/FakeHttpTransport";
-import type { SessionEventsHandlers } from "./AgentDataSource";
+import { SidecarDataSource, SidecarError } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
+import type { SessionEventsHandlers } from "@/features/activity-feed/data-source/AgentDataSource";
 
 const SESSION = { source: "claude", sessionId: "sid-1", mode: "nice" as const };
 

@@ -15,7 +15,7 @@ import type {
   RunningBackgroundTask,
   TaskActivity,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import {
   busiestDescendant,
   isInsideTaskRoot,
@@ -23,15 +23,15 @@ import {
   type ProcessRow,
   shellDetailFrom,
   type TaskShell,
-} from "./processProbe.ts";
+} from "@/tasks/processProbe";
 import {
   claudeTranscriptPath,
   type MonitorIdentity,
   scanSessionTasks,
   type TaskIdentity,
-} from "./taskIdentity.ts";
-import type { ClaudeSessionProcess } from "./sessionRegistry.ts";
-import { parseTerminalMarker, resolveTaskState, type TaskNotification } from "./taskState.ts";
+} from "@/tasks/taskIdentity";
+import type { ClaudeSessionProcess } from "@/tasks/sessionRegistry";
+import { parseTerminalMarker, resolveTaskState, type TaskNotification } from "@/tasks/taskState";
 
 /** Enough to hold the marker, which is the last thing in the file. */
 const MARKER_TAIL_BYTES = 256;

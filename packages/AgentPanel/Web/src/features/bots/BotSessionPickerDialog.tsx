@@ -1,9 +1,9 @@
 import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SourceBadge } from "../sidebar/SourceBadge";
-import { BotAvatar } from "./BotSidebarPanel";
-import { nextSessionTitle } from "./sessionTitles";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { BotAvatar } from "@/features/bots/BotSidebarPanel";
+import { nextSessionTitle } from "@/features/bots/sessionTitles";
 
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;

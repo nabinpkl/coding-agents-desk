@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireEncoderSlot } from "./encoderSlots.ts";
-import { helperBinary } from "./helperBinary.ts";
+import { acquireEncoderSlot } from "@/desktop/encoderSlots";
+import { helperBinary } from "@/desktop/helperBinary";
 
 function installedHelper(directory: string, content: string, mtimeMs: number) {
   const path = join(directory, "grid-encoder");

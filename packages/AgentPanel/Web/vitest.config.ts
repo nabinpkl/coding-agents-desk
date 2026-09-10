@@ -9,11 +9,17 @@ const xtermPackage = fileURLToPath(
 const agentFeedWire = fileURLToPath(
   new URL("../../../agent-feed/wire/index.ts", import.meta.url),
 );
+const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
+const repositoryRootDir = fileURLToPath(new URL("../../../", import.meta.url));
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
+      // Keyed with the trailing slash on purpose: a bare "@" would also match
+      // "@agentdesk/agent-feed-wire" and swallow the wire contract.
+      "@/": panelSource,
+      "@repo/": repositoryRootDir,
       "@agentdesk/agent-feed-wire": agentFeedWire,
       "@xterm/xterm": xtermPackage,
     },

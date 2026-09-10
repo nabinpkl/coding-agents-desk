@@ -1,6 +1,6 @@
-import { extractReasoningText } from './codexReasoning.ts';
-import { isTracelessThinking } from './claudeThinking.ts';
-import type { LineClass } from './transcriptTypes.ts';
+import { extractReasoningText } from "@/transcripts/sources/codexReasoning";
+import { isTracelessThinking } from "@/transcripts/sources/claudeThinking";
+import type { LineClass } from "@/transcripts/sources/transcriptTypes";
 
 /**
  * Which transcript lines the nice view lets through.

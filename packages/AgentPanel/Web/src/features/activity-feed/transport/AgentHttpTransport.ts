@@ -17,7 +17,7 @@
  *     same header. Same paths, same responses, no relay.
  */
 
-import type { HostBridge } from "../data-source/HostBridge";
+import type { HostBridge } from "@/features/activity-feed/data-source/HostBridge";
 
 /** One relayed response, as it arrives. */
 export interface TransportResponse {

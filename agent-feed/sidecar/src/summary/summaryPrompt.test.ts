@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { ActivityEvent } from "../transcripts/sources/transcriptTypes.ts";
-import type { ActivityBlock } from "../transcripts/sources/transcriptTypes.ts";
-import { buildSummaryPrompt, parseSummaryPayload, renderEvent } from "./summaryPrompt.ts";
+import type { ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock } from "@/transcripts/sources/transcriptTypes";
+import { buildSummaryPrompt, parseSummaryPayload, renderEvent } from "@/summary/summaryPrompt";
 
 function event(index: number, type: ActivityEvent["type"], text: string): ActivityEvent {
   return { id: `e${index}`, index, revision: 0, phase: "complete", ts: index, type, blocks: [{ kind: "text", text }] };

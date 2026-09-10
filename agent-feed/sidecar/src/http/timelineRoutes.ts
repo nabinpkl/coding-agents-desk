@@ -10,23 +10,23 @@
 // numbering, its capability table. So it is made here, once, and a subscriber opens
 // one stream and reads messages off it.
 
-import type { AgentBackend } from "../agents/agentBackend.ts";
+import type { AgentBackend } from "@/agents/agentBackend";
 import {
   findSession,
   getWatcherState,
   sessionCapabilities,
   type AgentSessionDescriptorResolver,
-} from "../transcripts/transcriptCatalog.ts";
+} from "@/transcripts/transcriptCatalog";
 import type {
   EventMode,
   SourceId,
   TokenUsage,
   TranscriptSourceId,
-} from "../transcripts/sources/transcriptTypes.ts";
+} from "@/transcripts/sources/transcriptTypes";
 import type { EventsPage, TimelineMessage } from "@agentdesk/agent-feed-wire";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
-import { readTranscriptPage, subscribeTranscriptTimeline } from "./sessionRoutes.ts";
-import type { RouteHandler } from "./route.ts";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
+import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/sessionRoutes";
+import type { RouteHandler } from "@/http/route";
 
 const TIMELINE_ROUTE =
   /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/timeline$/;

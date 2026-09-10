@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { createTmuxRoutes } from "./tmuxRoutes.ts";
-import { TmuxUnavailable } from "../terminal/tmuxSessions.ts";
+import { createTmuxRoutes } from "@/http/tmuxRoutes";
+import { TmuxUnavailable } from "@/terminal/tmuxSessions";
 
 const server = { timeout() {} } as never;
 

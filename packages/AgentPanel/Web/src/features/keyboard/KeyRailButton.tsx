@@ -1,4 +1,4 @@
-import type { ModifierState } from "./modifierLatch";
+import type { ModifierState } from "@/features/keyboard/modifierLatch";
 
 /**
  * One key on a key rail: a plain key, or a latching modifier that shows what it is holding.

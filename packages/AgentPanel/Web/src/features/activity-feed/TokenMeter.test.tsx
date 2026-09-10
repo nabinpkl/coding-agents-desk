@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { TokenMeter, formatTokens } from "./TokenMeter";
-import { newerUsage } from "./useSessionEventsStream";
+import { TokenMeter, formatTokens } from "@/features/activity-feed/TokenMeter";
+import { newerUsage } from "@/features/activity-feed/useSessionEventsStream";
 
 describe("TokenMeter", () => {
   it("renders a fill bar sized to the fraction of the known window", () => {

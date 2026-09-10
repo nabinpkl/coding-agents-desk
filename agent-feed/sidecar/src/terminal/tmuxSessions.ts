@@ -3,233 +3,45 @@
 // Why tmux and not the PTY manager's own sessions: the manager can re-attach a process IT
 // started, and the sessions worth watching were started by hand from a real terminal. tmux is
 // what makes a second viewer of an already-running process legal, so it is the thing to ask.
+//
+// The parts: `tmuxCommand.ts` runs tmux at all, `tmuxCapture.ts` reads what a pane shows,
+// `tmuxSessionList.ts` says which sessions exist and starts new ones, and this drives a
+// pane that already exists.
 
-import { config } from "../config.ts";
-import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
+import { TmuxUnavailable, tmux } from "@/terminal/tmuxCommand";
 
-export class TmuxUnavailable extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TmuxUnavailable";
-  }
-}
-
-/**
- * One line per session, fields in the order this format string names them.
- *
- * `|` rather than a tab because a session name can contain neither, and reading the format back
- * from the parser is how the two stay in step.
- */
-const LIST_FORMAT = "#{session_name}|#{session_windows}|#{session_attached}|#{session_path}";
-
-export function parseTmuxSessions(stdout: string): TmuxSessionSummary[] {
-  const sessions: TmuxSessionSummary[] = [];
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue;
-    const [name, windows, attached, path] = line.split("|");
-    // A line that does not carry every field is a format drift, not a session. Skipping it
-    // silently would show a grid with a tile missing and no reason for it.
-    if (!name || windows === undefined || attached === undefined || path === undefined) {
-      throw new TmuxUnavailable(`tmux list-sessions returned an unreadable line: ${line}`);
-    }
-    sessions.push({
-      name,
-      windows: Number(windows) || 0,
-      attachedClients: Number(attached) || 0,
-      path,
-    });
-  }
-  return sessions;
-}
-
-async function tmux(args: string[]): Promise<{ out: string; err: string; code: number }> {
-  const bin = config.tmuxPath;
-  if (!bin) {
-    throw new TmuxUnavailable("no tmux binary found; set AGENT_FEED_TMUX_PATH to an absolute path");
-  }
-  const proc = Bun.spawn([bin, ...args], { stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { out, err, code };
-}
-
-/**
- * What tmux is asked for: the scrollback, and deliberately NOT the screen.
- *
- * tmux numbers the visible screen from 0 and the scrollback with negatives, so `-E -1` ends the
- * range one line above the top of the screen. The screen is excluded because the live stream is
- * about to paint it: a viewer that also imports it as text writes a second, frozen copy, and
- * tmux's redraw then addresses screen rows absolutely into a window that overlaps that copy.
- * Measured on a pane holding 1066 scrollback lines: `-S -50000` returned 1089, the extra 23 being
- * the screen, and the redraw landing one row out left half-overwritten lines through the history.
- *
- * `-e` keeps the colour. `-J` is deliberately absent, since joining wrapped lines would reflow
- * output that was laid out for a different width.
- */
-export function captureHistoryArgs(session: string, lines: number): string[] {
-  return ["capture-pane", "-p", "-e", "-S", `-${lines}`, "-E", "-1", "-t", session];
-}
-
-/** The visible screen on its own, which is the part the scrollback range deliberately omits. */
-export function captureScreenArgs(session: string): string[] {
-  return ["capture-pane", "-p", "-e", "-t", session];
-}
-
-/**
- * How tall that screen is, and where the cursor sits in it.
- *
- * The height says how many rows the viewer has to open. The cursor says where to leave it, which
- * matters because the program on the other end goes on drawing RELATIVE to it: Claude Code's
- * renderer redraws by moving from where it believes the cursor is. Measured on a live pane: a
- * viewer that ended its import at the end of the captured text left the cursor several rows below
- * the composer, and every subsequent keystroke was echoed onto the status divider instead of into
- * the box -- correct bytes, correct terminal, wrong origin.
- */
-export function paneGeometryArgs(session: string): string[] {
-  return [
-    "display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x}",
-  ];
-}
-
-/** What tmux says about a pane right now: the screen it is showing, and where its cursor sits. */
-export interface TmuxPaneView {
-  screen: string;
-  /** The cursor's own row and column in the pane, counted from the top left of the screen. */
-  cursor: { row: number; column: number };
-}
-
-/**
- * The screen and the cursor, asked for in ONE tmux invocation.
- *
- * Two commands separated by `;`, which tmux runs on one client connection and answers in order:
- * the cursor on the first line, the screen after it. Two spawns would be the obvious spelling and
- * would cost a second process on every read, and the composer's watcher reads on every burst of
- * pane output -- up to about seven a second per session somebody is typing in.
- *
- * The cursor is not decoration beside the text; it carries what the text CANNOT. tmux pads every
- * captured row to the pane width, so a composer holding `abc ` and one holding `abc` come back as
- * the same string and a trailing space is unrecoverable from the capture alone. Measured
- * 2026-09-08: `abc` reported column 5, `abc ` reported 6, and `abc   ` reported 8, against a box
- * that starts at column 2. So the column is the true length of the row the cursor is on, and the
- * row says which line of a wrapped box the reader is actually on.
- */
-export function capturePaneViewArgs(session: string): string[] {
-  return [
-    "display-message", "-p", "-t", session, "#{cursor_y} #{cursor_x}",
-    ";",
-    ...captureScreenArgs(session),
-  ];
-}
-
-/**
- * What the pane is showing and where its cursor is, colour and all.
- *
- * The colour is not incidental to a reader, which is why this shares `captureScreenArgs` with the
- * painting path instead of asking for plain text. Claude draws its composer placeholder in the
- * same box as a real prompt and the only thing separating them is that the placeholder is DIM --
- * measured as `\u001b[2m<no suggestion>\u001b[0m`, where typed text carries no such run. Strip the
- * escapes at the source and the two become one string, and the panel mirrors a hint back into
- * somebody's session as if they had typed it.
- */
-export async function captureTmuxPaneView(session: string): Promise<TmuxPaneView> {
-  const result = await tmux(capturePaneViewArgs(session));
-  demand("pane view", result);
-  const split = result.out.indexOf("\n");
-  const where = (split === -1 ? result.out : result.out.slice(0, split)).trim().split(/\s+/);
-  const row = Number.parseInt(where[0] ?? "", 10);
-  const column = Number.parseInt(where[1] ?? "", 10);
-  // Loud rather than assumed. A cursor this cannot read is not a cursor at the end of the box, and
-  // treating it as one is exactly the guess that corrupts a composer.
-  if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0) {
-    throw new TmuxUnavailable(`tmux reported an unusable cursor: ${result.out.slice(0, 80)}`);
-  }
-  return { screen: split === -1 ? "" : result.out.slice(split + 1), cursor: { row, column } };
-}
-
-/**
- * Scrollback, then a screen's worth of blank rows, then the screen painted into them.
- *
- * The blank rows are the whole point, and they are not padding. A terminal's active screen is
- * always the last `rows` lines of its buffer, and tmux addresses that screen absolutely: row 1 is
- * row 1 whatever is under it. Write the scrollback and stop, and the screen window still straddles
- * the last rows of that scrollback, so tmux's next repaint overwrites part of each of those lines
- * and leaves the rest -- history that reads as corruption rather than as a positioning bug. Opening
- * `rows - 1` lines (the scrollback's own trailing newline is the first) puts the window entirely on
- * blank rows below the history, and `ESC[H` homes into it before the screen text fills it exactly.
- *
- * It ends by putting the cursor where the pane's actually is, rather than wherever the screen text
- * happened to run out. See `paneGeometryArgs`.
- *
- * Composed here rather than in the viewer because the row count that has to match is the pane's,
- * and the pane is what this module can see.
- */
-export function terminalHistoryPayload(
-  { scrollback, screen, rows, cursor }: {
-    scrollback: string;
-    screen: string;
-    rows: number;
-    /** The pane's cursor, zero-based as tmux reports it. */
-    cursor: { row: number; column: number };
-  },
-): string {
-  const history = historyForTerminal(scrollback);
-  const opening = "\r\n".repeat(Math.max(0, rows - 1));
-  // CUP is one-based, and addresses the screen -- which the opening rows above put exactly where
-  // the pane's screen is.
-  const home = `\u001b[${cursor.row + 1};${cursor.column + 1}H`;
-  return `${history}${opening}\u001b[H${historyForTerminal(screen.replace(/\n$/, ""))}${home}`;
-}
-
-function demand(what: string, result: { err: string; code: number }): void {
-  if (result.code === 0) return;
-  throw new TmuxUnavailable(`tmux ${what} read exited ${result.code}: ${result.err.trim()}`);
-}
-
-/** Everything the viewer needs to open with: the pane's scrollback and its current screen. */
-export async function captureTmuxHistory(session: string, lines: number): Promise<string> {
-  const [history, screen, geometry] = await Promise.all([
-    tmux(captureHistoryArgs(session, lines)),
-    tmux(captureScreenArgs(session)),
-    tmux(paneGeometryArgs(session)),
-  ]);
-  // Named individually because the three are different commands: a reader told "capture-pane
-  // failed" when it was `display-message` that failed looks for the bug in the wrong place.
-  demand("scrollback", history);
-  demand("screen", screen);
-  demand("pane geometry", geometry);
-  const fields = geometry.out.trim().split(/\s+/);
-  const rows = Number.parseInt(fields[0] ?? "", 10);
-  if (!Number.isInteger(rows) || rows < 1) {
-    throw new TmuxUnavailable(`tmux reported an unusable pane height: ${geometry.out.trim()}`);
-  }
-  // A tmux old enough not to report a cursor still gets a correct screen; it just resumes from the
-  // top of it, which is the behaviour this replaces rather than a new failure.
-  const coordinate = (field: string | undefined): number => {
-    const value = Number.parseInt(field ?? "", 10);
-    return Number.isInteger(value) && value >= 0 ? value : 0;
-  };
-  return terminalHistoryPayload({
-    scrollback: history.out,
-    screen: screen.out,
-    rows,
-    cursor: { row: coordinate(fields[1]), column: coordinate(fields[2]) },
-  });
-}
-
-/**
- * Line feeds become carriage-return line feeds, because the destination is a terminal.
- *
- * `capture-pane` writes text, one line per line, separated by LF. A terminal reading a bare LF
- * moves down a row and stays in the column it was in, so every line after the first starts where
- * the previous one ended: the history arrives as a staircase of fragments, each indented by the
- * length of the line above it. Seen exactly that way before this existed.
- */
-export function historyForTerminal(captured: string): string {
-  return captured.replace(/\r?\n/g, "\r\n");
-}
+// Re-exported because this is the address nine callers already have, and the four parts
+// are one conversation with one tmux server.
+export { TmuxUnavailable } from "@/terminal/tmuxCommand";
+export {
+  captureHistoryArgs,
+  captureScreenArgs,
+  capturePaneViewArgs,
+  captureTmuxHistory,
+  captureTmuxPaneView,
+  historyForTerminal,
+  paneActivity,
+  paneActivityArgs,
+  paneGeometryArgs,
+  terminalHistoryPayload,
+  waitForPaneToSettle,
+  type TmuxPaneView,
+} from "@/terminal/tmuxCapture";
+export {
+  createTmuxSession,
+  findTmuxSessionByIdentity,
+  hasSessionArgs,
+  listTmuxSessions,
+  newSessionArgs,
+  parseTmuxSessionIdentities,
+  parseTmuxSessions,
+  renameSessionArgs,
+  renameTmuxSessionTo,
+  setSessionIdentityArgs,
+  stampTmuxSessionIdentity,
+  tmuxSessionExists,
+  type NewTmuxSession,
+} from "@/terminal/tmuxSessionList";
 
 /**
  * Gives the session's mouse setting back to whoever configured it.
@@ -244,280 +56,9 @@ export function historyForTerminal(captured: string): string {
  * The viewer keeps its own scrolling regardless, because its wheel handler consumes the event
  * rather than letting xterm forward it.
  */
-/**
- * What a pane looks like right now, cheaply, for deciding whether it has stopped writing.
- *
- * `history_size` catches output that scrolled away and the cursor catches a redraw that stayed on
- * one screen, which a full-screen program does constantly. Either alone misses half of what
- * "still working" looks like.
- */
-export function paneActivityArgs(session: string): string[] {
-  return [
-    "display-message", "-p", "-t", session,
-    "#{history_size} #{cursor_y} #{cursor_x} #{pane_dead}",
-  ];
-}
-
-export async function paneActivity(session: string): Promise<string> {
-  const { out, code } = await tmux(paneActivityArgs(session));
-  if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}`);
-  return out.trim();
-}
-
-/**
- * Waits for a pane this process just created to stop writing, or gives up.
- *
- * The reason is what a tmux client gets for free and this path does not. `pipe-pane` starts at
- * NOW, so a viewer that attaches to a pane at the instant it is born receives the program's entire
- * startup as live output -- every escape and every intermediate repaint -- and has to emulate all
- * of it. A viewer that arrives later gets the same thing already collapsed by `capture-pane`, which
- * is exactly what tmux hands its own clients: the settled screen, not the working.
- *
- * So a freshly created pane waits here first. Measured on a forked CLI: it wrote ~148KB in the
- * first second and a half and then went quiet, and attaching after that turned 24 live output
- * messages into one capture and nothing on the wire.
- *
- * Bounded, and the bound is not an error: a program that never stops writing is a legitimate thing
- * to watch, and it should be watched late rather than not at all.
- */
-export async function waitForPaneToSettle(
-  session: string,
-  options: {
-    quietMs?: number;
-    timeoutMs?: number;
-    pollMs?: number;
-    startupMs?: number;
-    now?: () => number;
-    sleep?: (ms: number) => Promise<void>;
-    sample?: (session: string) => Promise<string>;
-  } = {},
-): Promise<{ settled: boolean; waitedMs: number }> {
-  const quietMs = options.quietMs ?? 400;
-  const timeoutMs = options.timeoutMs ?? 6_000;
-  const pollMs = options.pollMs ?? 100;
-  // How long to give a pane that has not written anything YET.
-  //
-  // Measured, and the reason a first attempt at this did nothing: a pane is silent for its first
-  // second or so while the program loads, so "no change for 400ms" is true immediately and the
-  // wait returned before the startup it exists to wait for had begun. Quiet only counts once the
-  // pane has shown it is alive.
-  const startupMs = options.startupMs ?? 3_000;
-  const now = options.now ?? (() => Date.now());
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const sample = options.sample ?? paneActivity;
-
-  const start = now();
-  let baseline: string | null = null;
-  let lastChange = start;
-  let stirred = false;
-  while (now() - start < timeoutMs) {
-    let current: string;
-    try {
-      current = await sample(session);
-    } catch {
-      // A pane that cannot be described is not a pane worth waiting for; let the attach report it.
-      return { settled: false, waitedMs: now() - start };
-    }
-    if (baseline === null) {
-      baseline = current;
-    } else if (current !== baseline) {
-      baseline = current;
-      lastChange = now();
-      stirred = true;
-    } else if (stirred && now() - lastChange >= quietMs) {
-      return { settled: true, waitedMs: now() - start };
-    } else if (!stirred && now() - start >= startupMs) {
-      // Never wrote a byte. Nothing to collapse, so nothing to wait for.
-      return { settled: true, waitedMs: now() - start };
-    }
-    await sleep(pollMs);
-  }
-  return { settled: false, waitedMs: now() - start };
-}
-
 export async function restoreTmuxMouse(session: string): Promise<void> {
   const { err, code } = await tmux(["set-option", "-u", "-t", session, "mouse"]);
   if (code !== 0) throw new TmuxUnavailable(`tmux set-option mouse exited ${code}: ${err.trim()}`);
-}
-
-/**
- * Whether that exact session is running.
- *
- * `=` before the name is load-bearing: tmux resolves a bare `-t name` by exact match, then
- * prefix, then fnmatch, so `has-session -t agentdesk-x` answers yes for `agentdesk-xy`. Asked in
- * order to decide whether to CREATE a session, a prefix hit means silently attaching a viewer to
- * somebody else's pane, so this one asks exactly.
- */
-export function hasSessionArgs(session: string): string[] {
-  return ["has-session", "-t", `=${session}`];
-}
-
-export async function tmuxSessionExists(session: string): Promise<boolean> {
-  const { out, err, code } = await tmux(hasSessionArgs(session));
-  if (code === 0) return true;
-  // Both "no server running" and "can't find session" are ordinary answers to the question.
-  if (/no server running|can.t find session|no such session|session not found/i.test(err + out)) {
-    return false;
-  }
-  throw new TmuxUnavailable(`tmux has-session exited ${code}: ${err.trim() || out.trim()}`);
-}
-
-/**
- * The tmux option carrying which Claude session a tmux session is running.
- *
- * A user option (`@`) rather than the session NAME, which is what this used to be. The name was
- * derived from the session uuid so two viewers could agree on one pane without coordinating --
- * real work, but it made the name a lookup key, and a key cannot be renamed. Measured: renaming a
- * session left the sidecar addressing a name tmux no longer had, and the panel minted a second
- * session beside it.
- *
- * An option separates the two jobs. It rides through every rename (measured), so identity is
- * stable while the name is free to be something a person can type at `tmux attach -t`.
- */
-const SESSION_IDENTITY_OPTION = "@agentdesk-session";
-
-/**
- * Stamps which Claude session this tmux session is running.
- *
- * No `=` prefix on the target, unlike `has-session` below: `set-option` does not accept one and
- * answers `no such session: =name` for a session that is right there. Measured 2026-09-08, and it
- * fails in the worst way -- exit non-zero with the option silently unset, so a later lookup finds
- * nothing and concludes the session is gone.
- */
-export function setSessionIdentityArgs(session: string, sessionId: string): string[] {
-  return ["set-option", "-t", session, SESSION_IDENTITY_OPTION, sessionId];
-}
-
-export async function stampTmuxSessionIdentity(
-  session: string,
-  sessionId: string,
-): Promise<void> {
-  const { err, code } = await tmux(setSessionIdentityArgs(session, sessionId));
-  if (code !== 0) throw new TmuxUnavailable(`tmux set-option exited ${code}: ${err.trim()}`);
-}
-
-/** One line per session: the name, and the Claude session it is running if it says. */
-const IDENTITY_FORMAT = `#{session_name}|#{${SESSION_IDENTITY_OPTION}}`;
-
-export function parseTmuxSessionIdentities(stdout: string): Map<string, string> {
-  const bySessionId = new Map<string, string>();
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue;
-    const separator = line.indexOf("|");
-    if (separator < 0) continue;
-    const name = line.slice(0, separator);
-    const sessionId = line.slice(separator + 1).trim();
-    // Empty is ordinary and by far the common case: every session tmux holds that this sidecar
-    // did not start prints an empty option rather than failing the query.
-    if (!name || !sessionId) continue;
-    // First wins. Two panes claiming one session is a bug elsewhere, and picking the later one
-    // would move a viewer off the pane it was already reading.
-    if (!bySessionId.has(sessionId)) bySessionId.set(sessionId, name);
-  }
-  return bySessionId;
-}
-
-/** Which tmux session is running this Claude session, by the stamp rather than by its name. */
-export async function findTmuxSessionByIdentity(sessionId: string): Promise<string | null> {
-  const { out, err, code } = await tmux(["list-sessions", "-F", IDENTITY_FORMAT]);
-  if (code !== 0) {
-    if (/no server running|no sessions/i.test(err)) return null;
-    throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
-  }
-  return parseTmuxSessionIdentities(out).get(sessionId) ?? null;
-}
-
-/**
- * Renames a tmux session, which is now only a change of label.
- *
- * Safe precisely because nothing resolves by name any more: the stamp above is what a viewer finds
- * a pane by, and the pane id in every open attachment is untouched. `=` for exactness, so a
- * prefix hit cannot rename somebody else's session.
- */
-export function renameSessionArgs(session: string, name: string): string[] {
-  return ["rename-session", "-t", `=${session}`, name];
-}
-
-export async function renameTmuxSessionTo(session: string, name: string): Promise<void> {
-  const { err, out, code } = await tmux(renameSessionArgs(session, name));
-  if (code !== 0) {
-    throw new TmuxUnavailable(`tmux rename-session exited ${code}: ${err.trim() || out.trim()}`);
-  }
-}
-
-/**
- * Starts a detached session running one command, at the size the viewer asked for.
- *
- * The geometry is passed because this session has no other client to take it from: a detached
- * `new-session` defaults to 80x24, and the viewer would then be reading a pane narrower than
- * itself for the life of the session. A session tmux was already running keeps its own size --
- * that one has an owner whose terminal decides it.
- *
- * The command goes through a login shell rather than straight to tmux, for the same reason the PTY
- * path does: tmux hands a shell-command to `/bin/sh -c`, and this process's environment is
- * deliberately stripped of the PATH that would find `claude`. It is built here as one string, from
- * a fixed executable name and an argument this module's callers have already validated as a UUID.
- */
-export function newSessionArgs(
-  { session, cwd, command, columns, rows }: NewTmuxSession,
-): string[] {
-  // Not `exec`: when the command exits -- a resume that is refused prints why and stops -- the
-  // shell stays, so the pane holds the reason where the viewer can read it instead of the session
-  // vanishing and the attach failing with nothing to show.
-  //
-  // Every argument quoted, not just the script. This is an argv being flattened into a shell
-  // script, so an argument carrying a space or a metacharacter stops being one argument the moment
-  // it is joined. It went unnoticed while every argument was a bare token; the first title passed
-  // to `-n` broke it, because zsh reads the `(fork 1)` in `Session (fork 1)` as a glob qualifier
-  // and answers "invalid mode specification" instead of running anything.
-  const script = `${command.map(shellQuote).join(" ")}; exec ${LOGIN_SHELL} -l`;
-  return [
-    // `-A` for the race: two viewers of one session can both find it missing, and without this the
-    // loser gets "duplicate session" where it wanted the winner's. With it, a second create is a
-    // no-op that exits 0, and the caller's own existence check stays as the ordinary path.
-    "new-session", "-A", "-d", "-s", session, "-c", cwd,
-    "-x", String(columns), "-y", String(rows),
-    `${LOGIN_SHELL} -l -c ${shellQuote(script)}`,
-  ];
-}
-
-export async function createTmuxSession(options: NewTmuxSession): Promise<void> {
-  const { err, code } = await tmux(newSessionArgs(options));
-  if (code !== 0) {
-    throw new TmuxUnavailable(`tmux new-session exited ${code}: ${err.trim()}`);
-  }
-}
-
-export interface NewTmuxSession {
-  session: string;
-  cwd: string;
-  /** Argv of the command to run, executable first. */
-  command: readonly string[];
-  columns: number;
-  rows: number;
-}
-
-const LOGIN_SHELL = "/bin/zsh";
-
-/**
- * Single-quoted for `sh -c`, with the one escape single quotes have.
- *
- * A single-quoted string cannot contain a single quote at all, so each one leaves the quoting,
- * contributes an escaped `'`, and re-enters it: `it's` becomes `'it'\''s'`. Writing that in a
- * JavaScript string needs the backslash escaped -- `"'\\''"` -- and without it this produced
- * `'it'''s'`, which leaves the shell inside an unterminated quote.
- */
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-/** Empty when the server is not running, which is not a failure: nobody has started a session. */
-export async function listTmuxSessions(): Promise<TmuxSessionSummary[]> {
-  const { out, err, code } = await tmux(["list-sessions", "-F", LIST_FORMAT]);
-  if (code === 0) return parseTmuxSessions(out);
-  // "no server running" is how tmux reports an empty machine, and it exits non-zero saying so.
-  if (/no server running|no sessions/i.test(err)) return [];
-  throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
 }
 
 /** The pane's pid and geometry, in one query, for the descriptor the panel renders. */

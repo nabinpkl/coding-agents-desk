@@ -15,7 +15,7 @@
 import {
   createTmuxSession,
   stampTmuxSessionIdentity,
-} from "./tmuxSessions.ts";
+} from "@/terminal/tmuxSessions";
 
 /**
  * The pane a session started or resumed by this sidecar runs in.

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import type { SummaryResult } from "@agentdesk/agent-feed-wire";
-import type { SummaryState } from "./useSummary";
+import type { SummaryState } from "@/features/summary/useSummary";
 
 /**
  * The digest, above the composer.

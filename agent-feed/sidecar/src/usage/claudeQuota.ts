@@ -17,7 +17,7 @@
 // old the reading is, rather than presenting a stale meter as the current one.
 
 import { readFile } from "node:fs/promises";
-import type { QuotaSample } from "./quotaSample.ts";
+import type { QuotaSample } from "@/usage/quotaSample";
 
 /** `five_hour` and `seven_day` are the two the CLI publishes; the rest of the map is nulls. */
 const WINDOWS = [

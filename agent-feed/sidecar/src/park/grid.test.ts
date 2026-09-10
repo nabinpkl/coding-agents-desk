@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { packFromTopLeft, usableArea } from "./grid.ts";
+import { packFromTopLeft, usableArea } from "@/park/grid";
 
 const DESK = { x: 1800, y: 40, w: 7680, h: 4280 };
 const TERMINAL = { w: 860, h: 499 };

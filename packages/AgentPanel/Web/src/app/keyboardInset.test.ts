@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keyboardInset, typesText } from "./keyboardInset";
+import { keyboardInset, typesText } from "@/app/keyboardInset";
 
 describe("keyboardInset", () => {
   it("gives back the strip a keyboard covers", () => {

@@ -5,10 +5,10 @@ import type {
   RunningBackgroundTask,
   TaskOutputMessage,
 } from "@agentdesk/agent-feed-wire";
-import { stubDataSource } from "../activity-feed/data-source/stubDataSource";
-import type { SessionReference } from "../activity-feed/data-source/AgentDataSource";
-import { BackgroundTasksContent } from "./BackgroundTasksPanel";
-import { RunningTasksChip } from "./RunningTasksChip";
+import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
+import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
+import { BackgroundTasksContent } from "@/features/background-tasks/BackgroundTasksPanel";
+import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
 
 const SESSION: SessionReference = { source: "claude", sessionId: "s1", mode: "nice" };
 

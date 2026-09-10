@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { ActivityBlock, ActivityEvent } from "../transcripts/sources/transcriptTypes.ts";
-import { describeToolCall, filesTouchedIn } from "./toolCalls.ts";
+import type { ActivityBlock, ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import { describeToolCall, filesTouchedIn } from "@/summary/toolCalls";
 
 const PROJECT = "/Users/dev/projects/agent-desk";
 

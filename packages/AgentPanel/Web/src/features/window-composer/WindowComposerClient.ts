@@ -1,5 +1,5 @@
 import type { WindowQuestionAction, WindowQuestionStatus } from "@agentdesk/agent-feed-wire";
-import { SidecarError, type SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import { SidecarError, type SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 /**
  * Live state of one session's Claude Desktop composer, as the host last resolved it.

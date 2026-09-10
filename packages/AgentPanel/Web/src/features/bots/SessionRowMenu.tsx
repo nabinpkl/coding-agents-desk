@@ -1,5 +1,5 @@
-import { GitFork, Pencil, Unlink } from "lucide-react";
-import { RowMenu, type RowMenuItem } from "./RowMenu";
+import { EyeOff, GitFork, Pencil, Unlink } from "lucide-react";
+import { RowMenu, type RowMenuItem } from "@/features/bots/RowMenu";
 
 /**
  * The per-session actions menu, on a row that names one session a Bot has been given.
@@ -12,6 +12,7 @@ export function SessionRowMenu({
   onRename,
   onFork,
   onDetach,
+  onRemoveFromCanvas,
 }: {
   label: string;
   /**
@@ -25,12 +26,27 @@ export function SessionRowMenu({
    */
   onFork?: () => void;
   onDetach: () => void;
+  /**
+   * Takes this session's card off the canvas and changes nothing about the Bot.
+   *
+   * Absent everywhere there is no canvas to be taken off, which is the Bots tab and the sidebar
+   * roster -- the same split the Bot's own header menu has, where "Remove from canvas" lives on
+   * the card and the sidebar's way back is clicking the row.
+   */
+  onRemoveFromCanvas?: () => void;
 }) {
   const items: RowMenuItem[] = [];
   if (onRename) items.push({ label: "Rename session", icon: Pencil, onSelect: onRename });
   if (onFork) items.push({ label: "Fork session", icon: GitFork, onSelect: onFork });
   // "from bot", not "from canvas": this drops the Bot's reference to the session wherever the row
-  // is being read, and the sibling menu on the card header is the one that means the canvas.
+  // is being read, and is the only one of the two that asks the sidecar for anything. Both survive
+  // a reload; only this one survives it for somebody else.
   items.push({ label: "Remove from bot", icon: Unlink, onSelect: onDetach });
+  // Below the Bot-level removal, and worded as the smaller act it is: this one is undone by
+  // clicking the session in the sidebar, where every session a Bot holds is listed whether or not
+  // its card is on the canvas.
+  if (onRemoveFromCanvas) {
+    items.push({ label: "Remove from canvas", icon: EyeOff, onSelect: onRemoveFromCanvas });
+  }
   return <RowMenu label={label} items={items} />;
 }

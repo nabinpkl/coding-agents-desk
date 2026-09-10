@@ -5,9 +5,9 @@
 // have separate lifetimes.
 
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import { listTmuxSessions, TmuxUnavailable } from "../terminal/tmuxSessions.ts";
-import { jsonResponse } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+import { listTmuxSessions, TmuxUnavailable } from "@/terminal/tmuxSessions";
+import { jsonResponse } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const TMUX_SESSIONS_ROUTE = "/api/tmux/sessions";
 

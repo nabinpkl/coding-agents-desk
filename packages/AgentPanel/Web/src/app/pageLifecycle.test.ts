@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { installPagehideLifecycle } from "./pageLifecycle";
+import { installPagehideLifecycle } from "@/app/pageLifecycle";
 
 describe("pagehide lifecycle", () => {
   it("ends the current terminal context before destroying the bridge", () => {

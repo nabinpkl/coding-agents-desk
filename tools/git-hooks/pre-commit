@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Refuses a commit that breaks either rule the fitness gate enforces on the live TypeScript trees:
+# a file past 500 lines, or a relative import.
+#
+# The same rule as check 5 in `tools/agent-feed-fitness.sh`, moved to the moment it is cheap to
+# obey. The gate is the authority and this is not a second opinion: same two trees, same two
+# extensions, same limit, same `wc -l`. If they ever disagree, the gate is right and this is the
+# bug.
+#
+# Why both. The gate answers "is the tree under the cap", which is the question that matters and
+# the wrong moment to ask it: by the time `just check` says no, the file is written and splitting
+# it is a second job. This asks at the moment the author still has the concepts in their head,
+# which is the only moment the split is nearly free.
+#
+# It reads the INDEX, not the worktree. A pathspec commit -- `git commit -- <paths>`, which is how
+# this repository commits, because several sessions share one worktree -- builds a temporary index
+# holding exactly what will land, and the hook runs against that. Reading the files on disk would
+# measure a peer's half-written edit instead.
+#
+# Only `.ts` and `.tsx`, only under the two `src` trees that are the current path. Everything else
+# in this repository is Swift, Rust, generated, vendored, or dormant, and a line cap on any of them
+# would be a rule nobody agreed to.
+set -uo pipefail
+
+LIMIT=500
+TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src"
+
+staged="$(git diff --cached --name-only --diff-filter=ACMR -- $TREES | grep -E '\.tsx?$' || true)"
+[ -n "$staged" ] || exit 0
+
+# The three specifier forms this codebase writes, anchored or parenthesised so one quoted INSIDE a
+# string stays legal. Same expression as check 6 of the fitness gate, which is the authority.
+RELATIVE='^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|require)\([[:space:]]*["'"'"']\.'
+
+oversize=""
+relative=""
+while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    # The staged blob, which is what the commit will contain. `wc -l` counts newlines, exactly as
+    # the fitness gate does, so a file that passes here passes there.
+    lines="$(git show ":$path" 2>/dev/null | wc -l | tr -d ' ')"
+    [ -n "$lines" ] || continue
+    if [ "$lines" -gt "$LIMIT" ]; then
+        oversize="$oversize  $lines $path"$'\n'
+    fi
+    hits="$(git show ":$path" 2>/dev/null | grep -nE "$RELATIVE" || true)"
+    if [ -n "$hits" ]; then
+        relative="$relative$(printf '%s\n' "$hits" | sed "s|^|  $path:|")"$'\n'
+    fi
+done <<< "$staged"
+
+status=0
+
+if [ -n "$oversize" ]; then
+    echo "pre-commit: these staged files are past the ${LIMIT}-line cap:" >&2
+    printf '%s' "$oversize" >&2
+    echo "pre-commit: split them by concept before committing. A file this long has stopped being" >&2
+    echo "pre-commit: one idea, and the reader who needs one of its ideas pays for all of them." >&2
+    status=1
+fi
+
+if [ -n "$relative" ]; then
+    echo "pre-commit: these staged lines import relatively; write @/ or @repo/ instead:" >&2
+    printf '%s' "$relative" >&2
+    echo "pre-commit: a relative import breaks when either end moves, so it makes moving one file" >&2
+    echo "pre-commit: cost every importer too. An aliased one names only what moved." >&2
+    status=1
+fi
+
+exit "$status"

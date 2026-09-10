@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createInventoryRoutes } from "./inventoryRoutes.ts";
-import { handleSessionRoutes } from "./sessionRoutes.ts";
-import { state } from "../transcripts/transcriptState.ts";
+import { createInventoryRoutes } from "@/http/inventoryRoutes";
+import { handleSessionRoutes } from "@/http/sessionRoutes";
+import { state } from "@/transcripts/transcriptState";
 
 const server = undefined as never;
 const sessionId = "11111111-1111-1111-1111-111111111111";

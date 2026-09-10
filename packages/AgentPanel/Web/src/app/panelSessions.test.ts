@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSessionIndex, sessionApiPrefix } from "./panelSessions";
+import { parseSessionIndex, sessionApiPrefix } from "@/app/panelSessions";
 
 describe("sessionApiPrefix", () => {
   it("leaves the default session where every existing caller expects it", () => {

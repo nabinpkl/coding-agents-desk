@@ -1,32 +1,32 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
-import { config } from "./config.ts";
-import { announceSidecar } from "./sidecarRegistry.ts";
+import { config } from "@/config";
+import { announceSidecar } from "@/sidecarRegistry";
 import {
   BYE_BYTES,
   jsonResponse,
-} from "./http/httpResponses.ts";
-import { createAgentRoutes } from "./http/agentRoutes.ts";
-import { createBotRoutes } from "./http/botRoutes.ts";
-import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
+} from "@/http/httpResponses";
+import { createAgentRoutes } from "@/http/agentRoutes";
+import { createBotRoutes } from "@/http/botRoutes";
+import { createCliInputRoutes } from "@/http/cliInputRoutes";
 import {
   createTmuxComposerRoutes,
   liveTmuxComposerDependencies,
-} from "./http/tmuxComposerRoutes.ts";
-import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
-import { createParkRoutes } from "./http/parkRoutes.ts";
-import { createWindowRoutes } from "./http/windowRoutes.ts";
-import { createWebrtcTileRoutes } from "./http/webrtcTileRoutes.ts";
-import type { RouteHandler } from "./http/route.ts";
-import { createSessionRoutes } from "./http/sessionRoutes.ts";
-import { createSummaryRoutes } from "./http/summaryRoutes.ts";
-import { createTaskRoutes } from "./http/taskRoutes.ts";
-import { createAgentTerminalRoutes } from "./http/agentTerminalRoutes.ts";
-import { createTmuxRoutes } from "./http/tmuxRoutes.ts";
-import { createTimelineRoutes } from "./http/timelineRoutes.ts";
-import { createUsageRoutes } from "./http/usageRoutes.ts";
-import { detectUsageVendors } from "./usage/usageReport.ts";
-import { state } from "./transcripts/transcriptState.ts";
+} from "@/http/tmuxComposerRoutes";
+import { createInventoryRoutes } from "@/http/inventoryRoutes";
+import { createParkRoutes } from "@/http/parkRoutes";
+import { createWindowRoutes } from "@/http/windowRoutes";
+import { createWebrtcTileRoutes } from "@/http/webrtcTileRoutes";
+import type { RouteHandler } from "@/http/route";
+import { createSessionRoutes } from "@/http/sessionRoutes";
+import { createSummaryRoutes } from "@/http/summaryRoutes";
+import { createTaskRoutes } from "@/http/taskRoutes";
+import { createAgentTerminalRoutes } from "@/http/agentTerminalRoutes";
+import { createTmuxRoutes } from "@/http/tmuxRoutes";
+import { createTimelineRoutes } from "@/http/timelineRoutes";
+import { createUsageRoutes } from "@/http/usageRoutes";
+import { detectUsageVendors } from "@/usage/usageReport";
+import { state } from "@/transcripts/transcriptState";
 import {
   getSnapshot,
   getWatcherState,
@@ -38,15 +38,15 @@ import {
   registerPiSession,
   resolvePiSession,
   notifyPiSessionChanged,
-} from "./transcripts/transcriptCatalog.ts";
-import { AgentBackendRegistry } from "./agents/agentBackend.ts";
-import { PiAgentBackend } from "./agents/piAgentBackend.ts";
-import { ClaudeLiveBackend } from "./live/claudeLiveBackend.ts";
-import { CodexLiveBackend } from "./live/codexLiveBackend.ts";
-import { BotStore } from "./bots/botStore.ts";
-import { BotRegistry } from "./bots/botRegistry.ts";
-import { createAddBotTool } from "./bots/addBotTool.ts";
-import { AgentTerminalService } from "./terminal/agentTerminalService.ts";
+} from "@/transcripts/transcriptCatalog";
+import { AgentBackendRegistry } from "@/agents/agentBackend";
+import { PiAgentBackend } from "@/agents/piAgentBackend";
+import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
+import { CodexLiveBackend } from "@/live/codexLiveBackend";
+import { BotStore } from "@/bots/botStore";
+import { BotRegistry } from "@/bots/botRegistry";
+import { createAddBotTool } from "@/bots/addBotTool";
+import { AgentTerminalService } from "@/terminal/agentTerminalService";
 
 // Pi normally lazy-loads OAuth providers from sibling files. A standalone Bun
 // executable has no such files beside it, so use Pi's static loader registry to

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { sessionPath, sessionTransport } from "./SessionTransport";
-import type { AgentHttpTransport } from "./AgentHttpTransport";
+import { sessionPath, sessionTransport } from "@/features/activity-feed/transport/SessionTransport";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 describe("sessionPath", () => {
   it("leaves the default session's paths exactly as they were", () => {

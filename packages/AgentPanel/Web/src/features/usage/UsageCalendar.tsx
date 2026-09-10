@@ -7,7 +7,7 @@ import {
   monthLabels,
   type UsageCell,
   type UsageLevel,
-} from "./usageGrid";
+} from "@/features/usage/usageGrid";
 
 /**
  * How dark a cell is, as a monochrome ramp.

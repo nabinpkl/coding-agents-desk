@@ -11,7 +11,7 @@
 // wide enough to hold both would be the two functions with an interface stretched over them.
 
 import { stat } from "node:fs/promises";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import type {
   UsageCoverage,
   UsageDay,
@@ -25,22 +25,22 @@ import type {
   CachedRowsSession,
   CachedSession,
   UsageCache,
-} from "./usageCache.ts";
+} from "@/usage/usageCache";
 import {
   claudeInstalled,
   findClaudeSessionFiles,
   scanClaudeSession,
   type ClaudeUsageRow,
-} from "./claudeUsage.ts";
-import { claudeModelAlias } from "./claudeModels.ts";
-import { readClaudeQuota } from "./claudeQuota.ts";
+} from "@/usage/claudeUsage";
+import { claudeModelAlias } from "@/usage/claudeModels";
+import { readClaudeQuota } from "@/usage/claudeQuota";
 import {
   codexInstalled,
   findCodexSessionFiles,
   scanCodexSession,
-} from "./codexUsage.ts";
-import { describeQuota, type QuotaSample } from "./quotaSample.ts";
-import { loadUsageCache, saveUsageCache } from "./usageCache.ts";
+} from "@/usage/codexUsage";
+import { describeQuota, type QuotaSample } from "@/usage/quotaSample";
+import { loadUsageCache, saveUsageCache } from "@/usage/usageCache";
 import {
   addInto,
   emptyTuple,
@@ -48,7 +48,7 @@ import {
   toTotals,
   type DayModelTotals,
   type UsageTuple,
-} from "./usageTotals.ts";
+} from "@/usage/usageTotals";
 
 /**
  * How many session files are summed at once.

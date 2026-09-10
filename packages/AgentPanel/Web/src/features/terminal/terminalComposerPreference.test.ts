@@ -7,7 +7,7 @@ import { beforeEach, expect, test } from "vitest";
 import {
   toggleTerminalComposer,
   type TerminalComposerSession,
-} from "./terminalComposerPreference";
+} from "@/features/terminal/terminalComposerPreference";
 
 const one: TerminalComposerSession = { source: "claude", sessionId: "one" };
 const two: TerminalComposerSession = { source: "claude", sessionId: "two" };

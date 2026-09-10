@@ -156,11 +156,18 @@ panel that remembers its font size and forgets which session it was reading.
 > re-establish after a reload. Do not persist anything the sidecar already knows, anything derivable
 > from what it sends, or anything whose absence a reader cannot see.
 
-That last clause has a scar behind it, and it is the one to reread before storing something: which
-Bots are on the canvas is deliberately NOT stored (`AgentPanelApp.tsx`, `detachedBotIds`), because a
-canvas that comes back whole costs one click to arrange again, where one that comes back missing a
-Bot hides it from a reader who has forgotten they took it off. **Cheap to redo beats quietly
-wrong.** Store identity, never a record the stream owns: `selectionStore` keeps three strings and
+That last clause is the one to reread before storing something, and the example that used to sit
+here is now the example of the clause being SATISFIED rather than of it biting. What is off the
+canvas -- whole Bots, and single sessions -- was deliberately not stored, because a canvas that came
+back whole cost one click to arrange again where one that came back missing a Bot hid it from a
+reader who had forgotten taking it off. That absence is no longer unseeable: the sidebar roster
+lists every Bot and every session either way, dims the ones that are off, and carries the control
+that puts them back, so both sets are now remembered (`botCanvasPreferences.ts`,
+`loadDetachedBotIds` / `loadDetachedSessionKeys`). **Cheap to redo beats quietly wrong** still
+decides it -- what changed is that the panel stopped being quiet, not that the cost changed. The
+rule is about whether the reader can SEE what was kept, so re-ask that question of the surface as it
+is now rather than inheriting an answer. Store identity, never a record the stream owns:
+`selectionStore` keeps three strings and
 re-resolves them against the inventory, because a stored `SessionSummary` would be a second source
 of truth that nothing refreshes.
 
@@ -181,6 +188,70 @@ a dependency) with `partialize`, `version` and `migrate`, and carries the migrat
 `persist` does NOT change: it makes writing easy enough that the rule above stops being enforced by
 friction, so it has to be enforced here. A store that writes everything it holds resurrects
 transient state, and each of those comes back as a bug rather than as a convenience.
+
+## How long a file gets, and how flat a directory gets
+
+Two caps that pull against each other on purpose, because satisfying one alone produces the other's
+failure.
+
+**500 lines per file**, for `.ts` and `.tsx` under `packages/AgentPanel/Web/src` and
+`agent-feed/sidecar/src`. A file past that has stopped being one idea, and the reader who needs one
+of its ideas pays for all of them. Enforced twice: check 5 in `tools/agent-feed-fitness.sh` answers
+"is the tree under the cap", and `tools/git-hooks/pre-commit` (installed by `just
+git-hooks-install`) asks at the moment the author still has the concepts in their head, which is
+the only moment the split is nearly free. The gate is the authority; if the two ever disagree the
+hook is the bug.
+
+**12 source files per directory.** A test rides with its source and is not counted separately:
+`foo.ts` and `foo.test.ts` are one thing. Past twelve, the directory has stopped being a place and
+clusters into sibling subdirectories.
+
+The second cap exists because the first one produces its violation. Measured 2026-09-09, on the day
+both trees were brought under the 500-line cap: `features/desktop-viewer/` held **53** source files
+flat with no subdirectory, `sidecar/src/http/` **36**, `features/activity-feed/` **26**, `app/`
+**24**. Every file was readable and the directory was not. A flat list of fifty hides exactly what a
+two-thousand-line file hid, which is where one thing ends and the next begins.
+
+Three numbers, and none of them is a taste call:
+
+- **Twelve is the ceiling**, because this tree's own distribution has a gap there. Its directories
+  sit at 53, 36, 26, 24, 20, 17, 16, 15, 13, 13, 12, 12, and then 10 and below. Twelve is where a
+  place stops and a pile starts here.
+- **Three is the floor, and it is a rule about SPLITTING rather than a property of every
+  directory.** When fan-out sends you looking for clusters, a group of one or two is not one: those
+  files stay flat and get named for the fact that they belong together, because a subdirectory
+  holding two files is a worse index than no subdirectory. It does NOT say a small directory is
+  wrong. `features/screen-viewer/` is one file and `src/types/` is one file, and both are a whole
+  thing that happens to be small, not the residue of a bad split. So the ceiling is gateable and
+  the floor is not: a check that fails every directory under three would fail five that are correct
+  as they are.
+- **One clustering level below a feature**, and a second needs its reason written beside it.
+  `features/activity-feed/data-source/` is the shape. `features/activity-feed/data-source/transport/http/`
+  is the failure this bounds: nesting moves the reader's cost from scanning to navigating, and
+  navigating is the worse of the two while you still do not know what you are looking for.
+
+**No relative imports, in either tree.** `@/x` is the project's own src and `@repo/x` is the
+repository. Both say where a module lives; `../../..` says how far away the reader happens to be
+sitting, and the difference is what a file move costs. A relative import breaks when EITHER end
+moves, so clustering one directory rewrites every file inside it and every importer of it, and the
+move disappears under path arithmetic. Enforced by check 6 of `tools/agent-feed-fitness.sh` and by
+`tools/git-hooks/pre-commit`, sharing one expression.
+
+Two details that are easy to get wrong. In Vite the alias keys carry their trailing slash, because
+a bare `@` also matches `@agentdesk/agent-feed-wire` and would swallow the wire contract. In
+tsconfig, `paths` resolve against the tsconfig's own directory: TypeScript 7 removed `baseUrl`, and
+this repo already wrote them without it. Aliased imports carry no extension. Before this landed the
+two trees disagreed and nothing could catch it -- the sidecar wrote `.ts` on 652 of 660 relative
+imports, the panel on 0 of 770, and both typecheck either way.
+
+**Only fan-out promotes a cluster.** Do not create a directory because a concept feels like it
+deserves one. Create it because the flat list went past twelve and three or more of its files are
+about the same thing. Concepts do not earn directories, counts do, and that is what keeps the
+layout from tracking whoever last had an opinion about it.
+
+Not gated yet, deliberately. Ten directories are over the ceiling as of 2026-09-09, and a gate that
+fails the day it lands teaches everyone to route around it. The 500-line cap went in last, after
+its tree satisfied it; this one goes in the same way.
 
 ## Code
 

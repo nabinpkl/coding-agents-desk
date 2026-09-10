@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { SummaryResult } from "@agentdesk/agent-feed-wire";
-import { SummaryBand } from "./SummaryBand";
-import { SummaryControl } from "./SummaryControl";
+import { SummaryBand } from "@/features/summary/SummaryBand";
+import { SummaryControl } from "@/features/summary/SummaryControl";
 
 function digest(overrides: Partial<SummaryResult> = {}): SummaryResult {
   return {

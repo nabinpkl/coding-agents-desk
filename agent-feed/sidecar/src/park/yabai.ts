@@ -12,8 +12,8 @@
 // its middle rungs silently, so pin the version and treat the ordering as a
 // contract this file depends on rather than an incidental detail.
 
-import { config } from "../config.ts";
-import type { Rect } from "./ladder.ts";
+import { config } from "@/config";
+import type { Rect } from "@/park/ladder";
 
 export interface YabaiWindow {
   id: number;

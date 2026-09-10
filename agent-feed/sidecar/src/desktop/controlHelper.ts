@@ -1,6 +1,6 @@
-import { config } from "../config.ts";
-import { frames, KIND_META } from "../http/encoderFrames.ts";
-import { helperBinary, type HelperBinary, missingHelperMessage } from "./helperBinary.ts";
+import { config } from "@/config";
+import { frames, KIND_META } from "@/http/encoderFrames";
+import { helperBinary, type HelperBinary, missingHelperMessage } from "@/desktop/helperBinary";
 
 /**
  * The sidecar's end of `grid-encoder --control`.

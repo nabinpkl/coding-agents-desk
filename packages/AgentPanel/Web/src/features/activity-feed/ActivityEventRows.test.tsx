@@ -9,20 +9,20 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { stubDataSource } from "./data-source/stubDataSource";
-import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
-import type { AgentDataSource } from "./data-source/AgentDataSource";
+import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
+import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import {
   SegmentEventRow,
   UserRow,
   showEventRoleLabel,
   type EventRowContext,
-} from "./ActivityEventRows";
-import type { ActivityEvent } from "./useSessionEventsStream";
+} from "@/features/activity-feed/ActivityEventRows";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 // @git-diff-view and next-themes do not run under jsdom. Markdown stays REAL:
 // whether reasoning renders its markup is the whole point of one test below.
-vi.mock("./DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),

@@ -5,7 +5,7 @@ import {
   encodePtyEnvelope,
   framePtyEnvelope,
   takePtyFrames,
-} from "./ptyProtocol.ts";
+} from "@/terminal/ptyProtocol";
 
 test("PTY protobuf codec preserves terminal output bytes and 64-bit revisions", () => {
   const encoded = encodePtyEnvelope({

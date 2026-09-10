@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
-import { claudeAdapter } from './claudeTranscript.ts';
-import { codexAdapter } from './codexTranscript.ts';
-import { PLAIN_PREVIEW_MAX_BYTES } from './plainActivity.ts';
-import type { LineResult } from './transcriptTypes.ts';
+import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
+import { codexAdapter } from "@/transcripts/sources/codexTranscript";
+import { PLAIN_PREVIEW_MAX_BYTES } from "@/transcripts/sources/plainActivity";
+import type { LineResult } from "@/transcripts/sources/transcriptTypes";
 
 function visible(result: LineResult | null): NonNullable<LineResult['event']> {
   expect(result).not.toBeNull();

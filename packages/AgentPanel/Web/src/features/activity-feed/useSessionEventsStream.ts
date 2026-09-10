@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useDataSource } from "./data-source/AgentDataSourceContext";
-import { seedRange, olderRange } from "./data-source/eventPaging";
-import { lastUsageFromEvents } from "./usageFromEvents";
-import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
+import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
+import { seedRange, olderRange } from "@/features/activity-feed/data-source/eventPaging";
+import { lastUsageFromEvents } from "@/features/activity-feed/usageFromEvents";
+import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 
 export interface ActivityBlock {
   kind:

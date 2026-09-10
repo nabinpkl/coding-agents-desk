@@ -54,11 +54,11 @@ import {
   hexSend,
   TmuxUnavailable,
   type TmuxPaneView,
-} from "../terminal/tmuxSessions.ts";
-import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
-import { keystrokesFor } from "./composer/composerKeys.ts";
-import { inTurn } from "./composer/composerRuntime.ts";
-import { composerBox, composerText, plainText } from "./composer/composerScreen.ts";
+} from "@/terminal/tmuxSessions";
+import { liveTmuxSession } from "@/terminal/agentTerminalService";
+import { keystrokesFor } from "@/input/composerKeystrokes";
+import { inTurn } from "@/input/tmuxComposerPanes";
+import { composerBox, composerText, plainText } from "@/input/composerBox";
 
 /** The glyph Claude puts on the selected row of a list. */
 const MARKER = "\u276f";

@@ -2,11 +2,11 @@
 
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import "katex/dist/katex.min.css";
-import "./markdown.css";
-import { CodeBlock } from "./CodeBlock";
-import { MermaidBlock } from "./MermaidBlock";
-import { applyProseHtml } from "./patchProse";
-import { createStreamingBlocks, toBlocks } from "./proseBlocks";
+import "@/features/activity-feed/markdown/markdown.css";
+import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
+import { MermaidBlock } from "@/features/activity-feed/markdown/MermaidBlock";
+import { applyProseHtml } from "@/features/activity-feed/markdown/patchProse";
+import { createStreamingBlocks, toBlocks } from "@/features/activity-feed/markdown/proseBlocks";
 
 // What each prose element was last given, so the patch can diff against the string
 // we produced rather than the browser's reserialization of it. Keyed by the element

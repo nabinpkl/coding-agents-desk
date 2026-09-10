@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { WebrtcDesktopControlEvents } from "./webrtcDesktopControlEvents.ts";
+import { WebrtcDesktopControlEvents } from "@/http/webrtcDesktopControlEvents";
 
 const encoder = new TextEncoder();
 const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);

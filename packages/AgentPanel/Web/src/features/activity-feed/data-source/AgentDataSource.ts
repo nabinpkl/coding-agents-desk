@@ -1,4 +1,4 @@
-import type { ActivityEvent, TokenUsage } from "../useSessionEventsStream";
+import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { BackgroundTaskSnapshot, EventMode, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
 
 export type AgentSource = string;

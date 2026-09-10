@@ -1,6 +1,6 @@
 import { GitBranch } from "lucide-react";
 import type { Bin } from "@agentdesk/agent-feed-wire";
-import { SourceBadge } from "./SourceBadge";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
 
 /**
  * How a session reads at a glance: whether it is live, where it came from, when it last spoke.

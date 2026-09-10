@@ -9,26 +9,26 @@
 
 import { basename } from "node:path";
 import type { BackgroundTaskSnapshot, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import { backgroundTasks } from "../tasks/backgroundTaskCoordinator.ts";
-import { readTerminalMarker } from "../tasks/backgroundTasks.ts";
+import { config } from "@/config";
+import { backgroundTasks } from "@/tasks/backgroundTaskCoordinator";
+import { readTerminalMarker } from "@/tasks/backgroundTasks";
 import {
   lastLines,
   OutputProgress,
   snapshotOffset,
   trimPartialFirstLine,
-} from "../tasks/outputFollower.ts";
+} from "@/tasks/outputFollower";
 import {
   currentProcessTable,
   isInsideTaskRoot,
   outputTargetsOf,
   runCommand,
   taskShellsByOwner,
-} from "../tasks/processProbe.ts";
-import { sessionOwner } from "../tasks/sessionRegistry.ts";
-import { claudeTranscriptPath, scanSessionTasks } from "../tasks/taskIdentity.ts";
-import { encodeServerSentEvent, startServerSentEventStream } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/tasks/processProbe";
+import { sessionOwner } from "@/tasks/sessionRegistry";
+import { claudeTranscriptPath, scanSessionTasks } from "@/tasks/taskIdentity";
+import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const TASKS_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/tasks$/;
 const TASK_OUTPUT_ROUTE =

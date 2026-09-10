@@ -7,7 +7,7 @@ import {
   clampCardHeight,
   clampCardWidth,
   type BotCardSize,
-} from "./botCanvasPreferences";
+} from "@/features/bots/botCanvasPreferences";
 
 /** How far one arrow key moves an edge. */
 const KEY_STEP = 24;

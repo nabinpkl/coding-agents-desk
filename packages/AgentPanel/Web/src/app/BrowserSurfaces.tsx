@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App } from "./AgentPanelApp";
-import { DesktopViewer } from "../features/desktop-viewer/DesktopViewer";
-import { ScreenViewer } from "../features/screen-viewer/ScreenViewer";
-import { TerminalsSurface } from "../features/terminal/TerminalsSurface";
-import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
-import type { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
-import type { AgentHttpTransport } from "../features/activity-feed/transport/AgentHttpTransport";
-import { sessionTransport } from "../features/activity-feed/transport/SessionTransport";
-import { parseSessionIndex, type PanelSessionRef } from "./panelSessions";
+import { App } from "@/app/AgentPanelApp";
+import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
+import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
+import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
+import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import { sessionTransport } from "@/features/activity-feed/transport/SessionTransport";
+import { parseSessionIndex, type PanelSessionRef } from "@/app/panelSessions";
 
 export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals";
 

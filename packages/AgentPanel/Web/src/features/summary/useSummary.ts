@@ -5,7 +5,7 @@ import type { SummaryResult } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
-} from "../activity-feed/data-source/SidecarDataSource";
+} from "@/features/activity-feed/data-source/SidecarDataSource";
 
 export type SummaryState =
   | { kind: "idle" }

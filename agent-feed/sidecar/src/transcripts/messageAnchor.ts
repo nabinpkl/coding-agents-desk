@@ -19,8 +19,8 @@
  *   lists only the live conversation. Counting here does not make that agree -- nothing can --
  *   which is exactly why the count travels with the text that has to match it.
  */
-import { claudeAdapter } from "./sources/claudeTranscript.ts";
-import { isHumanTurnStart } from "./humanTurns.ts";
+import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
+import { isHumanTurnStart } from "@/transcripts/humanTurns";
 
 /** Where a message sits, said the way the rewind picker is addressed. */
 export interface MessageAnchor {

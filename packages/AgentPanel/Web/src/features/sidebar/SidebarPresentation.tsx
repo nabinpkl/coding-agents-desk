@@ -10,7 +10,7 @@ import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   clampSidebarWidth,
-} from "./sidebarPreferences";
+} from "@/features/sidebar/sidebarPreferences";
 
 const COMPACT_SIDEBAR_QUERY = "(max-width: 719px)";
 const HOVER_SIDEBAR_QUERY = "(hover: hover) and (pointer: fine)";

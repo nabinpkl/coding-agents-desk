@@ -16,10 +16,10 @@ import {
   awaitComposer,
   submitTmuxComposer,
   syncTmuxComposer,
-} from "../input/composer/composerDrive.ts";
-import { rewindTmuxSession } from "../input/rewindPicker.ts";
-import { forkFirstTurn } from "../terminal/claudeSessionLaunch.ts";
-import type { MessageAnchor } from "./messageAnchor.ts";
+} from "@/input/tmuxComposer";
+import { rewindTmuxSession } from "@/input/rewindPicker";
+import { forkFirstTurn } from "@/terminal/claudeSessionLaunch";
+import type { MessageAnchor } from "@/transcripts/messageAnchor";
 
 /**
  * How long a fork is given to come up before its rewind is abandoned.

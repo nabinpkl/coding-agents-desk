@@ -1,4 +1,4 @@
-import type { AgentDataSource } from "./AgentDataSource";
+import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 
 /**
  * An `AgentDataSource` that answers nothing, for tests about something else.

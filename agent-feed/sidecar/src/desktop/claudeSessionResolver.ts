@@ -6,7 +6,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { config } from "../config.ts";
+import { config } from "@/config";
 
 /**
  * Resolves a Claude session id to the Claude Desktop window that owns it.

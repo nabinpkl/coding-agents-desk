@@ -29,14 +29,14 @@ import type {
   SummaryResult,
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import type { AgentRunState } from "@agentdesk/agent-feed-wire";
 import {
   buildSummaryPrompt,
   composeSummaryResult,
   parseSummaryPayload,
-} from "./summaryPrompt.ts";
-import type { TurnWindow } from "./turnWindow.ts";
+} from "@/summary/summaryPrompt";
+import type { TurnWindow } from "@/summary/turnWindow";
 
 /**
  * No tools. Not a short list -- an empty one.

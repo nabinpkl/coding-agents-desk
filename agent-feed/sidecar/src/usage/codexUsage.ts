@@ -11,15 +11,15 @@
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { readJsonLines } from "./readJsonLines.ts";
-import type { QuotaSample } from "./quotaSample.ts";
+import { readJsonLines } from "@/usage/readJsonLines";
+import type { QuotaSample } from "@/usage/quotaSample";
 import {
   addInto,
   emptyTuple,
   localDayKey,
   type DayModelTotals,
   type UsageTuple,
-} from "./usageTotals.ts";
+} from "@/usage/usageTotals";
 
 export interface ScannedSession {
   days: DayModelTotals;

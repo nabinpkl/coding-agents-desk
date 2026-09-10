@@ -10,14 +10,14 @@
 
 import { expect, test } from "bun:test";
 import { bytesForRailKey } from "@agentdesk/agent-feed-wire";
-import type { TmuxPaneView } from "../terminal/tmuxSessions.ts";
+import type { TmuxPaneView } from "@/terminal/tmuxSessions";
 import {
   MAX_REWIND_STEPS,
   rewindScreen,
   rewindTmuxSession,
   saysTheSame,
   type RewindRuntime,
-} from "./rewindPicker.ts";
+} from "@/input/rewindPicker";
 
 const PANE = "agentdesk-fork-1";
 const SESSION = "77777777-7777-4777-8777-777777777777";

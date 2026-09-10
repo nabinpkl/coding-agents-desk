@@ -11,16 +11,25 @@ import {
   clampCardWidth,
   loadBotCanvasOrder,
   loadCanvasOpenKeys,
+  loadCanvasScroll,
+  loadDetachedBotIds,
+  loadDetachedSessionKeys,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
   storeCanvasOpenKeys,
+  storeCanvasScroll,
+  storeDetachedBotIds,
+  storeDetachedSessionKeys,
   storeSessionCardSizes,
-} from "./botCanvasPreferences";
+} from "@/features/bots/botCanvasPreferences";
 
 const STORAGE_KEY = "agent-panel.bot-canvas.session-sizes";
 const OPEN_SESSIONS_STORAGE_KEY = "agent-panel.bot-canvas.open-session";
+const SCROLL_STORAGE_KEY = "agent-panel.bot-canvas.scroll";
+const OFF_CANVAS_SESSIONS_KEY = "agent-panel.bot-canvas.off-canvas-sessions";
+const OFF_CANVAS_BOTS_KEY = "agent-panel.bot-canvas.off-canvas-bots";
 
 describe("session card sizes", () => {
   beforeEach(() => localStorage.clear());
@@ -183,5 +192,87 @@ describe("which sessions the canvas has open", () => {
     // the first write replaces it.
     localStorage.setItem(OPEN_SESSIONS_STORAGE_KEY, "claude:a");
     expect(loadCanvasOpenKeys()).toEqual(new Set());
+  });
+});
+
+describe("how far the canvas is scrolled", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("opens at the left edge before the canvas has been scrolled", () => {
+    expect(loadCanvasScroll()).toEqual({ left: 0, top: 0 });
+  });
+
+  it("remembers both axes, because a tall card scrolls the canvas down as well as along", () => {
+    storeCanvasScroll({ left: 1840, top: 96 });
+    expect(loadCanvasScroll()).toEqual({ left: 1840, top: 96 });
+  });
+
+  it("forgets the left edge rather than storing the number that means the default", () => {
+    storeCanvasScroll({ left: 1840, top: 96 });
+    storeCanvasScroll({ left: 0, top: 0 });
+    expect(localStorage.getItem(SCROLL_STORAGE_KEY)).toBeNull();
+  });
+
+  it("judges each axis on its own, so one bad number does not throw away the other", () => {
+    localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({ left: 1840, top: "down a bit" }));
+    expect(loadCanvasScroll()).toEqual({ left: 1840, top: 0 });
+  });
+
+  it("refuses an offset behind the start, which no scroller can be at", () => {
+    localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({ left: -400, top: 40 }));
+    expect(loadCanvasScroll()).toEqual({ left: 0, top: 40 });
+  });
+
+  it("opens at the left edge rather than trusting a value it cannot read", () => {
+    localStorage.setItem(SCROLL_STORAGE_KEY, "{not json");
+    expect(loadCanvasScroll()).toEqual({ left: 0, top: 0 });
+  });
+});
+
+describe("what the canvas has been told to hide", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("hides nothing before anything has been taken off the canvas", () => {
+    expect(loadDetachedBotIds()).toEqual(new Set());
+    expect(loadDetachedSessionKeys()).toEqual(new Set());
+  });
+
+  it("remembers what is hidden, so a reload does not undo the tidying", () => {
+    storeDetachedBotIds(new Set(["bot-a", "bot-b"]));
+    storeDetachedSessionKeys(new Set(["claude:a", "codex:b"]));
+    expect(loadDetachedBotIds()).toEqual(new Set(["bot-a", "bot-b"]));
+    expect(loadDetachedSessionKeys()).toEqual(new Set(["claude:a", "codex:b"]));
+  });
+
+  it("keeps the two apart, so putting a Bot back does not show its hidden sessions", () => {
+    storeDetachedBotIds(new Set(["bot-a"]));
+    storeDetachedSessionKeys(new Set(["claude:a"]));
+    storeDetachedBotIds(new Set());
+    expect(loadDetachedSessionKeys()).toEqual(new Set(["claude:a"]));
+  });
+
+  it("forgets the last hidden one rather than storing an empty list", () => {
+    storeDetachedBotIds(new Set(["bot-a"]));
+    storeDetachedSessionKeys(new Set(["claude:a"]));
+    storeDetachedBotIds(new Set());
+    storeDetachedSessionKeys(new Set());
+    expect(localStorage.getItem(OFF_CANVAS_BOTS_KEY)).toBeNull();
+    expect(localStorage.getItem(OFF_CANVAS_SESSIONS_KEY)).toBeNull();
+  });
+
+  it("drops an entry it cannot read rather than hiding nothing at all", () => {
+    // The dangerous direction for this store is the one where a bad value HIDES something, so an
+    // unreadable entry is dropped on its own and the readable ones beside it still stand.
+    localStorage.setItem(OFF_CANVAS_SESSIONS_KEY, JSON.stringify(["claude:a", "nocolon", 7]));
+    localStorage.setItem(OFF_CANVAS_BOTS_KEY, JSON.stringify(["bot-a", "", 7]));
+    expect(loadDetachedSessionKeys()).toEqual(new Set(["claude:a"]));
+    expect(loadDetachedBotIds()).toEqual(new Set(["bot-a"]));
+  });
+
+  it("shows everything again rather than trusting a value it cannot read", () => {
+    localStorage.setItem(OFF_CANVAS_BOTS_KEY, "{not json");
+    localStorage.setItem(OFF_CANVAS_SESSIONS_KEY, "{not json");
+    expect(loadDetachedBotIds()).toEqual(new Set());
+    expect(loadDetachedSessionKeys()).toEqual(new Set());
   });
 });

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { helperBinary, missingHelperMessage } from "./helperBinary.ts";
+import { helperBinary, missingHelperMessage } from "@/desktop/helperBinary";
 
 test("only a usable installed executable is reported available", () => {
   const root = mkdtempSync(join(tmpdir(), "agentdesk-helper-probe-"));

@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import type { AgentBackend, AgentSessionDescriptor } from "../agents/agentBackend.ts";
+import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
 import type {
   ActivityEvent,
   AgentSessionCapabilities,
   TimelineEnvelope,
   TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
-import { state } from "../transcripts/transcriptState.ts";
-import { createTimelineRoutes, TIMELINE_WINDOW } from "./timelineRoutes.ts";
+import { state } from "@/transcripts/transcriptState";
+import { createTimelineRoutes, TIMELINE_WINDOW } from "@/http/timelineRoutes";
 
 const server = { timeout() {} } as never;
 

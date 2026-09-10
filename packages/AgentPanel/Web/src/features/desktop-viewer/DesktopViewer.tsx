@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { desktopDisplayId, desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
   type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
-import { DesktopViewerSurface } from "./DesktopViewerSurface";
-import { DesktopNavigationChrome } from "./DesktopNavigationChrome";
-import { useDesktopNavigation } from "./useDesktopNavigation";
-import { postTileTelemetry, type DesktopControlTransport } from "./TileStreamRtc";
-import type { DesktopStreamState } from "./DesktopStreamState";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import { DesktopViewerSurface } from "@/features/desktop-viewer/DesktopViewerSurface";
+import { DesktopNavigationChrome } from "@/features/desktop-viewer/navigation/DesktopNavigationChrome";
+import { useDesktopNavigation } from "@/features/desktop-viewer/navigation/useDesktopNavigation";
+import { postTileTelemetry, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
+import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 
 export function desktopDocumentFallbackHeight(viewportHeight: number, screenHeight: number): number | null {
   if (viewportHeight > 0 || !Number.isFinite(screenHeight) || screenHeight <= 0) return null;

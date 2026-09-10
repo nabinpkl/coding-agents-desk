@@ -12,7 +12,11 @@
     // Vite and Vitest mirror this path because desktop control also consumes its bounded
     // protocol constants at runtime.
     "paths": {
-      "@agentdesk/agent-feed-wire": ["../../../agent-feed/wire/index.ts"]
+      "@agentdesk/agent-feed-wire": ["../../../agent-feed/wire/index.ts"],
+      // `@/` is this project's own src and `@repo/` is the repository, so an import says
+      // where a module lives rather than how far away the reader happens to be sitting.
+      "@/*": ["./src/*"],
+      "@repo/*": ["../../../*"]
     },
     "resolveJsonModule": true,
     "isolatedModules": true,

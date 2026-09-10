@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeActivityEvent } from "./activityNormalization";
+import { normalizeActivityEvent } from "@/features/activity-feed/activityNormalization";
 
 describe("normalizeActivityEvent", () => {
   it("preserves supported system blocks and labels", () => {

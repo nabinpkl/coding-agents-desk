@@ -537,6 +537,26 @@ build-agent-webview:
 agent-feed-fitness:
     sh '{{justfile_directory()}}/tools/agent-feed-fitness.sh'
 
+# Installs this repository's git hooks, which are tracked so every checkout gets the same ones.
+#
+# One symlink into the COMMON git directory, which is what every linked worktree shares -- so
+# installing once here covers the worktrees under `.claude/worktrees/` as well, including ones
+# that do not exist yet. Idempotent, and it refuses to replace a hook it did not put there rather
+# than silently discarding somebody's own.
+git-hooks-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE='{{justfile_directory()}}/tools/git-hooks/pre-commit'
+    HOOKS="$(git -C '{{justfile_directory()}}' rev-parse --git-common-dir)/hooks"
+    mkdir -p "$HOOKS"
+    TARGET="$HOOKS/pre-commit"
+    if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+        echo "git-hooks-install: $TARGET exists and is not a symlink; move it aside first" >&2
+        exit 1
+    fi
+    ln -sfn "$SOURCE" "$TARGET"
+    echo "git-hooks-install: pre-commit -> $SOURCE"
+
 # Issue (or renew) the panel dev server's TLS certificate for this Mac's MagicDNS name.
 #
 # Tailscale gets a publicly trusted certificate for the name from Let's Encrypt, which is the
@@ -1056,6 +1076,21 @@ dom-mirror-cdp-verify:
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/cdp-verify.mjs'
+
+# Checks that the panel comes back to where it was being read, in a browser that lays pages out.
+# NOT in `just check`: it needs a live panel (`just host-run`) and the sessions on this machine.
+# Loopback rather than the tailnet name, because nothing here is about transport and the tailnet
+# leg has its own check (`agent-webview-dev-status`); a DNS wobble on it is not this test failing.
+# Override with PANEL_ORIGIN to point at the tailnet origin or another machine's.
+# The unit tests cannot see what this does -- jsdom measures no rows, so a transcript's layout is
+# settled from the first commit there and a restore can never be left behind by it.
+panel-scroll-memory-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      PANEL_PROJECT='{{justfile_directory()}}' \
+      node '{{justfile_directory()}}/chrome-test/panel-scroll-memory-verify.mjs'
 
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict

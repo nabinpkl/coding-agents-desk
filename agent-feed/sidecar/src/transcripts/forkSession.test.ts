@@ -10,7 +10,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { forgetWorktrees, WorktreeError } from "../git/worktree.ts";
+import { forgetWorktrees, WorktreeError } from "@/git/worktree";
 import {
   forkClaudeSession,
   launchSession,
@@ -19,9 +19,9 @@ import {
   SessionForkNotFoundError,
   type ForkRewinder,
   type SessionLauncher,
-} from "./forkSession.ts";
-import { sessionKey } from "./transcriptCatalog.ts";
-import { state } from "./transcriptState.ts";
+} from "@/transcripts/forkSession";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { state } from "@/transcripts/transcriptState";
 
 const roots: string[] = [];
 const SESSION_ID = "55555555-5555-4555-8555-555555555555";

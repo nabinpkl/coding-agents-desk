@@ -13,7 +13,7 @@
 //     base64 of the event JSON payload (possibly content-encoded),
 //   - `streamEnded {flowId}`.
 
-import { config } from "../config.ts";
+import { config } from "@/config";
 
 export interface ObserverFlow {
   flowId: string;

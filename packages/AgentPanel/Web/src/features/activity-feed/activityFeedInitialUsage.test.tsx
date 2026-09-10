@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
-import { SidecarDataSource } from "./data-source/SidecarDataSource";
-import { FakeHttpTransport } from "./transport/FakeHttpTransport";
-import { ActivityFeed } from "./ActivityFeed";
-import { TokenMeter } from "./TokenMeter";
-import type { TokenUsage } from "./useSessionEventsStream";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
+import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
+import { ActivityFeed } from "@/features/activity-feed/ActivityFeed";
+import { TokenMeter } from "@/features/activity-feed/TokenMeter";
+import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 
 // Same jsdom-unsafe deps the app tests stub.
-vi.mock("./markdown/Markdown", () => ({
+vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
   Markdown: ({ content }: { content: string }) => (
     <div data-testid="markdown-view">{content}</div>
   ),
 }));
-vi.mock("./DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 // The feed's stick-to-bottom machinery observes the scroller; jsdom has none.
 class MockResizeObserver {

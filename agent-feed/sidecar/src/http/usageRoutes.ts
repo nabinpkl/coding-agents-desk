@@ -10,9 +10,9 @@
 // itself if today's sessions have grown since.
 
 import type { UsageStreamMessage } from "@agentdesk/agent-feed-wire";
-import { createUsageScanner, type UsageScanner } from "../usage/usageReport.ts";
-import { encodeServerSentEvent, startServerSentEventStream } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+import { createUsageScanner, type UsageScanner } from "@/usage/usageReport";
+import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const USAGE_ROUTE = "/api/usage";
 

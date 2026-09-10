@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 /**
  * One terminal in the wall, at a grid it does not renegotiate.

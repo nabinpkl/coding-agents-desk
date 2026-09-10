@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { config } from "../config.ts";
-import { assembleSnapshot, type SnapshotSources } from "./backgroundTasks.ts";
-import { parseProcessTable } from "./processProbe.ts";
-import type { MonitorIdentity, TaskIdentity } from "./taskIdentity.ts";
-import type { TaskNotification } from "./taskState.ts";
+import { config } from "@/config";
+import { assembleSnapshot, type SnapshotSources } from "@/tasks/backgroundTasks";
+import { parseProcessTable } from "@/tasks/processProbe";
+import type { MonitorIdentity, TaskIdentity } from "@/tasks/taskIdentity";
+import type { TaskNotification } from "@/tasks/taskState";
 
 const NOW = Date.UTC(2026, 7, 14, 18, 0, 0);
 const ROOT = config.claudeTaskRoot;

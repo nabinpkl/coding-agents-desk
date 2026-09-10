@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialSurface, rememberedSession } from "./BrowserSurfaces";
+import { initialSurface, rememberedSession } from "@/app/BrowserSurfaces";
 
 describe("initialSurface", () => {
   it("opens a browser tab on the desktop viewer, the surface it could not otherwise reach", () => {

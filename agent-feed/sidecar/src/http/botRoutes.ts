@@ -10,14 +10,14 @@ import {
   BotLaunchError,
   BotNotFoundError,
   type BotRegistry,
-} from "../bots/botRegistry.ts";
+} from "@/bots/botRegistry";
 import {
   encodeServerSentEvent,
   errorResponse,
   jsonResponse,
   startServerSentEventStream,
-} from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const BOTS_ROUTE = "/api/bots";
 const BOTS_STREAM_ROUTE = "/api/bots/stream";

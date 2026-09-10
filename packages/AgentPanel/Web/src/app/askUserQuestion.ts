@@ -1,4 +1,4 @@
-import type { ActivityEvent } from "../features/activity-feed/useSessionEventsStream";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 /**
  * The transcript/live-feed view of an open AskUserQuestion panel.

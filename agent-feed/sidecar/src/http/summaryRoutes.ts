@@ -18,28 +18,28 @@ import type {
   SummaryResult,
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentBackend } from "../agents/agentBackend.ts";
-import { config } from "../config.ts";
+import type { AgentBackend } from "@/agents/agentBackend";
+import { config } from "@/config";
 import {
   createSummaryRunner,
   SummaryUnconfiguredError,
   type SummaryRunner,
-} from "../summary/summaryRuntime.ts";
-import { resolveTurnWindow, type PageReader } from "../summary/turnWindow.ts";
+} from "@/summary/summaryRuntime";
+import { resolveTurnWindow, type PageReader } from "@/summary/turnWindow";
 import {
   findSession,
   getWatcherState,
   summarizeSession,
   type AgentSessionDescriptorResolver,
-} from "../transcripts/transcriptCatalog.ts";
-import type { SourceId, TranscriptSourceId } from "../transcripts/sources/transcriptTypes.ts";
+} from "@/transcripts/transcriptCatalog";
+import type { SourceId, TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   encodeServerSentEvent,
   jsonResponse,
   startServerSentEventStream,
-} from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
-import { readTranscriptPage } from "./sessionRoutes.ts";
+} from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
+import { readTranscriptPage } from "@/http/sessionRoutes";
 
 const SUMMARY_ROUTE =
   /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/summary$/;

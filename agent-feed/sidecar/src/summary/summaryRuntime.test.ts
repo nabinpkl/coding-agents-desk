@@ -8,15 +8,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import {
   createSummaryRunner,
   SUMMARY_TOOLS,
   SummaryUnconfiguredError,
   type SummarySession,
   type SummarySessionEvent,
-} from "./summaryRuntime.ts";
-import type { TurnWindow } from "./turnWindow.ts";
+} from "@/summary/summaryRuntime";
+import type { TurnWindow } from "@/summary/turnWindow";
 
 /** `config` is `as const` for readers, not frozen. Tests drive the two flags it gates on. */
 const mutable = config as unknown as {
