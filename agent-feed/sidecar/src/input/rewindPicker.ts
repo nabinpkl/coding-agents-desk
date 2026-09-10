@@ -8,9 +8,9 @@
  * per transcript is the version with no concurrency question in it. So the CLI is asked, the way
  * `/rename` is asked, and the cost is that the answer has to be read off a screen.
  *
- * Everything below is a measured property of Claude Code 2.1.266 on a 120x40 pane, taken by hand
- * before any of it was written, except the one paragraph that says it was read out of the bundle
- * instead:
+ * Everything below is a measured property of Claude Code on a 120x40 pane, taken by hand: the list
+ * itself off 2.1.266 before any of this was written, the conditional shapes further down off
+ * 2.1.267 on 2026-09-10, after a parser that assumed them away shipped:
  *
  *   The picker draws a title row `Rewind`, a line beginning `Restore the code and/or
  *   conversation`, then one entry per message of the LIVE conversation, oldest first, then a final
@@ -21,19 +21,24 @@
  *   then blank lines out to the block's height. The status row is not parsed for meaning, only
  *   skipped, because its wording varies with what the turn touched and nothing here needs it.
  *
- * And two things about that block are CONDITIONAL, which is why the blank line at its end is what
- * this parses on. Both were read out of the CLI bundle (2.1.267) rather than captured off a pane,
- * so they are weaker evidence than the measurements around them, and are written down as the
- * reason for a structure rather than as screens anybody here has seen:
+ * And what fills that block is CONDITIONAL, which is why the blank line at its end is what this
+ * parses on rather than a row count. Measured 2026-09-10 on 2.1.267, in captures the suite keeps:
  *
- *   The status row renders only when code restore is available at all, and then only for a row
- *   that has a diff behind it. `(current)` never has one -- which this always knew -- and neither
- *   does the `/resume <id> (previous session)` row that a session with a parent opens the list
- *   with. So there are three shapes: text, status, blank; text, blank, blank; and, with code
- *   restore unavailable, text and one blank. A parser that skipped one row after every entry read
- *   the second and third an entry out of step and swallowed every other message. That fails loud
- *   rather than quietly, because the selected row goes missing and the text check below refuses --
- *   but it fails, and it fails in a fork, which is the only place this is ever driven from.
+ *   The status row renders only while file checkpointing is on -- `fileCheckpointingEnabled` with
+ *   no `CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING` -- and `(current)` never carries one either way.
+ *   With checkpointing off the header offers a fork instead of a code restore and every block is
+ *   a message and one blank.
+ *
+ *   A session that has been `/clear`ed opens the list with a `/resume <id> (previous session)`
+ *   row, which has no status row of its own, above entries that do. A `--fork-session` fork does
+ *   NOT, measured both ways: the row is about clearing, despite this module only ever being
+ *   driven in forks.
+ *
+ *   So a parser that skipped one row after every entry read every one of those an entry out of
+ *   step. On the `/clear` capture it returned the resume row and two rows reading `No code
+ *   changes`, losing both messages a person had written. It refuses rather than rewinding to the
+ *   wrong place, because the selected row goes missing and the text check below has nothing to
+ *   agree with -- but it refuses, and nothing on the pane says why.
  *
  *   The selected row carries `❯` where the others have two more spaces of indent. Colour agrees
  *   -- bold `38;5;153` against plain -- but the marker is what is read, because it is structural
@@ -222,10 +227,10 @@ function messageList(lines: readonly string[]): RewindMessages | null {
       continue;
     }
     const row = entryRow(line);
-    // A line this cannot parse says nothing about blocks either way, and deliberately: `↑ 5 more
-    // above` is drawn with one space of padding rather than the marker's two, and it is drawn
-    // directly above the first entry with no blank between them. Letting it open a block would
-    // cost that entry its row on every list long enough to scroll.
+    // A line this cannot parse leaves the block state alone, which is what keeps the parse
+    // independent of rows it does not understand. `↑ 1 more above` is the one that turns up in
+    // practice: indented one space rather than the marker's two, and measured on a scrolled list
+    // it sits between two blanks, so it neither opens a block here nor closes one.
     if (!row) continue;
     if (inBlock) continue;
     inBlock = true;

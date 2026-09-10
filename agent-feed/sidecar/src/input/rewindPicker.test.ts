@@ -3,10 +3,10 @@
 // job is agreeing with a renderer nobody here controls, so a fixture written from the parser's own
 // assumptions would agree with the parser and prove nothing.
 //
-// The three knobs on `PickerShape` are the exception. Those shapes were read out of the CLI bundle
-// (2.1.267) rather than captured off a pane: they are here because the parser has to survive them,
-// and the honest thing to say is that nobody has seen them on a screen. If one of them turns out
-// to render differently, the fixture is what is wrong, not the renderer.
+// `CAPTURES` below are four more, taken the same way on 2026-09-10 from 2.1.267, of the shapes the
+// list takes when something other than an ordinary run produces it: file checkpointing off, a
+// session that has been cleared, and a list short enough on screen to scroll. They are kept
+// verbatim from the title row to the footer, which is the region the parser reads.
 //
 // What is deliberately NOT asserted is the colour. The live picker paints the selected row bold
 // `38;5;153`, and the parser reads the marker instead, so the fixtures carry the marker and leave
@@ -23,6 +23,7 @@ import {
   saysTheSame,
   type RewindRuntime,
 } from "@/input/rewindPicker";
+import { CAPTURES } from "@/input/rewindPickerCaptures";
 
 const PANE = "agentdesk-fork-1";
 const SESSION = "77777777-7777-4777-8777-777777777777";
@@ -42,16 +43,8 @@ interface PickerShape {
    * line shorter, and the header offers a fork rather than a code restore.
    */
   codeRestore?: boolean;
-  /** The `/resume <id> (previous session)` row a session with a parent opens the list with. */
+  /** The `/resume <id> (previous session)` row a cleared session opens the list with. */
   previousSession?: string;
-  /**
-   * How many entries a scrolled list says are off the top.
-   *
-   * Its line is drawn with one space of padding rather than the marker's two, and drawn DIRECTLY
-   * above the first entry with no blank between them, so a parser that let an unparsable line open
-   * a block would eat that entry on every list long enough to scroll.
-   */
-  moreAbove?: number;
 }
 
 /**
@@ -81,13 +74,13 @@ function picker(messages: readonly string[], selected: number, shape: PickerShap
     if (status) rows.push(`    ${status}`);
     while (rows.length - start < height) rows.push("");
   };
-  if (shape.moreAbove) rows.push(`   ↑ ${shape.moreAbove} more above`);
   if (shape.previousSession) block(messages.length + 1, shape.previousSession, null);
   messages.forEach((text, index) => {
     block(messages.length - index, text, codeRestore ? "⚠ No code restore" : null);
   });
   block(0, "(current)", null);
-  rows.push("  Enter to continue · Esc to cancel", `${RULE} Rewind probe ─`);
+  // One more blank than the block's height: measured, the footer sits a line clear of the list.
+  rows.push("", "  Enter to continue · Esc to cancel", `${RULE} Rewind probe ─`);
   return rows.join("\n");
 }
 
@@ -224,35 +217,27 @@ test("the status row under an entry is skipped rather than read as a message", (
   expect(screen.entries.map((entry) => entry.text)).not.toContain("⚠ No code restore");
 });
 
-test("reads a list whose entries carry no status row at all", () => {
-  // Code restore unavailable, so every block is a message and one blank. Skipping one row after
-  // each entry reads this an entry out of step and loses every other message.
-  const screen = rewindScreen(view(picker(THREE, 0, { codeRestore: false })));
 
-  if (screen?.kind !== "messages") throw new Error("not a message list");
-  expect(screen.entries.map((entry) => entry.text)).toEqual([...THREE]);
-  expect(screen.currentSelected).toBe(true);
-});
 
-test("the previous-session row does not cost the message under it its entry", () => {
-  // It has no status row, so the message below it lands where a status row was expected. This is
-  // the shape a FORK opens, which is the only shape this module is ever driven in.
-  const screen = rewindScreen(view(picker(THREE, 0, {
-    previousSession: "/resume 77777777 (previous session)",
+
+
+test("reads every shape captured off a real pane", () => {
+  // One test over four captures rather than four tests: they differ only in which shape produced
+  // them, and the name rides in the assertion so a failure still says which one.
+  const read = CAPTURES.map((capture) => {
+    const screen = rewindScreen(view(capture.screen));
+    return {
+      name: capture.name,
+      entries: screen?.kind === "messages" ? screen.entries.map((entry) => entry.text) : null,
+      currentSelected: screen?.kind === "messages" ? screen.currentSelected : null,
+    };
+  });
+
+  expect(read).toEqual(CAPTURES.map((capture) => ({
+    name: capture.name,
+    entries: [...capture.entries],
+    currentSelected: true,
   })));
-
-  if (screen?.kind !== "messages") throw new Error("not a message list");
-  expect(screen.entries.map((entry) => entry.text)).toEqual([
-    "/resume 77777777 (previous session)",
-    ...THREE,
-  ]);
-});
-
-test("a scrolled list does not lose the entry under its `more above` line", () => {
-  const screen = rewindScreen(view(picker(THREE, 0, { moreAbove: 5 })));
-
-  if (screen?.kind !== "messages") throw new Error("not a message list");
-  expect(screen.entries.map((entry) => entry.text)).toEqual([...THREE]);
 });
 
 test("finds which row the marker is on", () => {
@@ -333,8 +318,11 @@ test("walks back through a list whose entries carry no status row", async () => 
 });
 
 test("reaches the oldest message in a list that opens with a previous-session row", async () => {
-  // The row is above the oldest message, so the clamp is one position further back than the
-  // message count -- and the message the caller asked for is still exactly where counting says.
+  // A cleared session opens with that row, and measured 2026-09-10 a `--fork-session` fork does
+  // not -- so this is a shape the driver meets only through a session somebody cleared, never
+  // through the fork it starts. It sits above the oldest message, which moves the clamp one
+  // position further back than the message count, and leaves the asked-for message exactly where
+  // counting says it is.
   const driven = pane({
     messages: THREE,
     shape: { previousSession: "/resume 77777777 (previous session)" },
@@ -351,7 +339,8 @@ test("reaches the oldest message in a list that opens with a previous-session ro
 
 test("refuses the previous-session row rather than rewinding onto it", async () => {
   // Overshooting no longer clamps on the oldest message, it clamps on a row that resumes another
-  // session entirely. Taking that row would abandon the fork this was asked to move.
+  // session entirely. Taking it would abandon the conversation this was asked to move rather than
+  // rewind it.
   const driven = pane({
     messages: THREE,
     shape: { previousSession: "/resume 77777777 (previous session)" },
