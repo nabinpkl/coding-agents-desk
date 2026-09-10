@@ -409,6 +409,25 @@ does.
   outside views; a healthy `/api/config` alongside a frozen tab is what tells you the freeze is the
   page and not the server.
 
+- **A screenshot of a HIDDEN panel tab draws rows on top of each other, and the page is fine.**
+  Measured 2026-09-10, after chasing it. A hidden tab gets no rendering updates, so React commits a
+  row's taller content while the ResizeObserver notification that moves the rows BELOW it is never
+  delivered. `captureScreenshot` forces a frame anyway, and paints the new content at the old
+  positions: a streaming transcript comes back with prose written across the tool rows under it,
+  several places at once, stable enough across two screenshots to read as a layout bug.
+
+  Two tells, both cheap. `document.hidden` is `true`. And running ANY `javascript_tool` call first
+  flushes the pending work, so the very next screenshot is nearly clean -- which also means a probe
+  INSIDE that tab can never catch this: `setInterval` is clamped to about once a minute after five
+  minutes hidden, and the evaluate that reads the DOM is itself what fixes the state you were
+  trying to measure. Both of mine reported zero while the screenshot showed the opposite.
+
+  Settle it in Chrome for Testing, which is visible. Seed `agent-panel.selection` in
+  `addInitScript` the way `chrome-test/panel-scroll-memory-verify.mjs` does, then sample each row's
+  `translateY` against its `offsetHeight`. Two runs against one live streaming session: 734 samples
+  over 110s (588 with live rows on screen) and 401 over 60s (377 with live rows), and not one row
+  more than 2px out of place in either.
+
 ## The dev origin serves HTTP/2, and it is load-bearing
 
 Settled 2026-09-06, after an evening spent debugging three features that were not broken.
