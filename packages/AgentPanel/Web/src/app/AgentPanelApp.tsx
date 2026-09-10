@@ -47,6 +47,7 @@ import { ForkSessionDialog } from "../features/bots/ForkSessionDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import type { NewBotSession } from "../features/bots/BotNewSessionCard";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
+import { FileDropOverlay, useFileDropTarget } from "../features/session-view/fileDropTarget";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
 
 
@@ -297,6 +298,23 @@ export function App({ feed, host, fill = false }: Props) {
    * truth for which sessions exist.
    */
   const [newSessions, setNewSessions] = useState<readonly NewBotSession[]>([]);
+  /**
+   * What the open thread does with a dropped image, published up from the session inside it.
+   *
+   * Null while no session is displayed, and null while the displayed one has no composer to paste
+   * into. The column below is the drop target either way: refusing is an act here, because a box
+   * with no handler hands the file to the browser rather than declining it.
+   */
+  const [threadAcceptFiles, setThreadAcceptFiles] = useState<
+    ((files: readonly File[]) => void) | null
+  >(null);
+  // Wrapped, because `setThreadAcceptFiles` would take the accepting function as an updater and
+  // call it with the previous value instead of storing it.
+  const takeThreadAcceptFiles = useCallback(
+    (accept: ((files: readonly File[]) => void) | null) => setThreadAcceptFiles(() => accept),
+    [],
+  );
+  const threadDrop = useFileDropTarget<HTMLDivElement>(threadAcceptFiles);
   /** The session whose fork is being named, if any. Nothing is started until it is confirmed. */
   const [forkRequest, setForkRequest] = useState<
     { session: SessionSummary; botId: string; projectPath: string } | null
@@ -1092,25 +1110,38 @@ export function App({ feed, host, fill = false }: Props) {
                 onClose={() => setForkedSession(null)}
               />
             ) : displayedThread ? (
-              // Keyed on the session, which is what resets everything the view owns: switching
-              // threads replaces it rather than clearing a dozen pieces of state by hand.
-              <SessionView
-                key={`${displayedThread.session.source}:${displayedThread.session.sessionId}`}
-                {...sessionViewContext}
-                projectPath={displayedThread.project.projectPath}
-                session={displayedThread.session}
-                controlsHost={threadControlsHost}
-                // The thread view shows one session, so it takes a failure about that session and
-                // one about no session at all. Note the composer band outranks this caption for
-                // every Claude and Codex session, which is why the canvas puts it on the card
-                // instead; here there is nowhere else to put it.
-                externalError={botCommandError
-                    && (botCommandError.session === null
-                      || botCommandError.session
-                        === `${displayedThread.session.source}:${displayedThread.session.sessionId}`)
-                  ? botCommandError.message
-                  : null}
-              />
+              // The box a reader aims a file at here, the way a card is on the canvas: the session
+              // publishes what it can take and whichever surface owns the box installs it. Wrapped
+              // rather than put on `main`, which is shared with the canvas -- where every card is
+              // its own target and a drag over one bubbles up to here, lighting both.
+              <div className="relative h-full" {...threadDrop.dropProps}>
+                {/* Keyed on the session, which is what resets everything the view owns: switching
+                    threads replaces it rather than clearing a dozen pieces of state by hand. */}
+                <SessionView
+                  key={`${displayedThread.session.source}:${displayedThread.session.sessionId}`}
+                  {...sessionViewContext}
+                  projectPath={displayedThread.project.projectPath}
+                  session={displayedThread.session}
+                  controlsHost={threadControlsHost}
+                  onAcceptFiles={takeThreadAcceptFiles}
+                  // The thread view shows one session, so it takes a failure about that session and
+                  // one about no session at all. Note the composer band outranks this caption for
+                  // every Claude and Codex session, which is why the canvas puts it on the card
+                  // instead; here there is nowhere else to put it.
+                  externalError={botCommandError
+                      && (botCommandError.session === null
+                        || botCommandError.session
+                          === `${displayedThread.session.source}:${displayedThread.session.sessionId}`)
+                    ? botCommandError.message
+                    : null}
+                />
+                <FileDropOverlay
+                  dragging={threadDrop.dragging}
+                  refusal={threadAcceptFiles === null
+                    ? "This session has no composer to drop into"
+                    : null}
+                />
+              </div>
             ) : sidebarMode === "canvas" ? (
               <BotCanvas
                 bots={canvasBots}

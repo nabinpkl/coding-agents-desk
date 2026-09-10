@@ -2339,6 +2339,15 @@ describe("App shell", () => {
     fireEvent.drop(target, { dataTransfer: { files, types: ["Files"] } });
   }
 
+  /**
+   * A file held over a box, which is the state the reader is actually in when they need to be
+   * told anything. `dropEffect` is writable here the way it is on a real event, because refusing
+   * is what the target sets it to.
+   */
+  function dragOver(target: HTMLElement) {
+    fireEvent.dragOver(target, { dataTransfer: { files: [], types: ["Files"], dropEffect: "" } });
+  }
+
   // The whole session takes the image, not the little box at the bottom of it. A reader aiming a
   // file at a session is aiming at the session, and on the canvas the field is a thin strip on a
   // card that may be showing its terminal instead.
@@ -2362,10 +2371,11 @@ describe("App shell", () => {
     unmount();
   });
 
-  // A session with no box to put one in is not a drop target at all, rather than one that takes a
-  // file and drops it on the floor: without `onDragOver` the browser navigates to the file, which
-  // is a worse answer than the page refusing to accept it.
-  it("is not a drop target while nothing on the session can hold an image", async () => {
+  // A session with no box to put one in REFUSES the file rather than ignoring it. Ignoring is not
+  // the safe option it reads as: without `onDragOver` calling `preventDefault` no `drop` event
+  // fires at all and the file becomes the browser's to handle, so the page that declined to take
+  // it is also the page that cannot decline it.
+  it("refuses the file, and sends nothing, while nothing on the session can hold an image", async () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
 
@@ -2378,6 +2388,74 @@ describe("App shell", () => {
 
     expect(transport.requests.filter((request) => request.path.endsWith("/composer/image")))
       .toHaveLength(0);
+    unmount();
+  });
+
+  // The reported bug. There WAS an indication and it was drawn every time: `ring-inset` on the
+  // session's own root, which its transcript -- `flex-1 ... bg-background`, flush to three edges --
+  // then painted over, because an inset box-shadow paints below its element's descendants. So the
+  // regression this guards is not "an indication exists" but "nothing can paint over it": the
+  // overlay must be a child of the box that owns the drop, after everything else in it.
+  it("shows the overlay over the whole box, where no child can paint on top of it", async () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    mirrorClaudeComposer(transport);
+
+    const card = sessionCard();
+    await act(async () => {
+      dragOver(card);
+    });
+
+    const layer = screen.getByText("Drop to add to the composer").parentElement!;
+    // Outside the session's own column, so the transcript's background is not painted after it,
+    // and last inside a box that holds the whole session, so nothing else is either. Asserted as
+    // that relationship rather than as one named element: which box owns the drop is the surface's
+    // business, and the canvas and the thread view answer it differently.
+    expect(layer.contains(card)).toBe(false);
+    expect(layer.parentElement!.contains(card)).toBe(true);
+    expect(layer.parentElement!.lastElementChild).toBe(layer);
+    // Transparent to the pointer, or it becomes the `dragleave` target the moment it appears and
+    // blinks itself off and on under the cursor.
+    expect(layer.className).toContain("pointer-events-none");
+    unmount();
+  });
+
+  // Refusing has to look different from accepting, or the overlay is just a light that says a drag
+  // is happening -- which the reader already knows, because they are doing it.
+  it("says it cannot take the file, rather than inviting a drop it will drop on the floor", async () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+
+    const field = screen.getByLabelText("Claude composer text");
+    const card = field.closest(".bg-card");
+    if (!(card instanceof HTMLElement)) throw new Error("the session has no card");
+    await act(async () => {
+      dragOver(card);
+    });
+
+    expect(screen.getByText("This session has no composer to drop into")).toBeInTheDocument();
+    expect(screen.queryByText("Drop to add to the composer")).not.toBeInTheDocument();
+    unmount();
+  });
+
+  // A collapsed card is a name and a dot, and it is most of what a canvas is. The session's own
+  // view is not mounted under it at all, so the old handlers could not have been there -- and this
+  // is the case where the reader is least likely to guess that from looking.
+  it("takes the drag on a closed card, and says opening it is what would help", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    deliverTwoBots(transport);
+
+    const row = canvas().getByRole("button", { name: /^Session Claude 01/ });
+    const box = row.closest("li")?.firstElementChild;
+    if (!(box instanceof HTMLElement)) throw new Error("the card has no box");
+    await act(async () => {
+      dragOver(box);
+    });
+
+    expect(screen.getByText("Open to drop an image")).toBeInTheDocument();
     unmount();
   });
 

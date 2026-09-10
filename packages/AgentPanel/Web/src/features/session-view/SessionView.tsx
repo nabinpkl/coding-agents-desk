@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
-  type DragEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -157,6 +156,7 @@ export function SessionView({
   windowComposers,
   compact,
   tasksHost,
+  onAcceptFiles,
   externalError = null,
 }: SessionViewContext & {
   /** The directory this session runs in, which is how its terminal names the process to open. */
@@ -172,6 +172,19 @@ export function SessionView({
    * these.
    */
   controlsHost: HTMLElement | null;
+  /**
+   * Takes this session's image-accepting function, or null while it has none.
+   *
+   * Required rather than optional: every surface that mounts a session owns a box a reader can
+   * aim a file at, and one that quietly took no callback would be one where dropping a file is
+   * the browser's business instead of the panel's.
+   *
+   * MUST be stable across renders -- a state setter, or a `useCallback` with no changing
+   * dependency. It is a dependency of the effect that publishes, so a fresh function each render
+   * would republish on every keystroke in the composer, and the null on its cleanup would blink
+   * the surface's overlay to a refusal mid-drag.
+   */
+  onAcceptFiles: (accept: ((files: readonly File[]) => void) | null) => void;
   /**
    * An error raised outside this session's own commands -- a Bot edit, say -- shown on the same
    * band, because it has no band of its own and a failure that shows nowhere is indistinguishable
@@ -201,14 +214,12 @@ export function SessionView({
   // render again once the node exists; a ref would still be null when its own effects ran.
   const [column, setColumn] = useState<HTMLDivElement | null>(null);
   /**
-   * What takes an image dropped anywhere on this session, or null while nothing here can hold one.
-   *
-   * Held here rather than in the band below so the WHOLE session is the drop target. A reader
-   * aiming a file at a session is aiming at the session, and the field is a thin strip at the
-   * bottom of it that on a canvas card may not even be on screen -- the terminal replaces it.
+   * What takes an image dropped on this session, or null while nothing here can hold one.
    *
    * Published upward by the band rather than reached down for, because only the band knows whether
-   * there is a box to put an image in; see `onFileDrop` there.
+   * there is a box to put an image in; see `onFileDrop` there. Held here first, in a state setter
+   * that is stable by construction, so the band's effect does not re-run on every render of
+   * whoever mounted this view.
    *
    * Wrapped in an object because `setFileDrop` would take a bare function as an updater and call
    * it rather than store it.
@@ -217,12 +228,17 @@ export function SessionView({
     null,
   );
   /**
-   * Whether files are over this session right now. Only for the ring.
+   * Hands it on to the surface, which is what actually owns the box a reader aims at.
    *
-   * A drop target with no visible edge is one nobody discovers, and the browser gives no hint of
-   * its own: the cursor says "you may drop" over the whole page.
+   * This view is not that box. On the canvas it is the card's BODY, mounted only while the card is
+   * open and sitting below the titlebar that carries the session's name -- so a file aimed at the
+   * name, or at a collapsed card, would never reach a handler installed here. Same reasoning as
+   * `controlsHost`: what this view knows, the surface places.
    */
-  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    onAcceptFiles(fileDrop?.accept ?? null);
+    return () => onAcceptFiles(null);
+  }, [onAcceptFiles, fileDrop]);
 
   const summary = useSummary(feed, { source, sessionId });
   // Whether this is a Claude Code process in someone's terminal, which is what decides between the
@@ -357,35 +373,7 @@ export function SessionView({
   ) : null;
 
   return (
-    <div
-      ref={setColumn}
-      className={`flex h-full min-h-0 flex-col bg-card ${
-        dragging ? "ring-2 ring-primary ring-inset" : ""
-      }`}
-      // The whole session takes the image, not just the composer box. Absent rather than inert
-      // where nothing can hold one: without `onDragOver` preventing the default no drop event
-      // fires at all, and the browser navigates to the file instead of this staying a no-op.
-      {...(fileDrop === null ? {} : {
-        onDragOver: (event: DragEvent<HTMLDivElement>) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
-          event.preventDefault();
-          setDragging(true);
-        },
-        // Only when the pointer has actually left the card. `dragleave` also fires when it crosses
-        // onto a child -- the transcript, the bands, the field -- and dropping the ring there makes
-        // it flicker over exactly the area somebody is aiming at.
-        onDragLeave: (event: DragEvent<HTMLDivElement>) => {
-          const to = event.relatedTarget;
-          if (to instanceof Node && event.currentTarget.contains(to)) return;
-          setDragging(false);
-        },
-        onDrop: (event: DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          setDragging(false);
-          fileDrop.accept([...event.dataTransfer.files]);
-        },
-      })}
-    >
+    <div ref={setColumn} className="flex h-full min-h-0 flex-col bg-card">
       {controlsHost
         ? createPortal(
           <>

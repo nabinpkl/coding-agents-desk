@@ -1,7 +1,8 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "../session-view/SessionView";
+import { FileDropOverlay, useFileDropTarget } from "../session-view/fileDropTarget";
 import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
@@ -546,6 +547,21 @@ function BotSessionCard({
    * session either belongs to. Given its own node inside the card, each lands over its own session.
    */
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
+  /**
+   * What this card's session does with a dropped image, published up from inside it.
+   *
+   * Null while the card is closed -- the session's body is not mounted, so there is nothing to
+   * publish -- and null while it is open on a session with no composer to paste into. Both are
+   * refusals with different answers, which is why the message below distinguishes them.
+   */
+  const [acceptFiles, setAcceptFiles] = useState<((files: readonly File[]) => void) | null>(null);
+  // Wrapped, because `setAcceptFiles` would take the accepting function as an updater and call it
+  // with the previous value instead of storing it.
+  const takeAcceptFiles = useCallback(
+    (accept: ((files: readonly File[]) => void) | null) => setAcceptFiles(() => accept),
+    [],
+  );
+  const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -565,11 +581,17 @@ function BotSessionCard({
       <div
         // `relative` so this card is what the session's tasks panel is positioned against. That
         // panel is absolutely placed against its nearest positioned ancestor, which without this
-        // is the app itself -- and then every open session's panel lands in the same place.
+        // is the app itself -- and then every open session's panel lands in the same place. The
+        // drop overlay below rides on the same property.
         className={`relative flex overflow-hidden rounded-lg border ${
           open ? "border-primary" : "border-border"
         }`}
         style={open ? { height: resize.height } : undefined}
+        // The WHOLE card takes the file, titlebar included, and a closed one takes it too. The
+        // session's own view is only the body and only while the card is open, so a handler down
+        // there is missing from most of what a reader aims at -- including every card that is just
+        // a name and a dot.
+        {...drop.dropProps}
       >
         <div className="flex min-w-0 flex-1 flex-col">
           {/* A button cannot contain a button, so opening the session, its controls and its menu
@@ -657,6 +679,7 @@ function BotSessionCard({
                 session={session}
                 controlsHost={controlsHost}
                 tasksHost={tasksHost}
+                onAcceptFiles={takeAcceptFiles}
               />
             </section>
           ) : null}
@@ -665,6 +688,18 @@ function BotSessionCard({
         {/* `contents` so this box is not one: the panel inside it positions against the card. */}
         <div ref={setTasksHost} className="contents" />
         {resize.edge}
+        {/* Last, and that is the point: the previous indication was an inset ring on the session's
+            own root, which its transcript then painted over. A closed card can be opened, so it
+            says so; a card with no composer to paste into cannot be helped that way. */}
+        <FileDropOverlay
+          dragging={drop.dragging}
+          refusal={acceptFiles !== null
+            ? null
+            : open
+              ? "This session has no composer to drop into"
+              // Short because a closed card is one row tall and the overlay is clipped to it.
+              : "Open to drop an image"}
+        />
       </div>
     </li>
   );
