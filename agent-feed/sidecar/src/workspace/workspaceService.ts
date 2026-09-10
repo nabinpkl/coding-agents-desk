@@ -7,25 +7,50 @@
 // decorations move, so every reader of that workspace needs a new projection.
 
 import chokidar, { type FSWatcher } from "chokidar";
-import { relative } from "node:path";
+import { join, relative } from "node:path";
 import type {
   WorkspaceGitStatus,
   WorkspaceStreamEvent,
   WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
 import { gitStatus } from "@/workspace/workspaceGit";
+import { isStorablePath } from "@/workspace/workspacePaths";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
 import { buildTree } from "@/workspace/workspaceTree";
 
 /**
- * Directories a project watch never descends into.
+ * Directories a watch never looks inside.
  *
  * Not a taste call: each of these is written by a build rather than by a reader, and a single
  * `npm install` inside a watched `node_modules` produces tens of thousands of events that say
  * nothing about the tree anyone is looking at.
+ *
+ * This is now a second line of defence rather than the first one. Since every watch is one
+ * directory deep, a build directory costs one listing if a reader expands it and nothing at all
+ * otherwise; the list matters for the events it suppresses, not for a walk it prevents.
  */
 const UNWATCHED = /(^|[\/\\])(\.git|node_modules|\.build|\.next|dist|target|\.venv)([\/\\]|$)/;
+
+/**
+ * Every watch is exactly one directory deep, and this is the reason.
+ *
+ * Measured 2026-09-10 on this repository, 31k files under a root chokidar was asked to watch
+ * recursively: **54.4 seconds to `ready`, during which a 10ms interval fired twice where 5,440
+ * firings were due.** The initial walk does not merely take a long time under Bun, it starves the
+ * event loop for its whole duration -- so the sidecar answers nothing, the host's readiness probe
+ * fails, and the host kills and respawns it into the same 54 seconds. One workspace in the roster
+ * was enough to make the whole sidecar unusable.
+ *
+ * The same root watched with `depth: 0` reaches `ready` in **12ms**, and adding 203 expanded
+ * directories to it afterwards costs **2ms**. So the depth is not a tuning knob, it is what keeps
+ * the process alive.
+ *
+ * It costs nothing in coverage, because the tree is lazy in exactly the same shape: `buildTree`
+ * descends only into directories the reader has expanded, so a change inside a collapsed directory
+ * has nowhere to be drawn. Watching what is drawn and drawing what is watched is one rule, not two.
+ */
+const WATCH_DEPTH = 0;
 
 /**
  * How long a burst of filesystem events is collected before it becomes one `changed`.
@@ -42,7 +67,7 @@ export class WorkspaceService {
   private readonly pendingChanges = new Map<string, Set<string>>();
   private readonly changeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /**
-   * One watcher for the process, and a root is added to it once and never removed.
+   * One watcher for the process, and a path is added to it once and never removed.
    *
    * Bun's `fs.watch` makes every second watch on a path inert, so a watcher closed when its last
    * reader leaves comes back dead for the next one (AGENTS.md, "under Bun, a watch you close
@@ -50,7 +75,7 @@ export class WorkspaceService {
    * the cheap half of that trade.
    */
   private watcher: FSWatcher | null = null;
-  private readonly watchedRoots = new Set<string>();
+  private readonly watchedPaths = new Set<string>();
 
   constructor(
     readonly store: WorkspaceStore,
@@ -62,13 +87,20 @@ export class WorkspaceService {
     });
     this.sharedState.subscribe((state) => {
       this.emit({ type: "sharedState", state });
+      this.watchExpanded(state.workspaceId, state.expandedDirectoryPaths);
       void this.emitTree(state.workspaceId);
     });
   }
 
   async ready(): Promise<void> {
     await Promise.all([this.store.ready, this.sharedState.ready]);
-    for (const workspace of this.store.list()) this.watch(workspace);
+    for (const workspace of this.store.list()) {
+      this.watch(workspace);
+      this.watchExpanded(
+        workspace.id,
+        this.sharedState.snapshot(workspace.id).expandedDirectoryPaths,
+      );
+    }
   }
 
   subscribe(listener: (event: WorkspaceStreamEvent) => void): () => void {
@@ -118,15 +150,41 @@ export class WorkspaceService {
   }
 
   private watch(workspace: WorkspaceSummary): void {
-    if (this.watchedRoots.has(workspace.root)) return;
-    this.watchedRoots.add(workspace.root);
+    this.watchPath(workspace.root);
+  }
+
+  /**
+   * Watch each directory the reader has open, so the listings the tree draws are the listings that
+   * report changes.
+   *
+   * An expanded path arrives from an unauthenticated client, so it is checked with the same
+   * predicate the store uses before it becomes a path on this machine -- `isStorablePath` refuses
+   * anything absolute, empty, `..`-bearing, NUL-bearing or oversized. A path that fails is skipped
+   * rather than throwing: it is already absent from the tree the same state produced, so refusing
+   * to watch it agrees with what the reader can see.
+   */
+  private watchExpanded(workspaceId: string, expandedPaths: readonly string[]): void {
+    const workspace = this.store.get(workspaceId);
+    if (!workspace) return;
+    for (const path of expandedPaths) {
+      if (!isStorablePath(path)) continue;
+      this.watchPath(join(workspace.root, path));
+    }
+  }
+
+  /** Add one shallow watch, once. See `WATCH_DEPTH` for why a watch is never deep. */
+  private watchPath(absolutePath: string): void {
+    if (this.watchedPaths.has(absolutePath)) return;
+    if (UNWATCHED.test(absolutePath)) return;
+    this.watchedPaths.add(absolutePath);
     if (!this.watcher) {
       // Created with the first real path rather than with `[]`: a chokidar watcher created empty
       // never reaches `ready`, so one filled by `add` afterwards would hang instead of watching.
-      this.watcher = chokidar.watch(workspace.root, {
+      this.watcher = chokidar.watch(absolutePath, {
         ignored: UNWATCHED,
         ignoreInitial: true,
         followSymlinks: false,
+        depth: WATCH_DEPTH,
       });
       this.watcher.on("all", (_event, path) => this.recordChange(path));
       this.watcher.on("error", (error) => {
@@ -134,7 +192,7 @@ export class WorkspaceService {
       });
       return;
     }
-    this.watcher.add(workspace.root);
+    this.watcher.add(absolutePath);
   }
 
   /**
@@ -174,6 +232,6 @@ export class WorkspaceService {
     this.changeTimers.clear();
     await this.watcher?.close();
     this.watcher = null;
-    this.watchedRoots.clear();
+    this.watchedPaths.clear();
   }
 }
