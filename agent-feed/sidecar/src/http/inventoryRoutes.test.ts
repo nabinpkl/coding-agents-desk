@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProjectsPayload, SessionsPayload } from "@agentdesk/agent-feed-wire";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
-import { registerPiSession, sessionKey, stopCatalog } from "@/transcripts/transcriptCatalog";
+import { registerPiSession, sessionKey, stopCatalog } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
 const server = { timeout() {} } as never;

@@ -14,7 +14,7 @@ import type {
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
 } from "@agentdesk/agent-feed-wire";
-import { PtyManagerClient, type PtySessionConnection } from "@/terminal/ptyClient";
+import { PtyManagerClient, type PtySessionConnection } from "@/terminal/pty/ptyClient";
 import {
   attachedTmuxClients,
   captureTmuxHistory,
@@ -28,9 +28,9 @@ import {
   resizeTmuxWindow,
   restoreTmuxMouse,
   tmuxSessionExists,
-} from "@/terminal/tmuxSessions";
-import { TmuxAttachments, type TmuxSessionConnection } from "@/terminal/tmuxAttachment";
-import type { PtyEnvelope, PtySessionSummary } from "@/terminal/ptyProtocol";
+} from "@/terminal/tmux/tmuxSessions";
+import { TmuxAttachments, type TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
+import type { PtyEnvelope, PtySessionSummary } from "@/terminal/pty/ptyProtocol";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
@@ -45,7 +45,7 @@ import {
   type ResolvedAgentTerminalSession,
   type TerminalIdentity,
 } from "@/terminal/agentTerminalIdentity";
-import { streamMessage } from "@/terminal/terminalStreamMessages";
+import { streamMessage } from "@/terminal/pty/terminalStreamMessages";
 import {
   connectPtyTerminal,
   connectTmuxTerminal,

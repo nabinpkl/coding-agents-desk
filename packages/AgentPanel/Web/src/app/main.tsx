@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@/app/styles.css";
 import { App } from "@/app/AgentPanelApp";
-import { panelEntry } from "@/app/panelEntry";
+import { panelEntry } from "@/app/page/panelEntry";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import { WebkitHostBridge } from "@/features/activity-feed/data-source/HostBridge";
@@ -11,10 +11,10 @@ import {
   RelayHttpTransport,
   type AgentHttpTransport,
 } from "@/features/activity-feed/transport/AgentHttpTransport";
-import { installFixture } from "@/app/fixture";
-import { installKeyboardInset } from "@/app/keyboardInset";
-import { installPagehideLifecycle } from "@/app/pageLifecycle";
-import { installWindowDrag } from "@/app/windowDrag";
+import { installFixture } from "@/app/fake-sidecar/fixture";
+import { installKeyboardInset } from "@/app/page/keyboardInset";
+import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
+import { installWindowDrag } from "@/app/page/windowDrag";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
 

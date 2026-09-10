@@ -8,22 +8,22 @@ import {
 } from "@/http/httpResponses";
 import { createAgentRoutes } from "@/http/agentRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
-import { createCliInputRoutes } from "@/http/cliInputRoutes";
+import { createCliInputRoutes } from "@/http/session-routes/cliInputRoutes";
 import {
   createTmuxComposerRoutes,
   liveTmuxComposerDependencies,
-} from "@/http/tmuxComposerRoutes";
+} from "@/http/session-routes/tmuxComposerRoutes";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
 import { createParkRoutes } from "@/http/parkRoutes";
 import { createWindowRoutes } from "@/http/windowRoutes";
-import { createWebrtcTileRoutes } from "@/http/webrtcTileRoutes";
+import { createWebrtcTileRoutes } from "@/http/tile-peer/webrtcTileRoutes";
 import type { RouteHandler } from "@/http/route";
-import { createSessionRoutes } from "@/http/sessionRoutes";
-import { createSummaryRoutes } from "@/http/summaryRoutes";
-import { createTaskRoutes } from "@/http/taskRoutes";
+import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
+import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
+import { createTaskRoutes } from "@/http/session-routes/taskRoutes";
 import { createAgentTerminalRoutes } from "@/http/agentTerminalRoutes";
 import { createTmuxRoutes } from "@/http/tmuxRoutes";
-import { createTimelineRoutes } from "@/http/timelineRoutes";
+import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { detectUsageVendors } from "@/usage/usageReport";
 import { state } from "@/transcripts/transcriptState";
@@ -38,7 +38,7 @@ import {
   registerPiSession,
   resolvePiSession,
   notifyPiSessionChanged,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import { AgentBackendRegistry } from "@/agents/agentBackend";
 import { PiAgentBackend } from "@/agents/piAgentBackend";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";

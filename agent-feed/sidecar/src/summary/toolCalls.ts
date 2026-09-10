@@ -12,7 +12,7 @@
 // arguments compacted -- because a tool this file has never heard of is still work the turn did.
 
 import type { SummaryFileAction, SummaryFileChange } from "@agentdesk/agent-feed-wire";
-import type { ActivityBlock, ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 
 /** How much of one argument is worth showing. A `content` payload is a whole file. */
 const ARGUMENT_CHARS = 300;

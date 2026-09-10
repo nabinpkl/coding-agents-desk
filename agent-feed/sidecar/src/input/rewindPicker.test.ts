@@ -10,7 +10,7 @@
 
 import { expect, test } from "bun:test";
 import { bytesForRailKey } from "@agentdesk/agent-feed-wire";
-import type { TmuxPaneView } from "@/terminal/tmuxSessions";
+import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import {
   MAX_REWIND_STEPS,
   rewindScreen,

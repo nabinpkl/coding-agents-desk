@@ -67,7 +67,7 @@ import {
   toggleTerminalComposer,
   useTerminalComposerShown,
 } from "@/features/terminal/terminalComposerPreference";
-import { SessionComposer } from "@/features/session-view/SessionComposer";
+import { SessionComposer } from "@/features/session-view/composer/SessionComposer";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import { TerminalControl, TerminalNotice } from "@/features/session-view/SessionTerminalControls";
 import type {

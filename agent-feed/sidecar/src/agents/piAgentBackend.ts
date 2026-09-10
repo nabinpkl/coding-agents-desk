@@ -12,7 +12,7 @@ import {
 import { writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { config } from "@/config";
-import type { EventMode } from "@/transcripts/sources/transcriptTypes";
+import type { EventMode } from "@/transcripts/transcriptTypes";
 import {
   type AgentBackend,
   type AgentCommandReceipt,

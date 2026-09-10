@@ -18,6 +18,7 @@ import {
   deleteBranch,
   deleteRemoteBranch,
   readWorktree,
+  remoteTrackingRef,
   removeWorktree,
   WorktreeError,
   worktreeRemovalRefusal,
@@ -39,15 +40,32 @@ export interface SessionDisposals {
  */
 export interface SessionRetirementPlan {
   checkout: string;
-  worktree?: { path: string; branch: string | null; remote: string };
+  worktree?: {
+    path: string;
+    branch: string | null;
+    /** The remote to delete the branch from, empty when that was not asked for. */
+    remote: string;
+    /** The remote the branch tracks, read while the branch still has config to read. */
+    tracked: string;
+  };
 }
 
 /** What the act actually did, and what it was asked for and could not do. */
 export interface SessionRetirementOutcome {
   removedWorktree?: string;
   deletedBranch?: string;
-  /** The remote the branch was deleted from, present only when it was. */
+  /** The remote branch that was deleted, as `<remote>/<branch>`, present only when it was. */
   deletedRemoteBranch?: string;
+  /**
+   * A remote branch left behind by deleting the local one, as `<remote>/<branch>`.
+   *
+   * Reported rather than removed. Deleting the local branch is what makes the remote copy hard to
+   * see: nothing local points at it any more, so it stops appearing in `git branch` and surfaces
+   * only to somebody who runs `git ls-remote` or opens the branch list in a browser. It is still
+   * somebody's to delete or keep, and this call is not entitled to decide that, so it says the
+   * name and stops.
+   */
+  orphanedRemoteBranch?: string;
   failed: { step: "worktree" | "branch" | "remote"; reason: string }[];
 }
 
@@ -96,7 +114,17 @@ export async function planSessionRetirement(options: {
   if (disposals.branch === "delete" && !branch) {
     throw new WorktreeError(`${projectPath} has a detached HEAD, so there is no branch to delete`);
   }
-  return { checkout, worktree: { path: projectPath, branch, remote: await remoteToDelete(options, branch) } };
+  return {
+    checkout,
+    worktree: {
+      path: projectPath,
+      branch,
+      remote: await remoteToDelete(options, branch),
+      // Read here for the same reason the delete's remote is: `git branch -d` takes the branch's
+      // config with it, so after the act there is nothing left to ask.
+      tracked: branch && disposals.branch === "delete" ? await branchRemote({ checkout, branch }) ?? "" : "",
+    },
+  };
 }
 
 /**
@@ -152,7 +180,7 @@ export async function disposeSessionWorktree(
   const outcome: SessionRetirementOutcome = { failed: [] };
   if (!plan.worktree) return outcome;
   const { checkout } = plan;
-  const { path, branch, remote } = plan.worktree;
+  const { path, branch, remote, tracked } = plan.worktree;
 
   try {
     await removeWorktree({ checkout, path });
@@ -179,11 +207,20 @@ export async function disposeSessionWorktree(
     }
     return outcome;
   }
-  if (disposals.remote !== "delete") return outcome;
+  if (disposals.remote !== "delete") {
+    // The branch is gone and its copy on the remote is not. Say so: this is the step a person
+    // doing this by hand forgets, and the whole cost of forgetting it is that nothing mentions it
+    // again.
+    if (tracked) {
+      const orphan = await remoteTrackingRef({ checkout, remote: tracked, branch });
+      if (orphan) outcome.orphanedRemoteBranch = orphan;
+    }
+    return outcome;
+  }
 
   try {
     await deleteRemoteBranch({ checkout, branch, remote });
-    outcome.deletedRemoteBranch = remote;
+    outcome.deletedRemoteBranch = `${remote}/${branch}`;
   } catch (error) {
     outcome.failed.push({ step: "remote", reason: reason(error) });
   }

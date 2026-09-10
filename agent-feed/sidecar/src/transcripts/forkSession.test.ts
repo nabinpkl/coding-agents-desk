@@ -20,7 +20,7 @@ import {
   type ForkRewinder,
   type SessionLauncher,
 } from "@/transcripts/forkSession";
-import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
 const roots: string[] = [];

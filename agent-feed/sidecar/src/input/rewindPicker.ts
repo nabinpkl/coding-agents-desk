@@ -54,7 +54,7 @@ import {
   hexSend,
   TmuxUnavailable,
   type TmuxPaneView,
-} from "@/terminal/tmuxSessions";
+} from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { keystrokesFor } from "@/input/composerKeystrokes";
 import { inTurn } from "@/input/tmuxComposerPanes";

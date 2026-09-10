@@ -18,7 +18,7 @@ import {
   forkFirstTurn,
   newClaudeSessionCommand,
 } from "@/terminal/claudeSessionLaunch";
-import { newSessionArgs } from "@/terminal/tmuxSessions";
+import { newSessionArgs } from "@/terminal/tmux/tmuxSessions";
 
 const directories: string[] = [];
 

@@ -12,7 +12,7 @@
 
 import { AgentSessionNotFoundError } from "@/agents/agentBackend";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import type { TokenUsage } from "@/transcripts/transcriptTypes";
 
 interface SessionTrack {
   lastEventAt: number;

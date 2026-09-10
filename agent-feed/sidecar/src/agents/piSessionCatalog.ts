@@ -1,7 +1,7 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { config } from "@/config";
-import type { Session } from "@/transcripts/sources/transcriptTypes";
+import type { Session } from "@/transcripts/transcriptTypes";
 import type { PiSessionLocation } from "@/agents/piAgentBackend";
 
 const PROBE_BYTES = 32 * 1024;

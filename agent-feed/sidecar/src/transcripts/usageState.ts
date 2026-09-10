@@ -1,4 +1,4 @@
-import type { TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import type { TokenUsage } from "@/transcripts/transcriptTypes";
 
 /**
  * Fold one line's occupancy report into the session's running total.

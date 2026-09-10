@@ -18,7 +18,7 @@ import type {
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
-import { findTmuxSessionByIdentity } from "@/terminal/tmuxSessions";
+import { findTmuxSessionByIdentity } from "@/terminal/tmux/tmuxSessions";
 import { currentProcessTable } from "@/tasks/processProbe";
 import { liveSessionProcesses } from "@/tasks/sessionRegistry";
 import {

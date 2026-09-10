@@ -5,7 +5,7 @@
 // have separate lifetimes.
 
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import { listTmuxSessions, TmuxUnavailable } from "@/terminal/tmuxSessions";
+import { listTmuxSessions, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { jsonResponse } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
 

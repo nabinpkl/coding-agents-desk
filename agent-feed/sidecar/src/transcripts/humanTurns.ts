@@ -15,7 +15,7 @@
 // The rule is therefore about CONTENT, not about the `type` field alone: a person's message is a
 // user event carrying prose that is not one of the harness's envelopes.
 
-import type { ParsedLine } from "@/transcripts/sources/transcriptTypes";
+import type { ParsedLine } from "@/transcripts/transcriptTypes";
 
 /**
  * Text that arrives as a user message and is not from a person.

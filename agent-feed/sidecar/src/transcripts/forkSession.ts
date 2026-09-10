@@ -31,7 +31,7 @@ import {
   type MessageAnchor,
 } from "@/transcripts/messageAnchor";
 import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
-import { findSession } from "@/transcripts/transcriptCatalog";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 
 /**
  * How long a first turn may be.

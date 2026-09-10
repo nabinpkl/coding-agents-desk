@@ -95,18 +95,64 @@ fi
 #    inside it AND every importer of it. An aliased one names only the thing that moved.
 #
 #    Three patterns, because a specifier is written three ways here: a static import or re-export,
-#    a bare side-effect import, and a call form (`import()`, `vi.mock()`, `require()`). Anchored or
-#    parenthesised so a specifier quoted INSIDE a string stays legal -- `config.test.ts` embeds one
-#    in a script it hands to `bun -e`, and that one is a real relative import, just not this file's.
+#    a bare side-effect import, and a call form (`import()`, `vi.mock()`, `mock.module()`,
+#    `require()`). Anchored or parenthesised so a specifier quoted INSIDE a string stays legal --
+#    `config.test.ts` embeds one in a script it hands to `bun -e`, and that one is a real relative
+#    import, just not this file's.
+#
+#    `mock.module` is in the call form because it was missing from it, and the omission cost
+#    something: `sessionRoutes.test.ts` mocked a module as `"../input/tmuxComposer.ts"`, which
+#    survived the migration unseen, and moving that file into a subdirectory re-pointed the mock at
+#    a directory that does not exist. The mock silently stopped applying and two tests failed
+#    against the real implementation instead.
 relative_imports="$(
     git grep -nE \
-        '^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|require)\([[:space:]]*["'"'"']\.' \
+        '^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|mock\.module|require)\([[:space:]]*["'"'"']\.' \
         -- 'packages/AgentPanel/Web/src/*.ts' 'packages/AgentPanel/Web/src/*.tsx' \
            'agent-feed/sidecar/src/*.ts' 'agent-feed/sidecar/src/*.tsx' || true
 )"
 if [ -n "$relative_imports" ]; then
     echo "agent-feed-fitness: these are relative imports; write @/ or @repo/ instead:" >&2
     printf '%s\n' "$relative_imports" >&2
+    exit 1
+fi
+
+# 7. No directory in the two live TypeScript trees holds more than twelve source files. The other
+#    half of check 5, and the failure check 5 produces on its own: bring every file under 500 lines
+#    and you get directories of fifty files that are each one idea, where a reader still cannot see
+#    where one thing ends and the next begins. A flat list of fifty hides exactly what a
+#    two-thousand-line file hid.
+#
+#    Twelve because this tree's own distribution had a gap there -- 53, 36, 26, 24, 20, 17, 16, 15,
+#    13, 13, 12, 12, and then 10 and below -- so twelve is where a place stopped and a pile started
+#    here, rather than a number somebody liked.
+#
+#    A test rides with its source and is not counted: `foo.ts` and `foo.test.ts` are one thing, and
+#    counting them separately would push a directory over for writing tests.
+#
+#    The ceiling is gated and the three-file floor deliberately is NOT. The floor governs the moment
+#    you are splitting -- a group of one or two is not a cluster, so those files stay flat -- and
+#    says nothing about a directory that is simply small. `features/screen-viewer/` is one file and
+#    `src/types/` is one file, and both are a whole thing that happens to be small rather than the
+#    residue of a bad split. A check that failed every directory under three would fail five that
+#    are correct as they are. See AGENTS.md, "How long a file gets, and how flat a directory gets".
+oversized_dirs="$(
+    find packages/AgentPanel/Web/src agent-feed/sidecar/src -type d -print0 \
+        | while IFS= read -r -d '' dir; do
+            count="$(
+                find "$dir" -maxdepth 1 -type f \( -name '*.ts' -o -name '*.tsx' \) \
+                    ! -name '*.test.ts' ! -name '*.test.tsx' | wc -l | tr -d ' '
+            )"
+            # An `if` rather than `&&`, so a final directory that is under the cap does not leave
+            # the loop -- and with it the command substitution -- exiting non-zero under `set -e`.
+            if [ "$count" -gt 12 ]; then printf '  %s %s\n' "$count" "$dir"; fi
+        done
+)"
+if [ -n "$oversized_dirs" ]; then
+    echo "agent-feed-fitness: these directories hold more than twelve source files:" >&2
+    printf '%s\n' "$oversized_dirs" >&2
+    echo "agent-feed-fitness: cluster the ones that are about the same thing into sibling" >&2
+    echo "agent-feed-fitness: directories. A group of fewer than three is not a cluster." >&2
     exit 1
 fi
 

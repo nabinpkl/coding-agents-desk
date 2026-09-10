@@ -30,7 +30,7 @@ import {
   syncTmuxComposer,
   type TmuxComposerWatchRuntime,
 } from "@/input/tmuxComposer";
-import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmuxSessions";
+import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 
 test("reports what the composer holds without waiting for the pane to write", async () => {
   // An idle pane writes nothing at all, so a watcher that only ever spoke on output would say

@@ -14,7 +14,7 @@ import type {
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import { FontSizeRoot } from "@/features/activity-feed/fontStore";
+import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
 import { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
 import { useUsage } from "@/features/usage/useUsage";
 import {
@@ -26,19 +26,19 @@ import {
   HoverSidebarPreview,
   ResizableSidebar,
 } from "@/features/sidebar/SidebarPresentation";
-import { useSidebarChrome } from "@/app/useSidebarChrome";
-import { useProjectInventory } from "@/app/useProjectInventory";
-import { useCanvasRoster } from "@/app/useCanvasRoster";
-import { useBotCommands } from "@/app/useBotCommands";
-import { useThreadSelection } from "@/app/useThreadSelection";
-import { usePiSessionCreation } from "@/app/usePiSessionCreation";
+import { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
+import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
+import { useBotCommands } from "@/app/shell-state/useBotCommands";
+import { useThreadSelection } from "@/app/shell-state/useThreadSelection";
+import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
-import { sidebarProps } from "@/app/sidebarProps";
+import { sidebarProps } from "@/app/shell-state/sidebarProps";
 import { loadSelection, storeSelection } from "@/features/sidebar/selectionStore";
 import { useBots } from "@/features/bots/useBots";
 import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
 import { botCanvasHues } from "@/features/bots/botSurface";
-import type { NewBotSession } from "@/features/bots/BotNewSessionCard";
+import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";

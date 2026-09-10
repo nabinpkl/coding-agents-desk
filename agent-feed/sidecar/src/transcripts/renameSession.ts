@@ -17,9 +17,9 @@
  */
 import { renameTmuxSession } from "@/input/tmuxComposer";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
-import { uniqueTmuxSessionName } from "@/terminal/tmuxSessionNames";
-import { listTmuxSessions, renameTmuxSessionTo } from "@/terminal/tmuxSessions";
-import { findSession } from "@/transcripts/transcriptCatalog";
+import { uniqueTmuxSessionName } from "@/terminal/tmux/tmuxSessionNames";
+import { listTmuxSessions, renameTmuxSessionTo } from "@/terminal/tmux/tmuxSessions";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
 
 export class SessionRenameInvalidError extends Error {}

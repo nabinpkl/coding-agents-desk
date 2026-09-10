@@ -10,8 +10,8 @@ const markdownStyles = readFileSync(
 // Both files: the three text wrappers moved into `ActivityBlockViews.tsx` when the rows
 // were split, and the rule is about all of them wherever they live.
 const eventRows = [
-  "src/features/activity-feed/ActivityEventRows.tsx",
-  "src/features/activity-feed/ActivityBlockViews.tsx",
+  "src/features/activity-feed/blocks/ActivityEventRows.tsx",
+  "src/features/activity-feed/blocks/ActivityBlockViews.tsx",
 ].map((path) => readFileSync(resolve(path), "utf8")).join("\n");
 
 /**

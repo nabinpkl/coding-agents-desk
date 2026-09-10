@@ -3,7 +3,7 @@
 
 import { contextWindowFor } from "@/config";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { EventCacheHit, TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import type { EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import type { CodexMessageEvent } from "@/live/codexNetworkSource";
 import type { FlowContext } from "@/live/codexLiveFlows";
 import { blockForItem, publishTurnInput, type CodexItemStore } from "@/live/codexLiveItems";

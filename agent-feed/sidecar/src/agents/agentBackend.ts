@@ -1,4 +1,4 @@
-import type { ActivityEvent, EventMode } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityEvent, EventMode } from "@/transcripts/transcriptTypes";
 import type { AgentRunState, AgentQueueState, TimelineEnvelope } from "@/agents/liveAgentProjection";
 import type {
   AgentCommandReceipt,

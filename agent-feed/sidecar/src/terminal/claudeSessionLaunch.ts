@@ -18,7 +18,7 @@ import {
   killTmuxSession,
   stampTmuxSessionIdentity,
   tmuxSessionExists,
-} from "@/terminal/tmuxSessions";
+} from "@/terminal/tmux/tmuxSessions";
 
 /**
  * The pane a session started or resumed by this sidecar runs in.

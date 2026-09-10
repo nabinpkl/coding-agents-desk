@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
-import { handleSessionRoutes } from "@/http/sessionRoutes";
+import { handleSessionRoutes } from "@/http/session-routes/sessionRoutes";
 import { state } from "@/transcripts/transcriptState";
 
 const server = undefined as never;

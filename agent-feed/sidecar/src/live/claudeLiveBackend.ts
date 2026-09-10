@@ -26,8 +26,8 @@ import {
 } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { LiveSessionRegistry } from "@/live/liveSessionRegistry";
-import { findSession } from "@/transcripts/transcriptCatalog";
-import type { EventMode, TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
+import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 import {
   claudeLiveReconnectDelay,
   decodeDeltaData,

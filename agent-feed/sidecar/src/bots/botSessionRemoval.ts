@@ -153,6 +153,7 @@ export class BotSessionRetirer {
       if (outcome.removedWorktree) retired.removedWorktree = outcome.removedWorktree;
       if (outcome.deletedBranch) retired.deletedBranch = outcome.deletedBranch;
       if (outcome.deletedRemoteBranch) retired.deletedRemoteBranch = outcome.deletedRemoteBranch;
+      if (outcome.orphanedRemoteBranch) retired.orphanedRemoteBranch = outcome.orphanedRemoteBranch;
       // Appended rather than assigned: a pane that would not die is already recorded here.
       retired.failed.push(...outcome.failed);
     }

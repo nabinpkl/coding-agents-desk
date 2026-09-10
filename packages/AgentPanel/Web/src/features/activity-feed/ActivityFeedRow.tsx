@@ -7,7 +7,7 @@
 
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
-import type { DisplayItem } from "@/features/activity-feed/activityDisplayItems";
+import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import {
   ClusterRow,
   CompactionRow,
@@ -15,7 +15,7 @@ import {
   SegmentEventRow,
   UserRow,
   type EventRowContext,
-} from "@/features/activity-feed/ActivityEventRows";
+} from "@/features/activity-feed/blocks/ActivityEventRows";
 
 export function ActivityFeedRow({
   collapsed,

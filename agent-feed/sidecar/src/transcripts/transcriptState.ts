@@ -1,6 +1,6 @@
 import type { FSWatcher } from "chokidar";
-import type { EventSubscriber } from "@/transcripts/eventIndex";
-import type { Session, TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import type { EventSubscriber } from "@/transcripts/event-index/eventIndex";
+import type { Session, TokenUsage } from "@/transcripts/transcriptTypes";
 
 export type WatcherState = "idle" | "reconciling" | "live";
 

@@ -24,8 +24,8 @@ import type {
   WireErrorPayload,
 } from "@agentdesk/agent-feed-wire";
 import { state } from "@/transcripts/transcriptState";
-import { createSummaryRoutes } from "@/http/summaryRoutes";
-import { createTimelineRoutes } from "@/http/timelineRoutes";
+import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
+import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { config } from "@/config";
 import fixture from "@repo/agent-feed/wire/contract-fixture.json";
