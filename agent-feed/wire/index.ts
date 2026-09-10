@@ -202,3 +202,23 @@ export {
   modifierParameter,
   NO_MODIFIERS,
 } from "./railKeys.ts";
+
+export type {
+  WorkspaceDirectoryEntry,
+  WorkspaceError,
+  WorkspaceErrorCode,
+  WorkspaceFileConflict,
+  WorkspaceFileKind,
+  WorkspaceFileMode,
+  WorkspaceFileRead,
+  WorkspaceFileRevision,
+  WorkspaceFileWritten,
+  WorkspaceGitEntry,
+  WorkspaceGitStatus,
+  WorkspaceOperation,
+  WorkspaceOperationRequest,
+  WorkspaceSharedState,
+  WorkspaceStreamEvent,
+  WorkspaceSummary,
+  WorkspaceTreeNode,
+} from "./workspaceIde.ts";

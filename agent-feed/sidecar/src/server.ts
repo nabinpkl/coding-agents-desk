@@ -26,6 +26,12 @@ import { createTmuxRoutes } from "@/http/tmuxRoutes";
 import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
+import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
+import { createWorkspaceRoutes } from "@/http/workspace-routes/workspaceRoutes";
+import { createWorkspaceStreamRoutes } from "@/http/workspace-routes/workspaceStreamRoutes";
+import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
+import { WorkspaceService } from "@/workspace/workspaceService";
+import { WorkspaceStore } from "@/workspace/workspaceStore";
 import { detectUsageVendors } from "@/usage/usageReport";
 import { state } from "@/transcripts/transcriptState";
 import {
@@ -106,6 +112,17 @@ backends.register(claudeLive);
 // with the same registration contract as the claude live mirror.
 const codexLive = new CodexLiveBackend();
 backends.register(codexLive);
+// The workspace IDE's own state. Started here rather than lazily on the first request so a
+// malformed store on disk fails the sidecar at launch, where it is one line in the log, rather
+// than as a 500 on whichever request happened to touch it first.
+const workspaceService = new WorkspaceService(
+  new WorkspaceStore(config.workspacesPath),
+  new WorkspaceSharedStateStore(config.workspaceStatePath),
+);
+void workspaceService.ready().catch((error: unknown) => {
+  console.error("workspace service failed to start", error);
+});
+
 const routes: RouteHandler[] = [
   createInventoryRoutes(describeAgentSession),
   createBotRoutes(botRegistry),
@@ -138,6 +155,15 @@ const routes: RouteHandler[] = [
   // position here is only for readability.
   createWindowRoutes(),
   createWebrtcTileRoutes(),
+  // The workspace IDE. Ahead of the session routes only for readability; none of these paths is
+  // under `/api/sessions/`. The stream is listed before the others so `/stream` is matched before
+  // the roster routes walk the same `/api/workspace/<id>/` shape.
+  createWorkspaceStreamRoutes(workspaceService),
+  createWorkspaceFileRoutes(workspaceService, {
+    maxTextBytes: config.workspaceMaxTextBytes,
+    maxDocumentBytes: config.workspaceMaxDocumentBytes,
+  }),
+  createWorkspaceRoutes(workspaceService),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;

@@ -436,6 +436,38 @@ export const config = {
   ),
   // Durable state, not a cache: it is the only record of where each parked
   // window came from, so losing it makes the park a one-way trip.
+  // The workspace IDE's roster of project roots, and the open-tab state every reader of one
+  // workspace shares. Beside the Bot roster and for the same reason: both name machine-level
+  // projects rather than one host process's runtime, so the stable and dev sidecars share them.
+  workspacesPath: resolve(
+    process.env.AGENT_FEED_WORKSPACES_PATH?.trim()
+      || join(
+        userHomeDirectory,
+        "Library",
+        "Application Support",
+        "agentdesk-agent-feed",
+        "workspaces.json",
+      ),
+  ),
+  workspaceStatePath: resolve(
+    process.env.AGENT_FEED_WORKSPACE_STATE_PATH?.trim()
+      || join(
+        userHomeDirectory,
+        "Library",
+        "Application Support",
+        "agentdesk-agent-feed",
+        "workspace-state.json",
+      ),
+  ),
+
+  // What the IDE will load. Text is capped where an editor stops being useful and starts being a
+  // way to make the sidecar allocate; a document is capped higher because a docx carries its
+  // images inside it.
+  workspaceMaxTextBytes: Number(process.env.AGENT_FEED_WORKSPACE_MAX_TEXT_BYTES ?? 4 * 1024 * 1024),
+  workspaceMaxDocumentBytes: Number(
+    process.env.AGENT_FEED_WORKSPACE_MAX_DOCUMENT_BYTES ?? 32 * 1024 * 1024,
+  ),
+
   parkManifestPath: resolve(
     process.env.AGENT_FEED_PARK_MANIFEST_PATH?.trim()
       || join(
