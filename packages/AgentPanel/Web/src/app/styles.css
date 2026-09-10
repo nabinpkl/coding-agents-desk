@@ -184,6 +184,8 @@
   --bot-surface-c: 0.0125;
   --bot-border-l: 0.865;
   --bot-border-c: 0.050;
+  --bot-accent-l: 0.860;
+  --bot-accent-c: 0.075;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -192,6 +194,8 @@
     --bot-surface-c: 0.022;
     --bot-border-l: 0.400;
     --bot-border-c: 0.055;
+    --bot-accent-l: 0.380;
+    --bot-accent-c: 0.060;
   }
 }
 
@@ -202,6 +206,21 @@
   .bot-surface {
     background-color: oklch(var(--bot-surface-l) var(--bot-surface-c) var(--bot-hue));
     border-color: oklch(var(--bot-border-l) var(--bot-border-c) var(--bot-hue));
+  }
+
+  /* The third step of the ramp, for objects small enough that a whisper is not a colour: the
+     avatar is a 40px disc in a sidebar a reader has usually dragged narrow, and the tint that
+     names a whole card is invisible at that size. Chroma goes up and lightness comes in from
+     both ends, which is affordable here for a reason the card surface did not have -- the only
+     thing written on an avatar is its initials, in `--foreground`, so the fill is free to leave
+     the neighbourhood of `--card`.
+
+     Measured over 36 hues: the initials hold 12.5:1 in light and 9.3:1 in dark. The disc itself
+     sits at 1.48:1 against the light panel ground, against 1.09:1 for the `bg-muted` disc it
+     replaces -- which is why a tinted avatar drops the border ring that was there to give an
+     almost-invisible circle an edge. */
+  .bot-accent {
+    background-color: oklch(var(--bot-accent-l) var(--bot-accent-c) var(--bot-hue));
   }
 }
 

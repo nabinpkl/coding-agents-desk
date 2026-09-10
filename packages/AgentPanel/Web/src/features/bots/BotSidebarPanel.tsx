@@ -1,10 +1,27 @@
 import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "../sidebar/SourceBadge";
+import { botCanvasHues, botSurfaceStyle } from "./botSurface";
 import { SessionRowMenu } from "./SessionRowMenu";
 
-export function BotAvatar({ bot, size = "size-10" }: { bot: Pick<BotView, "name" | "iconUrl">; size?: string }) {
+/**
+ * A Bot's face: its picture, or its initials on its own colour.
+ *
+ * The hue is the same one its card wears on the canvas, which is the whole reason it is here --
+ * a colour that named a Bot in one surface and not in the other would be two facts to learn
+ * instead of one. It arrives as a number rather than being derived from the Bot, because the
+ * derivation ranks a Bot against the whole roster and this component is only ever given one.
+ *
+ * Absent, the avatar is the neutral disc it has always been. That is the right answer, not a
+ * fallback, wherever there is no roster to rank against: the Bot creator's live preview is of a
+ * Bot that does not exist yet, and a colour there would be a promise about which one it will get.
+ */
+export function BotAvatar({ bot, hue, size = "size-10" }: {
+  bot: Pick<BotView, "name" | "iconUrl">;
+  hue?: number;
+  size?: string;
+}) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [bot.iconUrl]);
   const initials = bot.name
@@ -14,6 +31,8 @@ export function BotAvatar({ bot, size = "size-10" }: { bot: Pick<BotView, "name"
     .map((part) => part[0]?.toUpperCase())
     .join("") || "B";
   if (bot.iconUrl && !failed) {
+    // An uploaded picture is the identity; painting a ring of our own around it would be a second
+    // opinion about who this is.
     return (
       <img
         src={bot.iconUrl}
@@ -26,7 +45,13 @@ export function BotAvatar({ bot, size = "size-10" }: { bot: Pick<BotView, "name"
   return (
     <span
       aria-hidden
-      className={`${size} flex shrink-0 items-center justify-center rounded-full border border-border bg-muted font-semibold text-foreground`}
+      // The border goes when the fill arrives. It was there to give `bg-muted` an edge -- a disc
+      // 1.09:1 against the light panel ground, which is to say almost none -- and a tinted fill at
+      // 1.48:1 is its own edge. Keeping both would ring a coloured disc in grey.
+      className={`${size} flex shrink-0 items-center justify-center rounded-full font-semibold text-foreground ${
+        hue === undefined ? "border border-border bg-muted" : "bot-accent"
+      }`}
+      style={botSurfaceStyle(hue)}
     >
       {initials}
     </span>
@@ -89,6 +114,15 @@ export function BotSidebarPanel({
     onToggle: (bot: BotView) => void;
   };
 }) {
+  /**
+   * The same colours the canvas gives, derived here rather than passed in.
+   *
+   * Safe to derive twice because the derivation is a pure function of the roster, and this panel is
+   * given the WHOLE roster -- it has to be, since it renders the Bots that are off the canvas too
+   * and dims them. So the input is the same input the shell hands the canvas, and a Bot's face in
+   * this list is the colour of its card by construction rather than by agreement.
+   */
+  const hues = useMemo(() => botCanvasHues(bots), [bots]);
   return (
     <div className="min-h-0">
       <button
@@ -118,6 +152,7 @@ export function BotSidebarPanel({
         <ul role="list" aria-label="Bots">
           {bots.map((bot) => {
             const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
+            const hue = hues.get(bot.botId);
             const selected = selectedBotIds.has(bot.botId);
             // Off the canvas dims the whole entry, sessions included, because the thing that is
             // not on the canvas is the Bot rather than its header. Undefined when there is no
@@ -149,7 +184,7 @@ export function BotSidebarPanel({
                       // that clicking here does anything.
                       className="relative shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary"
                     >
-                      <BotAvatar bot={bot} />
+                      <BotAvatar bot={bot} hue={hue} />
                       {/* Ringed in the row's own background so it reads as sitting ON the avatar
                           rather than being part of the picture. */}
                       <span
@@ -164,7 +199,7 @@ export function BotSidebarPanel({
                       </span>
                     </button>
                   ) : (
-                    <BotAvatar bot={bot} />
+                    <BotAvatar bot={bot} hue={hue} />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">

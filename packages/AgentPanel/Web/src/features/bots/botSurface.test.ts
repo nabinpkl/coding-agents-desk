@@ -104,3 +104,25 @@ describe("botSurfaceStyle", () => {
     expect(botSurfaceStyle(undefined)).toBeUndefined();
   });
 });
+
+describe("the palette reaches every surface from one derivation", () => {
+  test("a Bot taken off the canvas keeps the face it had, because the sidebar still ranks it", () => {
+    // The sidebar derives its own map rather than being handed one, and this is the property that
+    // makes that safe: it renders the Bots that are OFF the canvas too, so its input is the whole
+    // roster -- the same input the shell gives the canvas. A Bot detached from the canvas is dimmed
+    // in this list, not recoloured, and its card comes back wearing the colour it left with.
+    const detached = ROSTER[1]!;
+    const hues = botCanvasHues(ROSTER);
+    expect(hues.get(detached.botId)).toBeCloseTo((BOT_HUE_OFFSET + BOT_HUE_STEP) % 360, 6);
+    // Whereas a panel that only knew the Bots still on the canvas would have no colour for it.
+    const onlyWhatTheCanvasShows = botCanvasHues(ROSTER.filter((each) => each !== detached));
+    expect(onlyWhatTheCanvasShows.get(detached.botId)).toBeUndefined();
+  });
+
+  test("a Bot the roster has never seen has no hue, which is what leaves a preview neutral", () => {
+    // The Bot creator draws a live avatar for a Bot that does not exist. Ranking it would be a
+    // promise about which colour it is going to get.
+    expect(botCanvasHues(ROSTER).get("not-a-bot-yet")).toBeUndefined();
+    expect(botSurfaceStyle(botCanvasHues(ROSTER).get("not-a-bot-yet"))).toBeUndefined();
+  });
+});

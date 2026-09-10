@@ -859,7 +859,7 @@ function BotCanvasCard({
           onPointerUp={dropHeader}
           onPointerCancel={dropHeader}
         >
-          <BotAvatar bot={bot} size="size-9" />
+          <BotAvatar bot={bot} hue={hue} size="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
               {bot.name}
