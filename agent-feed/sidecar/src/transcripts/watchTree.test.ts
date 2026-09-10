@@ -31,13 +31,26 @@ function track<T extends TreeWatch>(watch: T): T {
 /**
  * Waits for a condition the watcher has to deliver, rather than for a fixed delay.
  *
- * The budget is generous because it is a ceiling, not a delay: a satisfied predicate returns on
- * the next poll, so a longer budget costs nothing when the watcher is working. It was 4 seconds
- * and that was not enough -- these tests passed alone and failed inside the full suite, where the
- * process holds many other watches, and FSEvents delivery for a path under a subdirectory is
- * measurably slower under that load. A budget tuned to an idle process is a test that fails for a
- * reason that has nothing to do with what it is checking.
+ * The budget is a ceiling, not a delay: a satisfied predicate returns on the next poll, so a
+ * longer one costs nothing when the watcher is working.
+ *
+ * These tests fail intermittently inside the full suite and pass alone, and the explanation
+ * written here before -- that FSEvents is merely SLOWER under that load, so a bigger budget would
+ * cover it -- is measured to be wrong. Raising the budget from 4 seconds to 20 changed nothing,
+ * because bun's own per-test timeout is 5 seconds and silently capped it; `PATIENT` below lifts
+ * that, and with 20 seconds actually available the watcher still delivers NOTHING. Twenty seconds
+ * is not slow, it is never.
+ *
+ * So the open question is not the budget. It is why a recursive `fs.watch` stops delivering when
+ * the process holds many of them at once, which is what the full suite does and what the sidecar
+ * itself will do with several corpora. Reproduced on a clean tree at `eaf0e877`, so it is not a
+ * property of any current change. Until that is understood these two are known-flaky under load,
+ * and the numbers here are arranged so the failure reads as an unmet assertion rather than as a
+ * runner timeout -- which is the difference between a test that says the watcher went quiet and
+ * one that says only that time passed.
  */
+const PATIENT = 30_000;
+
 async function until(predicate: () => boolean, budgetMs = 20_000): Promise<void> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
@@ -57,7 +70,7 @@ test("reports a path written anywhere under the root", async () => {
   await until(() => seen.includes(target));
 
   expect(seen).toContain(target);
-});
+}, PATIENT);
 
 test("coalesces one change reported more than once", async () => {
   // `fs.watch` commonly reports a single write as both a rename and a change. Every caller here
@@ -75,7 +88,7 @@ test("coalesces one change reported more than once", async () => {
 
   expect(seen.length).toBeGreaterThan(0);
   expect(seen.length).toBeLessThan(3);
-});
+}, PATIENT);
 
 test("ignores anything deeper than the depth it was given", async () => {
   // The corpora are shaped: a Claude transcript is one directory below its root, and a path
@@ -93,7 +106,7 @@ test("ignores anything deeper than the depth it was given", async () => {
 
   expect(seen).toContain(shallow);
   expect(seen).not.toContain(tooDeep);
-});
+}, PATIENT);
 
 test("tells appearing, being written, and vanishing apart", async () => {
   // The distinction chokidar gave for the price of a descriptor per file. Here it costs one
@@ -118,7 +131,7 @@ test("tells appearing, being written, and vanishing apart", async () => {
   expect(changes[0]).toEqual([target, "appeared"]);
   expect(changes.some(([, change]) => change === "written")).toBe(true);
   expect(changes.at(-1)).toEqual([target, "vanished"]);
-});
+}, PATIENT);
 
 test("skips a path the caller does not accept, without asking the filesystem", async () => {
   const base = await root();
@@ -137,7 +150,7 @@ test("skips a path the caller does not accept, without asking the filesystem", a
   await until(() => changes.includes(wanted));
 
   expect(changes).toEqual([wanted]);
-});
+}, PATIENT);
 
 test("waits for a root that does not exist yet instead of throwing", async () => {
   // The pi sessions directory legitimately does not exist until pi has run once. chokidar waited
@@ -154,4 +167,4 @@ test("waits for a root that does not exist yet instead of throwing", async () =>
 
   expect(errors).toEqual([]);
   await watch.close();
-});
+}, PATIENT);
