@@ -186,6 +186,16 @@
   --bot-border-c: 0.050;
   --bot-accent-l: 0.860;
   --bot-accent-c: 0.075;
+  /* Light moves the session ladder in the BORDER only, and the zeros are the measurement rather
+     than an omission. `--muted-foreground` has 4.55:1 on the Bot's own surface against 4.73 on the
+     untinted card, so there is 0.05 of headroom and every direction spends it: darkening the
+     surface by 0.004 reaches 4.51, and a chroma step of 0.004 at the same lightness reaches 4.52.
+     A ladder of six needs more room than the whole light surface has. The border has all of it,
+     because no text sits on a border -- the same asymmetry the block above already runs on. */
+  --bot-session-surface-dl: 0;
+  --bot-session-surface-dc: 0;
+  --bot-session-border-dl: -0.038;
+  --bot-session-border-dc: 0.006;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -196,6 +206,13 @@
     --bot-border-c: 0.055;
     --bot-accent-l: 0.380;
     --bot-accent-c: 0.060;
+    /* Dark carries the ladder on the surface, where it has room in a way light does not: the Bot's
+       card sits at 0.234 with `--card` at 0.205 below it, so six steps can climb away from the
+       page without leaving it. */
+    --bot-session-surface-dl: 0.020;
+    --bot-session-surface-dc: 0.003;
+    --bot-session-border-dl: 0.038;
+    --bot-session-border-dc: 0.004;
   }
 }
 
@@ -221,6 +238,43 @@
      almost-invisible circle an edge. */
   .bot-accent {
     background-color: oklch(var(--bot-accent-l) var(--bot-accent-c) var(--bot-hue));
+  }
+
+  /* One of a Bot's sessions, on its own step of that Bot's colour. `botSurface.ts` decides WHICH
+     step and sets `--bot-session-step`; how far a step moves lives here, once per theme, which is
+     the same split the Bot's own hue keeps and for the same reason.
+
+     The ladder is led by LIGHTNESS with only a little chroma behind it, which is the opposite of
+     what it looks like it should be and was measured. Chroma is what runs out of sRGB first, and a
+     step that clips is a step that lands on the same painted colour as its neighbour: a
+     chroma-led light border ladder (-0.026 l, +0.019 c per step) collapsed its top two steps to
+     dEok 0.017 at hue 200, against 0.038 for the lightness-led one now here. So the ladder that
+     looks more colourful is the one a display flattens.
+
+     Measured over 72 hues, six steps, in both themes, against the sRGB values a display paints.
+     Dark carries it on the surface: `--muted-foreground` holds 4.56:1 at the top step against
+     6.40:1 on the Bot's own surface, and `--foreground` 11.32:1 against 15.9:1. AA wants 4.5, so
+     the sixth step is the last one that fits and the ladder cycles there rather than climbing into
+     text nobody can read. Light leaves the surface alone and moves the border from 1.44:1 to
+     2.95:1 against the card it rings. Worst adjacent separation, after clipping: 0.020 dEok in
+     dark, 0.038 in light. */
+  .bot-session-fill {
+    background-color: oklch(
+      calc(var(--bot-surface-l) + var(--bot-session-step) * var(--bot-session-surface-dl))
+      calc(var(--bot-surface-c) + var(--bot-session-step) * var(--bot-session-surface-dc))
+      var(--bot-hue)
+    );
+  }
+
+  /* Split from the fill because the sidebar wants only this half: its session rows carry the shade
+     as a rail down their leading edge, where a background tint would be a third thing competing
+     with the row's own selected and off-the-canvas states. */
+  .bot-session-edge {
+    border-color: oklch(
+      calc(var(--bot-border-l) + var(--bot-session-step) * var(--bot-session-border-dl))
+      calc(var(--bot-border-c) + var(--bot-session-step) * var(--bot-session-border-dc))
+      var(--bot-hue)
+    );
   }
 }
 

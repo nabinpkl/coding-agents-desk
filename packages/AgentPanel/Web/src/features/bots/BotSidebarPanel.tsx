@@ -2,7 +2,7 @@ import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { botCanvasHues, botSurfaceStyle } from "@/features/bots/botSurface";
+import { botCanvasHues, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
 /**
@@ -166,6 +166,11 @@ export function BotSidebarPanel({
             // not on the canvas is the Bot rather than its header. Undefined when there is no
             // canvas in the picture, which is not the same as being off one.
             const onCanvas = canvas ? !canvas.detachedBotIds.has(bot.botId) : undefined;
+            // The same ladder the canvas cards stand on, derived here for the same reason the hues
+            // are: it is a pure function of the Bot's own durable roster, so both surfaces reach
+            // the same answer by construction rather than by agreement. A session that is one
+            // shade of teal on its card and another in this list would be two facts to learn.
+            const shades = botSessionShades(bot.sessionRefs);
             return (
               <li
                 key={bot.botId}
@@ -244,6 +249,7 @@ export function BotSidebarPanel({
                       // a row that looks identical to the ones with cards would make the canvas
                       // look as though it had lost one.
                       const offCanvas = canvas?.detachedSessionKeys.has(key) ?? false;
+                      const shaded = botSessionStyle(hue, shades.get(key));
                       return (
                         // The row was one button until it grew a second action. A button cannot
                         // contain a button, so opening the session and opening its menu are now
@@ -251,9 +257,15 @@ export function BotSidebarPanel({
                         // both.
                         <li
                           key={key}
-                          className={`flex items-center pr-1.5 ${active ? "bg-muted" : ""} ${
-                            offCanvas ? "opacity-55" : ""
-                          }`}
+                          // A rail rather than a tint. The row already has two backgrounds to say
+                          // things with -- selected, and dimmed when it is off the canvas -- and a
+                          // third would be arguing with both; the leading edge is empty, and it
+                          // lines up under the Bot header's own `border-l-2` so a Bot's sessions
+                          // read as one column of its colour.
+                          className={`flex items-center border-l-2 pr-1.5 ${
+                            shaded ? "bot-session-edge" : "border-transparent"
+                          } ${active ? "bg-muted" : ""} ${offCanvas ? "opacity-55" : ""}`}
+                          style={shaded}
                         >
                           <button
                             type="button"

@@ -5,14 +5,14 @@
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
 import { Bot, Plus } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/BotSidebarPanel";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
-import { botSurfaceStyle } from "@/features/bots/botSurface";
+import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
@@ -107,6 +107,11 @@ export function BotCanvasCard({
   // because the whole hazard of hiding something is a reader who has forgotten they hid it.
   const shown = bot.sessions.filter((session) => !detachedSessionKeys.has(sessionKey(session)));
   const hidden = bot.sessions.length - shown.length;
+  // Over `sessionRefs` and not over `shown`, which is the whole reason it is computed here rather
+  // than beside the filter above: the cards on screen are a subset twice over -- missing
+  // transcripts and sessions taken off the canvas -- and ranking either subset would repaint the
+  // rest of the roster whenever one left it. See `botSessionShades`.
+  const shades = useMemo(() => botSessionShades(bot.sessionRefs), [bot.sessionRefs]);
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
   // pixels while clicking "Add sessions" would reorder the canvas.
@@ -282,6 +287,8 @@ export function BotCanvasCard({
                 key={sessionKey(session)}
                 bot={bot}
                 session={session}
+                hue={hue}
+                shade={shades.get(sessionKey(session))}
                 open={openKeys.has(sessionKey(session))}
                 onToggle={() => onToggleSession(sessionKey(session))}
                 size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}

@@ -6,7 +6,15 @@
 // order.
 
 import { describe, expect, test } from "vitest";
-import { BOT_HUE_OFFSET, BOT_HUE_STEP, botCanvasHues, botSurfaceStyle } from "@/features/bots/botSurface";
+import {
+  BOT_HUE_OFFSET,
+  BOT_HUE_STEP,
+  BOT_SESSION_SHADES,
+  botCanvasHues,
+  botSessionShades,
+  botSessionStyle,
+  botSurfaceStyle,
+} from "@/features/bots/botSurface";
 
 const bot = (botId: string, createdAt: number) => ({ botId, createdAt });
 
@@ -124,5 +132,77 @@ describe("the palette reaches every surface from one derivation", () => {
     // promise about which colour it is going to get.
     expect(botCanvasHues(ROSTER).get("not-a-bot-yet")).toBeUndefined();
     expect(botSurfaceStyle(botCanvasHues(ROSTER).get("not-a-bot-yet"))).toBeUndefined();
+  });
+});
+
+const ref = (sessionId: string, source = "claude") => ({ source, sessionId });
+
+/** One Bot's curated references, in the order it attached them. */
+const REFS = [
+  ref("6b1f0d4a-1f6d-4d3f-9d5f-0f7c1a2b3c4d"),
+  ref("7c2a1e5b-2a7e-4e40-8e60-1a8d2b3c4d5e"),
+  ref("8d3b2f6c-3b8f-4f51-9f71-2b9e3c4d5e6f", "codex"),
+  ref("9e4c3a7d-4c90-4062-a082-3caf4d5e6f70"),
+];
+
+describe("botSessionShades", () => {
+  test("gives each of a Bot's sessions its own step, so two of them never look alike", () => {
+    const shades = botSessionShades(REFS);
+    expect([...shades.values()]).toEqual([0, 1, 2, 3]);
+    // Keyed the way every other part of the canvas addresses a session, source included: two
+    // providers can hand back the same id and they are not the same session.
+    expect(shades.get(`codex:${REFS[2]!.sessionId}`)).toBe(2);
+    expect(shades.get(`claude:${REFS[2]!.sessionId}`)).toBeUndefined();
+  });
+
+  test("the first session is its Bot's own colour, so a Bot with one spends no colour on it", () => {
+    expect(botSessionShades([REFS[0]!]).get(`claude:${REFS[0]!.sessionId}`)).toBe(0);
+  });
+
+  test("attaching a session recolours none of the ones already there", () => {
+    const before = botSessionShades(REFS);
+    const after = botSessionShades([...REFS, ref("af5d4b8e-5da1-4173-b193-4dbf5e6f7081")]);
+    for (const [key, shade] of before) expect(after.get(key)).toBe(shade);
+  });
+
+  test("a session missing from the catalog still holds its rank", () => {
+    // `sessionRefs` is the durable list and `sessions` is what resolved. Ranking the resolved list
+    // would hand a forgotten session's shade to whoever came after it, and give it back when the
+    // catalog remembered -- a card that changes colour because an unrelated transcript reappeared.
+    const resolvedOnly = REFS.filter((each) => each !== REFS[1]);
+    expect(botSessionShades(REFS).get(`claude:${REFS[3]!.sessionId}`)).toBe(3);
+    expect(botSessionShades(resolvedOnly).get(`claude:${REFS[3]!.sessionId}`)).toBe(2);
+  });
+
+  test("past the last step it cycles, so neighbours differ however many sessions a Bot has", () => {
+    const many = Array.from({ length: BOT_SESSION_SHADES * 2 + 1 }, (_, i) => ref(`s${i}`));
+    const shades = [...botSessionShades(many).values()];
+    expect(shades).toHaveLength(BOT_SESSION_SHADES * 2 + 1);
+    // The property that matters is adjacency: a collision is allowed only between sessions a whole
+    // ladder apart, which on a strip of cards is a different part of the screen.
+    for (let i = 1; i < shades.length; i += 1) expect(shades[i]).not.toBe(shades[i - 1]);
+    expect(shades[BOT_SESSION_SHADES]).toBe(shades[0]);
+  });
+
+  test("a Bot with no sessions has no shades rather than an empty first step", () => {
+    expect(botSessionShades([]).size).toBe(0);
+  });
+});
+
+describe("botSessionStyle", () => {
+  test("hands CSS the Bot's hue and the session's step, and lets the theme own the rest", () => {
+    expect(botSessionStyle(137.508, 3)).toEqual({ "--bot-hue": "137.51", "--bot-session-step": "3" });
+  });
+
+  test("a step with no hue gets nothing, so it cannot shade the colour it inherited", () => {
+    // The card sits inside its Bot's card, which has already set `--bot-hue`. A step published
+    // without a hue of its own would resolve against that one and paint a ladder the session is
+    // not on.
+    expect(botSessionStyle(undefined, 2)).toBeUndefined();
+    expect(botSessionStyle(137.508, undefined)).toBeUndefined();
+  });
+
+  test("step zero is published, because it is a real step and not a missing one", () => {
+    expect(botSessionStyle(24, 0)).toEqual({ "--bot-hue": "24.00", "--bot-session-step": "0" });
   });
 });

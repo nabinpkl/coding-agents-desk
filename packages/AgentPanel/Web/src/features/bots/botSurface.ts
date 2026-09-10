@@ -1,8 +1,12 @@
-// Which colour each Bot's card wears on the canvas.
+// Which colour each Bot's card wears on the canvas, and which shade of it each of its sessions
+// wears inside that card.
 //
 // The canvas is a strip of cards that all look the same, and the thing a reader is doing on it is
 // finding one Bot among six. Name and avatar answer that after you read them; a surface colour
-// answers it before you do, which is the whole job here.
+// answers it before you do, which is the whole job here. The same question is asked again one
+// level down -- a Bot's sessions stand side by side and are the same shape as each other -- and it
+// gets the same answer at a smaller scale: the hue says whose session it is, and a step along that
+// hue says which one.
 //
 // Nothing is stored and nothing is chosen. A colour is DERIVED from the roster, for the reason
 // `AGENTS.md` gives under "Panel state": storage is for a fact about how this reader arranged the
@@ -97,4 +101,79 @@ export function botCanvasHues(bots: readonly BotColourIdentity[]): ReadonlyMap<s
 export function botSurfaceStyle(hue: number | undefined): CSSProperties | undefined {
   if (hue === undefined) return undefined;
   return { "--bot-hue": hue.toFixed(2) } as CSSProperties;
+}
+
+/**
+ * Enough of one of a Bot's sessions to shade it. The reference rather than the summary, for the
+ * reason `botSessionShades` gives: the durable list is what ranks stably.
+ */
+export interface BotSessionShadeIdentity {
+  source: string;
+  sessionId: string;
+}
+
+/**
+ * How many shades of its Bot's colour the ladder holds before it repeats.
+ *
+ * Six is what the palette can carry, not a preference. The ladder is bounded at both ends by the
+ * contrast floor -- see `styles.css` for the measured steps -- and a seventh drops
+ * `--muted-foreground` under AA in dark. Past the sixth it CYCLES rather than clamping: cycling
+ * costs a collision between sessions six apart, which in a strip of side-by-side cards is far
+ * enough away to be a different part of the screen, while clamping would give every session after
+ * the sixth the same shade as its neighbour, which is the one thing this exists to prevent.
+ */
+export const BOT_SESSION_SHADES = 6;
+
+/**
+ * Each of one Bot's sessions, by `source:sessionId`, on a step of that Bot's shade ladder.
+ *
+ * The HUE is the Bot's and does not move -- a session is that Bot's session before it is any
+ * particular one -- so what separates two of them is lightness, with a little chroma behind it.
+ * Which way the ladder climbs is the theme's business and lives in `styles.css`; what crosses this
+ * boundary is a step number, the same split `botSurfaceStyle` keeps for the same reason.
+ *
+ * Ranked over `sessionRefs`, the Bot's durable curation order, rather than over `sessions`. Three
+ * things follow, and each is why:
+ *
+ * - **A session the catalog has forgotten still holds its rank.** Those resolve to
+ *   `missingSessionRefs` rather than to a summary, and ranking the resolved list would hand a
+ *   missing session's shade to whichever session came after it.
+ * - **Taking a session off the canvas recolours nothing**, and neither does a Bot whose card is
+ *   showing a subset. Same argument as `botCanvasHues`: rank the roster, not the view.
+ * - **A new session recolours nothing**, because attaching appends.
+ *
+ * What DOES move every shade after it is detaching a session, which shifts the tail of
+ * `sessionRefs` by one. Unlike the Bot delete that `botCanvasHues` can call hypothetical, this
+ * route exists and is in every row's menu. It is accepted rather than solved: the alternative is
+ * hashing the session id into six buckets, and six sessions land in six distinct buckets 1.5% of
+ * the time, so the common case would be two cards the same colour on purpose instead of a repaint
+ * after a detach.
+ *
+ * Step zero is the Bot's own surface unchanged, which is what makes a Bot with ONE session look
+ * exactly as it did: no colour is spent where there is nothing to tell apart.
+ */
+export function botSessionShades(
+  refs: readonly BotSessionShadeIdentity[],
+): ReadonlyMap<string, number> {
+  const shades = new Map<string, number>();
+  refs.forEach((ref, index) => {
+    shades.set(`${ref.source}:${ref.sessionId}`, index % BOT_SESSION_SHADES);
+  });
+  return shades;
+}
+
+/**
+ * What a session's card hands to CSS: its Bot's hue, and its own step on that Bot's ladder.
+ *
+ * Both or neither. A session whose Bot the roster has not ranked has no hue to be a shade OF, and
+ * a step with no hue would resolve against whatever `--bot-hue` it inherited from the card around
+ * it -- which is the Bot's, so every session on an unranked card would quietly take the colour of
+ * the card beside it.
+ */
+export function botSessionStyle(
+  hue: number | undefined,
+  shade: number | undefined,
+): CSSProperties | undefined {
+  if (hue === undefined || shade === undefined) return undefined;
+  return { "--bot-hue": hue.toFixed(2), "--bot-session-step": String(shade) } as CSSProperties;
 }

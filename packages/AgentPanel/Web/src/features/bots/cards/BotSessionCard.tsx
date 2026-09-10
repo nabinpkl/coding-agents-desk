@@ -14,6 +14,7 @@ import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
+import { botSessionStyle } from "@/features/bots/botSurface";
 
 /**
  * One of a Bot's sessions, which is a Bot one level down.
@@ -30,6 +31,8 @@ import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/featur
 export function BotSessionCard({
   bot,
   session,
+  hue,
+  shade,
   open,
   onToggle,
   size,
@@ -45,6 +48,10 @@ export function BotSessionCard({
 }: {
   bot: BotView;
   session: SessionSummary;
+  /** The Bot's place on the colour wheel, which every one of its sessions shares. */
+  hue: number | undefined;
+  /** This session's step on that Bot's shade ladder, which is what separates it from its siblings. */
+  shade: number | undefined;
   open: boolean;
   onToggle: () => void;
   size: BotCardSize;
@@ -91,6 +98,10 @@ export function BotSessionCard({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
+  // Both or neither, decided in one place so the class and the properties cannot disagree: a card
+  // wearing `bot-session-fill` with no `--bot-hue` would resolve the hue it inherited from the Bot
+  // card around it and paint step zero of a ladder it is not on.
+  const shaded = botSessionStyle(hue, shade);
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -112,10 +123,24 @@ export function BotSessionCard({
         // panel is absolutely placed against its nearest positioned ancestor, which without this
         // is the app itself -- and then every open session's panel lands in the same place. The
         // drop overlay below rides on the same property.
+        //
+        // `border-border` goes when the shade arrives, the same way the Bot card drops it: a
+        // utility beats a component-layer class, so leaving it on would grey out the one edge that
+        // says which session this is. `border-primary` still wins over the shade while the card is
+        // open, and that is the right order -- open is about right now, the shade is about which.
         className={`relative flex overflow-hidden rounded-lg border ${
-          open ? "border-primary" : "border-border"
-        }`}
-        style={open ? { height: resize.height } : undefined}
+          shaded ? "bot-session-edge bot-session-fill" : ""
+        } ${open ? "border-primary" : shaded ? "" : "border-border"}`}
+        style={{
+          ...shaded,
+          ...(open ? { height: resize.height } : null),
+          // Inline because it has to beat Tailwind's `border` shorthand, which sets all four widths
+          // from the utility layer. The leading edge is where a card in a horizontal strip is read
+          // from, and in light -- where the surface has no contrast headroom to spend and the
+          // ladder lives entirely in the border -- a hairline is the whole signal. Three pixels is
+          // what makes it one a reader can see without looking for it.
+          ...(shaded ? { borderLeftWidth: 3 } : null),
+        }}
         // The WHOLE card takes the file, titlebar included, and a closed one takes it too. The
         // session's own view is only the body and only while the card is open, so a handler down
         // there is missing from most of what a reader aims at -- including every card that is just
