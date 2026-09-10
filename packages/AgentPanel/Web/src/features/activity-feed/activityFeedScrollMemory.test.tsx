@@ -137,6 +137,19 @@ function scrollTo(scroller: HTMLElement, top: number): void {
  * is `chrome-test/panel-scroll-memory-verify.mjs`, against the running panel.
  */
 describe("where a session was left being read", () => {
+  it("keeps a row too wide for the column inside its own band", async () => {
+    // jsdom measures nothing, so this cannot show a wide row being contained; what it guards is
+    // that the band still DECLARES the containment, which is the line a later reader is most
+    // likely to delete as decoration. Without it the feed's `overflow-y-auto` computes its other
+    // axis to `auto` as well, and one overflowing descendant slides the whole transcript
+    // sideways. The behaviour itself was measured in the running panel: the same 2400px child on
+    // the same row put 1975px of scroll on the column with this off, and none with it on.
+    const { view } = mountFeed();
+    const row = (await screen.findByText("line 0")).closest<HTMLElement>("[data-index]");
+    expect(row?.style.overflowX).toBe("auto");
+    view.unmount();
+  });
+
   it("opens a session at the tail when it has never been read away from it", async () => {
     const { scroller, view } = mountFeed();
     expect(await screen.findByText("line 0")).toBeInTheDocument();

@@ -51,6 +51,23 @@ export function ActivityFeedRow({
         left: 0,
         width: "100%",
         transform: `translateY(${virtualRow.start}px)`,
+        // A row that is too wide scrolls INSIDE its own band, and the column never moves.
+        //
+        // The feed's scroller is `overflow-y-auto`, and CSS computes the other axis of that to
+        // `auto` as well, so the transcript has always had a horizontal scrollbar nobody asked
+        // for. One overflowing descendant anywhere in a virtualised list of several thousand rows
+        // was enough to use it: these bands are `width: 100%` of the container and do not grow
+        // with its scroll width, so every ordinary row slid left and clipped against the edge
+        // while the row that actually caused it sat off screen. Reported as a wrapping bug on the
+        // compaction row, which was innocent -- that record is twenty characters long, and the
+        // bar naming it is the STICKY header, which names the last user row above wherever you
+        // are rather than the row that overflowed.
+        //
+        // Here rather than on the scroller, where `overflow-x: hidden` is one line: that would
+        // clip whatever is wide with no way to reach it, and it is still unidentified. A band
+        // that scrolls puts the scrollbar on the row that earned it and keeps its content
+        // reachable.
+        overflowX: "auto",
       }}
     >
       {it.kind === "tail" ? (

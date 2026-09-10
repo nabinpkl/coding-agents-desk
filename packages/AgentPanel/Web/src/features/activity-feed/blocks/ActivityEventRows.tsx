@@ -222,10 +222,17 @@ export function UserRow({
       ) : null}
       <div
         className={
+          // The highlight ring is INSET, on all three row kinds. It used to be drawn 4px outside
+          // the card, and the band around it is now a scroll container (`ActivityFeedRow`), which
+          // clips at its own padding box -- and a nice-mode row leaves that card 2px of vertical
+          // room. An outward ring is offset first and coloured second, so clipping 2px removed
+          // exactly the coloured half: the highlight would have survived on the left and right and
+          // vanished top and bottom. Inside the card nothing can clip it.
+          //
           // `min-w-0` so a wide child (a pasted diff, a long unbroken path) scrolls inside the
           // card the way it does anywhere else, rather than forcing the card past its maximum.
           "min-w-0 max-w-[85%] rounded-md border border-primary/30 bg-primary/10 px-[0.6em] py-[0.35em] transition-shadow duration-300 " +
-          (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "")
+          (isHighlighted ? "ring-2 ring-primary ring-inset" : "")
         }
       >
         <EventRowShell
@@ -261,12 +268,12 @@ export function SegmentEventRow({
       (niceCardKind === "tool"
         ? "border-border session-view-row-tool "
         : "border-border/60 session-view-row ") +
-      (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "")
+      (isHighlighted ? "ring-2 ring-primary ring-inset " : "")
     : "border-x border-border session-view-row-tool px-[0.6em] transition-shadow duration-300 " +
       (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
       (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
       (!isLast ? "border-b border-dashed border-border/60 " : "") +
-      (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "");
+      (isHighlighted ? "ring-2 ring-primary ring-inset " : "");
   const rowSpacing = isNice
     ? `${FEED_ROW_GUTTER_CLASS} py-[0.1em]`
     : FEED_ROW_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "");
