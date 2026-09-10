@@ -1,0 +1,8 @@
+# Vendored and prebuilt third-party code, checked in but not authored here.
+# graphify should graph our source, not the libraries we ship.
+terminal/vendor/
+chrome-extension/vendor/
+packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/
+packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/
+packages/AgentPanel/Web/dist/
+packages/WorkspaceIDE/Web/dist/

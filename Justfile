@@ -1409,6 +1409,19 @@ voice-phone-mapping:
 voice-phone-mapping-check:
     /usr/bin/python3 tools/generate-voice-phone-mapping.py --check
 
+# File-level import-only clustering on top of graphify's graph.json --
+# graphify itself clusters on every edge type at once (calls, implements,
+# inherits, ...), which lets a protocol like Equatable bridge hundreds of
+# unrelated files into one community. This restricts clustering to
+# imports/imports_from/re_exports/dynamic_import edges only, so communities
+# reflect actual module dependency, not shared conformance to something like
+# Equatable/Codable. Requires graphify-out/graph.json (`graphify update .`
+# or `graphify cluster-only .` first). Installs networkx into an ephemeral
+# uv env rather than depending on graphify's own tool install layout.
+graphify-import-graph:
+    uv run --with networkx --no-project python3 tools/graphify-import-graph.py \
+        graphify-out/graph.json graphify-out/IMPORT_GRAPH.html {{justfile_directory()}}
+
 # The large labeled corpora and derived rows stay under .build. SpeechOcean is
 # downloaded and hash-verified automatically. L2-ARCTIC requires the user to
 # accept its CC BY-NC terms and supply a local root before infer-l2 can run.
