@@ -39,6 +39,7 @@ export type {
   BotGrant,
   BotLaunchCommand,
   BotSessionsAdded,
+  BotSessionsRetired,
   StartedBotSession,
   BotMetadata,
   BotRecord,
@@ -46,6 +47,8 @@ export type {
   BotSnapshot,
   BotView,
   DetachBotSessionsCommand,
+  RetireBotSessionsCommand,
+  RetiredBotSession,
 } from "./bot.ts";
 
 export type {

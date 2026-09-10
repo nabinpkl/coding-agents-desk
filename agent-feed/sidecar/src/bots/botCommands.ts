@@ -10,7 +10,9 @@ import type {
   BotLaunchCommand,
   BotMetadata,
   BotSessionRef,
+  RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
+import { disposalRefusal } from "@/git/sessionRetirement";
 import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
 import { sessionKey } from "@/bots/botIdempotency";
 import { BotInvalidError } from "@/bots/botTypes";
@@ -254,4 +256,55 @@ export function normalizeSessionRefCommand(
     throw new BotInvalidError("sessionRefs cannot contain duplicates");
   }
   return { requestId: normalizeRequestId(command.requestId), sessionRefs };
+}
+
+export interface NormalizedRetire extends NormalizedSessionRefCommand {
+  worktree: "remove" | "keep";
+  branch: "delete" | "keep";
+  remote: "delete" | "keep";
+}
+
+/**
+ * The retire command, with every disposal defaulted to keep and the impossible pairs refused.
+ *
+ * Defaulting HERE rather than at the far end is what makes the idempotency signature honest: two
+ * requests that differ only in spelling `worktree: "keep"` out loud versus leaving it off are the
+ * same command, and a replay of one has to answer the other rather than running again.
+ *
+ * The two refusals are cross-field, so they cannot live on the individual readers below. Both are
+ * refusals rather than silent reinterpretations because each one is a caller believing something
+ * about what this call will do:
+ *
+ * - Deleting a branch a worktree still has checked out is something git will not do, so the pair
+ *   that keeps the worktree could never have deleted the branch. Accepting it would report success
+ *   for a step that never ran.
+ * - Deleting the remote copy without deleting the local one skips the only merged-ness check in
+ *   the whole sequence, since `git branch -d` is what stands in for "these commits are safe to
+ *   lose". Dropping the guard on the copy that is hardest to get back is the wrong way round.
+ */
+export function normalizeRetire(command: RetireBotSessionsCommand): NormalizedRetire {
+  const refs = normalizeSessionRefCommand(command);
+  const worktree = disposal(command.worktree, ["remove", "keep"], "keep", "worktree");
+  const branch = disposal(command.branch, ["delete", "keep"], "keep", "branch");
+  const remote = disposal(command.remote, ["delete", "keep"], "keep", "remote");
+  // The same question `planSessionRetirement` asks, read from the one place it is written. Asked
+  // here as well so a malformed request is a 400 at the edge rather than a conflict from the core.
+  const impossible = disposalRefusal({ worktree, branch, remote });
+  if (impossible) throw new BotInvalidError(impossible);
+  return { ...refs, worktree, branch, remote };
+}
+
+/** The default is named at each call rather than taken from the list's order, which would change
+ *  meaning the day a third disposal is added to one of them. */
+function disposal<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+  name: string,
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new BotInvalidError(`${name} must be one of: ${allowed.join(", ")}`);
+  }
+  return value as T;
 }

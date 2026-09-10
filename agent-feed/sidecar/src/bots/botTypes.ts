@@ -58,4 +58,12 @@ export interface BotSessionLauncher {
     title: string;
     brief?: string;
   }): Promise<{ tmuxSession: string }>;
+  /**
+   * Ends the pane a session runs in, answering with its name or null when there was none.
+   *
+   * On this seam rather than a second one because it is the same seam for a stronger version of
+   * the same reason. A test that started a pane would need tmux; a test that ENDED one would need
+   * tmux and would be the only test here that can destroy something outside its own fixture.
+   */
+  end(options: { sessionId: string }): Promise<string | null>;
 }

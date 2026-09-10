@@ -254,3 +254,142 @@ async function exists(path: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Why this directory cannot be removed as a worktree of `checkout`, or null when it can.
+ *
+ * Separate from the removal because a caller retiring several sessions must be able to ask about
+ * all of them before it removes any: half a teardown is worse than none, and the refusals here are
+ * exactly the ones worth discovering first. `removeWorktree` asks it again for itself, so a caller
+ * that skips the check still cannot delete a directory that is not ours.
+ */
+export async function worktreeRemovalRefusal(options: {
+  checkout: string;
+  path: string;
+}): Promise<string | null> {
+  const { checkout, path } = options;
+  // Said out loud even though `readWorktree` answers null for a main checkout anyway. This is the
+  // one mistake in this file that would delete the repository rather than a directory beside it.
+  if (path === checkout) return `${path} is the checkout itself, not a worktree of it`;
+  const worktree = await readWorktree(path);
+  if (!worktree) return `${path} is not a git worktree`;
+  if (worktree.mainCheckout !== checkout) {
+    return `${path} is a worktree of ${worktree.mainCheckout}, not of ${checkout}`;
+  }
+  const status = await git(["status", "--porcelain"], path);
+  if (status.code !== 0) {
+    return `git status in ${path} exited ${status.code}: ${status.err || status.out}`;
+  }
+  // Refused rather than forced, and this is the whole reason the check exists. `git worktree
+  // remove --force` would take uncommitted work with it, and nothing anywhere can give that back.
+  if (status.out !== "") return `${path} has uncommitted changes`;
+  return null;
+}
+
+/**
+ * Removes a worktree of `checkout`, and says which branch it had checked out.
+ *
+ * The branch comes back because the caller usually wants to delete it next and must not have to
+ * name it: a caller that names a branch is a caller that can name someone else's.
+ */
+export async function removeWorktree(options: {
+  checkout: string;
+  path: string;
+}): Promise<{ branch: string | null }> {
+  const refusal = await worktreeRemovalRefusal(options);
+  if (refusal) throw new WorktreeError(refusal);
+  const branch = (await readWorktree(options.path))?.branch ?? null;
+  // No `--force`: the check above said it is clean, and where git disagrees with that check git is
+  // the one that is right.
+  const removed = await git(["worktree", "remove", options.path], options.checkout);
+  if (removed.code !== 0) {
+    throw new WorktreeError(`git worktree remove failed: ${removed.err || removed.out || removed.code}`);
+  }
+  forgetWorktrees();
+  return { branch };
+}
+
+/**
+ * The remote a branch tracks, or null when it tracks none. It never guesses.
+ *
+ * Read BEFORE the branch is deleted, because `git branch -d` takes the branch's config section
+ * with it and this answer lives there.
+ *
+ * Null rather than falling back to `origin`, and this is the difference between refusing and
+ * destroying somebody's work. Measured 2026-09-09 in a throwaway repository: `git worktree add -b
+ * <name>` leaves `branch.<name>.remote` UNSET, so a branch this sidecar made has no upstream at
+ * all. Give that branch a name a remote is already using -- which is exactly what happens when a
+ * worktree is remade after its remote branch outlived a hand-teardown -- and `origin` names a
+ * DIFFERENT branch that shares nothing with it. `git branch -d` is no help there either: with no
+ * upstream it compares against HEAD, so it passed on a fresh branch while the remote held commits
+ * it had never looked at.
+ *
+ * So a caller that wants a remote branch deleted has to be able to show which one it is, and
+ * tracking is the only evidence of that this repository can read.
+ */
+export async function branchRemote(options: {
+  checkout: string;
+  branch: string;
+}): Promise<string | null> {
+  const configured = await git(["config", `branch.${options.branch}.remote`], options.checkout);
+  return configured.code === 0 && configured.out ? configured.out : null;
+}
+
+/**
+ * Whether the checkout's HEAD already contains this branch.
+ *
+ * The question `git branch -d` does NOT answer once a branch has an upstream: it accepts a branch
+ * merely because the branch is merged into its upstream, which means "these commits are safe on
+ * the remote". That is a fine reason to delete a local branch and a terrible one to then delete
+ * the remote copy, since the safety being relied on is the thing about to be removed. Asked
+ * separately so that deleting both copies needs the commits to survive somewhere that is neither.
+ */
+export async function branchMergedIntoHead(options: {
+  checkout: string;
+  branch: string;
+}): Promise<boolean> {
+  const merged = await git(
+    ["merge-base", "--is-ancestor", options.branch, "HEAD"],
+    options.checkout,
+  );
+  return merged.code === 0;
+}
+
+/**
+ * Deletes a local branch, letting git refuse one that is not merged.
+ *
+ * `-d`, never `-D`. Whether a branch is safe to lose is a question git already answers correctly
+ * from the commit graph, and the version of this function that answers it here instead is the
+ * version that loses somebody's commits.
+ */
+export async function deleteBranch(options: { checkout: string; branch: string }): Promise<void> {
+  const deleted = await git(["branch", "-d", options.branch], options.checkout);
+  if (deleted.code !== 0) {
+    throw new WorktreeError(
+      `git branch -d ${options.branch} failed: ${deleted.err || deleted.out || deleted.code}`,
+    );
+  }
+}
+
+/**
+ * Deletes the branch on its remote.
+ *
+ * The one act in this file that reaches past this machine, which is why nothing here calls it
+ * without being asked twice: the caller has already deleted the local branch, and git refusing
+ * that is what stands in for "these commits are safe to lose".
+ */
+export async function deleteRemoteBranch(options: {
+  checkout: string;
+  branch: string;
+  remote: string;
+}): Promise<void> {
+  const { checkout, branch, remote } = options;
+  const known = await git(["remote", "get-url", remote], checkout);
+  if (known.code !== 0) throw new WorktreeError(`no remote named "${remote}" to delete ${branch} from`);
+  const deleted = await git(["push", remote, "--delete", branch], checkout);
+  if (deleted.code !== 0) {
+    throw new WorktreeError(
+      `git push ${remote} --delete ${branch} failed: ${deleted.err || deleted.out || deleted.code}`,
+    );
+  }
+}

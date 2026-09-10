@@ -214,3 +214,33 @@ export async function listTmuxSessions(): Promise<TmuxSessionSummary[]> {
   if (/no server running|no sessions/i.test(err)) return [];
   throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
 }
+
+export function killSessionArgs(session: string): string[] {
+  // `=` for the same reason `hasSessionArgs` uses it, and it matters more here: tmux resolves a
+  // bare `-t name` by exact match, then PREFIX, so killing `agentdesk-x` without it would end
+  // `agentdesk-xy` when the first no longer exists.
+  return ["kill-session", "-t", `=${session}`];
+}
+
+/**
+ * Ends a session and everything running in it.
+ *
+ * The one destructive tmux verb in this repository, and `tmuxAttachment.ts` says above `detach()`
+ * never to send it "whatever the caller called it". That rule is about a VIEWER: a browser tab
+ * closing must not end work it was only ever watching, because the session belongs to whoever
+ * started it. This is the opposite actor -- the owner asking on purpose, through an endpoint whose
+ * entire subject is ending a session -- so the rule is satisfied rather than broken. Do not merge
+ * this path with the viewer's, and do not delete it as a violation of a rule it is the exception
+ * to; `retireSessions` in `botSessionRemoval.ts` is its only caller.
+ *
+ * A session that is already gone is not an error. Retiring something that has already stopped is
+ * the ordinary case rather than the surprising one.
+ */
+export async function killTmuxSession(session: string): Promise<void> {
+  const { out, err, code } = await tmux(killSessionArgs(session));
+  if (code === 0) return;
+  if (/no server running|can.t find session|no such session|session not found/i.test(err + out)) {
+    return;
+  }
+  throw new TmuxUnavailable(`tmux kill-session exited ${code}: ${err.trim() || out.trim()}`);
+}

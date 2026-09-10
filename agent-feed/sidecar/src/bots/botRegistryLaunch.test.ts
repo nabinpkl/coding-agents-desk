@@ -138,6 +138,7 @@ test("resending a request whose launch failed starts the session it still owes",
       return { tmuxSession: `agentdesk-${options.sessionId}` };
     },
     fork: async () => { throw new Error("unreached"); },
+    end: async () => null,
   };
   const { project, registry } = await fixture(launcher);
   const command = {

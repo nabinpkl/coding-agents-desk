@@ -14,7 +14,10 @@
 
 import {
   createTmuxSession,
+  findTmuxSessionByIdentity,
+  killTmuxSession,
   stampTmuxSessionIdentity,
+  tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
 
 /**
@@ -201,4 +204,39 @@ export async function startForkedClaudeSession(options: {
   });
   await stampTmuxSessionIdentity(tmuxSession, options.forkId).catch(() => {});
   return { sessionId: options.forkId, title: options.title, tmuxSession };
+}
+
+/**
+ * Ends the pane a session runs in, and says which pane that was.
+ *
+ * The mirror of the two starters above, and it lives beside them because the thing it has to get
+ * right is their pane naming: a session is addressed by the name it was started under, and only
+ * this file knows what that is.
+ *
+ * `null` when nothing was running. Retiring a session that has already finished is the ordinary
+ * case rather than the surprising one, so it is an answer and not a failure.
+ *
+ * The stamp is asked first because it is what survives a rename -- `renameTmuxSessionTo` moves the
+ * pane's name and leaves the identity option alone, so a pane a person renamed is findable only
+ * this way. The two derived names are the fallback for the opposite gap: the stamp is written
+ * best-effort at launch (`.catch(() => {})` above, deliberately, because a session that is running
+ * beats one refused over a label), so a correctly named pane can be carrying no stamp at all.
+ *
+ * See `killTmuxSession` for why sending `kill-session` here does not contradict the rule in
+ * `tmuxAttachment.ts` that says never to send it.
+ */
+export async function endClaudeSession(options: { sessionId: string }): Promise<string | null> {
+  const { sessionId } = options;
+  const stamped = await findTmuxSessionByIdentity(sessionId);
+  // Both derived names, because this file starts sessions under two of them and the registry does
+  // not record which: a fork's pane is named for the fork, a fresh session's for the session.
+  const candidates = stamped
+    ? [stamped]
+    : [claudeSessionPaneName(sessionId), claudeForkPaneName(sessionId)];
+  for (const session of candidates) {
+    if (!await tmuxSessionExists(session)) continue;
+    await killTmuxSession(session);
+    return session;
+  }
+  return null;
 }

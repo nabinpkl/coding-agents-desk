@@ -409,6 +409,18 @@ here, so the honest step is to check that and merge only when it stops being tru
 git fetch origin && git merge-base --is-ancestor origin/main HEAD || git merge --no-edit origin/main
 ```
 
+### A move survives a concurrent edit, which is the migration paying for itself again
+
+`main` moved twice during this arc, the second time landing work inside three files R6 had just
+moved into `terminal/tmux/`. The merge auto-resolved all three: git detected the renames and
+applied the new content to the moved paths. One conflict, in a file that had NOT moved --
+`claudeSessionLaunch.ts`, where `main` added a symbol to an import list whose path this branch had
+changed. Both sides were right and the resolution takes both, the new symbol on the new path.
+
+That is the whole conflict surface of nine directories of moves against two feature commits: one
+import line. Under relative imports every file inside each moved directory would have been rewritten
+too, and every one of those would have been a conflict candidate.
+
 ### `mock.module` was a fourth specifier form nothing was checking
 
 `sessionRoutes.test.ts` mocked the tmux composer as `mock.module("../input/tmuxComposer.ts", ...)`.
@@ -452,14 +464,15 @@ Things this arc found and deliberately did not do, because they are a different 
 - **`activityNormalization` has no callers.** Only its own test, and a comment in the data source's
   contract fixture calling it "the normalization target". Either it is dead or the fixture test is
   meant to be reaching it. Someone should find out; a clustering pass is not the place.
-- **Both suites time out under load, and the timeouts read exactly like real failures.** Eight
-  across this arc, every one green on an immediate rerun with nothing changed. Three were
-  `transcripts/watchTree.test.ts` at its 20-second limit during R6 and R7 -- corroborated
-  independently by another session, on a diff that never touched that file. The other five were
-  panel tests at Vitest's 5-second default: four app-shell renders during R8 and
-  `markdown/proseBlocks.test.ts` during R10, none of them in a directory this arc had moved. The
-  tell is the wall clock -- a sidecar run that normally takes 17s took 57s on the run that failed.
-  Worth someone raising the limits or finding what blocks; not investigated here.
+- **Both suites time out under load, and the timeouts read exactly like real failures.** Ten across
+  this arc, every one green on an immediate rerun with nothing changed. Five were
+  `transcripts/watchTree.test.ts` at its 20-second limit, during R6, R7 and the final merge --
+  corroborated independently by another session, on a diff that never touched that file. The other
+  five were panel tests at Vitest's 5-second default: four app-shell renders during R8 and
+  `markdown/proseBlocks.test.ts` during R10, none in a directory this arc had moved. The tell is
+  the wall clock: the sidecar suite runs in 17s, and every failing run of it took 57 to 59s. So the
+  suites are being starved rather than broken, presumably by whatever else is running on this
+  machine. Worth someone raising those two limits or finding what blocks; not investigated here.
 - **`desktop-viewer/keyboard-input/` and `tile-viewport/` are at 10, and `data-source/` at 12.**
   Under the ceiling and therefore not this arc's business, but each is one or two files from being
   the next task. The gate will say so when it happens.
