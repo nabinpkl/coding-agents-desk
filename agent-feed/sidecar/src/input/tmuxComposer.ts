@@ -412,7 +412,43 @@ function isPlaceholder(rawPromptRow: string): boolean {
   if (!rest.startsWith(PROMPT)) return false;
   rest = rest.slice(PROMPT.length).replace(GAP, "");
   const head = SGR_HEAD.exec(rest);
-  return head !== null && head[1]!.split(";").includes(FAINT);
+  return head !== null && setsFaint(head[1]!);
+}
+
+/**
+ * Whether an SGR parameter list actually turns FAINT on.
+ *
+ * A walk rather than a search, and the difference is the whole of a bug that ate people's
+ * sentences. This used to ask whether `2` appeared anywhere among the parameters, which is true
+ * of every truecolor run there is: `38`, `48` and `58` introduce a colour whose FORM is named by
+ * the parameter after them -- `5` for a 256-colour index, `2` for r;g;b -- so `38;2;255;0;0` is
+ * red and `38;5;2` is green, and neither is faint. A terminal that advertises RGB is enough to
+ * make Claude draw in the first form, and this repo hands sessions `COLORTERM=truecolor`
+ * (`terminal/pty-manager/src/vault_sessions.rs`) while tmux carries `xterm-256color:RGB`.
+ *
+ * What that cost is out of all proportion to the mistake. A composer whose text is coloured that
+ * way reads as a PLACEHOLDER, so the box comes back empty and exact; `keystrokesFor` then takes
+ * the single-row branch, computes no backspaces because it believes there is nothing there, and
+ * pastes the whole draft on top of what is already in the box. Once per keystroke, which is how a
+ * reader gets every prefix of their sentence back, joined end to end.
+ *
+ * So the parameters are consumed in the order a terminal consumes them, and only a standalone `2`
+ * is faint.
+ */
+function setsFaint(parameters: string): boolean {
+  const parts = parameters.split(";");
+  for (let at = 0; at < parts.length; at += 1) {
+    // An omitted parameter is a zero, which is what makes `ESC[;2m` a reset and then a faint.
+    const value = parts[at] === "" ? "0" : parts[at]!;
+    if (value === "38" || value === "48" || value === "58") {
+      // `5` takes one parameter after it and `2` takes three. Anything else is malformed, and
+      // consuming nothing lets the walk carry on rather than swallowing the rest of the list.
+      at += parts[at + 1] === "5" ? 2 : parts[at + 1] === "2" ? 4 : 0;
+      continue;
+    }
+    if (value === FAINT) return true;
+  }
+  return false;
 }
 
 /**
