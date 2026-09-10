@@ -89,15 +89,15 @@ describe("parseAskUserQuestion", () => {
 
 describe("openAskUserQuestion", () => {
   it("returns null when no question is present", () => {
-    expect(openAskUserQuestion([], null)).toBeNull();
+    expect(openAskUserQuestion([], [])).toBeNull();
     expect(
-      openAskUserQuestion([event(0, [{ kind: "text", text: "hello" }])], null),
+      openAskUserQuestion([event(0, [{ kind: "text", text: "hello" }])], []),
     ).toBeNull();
   });
 
   it("returns the open question from durable events", () => {
     const events = [event(0, [toolUse("toolu_1", QUESTION_INPUT)])];
-    expect(openAskUserQuestion(events, null)?.callId).toBe("toolu_1");
+    expect(openAskUserQuestion(events, [])?.callId).toBe("toolu_1");
   });
 
   it("returns null once the matching tool_result arrives", () => {
@@ -105,7 +105,7 @@ describe("openAskUserQuestion", () => {
       event(0, [toolUse("toolu_1", QUESTION_INPUT)]),
       event(1, [toolResult("toolu_1")]),
     ];
-    expect(openAskUserQuestion(events, null)).toBeNull();
+    expect(openAskUserQuestion(events, [])).toBeNull();
   });
 
   it("returns the last open question when several were asked", () => {
@@ -114,7 +114,7 @@ describe("openAskUserQuestion", () => {
       event(1, [toolResult("toolu_1")]),
       event(2, [toolUse("toolu_2", QUESTION_INPUT)]),
     ];
-    expect(openAskUserQuestion(events, null)?.callId).toBe("toolu_2");
+    expect(openAskUserQuestion(events, [])?.callId).toBe("toolu_2");
   });
 
   it("keeps the question open when a DIFFERENT tool_result arrives", () => {
@@ -122,13 +122,13 @@ describe("openAskUserQuestion", () => {
       event(0, [toolUse("toolu_1", QUESTION_INPUT)]),
       event(1, [toolResult("toolu_other")]),
     ];
-    expect(openAskUserQuestion(events, null)?.callId).toBe("toolu_1");
+    expect(openAskUserQuestion(events, [])?.callId).toBe("toolu_1");
   });
 
   it("closes a question carried only by the live tail", () => {
     const tail = event(1, [toolResult("toolu_1")]);
-    expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], tail)).toBeNull();
-    expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], null)?.callId).toBe(
+    expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], [tail])).toBeNull();
+    expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], [])?.callId).toBe(
       "toolu_1",
     );
   });
@@ -136,13 +136,13 @@ describe("openAskUserQuestion", () => {
   it("survives the live tail duplicating a durable event", () => {
     const durable = event(0, [toolUse("toolu_1", QUESTION_INPUT)]);
     const tail = { ...durable, phase: "streaming" as const, revision: 2 };
-    expect(openAskUserQuestion([durable], tail)?.callId).toBe("toolu_1");
+    expect(openAskUserQuestion([durable], [tail])?.callId).toBe("toolu_1");
   });
 
   it("ignores other tool_use blocks", () => {
     const events = [
       event(0, [{ kind: "tool_use", tool: "Bash", summary: "Bash", callId: "bash_1", input: { command: "ls" } }]),
     ];
-    expect(openAskUserQuestion(events, null)).toBeNull();
+    expect(openAskUserQuestion(events, [])).toBeNull();
   });
 });

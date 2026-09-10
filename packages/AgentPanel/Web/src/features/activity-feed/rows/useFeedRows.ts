@@ -15,13 +15,13 @@ import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayou
 
 export function useFeedRows({
   events,
-  liveTail,
+  liveTails,
   mode,
   pause,
   source,
 }: {
   events: ActivityEvent[];
-  liveTail: ActivityEvent | null;
+  liveTails: readonly ActivityEvent[];
   mode: EventMode;
   /** Detaches the tail-follower, because every restructure below is the reader's own. */
   pause: () => void;
@@ -103,16 +103,18 @@ export function useFeedRows({
     [events, mode, source, expandedClusters],
   );
 
-  // The live in-flight message is one extra row appended after the durable
-  // layout (the "live tail"). It streams until the durable transcript contains
-  // the same `messageId`, at which point the hook clears it and the durable row
-  // owns it. Kept separate from `items` so sticky/jump logic never treats it as
-  // a real conversation row.
+  // The part of the turn the transcript has not reached yet, appended after the
+  // durable layout as one row per live message (the "live tail"). A turn is many
+  // messages, so this is a list rather than a slot: each row streams until the
+  // durable transcript carries that message, at which point the hook drops it and
+  // the durable row owns it, while the rest of the turn stays previewed. Kept
+  // separate from `items` so sticky/jump logic never treats them as real
+  // conversation rows.
   const rowItems = useMemo(() => {
     const rows: Array<DisplayItem | { kind: "tail"; ev: ActivityEvent }> = [...items];
-    if (liveTail) rows.push({ kind: "tail", ev: liveTail });
+    for (const tail of liveTails) rows.push({ kind: "tail", ev: tail });
     return rows;
-  }, [items, liveTail]);
+  }, [items, liveTails]);
 
   const allCollapsed =
     allEventIds.length > 0 &&

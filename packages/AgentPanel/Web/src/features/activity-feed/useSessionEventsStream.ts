@@ -90,56 +90,80 @@ interface State {
   sequence: number;
   runState: "idle" | "running" | "ended" | "error";
   queue: { steer: number; followUp: number };
-  /** The live in-flight assistant message, as the mirror last published it. What
-   *  the reader actually sees is `visibleTail` below, which holds it only while
-   *  it is still ahead of the transcript. */
-  liveTail: ActivityEvent | null;
+  /** Every row the live mirror has published that the transcript has not reached,
+   *  keyed by row id. What the reader actually sees is `visibleTails` below, which
+   *  keeps the ones still ahead of the file. */
+  liveRows: Map<string, ActivityEvent>;
+  /** Every message id this mirror has ever published, retired rows included. It is
+   *  what tells an unmirrored transcript row apart from one the preview produced,
+   *  which is the whole of `visibleTails`' second rule. */
+  mirroredMessages: Set<string>;
+}
+
+/** A live row's key: the mirror's own row id, stable across the revisions that
+ *  grow one message, so a delta replaces its row instead of adding one. */
+export function liveRowKey(event: ActivityEvent): string {
+  return event.id ?? `live:${event.index}`;
 }
 
 /**
- * The tail to draw under the thread, or nothing.
+ * The live rows to draw under the thread, oldest first.
  *
- * The mirror runs AHEAD of the file: a transcript line is written after the fact,
- * so the only thing a tail is ever about is the part of the turn the reader cannot
- * see yet. Once the transcript has reached it, the file is the authority and the
- * preview has nothing left to add.
+ * The mirror runs AHEAD of the file: a transcript line is written after the fact, so
+ * the only thing this preview is ever about is the part of the turn the reader cannot
+ * see yet. Once the transcript has reached a row, the file is the authority and the
+ * preview has nothing left to add for it.
  *
- * Stated as a comparison against the transcript's own progress rather than as a
- * handoff on `messageId`, because the handoff assumes the mirror and the file agree
- * about which message is being written, and a mirror that stops mid-turn breaks that
- * assumption in the one direction nothing recovers from: it keeps publishing a row
- * whose id never reaches the file, so the id never matches, and the preview sits
- * under a thread that is streaming perfectly well behind it. Measured 2026-09-09,
- * with a three-hour-old finished message pinned below a live session as a 9,554px
- * block, in a feed that follows its own bottom.
+ * A turn is MANY messages, not one. The mirror opens a row per message, finishes it,
+ * and moves on, and the transcript is what collects them into a thread. So this is a
+ * list rather than a slot: holding one slot and letting each new message overwrite
+ * the last is only correct while the file keeps up, and it does not. Measured
+ * 2026-09-10 on a live session, the durable stream delivered nothing for ninety
+ * seconds while four messages took the slot in turn, so three of them were on screen
+ * for a few seconds and then nowhere at all, and the thread appeared to stop moving.
  *
- * A tail the transcript has already passed is therefore dropped whatever its id, and
- * the file is never held back waiting for one to arrive.
+ * What retires a row is therefore two separate things, and neither is a clock:
  *
- * "Passed" is measured against the newest transcript row belonging to a DIFFERENT
- * message, because those are the only rows that say the mirror is behind. A tail's
- * `ts` is the moment its message began streaming, so a file that already holds
- * another message from that moment or later is not waiting on this one. The two
- * kinds of row this deliberately ignores:
+ * - The file NAMING it. That is the handoff, settled on `messageId` in `onEvent`,
+ *   which also retires every row the mirror published before it: the file writes
+ *   messages in the order the mirror made them, so naming one says the file has
+ *   reached that point in the mirror's own order.
+ * - The file moving PAST it, which is what this function decides. A mirror that
+ *   stops mid-turn keeps publishing a row whose id never reaches the file, so the
+ *   handoff can never fire and the preview sits under a thread that is streaming
+ *   perfectly well behind it. Measured 2026-09-09: a three-hour-old finished message
+ *   pinned below a live session as a 9,554px block, in a feed that follows its own
+ *   bottom.
  *
- * - Rows of the tail's OWN message. A transcript appends per tool step, so the file
- *   fills in a message that is still being written; that is the handoff, and it is
- *   settled on `messageId` where the tail completes, not here.
- * - Rows carrying no message at all -- tool results, the reader's own turns. They
- *   are written throughout a turn and belong to no message, so their arrival is not
+ * "Past" is measured against the newest transcript row for a message THIS MIRROR
+ * never published, because those are the only rows that say the mirror is behind. A
+ * row's `ts` is the moment its message began streaming, so a file holding an
+ * unmirrored message from that moment or later is not waiting on this one. Two kinds
+ * of row are deliberately ignored:
+ *
+ * - Rows for a message the mirror DID publish. The transcript appends per tool step
+ *   and writes a message when it ends, so its row lands at about the instant the next
+ *   message starts streaming; counting it would retire the row the mirror is writing
+ *   right now on a coin flip. Those rows are the handoff's business, not this one's.
+ * - Rows carrying no message at all -- tool results, the reader's own turns. They are
+ *   written throughout a turn and belong to no message, so their arrival is not
  *   evidence about which message the file has reached.
  */
-export function visibleTail(
-  tail: ActivityEvent | null,
+export function visibleTails(
+  rows: ReadonlyMap<string, ActivityEvent>,
   durable: readonly ActivityEvent[],
-): ActivityEvent | null {
-  if (!tail) return null;
-  let newestOther = Number.NEGATIVE_INFINITY;
+  mirrored: ReadonlySet<string>,
+): ActivityEvent[] {
+  let newestUnmirrored = Number.NEGATIVE_INFINITY;
   for (const event of durable) {
-    if (event.messageId === undefined || event.messageId === tail.messageId) continue;
-    if (event.ts > newestOther) newestOther = event.ts;
+    if (event.messageId === undefined || mirrored.has(event.messageId)) continue;
+    if (event.ts > newestUnmirrored) newestUnmirrored = event.ts;
   }
-  return tail.ts > newestOther ? tail : null;
+  const visible: ActivityEvent[] = [];
+  for (const row of rows.values()) {
+    if (row.ts > newestUnmirrored) visible.push(row);
+  }
+  return visible.sort((left, right) => left.index - right.index);
 }
 
 /** Whichever occupancy report is more recent, by the timestamp on the line that
@@ -175,7 +199,8 @@ export function useSessionEventsStream(
     sequence: 0,
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
-    liveTail: null,
+    liveRows: new Map(),
+    mirroredMessages: new Set(),
   });
   const [connected, setConnected] = useState(false);
   const loadingOlderRef = useRef(false);
@@ -208,20 +233,26 @@ onEvent: (event) => {
               ? Math.max(current.total, event.index + 1)
               : current.total,
           };
-          // Hand the live tail off once it is complete AND the durable transcript
+          // Hand a live row off once it is complete AND the durable transcript
           // carries that same message (same id, complete). The transcript can
           // append rows for the same message while the live stream is still
-          // delivering it (per tool step), so the tail is cleared only once the
-          // live message has itself finished; otherwise a mid-stream durable row
-          // would kill the tail before it appears. Runs even for a duplicate
-          // revision so the handoff is not skipped by buffer dedup.
-          if (
-            event.phase === "complete" &&
-            next.liveTail?.phase === "complete" &&
-            next.liveTail?.messageId &&
-            event.messageId === next.liveTail.messageId
-          ) {
-            next.liveTail = null;
+          // delivering it (per tool step), so a row is cleared only once the live
+          // message has itself finished; otherwise a mid-stream durable row would
+          // kill the preview before it appears. Runs even for a duplicate revision
+          // so the handoff is not skipped by buffer dedup.
+          if (event.phase === "complete" && event.messageId) {
+            const named = [...next.liveRows.values()].find(
+              (row) => row.phase === "complete" && row.messageId === event.messageId,
+            );
+            // Everything the mirror published BEFORE the named row goes with it: the
+            // file writes messages in the mirror's own order, so reaching one means
+            // reaching all of them, and a row whose durable line has scrolled out of
+            // the panel's window would otherwise linger below the thread forever.
+            if (named) {
+              next.liveRows = new Map(
+                [...next.liveRows].filter(([, row]) => row.index > named.index),
+              );
+            }
           }
           return next;
         });
@@ -232,13 +263,21 @@ onEvent: (event) => {
         seeded = true;
         pendingLive.clear();
         setState((current) => {
-          // A reconnect snapshot is authoritative: if it already contains the
-          // live tail's message, the durable rows own it now.
-          const liveTail = current.liveTail
-            ? current.liveTail.phase === "complete" && snapshot.events.some((event) => event.messageId === current.liveTail?.messageId && event.phase === "complete")
-              ? null
-              : current.liveTail
-            : null;
+          // A reconnect snapshot is authoritative: every live row whose message it
+          // already carries is owned by the durable rows now.
+          const named = [...current.liveRows.values()]
+            .filter(
+              (row) =>
+                row.phase === "complete" &&
+                row.messageId !== undefined &&
+                snapshot.events.some(
+                  (event) => event.messageId === row.messageId && event.phase === "complete",
+                ),
+            )
+            .reduce((newest, row) => (newest === null || row.index > newest.index ? row : newest), null as ActivityEvent | null);
+          const liveRows = named
+            ? new Map([...current.liveRows].filter(([, row]) => row.index > named.index))
+            : current.liveRows;
           // The snapshot always owns the window it covers. What it does NOT own is
           // what the reader paged in BELOW that window: on a transcript-backed
           // session those rows are still about the same lines, because the file only
@@ -278,7 +317,8 @@ onEvent: (event) => {
             sequence: snapshot.state.sequence,
             runState: snapshot.state.runState,
             queue: snapshot.state.queue,
-            liveTail,
+            liveRows,
+            mirroredMessages: current.mirroredMessages,
           };
         });
       },
@@ -297,8 +337,24 @@ onEvent: (event) => {
           ...current,
           usage: newerUsage(current.usage, usage),
         })),
+      // The mirror publishes one row at a time and never revisits an older one, so
+      // these accumulate rather than replace: the rows it opened earlier in the turn
+      // are exactly the part of the turn the transcript has not caught up to. `null`
+      // is the mirror going away, which invalidates the whole preview at once.
       onLiveTail: (event) =>
-        setState((current) => ({ ...current, liveTail: event })),
+        setState((current) => {
+          if (!event) {
+            return current.liveRows.size === 0
+              ? current
+              : { ...current, liveRows: new Map() };
+          }
+          const liveRows = new Map(current.liveRows);
+          liveRows.set(liveRowKey(event), event);
+          const mirroredMessages = event.messageId === undefined
+            ? current.mirroredMessages
+            : new Set(current.mirroredMessages).add(event.messageId);
+          return { ...current, liveRows, mirroredMessages };
+        }),
       onOpen: () => setConnected(true),
       onError: () => setConnected(false),
     });
@@ -341,7 +397,8 @@ onEvent: (event) => {
           sequence: current.sequence,
           runState: current.runState,
           queue: current.queue,
-          liveTail: current.liveTail,
+          liveRows: current.liveRows,
+          mirroredMessages: current.mirroredMessages,
         }));
       } catch (e) {
         if (!cancelled && !replacedBySnapshot) {
@@ -389,7 +446,10 @@ onEvent: (event) => {
   // Derived rather than cleared on arrival, so the rule holds whatever order the two
   // sources land in. The clear inside `onEvent` still runs, to let a finished message
   // go rather than carry it; this is what decides whether it is drawn.
-  const tail = useMemo(() => visibleTail(state.liveTail, events), [state.liveTail, events]);
+  const liveTails = useMemo(
+    () => visibleTails(state.liveRows, events, state.mirroredMessages),
+    [state.liveRows, events, state.mirroredMessages],
+  );
 
   return {
     events,
@@ -403,6 +463,6 @@ onEvent: (event) => {
     sequence: state.sequence,
     runState: state.runState,
     queue: state.queue,
-    liveTail: tail,
+    liveTails,
   };
 }

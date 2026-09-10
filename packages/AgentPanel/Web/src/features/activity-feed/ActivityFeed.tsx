@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
 import {
+  liveRowKey,
   useSessionEventsStream,
   type ActivityEvent,
   type TokenUsage,
@@ -112,7 +113,7 @@ export function ActivityFeed({
    */
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
-  const { events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTail } =
+  const { events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTails } =
     useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -123,8 +124,8 @@ export function ActivityFeed({
   // The open AskUserQuestion derives from the stream the feed owns. Memoized so
   // the shell's mirror only re-renders when the answer actually changes it.
   const openQuestion = useMemo(
-    () => openAskUserQuestion(events, liveTail),
-    [events, liveTail],
+    () => openAskUserQuestion(events, liveTails),
+    [events, liveTails],
   );
   useEffect(() => {
     onOpenQuestion?.(openQuestion);
@@ -150,7 +151,7 @@ export function ActivityFeed({
     // Follow the bottom when there is durable content OR a streaming live tail
     // to pin to. A fresh session that only has the live mirror would otherwise
     // never arm the follower, so its growing tail wouldn't auto-scroll.
-    events.length > 0 || liveTail != null,
+    events.length > 0 || liveTails.length > 0,
   );
 
   // Scroll offset the sticky bars are computed from.
@@ -183,7 +184,7 @@ export function ActivityFeed({
     toggleEvent,
     toggleLiveTail,
     toggleTool,
-  } = useFeedRows({ events, liveTail, mode, pause, source });
+  } = useFeedRows({ events, liveTails, mode, pause, source });
 
 
   const rowContext: EventRowContext = useMemo(
@@ -232,7 +233,7 @@ export function ActivityFeed({
     getItemKey: (i) => {
       const it = rowItems[i];
       if (!it) return i;
-      if (it.kind === "tail") return `live-tail:${it.ev.messageId ?? i}`;
+      if (it.kind === "tail") return `live-tail:${liveRowKey(it.ev)}`;
       return itemKey(it);
     },
   });
@@ -325,14 +326,14 @@ export function ActivityFeed({
   );
 
 
-  if (loading && events.length === 0 && !liveTail) {
+  if (loading && events.length === 0 && liveTails.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
         loading session events…
       </div>
     );
   }
-  if (error && events.length === 0 && !liveTail) {
+  if (error && events.length === 0 && liveTails.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-destructive">
         {error}
@@ -373,7 +374,7 @@ export function ActivityFeed({
             return (
               <ActivityFeedRow
                 key={it?.kind === "tail"
-                  ? `live-tail:${it.ev.messageId ?? virtualRow.index}`
+                  ? `live-tail:${liveRowKey(it.ev)}`
                   : it ? itemKey(it) : virtualRow.index}
                 collapsed={collapsed}
                 expandCluster={expandCluster}

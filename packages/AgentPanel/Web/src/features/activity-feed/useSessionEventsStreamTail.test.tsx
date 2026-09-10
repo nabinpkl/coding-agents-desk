@@ -53,8 +53,8 @@ describe("useSessionEventsStream live tail", () => {
 
     // A streaming live message becomes the tail.
     act(() => handlers?.onLiveTail?.(tailEvent(0, "msg_1")));
-    expect(view.result.current.liveTail?.messageId).toBe("msg_1");
-    expect(view.result.current.liveTail?.phase).toBe("streaming");
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_1"]);
+    expect(view.result.current.liveTails[0]?.phase).toBe("streaming");
 
     // A durable row for the same message arrives WHILE it is still streaming
     // (transcripts append per tool step). It must NOT clear the tail early.
@@ -70,7 +70,7 @@ describe("useSessionEventsStream live tail", () => {
         blocks: [{ kind: "text", text: "hello" }],
       }),
     );
-    expect(view.result.current.liveTail).not.toBeNull();
+    expect(view.result.current.liveTails).toHaveLength(1);
 
     // The live message finishes; the durable transcript now contains it
     // (same id, complete): the tail is handed off and dropped.
@@ -88,13 +88,13 @@ describe("useSessionEventsStream live tail", () => {
       }),
     );
     expect(view.result.current.events.map((value) => value.messageId)).toContain("msg_1");
-    expect(view.result.current.liveTail).toBeNull();
+    expect(view.result.current.liveTails).toEqual([]);
 
     // A later tail event can start the next streaming block. It began after the row
     // above was written, which is what makes it the part of the turn the file has
     // not reached.
     act(() => handlers?.onLiveTail?.(tailEvent(5, "msg_2", 7)));
-    expect(view.result.current.liveTail?.messageId).toBe("msg_2");
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_2"]);
   });
 
   it("drops a tail the transcript has passed, even when its message never lands", async () => {
@@ -122,7 +122,7 @@ describe("useSessionEventsStream live tail", () => {
     await waitFor(() => expect(view.result.current.loading).toBe(false));
 
     act(() => handlers?.onLiveTail?.(tailEvent(0, "orphan", 100)));
-    expect(view.result.current.liveTail?.messageId).toBe("orphan");
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["orphan"]);
 
     // The turn's own tool result carries no message, so it says nothing about which
     // message the file has reached and must not retire the tail on its own.
@@ -137,7 +137,7 @@ describe("useSessionEventsStream live tail", () => {
         blocks: [{ kind: "tool_result", text: "ok" }],
       }),
     );
-    expect(view.result.current.liveTail?.messageId).toBe("orphan");
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["orphan"]);
 
     // A different message reaches the file, from after the tail began. The transcript
     // has moved past it, so the preview has nothing left to add.
@@ -153,10 +153,83 @@ describe("useSessionEventsStream live tail", () => {
         blocks: [{ kind: "text", text: "written" }],
       }),
     );
-    expect(view.result.current.liveTail).toBeNull();
+    expect(view.result.current.liveTails).toEqual([]);
     expect(view.result.current.events.map((value) => value.id)).toEqual([
       "result-1",
       "row-later",
     ]);
+  });
+
+  it("keeps the whole turn previewed while the transcript is behind", async () => {
+    // The mirror opens a row per message and moves on. Measured 2026-09-10, the
+    // durable stream delivered nothing for ninety seconds while four messages went
+    // through, so a single slot showed one of them and lost the other three.
+    let handlers: SessionEventsHandlers | undefined;
+    const source: AgentDataSource = stubDataSource({
+      fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("claude", "thread", "nice"),
+      { wrapper },
+    );
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+
+    // Three messages stream, one after another, with nothing durable arriving. Each
+    // finishes before the next starts, exactly as the mirror publishes them.
+    act(() => handlers?.onLiveTail?.(tailEvent(0, "msg_a", 100)));
+    act(() => handlers?.onLiveTail?.({ ...tailEvent(0, "msg_a", 100), phase: "complete" }));
+    act(() => handlers?.onLiveTail?.(tailEvent(1, "msg_b", 200)));
+    act(() => handlers?.onLiveTail?.({ ...tailEvent(1, "msg_b", 200), phase: "complete" }));
+    act(() => handlers?.onLiveTail?.(tailEvent(2, "msg_c", 300)));
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual([
+      "msg_a",
+      "msg_b",
+      "msg_c",
+    ]);
+
+    // The file finally catches up on the FIRST of them. Its row is stamped when the
+    // message was written, which is after the next one began streaming -- so a rule
+    // that read that stamp as "the file has moved past the preview" would retire the
+    // rest of the turn on the strength of the row that proves the opposite.
+    act(() =>
+      handlers?.onEvent({
+        index: 0,
+        id: "row-a",
+        revision: 0,
+        phase: "complete",
+        ts: 250,
+        type: "assistant",
+        messageId: "msg_a",
+        blocks: [{ kind: "text", text: "a" }],
+      }),
+    );
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual([
+      "msg_b",
+      "msg_c",
+    ]);
+
+    // Reaching a later message retires everything the mirror published before it,
+    // whether or not the panel's window still holds those rows.
+    act(() =>
+      handlers?.onEvent({
+        index: 1,
+        id: "row-b",
+        revision: 0,
+        phase: "complete",
+        ts: 350,
+        type: "assistant",
+        messageId: "msg_b",
+        blocks: [{ kind: "text", text: "b" }],
+      }),
+    );
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_c"]);
   });
 });

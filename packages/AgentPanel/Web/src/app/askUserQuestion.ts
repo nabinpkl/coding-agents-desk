@@ -32,15 +32,15 @@ export interface OpenAskUserQuestion {
  * has not yet observed the panel closing.
  *
  * Pure so it is unit-testable without any bridge; the feed mirrors the result up to the shell.
- * `events` is the stream's sorted event array; `liveTail` is the latest streamed event, which may
- * duplicate a durable event while the stream is in flight -- harmless, since the parse is
- * idempotent per callId.
+ * `events` is the stream's sorted event array; `liveTails` are the streamed rows the transcript has
+ * not reached yet, which may duplicate a durable event while the stream is in flight -- harmless,
+ * since the parse is idempotent per callId.
  */
 export function openAskUserQuestion(
   events: readonly ActivityEvent[],
-  liveTail: ActivityEvent | null,
+  liveTails: readonly ActivityEvent[],
 ): OpenAskUserQuestion | null {
-  const ordered = [...events, ...(liveTail ? [liveTail] : [])];
+  const ordered = [...events, ...liveTails];
   let question: OpenAskUserQuestion | null = null;
   const answered = new Set<string>();
   for (const event of ordered) {

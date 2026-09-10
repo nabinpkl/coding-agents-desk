@@ -14,6 +14,10 @@ import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
 import { itemKey } from "@/features/activity-feed/rows/activityDisplayItems";
 import { useSubagentTranscript } from "@/features/background-tasks/useSubagentTranscript";
 
+/** A finished run has no live mirror behind it. Module-level so the identity is
+ *  stable and `useFeedRows` does not rebuild its rows on every render. */
+const EMPTY_LIVE_TAILS: readonly [] = [];
+
 /**
  * A subagent's transcript, rendered by the same path a session's own transcript is.
  *
@@ -57,7 +61,7 @@ export function SubagentTranscript({
     toggleTool,
   } = useFeedRows({
     events: view.events,
-    liveTail: null,
+    liveTails: EMPTY_LIVE_TAILS,
     mode: "nice",
     pause,
     source: session.source,
