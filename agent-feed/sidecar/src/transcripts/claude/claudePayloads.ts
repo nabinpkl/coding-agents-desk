@@ -97,6 +97,27 @@ export interface NormalizedClaudeBlock {
   sidecarPath?: string;
 }
 
+/**
+ * What a text-free tool result says, one line per item it carried.
+ *
+ * An MCP answer is often a list of `tool_reference` items whose `tool_name` IS the
+ * content, so those are named; anything else contributes its own `type`, which keeps
+ * a result from reading as empty when it held something. The whole record stays in
+ * the Raw drawer either way -- this is the folded line, not the evidence.
+ */
+function nonTextResultPreview(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return (content as Array<Record<string, unknown>>)
+    .map((item) =>
+      typeof item?.tool_name === 'string'
+        ? (item.tool_name as string)
+        : typeof item?.type === 'string'
+          ? (item.type as string)
+          : 'item',
+    )
+    .join('\n');
+}
+
 export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
   if (typeof content === 'string') {
     return content.trim()
@@ -182,8 +203,24 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
           out.push({ block: { kind: 'tool_result', preview, ...idPart }, raw: preview });
         }
       } else {
-        const serialized = stringifyForDisplay(b);
-        out.push({ block: plainBlock(b), raw: serialized });
+        // A result whose content carries no text at all: an MCP answer made of
+        // `tool_reference` items, an image, a call that returned nothing. It is still
+        // that call's result, and classifying it as anything else costs the READER
+        // their own turn. Without a `callId` it pairs with no tool call, so it takes a
+        // row of its own; and a user line holding neither text nor a result is exactly
+        // what the feed draws as the person's message. Measured 2026-09-10 on a live
+        // thread: every MCP call put a JSON envelope on screen as though it had been
+        // typed by the reader, and the bar that names the current user turn read
+        // "(no text)" instead of what they had actually written.
+        const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id as string) : undefined;
+        out.push({
+          block: {
+            kind: 'tool_result',
+            preview: nonTextResultPreview(b.content),
+            ...(useId ? { callId: useId } : {}),
+          },
+          raw: stringifyForDisplay(b),
+        });
       }
     } else {
       const serialized = stringifyForDisplay(b);
