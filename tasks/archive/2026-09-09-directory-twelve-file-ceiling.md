@@ -1,4 +1,22 @@
-# Cluster ledger
+# Cluster ledger (archived)
+
+> Retired 2026-09-09, the day its branch merged as `841058f9`. All 10 tasks are D, and the ceiling
+> is gated: check 7 of `tools/agent-feed-fitness.sh` fails a directory holding more than twelve
+> source files, and `tools/git-hooks/pre-commit` asks the same at commit time. No ID travels
+> forward.
+>
+> The five entries under `## Deferred` are not tasks and carry no IDs, but two of them are real
+> questions someone should answer rather than inherit: `TokenMeter` sits in `features/activity-feed`
+> while all three of the components that render it are in `features/session-view` (one test in its
+> own feature renders it too, which is the part the entry below leaves out), and
+> `activityNormalization` has no caller but its own test, the contract fixture naming it only in a
+> comment. Both are a different change than flattening a directory, which is why
+> they were left. The other three are load-shaped test timeouts, three directories one file short
+> of the next task, and a source path written as a plain string that typecheck cannot see.
+>
+> The rule this arc produced lives in `AGENTS.md` under "How long a file gets, and how flat a
+> directory gets", together with why twelve and why three. This file is the record of which
+> directory became which, kept whole because each table row is the reason a move was a move.
 
 ## Done
 
