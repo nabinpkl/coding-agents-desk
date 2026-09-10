@@ -145,6 +145,11 @@ export type {
 } from "./usage.ts";
 
 export type {
+  SubagentForkOrigin,
+  SubagentTranscriptMessage,
+} from "./subagentTranscript.ts";
+
+export type {
   AgentRunDetail,
   BackgroundTask,
   BackgroundTaskKind,
