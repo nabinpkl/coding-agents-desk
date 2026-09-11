@@ -47,6 +47,16 @@ export interface ShellMachines {
   /** Which machine to write on each card, by Bot id, and empty when there is only one. */
   readonly labels: ReadonlyMap<string, string>;
   /**
+   * The machines a reader can show or hide on the canvas, and EMPTY when there is only one.
+   *
+   * Keys rather than the machines themselves, because what a chip does is filter and what a filter
+   * is stored as is a key: `machineKey` is the id the dev server routes by, so a remembered choice
+   * keeps meaning the same machine when a peer is relabelled.
+   */
+  readonly chips: readonly { key: string; label: string }[];
+  /** Which machine a Bot is on, as the key its chip carries. */
+  keyOfBot(botId: string): string | undefined;
+  /**
    * Whether the set of machines is KNOWN, as opposed to not having arrived.
    *
    * The distinction the fallback below erases, and it is load-bearing for anything that drops
@@ -141,6 +151,12 @@ export function useBotMachines(
     }
     return byBot;
   }, [all, roster.bots, roster.machineOf]);
+  const chips = useMemo(
+    () => (machinesAreMixed(all)
+      ? all.map((machine) => ({ key: machineKey(machine), label: machine.label }))
+      : []),
+    [all],
+  );
 
   return {
     all,
@@ -148,6 +164,11 @@ export function useBotMachines(
     feeds,
     composers,
     labels,
+    chips,
+    keyOfBot(botId) {
+      const machine = roster.machineOf(botId);
+      return machine === undefined ? undefined : machineKey(machine);
+    },
     known: machines === undefined || machines.length > 0,
     contextFor(base, botId) {
       const machine = roster.machineOf(botId);

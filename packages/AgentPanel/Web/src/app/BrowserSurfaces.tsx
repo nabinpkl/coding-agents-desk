@@ -272,11 +272,18 @@ export function BrowserSurfaces({
           </button>
         ))}
         {/* The picker rides with every surface that takes a data source. Screen is the exception:
-            it reads this origin directly rather than a sidecar, so there is nothing to point. */}
+            it reads this origin directly rather than a sidecar, so there is nothing to point.
+
+            It no longer points EVERYTHING, and the name says so. The Bot canvas reads every machine
+            at once -- a Bot is a directory and those are not all on one machine -- so this moves
+            the session list, the open thread, the terminals, the IDE and the desktop, and leaves
+            the canvas showing the lot. Called "session" before, which named neither the thing it
+            switches nor the thing it does not; the canvas carries the other half of the sentence in
+            its own chip row (`BotMachineChips`). */}
         {surface !== "screen" && sessions.length > 1 ? (
           <div
             role="group"
-            aria-label="Panel session"
+            aria-label="Machine for this panel"
             className="ml-auto flex shrink-0 items-center gap-1 self-center"
           >
             {sessions.map((session) => (
@@ -284,6 +291,7 @@ export function BrowserSurfaces({
                 key={session.id ?? "default"}
                 type="button"
                 aria-pressed={session.id === sessionId}
+                title={`Point the session list, terminals, IDE and desktop at ${session.label}. The Bot canvas keeps showing every machine.`}
                 onClick={() => selectSession(session.id)}
                 className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
                   session.id === sessionId

@@ -13,6 +13,7 @@ import type { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
 import type { useProjectInventory } from "@/app/shell-state/useProjectInventory";
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";
+import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 
@@ -24,6 +25,7 @@ export function sidebarProps({
   creationErrors,
   createPiSession,
   inventory,
+  machines,
   park,
   roster,
   thread,
@@ -36,6 +38,7 @@ export function sidebarProps({
   creationErrors: ReturnType<typeof usePiSessionCreation>["creationErrors"];
   createPiSession: ReturnType<typeof usePiSessionCreation>["createPiSession"];
   inventory: ReturnType<typeof useProjectInventory>;
+  machines: ShellMachines;
   park: ReturnType<typeof useDesktopPark>;
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
@@ -62,6 +65,7 @@ export function sidebarProps({
     onSelectSession: thread.openCatalogSession,
     onCreatePiSession: (project: ProjectSummary) => void createPiSession(project),
     bots: botsState.bots,
+    botMachineLabels: machines.labels,
     botsLoading: botsState.loading,
     botsError: botsState.error,
     selectedBotId: thread.selectedBotId,

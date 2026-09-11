@@ -1,6 +1,7 @@
-// What the reader arranged on the canvas: which Bots are on it, which sessions are open.
+// What the reader arranged on the canvas: which Bots are on it, which sessions are open, and which
+// machines it is showing at all.
 //
-// Three sets, all remembered, and all held above the canvas rather than inside it -- the sidebar's
+// Four sets, all remembered, and all held above the canvas rather than inside it -- the sidebar's
 // roster puts a Bot back and opens a card too, and a picker cannot drive state that lives inside
 // the thing it is driving. `botCanvasPreferences` carries why remembering them is safe now and
 // was not before.
@@ -11,9 +12,11 @@ import {
   loadCanvasOpenKeys,
   loadDetachedBotIds,
   loadDetachedSessionKeys,
+  loadHiddenMachines,
   storeCanvasOpenKeys,
   storeDetachedBotIds,
   storeDetachedSessionKeys,
+  storeHiddenMachines,
 } from "@/features/bots/botCanvasPreferences";
 
 export function useCanvasRoster(botsState: {
@@ -113,6 +116,27 @@ export function useCanvasRoster(botsState: {
       return new Set(current).add(key);
     });
   }, []);
+  /**
+   * Machines the canvas is not showing, and the chip that changes that.
+   *
+   * Here rather than inside the canvas for the same reason the other three sets are: this is the
+   * one place that writes the reader's canvas arrangement, from one effect on the value rather than
+   * from a call beside each of the things that change it.
+   *
+   * Not applied to `canvasBots` below, deliberately. Hiding a machine is a question about what this
+   * strip shows, not about which Bots exist -- the sidebar roster still lists every one of them,
+   * and `detachedCount` still counts only the Bots a reader actually took off. The canvas does the
+   * filtering, beside the chips that say what is hidden.
+   */
+  const [hiddenMachines, setHiddenMachines] = useState<ReadonlySet<string>>(loadHiddenMachines);
+  const toggleMachineOnCanvas = useCallback((key: string) => {
+    setHiddenMachines((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  useEffect(() => storeHiddenMachines(hiddenMachines), [hiddenMachines]);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
     setDetachedBotIds((current) => {
       // A new set rather than a mutation, because React decides whether to re-render by identity.
@@ -130,6 +154,8 @@ export function useCanvasRoster(botsState: {
     canvasOpenKeys,
     setCanvasOpenKeys,
     canvasBots,
+    hiddenMachines,
+    toggleMachineOnCanvas,
     removeSessionFromCanvas,
     toggleCanvasSession,
     openSessionOnCanvas,

@@ -64,6 +64,8 @@ interface AgentSidebarProps {
   onSelectSession: (project: ProjectSummary, session: SessionSummary) => void;
   onCreatePiSession: (project: ProjectSummary) => void;
   bots: BotView[];
+  /** Which machine each Bot is on, empty when one. See `BotSidebarPanel`. */
+  botMachineLabels: ReadonlyMap<string, string>;
   botsLoading: boolean;
   botsError: string | null;
   selectedBotId: string | null;
@@ -237,6 +239,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         >
           <BotSidebarPanel
             bots={props.bots}
+            machineLabels={props.botMachineLabels}
             loading={props.botsLoading}
             error={props.botsError}
             // Marked from what the CANVAS has open, not from what the app has selected: over here
@@ -289,6 +292,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         >
           <BotSidebarPanel
             bots={props.bots}
+            machineLabels={props.botMachineLabels}
             loading={props.botsLoading}
             error={props.botsError}
             // Singletons: this tab selects one session at a time. The panel takes sets because

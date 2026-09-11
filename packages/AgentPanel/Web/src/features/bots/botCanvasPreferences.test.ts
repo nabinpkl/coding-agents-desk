@@ -14,6 +14,7 @@ import {
   loadCanvasScroll,
   loadDetachedBotIds,
   loadDetachedSessionKeys,
+  loadHiddenMachines,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
@@ -22,6 +23,7 @@ import {
   storeCanvasScroll,
   storeDetachedBotIds,
   storeDetachedSessionKeys,
+  storeHiddenMachines,
   storeSessionCardSizes,
 } from "@/features/bots/botCanvasPreferences";
 
@@ -274,5 +276,39 @@ describe("what the canvas has been told to hide", () => {
     localStorage.setItem(OFF_CANVAS_SESSIONS_KEY, "{not json");
     expect(loadDetachedBotIds()).toEqual(new Set());
     expect(loadDetachedSessionKeys()).toEqual(new Set());
+  });
+});
+
+const HIDDEN_MACHINES_KEY = "agent-panel.bot-canvas.hidden-machines";
+
+describe("the machines the canvas is showing", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("remembers a hidden machine across a reload", () => {
+    storeHiddenMachines(new Set(["oracle"]));
+    expect(loadHiddenMachines()).toEqual(new Set(["oracle"]));
+  });
+
+  it("can hide this machine, whose key is the empty string", () => {
+    // The one entry a length check would silently drop. `machineKey` gives the panel's own sidecar
+    // "" precisely because no declared peer can have it, and hiding it to look at a peer alone is
+    // exactly what a reader would do.
+    storeHiddenMachines(new Set([""]));
+    expect(loadHiddenMachines()).toEqual(new Set([""]));
+  });
+
+  it("forgets the last one rather than storing an empty list", () => {
+    storeHiddenMachines(new Set(["oracle"]));
+    storeHiddenMachines(new Set());
+    expect(localStorage.getItem(HIDDEN_MACHINES_KEY)).toBeNull();
+  });
+
+  it("shows every machine again rather than trusting a value it cannot read", () => {
+    // The dangerous direction here is the one where a bad value HIDES cards, so anything
+    // unreadable means "show everything" and an unreadable entry beside good ones is dropped alone.
+    localStorage.setItem(HIDDEN_MACHINES_KEY, "{not json");
+    expect(loadHiddenMachines()).toEqual(new Set());
+    localStorage.setItem(HIDDEN_MACHINES_KEY, JSON.stringify(["oracle", 7, null]));
+    expect(loadHiddenMachines()).toEqual(new Set(["oracle"]));
   });
 });

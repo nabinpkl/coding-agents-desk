@@ -73,10 +73,20 @@ export function BotSidebarPanel({
   onRenameSession,
   onDetachSession,
   onAddBot,
+  machineLabels,
   status,
   canvas,
 }: {
   bots: BotView[];
+  /**
+   * Which machine each Bot is on, by id, and EMPTY when there is only one machine to be on.
+   *
+   * This roster lists every Bot the panel can see, and since a Bot's directory can be on a remote
+   * peer that is now more than one machine's worth. Saying so here matters more than on the canvas,
+   * not less: a card is a wide thing with a path on it, while a row is a name and a folder, and two
+   * peers with a `projects` directory each would otherwise be two identical rows.
+   */
+  machineLabels?: ReadonlyMap<string, string>;
   loading: boolean;
   error: string | null;
   /** Every Bot to mark. A set because the canvas opens as many cards as it is asked to. */
@@ -224,6 +234,9 @@ export function BotSidebarPanel({
                       </span>
                     ) : null}
                     <span className="mt-0.5 block truncate font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                      {machineLabels?.get(bot.botId)
+                        ? <span className="not-italic font-sans font-medium">{`${machineLabels.get(bot.botId)} · `}</span>
+                        : null}
                       {projectName}
                       {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
                     </span>

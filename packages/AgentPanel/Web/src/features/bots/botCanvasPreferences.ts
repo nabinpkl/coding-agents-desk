@@ -389,3 +389,45 @@ export function loadDetachedSessionKeys(): ReadonlySet<string> {
 export function storeDetachedSessionKeys(keys: ReadonlySet<string>): void {
   storeDetached(DETACHED_SESSIONS_KEY, keys);
 }
+
+const HIDDEN_MACHINES_KEY = "agent-panel.bot-canvas.hidden-machines";
+
+/**
+ * Machines whose Bots the canvas is not showing, by the key `machineKey` gives.
+ *
+ * The canvas reads every declared machine at once, which is the point of it -- a Bot on a remote
+ * peer standing beside one on this Mac -- and is also the reason a reader needs a way to say "not
+ * that one right now". It passes the same test the detached sets pass (`AGENTS.md`, "Panel state"):
+ * it is an arrangement nobody else knows, it costs real clicks to redo, and its absence is VISIBLE
+ * because the machine's chip stays in the row saying how many cards it is holding back.
+ *
+ * Keys, not labels. A label is what a reader is shown and can change when a peer is renamed; the
+ * key is the id the dev server routes by, so a stored entry keeps meaning the same machine.
+ *
+ * A key for a machine that is no longer declared is kept rather than pruned: a peer that is off
+ * today is the same peer tomorrow, and forgetting that it was hidden would put its cards back on a
+ * canvas the reader had tidied.
+ */
+export function loadHiddenMachines(): ReadonlySet<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(HIDDEN_MACHINES_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    // Checked for the shape it is written in. The empty string is this machine's own key, which is
+    // a legitimate thing to hide, so length is not the test -- being a string is.
+    return new Set(parsed.filter((key): key is string => typeof key === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+export function storeHiddenMachines(keys: ReadonlySet<string>): void {
+  try {
+    if (keys.size === 0) localStorage.removeItem(HIDDEN_MACHINES_KEY);
+    else localStorage.setItem(HIDDEN_MACHINES_KEY, JSON.stringify([...keys]));
+  } catch {
+    // The canvas still hides and shows machines; it just forgets which by the next visit.
+  }
+}

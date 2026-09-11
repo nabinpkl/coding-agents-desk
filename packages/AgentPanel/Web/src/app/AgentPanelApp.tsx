@@ -266,6 +266,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
     creationErrors,
     createPiSession,
     inventory,
+    machines: shellMachines,
     park,
     roster,
     thread,
@@ -429,7 +430,10 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 hues={botHues}
                 loading={botsState.loading}
                 error={botsState.error}
-                machineLabels={shellMachines.labels}
+                machines={shellMachines.chips}
+                keyOfBot={shellMachines.keyOfBot}
+                hiddenMachines={roster.hiddenMachines}
+                onToggleMachine={roster.toggleMachineOnCanvas}
                 machineErrors={botsState.machineErrors}
                 sessionContextFor={(botId) => shellMachines.contextFor(sessionViewContext, botId)}
                 botError={commands.botCommandError}
