@@ -159,7 +159,11 @@ link is a hard constraint on everything else.
 Other checkouts under `~/projects` hold earlier or parallel takes on the same problem. They are not
 references; check anything taken from them against this map first.
 
-- `agent-desk-testflight-prev` a July snapshot of the pre-port shape.
+- `agent-desk-testflight-prev` no longer exists; removed 2026-09-11. It was never a sibling
+  repository at all -- it was a linked worktree of THIS checkout, detached at `2ef9e849`, which
+  is an ancestor of `main`, so the July snapshot it held is in this history and the 601MB on
+  disk was build output. `git worktree add --detach ../agent-desk-testflight-prev 2ef9e849`
+  brings it back.
 - `agent-workspace-ide` tombstoned 2026-07-10, "retired into AgentDesk".
 - `claude-mac-mouse` May, window and pointer control through CoreGraphics and Accessibility.
 - `deskzoom` no longer exists; absorbed here on 2026-09-05.
