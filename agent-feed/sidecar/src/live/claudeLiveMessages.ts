@@ -8,7 +8,8 @@
 import { contextWindowFor } from "@/config";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
-import type { AnthropicStreamEvent, ToolResultItem } from "@/live/claudeNetworkSource";
+import type { AnthropicStreamEvent } from "@/live/claudeNetworkSource";
+import type { ToolResultItem } from "@/live/claudeRequestBody";
 
 const TOOL_RESULT_PREVIEW_CAP = 16_000;
 

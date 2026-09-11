@@ -12,6 +12,18 @@ interface FixtureServer {
 function startFixture(): FixtureServer {
   const bodyFor = (reference: string): string => {
     if (reference === "missing") return "not-an-identity";
+    if (reference === "subagent1") {
+      // A subagent's request: its parent's identity, plus the harness's billing token saying whose
+      // turn it really is. Both are what the wire carries.
+      return JSON.stringify({
+        system: [{
+          type: "text",
+          text: "x-anthropic-billing-header: cc_version=2.1.268.58f; cc_entrypoint=cli;"
+            + " cc_is_subagent=true; cc_prompt_id=2a5f44c0-0db0-4745-a365-df4dadab823b;",
+        }],
+        user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
+      });
+    }
     if (reference === "tool1") {
       return JSON.stringify({
         user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-tool1" }),
@@ -160,6 +172,27 @@ describe("ClaudeLiveBackend ingest", () => {
     // Badge: 400 of 700 prompt tokens came from the cache.
     expect(page.events[0]!.cacheHit).toEqual({ cached: 400, input: 700 });
     await probe.dispose();
+  });
+
+  test("a subagent's stream stays out of the parent's live view", async () => {
+    // The bug this pins: a subagent's request carries the PARENT's session_id, so before this its
+    // whole answer bound to the parent's projection and appeared in the parent's transcript --
+    // while the parent was blocked on the tool call that started it. The parent's own message from
+    // the fixture above is still there and is still the only one.
+    const before = await backend.page(sessionId, 0, 10, "nice");
+    backend.acceptObserverEvent(flowEvent("sub1", "/v1/messages", "api.anthropic.com", "subagent1"));
+    backend.acceptObserverEvent(delta("sub1", {
+      type: "message_start",
+      message: { id: "msg_sub", model: "claude-haiku-4-5", usage: { input_tokens: 4, output_tokens: 0 } },
+    }));
+    backend.acceptObserverEvent(delta("sub1", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    backend.acceptObserverEvent(delta("sub1", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "from the subagent" } }));
+    backend.acceptObserverEvent(delta("sub1", { type: "message_stop" }));
+    backend.acceptObserverEvent(ended("sub1"));
+    await flush(160);
+    const after = await backend.page(sessionId, 0, 10, "nice");
+    expect(after.total).toBe(before.total);
+    expect(JSON.stringify(after.events)).not.toContain("from the subagent");
   });
 
   test("unknown source session 404s on page", async () => {

@@ -28,16 +28,15 @@ import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { LiveSessionRegistry } from "@/live/liveSessionRegistry";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
+import { fetchRequestMetadata, type ToolResultItem } from "@/live/claudeRequestBody";
 import {
   claudeLiveReconnectDelay,
   decodeDeltaData,
-  fetchRequestMetadata,
   mapAnthropicStreamEvent,
   subscribeToObserver,
   type AnthropicStreamEvent,
   type ObserverEvent,
   type ObserverSubscription,
-  type ToolResultItem,
 } from "@/live/claudeNetworkSource";
 import {
   isMessageStream,
@@ -264,9 +263,18 @@ export class ClaudeLiveBackend implements AgentBackend {
       return;
     }
     void fetchRequestMetadata(this.endpoint, reference)
-      .then(({ sessionId, toolResults }) => {
+      .then(({ sessionId, toolResults, subagent }) => {
         if (this.disposed || !this.flowContexts.has(flowId)) return;
-        if (!sessionId) {
+        // A subagent's request carries its PARENT's session id, so binding it would mirror the
+        // subagent's whole answer into the parent's live view -- text the parent never said,
+        // streaming in while the parent sits blocked on the tool call that started it. Dropped
+        // rather than mirrored somewhere else: there is no live surface for a subagent to belong
+        // to, and its lines still reach the panel the durable way, through the transcript the
+        // harness writes at `<session>/subagents/agent-<id>.jsonl` and the route that serves it.
+        //
+        // Dropped by the same path as a body with no identity at all, which is the honest
+        // comparison: in both cases this flow is not something this mirror can place.
+        if (!sessionId || subagent) {
           this.scheduleFlowDrop(flowId);
           return;
         }
