@@ -14,6 +14,8 @@ import type {
   RailKey,
   RailModifiers,
   TmuxComposerState,
+  TmuxQuestionAnswer,
+  TmuxQuestionOutcome,
   WindowComposerEnvelope,
   WindowComposerStatus,
   WindowQuestionAction,
@@ -289,6 +291,27 @@ export class SidecarComposers extends SidecarTranscript {
       await this.transport.request("POST", tmuxComposerPath(session, "/image"), {
         body: { data: await base64FromBlob(image) } satisfies ComposerImageDrop,
       }),
+    );
+  }
+
+  /**
+   * Answers the AskUserQuestion dialog standing in the session's pane.
+   *
+   * Every question in one request, not a press at a time. The dialog submits all of them together
+   * and a digit on it cannot be taken back, so a half-finished sequence has no owner -- and the
+   * free text a reader typed would be somewhere neither side could recover it from. Sending the
+   * whole set means a refusal comes back carrying that text, which is the point of the shape.
+   */
+  async answerTmuxQuestion(
+    session: SessionAddress,
+    answers: readonly TmuxQuestionAnswer[],
+  ): Promise<TmuxQuestionOutcome> {
+    return parse<TmuxQuestionOutcome>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/question`,
+        { body: { answers } },
+      ),
     );
   }
 }

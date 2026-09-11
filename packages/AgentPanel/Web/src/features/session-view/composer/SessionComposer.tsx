@@ -69,7 +69,9 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import { terminalArrangement } from "@/features/session-view/composer/terminalArrangement";
-import { AskUserQuestionMirror, useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
+import { useWindowQuestion } from "@/features/session-view/composer/useWindowQuestion";
+import { useTmuxQuestion } from "@/features/session-view/composer/useTmuxQuestion";
+import type { QuestionMirrorModel } from "@/features/session-view/composer/SessionComposerBand";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
   composerReasonText,
@@ -273,12 +275,63 @@ export function SessionComposer({
   // a re-render of this band, which happens on every status the Feed reads.
   const noteTerminalState = useCallback(() => {}, []);
 
-  const questionPanel = useClaudeWindowQuestion(
+  // Two ways to answer an open question, chosen the way the composer's transport is chosen and for
+  // the same reason: where a pane exists it is where the CLI actually is, and the window is a view
+  // OF that pane. They are genuinely different mechanisms rather than one behind a flag --
+  //
+  //   The pane's dialog takes keystrokes that cannot be taken back (one digit on a single-select
+  //   question selects, marks and submits), so every answer is drafted in the panel and committed
+  //   once. It answers EVERY question of the call, which is what the dialog needs to finish.
+  //
+  //   The Desktop panel is a live surface somebody may be watching, so it is mirrored click by
+  //   click. It shows one question at a time and nothing here has measured what it does with a
+  //   call carrying several, so it answers the first and the band says how many it cannot reach.
+  const tmuxQuestion = useTmuxQuestion(
+    feed,
+    tmuxComposerSession,
+    isClaude && tmuxBand ? question : null,
+  );
+  const windowQuestion = useWindowQuestion(
     windowComposerClient,
     sessionId,
-    isClaude && question != null,
+    isClaude && !tmuxBand && question != null,
     question,
   );
+  const questionMirror: QuestionMirrorModel | null = !isClaude || question == null
+    ? null
+    : tmuxBand
+    ? {
+      questions: tmuxQuestion.questions,
+      drafts: tmuxQuestion.drafts,
+      pending: tmuxQuestion.pending,
+      disabled: false,
+      error: tmuxQuestion.error,
+      notice: null,
+      canSubmit: tmuxQuestion.canSubmit,
+      onChoose: tmuxQuestion.choose,
+      onWriteOther: tmuxQuestion.write,
+      onSubmit: () => void tmuxQuestion.submit(),
+    }
+    : windowQuestion.visible && windowQuestion.question
+    ? {
+      questions: [windowQuestion.question],
+      drafts: [{ chosen: windowQuestion.selected, other: windowQuestion.otherText }],
+      pending: windowQuestion.pending,
+      disabled: !windowQuestion.enabled,
+      error: windowQuestion.error,
+      notice: windowQuestion.unreachable > 0
+        ? `${windowQuestion.unreachable} more question${windowQuestion.unreachable > 1 ? "s" : ""} in this call can only be answered in the app`
+        : null,
+      canSubmit: windowQuestion.canSubmit,
+      // This half mirrors ONE question, so the index is always zero and is dropped here rather
+      // than threaded through a hook that has nowhere to put it.
+      onChoose: (_question, option) => windowQuestion.selectOption(option),
+      onWriteOther: (_question, text) => windowQuestion.changeOther(text),
+      onSubmit: windowQuestion.submit,
+      onSkip: windowQuestion.skip,
+      onDismiss: windowQuestion.dismiss,
+    }
+    : null;
 
   // Every non-window transport composes against local state. If native resolution refuses after
   // somebody has already typed, hand that exact draft to the selected local transport before the
@@ -419,7 +472,7 @@ export function SessionComposer({
       isCodex={isCodex}
       model={model}
       noteTerminalState={noteTerminalState}
-      questionPanel={questionPanel}
+      questionMirror={questionMirror}
       sectionLabel={sectionLabel}
       session={session}
       setComposerFocused={setComposerFocused}

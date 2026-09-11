@@ -46,33 +46,49 @@ describe("parseAskUserQuestion", () => {
   it("parses the full question from a tool_use input", () => {
     expect(parseAskUserQuestion("toolu_01", QUESTION_INPUT)).toEqual({
       callId: "toolu_01",
-      question: "Which release identity should the manual deploy of current main use?",
-      header: "Release id",
-      multiSelect: false,
-      options: [
-        { label: "Mint 2026-08-08.1 (Recommended)", description: "Add a ledger entry." },
-        { label: "Reuse 2026-08-03.1", description: "Deploy immediately." },
-        { label: "Don't deploy app code yet", description: "Leave the running release alone." },
-      ],
+      questions: [{
+        question: "Which release identity should the manual deploy of current main use?",
+        header: "Release id",
+        multiSelect: false,
+        options: [
+          { label: "Mint 2026-08-08.1 (Recommended)", description: "Add a ledger entry." },
+          { label: "Reuse 2026-08-03.1", description: "Deploy immediately." },
+          { label: "Don't deploy app code yet", description: "Leave the running release alone." },
+        ],
+      }],
     });
   });
 
-  it("uses the first question in the array, matching Claude's single-panel UI", () => {
+  it("keeps every question, in the order the answers are matched by", () => {
     const input = {
       questions: [
         { question: "First question", options: [{ label: "A" }, { label: "B" }] },
         { question: "Second question", options: [{ label: "C" }] },
       ],
     };
-    expect(parseAskUserQuestion("toolu_1", input)?.question).toBe("First question");
+    // Taking only the first is what the Desktop panel's single-pane UI wanted. The terminal
+    // dialog draws a tab per question and will not submit until each has an answer.
+    expect(parseAskUserQuestion("toolu_1", input)?.questions.map((entry) => entry.question))
+      .toEqual(["First question", "Second question"]);
   });
 
   it("reads multiSelect and omits an absent header", () => {
     const parsed = parseAskUserQuestion("toolu_1", {
       questions: [{ question: "Pick features", multiSelect: true, options: [{ label: "Dark" }] }],
     });
-    expect(parsed?.multiSelect).toBe(true);
-    expect(parsed?.header).toBeUndefined();
+    expect(parsed?.questions[0]?.multiSelect).toBe(true);
+    expect(parsed?.questions[0]?.header).toBeUndefined();
+  });
+
+  it("keeps an option preview as written, because its shape is the content", () => {
+    const parsed = parseAskUserQuestion("toolu_1", {
+      questions: [{
+        question: "Which layout?",
+        options: [{ label: "Split", preview: "left | right\n  a  |  b" }, { label: "Stacked" }],
+      }],
+    });
+    expect(parsed?.questions[0]?.options[0]?.preview).toBe("left | right\n  a  |  b");
+    expect(parsed?.questions[0]?.options[1]?.preview).toBeUndefined();
   });
 
   it("returns null without a callId, question text, or usable options", () => {
@@ -84,6 +100,18 @@ describe("parseAskUserQuestion", () => {
         questions: [{ question: "Q", options: [{ description: "no label" }] }],
       }),
     ).toBeNull();
+  });
+
+  it("returns null when ONE question of several is unusable", () => {
+    // Dropping it would leave the answers one short and every answer after it matched against the
+    // wrong question, which the dialog cannot detect and neither could a reader.
+    expect(parseAskUserQuestion("toolu_1", {
+      questions: [
+        { question: "Fine", options: [{ label: "A" }] },
+        { question: "Broken", options: [] },
+        { question: "Also fine", options: [{ label: "B" }] },
+      ],
+    })).toBeNull();
   });
 });
 

@@ -37,6 +37,7 @@ describe("AskUserQuestion mirror", () => {
   // single-select options, Other, Skip, Submit, and the header controls.
   const QUESTION = {
     callId: "toolu_01RiU9jjyzyX3HTCbLG1dGAh",
+    questions: [{
     question: "Which release identity should the manual deploy of current main use?",
     header: "Release id",
     multiSelect: false,
@@ -54,16 +55,32 @@ describe("AskUserQuestion mirror", () => {
         description: "Leave the running release alone.",
       },
     ],
+    }],
   };
 
   const MULTI_QUESTION = {
     callId: "toolu_02",
-    question: "Which features do you want to enable?",
-    multiSelect: true,
-    options: [
-      { label: "Dark mode", description: "Enable dark theme for the interface" },
-      { label: "Notifications", description: "Receive real-time alerts and updates" },
-      { label: "Analytics", description: "Track usage and performance metrics" },
+    questions: [{
+      question: "Which features do you want to enable?",
+      multiSelect: true,
+      options: [
+        { label: "Dark mode", description: "Enable dark theme for the interface" },
+        { label: "Notifications", description: "Receive real-time alerts and updates" },
+        { label: "Analytics", description: "Track usage and performance metrics" },
+      ],
+    }],
+  };
+
+  /** A call carrying more than one question, which is what the Desktop panel cannot finish. */
+  const TWO_QUESTIONS = {
+    callId: "toolu_03",
+    questions: [
+      MULTI_QUESTION.questions[0]!,
+      {
+        question: "And which environment?",
+        multiSelect: false,
+        options: [{ label: "Staging" }, { label: "Production" }],
+      },
     ],
   };
 
@@ -133,6 +150,10 @@ describe("AskUserQuestion mirror", () => {
     });
   }
 
+  /** The free-text row's label, which names its question so several of them stay distinct. */
+  const OTHER =
+    "Your own answer to: Which release identity should the manual deploy of current main use?";
+
   function openQuestion(question: unknown) {
     act(() => feedMock.emitQuestion?.(question));
   }
@@ -145,22 +166,20 @@ describe("AskUserQuestion mirror", () => {
     expect(screen.getByLabelText("Claude question")).toHaveTextContent(
       "Which release identity should the manual deploy of current main use?",
     );
-    // Single-select questions render radio rows.
-    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    // Single-select questions render radio rows, and the free-text row is one of them: on this
+    // shape an option and your own words are alternatives, so they belong to one group.
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
     expect(
       screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("radio", { name: "Don't deploy app code yet" }),
     ).toBeInTheDocument();
-    // The header controls and the action row mirror Claude's panel exactly.
-    expect(screen.getByRole("button", { name: "View question options" })).toBeInTheDocument();
+    // Descriptions are drawn with their options rather than behind an expand control: the panel
+    // has the room the terminal dialog does not, and this is the surface with the whole JSON.
+    expect(screen.getByText("Add a ledger entry for a new application release.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dismiss question" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Other")).toBeInTheDocument();
-    expect(screen.getByLabelText("Other answer")).toHaveAttribute(
-      "placeholder",
-      "Type your own answer here",
-    );
+    expect(screen.getByLabelText(OTHER)).toHaveAttribute("placeholder", "Something else");
     expect(screen.getByRole("button", { name: "Skip" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Submit answer" })).toBeDisabled();
 
@@ -220,7 +239,7 @@ describe("AskUserQuestion mirror", () => {
     openClaudeThread(transport);
     openQuestion(QUESTION);
 
-    const other = screen.getByLabelText("Other answer");
+    const other = screen.getByLabelText(OTHER);
     fireEvent.change(other, { target: { value: "Deploy a different release" } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
@@ -319,17 +338,17 @@ describe("AskUserQuestion mirror", () => {
     unmount();
   });
 
-  it("shows the option description when View options is toggled", async () => {
-    const { transport, fake, unmount } = setup();
+  it("says how many questions of a call this half cannot reach", () => {
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openQuestion(TWO_QUESTIONS);
 
-    expect(screen.queryByText("Add a ledger entry for a new application release.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "View question options" }));
-    expect(
-      lastQuestionCall(transport),
-    ).toMatchObject({ kind: "view-options" });
-    expect(screen.getByText("Add a ledger entry for a new application release.")).toBeInTheDocument();
+    // The Desktop panel is single-pane and nothing has measured what it does with a call carrying
+    // several, so this half answers the first and says so rather than pretending to finish.
+    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
+      "1 more question in this call can only be answered in the app",
+    );
+    expect(screen.queryByText("And which environment?")).toBeNull();
     unmount();
   });
 });

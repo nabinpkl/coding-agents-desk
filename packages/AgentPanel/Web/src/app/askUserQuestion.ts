@@ -11,15 +11,34 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 export interface AskUserQuestionOption {
   label: string;
   description?: string;
+  /**
+   * The little diagram or snippet Claude may attach to an option.
+   *
+   * Kept because the terminal dialog shows it and a reader choosing between two options is often
+   * choosing between two previews. It arrives as preformatted text and is rendered as such.
+   */
+  preview?: string;
+}
+
+/** One question of a call. A call carries between one and four of them. */
+export interface AskUserQuestionItem {
+  question: string;
+  header?: string;
+  multiSelect: boolean;
+  options: AskUserQuestionOption[];
 }
 
 export interface OpenAskUserQuestion {
   /** The tool_use id; the matching tool_result closes the question. */
   callId: string;
-  question: string;
-  header?: string;
-  multiSelect: boolean;
-  options: AskUserQuestionOption[];
+  /**
+   * Every question the call carries, in its own order.
+   *
+   * All of them, not the first. This used to take `questions[0]` because the surface it mirrored
+   * was Claude Desktop's single panel; the terminal draws one tab per question and refuses to
+   * submit until each has an answer, so answering only the first there finishes nothing.
+   */
+  questions: AskUserQuestionItem[];
 }
 
 /**
@@ -59,8 +78,10 @@ export function openAskUserQuestion(
 /**
  * Parses one AskUserQuestion tool_use block into the mirror's content shape.
  *
- * Only the FIRST question in the array is used, matching Claude's single-panel UI. An unusable block
- * (no callId, no question text, no usable options) yields null so it never surfaces as a mirror.
+ * EVERY question, in the call's own order, because the order is what the answers are matched by on
+ * the way back out. A block that yields no usable question at all is null so it never surfaces as
+ * a mirror; one unusable question among several is dropped, which would put every answer after it
+ * against the wrong question -- so that case is null too.
  */
 export function parseAskUserQuestion(
   callId: string | undefined,
@@ -69,33 +90,53 @@ export function parseAskUserQuestion(
   if (!callId) return null;
   const rawQuestions = input?.questions;
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
-  const first = rawQuestions[0];
-  if (!first || typeof first !== "object" || Array.isArray(first)) return null;
-  const question = first as Record<string, unknown>;
+  const questions: AskUserQuestionItem[] = [];
+  for (const raw of rawQuestions) {
+    const question = parseQuestion(raw);
+    // All or nothing. A mirror missing question three would send three answers for four tabs, and
+    // the dialog would take them in order against the wrong questions.
+    if (!question) return null;
+    questions.push(question);
+  }
+  return { callId, questions };
+}
+
+function parseQuestion(raw: unknown): AskUserQuestionItem | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const question = raw as Record<string, unknown>;
   const text = typeof question.question === "string" ? question.question.trim() : "";
   if (!text) return null;
   const options: AskUserQuestionOption[] = [];
   if (Array.isArray(question.options)) {
-    for (const raw of question.options) {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      const label = (raw as Record<string, unknown>).label;
-      if (typeof label !== "string" || !label.trim()) continue;
-      const description = (raw as Record<string, unknown>).description;
-      options.push({
-        label: label.trim(),
-        ...(typeof description === "string" && description.trim()
-          ? { description: description.trim() }
-          : {}),
-      });
+    for (const entry of question.options) {
+      const option = parseOption(entry);
+      if (option) options.push(option);
     }
   }
   if (options.length === 0) return null;
   const header = typeof question.header === "string" ? question.header.trim() : "";
   return {
-    callId,
     question: text,
     ...(header ? { header } : {}),
     multiSelect: question.multiSelect === true,
     options,
+  };
+}
+
+function parseOption(raw: unknown): AskUserQuestionOption | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const entry = raw as Record<string, unknown>;
+  const label = entry.label;
+  if (typeof label !== "string" || !label.trim()) return null;
+  const description = entry.description;
+  const preview = entry.preview;
+  return {
+    label: label.trim(),
+    ...(typeof description === "string" && description.trim()
+      ? { description: description.trim() }
+      : {}),
+    // Kept as written, newlines and all: a preview is a small diagram and trimming its interior
+    // would take its shape away.
+    ...(typeof preview === "string" && preview.trim() ? { preview } : {}),
   };
 }

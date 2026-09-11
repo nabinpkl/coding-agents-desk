@@ -13,6 +13,8 @@ import {
   createTmuxComposerRoutes,
   liveTmuxComposerDependencies,
 } from "@/http/session-routes/tmuxComposerRoutes";
+import { createTmuxQuestionRoutes } from "@/http/session-routes/tmuxQuestionRoutes";
+import { answerTmuxQuestion } from "@/input/question/questionAnswer";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
 import { createParkRoutes } from "@/http/parkRoutes";
 import { createWindowRoutes } from "@/http/windowRoutes";
@@ -145,6 +147,9 @@ const routes: RouteHandler[] = [
   createTmuxComposerRoutes(liveTmuxComposerDependencies(
     (pane, onOutput) => agentTerminals.watchPane(pane, onOutput),
   )),
+  // And `/question`, which drives the same keyboard at the dialog that replaces that composer
+  // while Claude is waiting for an answer. No pane signal: it is one operation, not a watch.
+  createTmuxQuestionRoutes({ answer: answerTmuxQuestion }),
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position

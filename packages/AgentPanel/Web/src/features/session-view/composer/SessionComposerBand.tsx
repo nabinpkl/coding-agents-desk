@@ -13,7 +13,8 @@ import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
 import { submitComposer } from "@/features/session-view/composer/sessionComposerActions";
-import type { useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
+import type { AskUserQuestionItem } from "@/app/askUserQuestion";
+import type { QuestionDraft } from "@/features/session-view/composer/questionAnswers";
 import { List, Paperclip } from "lucide-react";
 import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
@@ -23,6 +24,27 @@ import { AskUserQuestionMirror } from "@/features/session-view/composer/AskUserQ
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
+
+/**
+ * What the band needs to draw an open question and hand its answers somewhere.
+ *
+ * One shape for two mechanisms. `SessionComposer` builds it from whichever of them applies, so the
+ * band never learns whether it is driving a pane or a window -- and neither does the surface.
+ */
+export interface QuestionMirrorModel {
+  questions: readonly AskUserQuestionItem[];
+  drafts: readonly QuestionDraft[];
+  pending: boolean;
+  disabled: boolean;
+  error: string | null;
+  notice: string | null;
+  canSubmit: boolean;
+  onChoose: (question: number, option: number) => void;
+  onWriteOther: (question: number, text: string) => void;
+  onSubmit: () => void;
+  onSkip?: () => void;
+  onDismiss?: () => void;
+}
 
 export function SessionComposerBand({
   actions,
@@ -37,7 +59,7 @@ export function SessionComposerBand({
   isCodex,
   model,
   noteTerminalState,
-  questionPanel,
+  questionMirror,
   sectionLabel,
   session,
   setComposerFocused,
@@ -61,7 +83,8 @@ export function SessionComposerBand({
   isCodex: boolean;
   model: ComposerModel;
   noteTerminalState: () => void;
-  questionPanel: ReturnType<typeof useClaudeWindowQuestion>;
+  /** The open question and the way to answer it, or null when there is none. */
+  questionMirror: QuestionMirrorModel | null;
   sectionLabel: string;
   session: ComposerModel["session"];
   setComposerFocused: (focused: boolean) => void;
@@ -84,25 +107,7 @@ export function SessionComposerBand({
 }) {
   return (
     <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-6 py-3">
-      {questionPanel.visible ? (
-        <AskUserQuestionMirror
-          question={questionPanel.question!}
-          optionsExpanded={questionPanel.optionsExpanded}
-          selected={questionPanel.selected}
-          otherText={questionPanel.otherText}
-          otherChecked={questionPanel.otherChecked}
-          pending={questionPanel.pending}
-          disabled={!questionPanel.enabled}
-          error={questionPanel.error}
-          onSelectOption={questionPanel.selectOption}
-          onChangeOther={questionPanel.changeOther}
-          onToggleOther={questionPanel.toggleOther}
-          onToggleOptions={questionPanel.toggleOptions}
-          onSubmit={questionPanel.submit}
-          onSkip={questionPanel.skip}
-          onDismiss={questionPanel.dismiss}
-        />
-      ) : null}
+      {questionMirror ? <AskUserQuestionMirror {...questionMirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 
           Both are ways of typing at the same session -- the field sends a turn through the harness,

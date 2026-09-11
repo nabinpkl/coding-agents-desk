@@ -32,6 +32,12 @@ export {
 } from "./tmuxComposer.ts";
 
 export type {
+  TmuxQuestionAnswer,
+  TmuxQuestionOutcome,
+  TmuxQuestionRefusal,
+} from "./tmuxQuestion.ts";
+
+export type {
   AddBotCommand,
   AddBotSessionsCommand,
   BotCreatedBy,
