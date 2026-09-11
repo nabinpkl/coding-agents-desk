@@ -1082,6 +1082,16 @@ dom-mirror-cdp-verify:
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/cdp-verify.mjs'
 
+# Syntax highlighting is PAINTED, not merely emitted, on both surfaces that highlight. Needs a live
+# panel. Guards a failure no unit test can see: Shiki writes its colours as custom properties, so a
+# stylesheet scoped to one surface leaves the other tokenised and grey with nothing to notice.
+panel-highlight-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh'):5173}" \
+      node '{{justfile_directory()}}/chrome-test/panel-highlight-verify.mjs'
+
 # Checks that the panel comes back to where it was being read, in a browser that lays pages out.
 # NOT in `just check`: it needs a live panel (`just host-run`) and the sessions on this machine.
 # Loopback rather than the tailnet name, because nothing here is about transport and the tailnet

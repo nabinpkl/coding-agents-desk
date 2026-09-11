@@ -17,9 +17,25 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
+// The colours the painted layer wears. Imported here rather than relied on from a neighbour,
+// because the rule that reads Shiki's per-token variables is what makes this surface coloured at
+// all, and an editor that depends on a stylesheet nothing here mentions is one import away from
+// silently going grey again.
+import "@/features/activity-feed/markdown/markdown.css";
 
 /** Shared metrics, so the two layers agree character for character. */
 const LAYER = "m-0 p-3 font-mono text-[13px] leading-[1.55] whitespace-pre-wrap break-words";
+
+/**
+ * Shiki hands back its own `<pre class="shiki">`, which lands INSIDE the layer above.
+ *
+ * Left alone it keeps a `<pre>`'s own `white-space: pre` while the textarea over it wraps, so a
+ * long line occupies one row in one layer and three in the other and the caret walks away from
+ * the text. These push the outer layer's metrics onto it so the two stay character for character.
+ */
+const PAINTED = "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-pre-wrap"
+  + " [&_.shiki]:break-words [&_.shiki]:font-[inherit] [&_.shiki]:text-[length:inherit]"
+  + " [&_.shiki]:leading-[inherit]";
 
 export function CodeEditor({
   path,
@@ -72,7 +88,7 @@ export function CodeEditor({
           <pre
             ref={painted}
             aria-hidden
-            className={`${LAYER} agent-panel-md__code pointer-events-none absolute inset-0
+            className={`${LAYER} ${PAINTED} pointer-events-none absolute inset-0
               overflow-hidden`}
             dangerouslySetInnerHTML={{ __html: html }}
           />

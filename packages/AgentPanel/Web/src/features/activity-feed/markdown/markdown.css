@@ -226,14 +226,19 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Shiki dual-theme: tokens carry --shiki-light / --shiki-dark; pick by theme. */
-.agent-panel-code__body .shiki,
-.agent-panel-code__body .shiki span {
+/* Shiki dual-theme: tokens carry --shiki-light / --shiki-dark, and SOMETHING has to read them.
+   Scoped to `.shiki` itself rather than to this feature's code block, because the same markup is
+   rendered somewhere else entirely -- the workspace IDE's editor paints a Shiki <pre> under its
+   textarea. While this rule lived under `.agent-panel-code__body` that editor emitted perfectly
+   tokenised markup, thousands of spans of it, every one inheriting the page's foreground colour.
+   Nothing was broken anywhere a probe could see; it just never got painted. */
+.shiki,
+.shiki span {
   color: var(--shiki-light);
 }
 @media (prefers-color-scheme: dark) {
-  .agent-panel-code__body .shiki,
-  .agent-panel-code__body .shiki span {
+  .shiki,
+  .shiki span {
     color: var(--shiki-dark);
   }
 }
