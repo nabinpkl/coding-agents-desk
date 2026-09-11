@@ -66,22 +66,65 @@ function Mirror(
 const OTHER_COLOUR = "Your own answer to: Which colour?";
 const OTHER_TOPPINGS = "Your own answer to: Which toppings?";
 
+/** Moves to the next question, the way a reader does. */
+function next() {
+  fireEvent.click(screen.getByRole("button", { name: "Next question" }));
+}
+
+function previous() {
+  fireEvent.click(screen.getByRole("button", { name: "Previous question" }));
+}
+
 describe("the tmux question mirror", () => {
-  it("draws every question of the call, with its previews", () => {
+  it("draws one question at a time, and pages between them", () => {
     render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
 
+    // The band is above the transcript and does not scroll, so a call's questions are paged
+    // rather than stacked: the second one is reachable, not drawn.
     expect(screen.getByText("Which colour?")).toBeInTheDocument();
-    expect(screen.getByText("Which toppings?")).toBeInTheDocument();
-    expect(screen.getByText("1 of 2")).toBeInTheDocument();
+    expect(screen.queryByText("Which toppings?")).toBeNull();
+    // Single-select draws radios, and the free-text row is one of them.
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     // The terminal shows one preview at a time and wraps long labels; this surface has the JSON.
     // Matched without normalising whitespace, because the newline is the content: a preview is a
     // small diagram, and a reflowed one shows something else.
     expect(screen.getByText((_, node) => node?.tagName === "PRE" && node.textContent === "a | b\nc | d"))
       .toBeInTheDocument();
     expect(screen.getByText("The first one.")).toBeInTheDocument();
-    // Single-select draws radios, multi-select checkboxes, each with its own free-text row.
-    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Previous question" })).toBeDisabled();
+
+    next();
+    expect(screen.queryByText("Which colour?")).toBeNull();
+    expect(screen.getByText("Which toppings?")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Next question" })).toBeDisabled();
+
+    previous();
+    expect(screen.getByText("Which colour?")).toBeInTheDocument();
+  });
+
+  it("names every question in a strip, so one can be reached without stepping", () => {
+    render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
+
+    const toppings = screen.getByRole("button", {
+      name: "Question 2 of 2: Which toppings?",
+    });
+    fireEvent.click(toppings);
+    expect(screen.getByText("Which toppings?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Question 1 of 2: Which colour?" }));
+    expect(screen.getByText("Which colour?")).toBeInTheDocument();
+  });
+
+  it("keeps its own scrolling to itself, so the transcript behind does not move", () => {
+    const { container } = render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
+
+    // Asserted on the class rather than on layout, which jsdom does not compute. The pair is the
+    // whole of the fix: a height the question cannot exceed, and no scroll chaining out of it.
+    const scroller = container.querySelector(".overscroll-contain");
+    expect(scroller).not.toBeNull();
+    expect(scroller!.className).toContain("overflow-y-auto");
+    expect(scroller!.className).toContain("max-h-");
   });
 
   it("will not submit until every question has an answer, and says how many are left", () => {
@@ -103,8 +146,10 @@ describe("the tmux question mirror", () => {
     render(<Mirror question={CALL} answer={answer} />);
 
     fireEvent.click(screen.getByRole("radio", { name: "BRAVO" }));
+    next();
     fireEvent.click(screen.getByRole("checkbox", { name: "ECHO" }));
     fireEvent.change(screen.getByLabelText(OTHER_TOPPINGS), { target: { value: "and a note" } });
+    expect(screen.getByText("All answered")).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
     });
@@ -133,9 +178,21 @@ describe("the tmux question mirror", () => {
     expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("");
   });
 
+  it("picking the free-text row lets go of the option it replaces", () => {
+    render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: "ALPHA" }));
+    // The row is a move to the field, not a value: it drops the option rather than sitting there
+    // as a control that reports checked and does nothing.
+    fireEvent.click(screen.getByRole("radio", { name: "Something else" }));
+    expect(screen.getByRole("radio", { name: "ALPHA" })).not.toBeChecked();
+    expect(screen.getByLabelText(OTHER_COLOUR)).toHaveFocus();
+  });
+
   it("keeps both on a multi-select question, because the dialog carries both", () => {
     render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
 
+    next();
     fireEvent.click(screen.getByRole("checkbox", { name: "DELTA" }));
     fireEvent.change(screen.getByLabelText(OTHER_TOPPINGS), { target: { value: "plus this" } });
     expect(screen.getByRole("checkbox", { name: "DELTA" })).toBeChecked();
@@ -153,6 +210,7 @@ describe("the tmux question mirror", () => {
     render(<Mirror question={CALL} answer={answer} />);
 
     fireEvent.change(screen.getByLabelText(OTHER_COLOUR), { target: { value: "a long sentence" } });
+    next();
     fireEvent.click(screen.getByRole("checkbox", { name: "DELTA" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
@@ -161,9 +219,10 @@ describe("the tmux question mirror", () => {
     // The failure this whole shape exists to prevent: the reason is on screen AND the words are
     // still where they were typed, so nothing has to be rewritten to try again.
     expect(screen.getByLabelText("Claude question")).toHaveTextContent("no longer open");
-    expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("a long sentence");
     expect(screen.getByRole("checkbox", { name: "DELTA" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Submit answer" })).toBeEnabled();
+    previous();
+    expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("a long sentence");
   });
 
   it("a request that throws is reported without taking the draft with it", async () => {
@@ -177,14 +236,16 @@ describe("the tmux question mirror", () => {
     );
 
     fireEvent.change(screen.getByLabelText(OTHER_COLOUR), { target: { value: "my answer" } });
+    next();
     fireEvent.change(screen.getByLabelText(OTHER_TOPPINGS), { target: { value: "my other" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
     });
 
     expect(screen.getByLabelText("Claude question")).toHaveTextContent("the sidecar went away");
-    expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("my answer");
     expect(screen.getByLabelText(OTHER_TOPPINGS)).toHaveValue("my other");
+    previous();
+    expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("my answer");
   });
 
   it("starts a fresh draft when a new call arrives", () => {

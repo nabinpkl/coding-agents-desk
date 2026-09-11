@@ -301,6 +301,7 @@ export function SessionComposer({
     ? null
     : tmuxBand
     ? {
+      callId: question.callId,
       questions: tmuxQuestion.questions,
       drafts: tmuxQuestion.drafts,
       pending: tmuxQuestion.pending,
@@ -314,6 +315,7 @@ export function SessionComposer({
     }
     : windowQuestion.visible && windowQuestion.question
     ? {
+      callId: question.callId,
       questions: [windowQuestion.question],
       drafts: [{ chosen: windowQuestion.selected, other: windowQuestion.otherText }],
       pending: windowQuestion.pending,

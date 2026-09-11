@@ -32,6 +32,14 @@ import type { ComposerEditor } from "@/features/session-view/composer/sessionCom
  * band never learns whether it is driving a pane or a window -- and neither does the surface.
  */
 export interface QuestionMirrorModel {
+  /**
+   * The tool call this question belongs to.
+   *
+   * Here so the band can key the mirror on it: the surface pages between questions and holds which
+   * one is on screen, and a new call has to start at its own first question rather than wherever
+   * the last one was left.
+   */
+  callId: string;
   questions: readonly AskUserQuestionItem[];
   drafts: readonly QuestionDraft[];
   pending: boolean;
@@ -105,9 +113,14 @@ export function SessionComposerBand({
   tmuxComposer: ComposerModel["tmuxComposer"];
   usage: TokenUsage | null;
 }) {
+  // Split off the call id, which is the mirror's key rather than one of its props: the surface
+  // pages between the call's questions, and a new call starts at its own first one.
+  const question = questionMirror
+    ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
+    : null;
   return (
     <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-6 py-3">
-      {questionMirror ? <AskUserQuestionMirror {...questionMirror} /> : null}
+      {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 
           Both are ways of typing at the same session -- the field sends a turn through the harness,
@@ -307,4 +320,8 @@ export function SessionComposerBand({
       ) : null}
     </section>
   );
+}
+
+function withoutCallId({ callId: _callId, ...mirror }: QuestionMirrorModel) {
+  return mirror;
 }
