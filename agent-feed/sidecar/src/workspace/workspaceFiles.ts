@@ -118,7 +118,13 @@ async function readBytes(absolute: string, maxBytes: number): Promise<Uint8Array
     const status = await handle.stat();
     if (!status.isFile()) throw new WorkspaceFailure("notFile");
     if (status.size > maxBytes) throw new WorkspaceFailure("tooLarge");
-    return new Uint8Array(await handle.readFile());
+    const bytes = new Uint8Array(await handle.readFile());
+    // Checked again after the read, not only before it: a file that grew between the `fstat` and
+    // the last byte would otherwise be returned over the cap. The Swift enforced the same bound
+    // inside its read loop, so it also refused to allocate the excess; this refuses after
+    // allocating it, which needs someone who can already write inside a registered root.
+    if (bytes.byteLength > maxBytes) throw new WorkspaceFailure("tooLarge");
+    return bytes;
   } finally {
     await handle.close();
   }

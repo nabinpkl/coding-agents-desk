@@ -76,6 +76,16 @@ export class WorkspaceService {
    */
   private watcher: FSWatcher | null = null;
   private readonly watchedPaths = new Set<string>();
+  /**
+   * Resolves when the watcher has finished its first pass and is reporting changes.
+   *
+   * `ignoreInitial` suppresses events for what was already there, so a file written between the
+   * watch starting and it becoming ready is reported by neither -- it is not new enough to be an
+   * event and not old enough to have been in the first pass. In production that window is the
+   * moment a workspace is added, before anyone is looking at it. In a test it is the difference
+   * between an assertion and a coin toss, which is what this exists for.
+   */
+  private watching: Promise<void> = Promise.resolve();
 
   constructor(
     readonly store: WorkspaceStore,
@@ -101,6 +111,23 @@ export class WorkspaceService {
         this.sharedState.snapshot(workspace.id).expandedDirectoryPaths,
       );
     }
+  }
+
+  /** Resolves once changes are being reported. See `watching`. */
+  async whenWatching(): Promise<void> {
+    await this.watching;
+  }
+
+  /**
+   * Every directory being watched, which is the invariant worth asserting: it must be the root
+   * plus the directories a reader has expanded, and nothing underneath them.
+   *
+   * Exposed because the alternative -- writing a file and waiting for the event -- measures the
+   * operating system's delivery schedule rather than this class, and does it slowly enough to fail
+   * under a loaded test suite while the code is correct.
+   */
+  get watchedDirectories(): readonly string[] {
+    return [...this.watchedPaths];
   }
 
   subscribe(listener: (event: WorkspaceStreamEvent) => void): () => void {
@@ -186,8 +213,10 @@ export class WorkspaceService {
         followSymlinks: false,
         depth: WATCH_DEPTH,
       });
-      this.watcher.on("all", (_event, path) => this.recordChange(path));
-      this.watcher.on("error", (error) => {
+      const watcher = this.watcher;
+      this.watching = new Promise<void>((resolve) => watcher.once("ready", () => resolve()));
+      watcher.on("all", (_event, path) => this.recordChange(path));
+      watcher.on("error", (error) => {
         console.error("workspace watch failed", error);
       });
       return;

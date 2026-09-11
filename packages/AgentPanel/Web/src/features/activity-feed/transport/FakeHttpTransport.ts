@@ -29,13 +29,37 @@ export class FakeHttpTransport implements AgentHttpTransport {
 
   defaultResponse: TransportResponse = { status: 200, body: "{}" };
 
+  /** Requests held open by `hold`, by `"METHOD /path"`. */
+  private readonly held = new Map<string, Promise<void>>();
+
+  /**
+   * Hold every future request to `key` open until the returned function is called.
+   *
+   * For asserting what the code under test does *while* a request is outstanding, which is where
+   * in-flight guards and races live. The request is still recorded when it is made, so a test can
+   * count requests before releasing.
+   */
+  hold(key: string): () => void {
+    let release!: () => void;
+    this.held.set(key, new Promise<void>((resolve) => {
+      release = resolve;
+    }));
+    return () => {
+      this.held.delete(key);
+      release();
+    };
+  }
+
   async request(
     method: string,
     path: string,
     options: { body?: unknown; signal?: AbortSignal; keepalive?: boolean } = {},
   ): Promise<TransportResponse> {
+    const key = `${method} ${path}`;
     this.requests.push({ method, path, body: options.body });
-    return this.responses.get(`${method} ${path}`) ?? this.defaultResponse;
+    const gate = this.held.get(key);
+    if (gate) await gate;
+    return this.responses.get(key) ?? this.defaultResponse;
   }
 
   subscribe(path: string, handlers: SubscribeHandlers): () => void {

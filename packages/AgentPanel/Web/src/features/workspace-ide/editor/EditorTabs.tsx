@@ -1,4 +1,5 @@
-// The tab strip. One tab per open path, in the order the shared state holds.
+// The tab strip. One tab per visible open path, in the order the shared state holds -- plus any
+// file held back from another reader's close because this reader has unsaved text in it.
 
 import { useRef } from "react";
 import { X } from "lucide-react";

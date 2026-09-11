@@ -22,6 +22,7 @@ Gates: `just check` for every task, `just swift-check` additionally for R7-R9.
 | R9 | D | The `＋ IDE` window becomes one `AgentPanelWebViewController` with an entry user script. Dividers, region webviews and the PTY terminal pane go. |
 | R10 | D | Delete the IDE's half of `packages/WorkspaceIDE`, its committed resource tree, and the iOS client's `.ide` surface, which the same lane fed. |
 | R12 | R | Delete the QUIC workspace lane (`WorkspaceLaneServer`, `WorkspaceLaneSession`) and the host services left with no consumer. |
+| R13 | R | Persist unsaved edits, which is what `WorkspaceIDEFileDraftStore` did and the port does not. |
 
 ### What R10 turned out to be
 
@@ -39,6 +40,33 @@ R12 is what is left: the lane itself, plus `WorkspaceFilesResponder`, `Workspace
 `WorkspaceFilePOSIX` and `WorkspaceIDEStateCoordinator`, which the lane was the only consumer of.
 It is split out because it is ~1200 lines of host Swift whose unwinding wants a compiler in the
 loop, and because the lane compiles harmlessly in the meantime with nothing dialling it.
+
+### Read back against the Swift, 2026-09-10
+
+The port was written from a reading of the Swift, and the Swift was deleted in the same arc, so it
+was read back one more time while both still existed. Five behaviours had not survived, all of them
+in the same place -- the gap between a keystroke and the bytes reaching disk -- and all five are now
+fixed with a test each in `workspaceIdeEditing.test.tsx`: a tab closing inside the autosave delay
+took the last keystrokes with it; a conflicted tab closed and discarded the reader's side; `Keep
+mine` fetched the new revision and then wrote nothing; a second write could start while one was in
+flight and conflict with the reader's own save; and a file another reader closed lost its tab while
+this reader still had unsaved text in it. Two more that had survived intact and were suspected
+wrongly: the read-only kinds, and the directory collation, which matches `localizedStandardCompare`
+name for name on every case tried.
+
+What remains is R13. The Swift wrote every unsaved edit to a file under Application Support, keyed
+by workspace and path with the revision it was based on, and restored it on open -- so an edit
+survived quitting the app, and a draft whose baseline had moved came back already marked conflicted.
+The port keeps drafts in React state only, which is worse here than it was there: a Vite save
+discards that many times an hour, and a conflicted file never autosaves, so its text can live in
+memory indefinitely with nothing behind it. It is not done in this pass because the panel's
+storage is `localStorage` with a ~5MB quota against a 4MB text cap, so it needs an eviction rule
+and a per-draft size bound that the Swift's one-file-per-path store never had to have.
+
+One deliberate difference, recorded so it is not read as an oversight: the document cap is 32MB
+where the Swift's was 100MB. The Swift's number was the QUIC frame budget, which no longer applies
+over HTTP; 32MB is a fresh choice rather than the old one, and `AGENT_FEED_WORKSPACE_MAX_DOCUMENT_BYTES`
+moves it.
 
 ## Open, and blocked on the environment rather than the design
 

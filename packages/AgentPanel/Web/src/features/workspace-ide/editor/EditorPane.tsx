@@ -12,7 +12,7 @@ const CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-
   + " aria-pressed:bg-muted aria-pressed:text-foreground";
 
 export function EditorPane({ ide }: { ide: WorkspaceIde }) {
-  const { activePath, openFiles, shared, preferences } = ide;
+  const { activePath, openFiles, visibleOpenPaths, preferences } = ide;
   const file = activePath ? openFiles[activePath] : undefined;
   // A read-only kind is always previewed; an editable one only when the reader asked.
   const readOnlyKind = file?.kind === "docx" || file?.kind === "notebook";
@@ -21,7 +21,7 @@ export function EditorPane({ ide }: { ide: WorkspaceIde }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <EditorTabs
-        paths={shared?.orderedOpenPaths ?? []}
+        paths={visibleOpenPaths}
         openFiles={openFiles}
         activePath={activePath}
         onSelect={ide.activate}

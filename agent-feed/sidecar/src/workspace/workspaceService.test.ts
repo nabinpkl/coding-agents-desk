@@ -47,19 +47,17 @@ async function serviceOver(project: string) {
   service.subscribe((event: WorkspaceStreamEvent) => {
     if (event.type === "changed") changed.push([...event.changedPaths]);
   });
+  // A write before the watcher is ready is reported by nobody: too late for the first pass and
+  // too early to be an event. Waiting here is what makes the assertions below deterministic.
+  await service.whenWatching();
   return { service, shared, workspace, changed };
 }
-
-/** Long enough for a write to become a debounced `changed`, short enough to keep the suite quick. */
-const SETTLE_MS = 600;
-
-const settle = () => new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
 
 test("a workspace root is watchable immediately, however large the tree beneath it", async () => {
   // The regression this pins: a recursive watch of a real repository took 54 seconds to become
   // ready under Bun and starved the event loop throughout, so the sidecar failed its readiness
-  // probe and was killed and respawned into the same 54 seconds. A shallow watch is what makes
-  // `ready` a matter of milliseconds regardless of what is underneath.
+  // probe and was killed and respawned into the same 54 seconds. One roster entry was enough to
+  // make every surface go dark. A watch one directory deep is ready in milliseconds instead.
   const project = await scratch("workspace-service-project-");
   await mkdir(join(project, "deep", "deeper", "deepest"), { recursive: true });
   for (let n = 0; n < 200; n += 1) {
@@ -67,33 +65,32 @@ test("a workspace root is watchable immediately, however large the tree beneath 
   }
 
   const started = Date.now();
-  const { changed } = await serviceOver(project);
-  await writeFile(join(project, "top.txt"), "hello");
-  await settle();
+  const { service } = await serviceOver(project);
 
   expect(Date.now() - started).toBeLessThan(5_000);
-  expect(changed.flat()).toContain("top.txt");
+  expect(service.watchedDirectories).toEqual([project]);
 });
 
-test("a change in a collapsed directory is not reported, and expanding it starts reporting", async () => {
+test("watches a directory when it is expanded, and nothing underneath a collapsed one", async () => {
   // Watching exactly what the tree draws is one rule rather than two: `buildTree` descends only
   // into expanded directories, so a change under a collapsed one has nowhere to be drawn and
-  // nothing to say.
+  // nothing to say. Asserting the watched set rather than a round trip through the filesystem,
+  // because the round trip measures the operating system's delivery schedule and not this rule.
   const project = await scratch("workspace-service-project-");
-  await mkdir(join(project, "src"), { recursive: true });
-  const { shared, workspace, changed } = await serviceOver(project);
-
-  await writeFile(join(project, "src", "hidden.ts"), "before");
-  await settle();
-  expect(changed.flat()).not.toContain("src/hidden.ts");
+  await mkdir(join(project, "src", "nested"), { recursive: true });
+  const { service, shared, workspace } = await serviceOver(project);
+  expect(service.watchedDirectories).toEqual([project]);
 
   await shared.apply(workspace.id, 0, "op-expand", { type: "expand", path: "src" });
-  await writeFile(join(project, "src", "hidden.ts"), "after");
-  await settle();
-  expect(changed.flat()).toContain("src/hidden.ts");
+  expect(service.watchedDirectories).toEqual([project, join(project, "src")]);
+  // Its child is inside a watched directory but is not itself expanded, so it stays unwatched.
+  expect(service.watchedDirectories).not.toContain(join(project, "src", "nested"));
+
+  await shared.apply(workspace.id, 1, "op-nested", { type: "expand", path: "src/nested" });
+  expect(service.watchedDirectories).toContain(join(project, "src", "nested"));
 });
 
-test("an expanded path that could not have come from this tree is skipped, not followed", async () => {
+test("an expanded path that could not have come from this tree is refused, not watched", async () => {
   // Expanded paths arrive from an unauthenticated client. One that escapes the root is already
   // absent from the tree the same state produced, so declining to watch it agrees with what the
   // reader can see -- and never turns shared state into a watch on someone else's directory.
@@ -104,6 +101,5 @@ test("an expanded path that could not have come from this tree is skipped, not f
     shared.apply(workspace.id, 0, "op-escape", { type: "expand", path: "../escape" }),
   ).rejects.toThrow();
 
-  // The service survived the refusal and still watches its own root.
-  expect(service.workspace(workspace.id)?.root).toBe(project);
+  expect(service.watchedDirectories).toEqual([project]);
 });

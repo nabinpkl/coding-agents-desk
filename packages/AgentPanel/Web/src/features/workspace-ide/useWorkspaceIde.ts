@@ -17,15 +17,13 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { WorkspaceIdeClient, WorkspaceRequestError } from "@/features/workspace-ide/workspaceIdeClient";
+import { useWorkspaceIdeWriting } from "@/features/workspace-ide/useWorkspaceIdeWriting";
 import {
   DEFAULT_WORKSPACE_IDE_PREFERENCES,
   loadWorkspaceIdePreferences,
   storeWorkspaceIdePreferences,
   type WorkspaceIdePreferences,
 } from "@/features/workspace-ide/workspaceIdePreferences";
-
-/** How long an edit rests before it is written. Ported from the Swift's autosave delay. */
-const AUTOSAVE_DELAY_MS = 900;
 
 export type SaveState = "clean" | "dirty" | "saving" | "conflict";
 
@@ -46,6 +44,13 @@ export interface WorkspaceIdeState {
   tree: WorkspaceTreeNode[];
   git: WorkspaceGitStatus | null;
   openFiles: Record<string, OpenFile>;
+  /**
+   * The tabs on screen, in order.
+   *
+   * The shared state's list plus anything held back from a remote close, which is why the pane
+   * reads this rather than `shared.orderedOpenPaths` directly.
+   */
+  visibleOpenPaths: string[];
   activePath: string | null;
   loadingPath: string | null;
   error: string | null;
@@ -108,6 +113,15 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
 
+  /**
+   * Which round of requests is current, so an answer from the previous workspace is dropped.
+   *
+   * Ported from `WorkspaceIDEController.requestGeneration`. Resetting the state when the workspace
+   * changes is not enough on its own: a read already in flight resolves afterwards and writes its
+   * file into the new workspace's state, which is the same path holding another project's bytes.
+   */
+  const generationRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
     client.listWorkspaces()
@@ -131,6 +145,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
    */
   useEffect(() => {
     if (!workspaceId) return;
+    generationRef.current += 1;
     setShared(null);
     setTree([]);
     setGit(null);
@@ -145,6 +160,17 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
             setWorkspaces(event.workspaces);
             break;
           case "sharedState":
+            // A file another reader closed goes only if this reader has nothing unsaved in it.
+            // One with unsaved text is kept, and `visibleOpenPaths` puts its tab back, because a
+            // remote close must never be able to take away work that was never written down.
+            setOpenFiles((current) => {
+              const remote = new Set(event.state.orderedOpenPaths);
+              const next: Record<string, OpenFile> = {};
+              for (const [path, file] of Object.entries(current)) {
+                if (remote.has(path) || file.saveState !== "clean") next[path] = file;
+              }
+              return next;
+            });
             setShared(event.state);
             break;
           case "tree":
@@ -188,8 +214,10 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
 
   const reload = useCallback(async (path: string) => {
     if (!workspaceId) return;
+    const generation = generationRef.current;
     try {
       const { file } = await client.readFile(workspaceId, path);
+      if (generation !== generationRef.current) return;
       setOpenFiles((current) => ({
         ...current,
         [path]: {
@@ -201,16 +229,26 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
         },
       }));
     } catch (cause) {
+      if (generation !== generationRef.current) return;
       setError(describe(cause, `Could not open ${path.split("/").pop() ?? path}.`));
     }
   }, [client, workspaceId]);
 
+  /**
+   * The tabs on screen: what the shared state says is open, plus anything held back from a remote
+   * close. Ported from `WorkspaceIDEController.visibleOpenPaths`.
+   */
+  const visibleOpenPaths = useMemo(() => {
+    const remote = shared?.orderedOpenPaths ?? [];
+    const held = Object.keys(openFiles).filter((path) => !remote.includes(path));
+    return held.length === 0 ? remote : [...remote, ...held];
+  }, [shared, openFiles]);
+
   const activePath = useMemo(() => {
-    const open = shared?.orderedOpenPaths ?? [];
     const stored = workspaceId ? preferences.activePathByWorkspace[workspaceId] : undefined;
-    if (stored && open.includes(stored)) return stored;
-    return open[0] ?? null;
-  }, [shared, preferences.activePathByWorkspace, workspaceId]);
+    if (stored && visibleOpenPaths.includes(stored)) return stored;
+    return visibleOpenPaths[0] ?? null;
+  }, [visibleOpenPaths, preferences.activePathByWorkspace, workspaceId]);
 
   // Load whatever is active and not yet in hand. One effect rather than a load beside every place
   // that can change the active path, of which there are five.
@@ -259,121 +297,41 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     }));
   }, [workspaceId]);
 
+  // Everything between a keystroke and the bytes landing on disk. Its own file because that is
+  // what it was in the Swift too (`WorkspaceIDEControllerEditing`), and because it is the half with
+  // a reader's unsaved work in it.
+  const writing = useWorkspaceIdeWriting({
+    client,
+    workspaceId,
+    generationRef,
+    openFilesRef,
+    setOpenFiles,
+    setError,
+    applyOperation,
+    reload,
+  });
+
   const openPath = useCallback((path: string) => {
     setActivePath(path);
     void applyOperation({ type: "open", path });
   }, [applyOperation, setActivePath]);
-
-  const closePath = useCallback((path: string) => {
-    setOpenFiles((current) => {
-      const next = { ...current };
-      delete next[path];
-      return next;
-    });
-    void applyOperation({ type: "close", path });
-  }, [applyOperation]);
-
-  // Autosave. One timer per path, cleared when the path saves or closes.
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  useEffect(() => {
-    const pending = timers.current;
-    return () => {
-      for (const timer of pending.values()) clearTimeout(timer);
-      pending.clear();
-    };
-  }, []);
-
-  const save = useCallback(async (path: string) => {
-    const file = openFilesRef.current[path];
-    if (!workspaceId || !file || file.saveState !== "dirty") return;
-    setOpenFiles((current) => {
-      const held = current[path];
-      return held ? { ...current, [path]: { ...held, saveState: "saving" } } : current;
-    });
-    try {
-      const outcome = await client.writeFile(workspaceId, path, file.revision, file.text);
-      setOpenFiles((current) => {
-        const held = current[path];
-        if (!held) return current;
-        if (outcome.status === "conflict") {
-          return { ...current, [path]: { ...held, saveState: "conflict" } };
-        }
-        // The text may have moved on while the write was in flight; if it did, the file is dirty
-        // again against the new revision rather than clean against text nobody has.
-        const stillCurrent = held.text === file.text;
-        return {
-          ...current,
-          [path]: {
-            ...held,
-            revision: outcome.written.revision,
-            saveState: stillCurrent ? "clean" : "dirty",
-          },
-        };
-      });
-    } catch (cause) {
-      setOpenFiles((current) => {
-        const held = current[path];
-        return held ? { ...current, [path]: { ...held, saveState: "dirty" } } : current;
-      });
-      setError(describe(cause, "The file could not be saved."));
-    }
-  }, [client, workspaceId]);
-
-  const edit = useCallback((path: string, text: string) => {
-    setOpenFiles((current) => {
-      const file = current[path];
-      if (!file) return current;
-      // A conflicted file stays conflicted while it is edited: the reader has to resolve it, and
-      // quietly clearing the flag on the next keystroke would lose that.
-      const saveState: SaveState = file.saveState === "conflict" ? "conflict" : "dirty";
-      return { ...current, [path]: { ...file, text, saveState } };
-    });
-    const existing = timers.current.get(path);
-    if (existing) clearTimeout(existing);
-    timers.current.set(path, setTimeout(() => {
-      timers.current.delete(path);
-      void save(path);
-    }, AUTOSAVE_DELAY_MS));
-  }, [save]);
-
-  const useHostVersion = useCallback((path: string) => {
-    const timer = timers.current.get(path);
-    if (timer) clearTimeout(timer);
-    timers.current.delete(path);
-    void reload(path);
-  }, [reload]);
-
-  /**
-   * Keep the local text, re-based on whatever is on disk now.
-   *
-   * Re-reading first is what makes the next write succeed: the draft's revision is stale by
-   * definition once a conflict has been reported, so keeping it would conflict again forever.
-   */
-  const keepMyVersion = useCallback(async (path: string) => {
-    if (!workspaceId) return;
-    const retained = openFilesRef.current[path]?.text;
-    if (retained === undefined) return;
-    try {
-      const { file } = await client.readFile(workspaceId, path);
-      setOpenFiles((current) => {
-        const held = current[path];
-        return held
-          ? { ...current, [path]: { ...held, text: retained, revision: file.revision, saveState: "dirty" } }
-          : current;
-      });
-      void save(path);
-    } catch (cause) {
-      setError(describe(cause, "Could not fetch the latest revision."));
-    }
-  }, [client, save, workspaceId]);
 
   const isPreview = useCallback((path: string) => {
     if (!workspaceId) return false;
     return (preferences.previewPathsByWorkspace[workspaceId] ?? []).includes(path);
   }, [preferences.previewPathsByWorkspace, workspaceId]);
 
+  /**
+   * Swap one file between its editor and its rendered preview.
+   *
+   * A read-only kind has no editor to swap to -- a notebook and a Word document are drawn from a
+   * parsed model, and the sidecar refuses a write to either -- so the toggle is not offered for
+   * them rather than offered and then refused. The guard is the Swift's `toggleMode`.
+   */
   const togglePreview = useCallback((path: string) => {
     if (!workspaceId) return;
+    const kind = openFilesRef.current[path]?.kind;
+    if (kind === "docx" || kind === "notebook") return;
     setPreferences((current) => {
       const held = current.previewPathsByWorkspace[workspaceId] ?? [];
       const next = held.includes(path) ? held.filter((one) => one !== path) : [...held, path];
@@ -392,13 +350,14 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     tree,
     git,
     openFiles,
+    visibleOpenPaths,
     activePath,
     loadingPath,
     error,
     preferences,
     selectWorkspace: useCallback((id: string) => update({ workspaceId: id }), [update]),
     openPath,
-    closePath,
+    closePath: writing.closePath,
     activate: setActivePath,
     reorderTabs: useCallback(
       (paths: string[]) => void applyOperation({ type: "reorder", orderedPaths: paths }),
@@ -409,10 +368,10 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
         void applyOperation({ type: expanded ? "expand" : "collapse", path }),
       [applyOperation],
     ),
-    edit,
+    edit: writing.edit,
     togglePreview,
-    useHostVersion,
-    keepMyVersion: useCallback((path: string) => void keepMyVersion(path), [keepMyVersion]),
+    useHostVersion: writing.useHostVersion,
+    keepMyVersion: writing.keepMyVersion,
     update,
     dismissError: useCallback(() => setError(null), []),
     isPreview,
