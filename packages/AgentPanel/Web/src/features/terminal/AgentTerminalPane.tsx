@@ -84,16 +84,41 @@ interface Props {
    * type. Defaults from `layout`, which is almost always the right answer -- see below.
    */
   paneShape?: "adopt" | "follow";
+  /**
+   * The height a reader dragged this pane to on an earlier visit, or null for one nobody has.
+   *
+   * Read once, when the pane mounts. It outranks the opening height the grid would ask for, the
+   * same way a drag in this visit does: both are the reader saying what they want, and the only
+   * difference is which visit they said it in.
+   *
+   * Where it is REMEMBERED is not this component's business and deliberately so. A pane is shown
+   * in several places that mean different things by "the same pane", and one of them -- the zoom
+   * below -- is remembered nowhere on purpose. Whoever renders the pane knows which of those it
+   * is; the pane knows only that it was handed a height.
+   */
+  rememberedHeight?: number | null;
+  /** Every height the reader chooses, already clamped to what the pane will actually take. */
+  onResized?: (height: number) => void;
 }
 
 /** The resizable terminal under one thread. The protocol is the hook's; this is its chrome. */
 export function AgentTerminalPane(
-  { feed, context, onState, layout = "column", heightBasis, paneShape }: Props,
+  {
+    feed,
+    context,
+    onState,
+    layout = "column",
+    heightBasis,
+    paneShape,
+    rememberedHeight = null,
+    onResized,
+  }: Props,
 ) {
   const paneRef = useRef<HTMLDivElement>(null);
   const removeResizeListenersRef = useRef<() => void>(() => {});
   // Whether the viewer has sized this pane themselves, which outranks anything the grid prefers.
-  const sized = useRef(false);
+  // A remembered height is that, made on an earlier visit, so it starts the pane already sized.
+  const sized = useRef(rememberedHeight !== null);
   // An echo is a band for every purpose that involves height coming from outside the pane. What it
   // is not is a band that opens at the size of its screen.
   const echo = layout === "echo";
@@ -101,11 +126,12 @@ export function AgentTerminalPane(
   const shape = paneShapeForLayout(layout, paneShape);
   const measureBasis = (): number => heightBasis?.clientHeight ?? viewportHeight();
   const [height, setHeight] = useState<number | null>(
-    echo
-      ? MINIMUM_TERMINAL_HEIGHT
-      : band
-        ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE))
-        : null,
+    rememberedHeight
+      ?? (echo
+        ? MINIMUM_TERMINAL_HEIGHT
+        : band
+          ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE))
+          : null),
   );
   // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
   const [basis, setBasis] = useState(measureBasis);
@@ -223,10 +249,19 @@ export function AgentTerminalPane(
     mount.scrollTop = mount.scrollHeight;
   }, [echo, contentHeight, height, mountRef]);
 
+  /**
+   * The one place a reader-chosen height is set, which is why the report goes out from here.
+   *
+   * The drag and the keyboard both arrive through it, so there is no second call site to forget.
+   * It reports the CLAMPED height rather than the one asked for: what comes back on the next
+   * visit should be what the pane was, not a number it refused.
+   */
   const resizeTo = (requestedHeight: number): void => {
     if (!paneRef.current) return;
     sized.current = true;
-    setHeight(Math.min(ceiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, requestedHeight)));
+    const next = Math.min(ceiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, requestedHeight));
+    setHeight(next);
+    onResized?.(next);
   };
 
   const beginResize = (event: ReactPointerEvent<HTMLButtonElement>): void => {

@@ -64,6 +64,8 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import {
+  setTerminalComposerHeight,
+  terminalComposerHeight,
   toggleTerminalComposer,
   useTerminalComposerShown,
 } from "@/features/terminal/terminalComposerPreference";
@@ -446,6 +448,10 @@ export function SessionView({
             context: composerTerminal,
             shown: terminalComposerShown,
             toggle: () => toggleTerminalComposer({ source, sessionId }),
+            // Read on every render and used by the pane only on the one it mounts in. A store that
+            // kept pushing would fight the drag it exists to remember.
+            height: terminalComposerHeight({ source, sessionId }),
+            onResized: (height) => setTerminalComposerHeight({ source, sessionId }, height),
           }
           : null}
         terminalHeightBasis={column}

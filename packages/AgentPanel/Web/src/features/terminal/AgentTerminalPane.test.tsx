@@ -194,6 +194,58 @@ it("sizes a band pane from its own height, with the viewport as its ceiling", as
   expect(pane).toHaveStyle({ height: "720px" });
 });
 
+it("opens at the height it was left at, and reports every height it is dragged to", async () => {
+  // The peek is the case this exists for. An echo opens at the minimum on purpose, so a reader who
+  // dragged one taller and came back to the minimum would have to drag it again every visit.
+  const feed = {
+    terminalHistory: vi.fn(async () => ""),
+    openTerminal: vi.fn(async () => ({
+      terminalId: "terminal-1",
+      ptySessionName: "composerprobe",
+      pid: 42,
+      columns: 80,
+      rows: 24,
+    })),
+    subscribeTerminal: vi.fn(() => vi.fn()),
+    sendTerminalInput: vi.fn(async () => {}),
+    updateTerminalViewport: vi.fn(async () => {}),
+    closeTerminal: vi.fn(async () => {}),
+  } as unknown as SidecarDataSource;
+  const context = { kind: "tmux" as const, session: "composerprobe" };
+  vi.stubGlobal("innerHeight", 1000);
+  const onResized = vi.fn();
+
+  render(
+    <AgentTerminalPane
+      feed={feed}
+      context={context}
+      onState={vi.fn()}
+      layout="echo"
+      rememberedHeight={317}
+      onResized={onResized}
+    />,
+  );
+  await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
+  const pane = screen.getByRole("region", { name: "composerprobe terminal" });
+  expect(pane).toHaveStyle({ height: "317px" });
+  // Nothing was dragged yet, so nothing has been said about a height.
+  expect(onResized).not.toHaveBeenCalled();
+
+  // What is reported is what the pane took, not what the key asked for. The two can differ -- a
+  // drag past the ceiling is clamped -- and a next visit that opened at a height the pane would
+  // refuse would come back somewhere the reader never left it.
+  //
+  // Home and End rather than the arrows, because the arrows step from the pane's MEASURED height
+  // and jsdom measures every box at zero; the arithmetic they use is the same.
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize terminal" }), { key: "End" });
+  expect(onResized).toHaveBeenLastCalledWith(720);
+  expect(pane).toHaveStyle({ height: "720px" });
+
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize terminal" }), { key: "Home" });
+  expect(onResized).toHaveBeenLastCalledWith(150);
+  expect(pane).toHaveStyle({ height: "150px" });
+});
+
 it("never lets a band reshape the session, whichever band it is", () => {
   // The rule every band inherits, rather than a prop each call site remembers: a tmux window has
   // one size for everyone, and a band that claimed shrank the live session to its own strip.

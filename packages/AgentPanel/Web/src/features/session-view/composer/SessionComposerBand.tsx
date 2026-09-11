@@ -74,6 +74,8 @@ export function SessionComposerBand({
   terminalPane: {
     context: SessionTmuxTerminalContext;
     layout: "band" | "echo";
+    height: number | null;
+    onResized: (height: number) => void;
   } | null;
   terminalHeightBasis: HTMLElement | null;
   tmuxBand: boolean;
@@ -131,6 +133,8 @@ export function SessionComposerBand({
             onState={noteTerminalState}
             layout={terminalPane.layout}
             heightBasis={terminalHeightBasis}
+            rememberedHeight={terminalPane.height}
+            onResized={terminalPane.onResized}
           />
         </div>
       ) : null}

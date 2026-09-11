@@ -3,8 +3,10 @@
 // because it is per session, the property that matters is what it does to the OTHER sessions --
 // one flag for all of them is the bug this replaced.
 
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import {
+  setTerminalComposerHeight,
+  terminalComposerHeight,
   toggleTerminalComposer,
   type TerminalComposerSession,
 } from "@/features/terminal/terminalComposerPreference";
@@ -12,8 +14,8 @@ import {
 const one: TerminalComposerSession = { source: "claude", sessionId: "one" };
 const two: TerminalComposerSession = { source: "claude", sessionId: "two" };
 
-function remembered(): string[] {
-  return JSON.parse(localStorage.getItem("agent-panel.terminal-composer") ?? "[]") as string[];
+function remembered(): unknown[] {
+  return JSON.parse(localStorage.getItem("agent-panel.terminal-composer") ?? "[]") as unknown[];
 }
 
 beforeEach(() => localStorage.clear());
@@ -75,4 +77,89 @@ test("a store it cannot read remembers nothing", () => {
   localStorage.setItem("agent-panel.terminal-composer", "shown");
   toggleTerminalComposer(one);
   expect(remembered()).toEqual(["claude:one"]);
+});
+
+// The height a reader drags the pane to. Same store as the toggle, because both answer "how did
+// this reader arrange this session's pane" and two records could disagree about whether it exists.
+
+test("a height written before a reload is the height after it", async () => {
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 317);
+
+  // A reload, faithfully: the module reads the store once, when it is first loaded, and the whole
+  // point of writing the height down is that the second load finds it. Asserting through the
+  // module already in memory would only be asserting that a variable was assigned.
+  vi.resetModules();
+  const reloaded = await import("@/features/terminal/terminalComposerPreference");
+  expect(reloaded.terminalComposerHeight(one)).toBe(317);
+});
+
+test("the height rides with its own session and no other", () => {
+  toggleTerminalComposer(one);
+  toggleTerminalComposer(two);
+  setTerminalComposerHeight(one, 240);
+  expect(terminalComposerHeight(one)).toBe(240);
+  expect(terminalComposerHeight(two)).toBeNull();
+  expect(remembered()).toEqual([["claude:one", 240], "claude:two"]);
+});
+
+test("a session nobody dragged keeps the bare key, not a null height", () => {
+  toggleTerminalComposer(one);
+  expect(remembered()).toEqual(["claude:one"]);
+});
+
+test("hiding the pane forgets its height", () => {
+  // Stated in the module and worth pinning: the height belongs to a pane that is up, so closing
+  // one is closing the arrangement. What this survives is a reload, not a decision to hide it.
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 240);
+  toggleTerminalComposer(one);
+  toggleTerminalComposer(one);
+  expect(terminalComposerHeight(one)).toBeNull();
+  expect(remembered()).toEqual(["claude:one"]);
+});
+
+test("refuses a height for a pane that is not up", () => {
+  // Nothing could ever read it back: the entry that would carry it does not exist, and writing one
+  // would make a hidden session look shown.
+  setTerminalComposerHeight(one, 240);
+  expect(remembered()).toEqual([]);
+  expect(terminalComposerHeight(one)).toBeNull();
+});
+
+test("refuses a height that is not one", () => {
+  toggleTerminalComposer(one);
+  for (const bad of [0, -40, Number.NaN, Number.POSITIVE_INFINITY]) {
+    setTerminalComposerHeight(one, bad);
+  }
+  expect(terminalComposerHeight(one)).toBeNull();
+});
+
+test("stores whole pixels, because that is what a drag is measured in", () => {
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 240.6);
+  expect(terminalComposerHeight(one)).toBe(241);
+});
+
+test("the oldest session out takes its height with it", () => {
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 240);
+  for (let index = 0; index < 64; index += 1) {
+    toggleTerminalComposer({ source: "claude", sessionId: `s${index}` });
+  }
+  expect(remembered()).toHaveLength(64);
+  expect(terminalComposerHeight(one)).toBeNull();
+});
+
+// The [key, mode] pair the three-state spell wrote lands in the same slot a height does. A mode is
+// not a height, so it reads as a shown pane nobody has dragged rather than as a size.
+test("a mode pair is a shown pane with no remembered height", async () => {
+  localStorage.setItem(
+    "agent-panel.terminal-composer",
+    JSON.stringify([["claude:one", "echo"], ["claude:two", 240]]),
+  );
+  vi.resetModules();
+  const reloaded = await import("@/features/terminal/terminalComposerPreference");
+  expect(reloaded.terminalComposerHeight(one)).toBeNull();
+  expect(reloaded.terminalComposerHeight(two)).toBe(240);
 });

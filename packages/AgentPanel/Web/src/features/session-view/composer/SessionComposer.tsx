@@ -154,6 +154,9 @@ export function SessionComposer({
     context: SessionTmuxTerminalContext;
     shown: boolean;
     toggle: () => void;
+    /** The height this session's pane was left at, and where a new one goes. */
+    height: number | null;
+    onResized: (height: number) => void;
   } | null;
   /**
    * What this band's terminal takes its height as a share of, and whether it renders at all: the
@@ -345,7 +348,12 @@ export function SessionComposer({
     Boolean(terminalHeightBasis),
   );
   const terminalPane = terminalComposer && paneLayout
-    ? { context: terminalComposer.context, layout: paneLayout }
+    ? {
+      context: terminalComposer.context,
+      layout: paneLayout,
+      height: terminalComposer.height,
+      onResized: terminalComposer.onResized,
+    }
     : null;
 
   const [deliveryPending, setDeliveryPending] = useState(false);

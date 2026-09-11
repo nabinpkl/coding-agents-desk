@@ -19,6 +19,11 @@
  * OFF by default, so only the sessions turned on are stored: a session never touched has nothing
  * to remember. Capped so a store of every session ever opened cannot accumulate; the oldest choice
  * is the one dropped.
+ *
+ * A shown pane also remembers the height its reader dragged it to. That is the same kind of fact
+ * as the toggle and belongs beside it rather than in a store of its own: both answer "how did this
+ * reader arrange this session's pane", and splitting them would mean two records that can disagree
+ * about whether the pane exists.
  */
 import { useSyncExternalStore } from "react";
 
@@ -33,8 +38,23 @@ export interface TerminalComposerSession {
 }
 
 const listeners = new Set<() => void>();
-/** Insertion-ordered: the tail is the most recent choice, so the head is what a cap evicts. */
-let shown = load();
+
+interface Remembered {
+  /** Insertion-ordered: the tail is the most recent choice, so the head is what a cap evicts. */
+  shown: Set<string>;
+  /**
+   * The height each shown pane was last dragged to, for the sessions whose reader dragged one.
+   *
+   * Only ever holds keys that `shown` holds. A height belongs to a pane that is up: kept for a
+   * hidden one it would be a record of nothing, and it would cost the cap its meaning, since the
+   * cap counts arrangements rather than sessions ever seen. The consequence, stated because it is
+   * a real one: hiding a pane forgets its size, and showing it again opens at the size its screen
+   * wants. A reload is what this survives.
+   */
+  heights: Map<string, number>;
+}
+
+let remembered = load();
 
 function sessionKey(session: TerminalComposerSession): string {
   return `${session.source}:${session.sessionId}`;
@@ -51,25 +71,39 @@ function sessionKey(session: TerminalComposerSession): string {
  * Anything else remembers nothing. A hand-edited or half-written store must fall back to the
  * default, not become a lookup that answers for a session it cannot name.
  */
-function load(): Set<string> {
-  if (typeof window === "undefined") return new Set();
+function load(): Remembered {
+  const empty: Remembered = { shown: new Set(), heights: new Map() };
+  if (typeof window === "undefined") return empty;
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
-    if (!Array.isArray(stored)) return new Set();
-    const read = new Set<string>();
+    if (!Array.isArray(stored)) return empty;
+    const read: Remembered = { shown: new Set(), heights: new Map() };
     for (const entry of stored) {
-      if (typeof entry === "string") read.add(entry);
-      else if (Array.isArray(entry) && typeof entry[0] === "string") read.add(entry[0]);
+      if (typeof entry === "string") {
+        read.shown.add(entry);
+        continue;
+      }
+      if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
+      read.shown.add(entry[0]);
+      // The second slot carried a mode before it carried a height, so it is read as a height only
+      // when it IS one. Everything else is a pane that is up and has never been dragged.
+      if (typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0) {
+        read.heights.set(entry[0], entry[1]);
+      }
     }
     return read;
   } catch {
-    return new Set();
+    return empty;
   }
 }
 
-function store(): void {
+function store(state: Remembered): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...shown]));
+    const entries = [...state.shown].map((key) => {
+      const height = state.heights.get(key);
+      return height === undefined ? key : [key, height];
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch {
     /* storage disabled */
   }
@@ -86,16 +120,54 @@ function store(): void {
 export function toggleTerminalComposer(session: TerminalComposerSession): void {
   const key = sessionKey(session);
   const next = load();
-  if (next.has(key)) next.delete(key);
-  else {
-    next.add(key);
+  if (next.shown.has(key)) {
+    next.shown.delete(key);
+    next.heights.delete(key);
+  } else {
+    next.shown.add(key);
     // Deleting from the front of an insertion-ordered Set is how it stays bounded, and it drops
     // the choice made longest ago rather than the one just made.
-    while (next.size > REMEMBERED_SESSIONS) next.delete(next.values().next().value as string);
+    while (next.shown.size > REMEMBERED_SESSIONS) {
+      const oldest = next.shown.values().next().value as string;
+      next.shown.delete(oldest);
+      next.heights.delete(oldest);
+    }
   }
-  shown = next;
-  store();
+  remembered = next;
+  store(next);
   for (const listener of listeners) listener();
+}
+
+/** The height this session's pane was last dragged to, or null for one nobody has dragged. */
+export function terminalComposerHeight(session: TerminalComposerSession): number | null {
+  return remembered.heights.get(sessionKey(session)) ?? null;
+}
+
+/**
+ * Remembers the height a reader just dragged this session's pane to.
+ *
+ * Re-reads before writing, for the reason `toggleTerminalComposer` does: two tabs on this origin
+ * are ordinary, and a write that put its own view of the store back would erase what the other
+ * one arranged.
+ *
+ * Notifies nobody. A drag calls this on every pointer move, and the one reader of this store
+ * subscribes to whether a pane is SHOWN, which a resize cannot change -- so waking every band on
+ * the page sixty times a second would be work in exchange for no repaint. The height is read when
+ * a pane mounts, which is the only moment it is wanted.
+ */
+export function setTerminalComposerHeight(
+  session: TerminalComposerSession,
+  height: number,
+): void {
+  if (!Number.isFinite(height) || height <= 0) return;
+  const key = sessionKey(session);
+  const next = load();
+  // Presence in `shown` is what showing means here, so a height for a pane that is not up would
+  // be a row nothing can ever read back.
+  if (!next.shown.has(key)) return;
+  next.heights.set(key, Math.round(height));
+  remembered = next;
+  store(next);
 }
 
 export function useTerminalComposerShown(session: TerminalComposerSession): boolean {
@@ -107,7 +179,7 @@ export function useTerminalComposerShown(session: TerminalComposerSession): bool
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => shown.has(key),
+    () => remembered.shown.has(key),
     () => false,
   );
 }
