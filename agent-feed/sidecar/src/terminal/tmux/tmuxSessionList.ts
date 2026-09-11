@@ -5,7 +5,7 @@
 // something a person types at `tmux attach` without the panel losing it.
 
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import { TmuxUnavailable, tmux } from "@/terminal/tmux/tmuxCommand";
+import { noServerRunning, noSuchSession, TmuxUnavailable, tmux } from "@/terminal/tmux/tmuxCommand";
 
 /**
  * One line per session, fields in the order this format string names them.
@@ -50,10 +50,8 @@ export function hasSessionArgs(session: string): string[] {
 export async function tmuxSessionExists(session: string): Promise<boolean> {
   const { out, err, code } = await tmux(hasSessionArgs(session));
   if (code === 0) return true;
-  // Both "no server running" and "can't find session" are ordinary answers to the question.
-  if (/no server running|can.t find session|no such session|session not found/i.test(err + out)) {
-    return false;
-  }
+  // No server, and a server without that session, are both ordinary answers to the question.
+  if (noServerRunning(err + out) || noSuchSession(err + out)) return false;
   throw new TmuxUnavailable(`tmux has-session exited ${code}: ${err.trim() || out.trim()}`);
 }
 
@@ -116,7 +114,7 @@ export function parseTmuxSessionIdentities(stdout: string): Map<string, string> 
 export async function findTmuxSessionByIdentity(sessionId: string): Promise<string | null> {
   const { out, err, code } = await tmux(["list-sessions", "-F", IDENTITY_FORMAT]);
   if (code !== 0) {
-    if (/no server running|no sessions/i.test(err)) return null;
+    if (noServerRunning(err)) return null;
     throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
   }
   return parseTmuxSessionIdentities(out).get(sessionId) ?? null;
@@ -210,8 +208,8 @@ function shellQuote(value: string): string {
 export async function listTmuxSessions(): Promise<TmuxSessionSummary[]> {
   const { out, err, code } = await tmux(["list-sessions", "-F", LIST_FORMAT]);
   if (code === 0) return parseTmuxSessions(out);
-  // "no server running" is how tmux reports an empty machine, and it exits non-zero saying so.
-  if (/no server running|no sessions/i.test(err)) return [];
+  // An empty machine is how tmux reports no server, and it exits non-zero saying so.
+  if (noServerRunning(err)) return [];
   throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
 }
 
@@ -239,8 +237,6 @@ export function killSessionArgs(session: string): string[] {
 export async function killTmuxSession(session: string): Promise<void> {
   const { out, err, code } = await tmux(killSessionArgs(session));
   if (code === 0) return;
-  if (/no server running|can.t find session|no such session|session not found/i.test(err + out)) {
-    return;
-  }
+  if (noServerRunning(err + out) || noSuchSession(err + out)) return;
   throw new TmuxUnavailable(`tmux kill-session exited ${code}: ${err.trim() || out.trim()}`);
 }

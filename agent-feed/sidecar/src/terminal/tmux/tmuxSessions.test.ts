@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { noServerRunning, noSuchSession } from "@/terminal/tmux/tmuxCommand";
 import {
   waitForPaneToSettle,
   captureHistoryArgs,
@@ -304,4 +305,29 @@ test("a line with no separator is not a session", () => {
 test("the id is trimmed, so a trailing newline is not part of it", () => {
   const found = parseTmuxSessionIdentities("canvas-session|b18b005e  \n");
   expect(found.get("b18b005e")).toBe("canvas-session");
+});
+
+// The two strings below are verbatim tmux 3.6b, captured on one machine a second apart by killing
+// a server and then deleting its socket. They are the point of these tests: the guard they feed
+// reads prose, so the prose is what has to be pinned, and a tmux that changes either wording
+// breaks the terminal in a way no other test here would notice.
+test("reads both of tmux's ways of saying there is no server", () => {
+  expect(noServerRunning("no server running on /private/tmp/tmux-501/default\n")).toBe(true);
+  expect(noServerRunning(
+    "error connecting to /private/tmp/tmux-501/default (No such file or directory)\n",
+  )).toBe(true);
+});
+
+test("does not read a missing session as a missing server", () => {
+  // Different answers hang off these: no server means the machine is empty and a terminal may
+  // start one, a missing session means the server is fine and that pane is gone.
+  expect(noServerRunning("can't find session: nope\n")).toBe(false);
+  expect(noSuchSession("can't find session: nope\n")).toBe(true);
+  expect(noSuchSession("no server running on /private/tmp/tmux-501/default\n")).toBe(false);
+});
+
+test("keeps a real tmux failure a failure", () => {
+  expect(noServerRunning("lost server")).toBe(false);
+  expect(noServerRunning("/private/tmp/tmux-501: No such file or directory")).toBe(false);
+  expect(noSuchSession("lost server")).toBe(false);
 });
