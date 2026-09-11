@@ -10,13 +10,24 @@
 // beside these would mean one 4MB file quietly costing the reader everything else this module
 // remembers.
 
+/** Source or rendered. Stored per file, and only where the reader said something. */
+export type FileView = "source" | "preview";
+
 export interface WorkspaceIdePreferences {
   /** Which workspace this reader was last in, re-resolved against the roster on load. */
   workspaceId: string | null;
   /** The file each workspace was left on, so switching back does not land on nothing. */
   activePathByWorkspace: Record<string, string>;
-  /** Which paths are shown rendered rather than as source. Editable kinds only. */
-  previewPathsByWorkspace: Record<string, string[]>;
+  /**
+   * The files this reader has chosen a view for, against the default their kind would get.
+   *
+   * A choice rather than a set of previewed paths, and that distinction is the whole point: the
+   * default is not the same for every kind -- a markdown file opens rendered, a TypeScript file
+   * opens as source -- so "in the list" cannot mean "previewed" without meaning the opposite for
+   * half the files in it. Absence is "however this kind opens", which is also what makes a later
+   * change to a default reach files nobody has touched.
+   */
+  fileViewByWorkspace: Record<string, Record<string, FileView>>;
   section: "explorer" | "sourceControl";
   sidebarVisible: boolean;
   terminalVisible: boolean;
@@ -28,7 +39,7 @@ export interface WorkspaceIdePreferences {
 export const DEFAULT_WORKSPACE_IDE_PREFERENCES: WorkspaceIdePreferences = {
   workspaceId: null,
   activePathByWorkspace: {},
-  previewPathsByWorkspace: {},
+  fileViewByWorkspace: {},
   section: "explorer",
   sidebarVisible: true,
   terminalVisible: false,
@@ -55,13 +66,21 @@ function stringRecord(value: unknown): Record<string, string> {
   return result;
 }
 
-function stringListRecord(value: unknown): Record<string, string[]> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-  const result: Record<string, string[]> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (Array.isArray(entry) && entry.every((path) => typeof path === "string")) {
-      result[key] = entry as string[];
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Workspace id -> path -> view, dropping anything that is not exactly that. */
+function fileViewRecord(value: unknown): Record<string, Record<string, FileView>> {
+  if (!isObject(value)) return {};
+  const result: Record<string, Record<string, FileView>> = {};
+  for (const [workspaceId, views] of Object.entries(value)) {
+    if (!isObject(views)) continue;
+    const kept: Record<string, FileView> = {};
+    for (const [path, view] of Object.entries(views)) {
+      if (view === "source" || view === "preview") kept[path] = view;
     }
+    result[workspaceId] = kept;
   }
   return result;
 }
@@ -82,7 +101,7 @@ export function loadWorkspaceIdePreferences(): WorkspaceIdePreferences {
     return {
       workspaceId: typeof parsed.workspaceId === "string" ? parsed.workspaceId : null,
       activePathByWorkspace: stringRecord(parsed.activePathByWorkspace),
-      previewPathsByWorkspace: stringListRecord(parsed.previewPathsByWorkspace),
+      fileViewByWorkspace: fileViewRecord(parsed.fileViewByWorkspace),
       section: parsed.section === "sourceControl" ? "sourceControl" : "explorer",
       sidebarVisible: parsed.sidebarVisible !== false,
       terminalVisible: parsed.terminalVisible === true,

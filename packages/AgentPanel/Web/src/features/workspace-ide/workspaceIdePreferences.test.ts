@@ -35,7 +35,9 @@ describe("loadWorkspaceIdePreferences", () => {
       ...DEFAULT_WORKSPACE_IDE_PREFERENCES,
       workspaceId: "w-1",
       activePathByWorkspace: { "w-1": "src/main.ts" },
-      previewPathsByWorkspace: { "w-1": ["README.md"] },
+      fileViewByWorkspace: {
+        "w-1": { "README.md": "source" as const, "notes.txt": "preview" as const },
+      },
       section: "sourceControl" as const,
       terminalVisible: true,
       sidebarFraction: 0.3,
@@ -48,7 +50,10 @@ describe("loadWorkspaceIdePreferences", () => {
     localStorage.setItem(KEY, JSON.stringify({
       workspaceId: 42,
       activePathByWorkspace: { "w-1": 7, "w-2": "ok.ts" },
-      previewPathsByWorkspace: { "w-1": ["a"], "w-2": "not-a-list" },
+      fileViewByWorkspace: {
+        "w-1": { "a.md": "source", "b.md": "rendered", "c.md": 3 },
+        "w-2": "not-a-record",
+      },
       section: "invented",
       sidebarFraction: "wide",
       terminalFraction: 99,
@@ -57,7 +62,9 @@ describe("loadWorkspaceIdePreferences", () => {
       ...DEFAULT_WORKSPACE_IDE_PREFERENCES,
       workspaceId: null,
       activePathByWorkspace: { "w-2": "ok.ts" },
-      previewPathsByWorkspace: { "w-1": ["a"] },
+      // "rendered" is not one of the two words, so it is dropped rather than becoming a view that
+      // nothing renders; "w-2" is not a record at all and never reaches the result.
+      fileViewByWorkspace: { "w-1": { "a.md": "source" } },
       section: "explorer",
       terminalFraction: 0.7,
     });

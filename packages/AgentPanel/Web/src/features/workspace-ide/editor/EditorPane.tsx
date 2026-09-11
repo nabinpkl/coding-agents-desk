@@ -14,9 +14,12 @@ const CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-
 export function EditorPane({ ide }: { ide: WorkspaceIde }) {
   const { activePath, openFiles, visibleOpenPaths, preferences } = ide;
   const file = activePath ? openFiles[activePath] : undefined;
-  // A read-only kind is always previewed; an editable one only when the reader asked.
+  // Which kinds open which way is `useWorkspaceIde`'s to answer, including the read-only ones, so
+  // that a kind's default lives in one place rather than half here and half beside the toggle.
+  const preview = Boolean(file) && (activePath ? ide.isPreview(activePath) : false);
+  // Separately: whether there is an editor to switch TO. A notebook and a Word document are drawn
+  // from a parsed model and the sidecar refuses a write to either, so no toggle is offered.
   const readOnlyKind = file?.kind === "docx" || file?.kind === "notebook";
-  const preview = Boolean(file) && (readOnlyKind || (activePath ? ide.isPreview(activePath) : false));
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">

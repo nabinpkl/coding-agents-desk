@@ -27,6 +27,7 @@ import {
   DEFAULT_WORKSPACE_IDE_PREFERENCES,
   loadWorkspaceIdePreferences,
   storeWorkspaceIdePreferences,
+  type FileView,
   type WorkspaceIdePreferences,
 } from "@/features/workspace-ide/workspaceIdePreferences";
 
@@ -338,10 +339,26 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     void applyOperation({ type: "open", path });
   }, [applyOperation, setActivePath]);
 
+  /**
+   * How a file opens when its reader has not said otherwise.
+   *
+   * Markdown is rendered. It is the one editable kind whose source is a means to a rendered
+   * document rather than the document -- a reader opening `AGENTS.md` is almost always reading it,
+   * and the ones editing it are one press away. HTML is deliberately NOT here: its preview shows
+   * the source anyway, because rendering it would run someone else's script inside the one origin
+   * that can reach this machine's sidecar.
+   *
+   * A notebook and a Word document have no editor at all, so their default is the only thing they
+   * have. `togglePreview` refuses them for the same reason, and this is where that agrees.
+   */
+  const defaultFileView = (kind: WorkspaceFileKind | undefined): FileView =>
+    kind === "markdown" || kind === "docx" || kind === "notebook" ? "preview" : "source";
+
   const isPreview = useCallback((path: string) => {
     if (!workspaceId) return false;
-    return (preferences.previewPathsByWorkspace[workspaceId] ?? []).includes(path);
-  }, [preferences.previewPathsByWorkspace, workspaceId]);
+    const chosen = preferences.fileViewByWorkspace[workspaceId]?.[path];
+    return (chosen ?? defaultFileView(openFiles[path]?.kind)) === "preview";
+  }, [preferences.fileViewByWorkspace, workspaceId, openFiles]);
 
   /**
    * Swap one file between its editor and its rendered preview.
@@ -355,11 +372,17 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     const kind = openFilesRef.current[path]?.kind;
     if (kind === "docx" || kind === "notebook") return;
     setPreferences((current) => {
-      const held = current.previewPathsByWorkspace[workspaceId] ?? [];
-      const next = held.includes(path) ? held.filter((one) => one !== path) : [...held, path];
+      const held = current.fileViewByWorkspace[workspaceId] ?? {};
+      // Against what is on screen, which is the choice if there is one and the kind's default
+      // otherwise. Flipping the stored value alone would make the first press on a markdown file
+      // a no-op: nothing is stored, so it would write "preview" over a file already previewed.
+      const showing = held[path] ?? defaultFileView(kind);
       return {
         ...current,
-        previewPathsByWorkspace: { ...current.previewPathsByWorkspace, [workspaceId]: next },
+        fileViewByWorkspace: {
+          ...current.fileViewByWorkspace,
+          [workspaceId]: { ...held, [path]: showing === "preview" ? "source" : "preview" },
+        },
       };
     });
   }, [workspaceId]);

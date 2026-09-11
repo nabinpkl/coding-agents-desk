@@ -139,7 +139,38 @@ it("opens a file, then reads it and shows its text", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "Open README.md" }));
   expect(await screen.findByRole("tab", { name: "Open README.md" })).toBeInTheDocument();
+
+  // Markdown opens RENDERED, so what proves the read landed is the document, not a textarea. The
+  // control offering the way back to the source is the tell that this is the preview.
+  expect(await screen.findByRole("button", { name: "Edit file" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Edit README.md")).not.toBeInTheDocument();
+});
+
+it("opens markdown rendered, and keeps the source once a reader asks for it", async () => {
+  // A reader opening a markdown file is almost always reading it. Everything else opens as source,
+  // because for every other editable kind the source IS the document.
+  const transport = await mounted();
+  transport.responses.set("POST /api/workspace/w-1/state", {
+    status: 200,
+    body: JSON.stringify({ state: { ...CLEAN_STATE, revision: 1, orderedOpenPaths: ["README.md"] } }),
+  });
+  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+    status: 200,
+    body: JSON.stringify({
+      file: { workspaceId: "w-1", path: "README.md", kind: "markdown", revision: "abc", text: "# Title\n" },
+    }),
+  });
+
+  fireEvent.click(await screen.findByRole("button", { name: "Open README.md" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit file" }));
   await waitFor(() => expect(screen.getByLabelText("Edit README.md")).toHaveValue("# Title\n"));
+
+  // The choice outlives the mount, and it is a CHOICE rather than a flag: remembering "previewed"
+  // would have come back as the opposite of what was asked for, because preview is the default.
+  render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
+  await waitFor(() => {
+    expect(screen.getAllByLabelText("Edit README.md").length).toBeGreaterThan(0);
+  });
 });
 
 it("shows the source-control section when it is chosen, grouped by how it resolves", async () => {

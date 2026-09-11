@@ -20,7 +20,7 @@ const WORKSPACE: WorkspaceSummary = { id: "w-1", name: "Project", root: "/projec
 const OPEN_STATE: WorkspaceSharedState = {
   workspaceId: "w-1",
   revision: 1,
-  orderedOpenPaths: ["README.md"],
+  orderedOpenPaths: ["notes.txt"],
   expandedDirectoryPaths: [],
 };
 
@@ -34,22 +34,22 @@ afterEach(() => vi.useRealTimers());
 
 function fileBody(revision: string, text: string) {
   return JSON.stringify({
-    file: { workspaceId: "w-1", path: "README.md", kind: "markdown", revision, text },
+    file: { workspaceId: "w-1", path: "notes.txt", kind: "text", revision, text },
   });
 }
 
 const CONFLICT = JSON.stringify({
-  conflict: { workspaceId: "w-1", path: "README.md", currentRevision: "rev-2" },
+  conflict: { workspaceId: "w-1", path: "notes.txt", currentRevision: "rev-2" },
 });
 
-/** Mounted with README.md open and read, sitting in the editor with the caret in it. */
+/** Mounted with notes.txt open and read, sitting in the editor with the caret in it. */
 async function editing(): Promise<FakeHttpTransport> {
   const transport = new FakeHttpTransport();
   transport.responses.set("GET /api/workspace/list", {
     status: 200,
     body: JSON.stringify({ workspaces: [WORKSPACE] }),
   });
-  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-1", "hello"),
   });
@@ -59,7 +59,7 @@ async function editing(): Promise<FakeHttpTransport> {
   });
   transport.responses.set("POST /api/workspace/w-1/file", {
     status: 200,
-    body: JSON.stringify({ written: { workspaceId: "w-1", path: "README.md", revision: "rev-2" } }),
+    body: JSON.stringify({ written: { workspaceId: "w-1", path: "notes.txt", revision: "rev-2" } }),
   });
   render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
   await waitFor(
@@ -71,7 +71,7 @@ async function editing(): Promise<FakeHttpTransport> {
   act(() => {
     transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: OPEN_STATE });
   });
-  await waitFor(() => expect(screen.getByLabelText("Edit README.md")).toHaveValue("hello"));
+  await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("hello"));
   return transport;
 }
 
@@ -79,7 +79,7 @@ const writes = (transport: FakeHttpTransport) =>
   transport.requests.filter((request) => request.path === "/api/workspace/w-1/file");
 
 const type = (text: string) =>
-  fireEvent.change(screen.getByLabelText("Edit README.md"), { target: { value: text } });
+  fireEvent.change(screen.getByLabelText("Edit notes.txt"), { target: { value: text } });
 
 /**
  * These tests drive several seconds of autosave and draft timers each, so the default per-test
@@ -103,7 +103,7 @@ it("writes an edit before letting its tab close, instead of dropping it", async 
   const transport = await editing();
   type("hello world");
 
-  fireEvent.click(screen.getByRole("button", { name: "Close README.md" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close notes.txt" }));
   await settle();
 
   expect(writes(transport).map((request) => (request.body as { text: string }).text))
@@ -118,11 +118,11 @@ it("refuses to close a conflicted tab, because that is the one close with nothin
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Keep mine/i })).toBeInTheDocument());
 
-  fireEvent.click(screen.getByRole("button", { name: "Close README.md" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close notes.txt" }));
   await settle();
 
   expect(await screen.findByText(/Resolve the file conflict/i)).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Open README.md" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Open notes.txt" })).toBeInTheDocument();
 }, BUDGET_MS);
 
 it("keeps my version by writing it against the revision it just fetched", async () => {
@@ -137,13 +137,13 @@ it("keeps my version by writing it against the revision it just fetched", async 
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Keep mine/i })).toBeInTheDocument());
 
-  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-2", "theirs"),
   });
   transport.responses.set("POST /api/workspace/w-1/file", {
     status: 200,
-    body: JSON.stringify({ written: { workspaceId: "w-1", path: "README.md", revision: "rev-3" } }),
+    body: JSON.stringify({ written: { workspaceId: "w-1", path: "notes.txt", revision: "rev-3" } }),
   });
 
   fireEvent.click(screen.getByRole("button", { name: /Keep mine/i }));
@@ -173,8 +173,8 @@ it("keeps the tab of a file another reader closed while this one had unsaved tex
     });
   });
 
-  expect(await screen.findByRole("tab", { name: "Open README.md" })).toBeInTheDocument();
-  expect(screen.getByLabelText("Edit README.md")).toHaveValue("mine");
+  expect(await screen.findByRole("tab", { name: "Open notes.txt" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("mine");
 }, BUDGET_MS);
 
 it("does not start a second write while one is in flight, then saves what was typed during it", async () => {
@@ -218,7 +218,7 @@ it("brings a conflicted edit back after a reload, still marked as a conflict", a
 
   // The reload: everything in memory goes, and the file on disk has moved on.
   cleanup();
-  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-2", "theirs"),
   });
@@ -233,7 +233,7 @@ it("brings a conflicted edit back after a reload, still marked as a conflict", a
     transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: OPEN_STATE });
   });
 
-  await waitFor(() => expect(screen.getByLabelText("Edit README.md")).toHaveValue("mine"));
+  await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("mine"));
   // And still a conflict, not silently dirty: the file moved under the draft while it was gone.
   expect(screen.getByRole("button", { name: /Keep mine/i })).toBeInTheDocument();
 }, BUDGET_MS);
@@ -246,12 +246,12 @@ it("does not resurrect a draft the reader asked to discard", async () => {
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Use theirs/i })).toBeInTheDocument());
 
-  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-2", "theirs"),
   });
   fireEvent.click(screen.getByRole("button", { name: /Use theirs/i }));
-  await waitFor(() => expect(screen.getByLabelText("Edit README.md")).toHaveValue("theirs"));
+  await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("theirs"));
 
   cleanup();
   render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
@@ -264,5 +264,5 @@ it("does not resurrect a draft the reader asked to discard", async () => {
   act(() => {
     transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: OPEN_STATE });
   });
-  await waitFor(() => expect(screen.getByLabelText("Edit README.md")).toHaveValue("theirs"));
+  await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("theirs"));
 }, BUDGET_MS);
