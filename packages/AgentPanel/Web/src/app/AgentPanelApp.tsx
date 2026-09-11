@@ -11,7 +11,6 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import type {
   HostActionsClient,
 } from "@/features/activity-feed/data-source/HostActionsClient";
-import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
@@ -27,17 +26,18 @@ import {
   ResizableSidebar,
 } from "@/features/sidebar/SidebarPresentation";
 import { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
-import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import { useShellInventory } from "@/app/shell-state/useShellInventory";
 import { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import { useBotCommands } from "@/app/shell-state/useBotCommands";
 import { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
 import { sidebarProps } from "@/app/shell-state/sidebarProps";
-import { loadSelection, storeSelection } from "@/features/sidebar/selectionStore";
-import { useBots } from "@/features/bots/useBots";
+import { storeSelection } from "@/features/sidebar/selectionStore";
 import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
 import { botCanvasHues } from "@/features/bots/botSurface";
+import type { BotMachine } from "@/features/bots/botMachines";
+import { useBotMachines } from "@/app/shell-state/useBotMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { ForkedSessionView } from "@/app/ForkedSessionView";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
@@ -59,6 +59,17 @@ interface Props {
   feed: SidecarDataSource;
   host: HostActionsClient;
   /**
+   * Every sidecar the Bot canvas reads, home first, or absent for a panel that knows of only one.
+   *
+   * A Bot is a directory and the sessions working in it, and that directory does not have to be on
+   * this Mac: `tools/remote-sidecar.sh` runs an agent-feed sidecar on an ssh peer and the dev server
+   * already proxies to it. Which peers exist is the embedder's question rather than this app's --
+   * the browser shell subscribes to the dev server's live index, and the host's webview reaches one
+   * sidecar through a relay and has no index to read -- so it arrives as a prop and defaults to the
+   * single machine this app was built around.
+   */
+  machines?: readonly BotMachine[];
+  /**
    * Fill the parent rather than the viewport.
    *
    * The default is `h-dvh` because this app is normally the whole page, and on mobile Safari the
@@ -71,30 +82,27 @@ interface Props {
 }
 
 
-export function App({ feed, host, fill = false }: Props) {
+export function App({ feed, host, machines, fill = false }: Props) {
+  // Which machines this shell can see, which Bots are on each, and which sidecar answers for one.
+  // One hook because it is one decision made in five places; see `useBotMachines`.
+  const shellMachines = useBotMachines(feed, machines);
+  const botsState = shellMachines.roster;
+  const windowComposers = shellMachines.composers;
   // This machine's per-day token usage, behind the sidebar's Profile section. The stream opens
   // when somebody asks for it, not on mount.
   const usage = useUsage(feed);
   // Gathering windows onto one Desktop is a machine-level capability, probed once
   // the same way usage is. Absent yabai, the menu entry stays disabled.
   const park = useDesktopPark(feed);
-  // Both window composers are served by the sidecar and the standalone helper (ADR-0110). One client
-  // per source, because the two resolve their window differently -- Claude by its process tree, Codex
-  // by its own state joined to its accessibility tree -- and the sidecar is told which to run rather
-  // than guessing. Built here rather than in the view that uses them, because they are bound to a
-  // source rather than to a session and so outlive any one of them.
-  const windowComposers = useMemo(
-    () => ({
-      claude: sidecarWindowComposerClient(feed, "claude"),
-      codex: sidecarWindowComposerClient(feed, "codex"),
-    }),
-    [feed],
-  );
   const chrome = useSidebarChrome();
-  const botsState = useBots(feed);
-  const roster = useCanvasRoster(botsState);
+  // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
+  // roster to drop stored cards against. See `useBotMachines`.
+  const roster = useCanvasRoster({
+    bots: botsState.bots,
+    settled: botsState.settled && shellMachines.known,
+  });
   const commands = useBotCommands(
-    feed,
+    shellMachines.feeds,
     { setDetachedBotIds: roster.setDetachedBotIds, setDetachedSessionKeys: roster.setDetachedSessionKeys, setCanvasOpenKeys: roster.setCanvasOpenKeys },
     chrome.setHoverPreviewOpen,
   );
@@ -134,20 +142,23 @@ export function App({ feed, host, fill = false }: Props) {
    *
    * A Bot session picker needs its Bot's project on the stream to list anything at all.
    */
-  const extraProjectPaths = useMemo(() => {
-    const paths: string[] = [];
-    if (botSessionPicker) paths.push(botSessionPicker.environment.path);
-    // A started session's own directory, which is not always its Bot's: a session in a worktree
-    // is listed under the worktree. Subscribed so the canvas sees it become a real session and
-    // stops rendering the placeholder card, not so it can be attached -- the Bot did that when it
-    // started it.
-    for (const started of commands.newSessions) paths.push(started.projectPath);
-    return paths;
-  }, [botSessionPicker, commands.newSessions]);
-  // Read once, at mount. Storage is written on every selection, so re-reading it later would
-  // race the write this component just made.
-  const rememberedSelection = useRef(loadSelection());
-  const inventory = useProjectInventory(feed, extraProjectPaths, rememberedSelection.current?.projectPath);
+  /**
+   * The machine the open session picker's Bot is on, or null when it is this one.
+   *
+   * The picker asks a DIRECTORY which sessions are in it, and a directory is a question only its
+   * own machine can answer. Before this it was always asked here, so a peer Bot's picker sat on
+   * "Loading sessions from this directory" for good: the Mac's inventory stream accepted the path,
+   * found no project, and simply never sent a sessions message for it. Measured, not reasoned --
+   * it is what the first oracle Bot's picker did.
+   */
+  const { inventory, dialogSessionsByProject, rememberedSelection } = useShellInventory({
+    feed,
+    machineOf: botsState.machineOf,
+    picker: botSessionPicker
+      ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path }
+      : null,
+    startedSessions: commands.newSessions,
+  });
   const thread = useThreadSelection({
     projects: inventory.projects,
     sessionsByProject: inventory.sessionsByProject,
@@ -178,12 +189,6 @@ export function App({ feed, host, fill = false }: Props) {
     ? botsState.bots.find((bot) => bot.botId === thread.selectedBotId)?.name
     : undefined;
   /**
-   * The names already standing in the project a fork would join, which is what its number counts
-   * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
-   * rows the reader can see -- a second reading could be a moment ahead of them and propose a
-   * number for a fork that is not on screen yet.
-   */
-  /**
    * The names already standing where a new session would be started, which is what its number
    * counts past. The catalog's titles plus the ones this panel has started and the catalog has not
    * heard of yet -- without the second half, two presses in one minute propose the same name, and
@@ -192,15 +197,21 @@ export function App({ feed, host, fill = false }: Props) {
   const sessionTitlesInBot = useMemo(
     () => botSessionPicker
       ? [
-        ...(inventory.sessionsByProject.get(botSessionPicker.environment.path) ?? [])
+        ...(dialogSessionsByProject.get(botSessionPicker.environment.path) ?? [])
           .map((session) => session.title),
         ...commands.newSessions
           .filter((started) => started.botId === botSessionPicker.botId)
           .map((started) => started.title),
       ]
       : [],
-    [botSessionPicker, commands.newSessions, inventory.sessionsByProject],
+    [botSessionPicker, commands.newSessions, dialogSessionsByProject],
   );
+  /**
+   * The names already standing in the project a fork would join, which is what its number counts
+   * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
+   * rows the reader can see -- a second reading could be a moment ahead of them and propose a
+   * number for a fork that is not on screen yet.
+   */
   const forkTitlesInProject = useMemo(
     () => commands.forkRequest
       ? (inventory.sessionsByProject.get(commands.forkRequest.projectPath) ?? []).map((session) => session.title)
@@ -278,12 +289,14 @@ export function App({ feed, host, fill = false }: Props) {
           botSessionPicker={botSessionPicker}
           createBot={commands.createBot}
           forkRequest={commands.forkRequest}
+          machines={shellMachines.all}
+          machineOfBot={botsState.machineOf}
           forkTitlesInProject={forkTitlesInProject}
           inventoryLoading={inventory.loadingLayer}
           projects={inventory.projects}
           renameSession={commands.renameSession}
           renamingSession={commands.renamingSession}
-          sessionsByProject={inventory.sessionsByProject}
+          sessionsByProject={dialogSessionsByProject}
           sessionTitlesInBot={sessionTitlesInBot}
           setBotCreatorOpen={commands.setBotCreatorOpen}
           setBotSessionPickerId={commands.setBotSessionPickerId}
@@ -416,7 +429,9 @@ export function App({ feed, host, fill = false }: Props) {
                 hues={botHues}
                 loading={botsState.loading}
                 error={botsState.error}
-                sessionContext={sessionViewContext}
+                machineLabels={shellMachines.labels}
+                machineErrors={botsState.machineErrors}
+                sessionContextFor={(botId) => shellMachines.contextFor(sessionViewContext, botId)}
                 botError={commands.botCommandError}
                 onAddSession={commands.openBotSessionPicker}
                 onForkSession={commands.forkSession}

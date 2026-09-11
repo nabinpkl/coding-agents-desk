@@ -18,8 +18,8 @@ import {
 
 export function useCanvasRoster(botsState: {
   bots: BotView[];
-  loading: boolean;
-  error: string | null;
+  /** Every machine's roster has arrived. See the prune below for why "not failing" is not enough. */
+  settled: boolean;
 }) {
   // What the reader has taken off the canvas: whole Bots by id, then single sessions as
   // `source:sessionId`. Both live here rather than inside the canvas so the cards and the sidebar
@@ -62,8 +62,12 @@ export function useCanvasRoster(botsState: {
   // reasoned: the stream delivers a snapshot before the Bots are in it, and pruning against that
   // one wiped the store on every mount. A canvas with no Bots has nothing to open, so there is
   // nothing to win by dropping keys there and a whole canvas to lose.
+  //
+  // `settled` rather than "not loading and not failing", because the roster now comes from several
+  // machines: a reader whose remote peer is asleep has a canvas that is entirely healthy about this
+  // one, and pruning against it would drop every open card on the peer for good.
   useEffect(() => {
-    if (botsState.loading || botsState.error !== null || botsState.bots.length === 0) return;
+    if (!botsState.settled || botsState.bots.length === 0) return;
     const held = new Set(
       botsState.bots.flatMap((bot) => bot.sessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`)),
     );
@@ -73,7 +77,7 @@ export function useCanvasRoster(botsState: {
       // snapshot the stream sends.
       return kept.size === current.size ? current : kept;
     });
-  }, [botsState.bots, botsState.loading, botsState.error]);
+  }, [botsState.bots, botsState.settled]);
   // The same one-write rule, and these two need it more than the open keys do: each set shrinks
   // from the sidebar roster and from a real detach as well as growing from a menu, so a call beside
   // each of those is how one of them ends up forgotten.

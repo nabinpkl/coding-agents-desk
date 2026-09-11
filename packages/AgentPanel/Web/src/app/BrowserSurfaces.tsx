@@ -170,16 +170,56 @@ export function BrowserSurfaces({
   }, [sessionId, sessions, selectSession]);
 
   /**
+   * One data source per session, built once and kept.
+   *
+   * Cached rather than rebuilt, because the live index pushes whenever any peer's heartbeat comes
+   * or goes, and a source rebuilt on that beat would tear down and reopen every subscription behind
+   * it -- including this machine's, for a change on another machine entirely. Keyed on `transport`
+   * so the cache cannot outlive the thing it wraps.
+   */
+  const sources = useMemo(() => new Map<string, SidecarDataSource>(), [transport]);
+  const sourceFor = useCallback(
+    (id: string | undefined): SidecarDataSource => {
+      // The default session keeps the source built at startup, which keeps the native/webview leg
+      // bit-for-bit what it was.
+      if (!id) return feed;
+      const existing = sources.get(id);
+      if (existing) return existing;
+      const made = new SidecarDataSource(sessionTransport(transport, id));
+      sources.set(id, made);
+      return made;
+    },
+    [feed, sources, transport],
+  );
+
+  /**
    * The data source for whichever session is selected.
    *
    * The picker used to move the desktop alone, because the feed's data source was built once at
    * startup and pointing it elsewhere meant rebuilding it. That is all this is: one source per
-   * session, so the feed and the terminals answer the picker too. The default session reuses the
-   * source built at startup, which keeps the native/webview leg bit-for-bit what it was.
+   * session, so the feed and the terminals answer the picker too.
    */
-  const sessionFeed = useMemo(
-    () => (sessionId ? new SidecarDataSource(sessionTransport(transport, sessionId)) : feed),
-    [feed, transport, sessionId],
+  const sessionFeed = useMemo(() => sourceFor(sessionId), [sourceFor, sessionId]);
+
+  /**
+   * Every machine the Bot canvas reads, which is every session this origin can reach.
+   *
+   * The picker scopes the whole panel to ONE session; the canvas is the exception, because a Bot is
+   * a directory and the sessions working in it, and those directories are not all on this Mac. A
+   * peer declared with `AGENTDESK_PANEL_REMOTE_SIDECARS` and served by `tools/remote-sidecar.sh`
+   * shows its Bots beside this machine's, each card acting on the sidecar that owns it. See
+   * `features/bots/botMachines.ts`.
+   *
+   * Built from the same live index the picker uses, so a machine that goes quiet leaves both at
+   * once and there is never a card for a peer the picker says is gone.
+   */
+  const machines = useMemo(
+    () => sessions.map((session) => ({
+      ...(session.id === undefined ? {} : { id: session.id }),
+      label: session.label,
+      feed: sourceFor(session.id),
+    })),
+    [sessions, sourceFor],
   );
   const desktopAvailable = useDesktopAvailable(sessionFeed);
   // A peer with no desktop must not leave the page sitting on a surface it cannot serve.
@@ -283,7 +323,13 @@ export function BrowserSurfaces({
           // survive a move to another one.
           <TerminalsSurface key={sessionId ?? "default"} feed={sessionFeed} />
         ) : (
-          <App key={sessionId ?? "default"} feed={sessionFeed} host={host} fill />
+          <App
+            key={sessionId ?? "default"}
+            feed={sessionFeed}
+            host={host}
+            machines={machines}
+            fill
+          />
         )}
       </div>
     </div>

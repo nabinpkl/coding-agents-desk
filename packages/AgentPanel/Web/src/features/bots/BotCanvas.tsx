@@ -63,7 +63,9 @@ export function BotCanvas({
   hues,
   loading,
   error,
-  sessionContext,
+  sessionContextFor,
+  machineLabels,
+  machineErrors,
   botError,
   onAddSession,
   onForkSession,
@@ -97,7 +99,32 @@ export function BotCanvas({
    * The same object the thread view is given, which is what makes a row here the same surface
    * rather than a lesser copy of it.
    */
-  sessionContext: SessionViewContext;
+  /**
+   * The context ONE card renders its session in, by Bot.
+   *
+   * A resolver rather than a context, because the canvas is the surface that shows several machines
+   * at once: a Bot whose directory is on a peer must read its transcripts, run its commands and
+   * open its terminals through that peer's sidecar. See `botMachines.ts`. A single-machine panel
+   * gets the same object back for every Bot, so nothing here notices.
+   */
+  sessionContextFor: (botId: string) => SessionViewContext;
+  /**
+   * The machine each Bot is on, by id, and EMPTY when there is only one machine to be on.
+   *
+   * A map rather than a resolver so the empty case is the cheap one: a panel reading one sidecar
+   * looks up nothing and renders nothing extra. It is also why this is separate from
+   * `sessionContextFor` rather than read off it: a context carries a data source, not a name.
+   */
+  machineLabels: ReadonlyMap<string, string>;
+  /**
+   * Machines that cannot be read, while others can.
+   *
+   * Said rather than swallowed, and said HERE rather than in `error`: a declared peer that is
+   * unreachable looks exactly like a peer with no Bots on it, so an empty strip where a machine's
+   * cards used to be is the one failure on this surface that reports itself as success. The canvas
+   * that IS working must not be replaced to say it, which is what `error` does.
+   */
+  machineErrors: readonly { label: string; reason: string }[];
   /**
    * A failure from editing a Bot, shown on the card of the session it was about.
    *
@@ -213,7 +240,9 @@ export function BotCanvas({
     <BotCanvasList
       bots={bots}
       hues={hues}
-      sessionContext={sessionContext}
+      sessionContextFor={sessionContextFor}
+      machineLabels={machineLabels}
+      machineErrors={machineErrors}
       botError={botError}
       onAddSession={onAddSession}
       onForkSession={onForkSession}
@@ -252,7 +281,9 @@ export function BotCanvas({
 function BotCanvasList({
   bots,
   hues,
-  sessionContext,
+  sessionContextFor,
+  machineLabels,
+  machineErrors,
   botError,
   onAddSession,
   onForkSession,
@@ -270,7 +301,11 @@ function BotCanvasList({
 }: {
   bots: BotView[];
   hues: ReadonlyMap<string, number>;
-  sessionContext: SessionViewContext;
+  /** See the canvas above: one context per Bot, because a Bot can be on another machine. */
+  sessionContextFor: (botId: string) => SessionViewContext;
+  /** See the canvas above. */
+  machineLabels: ReadonlyMap<string, string>;
+  machineErrors: readonly { label: string; reason: string }[];
   botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
   onForkSession: (bot: BotView, session: SessionSummary) => void;
@@ -342,6 +377,15 @@ function BotCanvasList({
       onScroll={rememberScroll}
       className="h-full overflow-auto overscroll-contain"
     >
+      {machineErrors.map(({ label, reason }) => (
+        <div
+          key={label}
+          role="status"
+          className="mx-3 mt-3 rounded-lg border border-border bg-muted/60 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+        >
+          {label} is not answering, so its Bots are not on the canvas: {reason}
+        </div>
+      ))}
       {orphanedError ? (
         <div
           role="alert"
@@ -373,7 +417,8 @@ function BotCanvasList({
             canMoveRight={index < standing.length - 1}
             bot={bot}
             hue={hues.get(bot.botId)}
-            sessionContext={sessionContext}
+            sessionContext={sessionContextFor(bot.botId)}
+            {...(machineLabels.has(bot.botId) ? { machineLabel: machineLabels.get(bot.botId)! } : {})}
             botError={botError}
             detachedSessionKeys={detachedSessionKeys}
             openKeys={openKeys}

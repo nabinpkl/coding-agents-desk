@@ -1,13 +1,18 @@
-import { Folder, LoaderCircle, Upload, X } from "lucide-react";
+import { Folder, LoaderCircle, Monitor, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
 import { BotAvatar } from "@/features/bots/BotSidebarPanel";
+import { machineKey, type BotMachine } from "@/features/bots/botMachines";
+import { useMachineInventory } from "@/features/bots/useMachineInventory";
 
 /**
  * The registry's own cap on a first turn, repeated here so the dialog refuses before the round
  * trip rather than after it.
  */
 const MAXIMUM_FIRST_TURN = 32_768;
+
+/** The folder list alone. Which sessions are in one is the session picker's question, not this. */
+const NO_PATHS: readonly string[] = [];
 
 function metadataLines(value: string): Record<string, string> {
   const metadata: Record<string, string> = {};
@@ -26,19 +31,36 @@ export function BotCreatorDialog({
   open,
   projects,
   bots,
+  machines,
+  machineOfBot,
   inventoryLoading,
   onClose,
   onCreate,
 }: {
   open: boolean;
+  /** This machine's directories, already on the app's inventory stream. */
   projects: ProjectSummary[];
   bots: BotView[];
+  /** Every sidecar a Bot can be created on, home first. One machine hides the picker entirely. */
+  machines: readonly BotMachine[];
+  machineOfBot: (botId: string) => BotMachine | undefined;
   inventoryLoading: boolean;
   onClose: () => void;
-  onCreate: (command: Omit<AddBotCommand, "requestId">) => Promise<void>;
+  /**
+   * Creates the Bot on the machine its directory is on.
+   *
+   * The machine is passed rather than inferred from the path, because a path is not an address: two
+   * peers can both have `/home/ubuntu/projects/x` and only one of them is the one the reader picked.
+   */
+  onCreate: (command: Omit<AddBotCommand, "requestId">, machine: BotMachine) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
+  // Home first, which is what `mergeMachineBots` and the session picker both order by, so the
+  // default is the machine the panel is running beside and picking another is a deliberate act.
+  // At least one machine always exists -- the app names this one when its embedder names none --
+  // so an empty list is a caller that is wrong rather than a state to render around.
+  const [machine, setMachine] = useState<BotMachine>(() => machines[0]!);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
   const [name, setName] = useState("");
   const [iconUrl, setIconUrl] = useState("");
@@ -55,13 +77,26 @@ export function BotCreatorDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Only while a PEER is selected. This machine's directories are already on the app's stream, and
+  // opening a second one for them would spend a stream slot to learn what the panel already knows.
+  const peerProjects = useMachineInventory(machine.id === undefined ? null : machine, NO_PATHS);
+  const machineProjects = machine.id === undefined ? projects : peerProjects.projects;
+  const machineProjectsLoading = machine.id === undefined ? inventoryLoading : peerProjects.loading;
+
+  // Scoped to the selected machine, because a claim is a claim on THAT machine's directory. Two
+  // Linux peers both have `/home/ubuntu`, and a Bot on one of them must not grey the other out.
   const claimedDirectories = useMemo(
-    () => new Set(bots.map((bot) => bot.environment.path)),
-    [bots],
+    () => new Set(
+      bots
+        .filter((bot) => machineOfBot(bot.botId)?.id === machine.id)
+        .map((bot) => bot.environment.path),
+    ),
+    [bots, machineOfBot, machine.id],
   );
 
   useEffect(() => {
     if (!open) return;
+    setMachine(machines[0]!);
     setSelectedProject(null);
     setName("");
     setIconUrl("");
@@ -133,7 +168,7 @@ export function BotCreatorDialog({
         // The title is left to the sidecar, which defaults it to the Bot's name. Two places
         // deciding what a session is called is how the canvas and `ListAgents` end up disagreeing.
         ...(startSession ? { launch: firstTurn.trim() ? { prompt: firstTurn } : {} } : {}),
-      });
+      }, machine);
     } catch (reason) {
       setError(String((reason as Error).message ?? reason));
       setPending(false);
@@ -172,22 +207,59 @@ export function BotCreatorDialog({
 
         <form onSubmit={submit} className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
           <div className="min-h-0 overflow-y-auto border-b border-border md:border-r md:border-b-0">
-            <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Directory
+            <div className="sticky top-0 z-10 border-b border-border bg-card">
+              {/* Only when there is a choice. One machine means every directory is on it, and a
+                  picker with a single option is a control that teaches the reader nothing. */}
+              {machines.length > 1 ? (
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
+                  <Monitor className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="sr-only" id="bot-creator-machine">Machine</span>
+                  <div role="group" aria-labelledby="bot-creator-machine" className="flex flex-wrap gap-1.5">
+                    {machines.map((candidate) => {
+                      const selected = candidate.id === machine.id;
+                      return (
+                        <button
+                          key={machineKey(candidate)}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => {
+                            if (selected) return;
+                            setMachine(candidate);
+                            // A directory belongs to one machine, so a selection cannot survive the
+                            // move: keeping it would submit this machine's path to that one.
+                            setSelectedProject(null);
+                            setError(null);
+                          }}
+                          className={`min-h-8 rounded-full border px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+                            selected
+                              ? "border-primary bg-primary/10 text-foreground"
+                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+                          }`}
+                        >
+                          {candidate.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Directory
+              </div>
             </div>
-            {inventoryLoading && projects.length === 0 ? (
+            {machineProjectsLoading && machineProjects.length === 0 ? (
               <div role="status" className="flex min-h-32 items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
                 <LoaderCircle className="size-4 animate-spin" aria-hidden />
                 Loading projects…
               </div>
-            ) : projects.length === 0 ? (
+            ) : machineProjects.length === 0 ? (
               <div role="status" className="flex min-h-32 items-center justify-center p-4 text-sm text-muted-foreground">
-                No AgentDesk projects available
+                {peerProjects.error ?? `No AgentDesk projects on ${machine.label}`}
               </div>
             ) : (
               <fieldset className="p-2">
                 <legend className="sr-only">Select Bot directory</legend>
-                {projects.map((project) => {
+                {machineProjects.map((project) => {
                   const unavailable = claimedDirectories.has(project.projectPath);
                   return (
                     <label

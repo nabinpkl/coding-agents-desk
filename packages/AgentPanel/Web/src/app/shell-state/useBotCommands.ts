@@ -17,7 +17,7 @@ import type {
   BotView,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { BotFeeds, BotMachine } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
@@ -35,7 +35,15 @@ function requireBot(request: ForkRequest): string {
 }
 
 export function useBotCommands(
-  feed: SidecarDataSource,
+  /**
+   * Which sidecar each command goes to, rather than the one sidecar it used to be.
+   *
+   * A Bot's record lives on the machine whose directory it names (`botMachines.ts`), so every call
+   * below is addressed at a machine and not merely at an id. The resolution reads the CURRENT
+   * roster at the moment a command is issued rather than the one that rendered the button, which is
+   * what lets this object stay identity-stable while the roster moves under it -- see `useBots`.
+   */
+  feeds: BotFeeds,
   roster: {
     setDetachedBotIds: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
     setDetachedSessionKeys: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
@@ -147,7 +155,11 @@ export function useBotCommands(
     if (session.source !== "claude") return;
     setBotCommandError(null);
     try {
-      setForkRequest({ session, projectPath, from: await feed.lastMessage(session.sessionId) });
+      setForkRequest({
+        session,
+        projectPath,
+        from: await feeds.forSession(session).lastMessage(session.sessionId),
+      });
     } catch (error) {
       // Named against the session, unlike a failed fork: this one failed before anything was
       // started, so the card it was asked from is still there to say so on.
@@ -158,7 +170,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feed]);
+  }, [feeds]);
 
   /**
    * The same dialog again, anchored at the last compaction rather than the last message.
@@ -176,7 +188,11 @@ export function useBotCommands(
     if (session.source !== "claude") return;
     setBotCommandError(null);
     try {
-      setForkRequest({ session, projectPath, from: await feed.lastCompaction(session.sessionId) });
+      setForkRequest({
+        session,
+        projectPath,
+        from: await feeds.forSession(session).lastCompaction(session.sessionId),
+      });
     } catch (error) {
       setBotCommandError({
         session: `${session.source}:${session.sessionId}`,
@@ -185,7 +201,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feed]);
+  }, [feeds]);
 
   const startFork = useCallback(
     async (
@@ -197,18 +213,21 @@ export function useBotCommands(
       setForkRequest(null);
       setBotCommandError(null);
       try {
+        // Resolved once: `requireBot` throws when a whole-session fork names no Bot, and calling it
+        // twice would leave the machine lookup and the path disagreeing about which id they meant.
+        const forkTarget = request.from ? "" : requireBot(request);
         // Two endpoints, because they answer two different questions. A fork asked for from a Bot
         // row is a session FOR that Bot and has to arrive attached to it; a fork asked for from a
         // message belongs to nobody but the reader, and only the session endpoint takes the
         // message to start before.
         const started = request.from
-          ? await feed.forkSession(request.session.sessionId, {
+          ? await feeds.forSession(request.session).forkSession(request.session.sessionId, {
             title: forkTitle,
             from: { eventId: request.from.eventId },
             ...(brief.trim() ? { prompt: brief } : {}),
             ...(worktree ? { worktree: {} } : {}),
           })
-          : (await feed.addBotSessions(requireBot(request), {
+          : (await feeds.forBot(forkTarget).addBotSessions(forkTarget, {
             launch: {
               title: forkTitle,
               from: { source: "claude", sessionId: request.session.sessionId },
@@ -239,14 +258,14 @@ export function useBotCommands(
         });
       }
     },
-    [feed],
+    [feeds],
   );
 
   const startNewSession = useCallback(async (bot: BotView, title: string) => {
     setBotSessionPickerId(null);
     setBotCommandError(null);
     try {
-      const added = await feed.addBotSessions(bot.botId, { launch: { title } });
+      const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, { launch: { title } });
       if (!added.started) return;
       const started = added.started;
       setNewSessions((current) => [
@@ -274,7 +293,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feed]);
+  }, [feeds]);
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
   const closeNewSession = useCallback((sessionId: string) => {
@@ -290,24 +309,35 @@ export function useBotCommands(
    */
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const renameSession = useCallback(async (session: SessionSummary, title: string) => {
-    await feed.renameSession(session.sessionId, title);
+    await feeds.forSession(session).renameSession(session.sessionId, title);
     setRenamingSession(null);
-  }, [feed]);
+  }, [feeds]);
 
   const openBotSessionPicker = useCallback((bot: BotView) => {
     setBotSessionPickerId(bot.botId);
     setHoverPreviewOpen(false);
   }, []);
 
-  const createBot = useCallback(async (command: Omit<AddBotCommand, "requestId">) => {
-    await feed.createBot(command);
+  /**
+   * Creates a Bot on the machine whose directory it names.
+   *
+   * The machine is an argument rather than a lookup, because this is the one command with no Bot to
+   * resolve from: the directory is on that machine, its sessions are on that machine, and the
+   * registry that will own the record is that machine's. The dialog picks it, since the dialog is
+   * where the reader picked the folder.
+   */
+  const createBot = useCallback(async (
+    command: Omit<AddBotCommand, "requestId">,
+    machine: BotMachine,
+  ) => {
+    await machine.feed.createBot(command);
     setBotCreatorOpen(false);
-  }, [feed]);
+  }, []);
 
   const attachBotSessions = useCallback(async (bot: BotView, sessionRefs: BotSessionRef[]) => {
-    await feed.addBotSessions(bot.botId, { sessionRefs });
+    await feeds.forBot(bot.botId).addBotSessions(bot.botId, { sessionRefs });
     setBotSessionPickerId(null);
-  }, [feed]);
+  }, [feeds]);
 
   /**
    * Drops one session from a Bot's projection.
@@ -340,8 +370,8 @@ export function useBotCommands(
       next.delete(key);
       return next;
     });
-    void feed
-      .detachBotSessions(bot.botId, { sessionRefs: [target] })
+    void Promise.resolve()
+      .then(() => feeds.forBot(bot.botId).detachBotSessions(bot.botId, { sessionRefs: [target] }))
       .catch((error: unknown) => {
         // Named: the detach failed, so the session is still on the canvas and its own card is
         // what says the removal did not happen.
@@ -352,7 +382,7 @@ export function useBotCommands(
           }`,
         });
       });
-  }, [feed]);
+  }, [feeds]);
 
   return {
     botCommandError,

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import {
   CornerDownLeft,
   List,
@@ -355,11 +356,21 @@ export function SessionView({
   ) : null;
 
   return (
-    // `session-view-surface` rather than `bg-card`, and the transcript's ground below likewise.
-    // Both resolve to the token they name unless something above them published a colour, which
-    // only a Bot card's shaded session does (`styles.css`, `.bot-session-fill`). Putting the
-    // utility back would repaint an open session plain over the top of the shade that says which
-    // session it is -- which is the bug these replaced.
+    // The transcript does NOT read `feed` from this component -- `useSessionEventsStream` and the
+    // system blocks below it take their data source from React context -- so the two have to be
+    // made the same thing here or they quietly disagree. They did: a Bot on another machine got its
+    // commands from its own sidecar and its transcript from the app's, which answered "session not
+    // found" for a session that was never on it. The card rendered, said 404, and looked like a
+    // broken peer rather than a misrouted read. Providing it here means the prop is the context
+    // everywhere this component is mounted, rather than everywhere someone remembered.
+    //
+    // A no-op on the thread view, where the source given is already the one above.
+    <DataSourceProvider source={feed}>
+    {/* `session-view-surface` rather than `bg-card`, and the transcript's ground below likewise.
+        Both resolve to the token they name unless something above them published a colour, which
+        only a Bot card's shaded session does (`styles.css`, `.bot-session-fill`). Putting the
+        utility back would repaint an open session plain over the top of the shade that says which
+        session it is -- which is the bug these replaced. */}
     <div ref={setColumn} className="flex h-full min-h-0 flex-col session-view-surface">
       {controlsHost
         ? createPortal(
@@ -465,6 +476,7 @@ export function SessionView({
       ) : null}
       {tasksPanel && tasksHost ? createPortal(tasksPanel, tasksHost) : tasksPanel}
     </div>
+    </DataSourceProvider>
   );
 }
 

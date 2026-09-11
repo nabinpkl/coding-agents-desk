@@ -58,6 +58,7 @@ export function BotCanvasCard({
   onDetachBot,
   newSessions,
   onCloseNewSession,
+  machineLabel,
 }: {
   bot: BotView;
   /** This Bot's place on the colour wheel, or nothing if the roster does not know it yet. */
@@ -94,6 +95,15 @@ export function BotCanvasCard({
   /** This Bot's share of the sessions the panel has started, already filtered to it. */
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
+  /**
+   * The machine this Bot's directory is on, or absent when the canvas is showing only one.
+   *
+   * Absent rather than always present, because a panel reading one sidecar is every panel until a
+   * peer is declared, and writing "dev" on every card there names something the reader cannot be
+   * confused about. When there ARE two, it is the first thing to say: a path like
+   * `/home/ubuntu/projects/rags` does not say which `/home/ubuntu`.
+   */
+  machineLabel?: string;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   // Dropped as soon as the Bot itself carries the session, rather than when the shell decides it
@@ -225,6 +235,8 @@ export function BotCanvasCard({
             </span>
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
               {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
+              {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
+              {machineLabel ? " · " : ""}
               <span className="font-mono">{projectName}</span>
               {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
             </span>

@@ -23,6 +23,7 @@ import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarD
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
+import { botFeeds } from "@/features/bots/botMachines";
 
 /** Enough of a session to be forked and named. */
 const SOURCE = {
@@ -32,9 +33,14 @@ const SOURCE = {
   lastEventAt: 0,
 } as unknown as SessionSummary;
 
+/**
+ * One machine, which is what this suite is about: the anchors a fork can start from, not where the
+ * session lives. `botMachines.test.ts` covers the routing.
+ */
 function commands(feed: SidecarDataSource) {
+  const machine = { label: "this machine", feed };
   return renderHook(() => useBotCommands(
-    feed,
+    botFeeds(feed, [machine], () => machine, () => machine),
     {
       setDetachedBotIds: () => {},
       setDetachedSessionKeys: () => {},

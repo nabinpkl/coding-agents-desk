@@ -12,6 +12,7 @@ import type {
   ProjectSummary,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
+import type { BotMachine } from "@/features/bots/botMachines";
 import { BotCreatorDialog } from "@/features/bots/dialogs/BotCreatorDialog";
 import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog";
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
@@ -24,6 +25,8 @@ export function AppDialogs({
   botSessionPicker,
   createBot,
   forkRequest,
+  machines,
+  machineOfBot,
   forkTitlesInProject,
   inventoryLoading,
   projects,
@@ -42,14 +45,18 @@ export function AppDialogs({
   botCreatorOpen: boolean;
   bots: BotView[];
   botSessionPicker: BotView | null;
-  createBot: (command: Omit<AddBotCommand, "requestId">) => Promise<void>;
+  createBot: (command: Omit<AddBotCommand, "requestId">, machine: BotMachine) => Promise<void>;
   forkRequest: ForkRequest | null;
   forkTitlesInProject: string[];
+  /** Every sidecar a Bot can be created on. See `botMachines.ts` for why the record stays there. */
+  machines: readonly BotMachine[];
+  machineOfBot: (botId: string) => BotMachine | undefined;
   inventoryLoading: boolean;
   projects: ProjectSummary[];
   renameSession: (session: SessionSummary, title: string) => Promise<void>;
   renamingSession: SessionSummary | null;
-  sessionsByProject: Map<string, SessionSummary[]>;
+  /** Read-only: the shell owns this map, and one of its entries can come from another machine. */
+  sessionsByProject: ReadonlyMap<string, SessionSummary[]>;
   sessionTitlesInBot: string[];
   setBotCreatorOpen: (open: boolean) => void;
   setBotSessionPickerId: (botId: string | null) => void;
@@ -69,6 +76,8 @@ export function AppDialogs({
           open={botCreatorOpen}
           projects={projects}
           bots={bots}
+          machines={machines}
+          machineOfBot={machineOfBot}
           inventoryLoading={inventoryLoading}
           onClose={() => setBotCreatorOpen(false)}
           onCreate={createBot}
