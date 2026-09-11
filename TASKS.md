@@ -22,7 +22,7 @@ Gates: `just check` for every task, `just swift-check` additionally for R7-R9.
 | R9 | D | The `＋ IDE` window becomes one `AgentPanelWebViewController` with an entry user script. Dividers, region webviews and the PTY terminal pane go. |
 | R10 | D | Delete the IDE's half of `packages/WorkspaceIDE`, its committed resource tree, and the iOS client's `.ide` surface, which the same lane fed. |
 | R12 | R | Delete the QUIC workspace lane (`WorkspaceLaneServer`, `WorkspaceLaneSession`) and the host services left with no consumer. |
-| R13 | R | Persist unsaved edits, which is what `WorkspaceIDEFileDraftStore` did and the port does not. |
+| R13 | R | Persist the text of a file autosave will not rescue -- conflicted, or last-write-failed -- with the revision it was typed against. |
 
 ### What R10 turned out to be
 
@@ -54,14 +54,27 @@ this reader still had unsaved text in it. Two more that had survived intact and 
 wrongly: the read-only kinds, and the directory collation, which matches `localizedStandardCompare`
 name for name on every case tried.
 
-What remains is R13. The Swift wrote every unsaved edit to a file under Application Support, keyed
-by workspace and path with the revision it was based on, and restored it on open -- so an edit
-survived quitting the app, and a draft whose baseline had moved came back already marked conflicted.
-The port keeps drafts in React state only, which is worse here than it was there: a Vite save
-discards that many times an hour, and a conflicted file never autosaves, so its text can live in
-memory indefinitely with nothing behind it. It is not done in this pass because the panel's
-storage is `localStorage` with a ~5MB quota against a 4MB text cap, so it needs an eviction rule
-and a per-draft size bound that the Swift's one-file-per-path store never had to have.
+What remains is R13, and it is smaller than "persist drafts" makes it sound, because autosave
+already covers the ordinary case: an edit rests 900ms and is written, and closing a tab now waits
+for that write rather than racing it.
+
+Autosave has exactly two holes, and both are unbounded in time rather than 900ms wide:
+
+- **A conflicted file never autosaves.** `edit` declines to schedule one, correctly -- the write
+  would clobber the other side. So between the conflict appearing and the reader resolving it, that
+  text is in React state and nowhere else.
+- **A failed write is not retried.** It returns to `dirty` and waits for the next keystroke. The
+  Swift did the same, so this is faithful rather than a port bug, but it has the same shape.
+
+The Swift's `WorkspaceIDEFileDraftStore` also did something autosave cannot: each draft carried the
+revision it was typed against, so reopening compared that to disk and restored the file *already
+marked conflicted* if it had moved. Without that, a restart loses not just the text but the fact
+that there was a divergence at all -- the reader is shown the file on disk with no sign their
+version existed.
+
+So the scope is a file whose text autosave will not rescue, which is usually none and occasionally
+one, not every open tab. That is what makes it fit in `localStorage` beside the other panel
+preferences; a store of every draft would not, against a 4MB per-file text cap and a ~5MB quota.
 
 One deliberate difference, recorded so it is not read as an oversight: the document cap is 32MB
 where the Swift's was 100MB. The Swift's number was the QUIC frame budget, which no longer applies
