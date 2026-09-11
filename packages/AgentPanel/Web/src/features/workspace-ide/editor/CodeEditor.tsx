@@ -16,22 +16,10 @@
 // that behaves the way every other text field on the machine does.
 
 import { useEffect, useMemo, useRef } from "react";
-import {
-  resolveLang,
-  SHIKI_THEMES,
-  useHighlighter,
-} from "@/features/activity-feed/markdown/highlighter";
+import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 
 /** Shared metrics, so the two layers agree character for character. */
 const LAYER = "m-0 p-3 font-mono text-[13px] leading-[1.55] whitespace-pre-wrap break-words";
-
-/** The grammar for a filename, in the vocabulary the panel's highlighter already speaks. */
-function languageFor(path: string): string {
-  const name = path.toLowerCase();
-  const dot = name.lastIndexOf(".");
-  const slash = name.lastIndexOf("/");
-  return resolveLang(dot > slash ? name.slice(dot + 1) : "text");
-}
 
 export function CodeEditor({
   path,
@@ -44,7 +32,9 @@ export function CodeEditor({
   readOnly: boolean;
   onChange: (text: string) => void;
 }) {
-  const highlighter = useHighlighter();
+  // The path, not an extension pulled off it: the highlighter takes a file name as readily as a
+  // fence language, which is what gives `Justfile` and `Dockerfile` a grammar at all.
+  const { highlighter, lang } = useCodeHighlighting(path);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const painted = useRef<HTMLPreElement | null>(null);
 
@@ -53,11 +43,11 @@ export function CodeEditor({
     // A trailing newline so the last line has a row to sit on and the two layers stay the same
     // height; without it the highlighted layer is one line short and the caret hangs off it.
     return highlighter.codeToHtml(`${text}\n`, {
-      lang: languageFor(path),
+      lang,
       themes: SHIKI_THEMES,
       defaultColor: false,
     });
-  }, [highlighter, path, text]);
+  }, [highlighter, lang, text]);
 
   // Scroll the painted layer with the textarea rather than letting each scroll on its own, which
   // is what makes the illusion hold once a file is longer than the pane.

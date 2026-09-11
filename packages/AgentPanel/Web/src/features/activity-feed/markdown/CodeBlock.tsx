@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { resolveLang, SHIKI_THEMES, useHighlighter } from "@/features/activity-feed/markdown/highlighter";
+import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 // Declared here, not inherited. This component is exported and used outside the markdown
 // renderer, where `Markdown.tsx` may never be imported -- and the failure mode of a missing
 // stylesheet is unstyled markup rather than an error. The bundler dedupes the double import.
@@ -38,19 +38,19 @@ export const CodeBlock = memo(function CodeBlock({
    */
   wrap?: boolean;
 }) {
-  const hl = useHighlighter();
+  const { highlighter, lang: grammar } = useCodeHighlighting(lang);
   const html = useMemo(() => {
-    if (!hl || !highlight) return null;
+    if (!highlighter || !highlight) return null;
     try {
-      return hl.codeToHtml(code, {
-        lang: resolveLang(lang),
+      return highlighter.codeToHtml(code, {
+        lang: grammar,
         themes: SHIKI_THEMES,
         defaultColor: false,
       });
     } catch {
       return null;
     }
-  }, [hl, code, lang, highlight]);
+  }, [highlighter, code, grammar, highlight]);
 
   return (
     <div className={wrap ? "agent-panel-code agent-panel-code--wrap" : "agent-panel-code"}>

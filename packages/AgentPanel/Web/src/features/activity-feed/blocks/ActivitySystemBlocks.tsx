@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import { SHIKI_THEMES, useHighlighter } from "@/features/activity-feed/markdown/highlighter";
+import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 import type { ActivityBlock } from "@/features/activity-feed/useSessionEventsStream";
 
 /**
@@ -139,19 +139,19 @@ export function RawJsonBlock({
   }, [dataSource, eventIndex, loading, raw, session]);
 
   const pretty = useMemo(() => (raw !== null ? formatRawJson(raw) : null), [raw]);
-  const hl = useHighlighter();
+  const { highlighter, lang } = useCodeHighlighting("json");
   const html = useMemo(() => {
-    if (!hl || pretty === null) return null;
+    if (!highlighter || pretty === null) return null;
     try {
-      return hl.codeToHtml(pretty, {
-        lang: "json",
+      return highlighter.codeToHtml(pretty, {
+        lang,
         themes: SHIKI_THEMES,
         defaultColor: false,
       });
     } catch {
       return null;
     }
-  }, [hl, pretty]);
+  }, [highlighter, pretty, lang]);
 
   return (
     <details
