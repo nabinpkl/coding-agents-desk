@@ -69,9 +69,7 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import { terminalArrangement } from "@/features/session-view/composer/terminalArrangement";
-import { useWindowQuestion } from "@/features/session-view/composer/useWindowQuestion";
-import { useTmuxQuestion } from "@/features/session-view/composer/useTmuxQuestion";
-import type { QuestionMirrorModel } from "@/features/session-view/composer/SessionComposerBand";
+import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
   composerReasonText,
@@ -207,7 +205,16 @@ export function SessionComposer({
   // The address is stable because the hook keys its poll and its draft on it, and a fresh object
   // every render would restart both on every status the Feed reads.
   const tmuxComposerSession = useMemo(() => ({ source, sessionId }), [source, sessionId]);
-  const tmuxComposer = useTmuxComposer(feed, tmuxComposerSession, isClaude);
+  // ...but not until the reader means to use it. Opening this stream puts a `tmux pipe-pane` on
+  // the session's pane, and a reader who opened a thread to READ it has asked for nothing: the
+  // transcript, the question and everything else on screen come from files the sidecar already
+  // watches. So looking costs the pane nothing, and intent is what attaches -- reaching for the
+  // field, or touching the question the session is waiting on. The draft carry-over below is what
+  // makes the band changing hands at that moment invisible to whoever is mid-sentence.
+  const [engaged, setEngaged] = useState(false);
+  useEffect(() => setEngaged(false), [source, sessionId]);
+  const engage = useCallback(() => setEngaged(true), []);
+  const tmuxComposer = useTmuxComposer(feed, tmuxComposerSession, isClaude && engaged);
 
   // Delivery priority is one explicit state, not several independent availability flags.
   //
@@ -256,11 +263,29 @@ export function SessionComposer({
    * It stays registered while the terminal is showing instead of the field. The pane IS the
    * composer, so an image dropped then lands in the box the reader is already looking at.
    */
-  const acceptFiles = tmuxBand ? tmuxComposer.drop : null;
+  //
+  // Registered for every Claude session rather than only for an attached band, because a dropped
+  // image is intent as much as a keystroke is and there is nothing to drop onto if the target
+  // waits for the pane. The drop itself is a POST that resolves the pane for itself; engaging
+  // beside it is what brings the box into the field, so the `[Image #1]` the pane writes appears
+  // where the reader is typing rather than in a mirror nobody opened.
+  const dropFiles = tmuxComposer.drop;
+  const acceptFiles = useCallback((files: readonly File[]) => {
+    engage();
+    void dropFiles(files);
+  }, [dropFiles, engage]);
+  // Refused only where the panel KNOWS there is nowhere to put it, which is a session whose pane
+  // has already been looked for and not found. It used to be refused wherever the band had not
+  // attached, and that reading is no longer available: not having attached now means nobody has
+  // asked yet. Saying "no composer" then would be a guess dressed as a fact, and the wrong one
+  // for every session that has a pane nobody has touched.
+  const noPane = tmuxComposer.reason === "no-pane";
   useEffect(() => {
-    onFileDrop(acceptFiles === null ? null : { accept: acceptFiles });
+    // Claude only: its own composer is what turns a pasted path into an image, and no other band
+    // holds a box to put one in.
+    onFileDrop(isClaude && !noPane ? { accept: acceptFiles } : null);
     return () => onFileDrop(null);
-  }, [onFileDrop, acceptFiles]);
+  }, [isClaude, noPane, onFileDrop, acceptFiles]);
 
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
@@ -275,71 +300,17 @@ export function SessionComposer({
   // a re-render of this band, which happens on every status the Feed reads.
   const noteTerminalState = useCallback(() => {}, []);
 
-  // Two ways to answer an open question, chosen the way the composer's transport is chosen and for
-  // the same reason: where a pane exists it is where the CLI actually is, and the window is a view
-  // OF that pane. They are genuinely different mechanisms rather than one behind a flag --
-  //
-  //   The pane's dialog takes keystrokes that cannot be taken back (one digit on a single-select
-  //   question selects, marks and submits), so every answer is drafted in the panel and committed
-  //   once. It answers EVERY question of the call, which is what the dialog needs to finish.
-  //
-  //   The Desktop panel is a live surface somebody may be watching, so it is mirrored click by
-  //   click. It shows one question at a time and nothing here has measured what it does with a
-  //   call carrying several, so it answers the first and the band says how many it cannot reach.
-  //
-  // Which half applies is decided by `paned` rather than by the band, and the difference is the
-  // whole of whether this works. The band waits for a composer BOX, and a dialog takes the box
-  // away for its whole duration -- so a reader who opens a session because it asked them something
-  // arrives with the band unlatched, and would be told the pane does not exist.
-  const paned = tmuxComposer.paned;
-  const tmuxQuestion = useTmuxQuestion(
+  // Who answers an open question, and the one model the band draws it from. The content never
+  // depends on either mechanism: it is the tool call the transcript already carries.
+  const questionMirror = useQuestionMirror({
     feed,
-    tmuxComposerSession,
-    isClaude && paned ? question : null,
-  );
-  const windowQuestion = useWindowQuestion(
-    windowComposerClient,
+    host: windowComposerClient,
+    session: tmuxComposerSession,
     sessionId,
-    isClaude && !paned && question != null,
+    isClaude,
     question,
-  );
-  const questionMirror: QuestionMirrorModel | null = !isClaude || question == null
-    ? null
-    : paned
-    ? {
-      callId: question.callId,
-      questions: tmuxQuestion.questions,
-      drafts: tmuxQuestion.drafts,
-      pending: tmuxQuestion.pending,
-      disabled: false,
-      error: tmuxQuestion.error,
-      notice: null,
-      canSubmit: tmuxQuestion.canSubmit,
-      onChoose: tmuxQuestion.choose,
-      onWriteOther: tmuxQuestion.write,
-      onSubmit: () => void tmuxQuestion.submit(),
-    }
-    : windowQuestion.visible && windowQuestion.question
-    ? {
-      callId: question.callId,
-      questions: [windowQuestion.question],
-      drafts: [{ chosen: windowQuestion.selected, other: windowQuestion.otherText }],
-      pending: windowQuestion.pending,
-      disabled: !windowQuestion.enabled,
-      error: windowQuestion.error,
-      notice: windowQuestion.unreachable > 0
-        ? `${windowQuestion.unreachable} more question${windowQuestion.unreachable > 1 ? "s" : ""} in this call can only be answered in the app`
-        : null,
-      canSubmit: windowQuestion.canSubmit,
-      // This half mirrors ONE question, so the index is always zero and is dropped here rather
-      // than threaded through a hook that has nowhere to put it.
-      onChoose: (_question, option) => windowQuestion.selectOption(option),
-      onWriteOther: (_question, text) => windowQuestion.changeOther(text),
-      onSubmit: windowQuestion.submit,
-      onSkip: windowQuestion.skip,
-      onDismiss: windowQuestion.dismiss,
-    }
-    : null;
+    engage,
+  });
 
   // Every non-window transport composes against local state. If native resolution refuses after
   // somebody has already typed, hand that exact draft to the selected local transport before the
@@ -399,6 +370,13 @@ export function SessionComposer({
    * which kind of browser it is.
    */
   const [composerFocused, setComposerFocused] = useState(false);
+  // Reaching for the field is the first of the two intents that attach the pane; touching the
+  // open question is the other, below. Focus rather than the first keystroke, so the box is
+  // already showing what the pane holds by the time a character is typed into it.
+  const noteComposerFocus = useCallback((focused: boolean) => {
+    setComposerFocused(focused);
+    if (focused) engage();
+  }, [engage]);
   const [softwareKeyboard] = useState(drawsOwnKeyboard);
 
   // The pane that stands above the field, or null when this session's is hidden. The field is not
@@ -483,7 +461,7 @@ export function SessionComposer({
       questionMirror={questionMirror}
       sectionLabel={sectionLabel}
       session={session}
-      setComposerFocused={setComposerFocused}
+      setComposerFocused={noteComposerFocus}
       softwareKeyboard={softwareKeyboard}
       terminalComposer={terminalComposer}
       terminalHeightBasis={terminalHeightBasis}

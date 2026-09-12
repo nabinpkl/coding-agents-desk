@@ -7,7 +7,7 @@ import {
   isAnswered,
   toAnswers,
   writeOther,
-} from "@/features/session-view/composer/questionAnswers";
+} from "@/features/session-view/composer/question/questionAnswers";
 
 const SINGLE: AskUserQuestionItem = {
   question: "Which colour?",

@@ -25,7 +25,7 @@ import {
   toAnswers,
   writeOther,
   type QuestionDraft,
-} from "@/features/session-view/composer/questionAnswers";
+} from "@/features/session-view/composer/question/questionAnswers";
 
 /** The one call this needs, named so a test stands in for it without a whole data source. */
 export interface TmuxQuestionSender {

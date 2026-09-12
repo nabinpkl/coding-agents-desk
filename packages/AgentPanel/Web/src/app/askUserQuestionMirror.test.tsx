@@ -158,10 +158,22 @@ describe("AskUserQuestion mirror", () => {
     act(() => feedMock.emitQuestion?.(question));
   }
 
+  /**
+   * Opens a question AND has the host affirm its panel, which is what hands it to this half.
+   *
+   * Affirmation is required now that there is another half. A question the host has said nothing
+   * about yet belongs to the reader's own draft -- it is drawn from the tool call and needs no
+   * window at all -- so a window test that only opened the question would be testing the draft.
+   */
+  function openWindowQuestion(transport: FakeHttpTransport, question: unknown) {
+    openQuestion(question);
+    deliverQuestionStatus(transport);
+  }
+
   it("renders the panel from the feed JSON: question, options, Other, and every action", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openWindowQuestion(transport, QUESTION);
 
     expect(screen.getByLabelText("Claude question")).toHaveTextContent(
       "Which release identity should the manual deploy of current main use?",
@@ -191,8 +203,9 @@ describe("AskUserQuestion mirror", () => {
   it("posts a select action on choice and adopts the post-action read-back", async () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openWindowQuestion(transport, QUESTION);
 
+    answerQuestion(transport, { sel: [1], sb: true });
     fireEvent.click(screen.getByRole("radio", { name: "Reuse 2026-08-03.1" }));
     const action = lastQuestionCall(transport) as Record<string, unknown>;
     expect(action).toMatchObject({ sessionId: "sid-claude-01", kind: "select", option: 1, desired: true });
@@ -208,7 +221,7 @@ describe("AskUserQuestion mirror", () => {
   it("renders multi-select as checkboxes and un-checks by pressing with the desired state", async () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(MULTI_QUESTION);
+    openWindowQuestion(transport, MULTI_QUESTION);
 
     expect(screen.getAllByRole("checkbox").length).toBeGreaterThanOrEqual(3);
     const dark = screen.getByRole("checkbox", { name: "Dark mode" });
@@ -237,7 +250,8 @@ describe("AskUserQuestion mirror", () => {
     vi.useFakeTimers();
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openWindowQuestion(transport, QUESTION);
+    answerQuestion(transport, { ot: "Deploy a different release", sb: true });
 
     const other = screen.getByLabelText(OTHER);
     fireEvent.change(other, { target: { value: "Deploy a different release" } });
@@ -262,8 +276,9 @@ describe("AskUserQuestion mirror", () => {
   it("posts submit, skip, and dismiss with no payload", async () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openWindowQuestion(transport, QUESTION);
     deliverQuestionStatus(transport, { sel: [0], sb: true });
+    answerQuestion(transport, { sel: [0], sb: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
     expect(
@@ -304,13 +319,21 @@ describe("AskUserQuestion mirror", () => {
     unmount();
   });
 
-  it("hides the mirror when the host reports the panel is gone, and closes the watch", () => {
+  it("hands the question back to the reader's own draft when the panel is gone", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openWindowQuestion(transport, QUESTION);
     deliverQuestionStatus(transport, { pr: false });
 
-    expect(screen.queryByLabelText("Claude question")).toBeNull();
+    // The question does not go away with the window. Its content is the tool call in the
+    // transcript, and the session is still waiting on an answer -- so what is left is the half
+    // that needs no window: the reader's own draft, committed wherever the session is running.
+    // Skip and Dismiss go, because they are things only the Desktop panel can be asked to do.
+    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
+      "Which release identity should the manual deploy of current main use?",
+    );
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss question" })).toBeNull();
     unmount();
   });
 
@@ -325,23 +348,56 @@ describe("AskUserQuestion mirror", () => {
     unmount();
   });
 
-  it("surfaces the host's reason when the window is unreachable", () => {
+  it("answers a terminal session itself rather than explaining that it is a terminal session", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(QUESTION);
+    openWindowQuestion(transport, QUESTION);
     deliverQuestionStatus(transport, { en: false, r: "terminal-only", pr: null });
 
-    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
-      "running in a terminal",
-    );
-    expect(screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" })).toBeDisabled();
+    // This used to draw a disabled mirror whose only content was the news that the session runs in
+    // a terminal, which is the one case the other half is FOR. The reader gets a live surface: the
+    // question from the tool call, answerable against the pane the session is actually in.
+    expect(screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" })).toBeEnabled();
+    expect(screen.getByLabelText("Claude question")).not.toHaveTextContent("running in a terminal");
+    unmount();
+  });
+
+  it("draws a question with no window and no pane, because the tool call is all it needs", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    // No status from the host, and nothing asked of tmux. A question is content the transcript
+    // already carries, so nothing has to be true about where the session is running for its
+    // reader to see it and start answering.
+    openQuestion(TWO_QUESTIONS);
+
+    expect(screen.getByText("Which features do you want to enable?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next question" })).toBeInTheDocument();
+    expect(screen.queryByText(/can only be answered in the app/)).toBeNull();
+    unmount();
+  });
+
+  it("leaves the session's pane alone until the reader touches the question", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    openQuestion(TWO_QUESTIONS);
+
+    // Opening the stream puts a `tmux pipe-pane` on the session's pane, so reading a thread must
+    // not do it. Reading the question is reading.
+    const paneStream = () =>
+      transport.subscriptions.filter((open) => open.path.includes("/composer/stream"))
+        .filter((open) => !open.path.includes("/window/"));
+    expect(paneStream()).toHaveLength(0);
+
+    // Touching it is intent, and that is what attaches.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dark mode" }));
+    expect(paneStream().length).toBeGreaterThan(0);
     unmount();
   });
 
   it("says how many questions of a call this half cannot reach", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
-    openQuestion(TWO_QUESTIONS);
+    openWindowQuestion(transport, TWO_QUESTIONS);
 
     // The Desktop panel is single-pane and nothing has measured what it does with a call carrying
     // several, so this half answers the first and says so rather than pretending to finish.

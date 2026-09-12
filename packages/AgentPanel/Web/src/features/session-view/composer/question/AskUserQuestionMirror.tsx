@@ -22,8 +22,8 @@
 import { type ReactNode, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
-import type { QuestionDraft } from "@/features/session-view/composer/questionAnswers";
-import { isAnswered } from "@/features/session-view/composer/questionAnswers";
+import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
+import { isAnswered } from "@/features/session-view/composer/question/questionAnswers";
 
 const EMPTY: QuestionDraft = { chosen: [], other: "" };
 

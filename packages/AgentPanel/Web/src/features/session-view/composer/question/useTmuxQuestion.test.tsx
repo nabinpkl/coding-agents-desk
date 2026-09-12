@@ -11,8 +11,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { TmuxQuestionAnswer, TmuxQuestionOutcome } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
-import { AskUserQuestionMirror } from "@/features/session-view/composer/AskUserQuestionMirror";
-import { useTmuxQuestion } from "@/features/session-view/composer/useTmuxQuestion";
+import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
+import { useTmuxQuestion } from "@/features/session-view/composer/question/useTmuxQuestion";
 
 const SESSION: SessionAddress = { source: "claude", sessionId: "sid-claude-01" };
 

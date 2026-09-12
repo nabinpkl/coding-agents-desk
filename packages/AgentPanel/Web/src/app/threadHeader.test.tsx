@@ -233,7 +233,34 @@ describe("App shell", () => {
    * That band is the only one with a box an image can go into -- Claude's own composer is what
    * turns a pasted path into an image -- so it is what a drop test has to be standing on.
    */
+  /**
+   * Reaches for the field, which is what attaches the pane.
+   *
+   * Reading a thread does not: the stream this opens puts a `tmux pipe-pane` on the session's
+   * pane, and a reader who opened a session to look at it has asked for nothing.
+   */
+  function engageClaudeComposer() {
+    act(() => {
+      fireEvent.focus(screen.getByLabelText("Claude composer text"));
+    });
+  }
+
+  /** An engaged session whose pane was looked for and not found. */
+  function noPaneForClaudeComposer(transport: FakeHttpTransport) {
+    engageClaudeComposer();
+    act(() => {
+      transport.deliver("/composer/stream", {
+        text: null,
+        hint: null,
+        reason: "no-pane",
+        exact: true,
+        commands: [],
+      });
+    });
+  }
+
   function mirrorClaudeComposer(transport: FakeHttpTransport) {
+    engageClaudeComposer();
     act(() => {
       transport.deliver("/composer/stream", {
         text: "",
@@ -293,9 +320,10 @@ describe("App shell", () => {
   // the safe option it reads as: without `onDragOver` calling `preventDefault` no `drop` event
   // fires at all and the file becomes the browser's to handle, so the page that declined to take
   // it is also the page that cannot decline it.
-  it("refuses the file, and sends nothing, while nothing on the session can hold an image", async () => {
+  it("refuses the file, and sends nothing, once the session is known to have no pane", async () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
+    noPaneForClaudeComposer(transport);
 
     const field = screen.getByLabelText("Claude composer text");
     const card = field.closest(".bg-card");
@@ -343,6 +371,7 @@ describe("App shell", () => {
   it("says it cannot take the file, rather than inviting a drop it will drop on the floor", async () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
+    noPaneForClaudeComposer(transport);
 
     const field = screen.getByLabelText("Claude composer text");
     const card = field.closest(".bg-card");

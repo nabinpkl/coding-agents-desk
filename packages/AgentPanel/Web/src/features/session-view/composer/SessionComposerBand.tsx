@@ -14,45 +14,17 @@ import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
 import { submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
-import type { QuestionDraft } from "@/features/session-view/composer/questionAnswers";
+import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { List, Paperclip } from "lucide-react";
 import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
-import { AskUserQuestionMirror } from "@/features/session-view/composer/AskUserQuestionMirror";
+import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
+import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
-
-/**
- * What the band needs to draw an open question and hand its answers somewhere.
- *
- * One shape for two mechanisms. `SessionComposer` builds it from whichever of them applies, so the
- * band never learns whether it is driving a pane or a window -- and neither does the surface.
- */
-export interface QuestionMirrorModel {
-  /**
-   * The tool call this question belongs to.
-   *
-   * Here so the band can key the mirror on it: the surface pages between questions and holds which
-   * one is on screen, and a new call has to start at its own first question rather than wherever
-   * the last one was left.
-   */
-  callId: string;
-  questions: readonly AskUserQuestionItem[];
-  drafts: readonly QuestionDraft[];
-  pending: boolean;
-  disabled: boolean;
-  error: string | null;
-  notice: string | null;
-  canSubmit: boolean;
-  onChoose: (question: number, option: number) => void;
-  onWriteOther: (question: number, text: string) => void;
-  onSubmit: () => void;
-  onSkip?: () => void;
-  onDismiss?: () => void;
-}
 
 export function SessionComposerBand({
   actions,

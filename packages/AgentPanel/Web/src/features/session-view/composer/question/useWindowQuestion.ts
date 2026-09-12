@@ -192,7 +192,16 @@ export function useWindowQuestion(
   const notice = status?.enabled === false ? composerReasonText(status.reason) : null;
 
   return {
-    visible: asked != null && status?.present !== false,
+    /**
+     * Whether this half owns the question, which needs the host to AFFIRM a panel.
+     *
+     * `present === true` rather than the optimistic `!== false` it used to be, and the change is
+     * the point: this was once the only half, so claiming a question before the first status let
+     * the mirror appear immediately and cost nothing. There is another half now -- the reader's
+     * own draft, drawn from the tool call and answerable wherever the session is running -- and an
+     * optimistic claim here would take every question from it and give it back a moment later.
+     */
+    visible: asked != null && status?.present === true,
     question: asked,
     /** How many questions this call carries that this half cannot reach. */
     unreachable: Math.max(0, (question?.questions.length ?? 0) - 1),
