@@ -7,9 +7,9 @@ import type { RefObject } from "react";
 import { ChevronRight } from "lucide-react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
-import { eventPreview } from "@/features/activity-feed/activityEventText";
-import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "@/features/activity-feed/activityDisplayItems";
-import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "@/features/activity-feed/ActivityEventHeading";
+import { eventPreview } from "@/features/activity-feed/rows/activityEventText";
+import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "@/features/activity-feed/rows/activityDisplayItems";
+import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 // Compact pinned header for the most recent USER event the viewer scrolled
 // past. Full-width opaque strip flush with the top of the scroll area, so

@@ -1,28 +1,28 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import { DiffBlock } from "@/features/activity-feed/DiffBlock";
+import { DiffBlock } from "@/features/activity-feed/blocks/DiffBlock";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
-import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/ActivitySystemBlocks";
+import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import {
   type DisplayRole,
   clusterLabel,
   displayRole,
-} from "@/features/activity-feed/activityDisplayItems";
+} from "@/features/activity-feed/rows/activityDisplayItems";
 import {
   eventPreview,
   isFlowBlock,
   shellCommand,
   toolIntent,
-} from "@/features/activity-feed/activityEventText";
+} from "@/features/activity-feed/rows/activityEventText";
 import {
   type PairedToolResult,
   partitionEventBlocks,
-} from "@/features/activity-feed/activityFeedLayout";
+} from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityBlock, ActivityEvent, EventCacheHit } from "@/features/activity-feed/useSessionEventsStream";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
-import { Block } from "@/features/activity-feed/ActivityBlockViews";
+import { Block } from "@/features/activity-feed/blocks/ActivityBlockViews";
 import {
   CacheBadge,
   CHIP_CLASS,
@@ -30,7 +30,7 @@ import {
   FEED_ROW_GUTTER_CLASS,
   ROLE_STYLES,
   showEventRoleLabel,
-} from "@/features/activity-feed/ActivityEventHeading";
+} from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 // Re-exported: the feed and its tests reach for the role label through the rows.
 export {
@@ -38,7 +38,7 @@ export {
   ROLE_BORDER,
   ROLE_STYLES,
   showEventRoleLabel,
-} from "@/features/activity-feed/ActivityEventHeading";
+} from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 /** What every row and block needs from the feed, bundled to stop prop drift. */
 export interface EventRowContext {

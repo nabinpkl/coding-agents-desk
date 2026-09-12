@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/streamingText";
+import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/blocks/streamingText";
 
 afterEach(() => {
   vi.useRealTimers();

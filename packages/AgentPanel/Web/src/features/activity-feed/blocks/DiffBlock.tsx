@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { generateDiffFile } from "@git-diff-view/file";
 import { DiffView, DiffModeEnum, type DiffFile } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
-import { useFontStore } from "@/features/activity-feed/fontStore";
+import { useFontStore } from "@/features/activity-feed/reading-preferences/fontStore";
 
 // Renders a unified diff for an Edit tool_use block. Uses the snippet (not
 // the full file) since the harness records old_string/new_string only.

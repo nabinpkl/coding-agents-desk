@@ -6,7 +6,7 @@ import {
   selectStickyUserIndex,
   type StickyMeasurement,
   type StickyRow,
-} from "@/features/activity-feed/activityStickyHeaders";
+} from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 
 const STICKY_H = 51;
 

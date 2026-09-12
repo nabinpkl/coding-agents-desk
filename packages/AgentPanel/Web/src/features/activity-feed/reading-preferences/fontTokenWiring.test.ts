@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FONT_TOKENS } from "@/features/activity-feed/fontStore";
+import { FONT_TOKENS } from "@/features/activity-feed/reading-preferences/fontStore";
 
 /**
  * The font settings modal is only as real as its wiring, and both ways it can

@@ -14,7 +14,7 @@ import type {
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import { FontSizeRoot } from "@/features/activity-feed/fontStore";
+import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
 import { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
 import { useUsage } from "@/features/usage/useUsage";
 import {

@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LiveTailRow, SegmentEventRow, type EventRowContext } from "@/features/activity-feed/ActivityEventRows";
+import { LiveTailRow, SegmentEventRow, type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 afterEach(() => vi.useRealTimers());

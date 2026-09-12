@@ -8,8 +8,8 @@
 
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ActivityEvent, EventCacheHit } from "@/features/activity-feed/useSessionEventsStream";
-import { displayRole, type DisplayRole } from "@/features/activity-feed/activityDisplayItems";
-import { eventPreview, toolIntent } from "@/features/activity-feed/activityEventText";
+import { displayRole, type DisplayRole } from "@/features/activity-feed/rows/activityDisplayItems";
+import { eventPreview, toolIntent } from "@/features/activity-feed/rows/activityEventText";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 
 /**

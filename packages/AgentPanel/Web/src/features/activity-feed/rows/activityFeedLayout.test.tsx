@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { leadEvent } from "@/features/activity-feed/activityDisplayItems";
-import { buildFeedLayout, partitionEventBlocks } from "@/features/activity-feed/activityFeedLayout";
+import { leadEvent } from "@/features/activity-feed/rows/activityDisplayItems";
+import { buildFeedLayout, partitionEventBlocks } from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 // The Claude adapter appends a Working Directory block to nearly every line,

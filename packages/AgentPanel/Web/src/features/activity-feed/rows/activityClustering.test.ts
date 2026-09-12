@@ -4,8 +4,8 @@ import {
   isSkillActivation,
   itemKey,
   leadEvent,
-} from "@/features/activity-feed/activityDisplayItems";
-import { buildFeedLayout } from "@/features/activity-feed/activityFeedLayout";
+} from "@/features/activity-feed/rows/activityDisplayItems";
+import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 let nextIndex = 0;

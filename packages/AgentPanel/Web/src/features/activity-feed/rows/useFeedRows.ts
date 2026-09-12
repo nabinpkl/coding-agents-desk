@@ -10,8 +10,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode, AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
-import type { DisplayItem } from "@/features/activity-feed/activityDisplayItems";
-import { buildFeedLayout } from "@/features/activity-feed/activityFeedLayout";
+import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 
 export function useFeedRows({
   events,

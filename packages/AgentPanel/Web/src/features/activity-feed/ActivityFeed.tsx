@@ -9,26 +9,26 @@ import {
   type ActivityEvent,
   type TokenUsage,
 } from "@/features/activity-feed/useSessionEventsStream";
-import { useStickToBottom } from "@/features/activity-feed/useStickToBottom";
+import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
 import {
   type DisplayItem,
   type DisplayRole,
   displayRole,
   itemKey,
   leadEvent,
-} from "@/features/activity-feed/activityDisplayItems";
-import { eventPreview } from "@/features/activity-feed/activityEventText";
-import { buildFeedLayout } from "@/features/activity-feed/activityFeedLayout";
+} from "@/features/activity-feed/rows/activityDisplayItems";
+import { eventPreview } from "@/features/activity-feed/rows/activityEventText";
+import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 import {
   jumpScrollTop,
   selectStickyCurrentIndex,
   selectStickyUserIndex,
-} from "@/features/activity-feed/activityStickyHeaders";
+} from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 import {
   forgetTranscriptAnchor,
   loadTranscriptAnchor,
   rememberTranscriptAnchor,
-} from "@/features/activity-feed/transcriptScrollStore";
+} from "@/features/activity-feed/scroll-position/transcriptScrollStore";
 import {
   ClusterRow,
   CompactionRow,
@@ -39,17 +39,17 @@ import {
   showEventRoleLabel,
   UserRow,
   type EventRowContext,
-} from "@/features/activity-feed/ActivityEventRows";
+} from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import { openAskUserQuestion, type OpenAskUserQuestion } from "@/app/askUserQuestion";
 
 import { ActivityFeedControls } from "@/features/activity-feed/ActivityFeedControls";
-import { StickyEventHeader, StickyUserHeader } from "@/features/activity-feed/ActivityFeedStickyHeaders";
+import { StickyEventHeader, StickyUserHeader } from "@/features/activity-feed/sticky-headers/ActivityFeedStickyHeaders";
 import { ActivityFeedRow } from "@/features/activity-feed/ActivityFeedRow";
-import { useFeedRows } from "@/features/activity-feed/useFeedRows";
-import { useStickyIndices } from "@/features/activity-feed/useStickyIndices";
-import { useTranscriptScrollRestore } from "@/features/activity-feed/useTranscriptScrollRestore";
+import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
+import { useStickyIndices } from "@/features/activity-feed/sticky-headers/useStickyIndices";
+import { useTranscriptScrollRestore } from "@/features/activity-feed/scroll-position/useTranscriptScrollRestore";
 
 export function ActivityFeed({
   source,

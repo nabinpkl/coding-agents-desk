@@ -17,12 +17,12 @@ import {
   UserRow,
   showEventRoleLabel,
   type EventRowContext,
-} from "@/features/activity-feed/ActivityEventRows";
+} from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 // @git-diff-view and next-themes do not run under jsdom. Markdown stays REAL:
 // whether reasoning renders its markup is the whole point of one test below.
-vi.mock("@/features/activity-feed/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),

@@ -12,7 +12,7 @@ vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
     <div data-testid="markdown-view">{content}</div>
   ),
 }));
-vi.mock("@/features/activity-feed/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 class MockResizeObserver {
   observe() {}

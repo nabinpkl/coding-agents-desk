@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useStickToBottom } from "@/features/activity-feed/useStickToBottom";
+import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
 
 // The previously-racy follow logic is now a deterministic machine driven by a
 // ResizeObserver callback and scrollTop direction. We mock the observer and

@@ -5,7 +5,7 @@ import {
   shellCommand,
   stripInlineMarkdown,
   toolIntent,
-} from "@/features/activity-feed/activityEventText";
+} from "@/features/activity-feed/rows/activityEventText";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 describe("event preview", () => {

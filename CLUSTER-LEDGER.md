@@ -25,7 +25,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | Task | Directory | Source (all) | State |
 |---|---|---|---|
 | R1 | `agent-feed/sidecar/src/http` | 36 (62) -> 10 (18) | D |
-| R2 | `packages/AgentPanel/Web/src/features/activity-feed` | 26 (44) | R |
+| R2 | `packages/AgentPanel/Web/src/features/activity-feed` | 26 (44) -> 7 (13) | D |
 | R3 | `packages/AgentPanel/Web/src/app` | 24 (50) | R |
 | R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) | R |
 | R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) | R |
@@ -87,6 +87,41 @@ move out and the machine-level ones stay:
 answer for the machine (`agentRoutes`, `botRoutes`, `inventoryRoutes`, `parkRoutes`, `usageRoutes`,
 `windowRoutes`, `agentTerminalRoutes`, `tmuxRoutes`).
 
+### R2 `packages/AgentPanel/Web/src/features/activity-feed`, 26 source files
+
+Already three deep in siblings -- `data-source/` (12, at the ceiling), `markdown/` (6),
+`transport/` (3) -- so this is the same level again, not a new one:
+
+- `blocks/` (6) one event, drawn: the chip at its head, the views for each block kind, the system
+  and raw drawers, the diff, the row that assembles them, and the client-side letter-by-letter
+  reveal. `ActivityEventHeading`, `ActivityBlockViews`, `ActivitySystemBlocks`, `ActivityEventRows`,
+  `DiffBlock`, `streamingText`.
+- `rows/` (4) what the stream becomes before anything is drawn: normalised events folded into
+  display items, the run of tool calls collapsed into one, the line a collapsed row previews, and
+  which rows a window of events has. `activityDisplayItems`, `activityEventText`,
+  `activityFeedLayout`, `useFeedRows`.
+- `scroll-position/` (3) where the transcript is scrolled: following the tail, writing down where a
+  session was left, and putting the reader back there. `useStickToBottom`, `transcriptScrollStore`,
+  `useTranscriptScrollRestore`.
+- `sticky-headers/` (3) the two bars pinned over the top: which to pin, which transcript line is at
+  the top, and the component that draws them. `activityStickyHeaders`, `useStickyIndices`,
+  `ActivityFeedStickyHeaders`.
+- `reading-preferences/` (3) three things a reader sets and expects back: the font size, the view a
+  thread opens in, and whether prompt-cache badges show. All three say in their own comments that
+  they change what a row renders and never what the transcript is. `fontStore`, `eventModeStore`,
+  `cacheHitStore`.
+
+The feature keeps 7: the feed itself and its controls, the row it virtualises, the stream it reads,
+the usage it folds out of that stream, the meter that shows it, and `activityNormalization`.
+
+`TokenMeter` has no caller inside this feature -- all three are in `features/session-view` -- so
+callers would send it out of the feature entirely. Out of scope: this task moves files within a
+directory, never between features. Left flat, noted in Deferred.
+
+`activityNormalization` has no callers at all, only its own test and a mention in the data source's
+contract fixture. With nothing to follow it stays beside the type it builds, which is in
+`useSessionEventsStream`, flat.
+
 ## Decisions
 
 Forks taken, with the alternative not taken. The standing tiebreakers, both from the desktop
@@ -137,5 +172,32 @@ which restores the test and leaves the trap armed for whoever moves the file nex
 The gate should have caught this and did not, so R10 adds `mock\.module` to check 6's expression as
 well. It stays green: there is now nothing for it to match.
 
+### A source path can also be a plain string, and typecheck cannot see it
+
+`app/typeRendering.test.ts` reads two components off disk by literal path -- it asserts a CSS rule
+about their markup rather than importing them -- so moving them into `blocks/` broke it with an
+ENOENT that `tsc` had no way to know about. This is the one breakage class the aliased-import rule
+does not cover: the specifier is not a specifier, it is an argument to `readFileSync`.
+
+There is no gate for it and this run is not inventing one; the sweep before each commit is cheap:
+
+```
+git grep -nE '"(\.\./)*src/(features|http|app|transcripts|terminal)/[A-Za-z]' \
+  -- packages/AgentPanel/Web/src agent-feed/sidecar/src
+```
+
+Run against both trees it returns eight lines, six of them `styles.css` and `markdown.css`, neither
+of which this arc moves. The test suite catches it too, which is why it is a note and not a task.
+
 ## Deferred
+
+Things this arc found and deliberately did not do, because they are a different change.
+
+- **`TokenMeter` lives in the wrong feature.** Its three callers are all in
+  `features/session-view` (`SessionComposer`, `SessionComposerBand`, `SessionView`) and nothing in
+  `features/activity-feed` imports it. Moving a file between features is a scope this arc does not
+  have: it changes which feature owns a component, not how flat a directory is.
+- **`activityNormalization` has no callers.** Only its own test, and a comment in the data source's
+  contract fixture calling it "the normalization target". Either it is dead or the fixture test is
+  meant to be reaching it. Someone should find out; a clustering pass is not the place.
 

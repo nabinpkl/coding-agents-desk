@@ -8,8 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary, BotView } from "@agentdesk/agent-feed-wire";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
-import { loadEventMode, storeEventMode } from "@/features/activity-feed/eventModeStore";
-import { loadCacheHitsVisible, storeCacheHitsVisible } from "@/features/activity-feed/cacheHitStore";
+import { loadEventMode, storeEventMode } from "@/features/activity-feed/reading-preferences/eventModeStore";
+import { loadCacheHitsVisible, storeCacheHitsVisible } from "@/features/activity-feed/reading-preferences/cacheHitStore";
 import { storeSelection, type RememberedSelection } from "@/features/sidebar/selectionStore";
 
 interface SelectedThread {

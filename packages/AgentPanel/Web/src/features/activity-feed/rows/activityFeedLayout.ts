@@ -9,7 +9,7 @@ import {
   isSkillActivation,
   type DisplayItem,
   type DisplayItemOptions,
-} from "@/features/activity-feed/activityDisplayItems";
+} from "@/features/activity-feed/rows/activityDisplayItems";
 
 /** A tool_result that renders inside the tool call it answers. */
 export interface PairedToolResult {
