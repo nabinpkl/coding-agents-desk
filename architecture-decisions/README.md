@@ -144,3 +144,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0111 | Drive the composer and the feed from events, and name the one place that cannot be | accepted | 2026-08-27 |
 | ADR-0112 | Navigate Desktops through the Web control channel | accepted | 2026-08-27 |
 | ADR-0113 | Install the local runtime outside disposable build output | accepted | 2026-08-28 |
+| ADR-0114 | Keep the panel's remembered UI state in one store, and persist only what a reader arranged | proposed | 2026-09-07 |

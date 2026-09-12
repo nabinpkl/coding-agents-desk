@@ -123,6 +123,56 @@ behaviour is meant to be universal it belongs above that branch, in the shared m
 branch used only where the two genuinely differ. This is the same trap as the surface-scoping rule
 further down: the previous conversation being about one path does not make the next change about it.
 
+## Panel state: what is remembered, and where
+
+Three places hold state in the Agent Panel, and picking the wrong one is how a reader ends up with a
+panel that remembers its font size and forgets which session it was reading.
+
+- **React state** is the default and needs no justification. Anything that should not survive a
+  reload belongs here and nowhere else: dialogs, in-flight errors, hover, drag positions mid-drag.
+- **The address bar** carries what a *link* should carry, and only that. Today that is the surface
+  (`entry`) and the sidebar view (`view`) -- `?entry=feed&view=canvas`. **Query parameters, never
+  path segments**: the panel also ships through a custom scheme whose asset resolver maps a request
+  path straight onto a bundled file with no fall back to `index.html`, and the build references its
+  assets relatively (`base: "./"`), so `/feed/canvas` 404s there even though the dev server answers
+  it. Write it with `replaceState`, not `pushState` -- choosing a view is not a navigation, and
+  making Back walk the tabs would take a reader out of the panel to leave it.
+- **Storage** remembers everything deeper than a link. The reason it exists at all is that this
+  panel is edited while it is being read: a Vite save throws away every piece of React state many
+  times an hour, and a phone whose webview was discarded comes back the same way.
+
+**The test for whether something is stored** is not "would it be nice to have back". It is:
+
+> Persist a fact about how **this reader arranged the panel**, which would cost them real work to
+> re-establish after a reload. Do not persist anything the sidecar already knows, anything derivable
+> from what it sends, or anything whose absence a reader cannot see.
+
+That last clause has a scar behind it, and it is the one to reread before storing something: which
+Bots are on the canvas is deliberately NOT stored (`AgentPanelApp.tsx`, `detachedBotIds`), because a
+canvas that comes back whole costs one click to arrange again, where one that comes back missing a
+Bot hides it from a reader who has forgotten they took it off. **Cheap to redo beats quietly
+wrong.** Store identity, never a record the stream owns: `selectionStore` keeps three strings and
+re-resolves them against the inventory, because a stored `SessionSummary` would be a second source
+of truth that nothing refreshes.
+
+**How to write it, today.** Add a field to the nearest existing preferences module for that feature
+(`features/sidebar/sidebarPreferences.ts`, `features/bots/botCanvasPreferences.ts`,
+`features/sidebar/selectionStore.ts`) rather than starting a new one. Validate every field on the
+way in rather than casting -- a stale or hand-edited shape must fall back to the default, not become
+a lookup for something that cannot exist -- and wrap every read and write in `try`/`catch`, because
+a private window and a container with storage disabled both throw. Write from ONE place, an effect
+on the value, rather than beside each of the calls that change it; that is how one of them ends up
+forgotten.
+
+**Where this is going.** There are currently three mechanisms doing this one job -- hand-rolled
+`load*`/`store*` pairs, `useSyncExternalStore` singletons, and one `zustand` store -- and none of
+them has a version or a migration, so every one silently discards a reader's value when its shape
+changes. ADR-0114 records the decision to consolidate onto `zustand`'s `persist` middleware (already
+a dependency) with `partialize`, `version` and `migrate`, and carries the migration order. Note what
+`persist` does NOT change: it makes writing easy enough that the rule above stops being enforced by
+friction, so it has to be enforced here. A store that writes everything it holds resurrects
+transient state, and each of those comes back as a bug rather than as a convenience.
+
 ## Code
 
 - Cross-platform divider callbacks expose semantic pane growth, never raw platform coordinates: positive grows the leading sidebar or lower terminal. Normalize AppKit's upward-positive and UIKit's downward-positive vertical deltas inside each divider, keep sign flips out of consumers, and test the same physical drag on both platforms.
