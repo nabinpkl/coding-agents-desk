@@ -11,7 +11,7 @@ import type {
   TmuxComposerState,
   TmuxComposerUnavailableReason,
 } from "@agentdesk/agent-feed-wire";
-import type { ModifierState } from "../keyboard/modifierLatch";
+import type { ModifierState } from "@/features/keyboard/modifierLatch";
 
 /**
  * The token Claude leaves in its box where an image went.

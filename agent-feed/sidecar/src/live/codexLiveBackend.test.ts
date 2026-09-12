@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { CodexLiveBackend } from "./codexLiveBackend.ts";
-import type { ObserverEvent } from "./claudeNetworkSource.ts";
-import { state } from "../transcripts/transcriptState.ts";
-import { sessionKey } from "../transcripts/transcriptCatalog.ts";
+import { CodexLiveBackend } from "@/live/codexLiveBackend";
+import type { ObserverEvent } from "@/live/claudeNetworkSource";
+import { state } from "@/transcripts/transcriptState";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
 
 const FIXTURE_PATH = resolve(import.meta.dir, "fixtures/codexDesktopLiveFixture.jsonl");
 const SESSION_ID = "019fe292-5466-7393-b931-8bf0c2cece82";

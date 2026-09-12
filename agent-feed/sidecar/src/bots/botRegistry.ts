@@ -13,18 +13,18 @@ import type {
   DetachBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import { startClaudeSession, startForkedClaudeSession } from "../terminal/claudeSessionLaunch.ts";
-import { directoryBelongsTo, worktreeOf } from "../git/worktree.ts";
-import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "./botStore.ts";
+import { startClaudeSession, startForkedClaudeSession } from "@/terminal/claudeSessionLaunch";
+import { directoryBelongsTo, worktreeOf } from "@/git/worktree";
+import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import {
   normalizeAddBot,
   normalizeLaunchFor,
   normalizeSessionRef,
   normalizeSessionRefCommand,
   type NormalizedLaunch,
-} from "./botCommands.ts";
-import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "./botIdempotency.ts";
-import { BotSessionStarter } from "./botSessionLaunch.ts";
+} from "@/bots/botCommands";
+import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
+import { BotSessionStarter } from "@/bots/botSessionLaunch";
 import {
   BotConflictError,
   BotForbiddenError,
@@ -35,7 +35,7 @@ import {
   type BotRegistryCatalog,
   type BotSessionLauncher,
   type ResolvedBotSession,
-} from "./botTypes.ts";
+} from "@/bots/botTypes";
 
 // Re-exported because callers reach for the registry's vocabulary through the registry.
 // The declarations live in `botTypes.ts`.

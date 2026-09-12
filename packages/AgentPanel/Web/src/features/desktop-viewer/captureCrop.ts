@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { CapturePlan } from "./tileCapturePlan";
+import type { CapturePlan } from "@/features/desktop-viewer/tileCapturePlan";
 
 /**
  * The capture plan the stream should be running, held outside the component tree.

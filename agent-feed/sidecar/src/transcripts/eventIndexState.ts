@@ -2,8 +2,8 @@
 // told, how big a raw event may be, where a nice index lands a raw line, and the one
 // place a session's index is dropped from.
 
-import { state } from "./transcriptState.ts";
-import type { ActivityEvent } from "./sources/transcriptTypes.ts";
+import { state } from "@/transcripts/transcriptState";
+import type { ActivityEvent } from "@/transcripts/sources/transcriptTypes";
 
 /**
  * One newly indexed line, addressed in both views.

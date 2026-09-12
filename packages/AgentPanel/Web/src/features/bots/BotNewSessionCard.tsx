@@ -1,12 +1,12 @@
 import { ChevronDown, SquareTerminal, X } from "lucide-react";
 import { useState } from "react";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
-import { ActivityDot } from "../sidebar/SessionMeta";
-import { SourceBadge } from "../sidebar/SourceBadge";
-import { RowMenu } from "./RowMenu";
-import { useCardResize } from "./useCardResize";
-import type { BotCardSize } from "./botCanvasPreferences";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
+import { ActivityDot } from "@/features/sidebar/SessionMeta";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { RowMenu } from "@/features/bots/RowMenu";
+import { useCardResize } from "@/features/bots/useCardResize";
+import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
 
 /** A session this panel started, before the catalog has ever heard of it. */
 export interface NewBotSession {

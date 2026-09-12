@@ -1,5 +1,5 @@
-import type { ActivityEvent, EventMode } from "../transcripts/sources/transcriptTypes.ts";
-import type { AgentRunState, AgentQueueState, TimelineEnvelope } from "./liveAgentProjection.ts";
+import type { ActivityEvent, EventMode } from "@/transcripts/sources/transcriptTypes";
+import type { AgentRunState, AgentQueueState, TimelineEnvelope } from "@/agents/liveAgentProjection";
 import type {
   AgentCommandReceipt,
   AgentSessionCapabilities,

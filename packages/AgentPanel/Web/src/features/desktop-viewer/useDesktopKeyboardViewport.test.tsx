@@ -10,7 +10,7 @@ import {
   paste,
   setup,
   stubAccessoryObserver,
-} from "./useDesktopKeyboardHarness";
+} from "@/features/desktop-viewer/useDesktopKeyboardHarness";
 
 describe("useDesktopKeyboard", () => {
   const accessoryObservers = stubAccessoryObserver();

@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ProcessRow } from "./processProbe.ts";
-import { parseProcessLstart } from "./processStartTime.ts";
-import { liveSessionProcesses, sessionOwner, readTmuxSession } from "./sessionRegistry.ts";
+import type { ProcessRow } from "@/tasks/processProbe";
+import { parseProcessLstart } from "@/tasks/processStartTime";
+import { liveSessionProcesses, sessionOwner, readTmuxSession } from "@/tasks/sessionRegistry";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 

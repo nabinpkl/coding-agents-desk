@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { TerminalsSurface } from "./TerminalsSurface";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
 
 let terminal: FakeTerminal;
 

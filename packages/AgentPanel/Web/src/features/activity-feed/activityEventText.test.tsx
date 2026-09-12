@@ -5,8 +5,8 @@ import {
   shellCommand,
   stripInlineMarkdown,
   toolIntent,
-} from "./activityEventText";
-import type { ActivityEvent } from "./useSessionEventsStream";
+} from "@/features/activity-feed/activityEventText";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 describe("event preview", () => {
   it("strips the markers a one-line preview cannot render", () => {

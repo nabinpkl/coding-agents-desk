@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronUp, CircleUser, Gauge, LayoutGrid } from "lucide-react";
-import { DesktopParkModal } from "../desktop-park/DesktopParkModal";
-import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
-import { UsageModal } from "../usage/UsageModal";
-import type { UsageHandle } from "../usage/useUsage";
-import { formatResetIn } from "../usage/formatTokens";
+import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
+import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import { UsageModal } from "@/features/usage/UsageModal";
+import type { UsageHandle } from "@/features/usage/useUsage";
+import { formatResetIn } from "@/features/usage/formatTokens";
 import {
   canReceiveFragmentedVideo,
   detectMediaCapabilities,
   summarizeMediaCapabilities,
-} from "./mediaCapabilities";
+} from "@/features/profile/mediaCapabilities";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.

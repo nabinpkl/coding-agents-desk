@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { applyProseHtml, trailingTextEdit } from "./patchProse";
+import { applyProseHtml, trailingTextEdit } from "@/features/activity-feed/markdown/patchProse";
 
 describe("trailingTextEdit", () => {
   test("recognizes characters appended inside the last element", () => {

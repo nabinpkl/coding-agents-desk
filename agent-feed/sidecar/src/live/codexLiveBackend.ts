@@ -11,7 +11,7 @@
 // id agent-feed keys codex threads by, which is what makes the mirror land on
 // the right row.
 
-import { config } from "../config.ts";
+import { config } from "@/config";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -20,15 +20,15 @@ import type {
   AgentTimelinePage,
   AgentUiEvent,
   AgentUiResponseResult,
-} from "../agents/agentBackend.ts";
+} from "@/agents/agentBackend";
 import {
   AgentBackendDisposedError,
   AgentModeUnsupportedError,
-} from "../agents/agentBackend.ts";
-import type { TimelineEnvelope } from "../agents/liveAgentProjection.ts";
-import { LiveSessionRegistry } from "./liveSessionRegistry.ts";
-import { findSession } from "../transcripts/transcriptCatalog.ts";
-import type { EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
+} from "@/agents/agentBackend";
+import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
+import { LiveSessionRegistry } from "@/live/liveSessionRegistry";
+import { findSession } from "@/transcripts/transcriptCatalog";
+import type { EventMode, TokenUsage } from "@/transcripts/sources/transcriptTypes";
 import {
   CODECX_OBSERVER_FILTER,
   decodeWebSocketMessage,
@@ -36,12 +36,12 @@ import {
   mapCodexMessage,
   type CodexMessageEvent,
   type ObservedRequestHeader,
-} from "./codexNetworkSource.ts";
-import { isCodexStream, observedAtMs, type FlowContext } from "./codexLiveFlows.ts";
-import { CodexItemStore } from "./codexLiveItems.ts";
-import { applyCodexEvent, finishStreaming } from "./codexLiveEvents.ts";
-import type { ObserverEvent, ObserverSubscription } from "./claudeNetworkSource.ts";
-import { subscribeToObserver } from "./claudeNetworkSource.ts";
+} from "@/live/codexNetworkSource";
+import { isCodexStream, observedAtMs, type FlowContext } from "@/live/codexLiveFlows";
+import { CodexItemStore } from "@/live/codexLiveItems";
+import { applyCodexEvent, finishStreaming } from "@/live/codexLiveEvents";
+import type { ObserverEvent, ObserverSubscription } from "@/live/claudeNetworkSource";
+import { subscribeToObserver } from "@/live/claudeNetworkSource";
 
 export const CODECX_LIVE_CAPABILITIES: AgentSessionCapabilities = {
   modes: ["nice"],

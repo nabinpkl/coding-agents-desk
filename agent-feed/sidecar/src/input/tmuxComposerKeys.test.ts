@@ -22,8 +22,8 @@ import {
   settle,
   typed,
   watchable,
-} from "./tmuxComposerHarness.ts";
-import { keystrokesFor } from "./tmuxComposer.ts";
+} from "@/input/tmuxComposerHarness";
+import { keystrokesFor } from "@/input/tmuxComposer";
 
 test("sends nothing when the box already reads that way", () => {
   expect(keystrokesFor(held(["already there"]), "already there")).toBe("");

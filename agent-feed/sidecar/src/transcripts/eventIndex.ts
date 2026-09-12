@@ -6,9 +6,9 @@
 // FILE fans out to every follower of that session.
 
 import chokidar from "chokidar";
-import { state, type TranscriptFollow } from "./transcriptState.ts";
-import { sessionKey } from "./transcriptCatalog.ts";
-import type { TranscriptSourceId } from "./sources/transcriptTypes.ts";
+import { state, type TranscriptFollow } from "@/transcripts/transcriptState";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
+import type { TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   dropIndexState,
   MAX_RAW_EVENT_BYTES,
@@ -16,14 +16,14 @@ import {
   niceInsertionPoint,
   type EventNotice,
   type EventSubscriber,
-} from "./eventIndexState.ts";
-import { syncIndex } from "./eventIndexBuild.ts";
+} from "@/transcripts/eventIndexState";
+import { syncIndex } from "@/transcripts/eventIndexBuild";
 
 export type {
   ActivityEvent,
   ActivityBlock,
   EventMode,
-} from "./sources/transcriptTypes.ts";
+} from "@/transcripts/sources/transcriptTypes";
 
 // Re-exported because the index is one subsystem with one address: a caller must not
 // reach past it to a half, since the refcounting below is what keeps the halves valid.
@@ -34,7 +34,7 @@ export {
   type EventNotice,
   type EventSubscriber,
 };
-export { ensureIndexed, syncIndex } from "./eventIndexBuild.ts";
+export { ensureIndexed, syncIndex } from "@/transcripts/eventIndexBuild";
 export {
   getEventCount,
   getSessionUsage,
@@ -42,7 +42,7 @@ export {
   readEventRaw,
   readEvents,
   translateEventIndex,
-} from "./eventIndexReads.ts";
+} from "@/transcripts/eventIndexReads";
 
 export function acquireIndex(source: TranscriptSourceId, sessionId: string): void {
   const key = sessionKey(source, sessionId);

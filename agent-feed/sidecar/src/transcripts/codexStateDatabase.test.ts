@@ -4,7 +4,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { reconcileSource, readCodexThreadRows } from "./transcriptCatalog.ts";
+import { reconcileSource, readCodexThreadRows } from "@/transcripts/transcriptCatalog";
 
 const temporaryDirectories: string[] = [];
 

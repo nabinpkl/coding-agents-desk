@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { canonicalClaudeModel, claudeModelAlias } from "./claudeModels.ts";
+import { canonicalClaudeModel, claudeModelAlias } from "@/usage/claudeModels";
 
 test("a variant suffix and a release date are the same model, and are trimmed", () => {
   expect(canonicalClaudeModel("claude-opus-5[1m]")).toBe("claude-opus-5");

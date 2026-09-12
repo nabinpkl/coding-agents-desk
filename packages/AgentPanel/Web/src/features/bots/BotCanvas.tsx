@@ -1,11 +1,11 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SessionView, type SessionViewContext } from "../session-view/SessionView";
-import { FileDropOverlay, useFileDropTarget } from "../session-view/fileDropTarget";
-import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
-import { SourceBadge } from "../sidebar/SourceBadge";
-import { BotAvatar } from "./BotSidebarPanel";
+import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
+import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
+import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { BotAvatar } from "@/features/bots/BotSidebarPanel";
 import {
   DEFAULT_CARD_SIZE,
   botCanvasOrderOf,
@@ -20,15 +20,15 @@ import {
   type BotCardSize,
   type BotCardSizes,
   type CanvasScroll,
-} from "./botCanvasPreferences";
-import { botSurfaceStyle } from "./botSurface";
-import { BotCardMenu } from "./BotCardMenu";
-import { BotNewSessionCard, type NewBotSession } from "./BotNewSessionCard";
-import { SessionRowMenu } from "./SessionRowMenu";
-import { BotCanvasCard, CanvasNotice } from "./BotCanvasCard";
-import { sessionKey, STRIP_GAP, type BotCommandError } from "./botCanvasCards";
-import { useRememberedCanvasScroll } from "./useRememberedCanvasScroll";
-import { useMoveAlongStrip } from "./useMoveAlongStrip";
+} from "@/features/bots/botCanvasPreferences";
+import { botSurfaceStyle } from "@/features/bots/botSurface";
+import { BotCardMenu } from "@/features/bots/BotCardMenu";
+import { BotNewSessionCard, type NewBotSession } from "@/features/bots/BotNewSessionCard";
+import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
+import { BotCanvasCard, CanvasNotice } from "@/features/bots/BotCanvasCard";
+import { sessionKey, STRIP_GAP, type BotCommandError } from "@/features/bots/botCanvasCards";
+import { useRememberedCanvasScroll } from "@/features/bots/useRememberedCanvasScroll";
+import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
 
 // Re-exported because this is the canvas's entry point: the app imports the surface and the shape
 // of a failure from one name, and the parts moving out did not move that.

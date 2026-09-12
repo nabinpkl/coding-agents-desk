@@ -1,8 +1,8 @@
 "use client";
 
 import type { UsageTotals } from "@agentdesk/agent-feed-wire";
-import { formatCount, formatPercent, formatTokens } from "./formatTokens";
-import { cachedShare, uncachedInput } from "./usageGrid";
+import { formatCount, formatPercent, formatTokens } from "@/features/usage/formatTokens";
+import { cachedShare, uncachedInput } from "@/features/usage/usageGrid";
 
 /**
  * The numbers a bucket is made of.

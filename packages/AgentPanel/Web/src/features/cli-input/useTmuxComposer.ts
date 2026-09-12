@@ -15,11 +15,11 @@ import {
   RAIL_MODIFIERS_OFF,
   releaseArmed,
   type ModifierState,
-} from "../keyboard/modifierLatch";
+} from "@/features/keyboard/modifierLatch";
 import type {
   SessionAddress,
   SidecarDataSource,
-} from "../activity-feed/data-source/SidecarDataSource";
+} from "@/features/activity-feed/data-source/SidecarDataSource";
 
 /** How long after the last keystroke the pane is brought up to date. */
 const PUSH_DEBOUNCE_MS = 90;
@@ -27,7 +27,7 @@ import {
   composerImageIds,
   type ComposerImage,
   type TmuxComposerHandle,
-} from "./tmuxComposerHandle";
+} from "@/features/cli-input/tmuxComposerHandle";
 
 // Re-exported: the hook is the address its surface already imports, and these are what
 // it hands back. The declarations live in `tmuxComposerHandle.ts`.
@@ -36,7 +36,7 @@ export {
   tmuxComposerReasonText,
   type ComposerImage,
   type TmuxComposerHandle,
-} from "./tmuxComposerHandle";
+} from "@/features/cli-input/tmuxComposerHandle";
 
 /**
  * The panel's composer, mirrored into the prompt box of the CLI this session is running in.

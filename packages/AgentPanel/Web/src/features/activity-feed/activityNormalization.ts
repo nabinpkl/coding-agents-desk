@@ -1,4 +1,4 @@
-import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
+import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 const KNOWN_BLOCK_KINDS = new Set<ActivityBlock["kind"]>([
   "text",

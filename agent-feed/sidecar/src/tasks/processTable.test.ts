@@ -2,7 +2,7 @@
 // runs behind, walking descendants, and taking one snapshot per tick.
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import {
   busiestDescendant,
   type CommandRunner,
@@ -15,7 +15,7 @@ import {
   resetProcessTableCache,
   shellDetailFrom,
   unwrapShellCommand,
-} from "./processProbe.ts";
+} from "@/tasks/processProbe";
 
 beforeEach(resetProcessTableCache);
 

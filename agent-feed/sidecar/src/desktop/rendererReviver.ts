@@ -1,5 +1,5 @@
-import { config } from "../config.ts";
-import { type ProcessRow } from "./claudeSessionResolver.ts";
+import { config } from "@/config";
+import { type ProcessRow } from "@/desktop/claudeSessionResolver";
 
 /**
  * Restarts a wedged Claude Desktop web contents by terminating its renderer children.

@@ -2,10 +2,10 @@
 // its summaries are written in, the blocks a message's content becomes, and what its
 // usage record says about tokens and the prompt cache.
 
-import { contextWindowFor } from '../../config.ts';
-import type { ActivityBlock, EventCacheHit, TokenUsage } from './transcriptTypes.ts';
+import { contextWindowFor } from "@/config";
+import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/sources/transcriptTypes";
 import { basename } from 'node:path';
-import { metadataText, plainBlock, stringifyForDisplay } from './plainActivity.ts';
+import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/sources/plainActivity";
 
 /**
  * The turn-boundary signal a line carries, or undefined when it carries none.

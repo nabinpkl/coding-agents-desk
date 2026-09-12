@@ -5,7 +5,7 @@ import {
   characterPreviewLayout,
   characterPreviewPath,
   deckMetricsForViewportHeight,
-} from "./keyboardDeckMetrics";
+} from "@/features/desktop-viewer/keyboardDeckMetrics";
 import {
   INITIAL_DECK_STATE,
   deckKeyLabel,
@@ -16,7 +16,7 @@ import {
   keyWidthWeight,
   type DeckKey,
   type KeyboardDeckState,
-} from "./keyboardDeckModel";
+} from "@/features/desktop-viewer/keyboardDeckModel";
 
 const character = (value: string): DeckKey => ({ kind: "character", value });
 const shifted: KeyboardDeckState = { page: "alphabet", shift: "on" };

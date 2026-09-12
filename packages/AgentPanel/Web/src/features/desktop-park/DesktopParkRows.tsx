@@ -2,7 +2,7 @@
 
 import { ArrowLeftToLine, ArrowRightToLine, Eye, Loader2 } from "lucide-react";
 import type { ParkMove, ParkWindow } from "@agentdesk/agent-feed-wire";
-import type { DesktopParkHandle } from "./useDesktopPark";
+import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 
 export function WindowRow({
   window: w,

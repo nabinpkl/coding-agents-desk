@@ -7,41 +7,41 @@ import type {
   ProjectSummary,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type {
   HostActionsClient,
-} from "../features/activity-feed/data-source/HostActionsClient";
-import { sidecarWindowComposerClient } from "../features/window-composer/WindowComposerClient";
-import type { EventMode } from "../features/activity-feed/data-source/AgentDataSource";
-import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
-import { FontSizeRoot } from "../features/activity-feed/fontStore";
-import { useDesktopPark } from "../features/desktop-park/useDesktopPark";
-import { useUsage } from "../features/usage/useUsage";
+} from "@/features/activity-feed/data-source/HostActionsClient";
+import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
+import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
+import { FontSizeRoot } from "@/features/activity-feed/fontStore";
+import { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
+import { useUsage } from "@/features/usage/useUsage";
 import {
   AgentSidebar,
   AgentSidebarDialog,
   type AgentSidebarMode,
-} from "../features/sidebar/AgentSidebar";
+} from "@/features/sidebar/AgentSidebar";
 import {
   HoverSidebarPreview,
   ResizableSidebar,
-} from "../features/sidebar/SidebarPresentation";
-import { useSidebarChrome } from "./useSidebarChrome";
-import { useProjectInventory } from "./useProjectInventory";
-import { useCanvasRoster } from "./useCanvasRoster";
-import { useBotCommands } from "./useBotCommands";
-import { useThreadSelection } from "./useThreadSelection";
-import { usePiSessionCreation } from "./usePiSessionCreation";
-import { AppDialogs } from "./AppDialogs";
-import { sidebarProps } from "./sidebarProps";
-import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
-import { useBots } from "../features/bots/useBots";
-import { BotCanvas, type BotCommandError } from "../features/bots/BotCanvas";
-import { botCanvasHues } from "../features/bots/botSurface";
-import type { NewBotSession } from "../features/bots/BotNewSessionCard";
-import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
-import { FileDropOverlay, useFileDropTarget } from "../features/session-view/fileDropTarget";
-import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
+} from "@/features/sidebar/SidebarPresentation";
+import { useSidebarChrome } from "@/app/useSidebarChrome";
+import { useProjectInventory } from "@/app/useProjectInventory";
+import { useCanvasRoster } from "@/app/useCanvasRoster";
+import { useBotCommands } from "@/app/useBotCommands";
+import { useThreadSelection } from "@/app/useThreadSelection";
+import { usePiSessionCreation } from "@/app/usePiSessionCreation";
+import { AppDialogs } from "@/app/AppDialogs";
+import { sidebarProps } from "@/app/sidebarProps";
+import { loadSelection, storeSelection } from "@/features/sidebar/selectionStore";
+import { useBots } from "@/features/bots/useBots";
+import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
+import { botCanvasHues } from "@/features/bots/botSurface";
+import type { NewBotSession } from "@/features/bots/BotNewSessionCard";
+import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
+import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
+import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 
 
 

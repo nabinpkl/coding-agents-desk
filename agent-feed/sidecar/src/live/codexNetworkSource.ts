@@ -13,7 +13,7 @@
 // responses-API messages for the codex live backend. It holds no session or
 // projection state; `CodexLiveBackend` owns that.
 
-import { decodeDeltaData } from "./claudeNetworkSource.ts";
+import { decodeDeltaData } from "@/live/claudeNetworkSource";
 
 /** The observer filter: codex desktop response sockets only, so we never parse anything else. */
 export const CODECX_OBSERVER_FILTER: Record<string, unknown> = {

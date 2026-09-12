@@ -4,12 +4,12 @@
 // so there is no file to watch for its arrival, only for its writes.
 
 import { stat } from "node:fs/promises";
-import { piLocation, scanPiSessions } from "../agents/piSessionCatalog.ts";
-import { PI_AGENT_CAPABILITIES, type PiSessionLocation } from "../agents/piAgentBackend.ts";
-import type { Session } from "./sources/transcriptTypes.ts";
-import { state } from "./transcriptState.ts";
-import { broadcast, findSession, scheduleBroadcast, sessionKey } from "./catalogState.ts";
-import { makeSession } from "./catalogRecords.ts";
+import { piLocation, scanPiSessions } from "@/agents/piSessionCatalog";
+import { PI_AGENT_CAPABILITIES, type PiSessionLocation } from "@/agents/piAgentBackend";
+import type { Session } from "@/transcripts/sources/transcriptTypes";
+import { state } from "@/transcripts/transcriptState";
+import { broadcast, findSession, scheduleBroadcast, sessionKey } from "@/transcripts/catalogState";
+import { makeSession } from "@/transcripts/catalogRecords";
 
 export async function reconcilePi(): Promise<void> {
   const startedAt = performance.now();

@@ -5,7 +5,7 @@ import {
   paddedRegion,
   planServes,
   wantedPixelsPerPoint,
-} from "./tileCapturePlan";
+} from "@/features/desktop-viewer/tileCapturePlan";
 
 const DISPLAY = { width: 7680, height: 4320 };
 

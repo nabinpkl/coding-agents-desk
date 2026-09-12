@@ -5,13 +5,13 @@
 
 import { realpath, stat } from "node:fs/promises";
 import { basename, relative } from "node:path";
-import { config } from "../config.ts";
-import type { Session, SourceId } from "./sources/transcriptTypes.ts";
+import { config } from "@/config";
+import type { Session, SourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   CLAUDE_SESSION_PATTERN,
   PROMPT_TITLE_CHARACTERS,
   SUMMARY_TITLE_CHARACTERS,
-} from "./catalogState.ts";
+} from "@/transcripts/catalogState";
 
 export async function canonicalDirectory(path: string): Promise<string | null> {
   try {

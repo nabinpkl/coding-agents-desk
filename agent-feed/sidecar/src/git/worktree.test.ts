@@ -12,7 +12,7 @@ import {
   prepareWorktree,
   readWorktree,
   WorktreeError,
-} from "./worktree.ts";
+} from "@/git/worktree";
 
 const roots: string[] = [];
 

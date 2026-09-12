@@ -3,7 +3,7 @@ import {
   parseProcessLstart,
   parseRegistryProcStart,
   startTimesAgree,
-} from "./processStartTime.ts";
+} from "@/tasks/processStartTime";
 
 describe("proc start parsing", () => {
   test("the registry stamp is UTC even though it carries no marker", () => {

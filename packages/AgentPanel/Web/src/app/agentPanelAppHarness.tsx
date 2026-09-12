@@ -15,12 +15,12 @@
  */
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
-import { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
-import { FakeHostBridge } from "../features/activity-feed/data-source/HostBridge";
-import { FakeHttpTransport } from "../features/activity-feed/transport/FakeHttpTransport";
-import { App } from "./AgentPanelApp";
-import { feedMock, terminalPaneMock } from "./agentPanelAppMocks";
+import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
+import { FakeHostBridge } from "@/features/activity-feed/data-source/HostBridge";
+import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
+import { App } from "@/app/AgentPanelApp";
+import { feedMock, terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 // ---------------------------------------------------------------------------
 // Fixture project data

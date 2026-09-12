@@ -17,9 +17,9 @@ import type {
   BotView,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
-import type { BotCommandError } from "../features/bots/BotCanvas";
-import type { NewBotSession } from "../features/bots/BotNewSessionCard";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { BotCommandError } from "@/features/bots/BotCanvas";
+import type { NewBotSession } from "@/features/bots/BotNewSessionCard";
 
 export function useBotCommands(
   feed: SidecarDataSource,

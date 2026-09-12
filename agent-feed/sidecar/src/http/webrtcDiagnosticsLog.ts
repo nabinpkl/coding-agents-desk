@@ -6,8 +6,8 @@
 
 import { appendFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { runtimePaths } from "../../../../tools/runtime-paths.mjs";
-import { ensureCrossSessionDirectory } from "../crossSessionDirectory.ts";
+import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
+import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
 
 // Connection diagnostics, appended per event so a failing surface (a phone on
 // LTE) leaves evidence readable on the Mac without touching the device. The

@@ -5,8 +5,8 @@
 // is a conflict, not a replay.
 
 import type { BotRecord, BotSessionRef } from "@agentdesk/agent-feed-wire";
-import type { StoredBotSnapshot } from "./botStore.ts";
-import { BotConflictError, type BotActor } from "./botTypes.ts";
+import type { StoredBotSnapshot } from "@/bots/botStore";
+import { BotConflictError, type BotActor } from "@/bots/botTypes";
 
 /** Beyond this many remembered requests the oldest are forgotten. */
 const MAX_IDEMPOTENCY_ENTRIES = 512;

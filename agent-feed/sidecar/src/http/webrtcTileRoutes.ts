@@ -19,33 +19,33 @@
 // `webrtcConnectionDiagnostics.ts`. It stays the entry point: every importer and every test
 // reaches the webrtc tile through this name.
 
-import { jsonResponse } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
-import { answer } from "./webrtcTileAnswer.ts";
-import { recordClientTelemetry, type TileTelemetry } from "./webrtcConnectionDiagnostics.ts";
-import { closeWebrtcSessions, webrtcSessionsSnapshot } from "./webrtcSessions.ts";
-import { drainEncoderTeardowns } from "./webrtcEncoderPool.ts";
-import { ATTEMPT_PATTERN, type TileOffer } from "./webrtcTileOffer.ts";
-import { diag } from "./webrtcDiagnosticsLog.ts";
-import type { WebrtcSessionsClose } from "./webrtcSessions.ts";
+import { jsonResponse } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
+import { answer } from "@/http/webrtcTileAnswer";
+import { recordClientTelemetry, type TileTelemetry } from "@/http/webrtcConnectionDiagnostics";
+import { closeWebrtcSessions, webrtcSessionsSnapshot } from "@/http/webrtcSessions";
+import { drainEncoderTeardowns } from "@/http/webrtcEncoderPool";
+import { ATTEMPT_PATTERN, type TileOffer } from "@/http/webrtcTileOffer";
+import { diag } from "@/http/webrtcDiagnosticsLog";
+import type { WebrtcSessionsClose } from "@/http/webrtcSessions";
 
-export { WebrtcEncoderDiagnostics } from "./webrtcDiagnosticsLog.ts";
-export { writeEncoderControl } from "./webrtcEncoderPool.ts";
-export { isTerminalWebrtcConnectionState } from "./webrtcConnectionState.ts";
-export { encoderDisposition, encoderStreamKey, type EncoderDisposition } from "./webrtcEncoderIdentity.ts";
-export { encoderSourceRect } from "./webrtcTileOffer.ts";
+export { WebrtcEncoderDiagnostics } from "@/http/webrtcDiagnosticsLog";
+export { writeEncoderControl } from "@/http/webrtcEncoderPool";
+export { isTerminalWebrtcConnectionState } from "@/http/webrtcConnectionState";
+export { encoderDisposition, encoderStreamKey, type EncoderDisposition } from "@/http/webrtcEncoderIdentity";
+export { encoderSourceRect } from "@/http/webrtcTileOffer";
 export {
   parseWebrtcDeliveryClientSample,
   WebrtcDeliveryDiagnostics,
   type WebrtcDeliveryClientSample,
   type WebrtcDeliveryServerSample,
-} from "./webrtcConnectionDiagnostics.ts";
+} from "@/http/webrtcConnectionDiagnostics";
 export {
   closeWebrtcSessions,
   webrtcSessionsSnapshot,
   type WebrtcSessionsClose,
   type WebrtcSessionsSnapshot,
-} from "./webrtcSessions.ts";
+} from "@/http/webrtcSessions";
 
 /** The target is a window id, or the literal `display` for the whole screen. */
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;

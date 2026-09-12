@@ -6,14 +6,14 @@ import type {
   RunningBackgroundTask,
   TaskActivity,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentDataSource, SessionReference } from "../activity-feed/data-source/AgentDataSource";
+import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 // The panel's own Shiki block, reused rather than reinvented: bash is already among its loaded
 // grammars, its engine is the pure-JS one (no wasm fetch, which is what makes it safe in the
 // phone webview), and it lazy-loads, so an unopened row costs nothing. It brings a copy button
 // with it, which is the thing you actually want to do with a command you are looking at.
-import { CodeBlock } from "../activity-feed/markdown/CodeBlock";
-import { useElapsedNow } from "./useBackgroundTasks";
-import { useTaskOutputStream } from "./useTaskOutputStream";
+import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
+import { useElapsedNow } from "@/features/background-tasks/useBackgroundTasks";
+import { useTaskOutputStream } from "@/features/background-tasks/useTaskOutputStream";
 
 function formatDuration(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));

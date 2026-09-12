@@ -7,21 +7,21 @@ import {
   pointerAccelerationGain,
   scrollAccelerationGain,
   type ViewportPoint,
-} from "./tileViewportMath";
-import { createZoomView, type SettleOutcome, type ViewLayers } from "./zoomModels";
-import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "./captureCrop";
-import { useZoomMode } from "./zoomMode";
-import { useOverviewLayer } from "./overviewLayer";
-import { CursorImageCache } from "./cursorImageCache";
-import { createCursorMirror } from "./tileViewportCursorMirror";
-import { createDragVisuals } from "./tileViewportDragVisuals";
-import { createGestureTelemetry } from "./tileViewportGestureTelemetry";
-import { createPointerHandlers } from "./tileViewportPointerHandlers";
-import { createPuckHandlers } from "./tileViewportPuck";
-import type { ViewportRuntime } from "./tileViewportRuntime";
-import { createScrolling } from "./tileViewportScrolling";
-import { CursorOverlay, PointerScrollPuck } from "./TileViewportOverlays";
-import { createFrameGeometry } from "./tileViewportFrame";
+} from "@/features/desktop-viewer/tileViewportMath";
+import { createZoomView, type SettleOutcome, type ViewLayers } from "@/features/desktop-viewer/zoomModels";
+import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "@/features/desktop-viewer/captureCrop";
+import { useZoomMode } from "@/features/desktop-viewer/zoomMode";
+import { useOverviewLayer } from "@/features/desktop-viewer/overviewLayer";
+import { CursorImageCache } from "@/features/desktop-viewer/cursorImageCache";
+import { createCursorMirror } from "@/features/desktop-viewer/tileViewportCursorMirror";
+import { createDragVisuals } from "@/features/desktop-viewer/tileViewportDragVisuals";
+import { createGestureTelemetry } from "@/features/desktop-viewer/tileViewportGestureTelemetry";
+import { createPointerHandlers } from "@/features/desktop-viewer/tileViewportPointerHandlers";
+import { createPuckHandlers } from "@/features/desktop-viewer/tileViewportPuck";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
+import { createScrolling } from "@/features/desktop-viewer/tileViewportScrolling";
+import { CursorOverlay, PointerScrollPuck } from "@/features/desktop-viewer/TileViewportOverlays";
+import { createFrameGeometry } from "@/features/desktop-viewer/tileViewportFrame";
 
 export type ViewportGestureKind = "pointer" | "scroll" | "view-pan" | "pinch-pan";
 export type ViewportGestureOutcome =

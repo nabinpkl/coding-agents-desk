@@ -16,20 +16,20 @@ import {
   keyWidthWeight,
   type DeckKey,
   type KeyboardDeckState,
-} from "./keyboardDeckModel";
+} from "@/features/desktop-viewer/keyboardDeckModel";
 import {
   characterPreviewLayout,
   keyExitSlop,
   type CharacterPreviewLayout,
   type KeyboardDeckMetrics,
-} from "./keyboardDeckMetrics";
-import { DeckKeycap, DeckKeyPreview } from "./KeyboardDeckKeycap";
+} from "@/features/desktop-viewer/keyboardDeckMetrics";
+import { DeckKeycap, DeckKeyPreview } from "@/features/desktop-viewer/KeyboardDeckKeycap";
 import {
   cellAtPoint,
   deckHitCells,
   pointHoldsCell,
   type DeckCell,
-} from "./keyboardDeckHitTest";
+} from "@/features/desktop-viewer/keyboardDeckHitTest";
 
 interface ActivePress {
   pointerId: number;

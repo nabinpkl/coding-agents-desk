@@ -10,7 +10,7 @@ import {
   encoderSourceRect,
   encoderDisposition,
   encoderStreamKey,
-} from "./webrtcTileRoutes.ts";
+} from "@/http/webrtcTileRoutes";
 
 describe("WebRTC encoder diagnostics", () => {
   test("flushes each control command instead of waiting for a full pipe buffer", () => {

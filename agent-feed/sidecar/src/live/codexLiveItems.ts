@@ -6,8 +6,8 @@
 // between those events, so a delta has something to append to and an abruptly closed
 // socket has something to complete.
 
-import { LiveAgentProjection } from "../agents/liveAgentProjection.ts";
-import type { ActivityBlock, EventCacheHit } from "../transcripts/sources/transcriptTypes.ts";
+import { LiveAgentProjection } from "@/agents/liveAgentProjection";
+import type { ActivityBlock, EventCacheHit } from "@/transcripts/sources/transcriptTypes";
 
 const TOOL_RESULT_PREVIEW_CAP = 16_000;
 

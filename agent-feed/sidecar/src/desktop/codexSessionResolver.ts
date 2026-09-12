@@ -1,8 +1,8 @@
 import type { DesktopAuditSnapshot, WindowInputReason, WindowTarget } from "@agentdesk/agent-feed-wire";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { config } from "../config.ts";
-import type { ProcessRow } from "./claudeSessionResolver.ts";
+import { config } from "@/config";
+import type { ProcessRow } from "@/desktop/claudeSessionResolver";
 
 /**
  * Resolves a Codex Desktop thread id to the window showing it.

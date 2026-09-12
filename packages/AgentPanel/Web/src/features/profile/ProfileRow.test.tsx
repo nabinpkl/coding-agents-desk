@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageReport } from "@agentdesk/agent-feed-wire";
-import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
-import { ProfileRow } from "./ProfileRow";
-import type { UsageHandle, UsageState } from "../usage/useUsage";
+import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import { ProfileRow } from "@/features/profile/ProfileRow";
+import type { UsageHandle, UsageState } from "@/features/usage/useUsage";
 
 /** jsdom has no dialog implementation; the modal drives `showModal` and `close`. */
 beforeEach(() => {

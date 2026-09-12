@@ -16,8 +16,8 @@ import {
   REMOTE_MODIFIER_ORDER,
   remoteKeyForCharacter,
   shouldPrimeKeyboard,
-} from "./desktopKeyboardModel";
-import { CAPTURE_SENTINEL } from "./desktopKeyboardPreferences";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
+import { CAPTURE_SENTINEL } from "@/features/desktop-viewer/desktopKeyboardPreferences";
 import {
   clearFocusTimer,
   clearLocalState,
@@ -25,7 +25,7 @@ import {
   hide,
   resetCapture,
   updatePresentation,
-} from "./desktopKeyboardSession";
+} from "@/features/desktop-viewer/desktopKeyboardSession";
 import {
   acceptEncodedKeys,
   acceptText,
@@ -33,8 +33,8 @@ import {
   backspaceDraft,
   sendControl,
   sendText,
-} from "./desktopKeyboardSend";
-import type { KeyboardContext } from "./desktopKeyboardContext";
+} from "@/features/desktop-viewer/desktopKeyboardSend";
+import type { KeyboardContext } from "@/features/desktop-viewer/desktopKeyboardContext";
 
 export function prepareCapture(ctx: KeyboardContext) {
   const state = ctx.presentationRef.current.presentation;

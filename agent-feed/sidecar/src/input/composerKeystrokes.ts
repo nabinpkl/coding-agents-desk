@@ -4,9 +4,9 @@
 // when the box already reads that way, an append when it is a prefix, and a clear by row
 // count and a retype for everything else.
 
-import { hexSend, type TmuxPaneView } from "../terminal/tmuxSessions.ts";
-import { ATTACHMENT, composerBox, composerText, type ComposerBox } from "./composerBox.ts";
-import type { TmuxComposerRuntime } from "./tmuxComposerRuntime.ts";
+import { hexSend, type TmuxPaneView } from "@/terminal/tmuxSessions";
+import { ATTACHMENT, composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+import type { TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";
 
 /** Kill to the start of the visual row. One per row is what empties the box. */
 const KILL_ROW = "\u0015";

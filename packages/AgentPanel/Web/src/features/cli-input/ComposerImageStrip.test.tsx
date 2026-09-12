@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ComposerImageStrip } from "./ComposerImageStrip";
+import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 
 const SENT = { id: 1, url: "blob:one" };
 /** An image put into the pane by whoever is sitting there: a token, and no bytes this side saw. */

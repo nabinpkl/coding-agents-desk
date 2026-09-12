@@ -5,7 +5,7 @@
 // telemetry looks like.
 
 import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type {
   DesktopControlInput,
   WebrtcTileAnswer,

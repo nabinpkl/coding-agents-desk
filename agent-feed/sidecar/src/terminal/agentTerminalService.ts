@@ -14,7 +14,7 @@ import type {
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
 } from "@agentdesk/agent-feed-wire";
-import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
+import { PtyManagerClient, type PtySessionConnection } from "@/terminal/ptyClient";
 import {
   attachedTmuxClients,
   captureTmuxHistory,
@@ -28,9 +28,9 @@ import {
   resizeTmuxWindow,
   restoreTmuxMouse,
   tmuxSessionExists,
-} from "./tmuxSessions.ts";
-import { TmuxAttachments, type TmuxSessionConnection } from "./tmuxAttachment.ts";
-import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
+} from "@/terminal/tmuxSessions";
+import { TmuxAttachments, type TmuxSessionConnection } from "@/terminal/tmuxAttachment";
+import type { PtyEnvelope, PtySessionSummary } from "@/terminal/ptyProtocol";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
@@ -38,19 +38,19 @@ import {
   AgentTerminalUnavailableError,
   decodedBase64Length,
   requiredDimension,
-} from "./agentTerminalErrors.ts";
+} from "@/terminal/agentTerminalErrors";
 import {
   identifyTerminal,
   liveTmuxSession,
   type ResolvedAgentTerminalSession,
   type TerminalIdentity,
-} from "./agentTerminalIdentity.ts";
-import { streamMessage } from "./terminalStreamMessages.ts";
+} from "@/terminal/agentTerminalIdentity";
+import { streamMessage } from "@/terminal/terminalStreamMessages";
 import {
   connectPtyTerminal,
   connectTmuxTerminal,
   type AgentTerminalPtyClient,
-} from "./agentTerminalBackends.ts";
+} from "@/terminal/agentTerminalBackends";
 
 // Re-exported because this file is the terminal's entry point: the routes want the errors, the
 // composer wants the pane lookup, and neither should have to know which sibling holds them.

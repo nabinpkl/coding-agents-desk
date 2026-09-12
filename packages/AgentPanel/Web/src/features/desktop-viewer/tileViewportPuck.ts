@@ -1,7 +1,7 @@
 // The scroll puck: dragging it, tapping it, and the arbitration a double tap needs.
 
-import { POINTER_SCROLL_PUCK_SIDE, SCROLL_SLOP } from "./tileViewportConstants";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+import { POINTER_SCROLL_PUCK_SIDE, SCROLL_SLOP } from "@/features/desktop-viewer/tileViewportConstants";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
 
 export function createPuckHandlers(ctx: ViewportRuntime) {
   return {

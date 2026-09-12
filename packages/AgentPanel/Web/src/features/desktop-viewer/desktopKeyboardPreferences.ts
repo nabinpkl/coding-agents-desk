@@ -6,8 +6,8 @@
 // that forgot it would put the browser's keyboard back over the deck they picked.
 
 import type { RemoteModifier } from "@agentdesk/agent-feed-wire";
-import type { ModifierState } from "./desktopKeyboardModel";
-import type { KeyboardMode } from "./desktopKeyboardContext";
+import type { ModifierState } from "@/features/desktop-viewer/desktopKeyboardModel";
+import type { KeyboardMode } from "@/features/desktop-viewer/desktopKeyboardContext";
 
 export const AUTO_KEYBOARD_STORAGE_KEY = "agentdesk.desktop-keyboard-auto.v2";
 export const KEYBOARD_MODE_STORAGE_KEY = "agentdesk.desktop-keyboard-mode.v1";

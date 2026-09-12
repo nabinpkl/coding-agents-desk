@@ -4,8 +4,8 @@ import {
   BotConflictError,
   BotForbiddenError,
   BotNotFoundError,
-} from "./botRegistry.ts";
-import { botRegistryHarness } from "./botRegistryHarness.ts";
+} from "@/bots/botRegistry";
+import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
 const { addBot, addSessions, fixture, projects, recordingLauncher, sessions, summary, temporaryDirectories } = botRegistryHarness();
 

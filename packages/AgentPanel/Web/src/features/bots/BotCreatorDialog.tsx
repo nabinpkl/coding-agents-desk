@@ -1,7 +1,7 @@
 import { Folder, LoaderCircle, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
-import { BotAvatar } from "./BotSidebarPanel";
+import { BotAvatar } from "@/features/bots/BotSidebarPanel";
 
 /**
  * The registry's own cap on a first turn, repeated here so the dialog refuses before the round

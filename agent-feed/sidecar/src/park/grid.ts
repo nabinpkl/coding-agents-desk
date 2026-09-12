@@ -9,7 +9,7 @@
 // which matters because the only desk it is aimed at lives in another login
 // session that a test process cannot reach.
 
-import type { Rect } from "./ladder.ts";
+import type { Rect } from "@/park/ladder";
 
 /** A window's own idea of how big it should be. */
 export interface Placeable {

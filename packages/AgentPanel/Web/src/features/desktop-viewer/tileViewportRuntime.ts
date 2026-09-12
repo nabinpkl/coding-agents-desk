@@ -6,14 +6,14 @@
 // second copy of a fact another part writes.
 
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import type { ViewportPoint } from "./tileViewportMath";
-import type { createZoomView, ViewLayers } from "./zoomModels";
-import type { CursorImageCache } from "./cursorImageCache";
+import type { ViewportPoint } from "@/features/desktop-viewer/tileViewportMath";
+import type { createZoomView, ViewLayers } from "@/features/desktop-viewer/zoomModels";
+import type { CursorImageCache } from "@/features/desktop-viewer/cursorImageCache";
 import type {
   ViewportGestureKind,
   ViewportGestureOutcome,
   ViewportGestureTelemetry,
-} from "./TileViewport";
+} from "@/features/desktop-viewer/TileViewport";
 
 export interface ViewportRuntime {
   // --- the elements this mount owns ---

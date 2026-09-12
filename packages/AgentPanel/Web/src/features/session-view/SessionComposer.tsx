@@ -30,67 +30,67 @@ import type {
   SessionSummary,
   SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import type { HostActionsClient } from "../activity-feed/data-source/HostActionsClient";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import {
   type QuestionPanelStatus,
   WindowComposerError,
   type WindowComposerClient,
   type WindowComposerStatus,
   WindowQuestionError,
-} from "../window-composer/WindowComposerClient";
+} from "@/features/window-composer/WindowComposerClient";
 import type {
   AgentSessionControlState,
   EventMode,
-} from "../activity-feed/data-source/AgentDataSource";
-import { ActivityFeed } from "../activity-feed/ActivityFeed";
-import { TokenMeter } from "../activity-feed/TokenMeter";
-import type { TokenUsage } from "../activity-feed/useSessionEventsStream";
-import { BackgroundTasksPanel } from "../background-tasks/BackgroundTasksPanel";
-import { RunningTasksChip } from "../background-tasks/RunningTasksChip";
-import { useBackgroundTasks } from "../background-tasks/useBackgroundTasks";
-import { SummaryBand } from "../summary/SummaryBand";
-import { SummaryControl } from "../summary/SummaryControl";
-import { useSummary } from "../summary/useSummary";
-import { cliInputReasonText, useCliInput, type CliInputHandle } from "../cli-input/useCliInput";
+} from "@/features/activity-feed/data-source/AgentDataSource";
+import { ActivityFeed } from "@/features/activity-feed/ActivityFeed";
+import { TokenMeter } from "@/features/activity-feed/TokenMeter";
+import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
+import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTasksPanel";
+import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
+import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTasks";
+import { SummaryBand } from "@/features/summary/SummaryBand";
+import { SummaryControl } from "@/features/summary/SummaryControl";
+import { useSummary } from "@/features/summary/useSummary";
+import { cliInputReasonText, useCliInput, type CliInputHandle } from "@/features/cli-input/useCliInput";
 import {
   tmuxComposerReasonText,
   useTmuxComposer,
   type ComposerImage,
-} from "../cli-input/useTmuxComposer";
-import { ComposerImageStrip } from "../cli-input/ComposerImageStrip";
-import { ComposerCommandList } from "../cli-input/ComposerCommandList";
-import { TerminalKeyRail } from "../terminal/TerminalKeyRail";
-import { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
-import type { ModifierState } from "../keyboard/modifierLatch";
+} from "@/features/cli-input/useTmuxComposer";
+import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
+import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
+import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
+import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
+import type { ModifierState } from "@/features/keyboard/modifierLatch";
 import type { ComposerCommand, RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
-import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
-import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
-import type { AgentTerminalState } from "../terminal/useAgentTerminal";
-import { terminalContextKey } from "../terminal/terminalContext";
+import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
+import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
+import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
+import { terminalContextKey } from "@/features/terminal/terminalContext";
 import {
   toggleTerminalComposer,
   useTerminalComposerShown,
-} from "../terminal/terminalComposerPreference";
-import { AskUserQuestionMirror, useClaudeWindowQuestion } from "./AskUserQuestionMirror";
-import { ExtensionUISurface } from "./SessionExtensionUI";
+} from "@/features/terminal/terminalComposerPreference";
+import { AskUserQuestionMirror, useClaudeWindowQuestion } from "@/features/session-view/AskUserQuestionMirror";
+import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
   composerReasonText,
   TerminalControl,
   TerminalNotice,
-} from "./SessionTerminalControls";
-import type { AgentTerminalComposer, TerminalState } from "./sessionTerminalTypes";
-import { useAutoGrowingTextArea } from "./useAutoGrowingTextArea";
-import { useWindowComposer } from "./useWindowComposer";
-import { harnessName } from "./SessionView";
-import { composerActions, submitComposer, submitOwnedTransport } from "./sessionComposerActions";
+} from "@/features/session-view/SessionTerminalControls";
+import type { AgentTerminalComposer, TerminalState } from "@/features/session-view/sessionTerminalTypes";
+import { useAutoGrowingTextArea } from "@/features/session-view/useAutoGrowingTextArea";
+import { useWindowComposer } from "@/features/session-view/useWindowComposer";
+import { harnessName } from "@/features/session-view/SessionView";
+import { composerActions, submitComposer, submitOwnedTransport } from "@/features/session-view/sessionComposerActions";
 import {
   composerCaption,
   composerEditor,
   composerSectionLabel,
-} from "./sessionComposerEditor";
-import type { ComposerModel } from "./sessionComposerModel";
-import { SessionComposerBand } from "./SessionComposerBand";
+} from "@/features/session-view/sessionComposerEditor";
+import type { ComposerModel } from "@/features/session-view/sessionComposerModel";
+import { SessionComposerBand } from "@/features/session-view/SessionComposerBand";
 
 /** One action in the composer's action row, rendered in array order. */
 export type ComposerAction = {

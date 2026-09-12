@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import type { DesktopNavigationState } from "@agentdesk/agent-feed-wire";
-import { useDesktopNavigation } from "./useDesktopNavigation";
+import { useDesktopNavigation } from "@/features/desktop-viewer/useDesktopNavigation";
 
 const snapshot: DesktopNavigationState = {
   type: "desktop-state", revision: 1, captureDisplayId: "A", displays: [{

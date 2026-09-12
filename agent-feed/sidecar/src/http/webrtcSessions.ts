@@ -4,10 +4,10 @@
 // question "is anything still streaming" is one a person asks from a terminal (`just
 // webrtc-sessions`) far more often than from the panel.
 
-import { killSharedEncoder, sharedEncoders, type SharedEncoder } from "./webrtcEncoderPool.ts";
-import { diag } from "./webrtcDiagnosticsLog.ts";
-import { connectionDiagnostics } from "./webrtcConnectionDiagnostics.ts";
-import type { TileVideoCodec } from "./webrtcTileCodec.ts";
+import { killSharedEncoder, sharedEncoders, type SharedEncoder } from "@/http/webrtcEncoderPool";
+import { diag } from "@/http/webrtcDiagnosticsLog";
+import { connectionDiagnostics } from "@/http/webrtcConnectionDiagnostics";
+import type { TileVideoCodec } from "@/http/webrtcTileCodec";
 import { basename } from "node:path";
 
 export interface WebrtcSessionsSnapshot {

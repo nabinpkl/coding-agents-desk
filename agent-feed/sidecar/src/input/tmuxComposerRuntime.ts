@@ -7,10 +7,10 @@ import {
   hexSend,
   TmuxUnavailable,
   type TmuxPaneView,
-} from "../terminal/tmuxSessions.ts";
-import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
-import { composerBox, composerText, type ComposerBox } from "./composerBox.ts";
-import { composerPanes, type TmuxComposerPanes } from "./tmuxComposerPanes.ts";
+} from "@/terminal/tmuxSessions";
+import { liveTmuxSession } from "@/terminal/agentTerminalService";
+import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+import { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 
 /** Everything the live functions need from tmux, injected so the suite needs no tmux server. */
 export interface TmuxComposerRuntime {

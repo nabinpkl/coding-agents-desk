@@ -13,25 +13,25 @@ import {
   deliverProjects,
   restoreViewport,
   setup,
-} from "./agentPanelAppHarness";
+} from "@/app/agentPanelAppHarness";
 import {
   terminalPaneMock,
-} from "./agentPanelAppMocks";
+} from "@/app/agentPanelAppMocks";
 
-vi.mock("../features/activity-feed/ActivityFeed", async () => {
-  const { activityFeedModule } = await import("./agentPanelAppMocks");
+vi.mock("@/features/activity-feed/ActivityFeed", async () => {
+  const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
   return activityFeedModule();
 });
-vi.mock("../features/terminal/AgentTerminalPane", async () => {
-  const { terminalPaneModule } = await import("./agentPanelAppMocks");
+vi.mock("@/features/terminal/AgentTerminalPane", async () => {
+  const { terminalPaneModule } = await import("@/app/agentPanelAppMocks");
   return terminalPaneModule();
 });
-vi.mock("../features/activity-feed/markdown/Markdown", async () => {
-  const { markdownModule } = await import("./agentPanelAppMocks");
+vi.mock("@/features/activity-feed/markdown/Markdown", async () => {
+  const { markdownModule } = await import("@/app/agentPanelAppMocks");
   return markdownModule();
 });
-vi.mock("../features/activity-feed/DiffBlock", async () => {
-  const { diffBlockModule } = await import("./agentPanelAppMocks");
+vi.mock("@/features/activity-feed/DiffBlock", async () => {
+  const { diffBlockModule } = await import("@/app/agentPanelAppMocks");
   return diffBlockModule();
 });
 

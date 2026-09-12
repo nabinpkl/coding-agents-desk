@@ -5,10 +5,10 @@
 // about the session, and how a finished or half-finished message is published to the
 // projection a reader is subscribed to.
 
-import { contextWindowFor } from "../config.ts";
-import { LiveAgentProjection } from "../agents/liveAgentProjection.ts";
-import type { ActivityBlock, EventCacheHit, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
-import type { AnthropicStreamEvent, ToolResultItem } from "./claudeNetworkSource.ts";
+import { contextWindowFor } from "@/config";
+import { LiveAgentProjection } from "@/agents/liveAgentProjection";
+import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import type { AnthropicStreamEvent, ToolResultItem } from "@/live/claudeNetworkSource";
 
 const TOOL_RESULT_PREVIEW_CAP = 16_000;
 

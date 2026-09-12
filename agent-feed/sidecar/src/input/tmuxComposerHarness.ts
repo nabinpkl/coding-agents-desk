@@ -10,8 +10,8 @@ import {
   composerText,
   type TmuxComposerRuntime,
   type TmuxComposerWatchRuntime,
-} from "./tmuxComposer.ts";
-import type { TmuxPaneView } from "../terminal/tmuxSessions.ts";
+} from "@/input/tmuxComposer";
+import type { TmuxPaneView } from "@/terminal/tmuxSessions";
 
 export const RULE = "─".repeat(60);
 

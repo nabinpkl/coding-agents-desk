@@ -20,25 +20,25 @@ import {
   RtpHeader,
   RtpPacket,
 } from "werift";
-import { config } from "../config.ts";
-import { controlHelper } from "../desktop/controlHelper.ts";
-import { helperBinary, missingHelperMessage } from "../desktop/helperBinary.ts";
-import { jsonResponse } from "./httpResponses.ts";
-import { packetizeH264 } from "./h264Packetizer.ts";
-import { packetizeH265 } from "./h265Packetizer.ts";
-import { resolveDisplayTarget, DisplayTargetUnavailable } from "./webrtcDisplayTarget.ts";
-import { chooseTileVideoCodec } from "./webrtcTileCodec.ts";
+import { config } from "@/config";
+import { controlHelper } from "@/desktop/controlHelper";
+import { helperBinary, missingHelperMessage } from "@/desktop/helperBinary";
+import { jsonResponse } from "@/http/httpResponses";
+import { packetizeH264 } from "@/http/h264Packetizer";
+import { packetizeH265 } from "@/http/h265Packetizer";
+import { resolveDisplayTarget, DisplayTargetUnavailable } from "@/http/webrtcDisplayTarget";
+import { chooseTileVideoCodec } from "@/http/webrtcTileCodec";
 import {
   candidateLines,
   diag,
   nextDiagSequence,
-} from "./webrtcDiagnosticsLog.ts";
+} from "@/http/webrtcDiagnosticsLog";
 import {
   connectionDiagnostics,
   pruneConnectionDiagnostics,
   WebrtcDeliveryDiagnostics,
   type ConnectionDiagnostic,
-} from "./webrtcConnectionDiagnostics.ts";
+} from "@/http/webrtcConnectionDiagnostics";
 import {
   acquireSharedEncoder,
   encoderStdin,
@@ -49,17 +49,17 @@ import {
   waitForEncoderMetadata,
   type EncoderSubscriber,
   type SharedEncoder,
-} from "./webrtcEncoderPool.ts";
-import { encoderStreamKey } from "./webrtcEncoderIdentity.ts";
-import { createTileControl } from "./webrtcTileControl.ts";
+} from "@/http/webrtcEncoderPool";
+import { encoderStreamKey } from "@/http/webrtcEncoderIdentity";
+import { createTileControl } from "@/http/webrtcTileControl";
 import {
   ATTEMPT_PATTERN,
   bounded,
   encoderSourceRect,
   type TileOffer,
-} from "./webrtcTileOffer.ts";
-import { isTerminalWebrtcConnectionState } from "./webrtcConnectionState.ts";
-import { releaseSupersededViewer } from "./webrtcSessions.ts";
+} from "@/http/webrtcTileOffer";
+import { isTerminalWebrtcConnectionState } from "@/http/webrtcConnectionState";
+import { releaseSupersededViewer } from "@/http/webrtcSessions";
 
 /**
  * The Mac's tailnet address, derived from the CGNAT range tailscale uses.

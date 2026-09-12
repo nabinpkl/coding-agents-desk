@@ -10,7 +10,7 @@ import type {
   AgentHttpTransport,
   SubscribeHandlers,
   TransportResponse,
-} from "./AgentHttpTransport";
+} from "@/features/activity-feed/transport/AgentHttpTransport";
 
 interface OpenSubscription {
   path: string;

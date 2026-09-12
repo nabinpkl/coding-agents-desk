@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WebrtcCursorImage } from "@agentdesk/agent-feed-wire";
-import { CursorImageCache } from "./cursorImageCache";
+import { CursorImageCache } from "@/features/desktop-viewer/cursorImageCache";
 
 function image(hash: string, png?: string): WebrtcCursorImage {
   return {

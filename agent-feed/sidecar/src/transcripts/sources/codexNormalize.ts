@@ -5,8 +5,8 @@
 // `extractBlockRaw` both read this, which is what keeps a block's index the same in
 // the feed and in the Raw drawer.
 
-import { isHarnessUserText } from '../humanTurns.ts';
-import type { ActivityBlock, LineResult, ParsedLine } from './transcriptTypes.ts';
+import { isHarnessUserText } from "@/transcripts/humanTurns";
+import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/sources/transcriptTypes";
 import {
   metadataBlock,
   metadataText,
@@ -14,7 +14,7 @@ import {
   plainEvent,
   rawBlock,
   stringifyForDisplay,
-} from './plainActivity.ts';
+} from "@/transcripts/sources/plainActivity";
 import {
   CODEX_EVENT_LABELS,
   CODEX_TOP_LEVEL_LABELS,
@@ -29,9 +29,9 @@ import {
   type NormalizedCodexBlock,
   type NormalizedCodexLine,
   type ResponseItemPayload,
-} from './codexPayloads.ts';
-import { extractReasoningText, joinTextContent } from './codexReasoning.ts';
-import { classifyCodexLine } from './lineClass.ts';
+} from "@/transcripts/sources/codexPayloads";
+import { extractReasoningText, joinTextContent } from "@/transcripts/sources/codexReasoning";
+import { classifyCodexLine } from "@/transcripts/sources/lineClass";
 
 export function normalizeMessageContent(content: unknown): NormalizedCodexBlock[] {
   if (typeof content === 'string') {

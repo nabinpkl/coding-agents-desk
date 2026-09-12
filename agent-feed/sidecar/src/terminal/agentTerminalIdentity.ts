@@ -17,16 +17,16 @@ import type {
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
-import { claudeSessionPaneName } from "./claudeSessionLaunch.ts";
-import { findTmuxSessionByIdentity } from "./tmuxSessions.ts";
-import { currentProcessTable } from "../tasks/processProbe.ts";
-import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
+import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
+import { findTmuxSessionByIdentity } from "@/terminal/tmuxSessions";
+import { currentProcessTable } from "@/tasks/processProbe";
+import { liveSessionProcesses } from "@/tasks/sessionRegistry";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
   AgentTerminalNotFoundError,
   requiredSessionUuid,
-} from "./agentTerminalErrors.ts";
+} from "@/terminal/agentTerminalErrors";
 
 export interface ResolvedAgentTerminalSession {
   projectPath: string;

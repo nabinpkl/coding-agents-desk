@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { claudeAdapter } from './claudeTranscript.ts';
-import { codexAdapter } from './codexTranscript.ts';
+import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
+import { codexAdapter } from "@/transcripts/sources/codexTranscript";
 
 function blocks(adapter: typeof claudeAdapter | typeof codexAdapter, record: unknown) {
   return adapter.processLine(JSON.stringify(record))?.event?.blocks ?? [];

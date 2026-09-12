@@ -4,7 +4,7 @@
 // Every comment below is a measurement about how tmux numbers rows and how a terminal
 // replays them. Read them before changing an argument list.
 
-import { TmuxUnavailable, demand, tmux } from "./tmuxCommand.ts";
+import { TmuxUnavailable, demand, tmux } from "@/terminal/tmuxCommand";
 
 /**
  * What tmux is asked for: the scrollback, and deliberately NOT the screen.

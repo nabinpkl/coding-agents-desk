@@ -7,11 +7,11 @@
  * message pairs, so it could and did drift from the host it imitated; there is one envelope to
  * imitate now, and it carries no field of anything the sidecar says.
  */
-import { route } from "./fixtureRoutes";
+import { route } from "@/app/fixtureRoutes";
 
 // Re-exported: `main.tsx` installs the fixture, and the panel's own tests read the
 // canned data. The declarations live in `fixtureData.ts`.
-export { FIXTURE_PROJECTS, FIXTURE_SESSIONS } from "./fixtureData";
+export { FIXTURE_PROJECTS, FIXTURE_SESSIONS } from "@/app/fixtureData";
 
 /**
  * Installs the fake sidecar as the page's message handler.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { leadEvent } from "./activityDisplayItems";
-import { buildFeedLayout, partitionEventBlocks } from "./activityFeedLayout";
-import type { ActivityEvent } from "./useSessionEventsStream";
+import { leadEvent } from "@/features/activity-feed/activityDisplayItems";
+import { buildFeedLayout, partitionEventBlocks } from "@/features/activity-feed/activityFeedLayout";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 // The Claude adapter appends a Working Directory block to nearly every line,
 // which is what defeated both "is this event only X?" predicates below.

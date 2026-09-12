@@ -1,7 +1,7 @@
 "use client";
 
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
-import { formatAge, formatResetIn, STALE_QUOTA_MS } from "./formatTokens";
+import { formatAge, formatResetIn, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
 
 /**
  * One row tall whether or not the vendor publishes a limit, so its absence moves nothing.

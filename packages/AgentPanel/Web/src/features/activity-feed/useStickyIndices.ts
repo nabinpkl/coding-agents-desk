@@ -10,13 +10,13 @@
 import { useMemo } from "react";
 import type { RefObject } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
-import type { ActivityEvent } from "./useSessionEventsStream";
-import type { EventMode } from "./data-source/AgentDataSource";
-import { leadEvent, type DisplayItem } from "./activityDisplayItems";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
+import { leadEvent, type DisplayItem } from "@/features/activity-feed/activityDisplayItems";
 import {
   selectStickyCurrentIndex,
   selectStickyUserIndex,
-} from "./activityStickyHeaders";
+} from "@/features/activity-feed/activityStickyHeaders";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;

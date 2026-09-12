@@ -7,13 +7,13 @@
 import { Bot, ChevronDown } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SessionView, type SessionViewContext } from "../session-view/SessionView";
-import { FileDropOverlay, useFileDropTarget } from "../session-view/fileDropTarget";
-import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
-import { SessionRowMenu } from "./SessionRowMenu";
-import { useCardResize } from "./useCardResize";
-import type { BotCardSize } from "./botCanvasPreferences";
-import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "./botCanvasCards";
+import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
+import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
+import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
+import { useCardResize } from "@/features/bots/useCardResize";
+import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
+import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/botCanvasCards";
 
 /**
  * One of a Bot's sessions, which is a Bot one level down.

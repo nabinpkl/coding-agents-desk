@@ -2,11 +2,11 @@ import { expect, spyOn, test } from "bun:test";
 import type {
   AgentTerminalDescriptor,
 } from "@agentdesk/agent-feed-wire";
-import { AgentTerminalConflictError } from "../terminal/agentTerminalService.ts";
+import { AgentTerminalConflictError } from "@/terminal/agentTerminalService";
 import {
   createAgentTerminalRoutes,
   type AgentTerminalRoutesService,
-} from "./agentTerminalRoutes.ts";
+} from "@/http/agentTerminalRoutes";
 
 const TERMINAL_ID = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const SESSION_ID = "48fc14ac-0c09-4d3b-85d1-9c57c990db32";

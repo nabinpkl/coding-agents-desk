@@ -88,4 +88,26 @@ if [ -n "$oversize" ]; then
     exit 1
 fi
 
+# 6. No relative import inside the two live TypeScript trees. `@/` is the project's own src and
+#    `@repo/` is the repository; both say where a module lives, while `../../..` says how far away
+#    the reader happens to be sitting. The difference is not style, it is what a file move costs: a
+#    relative import breaks when EITHER end moves, so clustering one directory rewrote every file
+#    inside it AND every importer of it. An aliased one names only the thing that moved.
+#
+#    Three patterns, because a specifier is written three ways here: a static import or re-export,
+#    a bare side-effect import, and a call form (`import()`, `vi.mock()`, `require()`). Anchored or
+#    parenthesised so a specifier quoted INSIDE a string stays legal -- `config.test.ts` embeds one
+#    in a script it hands to `bun -e`, and that one is a real relative import, just not this file's.
+relative_imports="$(
+    git grep -nE \
+        '^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|require)\([[:space:]]*["'"'"']\.' \
+        -- 'packages/AgentPanel/Web/src/*.ts' 'packages/AgentPanel/Web/src/*.tsx' \
+           'agent-feed/sidecar/src/*.ts' 'agent-feed/sidecar/src/*.tsx' || true
+)"
+if [ -n "$relative_imports" ]; then
+    echo "agent-feed-fitness: these are relative imports; write @/ or @repo/ instead:" >&2
+    printf '%s\n' "$relative_imports" >&2
+    exit 1
+fi
+
 echo "agent-feed-fitness: OK"

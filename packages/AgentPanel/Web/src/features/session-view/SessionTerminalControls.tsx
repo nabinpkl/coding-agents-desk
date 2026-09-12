@@ -5,9 +5,9 @@
 
 import { Terminal as TerminalIcon, X } from "lucide-react";
 import { LoaderCircle } from "lucide-react";
-import type { AgentTerminalState } from "../terminal/useAgentTerminal";
-import type { TerminalState } from "./sessionTerminalTypes";
-import { harnessName } from "./SessionView";
+import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
+import type { TerminalState } from "@/features/session-view/sessionTerminalTypes";
+import { harnessName } from "@/features/session-view/SessionView";
 
 /**
  * The terminal's open/close affordance, as one icon in the header.

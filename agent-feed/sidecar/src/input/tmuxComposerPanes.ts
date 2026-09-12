@@ -4,11 +4,11 @@
 // Both are about exclusivity: resolving a pane is the expensive act in this module, and
 // two pushes reading the same box would each paste their whole text into it.
 
-import { captureTmuxPaneView, TmuxUnavailable } from "../terminal/tmuxSessions.ts";
-import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
-import { composerBox, composerText } from "./composerBox.ts";
-import { waitFor } from "./composerKeystrokes.ts";
-import type { TmuxComposerRuntime } from "./tmuxComposerRuntime.ts";
+import { captureTmuxPaneView, TmuxUnavailable } from "@/terminal/tmuxSessions";
+import { liveTmuxSession } from "@/terminal/agentTerminalService";
+import { composerBox, composerText } from "@/input/composerBox";
+import { waitFor } from "@/input/composerKeystrokes";
+import type { TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";
 
 /**
  * The pane each live watch is sitting on, published so a push does not have to go and find one.

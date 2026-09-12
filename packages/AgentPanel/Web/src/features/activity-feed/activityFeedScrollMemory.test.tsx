@@ -1,18 +1,18 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
-import { SidecarDataSource } from "./data-source/SidecarDataSource";
-import { FakeHttpTransport } from "./transport/FakeHttpTransport";
-import { ActivityFeed } from "./ActivityFeed";
-import type { ActivityEvent } from "./useSessionEventsStream";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
+import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
+import { ActivityFeed } from "@/features/activity-feed/ActivityFeed";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 // Same jsdom-unsafe deps the other feed-level tests stub.
-vi.mock("./markdown/Markdown", () => ({
+vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
   Markdown: ({ content }: { content: string }) => (
     <div data-testid="markdown-view">{content}</div>
   ),
 }));
-vi.mock("./DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const VIEWPORT = 800;
 /** What an expanded row estimates to, and what every row here stays at: nothing re-measures. */

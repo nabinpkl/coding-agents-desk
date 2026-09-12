@@ -8,9 +8,9 @@ import {
   POINTER_SLOP,
   SCROLL_SLOP,
   TOUCH_DRAG_HOLD_MS,
-} from "./tileViewportConstants";
-import type { ViewportPoint } from "./tileViewportMath";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+} from "@/features/desktop-viewer/tileViewportConstants";
+import type { ViewportPoint } from "@/features/desktop-viewer/tileViewportMath";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
 
 export function createPointerHandlers(ctx: ViewportRuntime) {
   return {

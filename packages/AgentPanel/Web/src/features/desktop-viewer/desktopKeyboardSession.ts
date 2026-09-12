@@ -5,14 +5,14 @@ import {
   INITIAL_KEYBOARD_PRESENTATION,
   keyboardPresentationReducer,
   type KeyboardPresentationAction,
-} from "./desktopKeyboardModel";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
 import {
   AUTO_KEYBOARD_STORAGE_KEY,
   CAPTURE_SENTINEL,
   KEYBOARD_MODE_STORAGE_KEY,
   OFF_MODIFIERS,
-} from "./desktopKeyboardPreferences";
-import type { KeyboardContext, KeyboardMode } from "./desktopKeyboardContext";
+} from "@/features/desktop-viewer/desktopKeyboardPreferences";
+import type { KeyboardContext, KeyboardMode } from "@/features/desktop-viewer/desktopKeyboardContext";
 
 export function resetCapture(ctx: KeyboardContext) {
   const capture = ctx.captureRef.current;

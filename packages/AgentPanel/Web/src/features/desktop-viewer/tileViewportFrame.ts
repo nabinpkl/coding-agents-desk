@@ -7,10 +7,10 @@
 import {
   VIEW_REAIM_INTERVAL_MS,
   VIEW_SETTLE_MS,
-} from "./tileViewportConstants";
-import { setCaptureCrop } from "./captureCrop";
+} from "@/features/desktop-viewer/tileViewportConstants";
+import { setCaptureCrop } from "@/features/desktop-viewer/captureCrop";
 import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
 
 export function createFrameGeometry(ctx: ViewportRuntime) {
   return {

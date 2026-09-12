@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { ActivityEvent } from "../transcripts/sources/transcriptTypes.ts";
-import { resolveTurnWindow, type PageReader } from "./turnWindow.ts";
+import type { ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import { resolveTurnWindow, type PageReader } from "@/summary/turnWindow";
 
 function event(index: number, type: ActivityEvent["type"], text = "x"): ActivityEvent {
   return {

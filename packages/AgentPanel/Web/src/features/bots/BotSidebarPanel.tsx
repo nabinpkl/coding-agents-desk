@@ -1,9 +1,9 @@
 import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SourceBadge } from "../sidebar/SourceBadge";
-import { botCanvasHues, botSurfaceStyle } from "./botSurface";
-import { SessionRowMenu } from "./SessionRowMenu";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { botCanvasHues, botSurfaceStyle } from "@/features/bots/botSurface";
+import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
 
 /**
  * A Bot's face: its picture, or its initials on its own colour.

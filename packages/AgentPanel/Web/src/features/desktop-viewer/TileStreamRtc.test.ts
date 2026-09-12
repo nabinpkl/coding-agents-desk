@@ -7,7 +7,7 @@ import {
   receiverProgressDelta,
   type ReceiverProgressSample,
   tileCaptureSize,
-} from "./TileStreamRtc";
+} from "@/features/desktop-viewer/TileStreamRtc";
 
 const progress = (overrides: Partial<ReceiverProgressSample> = {}): ReceiverProgressSample => ({
   atMs: 1_000,

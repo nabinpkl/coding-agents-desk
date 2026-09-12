@@ -16,7 +16,7 @@ import type {
   RemoteKeyEvent,
   RemoteModifier,
 } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "@/features/desktop-viewer/TileStreamRtc";
 import {
   INITIAL_KEYBOARD_PRESENTATION,
   KEYBOARD_VIEWPORT_SHRINK_PX,
@@ -24,26 +24,26 @@ import {
   type KeyboardPresentationAction,
   type KeyboardPresentationState,
   type ModifierState,
-} from "./desktopKeyboardModel";
-import { drawsOwnKeyboard } from "./keyboardDeckModel";
-import * as capture from "./desktopKeyboardCapture";
-import * as control from "./desktopKeyboardControl";
-import * as send from "./desktopKeyboardSend";
-import * as session from "./desktopKeyboardSession";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
+import { drawsOwnKeyboard } from "@/features/desktop-viewer/keyboardDeckModel";
+import * as capture from "@/features/desktop-viewer/desktopKeyboardCapture";
+import * as control from "@/features/desktop-viewer/desktopKeyboardControl";
+import * as send from "@/features/desktop-viewer/desktopKeyboardSend";
+import * as session from "@/features/desktop-viewer/desktopKeyboardSession";
 import {
   OFF_MODIFIERS,
   storedAutoKeyboard,
   storedKeyboardMode,
-} from "./desktopKeyboardPreferences";
+} from "@/features/desktop-viewer/desktopKeyboardPreferences";
 import type {
   DesktopKeyboardTelemetry,
   KeyboardContext,
   KeyboardMode,
   PendingDelivery,
-} from "./desktopKeyboardContext";
+} from "@/features/desktop-viewer/desktopKeyboardContext";
 
 // Re-exported: the surface imports the hook, and these are what it hands back.
-export type { KeyboardMode, DesktopKeyboardTelemetry } from "./desktopKeyboardContext";
+export type { KeyboardMode, DesktopKeyboardTelemetry } from "@/features/desktop-viewer/desktopKeyboardContext";
 
 /**
  * The desktop keyboard: what a tap arms, what a keystroke sends, and what the Mac says back.

@@ -6,9 +6,9 @@ import {
   SCROLL_MOMENTUM_FLICK_THRESHOLD,
   SCROLL_MOMENTUM_STOP_THRESHOLD,
   WHEEL_SCROLL_IDLE_MS,
-} from "./tileViewportConstants";
-import { scrollAccelerationGain } from "./tileViewportMath";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+} from "@/features/desktop-viewer/tileViewportConstants";
+import { scrollAccelerationGain } from "@/features/desktop-viewer/tileViewportMath";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
 
 export function createScrolling(ctx: ViewportRuntime) {
   return {

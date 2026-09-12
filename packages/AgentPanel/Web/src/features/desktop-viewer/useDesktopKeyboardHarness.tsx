@@ -7,8 +7,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
-import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "./useDesktopKeyboard";
+import type { DesktopControlTransport } from "@/features/desktop-viewer/TileStreamRtc";
+import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "@/features/desktop-viewer/useDesktopKeyboard";
 
 export 
 type Controller = ReturnType<typeof useDesktopKeyboard>;

@@ -5,11 +5,11 @@
 
 import type { RefObject } from "react";
 import { ChevronRight } from "lucide-react";
-import type { ActivityEvent } from "./useSessionEventsStream";
-import type { EventMode } from "./data-source/AgentDataSource";
-import { eventPreview } from "./activityEventText";
-import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "./activityDisplayItems";
-import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "./ActivityEventHeading";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
+import { eventPreview } from "@/features/activity-feed/activityEventText";
+import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "@/features/activity-feed/activityDisplayItems";
+import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "@/features/activity-feed/ActivityEventHeading";
 
 // Compact pinned header for the most recent USER event the viewer scrolled
 // past. Full-width opaque strip flush with the top of the scroll area, so

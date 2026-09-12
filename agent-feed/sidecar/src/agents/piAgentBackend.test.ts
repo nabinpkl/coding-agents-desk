@@ -10,7 +10,7 @@ import {
   piProjectSessionDirectory,
   type PiRuntimeFacade,
   type PiSessionFacade,
-} from "./piAgentBackend.ts";
+} from "@/agents/piAgentBackend";
 
 class FakeSession implements PiSessionFacade {
   sessionId = "session-1";

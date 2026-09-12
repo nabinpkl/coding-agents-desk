@@ -5,7 +5,7 @@ import {
   extractSessionId,
   extractToolResults,
   mapAnthropicStreamEvent,
-} from "./claudeNetworkSource.ts";
+} from "@/live/claudeNetworkSource";
 
 test("SseTextParser splits data frames and tolerates split chunk boundaries", () => {
   const parser = new SseTextParser();

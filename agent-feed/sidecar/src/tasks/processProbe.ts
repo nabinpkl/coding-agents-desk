@@ -18,18 +18,18 @@
 // command into a log file and reads only the tail at the end, which leaves that stdout capture
 // empty -- the shape other tools render as "No output yet". Walking the shell's DESCENDANTS and
 // reading their fd 1 finds the file the work is really being written to.
-import { config } from "../config.ts";
-import { LSOF_BINARY, type CommandRunner } from "./commandRunner.ts";
+import { config } from "@/config";
+import { LSOF_BINARY, type CommandRunner } from "@/tasks/commandRunner";
 import {
   busiestDescendant,
   currentProcessTable,
   descendantsOf,
   type ProcessRow,
-} from "./processTable.ts";
+} from "@/tasks/processTable";
 
 // Re-exported because this is the address every caller of the task probe already has, and
 // the two halves are one reading of one machine. The declarations live in the modules named.
-export { runCommand, PS_BINARY, type CommandRunner } from "./commandRunner.ts";
+export { runCommand, PS_BINARY, type CommandRunner } from "@/tasks/commandRunner";
 export {
   busiestDescendant,
   currentProcessTable,
@@ -43,7 +43,7 @@ export {
   unwrapShellCommand,
   type ProcessRow,
   type ShellDetail,
-} from "./processTable.ts";
+} from "@/tasks/processTable";
 
 export interface TaskShell {
   taskId: string;

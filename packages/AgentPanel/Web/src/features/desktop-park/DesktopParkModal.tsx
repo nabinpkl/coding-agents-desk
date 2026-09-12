@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftToLine, ArrowRightToLine, MousePointer2, RotateCcw, X } from "lucide-react";
 import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
-import type { DesktopStreamState } from "../desktop-viewer/DesktopStreamState";
-import { TileStreamRtc, type DesktopControlTransport } from "../desktop-viewer/TileStreamRtc";
-import { TileViewport } from "../desktop-viewer/TileViewport";
-import type { DesktopParkHandle } from "./useDesktopPark";
-import { Action, Outcome, WindowRow } from "./DesktopParkRows";
-import { groupByDesktop } from "./desktopParkGroups";
+import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
+import { TileStreamRtc, type DesktopControlTransport } from "@/features/desktop-viewer/TileStreamRtc";
+import { TileViewport } from "@/features/desktop-viewer/TileViewport";
+import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import { Action, Outcome, WindowRow } from "@/features/desktop-park/DesktopParkRows";
+import { groupByDesktop } from "@/features/desktop-park/desktopParkGroups";
 
 /**
  * Desktop Park: every window this machine could gather onto one Desktop, grouped

@@ -55,6 +55,7 @@ const xtermPackage = fileURLToPath(
 const agentFeedWire = fileURLToPath(
   new URL("../../../agent-feed/wire/index.ts", import.meta.url),
 );
+const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
 
 /**
  * The default session's sidecar, split for the middleware proxy below.
@@ -412,6 +413,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Keyed with the trailing slash on purpose: a bare "@" would also match
+      // "@agentdesk/agent-feed-wire" and swallow the wire contract.
+      "@/": panelSource,
+      "@repo/": fileURLToPath(new URL("../../../", import.meta.url)),
       "@agentdesk/agent-feed-wire": agentFeedWire,
       "@xterm/xterm": xtermPackage,
     },

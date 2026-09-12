@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type { DesktopNavigationState } from "@agentdesk/agent-feed-wire";
-import type { DesktopViewerSurface } from "./DesktopViewerSurface";
-import { DesktopViewer } from "./DesktopViewer";
+import type { DesktopViewerSurface } from "@/features/desktop-viewer/DesktopViewerSurface";
+import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 
 type SurfaceProps = ComponentProps<typeof DesktopViewerSurface>;
 const harness = vi.hoisted(() => ({ surfaces: new Map<string, SurfaceProps>(), sends: vi.fn(), opens: [] as string[] }));
@@ -12,7 +12,7 @@ const displays = ["A", "B", "C"].map((id, index) => ({ id, label: `Monitor ${id}
 function snapshot(id: string, revision = 1): DesktopNavigationState {
   return { type: "desktop-state", revision, captureDisplayId: id, displays };
 }
-vi.mock("./DesktopViewerSurface", async () => {
+vi.mock("@/features/desktop-viewer/DesktopViewerSurface", async () => {
   const React = await import("react");
   return {
     desktopDocumentFallbackHeight: () => null,

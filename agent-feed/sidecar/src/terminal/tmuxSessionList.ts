@@ -5,7 +5,7 @@
 // something a person types at `tmux attach` without the panel losing it.
 
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import { TmuxUnavailable, tmux } from "./tmuxCommand.ts";
+import { TmuxUnavailable, tmux } from "@/terminal/tmuxCommand";
 
 /**
  * One line per session, fields in the order this format string names them.

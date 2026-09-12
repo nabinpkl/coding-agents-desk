@@ -8,10 +8,10 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { config } from "../config.ts";
-import { codexAdapter, resolveStateDbPath } from "./sources/codexTranscript.ts";
-import type { Session } from "./sources/transcriptTypes.ts";
-import { state } from "./transcriptState.ts";
+import { config } from "@/config";
+import { codexAdapter, resolveStateDbPath } from "@/transcripts/sources/codexTranscript";
+import type { Session } from "@/transcripts/sources/transcriptTypes";
+import { state } from "@/transcripts/transcriptState";
 import {
   broadcast,
   CODEX_TAIL_BYTES,
@@ -19,8 +19,8 @@ import {
   scheduleBroadcast,
   sessionKey,
   SUMMARY_TITLE_CHARACTERS,
-} from "./catalogState.ts";
-import { canonicalDirectory, makeSession } from "./catalogRecords.ts";
+} from "@/transcripts/catalogState";
+import { canonicalDirectory, makeSession } from "@/transcripts/catalogRecords";
 
 let codexReconcileTimer: ReturnType<typeof setTimeout> | null = null;
 let codexReconcileSettledAt = 0;

@@ -4,7 +4,7 @@
 // cannot interleave with the frames arriving behind it.
 
 import type { AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
-import type { TerminalRuntime } from "./agentTerminalRuntime";
+import type { TerminalRuntime } from "@/features/terminal/agentTerminalRuntime";
 
 export function createTerminalReceive(t: TerminalRuntime) {
   return (message: AgentTerminalStreamMessage): void => {

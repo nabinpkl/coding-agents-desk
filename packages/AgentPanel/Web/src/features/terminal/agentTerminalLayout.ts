@@ -4,7 +4,7 @@
 // clamp below is why a pinch cannot take the grid past what the pane can hold.
 
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
-import type { Dimensions, TerminalSizing } from "./agentTerminalTypes";
+import type { Dimensions, TerminalSizing } from "@/features/terminal/agentTerminalTypes";
 
 /** A finger this far off where it landed was scrolling, not tapping. */
 export const TAP_SLOP_PX = 10;

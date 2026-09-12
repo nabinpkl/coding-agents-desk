@@ -11,7 +11,7 @@
 // still read it.
 
 import { afterEach, expect, test } from "bun:test";
-import type { AgentBackend, AgentSessionDescriptor } from "../agents/agentBackend.ts";
+import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
 import type {
   ActivityEvent,
   AgentCommandReceipt,
@@ -23,12 +23,12 @@ import type {
   UsageReport,
   WireErrorPayload,
 } from "@agentdesk/agent-feed-wire";
-import { state } from "../transcripts/transcriptState.ts";
-import { createSummaryRoutes } from "./summaryRoutes.ts";
-import { createTimelineRoutes } from "./timelineRoutes.ts";
-import { createUsageRoutes } from "./usageRoutes.ts";
-import { config } from "../config.ts";
-import fixture from "../../../wire/contract-fixture.json";
+import { state } from "@/transcripts/transcriptState";
+import { createSummaryRoutes } from "@/http/summaryRoutes";
+import { createTimelineRoutes } from "@/http/timelineRoutes";
+import { createUsageRoutes } from "@/http/usageRoutes";
+import { config } from "@/config";
+import fixture from "@repo/agent-feed/wire/contract-fixture.json";
 
 // Each body, named as the type it claims to be.
 //

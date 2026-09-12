@@ -9,7 +9,7 @@ import {
   SESSION,
   settle,
   type,
-} from "./useTmuxComposerHarness";
+} from "@/features/cli-input/useTmuxComposerHarness";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());

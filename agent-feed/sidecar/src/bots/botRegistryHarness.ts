@@ -11,13 +11,13 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BotSessionRef, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { BotStore } from "./botStore.ts";
+import { BotStore } from "@/bots/botStore";
 import {
   BotRegistry,
   type BotRegistryCatalog,
   type BotSessionLauncher,
-} from "./botRegistry.ts";
-import { forgetWorktrees } from "../git/worktree.ts";
+} from "@/bots/botRegistry";
+import { forgetWorktrees } from "@/git/worktree";
 
 export interface LaunchRecord {
   kind: "start" | "fork";

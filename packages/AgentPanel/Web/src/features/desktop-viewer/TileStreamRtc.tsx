@@ -7,33 +7,33 @@ import type {
   WebrtcTileAnswer,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
-import type { DesktopStreamState } from "./DesktopStreamState";
-import type { CapturePlan } from "./tileCapturePlan";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
+import type { CapturePlan } from "@/features/desktop-viewer/tileCapturePlan";
 import {
   runTileSession,
   RETIRE_TIMEOUT_MS,
   VIDEO_DIAGNOSTIC_REVISION,
   type TileSessionRuntime,
-} from "./tileStreamSession";
-import { createVideoPresentationWatch } from "./tileVideoPresentation";
-import { tileCaptureSize } from "./webrtcTileCapture";
+} from "@/features/desktop-viewer/tileStreamSession";
+import { createVideoPresentationWatch } from "@/features/desktop-viewer/tileVideoPresentation";
+import { tileCaptureSize } from "@/features/desktop-viewer/webrtcTileCapture";
 import {
   parseWebrtcTileAnswer,
   postTileTelemetry,
   postWebrtcClose,
   type DesktopControlTransport,
-} from "./webrtcTileWire";
+} from "@/features/desktop-viewer/webrtcTileWire";
 
 // Re-exported: the surfaces that render a tile import this component, and these are what
 // they hand it or read from it. The declarations live in the modules named.
-export { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN, tileCaptureSize } from "./webrtcTileCapture";
+export { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN, tileCaptureSize } from "@/features/desktop-viewer/webrtcTileCapture";
 export {
   classifyReceiverProgress,
   receiverProgressDelta,
   RECEIVER_STATS_INTERVAL_MS,
   type ReceiverProgressSample,
-} from "./webrtcReceiverStats";
+} from "@/features/desktop-viewer/webrtcReceiverStats";
 export {
   parseWebrtcTileAnswer,
   postTileTelemetry,
@@ -41,7 +41,7 @@ export {
   type DesktopControlSendResult,
   type DesktopControlTransport,
   type TileTelemetryEvent,
-} from "./webrtcTileWire";
+} from "@/features/desktop-viewer/webrtcTileWire";
 
 /**
  * One window, live, as a `<video>` fed by WebRTC. The transport-only variant.
@@ -67,7 +67,7 @@ const HEALTHY_SESSION_MS = 15_000;
 const RECONNECT_ATTEMPT_LIMIT = 6;
 
 // Re-exported for the surfaces that time a stream against them.
-export { FIRST_FRAME_TIMEOUT_MS, ICE_SETUP_TIMEOUT_MS } from "./tileStreamSession";
+export { FIRST_FRAME_TIMEOUT_MS, ICE_SETUP_TIMEOUT_MS } from "@/features/desktop-viewer/tileStreamSession";
 
 export function TileStreamRtc({
   windowID,

@@ -7,7 +7,7 @@
 // A chain rather than a facade over composed objects, because the alternative is fifty
 // delegating methods that say nothing, each separated from the doc comment explaining it.
 
-import type { AgentHttpTransport } from "../transport/AgentHttpTransport";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 /** Thrown when the sidecar answered, but with an error rather than the thing asked for. */
 export class SidecarError extends Error {

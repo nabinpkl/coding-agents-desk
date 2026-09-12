@@ -83,29 +83,29 @@ import {
   type RailModifiers,
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
-import { hexSend, TmuxUnavailable } from "../terminal/tmuxSessions.ts";
-import { composerBox, composerText, type ComposerBox } from "./composerBox.ts";
+import { hexSend, TmuxUnavailable } from "@/terminal/tmuxSessions";
+import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 import {
   CARRIAGE_RETURN,
   keystrokesFor,
   paste,
   sendEdit,
   TAB,
-} from "./composerKeystrokes.ts";
-import { composerPanes, inTurn, settle } from "./tmuxComposerPanes.ts";
+} from "@/input/composerKeystrokes";
+import { composerPanes, inTurn, settle } from "@/input/tmuxComposerPanes";
 import {
   LIVE,
   observeTmuxComposer,
   readComposerAt,
   unavailable,
   type TmuxComposerRuntime,
-} from "./tmuxComposerRuntime.ts";
+} from "@/input/tmuxComposerRuntime";
 
 // Re-exported because this is the address the routes and the tests already have, and the
 // parts below are how the composer is built rather than what it offers.
-export { composerBox, composerText, type ComposerBox } from "./composerBox.ts";
-export { keystrokesFor, MAXIMUM_COMPOSER_BYTES } from "./composerKeystrokes.ts";
-export { composerPanes, type TmuxComposerPanes } from "./tmuxComposerPanes.ts";
+export { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+export { keystrokesFor, MAXIMUM_COMPOSER_BYTES } from "@/input/composerKeystrokes";
+export { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 export {
   liveTmuxComposerRuntime,
   observeTmuxComposer,
@@ -113,7 +113,7 @@ export {
   type TmuxComposerListener,
   type TmuxComposerRuntime,
   type TmuxComposerWatchRuntime,
-} from "./tmuxComposerRuntime.ts";
+} from "@/input/tmuxComposerRuntime";
 
 export async function syncTmuxComposer(
   sessionId: string,

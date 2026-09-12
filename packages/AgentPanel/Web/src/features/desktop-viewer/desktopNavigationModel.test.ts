@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialNavigationModel, navigationGeometry, navigationReducer, navigationStep } from "./desktopNavigationModel";
+import { initialNavigationModel, navigationGeometry, navigationReducer, navigationStep } from "@/features/desktop-viewer/desktopNavigationModel";
 
 describe("desktop rail mechanics", () => {
   it("commits raw travel even when the visible rail would resist", () => {

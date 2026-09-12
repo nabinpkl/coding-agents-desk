@@ -11,10 +11,10 @@
 // which is the whole reason the model-facing half is a separate file.
 
 import type { SummaryCoverage, SummaryFileChange } from "@agentdesk/agent-feed-wire";
-import { isHumanTurnStart } from "../transcripts/humanTurns.ts";
-import type { ActivityEvent, EventMode } from "../transcripts/sources/transcriptTypes.ts";
-import { renderEvent } from "./summaryPrompt.ts";
-import { filesTouchedIn } from "./toolCalls.ts";
+import { isHumanTurnStart } from "@/transcripts/humanTurns";
+import type { ActivityEvent, EventMode } from "@/transcripts/sources/transcriptTypes";
+import { renderEvent } from "@/summary/summaryPrompt";
+import { filesTouchedIn } from "@/summary/toolCalls";
 
 /**
  * How many events one page of the backwards walk reads.

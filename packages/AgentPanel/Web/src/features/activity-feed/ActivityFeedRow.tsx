@@ -6,8 +6,8 @@
 // ref are what make it a virtualised row rather than a row.
 
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
-import type { ActivityEvent } from "./useSessionEventsStream";
-import type { DisplayItem } from "./activityDisplayItems";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { DisplayItem } from "@/features/activity-feed/activityDisplayItems";
 import {
   ClusterRow,
   CompactionRow,
@@ -15,7 +15,7 @@ import {
   SegmentEventRow,
   UserRow,
   type EventRowContext,
-} from "./ActivityEventRows";
+} from "@/features/activity-feed/ActivityEventRows";
 
 export function ActivityFeedRow({
   collapsed,

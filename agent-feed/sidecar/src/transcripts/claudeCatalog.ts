@@ -7,24 +7,24 @@
 import { existsSync } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { config } from "../config.ts";
-import { claudeAdapter } from "./sources/claudeTranscript.ts";
-import type { Session, SourceId } from "./sources/transcriptTypes.ts";
-import { state } from "./transcriptState.ts";
+import { config } from "@/config";
+import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
+import type { Session, SourceId } from "@/transcripts/sources/transcriptTypes";
+import { state } from "@/transcripts/transcriptState";
 import {
   CLAUDE_SESSION_PATTERN,
   PROMPT_TITLE_CHARACTERS,
   scheduleBroadcast,
   sessionKey,
   SUMMARY_TITLE_CHARACTERS,
-} from "./catalogState.ts";
+} from "@/transcripts/catalogState";
 import {
   canonicalDirectory,
   canonicalProjectPath,
   compactTitle,
   isClaudeSessionCandidate,
   makeSession,
-} from "./catalogRecords.ts";
+} from "@/transcripts/catalogRecords";
 
 async function enumerateClaudeCandidates(): Promise<string[]> {
   let slugNames: string[];

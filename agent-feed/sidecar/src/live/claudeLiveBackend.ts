@@ -9,7 +9,7 @@
 // `session_id` carried in each captured request body -- the same id agent-feed
 // keys claude sessions by, which is what makes the mirror land on the right row.
 
-import { config } from "../config.ts";
+import { config } from "@/config";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -19,15 +19,15 @@ import type {
   AgentTimelinePage,
   AgentUiEvent,
   AgentUiResponseResult,
-} from "../agents/agentBackend.ts";
+} from "@/agents/agentBackend";
 import {
   AgentBackendDisposedError,
   AgentModeUnsupportedError,
-} from "../agents/agentBackend.ts";
-import type { TimelineEnvelope } from "../agents/liveAgentProjection.ts";
-import { LiveSessionRegistry } from "./liveSessionRegistry.ts";
-import { findSession } from "../transcripts/transcriptCatalog.ts";
-import type { EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
+} from "@/agents/agentBackend";
+import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
+import { LiveSessionRegistry } from "@/live/liveSessionRegistry";
+import { findSession } from "@/transcripts/transcriptCatalog";
+import type { EventMode, TokenUsage } from "@/transcripts/sources/transcriptTypes";
 import {
   claudeLiveReconnectDelay,
   decodeDeltaData,
@@ -38,14 +38,14 @@ import {
   type ObserverEvent,
   type ObserverSubscription,
   type ToolResultItem,
-} from "./claudeNetworkSource.ts";
+} from "@/live/claudeNetworkSource";
 import {
   isMessageStream,
   observedAtMs,
   MAX_PENDING_PER_FLOW,
   type FlowContext,
-} from "./claudeLiveFlows.ts";
-import { applyStreamEvent, publishMessage, toolResultBlocks } from "./claudeLiveMessages.ts";
+} from "@/live/claudeLiveFlows";
+import { applyStreamEvent, publishMessage, toolResultBlocks } from "@/live/claudeLiveMessages";
 
 export const CLAUDE_LIVE_CAPABILITIES: AgentSessionCapabilities = {
   modes: ["nice"],

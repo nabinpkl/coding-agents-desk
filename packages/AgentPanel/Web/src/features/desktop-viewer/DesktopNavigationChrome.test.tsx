@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { DesktopNavigationChrome } from "./DesktopNavigationChrome";
-import { initialNavigationModel } from "./desktopNavigationModel";
+import { DesktopNavigationChrome } from "@/features/desktop-viewer/DesktopNavigationChrome";
+import { initialNavigationModel } from "@/features/desktop-viewer/desktopNavigationModel";
 
 beforeEach(() => {
   localStorage.clear();

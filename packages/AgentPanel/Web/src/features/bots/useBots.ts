@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 function retryDelay(attempt: number): number {
   return Math.min(1_000 * 2 ** attempt, 15_000);

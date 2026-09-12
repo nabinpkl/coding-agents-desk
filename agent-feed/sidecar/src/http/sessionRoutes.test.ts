@@ -2,9 +2,9 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createSessionRoutes } from "./sessionRoutes.ts";
-import { sessionKey } from "../transcripts/transcriptCatalog.ts";
-import { state } from "../transcripts/transcriptState.ts";
+import { createSessionRoutes } from "@/http/sessionRoutes";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { state } from "@/transcripts/transcriptState";
 
 const server = { timeout() {} } as never;
 const route = createSessionRoutes();

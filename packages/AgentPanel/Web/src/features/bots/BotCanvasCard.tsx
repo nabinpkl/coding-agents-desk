@@ -7,17 +7,17 @@
 import { Bot, Plus } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SessionViewContext } from "../session-view/SessionView";
-import { ActivityDot } from "../sidebar/SessionMeta";
-import { SourceBadge } from "../sidebar/SourceBadge";
-import { BotAvatar } from "./BotSidebarPanel";
-import { SessionRowMenu } from "./SessionRowMenu";
-import { botSurfaceStyle } from "./botSurface";
-import { BotCardMenu } from "./BotCardMenu";
-import { BotNewSessionCard, type NewBotSession } from "./BotNewSessionCard";
-import { BotSessionCard } from "./BotSessionCard";
-import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "./botCanvasPreferences";
-import { sessionKey, type BotCommandError } from "./botCanvasCards";
+import type { SessionViewContext } from "@/features/session-view/SessionView";
+import { ActivityDot } from "@/features/sidebar/SessionMeta";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { BotAvatar } from "@/features/bots/BotSidebarPanel";
+import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
+import { botSurfaceStyle } from "@/features/bots/botSurface";
+import { BotCardMenu } from "@/features/bots/BotCardMenu";
+import { BotNewSessionCard, type NewBotSession } from "@/features/bots/BotNewSessionCard";
+import { BotSessionCard } from "@/features/bots/BotSessionCard";
+import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/botCanvasPreferences";
+import { sessionKey, type BotCommandError } from "@/features/bots/botCanvasCards";
 
 export function CanvasNotice({ children }: { children: React.ReactNode }) {
   return (

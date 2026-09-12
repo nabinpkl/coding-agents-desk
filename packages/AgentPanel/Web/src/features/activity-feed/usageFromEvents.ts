@@ -1,4 +1,4 @@
-import type { ActivityEvent, TokenUsage } from "./useSessionEventsStream";
+import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 
 /**
  * Last usage-bearing transcript entry among the events, or null when none.

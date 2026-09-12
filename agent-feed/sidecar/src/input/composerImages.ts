@@ -26,7 +26,7 @@
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComposerImageMediaType } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
+import { config } from "@/config";
 
 /** How long a written image stays on disk before a later drop sweeps it away. */
 const KEEP_MS = 24 * 60 * 60 * 1000;

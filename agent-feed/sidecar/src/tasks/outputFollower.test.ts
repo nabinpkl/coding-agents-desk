@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lastLines, OutputProgress, snapshotOffset, trimPartialFirstLine } from "./outputFollower.ts";
+import { lastLines, OutputProgress, snapshotOffset, trimPartialFirstLine } from "@/tasks/outputFollower";
 
 describe("OutputProgress", () => {
   test("reports a growth rate per second from a sub-second sample", () => {

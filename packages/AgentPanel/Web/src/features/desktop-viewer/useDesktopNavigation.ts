@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopNavigationEvent, type DesktopControlEvent, type DesktopControlInput } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "@/features/desktop-viewer/TileStreamRtc";
 import { initialNavigationModel, navigationReducer, navigationStep, NAVIGATION_TUNING,
-  selectedNavigationDisplay, type NavigationAction } from "./desktopNavigationModel";
+  selectedNavigationDisplay, type NavigationAction } from "@/features/desktop-viewer/desktopNavigationModel";
 
 export type NavigationReport = (phase: string, detail: Record<string, unknown>) => void;
 export function useDesktopNavigation({

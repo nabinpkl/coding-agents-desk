@@ -10,8 +10,8 @@ import {
   POINTER_SCROLL_PUCK_SIDE,
   POINTER_SCROLL_PUCK_STORAGE_KEY,
   TOUCH_DRAG_HOLD_MS,
-} from "./tileViewportConstants";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+} from "@/features/desktop-viewer/tileViewportConstants";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
 
 export function createDragVisuals(ctx: ViewportRuntime) {
   return {

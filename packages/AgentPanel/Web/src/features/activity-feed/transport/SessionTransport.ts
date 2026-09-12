@@ -1,5 +1,5 @@
-import { sessionApiPrefix } from "../../../app/panelSessions";
-import type { AgentHttpTransport, SubscribeHandlers, TransportResponse } from "./AgentHttpTransport";
+import { sessionApiPrefix } from "@/app/panelSessions";
+import type { AgentHttpTransport, SubscribeHandlers, TransportResponse } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 /**
  * The same sidecar path, addressed at one particular login session.

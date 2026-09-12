@@ -16,7 +16,7 @@ import {
   resolve,
   sessionOwner,
   target as targetWindow,
-} from "./claudeSessionResolver.ts";
+} from "@/desktop/claudeSessionResolver";
 import {
   codexMainPids,
   type CodexWindowSummary,
@@ -24,9 +24,9 @@ import {
   target as codexTarget,
   threadName,
   threadRecord,
-} from "./codexSessionResolver.ts";
-import type { SessionKey } from "./composerTypes.ts";
-import type { WindowAccess } from "./composerWindowAccess.ts";
+} from "@/desktop/codexSessionResolver";
+import type { SessionKey } from "@/desktop/composerTypes";
+import type { WindowAccess } from "@/desktop/composerWindowAccess";
 
 export function createTargetResolver(
   access: WindowAccess,

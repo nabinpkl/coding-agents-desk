@@ -2,8 +2,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { findCodexSessionFiles, scanCodexSession, UNKNOWN_MODEL } from "./codexUsage.ts";
-import { localDayKey } from "./usageTotals.ts";
+import { findCodexSessionFiles, scanCodexSession, UNKNOWN_MODEL } from "@/usage/codexUsage";
+import { localDayKey } from "@/usage/usageTotals";
 
 async function rollout(lines: unknown[]): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "codex-usage-"));

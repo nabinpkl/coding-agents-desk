@@ -1,7 +1,7 @@
 // What one event says in a line: the preview a collapsed row shows, the intent the
 // agent gave for its tool calls, and the command a shell tool actually ran.
 
-import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
+import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 /**
  * Blocks that render as flowing text rather than a bordered card.

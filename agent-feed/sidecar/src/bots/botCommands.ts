@@ -11,9 +11,9 @@ import type {
   BotMetadata,
   BotSessionRef,
 } from "@agentdesk/agent-feed-wire";
-import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
-import { sessionKey } from "./botIdempotency.ts";
-import { BotInvalidError } from "./botTypes.ts";
+import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+import { sessionKey } from "@/bots/botIdempotency";
+import { BotInvalidError } from "@/bots/botTypes";
 
 const MAX_NAME = 64;
 const MAX_DIRECTORY_PATH = 4_096;

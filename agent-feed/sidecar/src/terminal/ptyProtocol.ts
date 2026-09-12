@@ -1,5 +1,5 @@
 import { parse, type Type } from "protobufjs";
-import ptyProtocolSource from "../../../../terminal/pty-manager/proto/pty.proto" with { type: "text" };
+import ptyProtocolSource from "@repo/terminal/pty-manager/proto/pty.proto" with { type: "text" };
 
 export const PTY_PROTOCOL_VERSION = 7;
 export const MAXIMUM_PTY_FRAME_BYTES = 16 * 1024 * 1024;

@@ -4,7 +4,7 @@
 // tick can arrive together, and only one `getStats()` may be in flight, so a second
 // request is remembered rather than dropped -- and a gap reason outranks an interval one.
 
-import { postTileTelemetry } from "./webrtcTileWire";
+import { postTileTelemetry } from "@/features/desktop-viewer/webrtcTileWire";
 import {
   classifyReceiverProgress,
   receiverProgressDelta,
@@ -12,9 +12,9 @@ import {
   type CandidateStats,
   type ReceiverProgressSample,
   type ReceiverVideoStats,
-} from "./webrtcReceiverStats";
-import type { createVideoPresentationWatch } from "./tileVideoPresentation";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
+} from "@/features/desktop-viewer/webrtcReceiverStats";
+import type { createVideoPresentationWatch } from "@/features/desktop-viewer/tileVideoPresentation";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { WebrtcTileAnswer } from "@agentdesk/agent-feed-wire";
 
 export function createReceiverStatsSampler({

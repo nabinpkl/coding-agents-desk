@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { AgentTerminalPane, paneShapeForLayout } from "./AgentTerminalPane";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { AgentTerminalPane, paneShapeForLayout } from "@/features/terminal/AgentTerminalPane";
 
 let terminal: FakeTerminal;
 

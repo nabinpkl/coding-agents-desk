@@ -6,8 +6,8 @@
 // steered, the other hands a whole turn to a transport the panel does not own.
 
 import { CornerDownLeft, LoaderCircle, Paperclip, Send, Square } from "lucide-react";
-import type { ComposerAction } from "./SessionComposer";
-import type { ComposerModel } from "./sessionComposerModel";
+import type { ComposerAction } from "@/features/session-view/SessionComposer";
+import type { ComposerModel } from "@/features/session-view/sessionComposerModel";
 
 /**
  * One turn through a transport owned outside the panel's agent-session queue.

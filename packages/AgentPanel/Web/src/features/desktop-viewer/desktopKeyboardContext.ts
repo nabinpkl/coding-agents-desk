@@ -12,11 +12,11 @@ import type {
   RemoteKeyEvent,
   RemoteModifier,
 } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "@/features/desktop-viewer/TileStreamRtc";
 import type {
   KeyboardPresentationState,
   ModifierState,
-} from "./desktopKeyboardModel";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
 
 export type KeyboardMode = "deck" | "native";
 

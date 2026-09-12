@@ -1,16 +1,16 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
-import type { AgentDataSource } from "./data-source/AgentDataSource";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
+import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import {
   LabeledTextBlock,
   RawDetails,
   RawJsonBlock,
   formatRawJson,
   RAW_JSON_FORMAT_MAX_CHARS,
-} from "./ActivitySystemBlocks";
-import type { ActivityEvent } from "./useSessionEventsStream";
-import { stubDataSource } from "./data-source/stubDataSource";
+} from "@/features/activity-feed/ActivitySystemBlocks";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 
 function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSource {
   return stubDataSource({ fetchRawEvent });

@@ -2,14 +2,14 @@
 // tool results fold into the call that asked for them, and how one event's blocks
 // split between its body and its Raw drawer.
 
-import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
+import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import {
   buildActivityDisplayItems,
   displayRole,
   isSkillActivation,
   type DisplayItem,
   type DisplayItemOptions,
-} from "./activityDisplayItems";
+} from "@/features/activity-feed/activityDisplayItems";
 
 /** A tool_result that renders inside the tool call it answers. */
 export interface PairedToolResult {

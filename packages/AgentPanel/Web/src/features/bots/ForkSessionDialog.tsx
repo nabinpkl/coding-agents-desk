@@ -1,7 +1,7 @@
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { nextForkTitle } from "./sessionTitles";
+import { nextForkTitle } from "@/features/bots/sessionTitles";
 
 /** The sidecar's own cap on a fork brief, repeated so the dialog refuses before the round trip. */
 const MAXIMUM_BRIEF = 32_768;

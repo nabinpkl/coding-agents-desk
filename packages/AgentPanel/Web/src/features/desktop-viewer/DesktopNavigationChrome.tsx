@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { PanelsTopLeft, Settings2 } from "lucide-react";
 import type { DesktopDisplay } from "@agentdesk/agent-feed-wire";
-import { navigationGeometry, NAVIGATION_TUNING, type NavigationModel } from "./desktopNavigationModel";
+import { navigationGeometry, NAVIGATION_TUNING, type NavigationModel } from "@/features/desktop-viewer/desktopNavigationModel";
 
 const buttonStyle = "touch-none rounded-md text-white enabled:hover:bg-white/15 enabled:active:bg-white/25 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:text-white/35";
 function preference(key: string, fallback: boolean): { value: boolean; failed: boolean } {

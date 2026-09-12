@@ -7,12 +7,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { leadEvent, type DisplayItem } from "./activityDisplayItems";
+import { leadEvent, type DisplayItem } from "@/features/activity-feed/activityDisplayItems";
 import {
   forgetTranscriptAnchor,
   loadTranscriptAnchor,
   rememberTranscriptAnchor,
-} from "./transcriptScrollStore";
+} from "@/features/activity-feed/transcriptScrollStore";
 
 /**
  * How long a restore keeps holding the line it put back at the top of the viewport.

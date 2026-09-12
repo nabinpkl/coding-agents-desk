@@ -15,9 +15,9 @@ import {
   subscribeEvents,
   syncIndex,
   translateEventIndex,
-} from "./eventIndex.ts";
-import { state } from "./transcriptState.ts";
-import { sessionKey } from "./transcriptCatalog.ts";
+} from "@/transcripts/eventIndex";
+import { state } from "@/transcripts/transcriptState";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
 
 const roots: string[] = [];
 const source = "codex" as const;

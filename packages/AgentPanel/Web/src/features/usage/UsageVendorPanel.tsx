@@ -2,11 +2,11 @@
 
 import { useMemo } from "react";
 import type { VendorUsage } from "@agentdesk/agent-feed-wire";
-import { formatCount, formatDay, formatPercent, formatTokens } from "./formatTokens";
-import { UsageCalendar, UsageLegend } from "./UsageCalendar";
-import { DayDetail } from "./UsageDayDetail";
-import { TotalsRow } from "./UsageFigures";
-import { QuotaRow } from "./UsageQuotaRow";
+import { formatCount, formatDay, formatPercent, formatTokens } from "@/features/usage/formatTokens";
+import { UsageCalendar, UsageLegend } from "@/features/usage/UsageCalendar";
+import { DayDetail } from "@/features/usage/UsageDayDetail";
+import { TotalsRow } from "@/features/usage/UsageFigures";
+import { QuotaRow } from "@/features/usage/UsageQuotaRow";
 import {
   buildUsageGrid,
   cachedShare,
@@ -15,7 +15,7 @@ import {
   sumDays,
   uncachedInput,
   type UsageCell,
-} from "./usageGrid";
+} from "@/features/usage/usageGrid";
 
 export function VendorPanel({
   vendor,

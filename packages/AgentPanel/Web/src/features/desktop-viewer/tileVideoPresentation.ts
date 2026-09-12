@@ -4,8 +4,8 @@
 // watches the element itself: a frame callback per presented frame, a periodic sample, and
 // a watchdog that notices a gap and keeps reporting until it closes.
 
-import { postTileTelemetry } from "./webrtcTileWire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
+import { postTileTelemetry } from "@/features/desktop-viewer/webrtcTileWire";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 const VIDEO_PRESENTATION_INTERVAL_MS = 5_000;
 const PRESENTATION_WATCHDOG_INTERVAL_MS = 250;

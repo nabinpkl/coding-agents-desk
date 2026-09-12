@@ -3,8 +3,8 @@ import {
   ControlHelperError,
   createControlHelper,
   type HelperProcess,
-} from "./controlHelper.ts";
-import type { HelperBinary } from "./helperBinary.ts";
+} from "@/desktop/controlHelper";
+import type { HelperBinary } from "@/desktop/helperBinary";
 
 const KIND_META = 0;
 const KIND_CONTROL = 4;

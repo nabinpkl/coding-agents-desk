@@ -6,7 +6,7 @@
 
 import { useCallback, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 export function usePiSessionCreation(
   feed: SidecarDataSource,

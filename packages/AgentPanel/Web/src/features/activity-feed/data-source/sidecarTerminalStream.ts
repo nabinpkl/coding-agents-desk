@@ -8,7 +8,7 @@ import type {
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentHttpTransport } from "../transport/AgentHttpTransport";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 export interface TerminalViewer {
   onMessage: (message: AgentTerminalStreamMessage) => void;

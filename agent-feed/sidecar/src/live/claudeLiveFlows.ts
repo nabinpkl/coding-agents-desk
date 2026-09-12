@@ -5,8 +5,8 @@
 // `session_id` that keys the mirror lives in that body. So deltas can arrive with
 // nowhere to put them yet; a flow buffers them, bounded, until the bind lands.
 
-import type { ObserverEvent } from "./claudeNetworkSource.ts";
-import type { LiveMessage } from "./claudeLiveMessages.ts";
+import type { ObserverEvent } from "@/live/claudeNetworkSource";
+import type { LiveMessage } from "@/live/claudeLiveMessages";
 
 const MESSAGE_STREAM_AUTHORITIES = new Set(["api.anthropic.com", "a-api.anthropic.com"]);
 const MESSAGE_STREAM_PATH = "/v1/messages";

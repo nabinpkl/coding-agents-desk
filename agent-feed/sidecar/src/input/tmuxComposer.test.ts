@@ -19,15 +19,15 @@ import {
   settle,
   typed,
   watchable,
-} from "./tmuxComposerHarness.ts";
+} from "@/input/tmuxComposerHarness";
 import {
   composerBox,
   type ComposerBox,
   composerText,
   keystrokesFor,
   readComposerAt,
-} from "./tmuxComposer.ts";
-import type { TmuxPaneView } from "../terminal/tmuxSessions.ts";
+} from "@/input/tmuxComposer";
+import type { TmuxPaneView } from "@/terminal/tmuxSessions";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
   expect(composerBox(screenWith(["make the hover ring stronger"])))

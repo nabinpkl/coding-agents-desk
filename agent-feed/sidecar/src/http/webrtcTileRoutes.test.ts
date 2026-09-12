@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createWebrtcTileRoutes,
   webrtcSessionsSnapshot,
-} from "./webrtcTileRoutes.ts";
+} from "@/http/webrtcTileRoutes";
 
 const server = undefined as never;
 const diagnostics: string[] = [];

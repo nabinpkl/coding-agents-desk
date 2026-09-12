@@ -5,7 +5,7 @@ import {
   CHARACTER_PREVIEW,
   characterPreviewPath,
   type CharacterPreviewLayout,
-} from "./keyboardDeckMetrics";
+} from "@/features/desktop-viewer/keyboardDeckMetrics";
 import {
   deckKeyId,
   deckKeyLabel,
@@ -14,7 +14,7 @@ import {
   keyWidthWeight,
   type DeckKey,
   type KeyboardDeckState,
-} from "./keyboardDeckModel";
+} from "@/features/desktop-viewer/keyboardDeckModel";
 
 /**
  * Resting and pressed fills, from `KeyboardKeyAppearance.swift`. The pairs invert by theme: a

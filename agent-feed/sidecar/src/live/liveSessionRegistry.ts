@@ -10,9 +10,9 @@
 // the not-found error, their own idle-drop setting, and whatever per-session state
 // they keep outside this registry -- that last one is what `forget` is for.
 
-import { AgentSessionNotFoundError } from "../agents/agentBackend.ts";
-import { LiveAgentProjection } from "../agents/liveAgentProjection.ts";
-import type { TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
+import { AgentSessionNotFoundError } from "@/agents/agentBackend";
+import { LiveAgentProjection } from "@/agents/liveAgentProjection";
+import type { TokenUsage } from "@/transcripts/sources/transcriptTypes";
 
 interface SessionTrack {
   lastEventAt: number;

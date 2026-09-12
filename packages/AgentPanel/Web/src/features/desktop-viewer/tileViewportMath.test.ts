@@ -12,7 +12,7 @@ import {
   scrollAccelerationGain,
   toContentPoint,
   zoomAt,
-} from "./tileViewportMath";
+} from "@/features/desktop-viewer/tileViewportMath";
 
 const W = 800;
 const H = 500;

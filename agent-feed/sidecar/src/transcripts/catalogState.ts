@@ -8,9 +8,9 @@ import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire"
 import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,
-} from "../agents/agentBackend.ts";
-import { state, type WatcherState } from "./transcriptState.ts";
-import type { Session, SourceId } from "./sources/transcriptTypes.ts";
+} from "@/agents/agentBackend";
+import { state, type WatcherState } from "@/transcripts/transcriptState";
+import type { Session, SourceId } from "@/transcripts/sources/transcriptTypes";
 
 /**
  * The longest a title stays as written. Past this a row shows an ellipsis instead of the tail, so

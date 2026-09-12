@@ -8,7 +8,7 @@ import {
   CONTROL_CHANNEL_LABEL,
   type DesktopControlSendResult,
   type DesktopControlTransport,
-} from "./webrtcTileWire";
+} from "@/features/desktop-viewer/webrtcTileWire";
 import type { DesktopControlEvent } from "@agentdesk/agent-feed-wire";
 
 export function createControlChannel({

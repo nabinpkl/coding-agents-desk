@@ -6,13 +6,13 @@
 // the chrome the reader arranged, and all of it is remembered.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentSidebarMode } from "../features/sidebar/AgentSidebar";
-import { useSidebarEnvironment } from "../features/sidebar/SidebarPresentation";
+import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
+import { useSidebarEnvironment } from "@/features/sidebar/SidebarPresentation";
 import {
   loadSidebarPreferences,
   storeSidebarPreferences,
-} from "../features/sidebar/sidebarPreferences";
-import { searchWithSidebarMode, sidebarModeFromSearch } from "../features/sidebar/sidebarRoute";
+} from "@/features/sidebar/sidebarPreferences";
+import { searchWithSidebarMode, sidebarModeFromSearch } from "@/features/sidebar/sidebarRoute";
 
 export function useSidebarChrome() {
   const { compact, hoverCapable } = useSidebarEnvironment();

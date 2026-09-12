@@ -1,9 +1,9 @@
 "use client";
 
 import type { UsageDay, UsageTotals } from "@agentdesk/agent-feed-wire";
-import { formatDay, formatPercent, formatTokens } from "./formatTokens";
-import { TotalsRow } from "./UsageFigures";
-import { cachedShare, daysInRange, previousWeek, sumDays, weekBounds } from "./usageGrid";
+import { formatDay, formatPercent, formatTokens } from "@/features/usage/formatTokens";
+import { TotalsRow } from "@/features/usage/UsageFigures";
+import { cachedShare, daysInRange, previousWeek, sumDays, weekBounds } from "@/features/usage/usageGrid";
 
 /**
  * Rows kept for the per-model list, whether or not a day fills them.

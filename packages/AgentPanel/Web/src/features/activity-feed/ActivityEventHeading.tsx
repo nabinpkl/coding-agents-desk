@@ -7,10 +7,10 @@
 // typographic argument with measurements in it, and nothing about which rows exist.
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { ActivityEvent, EventCacheHit } from "./useSessionEventsStream";
-import { displayRole, type DisplayRole } from "./activityDisplayItems";
-import { eventPreview, toolIntent } from "./activityEventText";
-import type { SessionReference } from "./data-source/AgentDataSource";
+import type { ActivityEvent, EventCacheHit } from "@/features/activity-feed/useSessionEventsStream";
+import { displayRole, type DisplayRole } from "@/features/activity-feed/activityDisplayItems";
+import { eventPreview, toolIntent } from "@/features/activity-feed/activityEventText";
+import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 
 /**
  * The per-turn prompt-cache badge: the actual cached and total input token

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type LadderWindow, plan, uncoveredArea } from "./ladder.ts";
+import { type LadderWindow, plan, uncoveredArea } from "@/park/ladder";
 
 const DISPLAY = { x: 0, y: 0, w: 1800, h: 1169 };
 const OPTIONS = { display: DISPLAY, strip: 40, step: 24, topMargin: 39 };

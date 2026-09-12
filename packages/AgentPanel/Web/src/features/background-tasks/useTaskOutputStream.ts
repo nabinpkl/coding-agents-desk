@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackgroundTaskProgress, BackgroundTaskState } from "@agentdesk/agent-feed-wire";
-import type { AgentDataSource, SessionReference } from "../activity-feed/data-source/AgentDataSource";
+import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 
 export interface TaskOutputView {
   label: string;

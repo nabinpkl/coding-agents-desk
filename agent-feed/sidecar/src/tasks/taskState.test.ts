@@ -5,7 +5,7 @@ import {
   parseTaskNotification,
   parseTerminalMarker,
   resolveTaskState,
-} from "./taskState.ts";
+} from "@/tasks/taskState";
 
 describe("parseTerminalMarker", () => {
   test("reads a clean exit", () => {

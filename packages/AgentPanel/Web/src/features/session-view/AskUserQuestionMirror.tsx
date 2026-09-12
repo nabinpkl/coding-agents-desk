@@ -10,9 +10,9 @@ import {
   type QuestionPanelStatus,
   type WindowComposerClient,
   WindowQuestionError,
-} from "../window-composer/WindowComposerClient";
-import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
-import { composerReasonText } from "./SessionTerminalControls";
+} from "@/features/window-composer/WindowComposerClient";
+import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
+import { composerReasonText } from "@/features/session-view/SessionTerminalControls";
 
 /**
  * The AskUserQuestion mirror's mechanism, mirroring the composer hook's shape.

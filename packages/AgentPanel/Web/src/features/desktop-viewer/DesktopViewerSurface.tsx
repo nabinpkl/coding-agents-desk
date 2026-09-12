@@ -8,33 +8,33 @@ import type {
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
 import { Crop, Crosshair, Hand, Layers, MousePointer2 } from "lucide-react";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
-import type { DesktopStreamState } from "./DesktopStreamState";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import {
   CAPTURE_SCALE_MAX,
   CAPTURE_SCALE_MIN,
   postTileTelemetry,
   TileStreamRtc,
   type DesktopControlTransport,
-} from "./TileStreamRtc";
-import { useCaptureScale } from "./captureScale";
-import { ModeButton, ResolutionSlider } from "./DesktopViewerControls";
-import { DesktopStream, DetailStream, OverviewStream } from "./DesktopViewerStreams";
+} from "@/features/desktop-viewer/TileStreamRtc";
+import { useCaptureScale } from "@/features/desktop-viewer/captureScale";
+import { ModeButton, ResolutionSlider } from "@/features/desktop-viewer/DesktopViewerControls";
+import { DesktopStream, DetailStream, OverviewStream } from "@/features/desktop-viewer/DesktopViewerStreams";
 import {
   captureCropApplied,
   clearOverviewReady,
   markOverviewReady,
   setCaptureCrop,
   useCaptureCrop,
-} from "./captureCrop";
-import { setZoomMode, useZoomMode } from "./zoomMode";
-import { setOverviewLayer, useOverviewLayer } from "./overviewLayer";
+} from "@/features/desktop-viewer/captureCrop";
+import { setZoomMode, useZoomMode } from "@/features/desktop-viewer/zoomMode";
+import { setOverviewLayer, useOverviewLayer } from "@/features/desktop-viewer/overviewLayer";
 
 /** The coarse stream only has to fill gaps and be panned over; it is not what is read. */
 const OVERVIEW_FPS = 8;
-import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
-import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
-import { useDesktopKeyboard } from "./useDesktopKeyboard";
+import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/TileViewport";
+import { DesktopKeyboardChrome } from "@/features/desktop-viewer/DesktopKeyboardChrome";
+import { useDesktopKeyboard } from "@/features/desktop-viewer/useDesktopKeyboard";
 
 const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 /**

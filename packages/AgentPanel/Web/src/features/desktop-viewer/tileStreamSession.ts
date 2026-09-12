@@ -11,19 +11,19 @@ import type {
   WebrtcTileAnswer,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
-import type { DesktopStreamState } from "./DesktopStreamState";
-import type { CapturePlan } from "./tileCapturePlan";
-import { createControlChannel } from "./tileControlChannel";
-import { createReceiverStatsSampler } from "./tileReceiverStats";
-import type { createVideoPresentationWatch } from "./tileVideoPresentation";
-import { RECEIVER_STATS_INTERVAL_MS } from "./webrtcReceiverStats";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
+import type { CapturePlan } from "@/features/desktop-viewer/tileCapturePlan";
+import { createControlChannel } from "@/features/desktop-viewer/tileControlChannel";
+import { createReceiverStatsSampler } from "@/features/desktop-viewer/tileReceiverStats";
+import type { createVideoPresentationWatch } from "@/features/desktop-viewer/tileVideoPresentation";
+import { RECEIVER_STATS_INTERVAL_MS } from "@/features/desktop-viewer/webrtcReceiverStats";
 import {
   parseWebrtcTileAnswer,
   postTileTelemetry,
   postWebrtcClose,
   type DesktopControlTransport,
-} from "./webrtcTileWire";
+} from "@/features/desktop-viewer/webrtcTileWire";
 
 /** How long a replaced session's picture is kept when nothing comes after it. */
 export const RETIRE_TIMEOUT_MS = 4_000;

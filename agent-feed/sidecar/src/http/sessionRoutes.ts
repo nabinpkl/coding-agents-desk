@@ -13,7 +13,7 @@ import {
   syncIndex,
   type ActivityEvent,
   type EventNotice,
-} from "../transcripts/eventIndex.ts";
+} from "@/transcripts/eventIndex";
 import {
   canonicalProjectPath,
   findSession,
@@ -21,20 +21,20 @@ import {
   getWatcherState,
   sessionSummaries,
   type AgentSessionDescriptorResolver,
-} from "../transcripts/transcriptCatalog.ts";
+} from "@/transcripts/transcriptCatalog";
 import type {
   EventMode,
   TranscriptSourceId,
-} from "../transcripts/sources/transcriptTypes.ts";
+} from "@/transcripts/sources/transcriptTypes";
 import type { EventsPage, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import {
   renameClaudeSession,
   SessionRenameInvalidError,
   SessionRenameNotFoundError,
   SessionRenameUnavailableError,
-} from "../transcripts/renameSession.ts";
-import { errorResponse, jsonResponse } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/transcripts/renameSession";
+import { errorResponse, jsonResponse } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const EVENT_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events$/i;
 const RAW_EVENT_ROUTE =

@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 import type { AgentTerminalDescriptor } from "@agentdesk/agent-feed-wire";
 import type { RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
-import type { ModifierState } from "../keyboard/modifierLatch";
+import type { ModifierState } from "@/features/keyboard/modifierLatch";
 
 /**
  * A live terminal, and the chrome-facing handles for driving it from outside the grid.

@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackgroundTaskSnapshot } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import { createBackgroundTaskCoordinator } from "./backgroundTaskCoordinator.ts";
-import { type CommandRunner, resetProcessTableCache } from "./processProbe.ts";
+import { config } from "@/config";
+import { createBackgroundTaskCoordinator } from "@/tasks/backgroundTaskCoordinator";
+import { type CommandRunner, resetProcessTableCache } from "@/tasks/processProbe";
 
 // The shared table is cached for a window, so without this one test's kernel answers the next.
 beforeEach(resetProcessTableCache);

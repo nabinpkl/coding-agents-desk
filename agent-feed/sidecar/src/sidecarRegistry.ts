@@ -1,8 +1,8 @@
 import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
-import { runtimePaths } from "../../../tools/runtime-paths.mjs";
-import { ensureCrossSessionDirectory } from "./crossSessionDirectory.ts";
+import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
+import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
 
 /** How often the descriptor's heartbeat is refreshed. A reader ages entries out at three misses. */
 const HEARTBEAT_MS = 5_000;

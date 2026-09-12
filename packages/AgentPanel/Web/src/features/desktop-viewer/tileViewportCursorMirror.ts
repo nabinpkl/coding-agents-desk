@@ -1,14 +1,14 @@
 // Where the Mac's cursor is, as this viewer believes it: what the host reported, what this
 // viewer predicted, and the moves still waiting to be sent.
 
-import { CURSOR_MIRROR_RENDER_SCALE } from "./tileViewportConstants";
+import { CURSOR_MIRROR_RENDER_SCALE } from "@/features/desktop-viewer/tileViewportConstants";
 import type { WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
 import {
   advanceRemoteCursor,
   pointerAccelerationGain,
   type ViewportPoint,
-} from "./tileViewportMath";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+} from "@/features/desktop-viewer/tileViewportMath";
+import type { ViewportRuntime } from "@/features/desktop-viewer/tileViewportRuntime";
 
 export function createCursorMirror(ctx: ViewportRuntime) {
   return {

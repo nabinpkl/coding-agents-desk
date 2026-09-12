@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { AgentBackend } from "../agents/agentBackend.ts";
-import { createAgentRoutes } from "./agentRoutes.ts";
+import type { AgentBackend } from "@/agents/agentBackend";
+import { createAgentRoutes } from "@/http/agentRoutes";
 
 function fakeBackend(): AgentBackend {
   return {

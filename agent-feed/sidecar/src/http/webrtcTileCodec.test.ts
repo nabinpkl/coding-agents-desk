@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chooseTileVideoCodec } from "./webrtcTileCodec.ts";
+import { chooseTileVideoCodec } from "@/http/webrtcTileCodec";
 
 const h265 = { mimeType: "video/H265", parameters: "tx-mode=SRST;sprop-max-don-diff=0" };
 const baseline = {

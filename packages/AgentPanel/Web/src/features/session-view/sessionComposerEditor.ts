@@ -6,12 +6,12 @@ import type {
   RailKey,
   RailModifier,
 } from "@agentdesk/agent-feed-wire";
-import type { ModifierState } from "../keyboard/modifierLatch";
-import type { ComposerImage } from "../cli-input/useTmuxComposer";
-import { cliInputReasonText } from "../cli-input/useCliInput";
-import { tmuxComposerReasonText } from "../cli-input/useTmuxComposer";
-import { harnessName } from "./SessionView";
-import type { ComposerModel } from "./sessionComposerModel";
+import type { ModifierState } from "@/features/keyboard/modifierLatch";
+import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
+import { cliInputReasonText } from "@/features/cli-input/useCliInput";
+import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
+import { harnessName } from "@/features/session-view/SessionView";
+import type { ComposerModel } from "@/features/session-view/sessionComposerModel";
 
 export interface ComposerEditor {
   value: string;

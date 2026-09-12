@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle, ScrollText } from "lucide-react";
-import type { SummaryState } from "./useSummary";
+import type { SummaryState } from "@/features/summary/useSummary";
 
 /**
  * The Summarize button, beside the terminal control in the thread header.

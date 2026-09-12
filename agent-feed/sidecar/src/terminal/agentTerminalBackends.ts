@@ -9,11 +9,11 @@
 // from the panel's side the two are the same shape -- a tile that cannot open -- and the
 // message is what tells them apart.
 
-import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
-import type { TmuxAttachments, TmuxSessionConnection } from "./tmuxAttachment.ts";
-import type { PtySessionSummary } from "./ptyProtocol.ts";
-import { AgentTerminalConflictError, AgentTerminalUnavailableError } from "./agentTerminalErrors.ts";
-import type { TerminalIdentity } from "./agentTerminalIdentity.ts";
+import { PtyManagerClient, type PtySessionConnection } from "@/terminal/ptyClient";
+import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmuxAttachment";
+import type { PtySessionSummary } from "@/terminal/ptyProtocol";
+import { AgentTerminalConflictError, AgentTerminalUnavailableError } from "@/terminal/agentTerminalErrors";
+import type { TerminalIdentity } from "@/terminal/agentTerminalIdentity";
 
 export interface AgentTerminalPtyClient {
   listSessions(): Promise<PtySessionSummary[]>;

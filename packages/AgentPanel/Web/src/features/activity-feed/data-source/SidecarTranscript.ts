@@ -19,8 +19,8 @@ import type {
   EventsPage,
   SessionEventsHandlers,
   SessionReference,
-} from "./AgentDataSource";
-import { parse, SidecarError, SidecarRoutes } from "./sidecarRoutes";
+} from "@/features/activity-feed/data-source/AgentDataSource";
+import { parse, SidecarError, SidecarRoutes } from "@/features/activity-feed/data-source/sidecarRoutes";
 
 function timelinePath(session: SessionReference): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/timeline?mode=${session.mode}`;

@@ -6,10 +6,10 @@ import {
   appendLocalEcho,
   MAX_RECEIPT_EVENTS,
   receiptToken,
-} from "./desktopKeyboardModel";
-import { clearFocusTimer, clearLocalState, focusCapture, updatePresentation } from "./desktopKeyboardSession";
-import { acceptEncodedKeys, sendBatch } from "./desktopKeyboardSend";
-import type { KeyboardContext } from "./desktopKeyboardContext";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
+import { clearFocusTimer, clearLocalState, focusCapture, updatePresentation } from "@/features/desktop-viewer/desktopKeyboardSession";
+import { acceptEncodedKeys, sendBatch } from "@/features/desktop-viewer/desktopKeyboardSend";
+import type { KeyboardContext } from "@/features/desktop-viewer/desktopKeyboardContext";
 
 export function handleControlEvent(ctx: KeyboardContext, event: DesktopControlEvent) {
   if (event.type === "control-revoked") {

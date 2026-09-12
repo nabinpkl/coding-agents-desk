@@ -1,9 +1,9 @@
-import type { AgentBackend, AgentMessageDelivery } from "../agents/agentBackend.ts";
-import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "../agents/piAgentBackend.ts";
-import { canonicalProjectPath, getSnapshot } from "../transcripts/transcriptCatalog.ts";
-import type { EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+import type { AgentBackend, AgentMessageDelivery } from "@/agents/agentBackend";
+import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
+import { canonicalProjectPath, getSnapshot } from "@/transcripts/transcriptCatalog";
+import type { EventMode, TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const CREATE_ROUTE = "/api/agent-sessions";
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;

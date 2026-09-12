@@ -26,7 +26,7 @@ export const terminalPaneMock = {
 // Mock ActivityFeed so Milkdown/ProseMirror never loads in jsdom.
 export async function activityFeedModule() {
   const { useEffect } = await import("react");
-  const { useDataSource } = await import("../features/activity-feed/data-source/AgentDataSourceContext");
+  const { useDataSource } = await import("@/features/activity-feed/data-source/AgentDataSourceContext");
   // A fixed occupancy report so tests can assert the context meter: 150k of a
   // 200k window is 75%.
   const FIXED_USAGE = { current: 150_000, limit: 200_000, updatedAt: 1, model: "claude-opus-5" };

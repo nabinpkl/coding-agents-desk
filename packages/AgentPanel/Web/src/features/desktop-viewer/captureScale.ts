@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "./TileStreamRtc";
+import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "@/features/desktop-viewer/TileStreamRtc";
 
 /**
  * The capture-resolution multiplier, held outside the component tree.

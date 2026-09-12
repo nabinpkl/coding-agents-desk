@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { ActivityBlock, ActivityEvent } from "./sources/transcriptTypes.ts";
-import { isHarnessUserText, isHumanTurnStart } from "./humanTurns.ts";
+import type { ActivityBlock, ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import { isHarnessUserText, isHumanTurnStart } from "@/transcripts/humanTurns";
 
 function userEvent(blocks: ActivityBlock[]): ActivityEvent {
   return { id: "e", index: 0, revision: 0, phase: "complete", ts: 0, type: "user", blocks };

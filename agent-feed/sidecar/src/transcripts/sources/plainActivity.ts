@@ -1,4 +1,4 @@
-import type { ActivityBlock, ParsedLine } from './transcriptTypes.ts';
+import type { ActivityBlock, ParsedLine } from "@/transcripts/sources/transcriptTypes";
 
 export const PLAIN_PREVIEW_MAX_BYTES = 64 * 1024;
 

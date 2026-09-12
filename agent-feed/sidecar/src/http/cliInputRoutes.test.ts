@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CliInputReceipt, CliInputStatus } from "@agentdesk/agent-feed-wire";
-import { createCliInputRoutes, type CliInputDependencies } from "./cliInputRoutes.ts";
+import { createCliInputRoutes, type CliInputDependencies } from "@/http/cliInputRoutes";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const server = { timeout() {} } as never;

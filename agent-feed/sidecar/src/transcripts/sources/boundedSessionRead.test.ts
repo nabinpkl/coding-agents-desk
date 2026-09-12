@@ -12,8 +12,8 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { claudeAdapter } from './claudeTranscript.ts';
-import { codexAdapter } from './codexTranscript.ts';
+import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
+import { codexAdapter } from "@/transcripts/sources/codexTranscript";
 
 const CWD = '/tmp/bounded-read-project';
 

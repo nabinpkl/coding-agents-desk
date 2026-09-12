@@ -8,9 +8,9 @@
 // session last resolved to.
 
 import type { DesktopAuditSnapshot, WindowInputReason, WindowTarget } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import type { ProcessRow } from "./claudeSessionResolver.ts";
-import type { RendererReviver } from "./rendererReviver.ts";
+import { config } from "@/config";
+import type { ProcessRow } from "@/desktop/claudeSessionResolver";
+import type { RendererReviver } from "@/desktop/rendererReviver";
 import {
   ComposerError,
   keyOf,
@@ -21,9 +21,9 @@ import {
   type QuestionStatus,
   type Subscription,
   type WindowSource,
-} from "./composerTypes.ts";
-import type { TargetResolver } from "./composerTargets.ts";
-import { payloadFor, targetPayload, verb, type WindowAccess } from "./composerWindowAccess.ts";
+} from "@/desktop/composerTypes";
+import type { TargetResolver } from "@/desktop/composerTargets";
+import { payloadFor, targetPayload, verb, type WindowAccess } from "@/desktop/composerWindowAccess";
 
 export function createComposerPoll(
   access: WindowAccess,

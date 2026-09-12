@@ -17,8 +17,8 @@
 // switch Desktops constantly, and a park that chases the active Space would
 // scatter its own pile. It parks where it started and stays there.
 
-import { config } from "../config.ts";
-import { type LadderPlan, plan as planLadder, type Rect } from "./ladder.ts";
+import { config } from "@/config";
+import { type LadderPlan, plan as planLadder, type Rect } from "@/park/ladder";
 import {
   clearManifest,
   corroborates,
@@ -27,7 +27,7 @@ import {
   PARK_MANIFEST_VERSION,
   readManifest,
   writeManifest,
-} from "./manifest.ts";
+} from "@/park/manifest";
 import {
   activeSpace,
   displays,
@@ -37,7 +37,7 @@ import {
   spaces,
   windows,
   type YabaiWindow,
-} from "./yabai.ts";
+} from "@/park/yabai";
 
 export interface ParkOptions {
   /** Substring match on the application name. Absent means every parkable window. */

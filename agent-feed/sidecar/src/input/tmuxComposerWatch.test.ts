@@ -22,15 +22,15 @@ import {
   settle,
   typed,
   watchable,
-} from "./tmuxComposerHarness.ts";
+} from "@/input/tmuxComposerHarness";
 import {
   composerPanes,
   observeTmuxComposer,
   submitTmuxComposer,
   syncTmuxComposer,
   type TmuxComposerWatchRuntime,
-} from "./tmuxComposer.ts";
-import { TmuxUnavailable, type TmuxPaneView } from "../terminal/tmuxSessions.ts";
+} from "@/input/tmuxComposer";
+import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmuxSessions";
 
 test("reports what the composer holds without waiting for the pane to write", async () => {
   // An idle pane writes nothing at all, so a watcher that only ever spoke on output would say

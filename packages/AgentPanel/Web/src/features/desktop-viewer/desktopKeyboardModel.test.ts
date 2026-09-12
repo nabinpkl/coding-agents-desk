@@ -10,7 +10,7 @@ import {
   receiptToken,
   remoteKeysForText,
   shouldPrimeKeyboard,
-} from "./desktopKeyboardModel";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
 
 const requestA = "5f03b272-2922-4ca1-93ee-82d902fdbe21";
 const requestB = "f7d14184-bfc7-4510-9e33-6f74bd611c25";

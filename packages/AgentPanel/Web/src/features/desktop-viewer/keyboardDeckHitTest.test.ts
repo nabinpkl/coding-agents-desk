@@ -4,7 +4,7 @@ import {
   deckHitCells,
   pointHoldsCell,
   type DeckRowBox,
-} from "./keyboardDeckHitTest";
+} from "@/features/desktop-viewer/keyboardDeckHitTest";
 
 /** Two rows of a 100-wide deck: a full row of four, and an indented row of three below it. */
 const ROWS: DeckRowBox[] = [

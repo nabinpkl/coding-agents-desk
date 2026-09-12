@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DesktopControlInput } from "@agentdesk/agent-feed-wire";
-import fixture from "../../../wire/contract-fixture.json";
+import fixture from "@repo/agent-feed/wire/contract-fixture.json";
 import {
   desktopControlInput,
   desktopControlLine,
@@ -8,7 +8,7 @@ import {
   MAX_DESKTOP_CONTROL_MESSAGE_BYTES,
   MAX_DESKTOP_KEY_BATCH,
   MAX_DESKTOP_TEXT_UNITS,
-} from "./webrtcDesktopControl.ts";
+} from "@/http/webrtcDesktopControl";
 
 describe("desktop control v2 input", () => {
   test("validates every command and preserves canonical NDJSON", () => {

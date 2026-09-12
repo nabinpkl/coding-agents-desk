@@ -6,15 +6,15 @@
 // list is long enough to bury the shell it used to sit in.
 
 import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
-import type { useBots } from "../features/bots/useBots";
-import type { useDesktopPark } from "../features/desktop-park/useDesktopPark";
-import type { useUsage } from "../features/usage/useUsage";
-import type { useSidebarChrome } from "./useSidebarChrome";
-import type { useProjectInventory } from "./useProjectInventory";
-import type { useCanvasRoster } from "./useCanvasRoster";
-import type { useBotCommands } from "./useBotCommands";
-import type { useThreadSelection } from "./useThreadSelection";
-import type { usePiSessionCreation } from "./usePiSessionCreation";
+import type { useBots } from "@/features/bots/useBots";
+import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
+import type { useUsage } from "@/features/usage/useUsage";
+import type { useSidebarChrome } from "@/app/useSidebarChrome";
+import type { useProjectInventory } from "@/app/useProjectInventory";
+import type { useCanvasRoster } from "@/app/useCanvasRoster";
+import type { useBotCommands } from "@/app/useBotCommands";
+import type { useThreadSelection } from "@/app/useThreadSelection";
+import type { usePiSessionCreation } from "@/app/usePiSessionCreation";
 
 export function sidebarProps({
   botsState,

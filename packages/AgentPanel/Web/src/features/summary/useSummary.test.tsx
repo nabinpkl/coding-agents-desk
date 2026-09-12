@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import type { SidecarConfig, SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
-import type { SessionAddress } from "../activity-feed/data-source/SidecarDataSource";
-import { useSummary } from "./useSummary";
+import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useSummary } from "@/features/summary/useSummary";
 
 const enabled: SidecarConfig = {
   staleThresholdMs: 1, readyThresholdMs: 1, liveWindowMs: 1,

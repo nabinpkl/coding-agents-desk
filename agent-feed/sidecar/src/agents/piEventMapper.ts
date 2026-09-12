@@ -1,6 +1,6 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { ActivityBlock, ParsedLine } from "../transcripts/sources/transcriptTypes.ts";
-import { LiveAgentProjection, sanitizeAgentValue } from "./liveAgentProjection.ts";
+import type { ActivityBlock, ParsedLine } from "@/transcripts/sources/transcriptTypes";
+import { LiveAgentProjection, sanitizeAgentValue } from "@/agents/liveAgentProjection";
 
 type AgentMessage = Extract<AgentSessionEvent, { type: "message_start" }>['message'];
 

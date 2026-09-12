@@ -14,7 +14,7 @@ import {
   unprojectPoint,
   wholeDisplay,
   zoomVisible,
-} from "./visibleRect";
+} from "@/features/desktop-viewer/visibleRect";
 
 const DISPLAY = { width: 1600, height: 1000 };
 /** Same aspect as the display: the DeskZoom case, where nothing is ever letterboxed. */

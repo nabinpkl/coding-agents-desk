@@ -4,8 +4,8 @@
 // and whatever it says about the turn. `processLine` and `extractBlockRaw` both read
 // this, which is what keeps a block's index the same in the feed and in the Raw drawer.
 
-import { isHarnessUserText } from '../humanTurns.ts';
-import type { ActivityBlock, LineResult, ParsedLine } from './transcriptTypes.ts';
+import { isHarnessUserText } from "@/transcripts/humanTurns";
+import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/sources/transcriptTypes";
 import {
   metadataBlock,
   metadataText,
@@ -13,8 +13,8 @@ import {
   plainEvent,
   rawBlock,
   stringifyForDisplay,
-} from './plainActivity.ts';
-import { classifyClaudeLine } from './lineClass.ts';
+} from "@/transcripts/sources/plainActivity";
+import { classifyClaudeLine } from "@/transcripts/sources/lineClass";
 import {
   assistantModel,
   extractClaudeCacheHit,
@@ -24,7 +24,7 @@ import {
   truncate,
   turnClosedFor,
   type NormalizedClaudeBlock,
-} from './claudePayloads.ts';
+} from "@/transcripts/sources/claudePayloads";
 
 export interface NormalizedClaudeLine {
   result: LineResult;

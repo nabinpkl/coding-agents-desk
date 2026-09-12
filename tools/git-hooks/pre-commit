@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Refuses a commit that puts a live TypeScript file past 500 lines.
+# Refuses a commit that breaks either rule the fitness gate enforces on the live TypeScript trees:
+# a file past 500 lines, or a relative import.
 #
 # The same rule as check 5 in `tools/agent-feed-fitness.sh`, moved to the moment it is cheap to
 # obey. The gate is the authority and this is not a second opinion: same two trees, same two
@@ -27,7 +28,12 @@ TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src"
 staged="$(git diff --cached --name-only --diff-filter=ACMR -- $TREES | grep -E '\.tsx?$' || true)"
 [ -n "$staged" ] || exit 0
 
+# The three specifier forms this codebase writes, anchored or parenthesised so one quoted INSIDE a
+# string stays legal. Same expression as check 6 of the fitness gate, which is the authority.
+RELATIVE='^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|require)\([[:space:]]*["'"'"']\.'
+
 oversize=""
+relative=""
 while IFS= read -r path; do
     [ -n "$path" ] || continue
     # The staged blob, which is what the commit will contain. `wc -l` counts newlines, exactly as
@@ -37,12 +43,28 @@ while IFS= read -r path; do
     if [ "$lines" -gt "$LIMIT" ]; then
         oversize="$oversize  $lines $path"$'\n'
     fi
+    hits="$(git show ":$path" 2>/dev/null | grep -nE "$RELATIVE" || true)"
+    if [ -n "$hits" ]; then
+        relative="$relative$(printf '%s\n' "$hits" | sed "s|^|  $path:|")"$'\n'
+    fi
 done <<< "$staged"
 
-[ -n "$oversize" ] || exit 0
+status=0
 
-echo "pre-commit: these staged files are past the ${LIMIT}-line cap:" >&2
-printf '%s' "$oversize" >&2
-echo "pre-commit: split them by concept before committing. A file this long has stopped being" >&2
-echo "pre-commit: one idea, and the reader who needs one of its ideas pays for all of them." >&2
-exit 1
+if [ -n "$oversize" ]; then
+    echo "pre-commit: these staged files are past the ${LIMIT}-line cap:" >&2
+    printf '%s' "$oversize" >&2
+    echo "pre-commit: split them by concept before committing. A file this long has stopped being" >&2
+    echo "pre-commit: one idea, and the reader who needs one of its ideas pays for all of them." >&2
+    status=1
+fi
+
+if [ -n "$relative" ]; then
+    echo "pre-commit: these staged lines import relatively; write @/ or @repo/ instead:" >&2
+    printf '%s' "$relative" >&2
+    echo "pre-commit: a relative import breaks when either end moves, so it makes moving one file" >&2
+    echo "pre-commit: cost every importer too. An aliased one names only what moved." >&2
+    status=1
+fi
+
+exit "$status"

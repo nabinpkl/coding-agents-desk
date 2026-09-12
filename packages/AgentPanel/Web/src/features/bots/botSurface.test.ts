@@ -6,7 +6,7 @@
 // order.
 
 import { describe, expect, test } from "vitest";
-import { BOT_HUE_OFFSET, BOT_HUE_STEP, botCanvasHues, botSurfaceStyle } from "./botSurface";
+import { BOT_HUE_OFFSET, BOT_HUE_STEP, botCanvasHues, botSurfaceStyle } from "@/features/bots/botSurface";
 
 const bot = (botId: string, createdAt: number) => ({ botId, createdAt });
 

@@ -11,8 +11,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { config } from "../config.ts";
-import type { EventMode } from "../transcripts/sources/transcriptTypes.ts";
+import { config } from "@/config";
+import type { EventMode } from "@/transcripts/sources/transcriptTypes";
 import {
   type AgentBackend,
   type AgentCommandReceipt,
@@ -22,10 +22,10 @@ import {
   type AgentTimelinePage,
   type AgentUiEvent,
   type AgentUiResponseResult,
-} from "./agentBackend.ts";
-import { AgentUiBroker, extensionUiContext } from "./agentUiBroker.ts";
-import { LiveAgentProjection, type TimelineEnvelope } from "./liveAgentProjection.ts";
-import { PiEventMapper } from "./piEventMapper.ts";
+} from "@/agents/agentBackend";
+import { AgentUiBroker, extensionUiContext } from "@/agents/agentUiBroker";
+import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentProjection";
+import { PiEventMapper } from "@/agents/piEventMapper";
 
 export interface PiSessionLocation {
   sessionId: string;
@@ -94,7 +94,7 @@ import {
   AgentCommandConflictError,
   AgentModeUnsupportedError,
   AgentSessionNotFoundError,
-} from "./agentBackend.ts";
+} from "@/agents/agentBackend";
 export {
   AgentBackendDisposedError,
   AgentCommandConflictError,

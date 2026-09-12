@@ -10,10 +10,10 @@ import {
   branchFromTitle,
   prepareWorktree,
   WorktreeError,
-} from "../git/worktree.ts";
-import type { BotStore } from "./botStore.ts";
-import type { NormalizedLaunch } from "./botCommands.ts";
-import { sessionKey } from "./botIdempotency.ts";
+} from "@/git/worktree";
+import type { BotStore } from "@/bots/botStore";
+import type { NormalizedLaunch } from "@/bots/botCommands";
+import { sessionKey } from "@/bots/botIdempotency";
 import {
   BotConflictError,
   BotLaunchError,
@@ -21,7 +21,7 @@ import {
   type BotRegistryCatalog,
   type BotSessionLauncher,
   type ResolvedBotSession,
-} from "./botTypes.ts";
+} from "@/bots/botTypes";
 
 export class BotSessionStarter {
   constructor(

@@ -20,7 +20,7 @@ import {
   settle,
   typed,
   watchable,
-} from "./tmuxComposerHarness.ts";
+} from "@/input/tmuxComposerHarness";
 import {
   acceptTmuxComposerHint,
   composerPanes,
@@ -30,8 +30,8 @@ import {
   submitTmuxComposer,
   syncTmuxComposer,
   type TmuxComposerRuntime,
-} from "./tmuxComposer.ts";
-import { TmuxUnavailable, type TmuxPaneView } from "../terminal/tmuxSessions.ts";
+} from "@/input/tmuxComposer";
+import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmuxSessions";
 
 test("reports tmux itself being gone as its own reason, rather than as an empty composer", async () => {
   const tmux = runtime({

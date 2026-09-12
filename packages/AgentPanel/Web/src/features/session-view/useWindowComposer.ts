@@ -5,8 +5,8 @@ import {
   WindowComposerError,
   type WindowComposerClient,
   type WindowComposerStatus,
-} from "../window-composer/WindowComposerClient";
-import { composerReasonText } from "./SessionTerminalControls";
+} from "@/features/window-composer/WindowComposerClient";
+import { composerReasonText } from "@/features/session-view/SessionTerminalControls";
 
 /**
  * The window-composer mechanism, extracted from the shared band so the band

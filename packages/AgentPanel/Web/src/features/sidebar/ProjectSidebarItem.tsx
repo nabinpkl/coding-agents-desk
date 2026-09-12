@@ -3,9 +3,9 @@
 import { ChevronDown, LoaderCircle, Plus } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { ActivityDot, SessionMeta } from "./SessionMeta";
-import { SourceBadge } from "./SourceBadge";
-import { InlineStatus } from "./SidebarStatusRows";
+import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { InlineStatus } from "@/features/sidebar/SidebarStatusRows";
 
 
 const INITIAL_SESSION_COUNT = 3;

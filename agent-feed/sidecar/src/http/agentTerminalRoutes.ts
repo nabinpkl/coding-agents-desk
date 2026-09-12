@@ -10,9 +10,9 @@ import {
   AgentTerminalInvalidError,
   AgentTerminalNotFoundError,
   AgentTerminalUnavailableError,
-} from "../terminal/agentTerminalService.ts";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/terminal/agentTerminalService";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const TERMINALS_ROUTE = "/api/terminals";
 /** Every open terminal on one stream; see `AgentTerminalStreamEnvelope` for why it is not one each. */

@@ -1,15 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KeyboardDeck } from "./KeyboardDeck";
+import { KeyboardDeck } from "@/features/desktop-viewer/KeyboardDeck";
 import {
   DELETE_REPEAT_DELAY_MS,
   DELETE_REPEAT_INTERVAL_MS,
   SHIFT_DOUBLE_TAP_MS,
   SPACE_CURSOR_STEP_PX,
   SPACE_PAN_SLOP_PX,
-} from "./keyboardDeckModel";
-import { PORTRAIT_DECK } from "./keyboardDeckMetrics";
-import { stubDeckLayout } from "./keyboardDeckTestLayout";
+} from "@/features/desktop-viewer/keyboardDeckModel";
+import { PORTRAIT_DECK } from "@/features/desktop-viewer/keyboardDeckMetrics";
+import { stubDeckLayout } from "@/features/desktop-viewer/keyboardDeckTestLayout";
 
 const deck = () => screen.getByTestId("keyboard-deck");
 const key = (id: string) => screen.getByTestId(`deck-key-${id}`);

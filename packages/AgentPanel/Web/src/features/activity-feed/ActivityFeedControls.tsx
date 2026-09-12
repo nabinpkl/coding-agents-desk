@@ -7,7 +7,7 @@
 
 import { createPortal } from "react-dom";
 import { ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
-import type { EventMode } from "./data-source/AgentDataSource";
+import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 
 export function ActivityFeedControls({
   allCollapsed,

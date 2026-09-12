@@ -3,7 +3,7 @@
 // is silent -- a screen that scrolls or a screen in the corner of its own box.
 
 import { expect, test } from "vitest";
-import { fittedFontSize, preferredScreenHeight, surfaceInset, viewerSetsGrid } from "./terminalTypeFit";
+import { fittedFontSize, preferredScreenHeight, surfaceInset, viewerSetsGrid } from "@/features/terminal/terminalTypeFit";
 
 const reading = (available: { width: number; height: number }) => ({
   baseFontSize: 13,

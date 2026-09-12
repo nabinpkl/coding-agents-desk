@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ParkPlanResponse, ParkStateResponse } from "@agentdesk/agent-feed-wire";
-import { DesktopParkPanel } from "./DesktopParkModal";
-import { groupByDesktop } from "./desktopParkGroups";
-import type { DesktopParkHandle } from "./useDesktopPark";
+import { DesktopParkPanel } from "@/features/desktop-park/DesktopParkModal";
+import { groupByDesktop } from "@/features/desktop-park/desktopParkGroups";
+import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import {
   FIRST_FRAME_TIMEOUT_MS,
   ICE_SETUP_TIMEOUT_MS,
   TileStreamRtc,
-} from "../desktop-viewer/TileStreamRtc";
+} from "@/features/desktop-viewer/TileStreamRtc";
 
 const DISPLAY = { x: 0, y: 0, w: 1800, h: 1169 };
 

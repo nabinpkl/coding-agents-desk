@@ -20,10 +20,10 @@ import {
   receiptToken,
   remoteKeyForCharacter,
   remoteKeysForText,
-} from "./desktopKeyboardModel";
-import { OFF_MODIFIERS } from "./desktopKeyboardPreferences";
-import { clearLocalState, focusCapture, resetCapture } from "./desktopKeyboardSession";
-import type { KeyboardContext } from "./desktopKeyboardContext";
+} from "@/features/desktop-viewer/desktopKeyboardModel";
+import { OFF_MODIFIERS } from "@/features/desktop-viewer/desktopKeyboardPreferences";
+import { clearLocalState, focusCapture, resetCapture } from "@/features/desktop-viewer/desktopKeyboardSession";
+import type { KeyboardContext } from "@/features/desktop-viewer/desktopKeyboardContext";
 
 export function sendControl(ctx: KeyboardContext, input: DesktopControlInput): boolean {
   const result = ctx.transportRef.current?.send(input) ?? "channel-closed";

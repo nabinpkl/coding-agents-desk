@@ -13,23 +13,23 @@ import type {
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
 import { basename } from "node:path";
-import { config } from "../config.ts";
-import { controlHelper } from "../desktop/controlHelper.ts";
-import { acquireEncoderSlot } from "../desktop/encoderSlots.ts";
-import { helperBinary } from "../desktop/helperBinary.ts";
-import { frames, KIND_META } from "./encoderFrames.ts";
-import { desktopControlLine } from "./webrtcDesktopControl.ts";
-import { WebrtcDesktopControlEvents } from "./webrtcDesktopControlEvents.ts";
-import { DesktopControlOwnership } from "./webrtcDesktopControlOwnership.ts";
-import { gridEncoderSourceMetadata } from "./webrtcTileMetadata.ts";
-import type { TileVideoCodec } from "./webrtcTileCodec.ts";
-import { diag, WebrtcEncoderDiagnostics } from "./webrtcDiagnosticsLog.ts";
+import { config } from "@/config";
+import { controlHelper } from "@/desktop/controlHelper";
+import { acquireEncoderSlot } from "@/desktop/encoderSlots";
+import { helperBinary } from "@/desktop/helperBinary";
+import { frames, KIND_META } from "@/http/encoderFrames";
+import { desktopControlLine } from "@/http/webrtcDesktopControl";
+import { WebrtcDesktopControlEvents } from "@/http/webrtcDesktopControlEvents";
+import { DesktopControlOwnership } from "@/http/webrtcDesktopControlOwnership";
+import { gridEncoderSourceMetadata } from "@/http/webrtcTileMetadata";
+import type { TileVideoCodec } from "@/http/webrtcTileCodec";
+import { diag, WebrtcEncoderDiagnostics } from "@/http/webrtcDiagnosticsLog";
 import {
   captureIdentity,
   encoderDisposition,
   encoderStreamKey,
   geometryTag,
-} from "./webrtcEncoderIdentity.ts";
+} from "@/http/webrtcEncoderIdentity";
 
 /** Kind 3 in the encoder framing: one Annex-B access unit. */
 const KIND_ACCESS_UNIT = 3;

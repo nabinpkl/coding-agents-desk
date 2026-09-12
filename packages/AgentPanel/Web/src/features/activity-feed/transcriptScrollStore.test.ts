@@ -3,7 +3,7 @@ import {
   forgetTranscriptAnchor,
   loadTranscriptAnchor,
   rememberTranscriptAnchor,
-} from "./transcriptScrollStore";
+} from "@/features/activity-feed/transcriptScrollStore";
 
 const STORAGE_KEY = "agent-panel.transcript-scroll";
 const CLAUDE = { source: "claude", sessionId: "sid-a" };

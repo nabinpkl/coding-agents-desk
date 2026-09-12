@@ -11,9 +11,9 @@ import type {
   AgentTerminalViewport,
   TmuxSessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import { expectEmpty, parse } from "./sidecarRoutes";
-import { SidecarComposers } from "./SidecarComposers";
-import { TerminalViewers, type TerminalViewer } from "./sidecarTerminalStream";
+import { expectEmpty, parse } from "@/features/activity-feed/data-source/sidecarRoutes";
+import { SidecarComposers } from "@/features/activity-feed/data-source/SidecarComposers";
+import { TerminalViewers, type TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
 
 export class SidecarTerminals extends SidecarComposers {
   private readonly terminals = new TerminalViewers(this.transport);

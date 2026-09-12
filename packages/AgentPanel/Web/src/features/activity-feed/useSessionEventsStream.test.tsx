@@ -1,17 +1,17 @@
 import type { ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
+import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type {
   AgentDataSource,
   EventsPage,
   SessionEventsHandlers,
-} from "./data-source/AgentDataSource";
-import { stubDataSource } from "./data-source/stubDataSource";
+} from "@/features/activity-feed/data-source/AgentDataSource";
+import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import {
   useSessionEventsStream,
   type ActivityEvent,
-} from "./useSessionEventsStream";
+} from "@/features/activity-feed/useSessionEventsStream";
 
 function event(
   index: number,

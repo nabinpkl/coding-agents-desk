@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { UsageVendorId, VendorUsage } from "@agentdesk/agent-feed-wire";
-import { VendorPanel } from "./UsageVendorPanel";
-import { weekBounds } from "./usageGrid";
-import type { UsageState } from "./useUsage";
+import { VendorPanel } from "@/features/usage/UsageVendorPanel";
+import { weekBounds } from "@/features/usage/usageGrid";
+import type { UsageState } from "@/features/usage/useUsage";
 
 const RANGES = [
   { label: "12w", weeks: 12 },

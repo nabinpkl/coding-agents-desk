@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProjectsPayload, SessionsPayload } from "@agentdesk/agent-feed-wire";
-import { createInventoryRoutes } from "./inventoryRoutes.ts";
-import { registerPiSession, sessionKey, stopCatalog } from "../transcripts/transcriptCatalog.ts";
-import { state } from "../transcripts/transcriptState.ts";
+import { createInventoryRoutes } from "@/http/inventoryRoutes";
+import { registerPiSession, sessionKey, stopCatalog } from "@/transcripts/transcriptCatalog";
+import { state } from "@/transcripts/transcriptState";
 
 const server = { timeout() {} } as never;
 const route = createInventoryRoutes();

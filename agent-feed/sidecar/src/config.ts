@@ -1,15 +1,15 @@
 import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { runtimePaths } from "../../../tools/runtime-paths.mjs";
+import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import {
   booleanEnvironment,
   directoryEnvironment,
   integerEnvironment,
   urlEnvironment,
-} from "./configEnvironment.ts";
-import { contextWindowEnvironment, contextWindowIn } from "./contextWindows.ts";
-import { tmuxBinary, yabaiBinary } from "./configBinaries.ts";
+} from "@/configEnvironment";
+import { contextWindowEnvironment, contextWindowIn } from "@/contextWindows";
+import { tmuxBinary, yabaiBinary } from "@/configBinaries";
 
 const userHomeDirectory = homedir();
 const staleThresholdMs = integerEnvironment(

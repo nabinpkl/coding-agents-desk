@@ -13,14 +13,14 @@
 import { open, stat } from "node:fs/promises";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { config } from "../config.ts";
-import { isInsideTaskRoot } from "./processProbe.ts";
+import { config } from "@/config";
+import { isInsideTaskRoot } from "@/tasks/processProbe";
 import {
   parseBackgroundStart,
   parseMonitorStart,
   parseTaskNotification,
   type TaskNotification,
-} from "./taskState.ts";
+} from "@/tasks/taskState";
 
 export interface TaskIdentity {
   taskId: string;

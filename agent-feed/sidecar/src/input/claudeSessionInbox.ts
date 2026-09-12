@@ -29,11 +29,11 @@ import type {
   CliInputStatus,
   CliInputUnavailableReason,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import type { CommandRunner } from "../tasks/processProbe.ts";
-import { currentProcessTable, runCommand } from "../tasks/processProbe.ts";
-import { parseRegistryProcStart, startTimesAgree } from "../tasks/processStartTime.ts";
-import { sessionOwner, type ClaudeSessionProcess } from "../tasks/sessionRegistry.ts";
+import { config } from "@/config";
+import type { CommandRunner } from "@/tasks/processProbe";
+import { currentProcessTable, runCommand } from "@/tasks/processProbe";
+import { parseRegistryProcStart, startTimesAgree } from "@/tasks/processStartTime";
+import { sessionOwner, type ClaudeSessionProcess } from "@/tasks/sessionRegistry";
 
 /**
  * How long one delivery may take, end to end.

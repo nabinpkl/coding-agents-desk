@@ -1,6 +1,6 @@
 import { chmodSync, copyFileSync, mkdirSync, statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
-import type { HelperBinary } from "./helperBinary.ts";
+import type { HelperBinary } from "@/desktop/helperBinary";
 
 /**
  * Every live grid-encoder runs from its own copy of the installed helper.

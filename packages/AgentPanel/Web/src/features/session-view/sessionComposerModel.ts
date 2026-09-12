@@ -6,12 +6,12 @@
 // is the only thing that decides any of it.
 
 import type { RefObject } from "react";
-import type { AgentSessionControlState } from "../activity-feed/data-source/AgentDataSource";
+import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { CliInputHandle } from "../cli-input/useCliInput";
-import type { useTmuxComposer } from "../cli-input/useTmuxComposer";
-import type { useWindowComposer } from "./useWindowComposer";
-import type { AgentTerminalComposer } from "./sessionTerminalTypes";
+import type { CliInputHandle } from "@/features/cli-input/useCliInput";
+import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
+import type { useWindowComposer } from "@/features/session-view/useWindowComposer";
+import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 
 /** Which surface owns composition for this session, and what it needs to write. */
 export type ComposerTransport =

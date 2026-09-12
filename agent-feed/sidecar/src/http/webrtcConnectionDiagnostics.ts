@@ -7,10 +7,10 @@
 // Bounded and pruned throughout: a failing phone must leave evidence without becoming a leak.
 
 import type { RTCRtpHistoryRepairStats } from "werift";
-import { diag } from "./webrtcDiagnosticsLog.ts";
-import { jsonResponse } from "./httpResponses.ts";
-import type { SharedEncoder } from "./webrtcEncoderPool.ts";
-import { bounded } from "./webrtcTileOffer.ts";
+import { diag } from "@/http/webrtcDiagnosticsLog";
+import { jsonResponse } from "@/http/httpResponses";
+import type { SharedEncoder } from "@/http/webrtcEncoderPool";
+import { bounded } from "@/http/webrtcTileOffer";
 
 export interface TileTelemetry {
   attempt?: unknown;

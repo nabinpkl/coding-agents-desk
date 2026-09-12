@@ -7,15 +7,15 @@
 // routes those into the event's Raw drawer before this is reached.
 
 import { ChevronRight } from "lucide-react";
-import { DiffBlock } from "./DiffBlock";
-import { Markdown } from "./markdown/Markdown";
-import { CodeBlock } from "./markdown/CodeBlock";
-import { LabeledTextBlock, RawDetails } from "./ActivitySystemBlocks";
-import { shellCommand } from "./activityEventText";
-import type { PairedToolResult } from "./activityFeedLayout";
-import { markdownSafePrefix, useProgressiveText } from "./streamingText";
-import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
-import type { EventRowContext } from "./ActivityEventRows";
+import { DiffBlock } from "@/features/activity-feed/DiffBlock";
+import { Markdown } from "@/features/activity-feed/markdown/Markdown";
+import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
+import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/ActivitySystemBlocks";
+import { shellCommand } from "@/features/activity-feed/activityEventText";
+import type { PairedToolResult } from "@/features/activity-feed/activityFeedLayout";
+import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/streamingText";
+import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { EventRowContext } from "@/features/activity-feed/ActivityEventRows";
 
 // `.md` / `.mdx` file detection for tool calls whose body should render as
 // formatted Markdown rather than raw source.

@@ -4,8 +4,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
-import { tileViewportHarness } from "./tileViewportHarness";
+import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/TileViewport";
+import { tileViewportHarness } from "@/features/desktop-viewer/tileViewportHarness";
 
 describe("TileViewport zoom and keyboard", () => {
   const {

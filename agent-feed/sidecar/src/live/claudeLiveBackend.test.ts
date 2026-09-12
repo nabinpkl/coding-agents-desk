@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { ClaudeLiveBackend } from "./claudeLiveBackend.ts";
-import type { ObserverEvent } from "./claudeNetworkSource.ts";
+import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
+import type { ObserverEvent } from "@/live/claudeNetworkSource";
 
 const flush = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 

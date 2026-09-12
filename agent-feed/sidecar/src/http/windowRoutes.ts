@@ -4,12 +4,12 @@ import {
   type QuestionAction,
   type SessionKey,
   type WindowSource,
-} from "../desktop/composerCoordinator.ts";
+} from "@/desktop/composerCoordinator";
 import { unlink } from "node:fs/promises";
 
-import { ControlHelperError, controlHelper } from "../desktop/controlHelper.ts";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+import { ControlHelperError, controlHelper } from "@/desktop/controlHelper";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 /**
  * Claude Desktop's composer and AskUserQuestion panel, over HTTP.

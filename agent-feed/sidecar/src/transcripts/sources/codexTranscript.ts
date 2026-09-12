@@ -11,12 +11,12 @@
 // The parts, in the order a line travels them: `codexRollouts.ts` finds the file and
 // reads its tail, `codexPayloads.ts` says what a line's payload is, `codexNormalize.ts`
 // turns one into blocks, and this assembles the `SourceAdapter` from them.
-import type { LineResult, ParsedLine, SourceAdapter } from './transcriptTypes.ts';
-import { plainEvent } from './plainActivity.ts';
-import { isHarnessUserText } from '../humanTurns.ts';
-import { truncate } from './codexPayloads.ts';
-import { readTail } from './codexRollouts.ts';
-import { normalizedLine } from './codexNormalize.ts';
+import type { LineResult, ParsedLine, SourceAdapter } from "@/transcripts/sources/transcriptTypes";
+import { plainEvent } from "@/transcripts/sources/plainActivity";
+import { isHarnessUserText } from "@/transcripts/humanTurns";
+import { truncate } from "@/transcripts/sources/codexPayloads";
+import { readTail } from "@/transcripts/sources/codexRollouts";
+import { normalizedLine } from "@/transcripts/sources/codexNormalize";
 
 function processLine(line: string): LineResult | null {
   return normalizedLine(line)?.result ?? null;
@@ -68,4 +68,4 @@ export const codexAdapter = {
 };
 
 // Re-exported: the sqlite discovery is a Codex fact, and this is the adapter's address.
-export { resolveStateDbPath } from './codexRollouts.ts';
+export { resolveStateDbPath } from "@/transcripts/sources/codexRollouts";

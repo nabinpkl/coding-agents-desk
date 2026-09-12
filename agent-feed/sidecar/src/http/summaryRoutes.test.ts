@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import type { SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
-import type { AgentBackend, AgentSessionDescriptor } from "../agents/agentBackend.ts";
-import { config } from "../config.ts";
-import type { SummaryRunInput, SummaryRunner } from "../summary/summaryRuntime.ts";
-import { state } from "../transcripts/transcriptState.ts";
-import { createSummaryRoutes } from "./summaryRoutes.ts";
+import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
+import { config } from "@/config";
+import type { SummaryRunInput, SummaryRunner } from "@/summary/summaryRuntime";
+import { state } from "@/transcripts/transcriptState";
+import { createSummaryRoutes } from "@/http/summaryRoutes";
 
 const server = { timeout() {} } as never;
 

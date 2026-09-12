@@ -1,10 +1,10 @@
 import type { WindowTarget } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
-import { liveProcessRows, type ProcessRow } from "./claudeSessionResolver.ts";
-import { type ControlHelper, controlHelper } from "./controlHelper.ts";
-import { createRendererReviver, type RendererReviver } from "./rendererReviver.ts";
-import { createEditingLeases } from "./composerLeases.ts";
-import { createTargetResolver } from "./composerTargets.ts";
+import { config } from "@/config";
+import { liveProcessRows, type ProcessRow } from "@/desktop/claudeSessionResolver";
+import { type ControlHelper, controlHelper } from "@/desktop/controlHelper";
+import { createRendererReviver, type RendererReviver } from "@/desktop/rendererReviver";
+import { createEditingLeases } from "@/desktop/composerLeases";
+import { createTargetResolver } from "@/desktop/composerTargets";
 import {
   ComposerError,
   type ComposerEnvelope,
@@ -14,9 +14,9 @@ import {
   type SessionKey,
   type Subscription,
   type WindowSource,
-} from "./composerTypes.ts";
-import { createComposerPoll } from "./composerWatchPoll.ts";
-import { createWindowAccess, payloadFor, targetPayload, verb } from "./composerWindowAccess.ts";
+} from "@/desktop/composerTypes";
+import { createComposerPoll } from "@/desktop/composerWatchPoll";
+import { createWindowAccess, payloadFor, targetPayload, verb } from "@/desktop/composerWindowAccess";
 
 // Re-exported because `http/windowRoutes.ts` reaches for them through the coordinator, which is
 // the surface it talks to. The declarations live in `composerTypes.ts`.

@@ -4,8 +4,8 @@
 import { basename, join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { config } from '../../config.ts';
-import { turnClosedFor } from './codexPayloads.ts';
+import { config } from "@/config";
+import { turnClosedFor } from "@/transcripts/sources/codexPayloads";
 
 const CODEX_HOME = config.codexHomeDirectory;
 

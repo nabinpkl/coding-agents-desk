@@ -1,4 +1,4 @@
-import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
+import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 export type DisplayItem =
   | { kind: "user"; ev: ActivityEvent }

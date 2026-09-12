@@ -5,7 +5,7 @@
 // per pane -- while the registry is about who is watching. Every comment below is a
 // measurement; read them before changing the ordering.
 
-import type { TmuxPaneRuntime, TmuxSessionConnection } from "./tmuxAttachment.ts";
+import type { TmuxPaneRuntime, TmuxSessionConnection } from "@/terminal/tmuxAttachment";
 
 /**
  * One pane's pipe and the viewers watching it.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { searchWithSidebarMode, sidebarModeFromSearch } from "./sidebarRoute";
+import { searchWithSidebarMode, sidebarModeFromSearch } from "@/features/sidebar/sidebarRoute";
 
 describe("sidebar route", () => {
   it("reads a view this panel has", () => {

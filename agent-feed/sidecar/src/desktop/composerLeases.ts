@@ -5,10 +5,10 @@
 // keystroke into a window living on another Desktop would drag it here and put it back.
 
 import type { WindowInputReason, WindowTarget } from "@agentdesk/agent-feed-wire";
-import type { ProcessRow } from "./claudeSessionResolver.ts";
-import { ComposerError, keyOf, logComposer, type SessionKey } from "./composerTypes.ts";
-import type { TargetResolver } from "./composerTargets.ts";
-import type { WindowAccess } from "./composerWindowAccess.ts";
+import type { ProcessRow } from "@/desktop/claudeSessionResolver";
+import { ComposerError, keyOf, logComposer, type SessionKey } from "@/desktop/composerTypes";
+import type { TargetResolver } from "@/desktop/composerTargets";
+import type { WindowAccess } from "@/desktop/composerWindowAccess";
 
 export function createEditingLeases(
   access: WindowAccess,

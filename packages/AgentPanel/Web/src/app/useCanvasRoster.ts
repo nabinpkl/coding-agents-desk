@@ -14,7 +14,7 @@ import {
   storeCanvasOpenKeys,
   storeDetachedBotIds,
   storeDetachedSessionKeys,
-} from "../features/bots/botCanvasPreferences";
+} from "@/features/bots/botCanvasPreferences";
 
 export function useCanvasRoster(botsState: {
   bots: BotView[];

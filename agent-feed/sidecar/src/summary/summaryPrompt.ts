@@ -15,8 +15,8 @@ import type {
   SummaryPhase,
   SummaryResult,
 } from "@agentdesk/agent-feed-wire";
-import type { ActivityBlock, ActivityEvent } from "../transcripts/sources/transcriptTypes.ts";
-import { describeToolCall } from "./toolCalls.ts";
+import type { ActivityBlock, ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import { describeToolCall } from "@/summary/toolCalls";
 
 /**
  * How much of each kind of block the prompt carries.

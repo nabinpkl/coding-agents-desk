@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { BotStore } from "./botStore.ts";
+import { BotStore } from "@/bots/botStore";
 
 const temporaryDirectories: string[] = [];
 

@@ -23,7 +23,7 @@ import {
   type RailModifiers,
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
-import { imageMediaType, writeComposerImage } from "../input/composerImages.ts";
+import { imageMediaType, writeComposerImage } from "@/input/composerImages";
 import {
   acceptTmuxComposerHint,
   dropTmuxComposerImage,
@@ -35,14 +35,14 @@ import {
   syncTmuxComposer,
   type TmuxComposerListener,
   type TmuxComposerWatchRuntime,
-} from "../input/tmuxComposer.ts";
+} from "@/input/tmuxComposer";
 import {
   encodeServerSentEvent,
   errorResponse,
   jsonResponse,
   startServerSentEventStream,
-} from "./httpResponses.ts";
-import type { RouteHandler } from "./route.ts";
+} from "@/http/httpResponses";
+import type { RouteHandler } from "@/http/route";
 
 const RETRY = new TextEncoder().encode("retry: 20000\n\n");
 

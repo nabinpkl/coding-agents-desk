@@ -12,7 +12,7 @@ import {
   DRAG_PRIMING_CIRCUMFERENCE,
   DRAG_PRIMING_RADIUS,
   POINTER_SCROLL_PUCK_SIDE,
-} from "./tileViewportConstants";
+} from "@/features/desktop-viewer/tileViewportConstants";
 
 export function PointerScrollPuck({
   keyboardPresented,

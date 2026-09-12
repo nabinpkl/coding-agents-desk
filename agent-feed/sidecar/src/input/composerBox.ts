@@ -9,7 +9,7 @@
 // because they are what the whole module was built against.
 
 import type { ComposerCommand } from "@agentdesk/agent-feed-wire";
-import type { TmuxPaneView } from "../terminal/tmuxSessions.ts";
+import type { TmuxPaneView } from "@/terminal/tmuxSessions";
 
 /** The character Claude draws at the head of its prompt box. */
 const PROMPT = "❯";

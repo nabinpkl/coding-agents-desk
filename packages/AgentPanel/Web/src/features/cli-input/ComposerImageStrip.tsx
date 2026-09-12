@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import type { ComposerImage } from "./useTmuxComposer";
+import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
 
 /**
  * The images a terminal composer is holding, above the field and inside its border.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { openAskUserQuestion, parseAskUserQuestion } from "./askUserQuestion";
-import type { ActivityEvent } from "../features/activity-feed/useSessionEventsStream";
+import { openAskUserQuestion, parseAskUserQuestion } from "@/app/askUserQuestion";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 function event(
   index: number,

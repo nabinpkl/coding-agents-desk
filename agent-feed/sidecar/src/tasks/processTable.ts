@@ -5,9 +5,9 @@
 // different commands: this one names what is running, `processProbe.ts` names which task
 // it belongs to and where its output goes.
 
-import { config } from "../config.ts";
-import { parseProcessLstart } from "./processStartTime.ts";
-import { PS_BINARY, runCommand, type CommandRunner } from "./commandRunner.ts";
+import { config } from "@/config";
+import { parseProcessLstart } from "@/tasks/processStartTime";
+import { PS_BINARY, runCommand, type CommandRunner } from "@/tasks/commandRunner";
 
 /** One row of the process table: enough to rebuild the tree and say what each node is doing. */
 export interface ProcessRow {

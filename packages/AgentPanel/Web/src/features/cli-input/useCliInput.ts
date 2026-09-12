@@ -5,7 +5,7 @@ import type { CliInputStatus, CliInputUnavailableReason } from "@agentdesk/agent
 import type {
   SessionAddress,
   SidecarDataSource,
-} from "../activity-feed/data-source/SidecarDataSource";
+} from "@/features/activity-feed/data-source/SidecarDataSource";
 
 export interface CliInputHandle {
   /**

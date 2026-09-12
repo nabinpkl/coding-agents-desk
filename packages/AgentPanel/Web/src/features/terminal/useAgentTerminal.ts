@@ -6,15 +6,15 @@ import type {
   AgentTerminalDescriptor,
   AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import {
   cycleModifier,
   heldModifiers,
   RAIL_MODIFIERS_OFF,
   releaseArmed,
   type ModifierState,
-} from "../keyboard/modifierLatch";
-import { isTmuxAttach, terminalContextKey } from "./terminalContext";
+} from "@/features/keyboard/modifierLatch";
+import { isTmuxAttach, terminalContextKey } from "@/features/terminal/terminalContext";
 import {
   FONT_SIZE_STEP,
   fittedFontSize,
@@ -22,7 +22,7 @@ import {
   preferredScreenHeight,
   surfaceInset,
   viewerSetsGrid,
-} from "./terminalTypeFit";
+} from "@/features/terminal/terminalTypeFit";
 import {
   applyModifiers,
   bytesForRailKey,
@@ -36,10 +36,10 @@ import type {
   Dimensions,
   TerminalLabels,
   TerminalSizing,
-} from "./agentTerminalTypes";
-import { createTerminalFit } from "./agentTerminalFit";
-import type { TerminalRuntime } from "./agentTerminalRuntime";
-import { createTerminalReceive } from "./agentTerminalStream";
+} from "@/features/terminal/agentTerminalTypes";
+import { createTerminalFit } from "@/features/terminal/agentTerminalFit";
+import type { TerminalRuntime } from "@/features/terminal/agentTerminalRuntime";
+import { createTerminalReceive } from "@/features/terminal/agentTerminalStream";
 import {
   BASE_FONT_SIZE,
   bytesFromBase64,
@@ -56,7 +56,7 @@ import {
   TERMINAL_ZOOM,
   terminalTheme,
   WHEEL_LINES,
-} from "./agentTerminalLayout";
+} from "@/features/terminal/agentTerminalLayout";
 
 // Re-exported: the panes that mount a terminal import the hook, and these are what they
 // hand it or read from it.
@@ -65,8 +65,8 @@ export type {
   AgentTerminalState,
   TerminalLabels,
   TerminalSizing,
-} from "./agentTerminalTypes";
-export { TERMINAL_ZOOM } from "./agentTerminalLayout";
+} from "@/features/terminal/agentTerminalTypes";
+export { TERMINAL_ZOOM } from "@/features/terminal/agentTerminalLayout";
 
 export function useAgentTerminal(
   { feed, context, sizing, paneShape = "adopt", zoom = null, onState }: {

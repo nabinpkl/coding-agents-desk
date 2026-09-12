@@ -5,8 +5,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BotConflictError, BotNotFoundError } from "./botRegistry.ts";
-import { botRegistryHarness } from "./botRegistryHarness.ts";
+import { BotConflictError, BotNotFoundError } from "@/bots/botRegistry";
+import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
 const { addBot, addSessions, fixture, projects, recordingLauncher, sessions, summary, temporaryDirectories } = botRegistryHarness();
 

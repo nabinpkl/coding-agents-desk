@@ -3,14 +3,14 @@ import { createServer, type Server } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { type CommandRunner, resetProcessTableCache } from "../tasks/processProbe.ts";
+import { type CommandRunner, resetProcessTableCache } from "@/tasks/processProbe";
 import {
   cliInputStatus,
   deliverCliInput,
   encodeInboxPayload,
   inboxKeyFileName,
   resolveInbox,
-} from "./claudeSessionInbox.ts";
+} from "@/input/claudeSessionInbox";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const TOKEN = "0123456789abcdef0123456789abcdef";

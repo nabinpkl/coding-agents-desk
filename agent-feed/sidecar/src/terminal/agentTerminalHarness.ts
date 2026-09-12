@@ -12,9 +12,9 @@ import {
   AgentTerminalService,
   liveTmuxSession,
   type AgentTerminalPtyClient,
-} from "./agentTerminalService.ts";
-import type { PtySessionConnection } from "./ptyClient.ts";
-import type { TmuxAttachments, TmuxSessionConnection } from "./tmuxAttachment.ts";
+} from "@/terminal/agentTerminalService";
+import type { PtySessionConnection } from "@/terminal/ptyClient";
+import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmuxAttachment";
 
 export const SESSION_ID = "019c3708-fadb-7e2f-a744-322df224faf4";
 

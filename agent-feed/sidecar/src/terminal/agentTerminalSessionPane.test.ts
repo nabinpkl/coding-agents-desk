@@ -10,14 +10,14 @@ import {
   AgentTerminalService,
   liveTmuxSession,
   type AgentTerminalPtyClient,
-} from "./agentTerminalService.ts";
-import type { PtySessionConnection } from "./ptyClient.ts";
-import type { TmuxAttachments, TmuxSessionConnection } from "./tmuxAttachment.ts";
+} from "@/terminal/agentTerminalService";
+import type { PtySessionConnection } from "@/terminal/ptyClient";
+import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmuxAttachment";
 import {
   agentTerminalHarness,
   SESSION_ID,
   type SessionTmuxFakes,
-} from "./agentTerminalHarness.ts";
+} from "@/terminal/agentTerminalHarness";
 
 const {
   roots,

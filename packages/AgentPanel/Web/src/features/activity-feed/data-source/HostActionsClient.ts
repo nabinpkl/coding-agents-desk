@@ -16,7 +16,7 @@
  * rendering agent-authored markdown.
  */
 
-import type { HostBridge } from "./HostBridge";
+import type { HostBridge } from "@/features/activity-feed/data-source/HostBridge";
 
 export type AgentSource = string;
 

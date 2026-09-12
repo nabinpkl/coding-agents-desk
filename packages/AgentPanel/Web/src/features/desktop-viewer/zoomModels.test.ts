@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearOverviewReady, getCaptureCrop, markOverviewReady, setCaptureCrop } from "./captureCrop";
-import { createZoomView } from "./zoomModels";
+import { clearOverviewReady, getCaptureCrop, markOverviewReady, setCaptureCrop } from "@/features/desktop-viewer/captureCrop";
+import { createZoomView } from "@/features/desktop-viewer/zoomModels";
 
 const DISPLAY = { width: 1600, height: 1000 };
 const W = 800;

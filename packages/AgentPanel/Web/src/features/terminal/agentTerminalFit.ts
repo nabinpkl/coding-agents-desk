@@ -9,7 +9,7 @@ import {
   MAXIMUM_FONT_SIZE,
   MINIMUM_FONT_SIZE,
   paddingOf,
-} from "./agentTerminalLayout";
+} from "@/features/terminal/agentTerminalLayout";
 import {
   fittedFontSize,
   floorToStep,
@@ -17,8 +17,8 @@ import {
   preferredScreenHeight,
   surfaceInset,
   viewerSetsGrid,
-} from "./terminalTypeFit";
-import type { TerminalRuntime } from "./agentTerminalRuntime";
+} from "@/features/terminal/terminalTypeFit";
+import type { TerminalRuntime } from "@/features/terminal/agentTerminalRuntime";
 
 export function createTerminalFit(t: TerminalRuntime) {
   /**

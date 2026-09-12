@@ -5,7 +5,7 @@
 // screen, the capture is re-aimed at it, and the frame is placed geometrically. They are kept
 // side by side, switchable at runtime, so they can be compared on the same desk.
 
-import { getCaptureCrop, overviewReady, setCaptureCrop } from "./captureCrop";
+import { getCaptureCrop, overviewReady, setCaptureCrop } from "@/features/desktop-viewer/captureCrop";
 import {
   CAPTURE_PADDING,
   MAX_PIXELS_PER_POINT,
@@ -14,7 +14,7 @@ import {
   planServes,
   wantedPixelsPerPoint,
   type CapturePlan,
-} from "./tileCapturePlan";
+} from "@/features/desktop-viewer/tileCapturePlan";
 import {
   IDENTITY,
   clampPan,
@@ -26,7 +26,7 @@ import {
   zoomAt,
   type ViewportPoint,
   type ViewportTransform,
-} from "./tileViewportMath";
+} from "@/features/desktop-viewer/tileViewportMath";
 import {
   centreVisible,
   clampVisible,
@@ -44,8 +44,8 @@ import {
   zoomVisible,
   type DisplayRect,
   type DisplaySize,
-} from "./visibleRect";
-import type { ZoomMode } from "./zoomMode";
+} from "@/features/desktop-viewer/visibleRect";
+import type { ZoomMode } from "@/features/desktop-viewer/zoomMode";
 
 /** How close to the edge the remote cursor may get before the view pans, as a fraction of it. DeskZoom's value. */
 const FOLLOW_MARGIN = 0.18;

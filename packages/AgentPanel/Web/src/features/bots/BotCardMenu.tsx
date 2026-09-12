@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Unlink } from "lucide-react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { RowMenu } from "./RowMenu";
+import { RowMenu } from "@/features/bots/RowMenu";
 
 /**
  * The actions menu on a Bot's card header, for the things that are done to the whole Bot rather

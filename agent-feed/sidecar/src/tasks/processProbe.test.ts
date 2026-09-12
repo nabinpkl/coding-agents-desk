@@ -3,7 +3,7 @@
 // Nothing here forks: every reading is a canned `lsof` answer through `fakeRunner`.
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import {
   type CommandRunner,
   outputTargetsOf,
@@ -12,7 +12,7 @@ import {
   resetProcessTableCache,
   taskShellsByOwner,
   taskShellsFromDescriptors,
-} from "./processProbe.ts";
+} from "@/tasks/processProbe";
 
 beforeEach(resetProcessTableCache);
 

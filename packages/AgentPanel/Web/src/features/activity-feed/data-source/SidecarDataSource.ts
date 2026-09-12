@@ -38,12 +38,12 @@ import type {
   TokenUsage,
   UsageStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentDataSource } from "./AgentDataSource";
-import { expectEmpty, parse, type SessionAddress } from "./sidecarRoutes";
-import { SidecarTerminals } from "./SidecarTerminals";
+import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
+import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
+import { SidecarTerminals } from "@/features/activity-feed/data-source/SidecarTerminals";
 
-export { SidecarError, type SessionAddress } from "./sidecarRoutes";
-export type { TerminalViewer } from "./sidecarTerminalStream";
+export { SidecarError, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
+export type { TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
 
 function summaryPath(session: SessionAddress): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/summary`;

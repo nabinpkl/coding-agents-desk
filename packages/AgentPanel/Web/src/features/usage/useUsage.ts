@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UsageReport, UsageVendorId } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 export type UsageState =
   | { kind: "idle" }

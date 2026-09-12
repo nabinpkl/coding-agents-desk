@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
-import type { BotRegistry } from "./botRegistry.ts";
+import type { BotRegistry } from "@/bots/botRegistry";
 
 /** Pi adapter over the provider-neutral BotRegistry command. */
 export function createAddBotTool(registry: BotRegistry, caller: BotSessionRef) {

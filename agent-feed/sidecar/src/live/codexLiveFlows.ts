@@ -5,8 +5,8 @@
 // a flow does have to hold is which item rows are mid-stream, so an abruptly closed
 // socket can complete them rather than leaving rows stuck at "streaming".
 
-import { CODECX_RESPONSES_AUTHORITY, CODECX_RESPONSES_PATH } from "./codexNetworkSource.ts";
-import type { ObserverEvent } from "./claudeNetworkSource.ts";
+import { CODECX_RESPONSES_AUTHORITY, CODECX_RESPONSES_PATH } from "@/live/codexNetworkSource";
+import type { ObserverEvent } from "@/live/claudeNetworkSource";
 
 export interface FlowContext {
   sessionId: string;

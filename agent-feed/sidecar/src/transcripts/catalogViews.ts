@@ -6,16 +6,16 @@
 // that N subscribers would otherwise each recompute on every change.
 
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { config } from "../config.ts";
+import { config } from "@/config";
 import { basename, relative } from "node:path";
 import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,
-} from "../agents/agentBackend.ts";
-import { PI_AGENT_CAPABILITIES } from "../agents/piAgentBackend.ts";
-import { state } from "./transcriptState.ts";
-import { compactTitle } from "./catalogRecords.ts";
-import type { Bin, Session, SourceId } from "./sources/transcriptTypes.ts";
+} from "@/agents/agentBackend";
+import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
+import { state } from "@/transcripts/transcriptState";
+import { compactTitle } from "@/transcripts/catalogRecords";
+import type { Bin, Session, SourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   memoizedProjectSummaries,
   rememberProjectSummaries,
@@ -23,8 +23,8 @@ import {
   SUMMARY_TITLE_CHARACTERS,
   TRANSCRIPT_CAPABILITIES,
   type AgentSessionDescriptorResolver,
-} from "./catalogState.ts";
-import { getSnapshot } from "./catalogState.ts";
+} from "@/transcripts/catalogState";
+import { getSnapshot } from "@/transcripts/catalogState";
 
 /**
  * The project list for the current catalog.

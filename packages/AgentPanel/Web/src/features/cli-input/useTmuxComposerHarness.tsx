@@ -7,8 +7,8 @@
 import { act, fireEvent, screen, render } from "@testing-library/react";
 import { vi } from "vitest";
 import type { RailKey, RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
-import type { SessionAddress } from "../activity-feed/data-source/SidecarDataSource";
-import { useTmuxComposer } from "./useTmuxComposer";
+import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 
 export const SESSION: SessionAddress = { source: "claude", sessionId: "s1" };
 

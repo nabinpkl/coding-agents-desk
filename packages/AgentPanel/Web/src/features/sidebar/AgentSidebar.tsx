@@ -13,14 +13,14 @@ import {
   type RefObject,
 } from "react";
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { ProfileRow } from "../profile/ProfileRow";
-import { BotSidebarPanel } from "../bots/BotSidebarPanel";
-import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
-import type { UsageHandle } from "../usage/useUsage";
-import { ActivityDot, SessionMeta } from "./SessionMeta";
-import { SourceBadge } from "./SourceBadge";
-import { ProjectSidebarItem } from "./ProjectSidebarItem";
-import { SidebarError, SidebarStatus } from "./SidebarStatusRows";
+import { ProfileRow } from "@/features/profile/ProfileRow";
+import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
+import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import type { UsageHandle } from "@/features/usage/useUsage";
+import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { ProjectSidebarItem } from "@/features/sidebar/ProjectSidebarItem";
+import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas";

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { findClaudeSessionFiles, scanClaudeSession, UNKNOWN_MODEL } from "./claudeUsage.ts";
+import { findClaudeSessionFiles, scanClaudeSession, UNKNOWN_MODEL } from "@/usage/claudeUsage";
 
 const NOON = "2026-08-13T06:30:00.000Z";
 

@@ -7,7 +7,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import { TileViewport } from "./TileViewport";
+import { TileViewport } from "@/features/desktop-viewer/TileViewport";
 
 /**
  * Stands up the frame stubs and the animation-frame queue, and hands back the helpers.

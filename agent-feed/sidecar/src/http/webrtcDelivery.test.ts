@@ -15,7 +15,7 @@ import {
   WebrtcDeliveryDiagnostics,
   type WebrtcDeliveryClientSample,
   type WebrtcDeliveryServerSample,
-} from "./webrtcTileRoutes.ts";
+} from "@/http/webrtcTileRoutes";
 
 describe("werift RTP repair history", () => {
   test("passes a configured history size through to each sender", async () => {

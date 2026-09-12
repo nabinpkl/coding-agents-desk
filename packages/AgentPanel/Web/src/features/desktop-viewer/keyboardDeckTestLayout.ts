@@ -1,4 +1,4 @@
-import { PORTRAIT_DECK, type KeyboardDeckMetrics } from "./keyboardDeckMetrics";
+import { PORTRAIT_DECK, type KeyboardDeckMetrics } from "@/features/desktop-viewer/keyboardDeckMetrics";
 
 /**
  * Give a rendered deck the geometry a browser would have laid out.

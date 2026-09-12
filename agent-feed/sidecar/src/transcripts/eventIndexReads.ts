@@ -3,17 +3,17 @@
 // themselves.
 
 import { stat } from "node:fs/promises";
-import { state } from "./transcriptState.ts";
-import { adapterFor } from "./sources/sourceAdapters.ts";
-import { sessionKey } from "./transcriptCatalog.ts";
+import { state } from "@/transcripts/transcriptState";
+import { adapterFor } from "@/transcripts/sources/sourceAdapters";
+import { sessionKey } from "@/transcripts/transcriptCatalog";
 import type {
   ActivityEvent,
   EventMode,
   TranscriptSourceId,
   TokenUsage,
-} from "./sources/transcriptTypes.ts";
-import { MAX_RAW_EVENT_BYTES, niceInsertionPoint, RawEventTooLargeError } from "./eventIndexState.ts";
-import { ensureIndexed } from "./eventIndexBuild.ts";
+} from "@/transcripts/sources/transcriptTypes";
+import { MAX_RAW_EVENT_BYTES, niceInsertionPoint, RawEventTooLargeError } from "@/transcripts/eventIndexState";
+import { ensureIndexed } from "@/transcripts/eventIndexBuild";
 
 export function getEventCount(
   source: TranscriptSourceId,
