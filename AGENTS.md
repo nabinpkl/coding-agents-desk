@@ -397,8 +397,32 @@ Five traps, each of which cost real time:
   says it is for handing off context rather than orchestrating work, and not `SendMessage`. Escape
   twice in Claude Desktop opens **Rewind**, not a stop. Interrupting is a GUI act, and it is the one
   thing the viewing wall is genuinely required for rather than merely convenient.
-- **`-n` is a display label only**, and there is no in-session rename. A fork named for the job it
-  was given reads afterwards as though it had been forked from that job.
+- **A session has TWO names and they drift apart.** `-n` sets the **address**: it is written to the
+  session's registry file as `name`, and that is what `ListAgents` prints and what `SendMessage`
+  addresses. The **title** is a `custom-title` record in the transcript, which is what `/resume`
+  shows, what the sidecar reads (`claudeTranscript.ts`, `title = customTitle ?? aiTitle`), and what
+  the Agent Panel puts on a session. Renaming changes the title and NOT the address. Measured
+  2026-09-07 end to end: a live session named `-n "Rename probe A"` was renamed through the picker
+  to "Rename probe RENAMED"; the transcript gained the record, the picker showed the new name, and
+  `ListAgents` still said **Rename probe A** with the registry's `name` and `formerNames` untouched.
+- **Renaming is `/resume` -> Ctrl+R**, not a slash command -- there is no `/rename` or `/name`. The
+  picker will not offer you the session you are sitting in, so a session cannot rename itself;
+  rename it from another session, `Ctrl+A` first if it is in a different project.
+- **A title rename is live everywhere that reads transcripts.** Measured: append a `custom-title`
+  record and the sidecar's session list answers with the new title on the very next read -- no
+  restart, no cache, last record wins. So the panel, the Canvas and `/resume` pick it up at once,
+  and cross-session messaging never does.
+- **Finding out WHICH session did something is a join, not a guess.** Grep the transcripts under
+  `~/.claude/projects/<slug>/` for a symbol or phrase to get a transcript uuid, then map that uuid to
+  a peer through `~/.claude/sessions/<pid>.json`, which carries `sessionId`, `name`, `nameSource`,
+  `tmux` and `messagingSocketPath` -- and that socket path is verbatim the `from=` on an incoming
+  cross-session message. Attribute by that join and never by who created the file: on 2026-09-07 a
+  peer inferred authorship from file ownership, and sent a handoff about work in `BotCanvas.tsx` to
+  the session that owned the file rather than the one that had written the change.
+- **Name forks distinctly, because discovery is by name.** Six live sessions here were all called
+  "Windows canvas", which makes the bare name address none of them and forces a `[ref]` on every
+  send -- and refs are ephemeral, resolvable only from a listing you just read. The CLI's own
+  `(fork n)` suffix is no help: three separate forks all carried `(fork 3)`.
 
 ## An absent result is a claim about the probe until a second look agrees
 
