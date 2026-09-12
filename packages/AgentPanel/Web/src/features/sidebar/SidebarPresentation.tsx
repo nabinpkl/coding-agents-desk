@@ -153,7 +153,13 @@ export function HoverSidebarPreview({
       onPointerLeave={onPointerLeave}
       onFocus={onPointerEnter}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) onPointerLeave();
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        // A row menu is portalled to the body, because a menu rendered inside a card is clipped by
+        // it. So focus moving into one leaves this element in the DOM while never leaving the
+        // sidebar as the reader experiences it, and dismissing here would close the whole preview
+        // the instant a ⋮ inside it was opened.
+        if (event.relatedTarget?.closest("[data-portal-menu]")) return;
+        onPointerLeave();
       }}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
