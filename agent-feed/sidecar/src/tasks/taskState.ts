@@ -93,6 +93,61 @@ export function parseMonitorStart(toolResultText: string): MonitorStart | null {
 }
 
 /**
+ * A subagent's launch, which is structured where every other start is a sentence.
+ *
+ * The harness announces a backgrounded shell in prose inside the tool result text, and a Monitor
+ * likewise, so both are regexes. A subagent announces nothing there. What it leaves is
+ * `toolUseResult` beside the message on the same record -- an object naming the agent, the file
+ * its own transcript is being written to, and the model that was resolved for it. So this is a
+ * shape check rather than a match, and the three starts deliberately do not share a parser.
+ *
+ * `agentId` is the join key for the whole feature: the completion notification's `task-id` is
+ * this same string, so a launch and its ending meet without a second correlation.
+ *
+ * Both the async and the synchronous case are accepted. A synchronous subagent is never seen
+ * running -- its result only exists once it is over -- but its transcript is on disk either way,
+ * and refusing to name it would make it unreadable for no gain. `launchedAsync` carries which
+ * it was, so a caller can tell "finished" from "never observed running".
+ */
+export interface AgentLaunch {
+  agentId: string;
+  /** The caller's own words for the job. Null when the harness recorded none. */
+  description: string | null;
+  /**
+   * The transcript the subagent writes, as the harness named it.
+   *
+   * Recorded but NOT trusted as a path to open. It is a symlink into the harness's task
+   * directory, and a route that opened what a transcript names would be a read oracle over
+   * anything the sidecar can reach (ADR-0099). Readers derive the path instead; this field is
+   * for corroboration and for telling a reader where the file is.
+   */
+  outputFile: string | null;
+  /** The model actually resolved, which is not always the one the caller asked for. */
+  resolvedModel: string | null;
+  launchedAsync: boolean;
+}
+
+export function parseAgentLaunch(toolUseResult: unknown): AgentLaunch | null {
+  if (!toolUseResult || typeof toolUseResult !== "object" || Array.isArray(toolUseResult)) {
+    return null;
+  }
+  const record = toolUseResult as Record<string, unknown>;
+  const agentId = record.agentId;
+  // The presence of an agent id is what makes this an Agent result at all. Every other tool's
+  // `toolUseResult` is a different shape entirely, so no further discrimination is needed.
+  if (typeof agentId !== "string" || agentId.length === 0) return null;
+  const text = (value: unknown): string | null =>
+    typeof value === "string" && value.trim() ? value.trim() : null;
+  return {
+    agentId,
+    description: text(record.description),
+    outputFile: text(record.outputFile),
+    resolvedModel: text(record.resolvedModel),
+    launchedAsync: record.isAsync === true || record.status === "async_launched",
+  };
+}
+
+/**
  * A notification the harness queues back into the conversation when something long-running has
  * news. Modelled as a union so the Monitor trap is unrepresentable rather than merely documented:
  * a caller that wants completions cannot accidentally be handed a progress tick, because the two

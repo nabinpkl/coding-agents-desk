@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  parseAgentLaunch,
   parseBackgroundStart,
   parseMonitorStart,
   parseTaskNotification,
@@ -185,5 +186,49 @@ describe("parseMonitorStart", () => {
       taskId: "babc123",
       timeoutMs: null,
     });
+  });
+});
+
+describe("parseAgentLaunch", () => {
+  // Verbatim from this repo's own transcript, 2026-09-09, minus the prompt body.
+  const real = {
+    isAsync: true,
+    status: "async_launched",
+    agentId: "a6da370b26e85421c",
+    description: "Investigate transcript stream staleness",
+    resolvedModel: "claude-opus-5[1m]",
+    outputFile: "/private/tmp/claude-501/x/tasks/a6da370b26e85421c.output",
+    canReadOutputFile: true,
+    prompt: "...",
+  };
+
+  test("reads a background launch", () => {
+    expect(parseAgentLaunch(real)).toEqual({
+      agentId: "a6da370b26e85421c",
+      description: "Investigate transcript stream staleness",
+      outputFile: "/private/tmp/claude-501/x/tasks/a6da370b26e85421c.output",
+      resolvedModel: "claude-opus-5[1m]",
+      launchedAsync: true,
+    });
+  });
+
+  test("accepts a synchronous subagent, which is never seen running but is still readable", () => {
+    const launch = parseAgentLaunch({ agentId: "sync-1", description: "quick look" });
+    expect(launch?.agentId).toBe("sync-1");
+    expect(launch?.launchedAsync).toBeFalse();
+  });
+
+  test("ignores every other tool's result, which is what the agent id discriminates", () => {
+    expect(parseAgentLaunch({ stdout: "hi", stderr: "", interrupted: false })).toBeNull();
+    expect(parseAgentLaunch({ agentId: "" })).toBeNull();
+    expect(parseAgentLaunch(null)).toBeNull();
+    expect(parseAgentLaunch("async_launched")).toBeNull();
+    expect(parseAgentLaunch([{ agentId: "nested" }])).toBeNull();
+  });
+
+  test("blank strings become null rather than empty labels", () => {
+    const launch = parseAgentLaunch({ agentId: "a1", description: "   ", resolvedModel: "" });
+    expect(launch?.description).toBeNull();
+    expect(launch?.resolvedModel).toBeNull();
   });
 });
