@@ -537,6 +537,26 @@ build-agent-webview:
 agent-feed-fitness:
     sh '{{justfile_directory()}}/tools/agent-feed-fitness.sh'
 
+# Installs this repository's git hooks, which are tracked so every checkout gets the same ones.
+#
+# One symlink into the COMMON git directory, which is what every linked worktree shares -- so
+# installing once here covers the worktrees under `.claude/worktrees/` as well, including ones
+# that do not exist yet. Idempotent, and it refuses to replace a hook it did not put there rather
+# than silently discarding somebody's own.
+git-hooks-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE='{{justfile_directory()}}/tools/git-hooks/pre-commit'
+    HOOKS="$(git -C '{{justfile_directory()}}' rev-parse --git-common-dir)/hooks"
+    mkdir -p "$HOOKS"
+    TARGET="$HOOKS/pre-commit"
+    if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+        echo "git-hooks-install: $TARGET exists and is not a symlink; move it aside first" >&2
+        exit 1
+    fi
+    ln -sfn "$SOURCE" "$TARGET"
+    echo "git-hooks-install: pre-commit -> $SOURCE"
+
 # Issue (or renew) the panel dev server's TLS certificate for this Mac's MagicDNS name.
 #
 # Tailscale gets a publicly trusted certificate for the name from Let's Encrypt, which is the
