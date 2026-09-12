@@ -9,7 +9,16 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { CornerDownLeft, List, LoaderCircle, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
+import {
+  CornerDownLeft,
+  List,
+  LoaderCircle,
+  Paperclip,
+  Send,
+  Square,
+  Terminal as TerminalIcon,
+  X,
+} from "lucide-react";
 import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
@@ -594,6 +603,14 @@ function SessionComposer({
    * gives no hint of its own -- the cursor says "you may drop" over the whole page.
    */
   const [dragging, setDragging] = useState(false);
+  /**
+   * The file picker behind the paperclip.
+   *
+   * A hidden input rather than a component, because the browser's own picker is the only way to
+   * reach a phone's photo library -- and on a phone it is the ONLY way in: there is no drag, and a
+   * clipboard that holds an image is a rarer thing there than a camera roll that does.
+   */
+  const filePicker = useRef<HTMLInputElement>(null);
   const previousTransport = useRef(transport.kind);
   useEffect(() => {
     if (previousTransport.current === "window" && transport.kind !== "window") {
@@ -840,8 +857,19 @@ function SessionComposer({
       onClick: () => void windowComposer.submitWindow(),
     });
   } else if (tmuxBand) {
-    // One action, like the bands below it and for the same reason: Steer and Stop act on a queue
-    // the panel owns, and this session owns its own.
+    // Left of Send, because Send stays the rightmost thing a thumb reaches for.
+    actions.push({
+      key: "attach-tmux-composer",
+      ariaLabel: "Add an image to this session's composer",
+      title: "Put an image in this session's terminal composer",
+      icon: <Paperclip className="size-4" aria-hidden />,
+      disabled: tmuxComposer.pending,
+      className:
+        "flex size-9 touch-manipulation items-center justify-center rounded-lg border border-border text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-40",
+      onClick: () => filePicker.current?.click(),
+    });
+    // One action beyond that, like the bands below it and for the same reason: Steer and Stop act
+    // on a queue the panel owns, and this session owns its own.
     actions.push({
       key: "send-tmux-composer",
       ariaLabel: "Send in this session's terminal",
@@ -1015,6 +1043,22 @@ function SessionComposer({
             heightBasis={terminalHeightBasis}
           />
         </div>
+      ) : null}
+      {tmuxBand ? (
+        <input
+          ref={filePicker}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            const chosen = [...(event.target.files ?? [])];
+            // Cleared so picking the same file twice in a row fires a second change; the input
+            // remembers its value and would otherwise say nothing happened.
+            event.target.value = "";
+            if (chosen.length > 0) void tmuxComposer.drop(chosen);
+          }}
+        />
       ) : null}
       <div className={`flex items-end gap-1.5 ${terminalInput ? "justify-end" : ""}`}>
         {terminalInput ? null : <div
