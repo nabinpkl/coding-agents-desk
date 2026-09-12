@@ -41,7 +41,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R7 | D | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
 | R8 | D | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
 | R9 | D | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
-| R10 | R | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
+| R10 | D | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
 | R11 | R | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
 | R12 | R | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
 | R13 | R | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
@@ -205,6 +205,19 @@ so both halves write through one store.
 
 Split into `tmuxPaneSize.ts`, which takes `SharedPane` with it: everything about the size is about
 a resource that cannot be held twice, and every comment in it is a measurement. 501 to 356.
+
+### R10 `desktop-viewer/useDesktopKeyboard.test.tsx` (514)
+
+- The rendered hook and the DOM events jsdom will not produce: the capture textarea, the stand-in
+  accessory, a driven paste, a driven beforeinput, a stood-up ResizeObserver.
+- Arming: what a tap does before the Mac answers, what replaces a tap still waiting, which cursor
+  shapes open a keyboard.
+- Getting text in: clipboard, paste, dictation, composition, local echo, control keys.
+- Knowing the keyboard is up, and how much of the screen it and its accessory cover.
+
+Split into `useDesktopKeyboardHarness.tsx`, `useDesktopKeyboardText.test.tsx`,
+`useDesktopKeyboardViewport.test.tsx`. 24 `it` blocks moved whole; 939 panel tests, unchanged, now
+across 77 files.
 
 ## Decisions
 
