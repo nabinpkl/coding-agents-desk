@@ -100,6 +100,20 @@ const TAP_SLOP_PX = 10;
 const HISTORY_LINES = 50_000;
 /** Rows per wheel notch. Three is what a terminal emulator conventionally scrolls. */
 const WHEEL_LINES = 3;
+/**
+ * The shape a session is STARTED at when this viewer is not the one that gets to say.
+ *
+ * A pane that already exists is joined at whatever shape it has, so this only ever applies to a
+ * session the panel brings into existence. It matters because a band is a strip: opening a new
+ * session from a card created its tmux window at the card's own size -- measured 2026-09-08, two
+ * sessions started at 29x13 -- and a session is then stuck in that shape for the agent living in
+ * it, however it is looked at afterwards.
+ *
+ * 80x24 because that is what a terminal is when nobody has said otherwise, including tmux's own
+ * default. A surface that DOES claim the shape still opens at its own box, which is the whole
+ * point of claiming.
+ */
+const DEFAULT_GRID = { columns: 80, rows: 24 };
 
 /**
  * The one import of xterm, shared by every terminal on the page.
@@ -614,7 +628,11 @@ export function useAgentTerminal(
 
       const initial = sizing.kind === "fixed"
         ? { columns: sizing.columns, rows: sizing.rows }
-        : proposedDimensions(terminal, mount) ?? { columns: 80, rows: 24 };
+        // A follower does not impose its box on an existing pane, and must not impose it on one
+        // being created either -- that is the same imposition, made permanent.
+        : adoptsPaneShape
+        ? proposedDimensions(terminal, mount) ?? DEFAULT_GRID
+        : DEFAULT_GRID;
       void feed.openTerminal(context, initial.columns, initial.rows)
         .then((opened) => {
           if (disposed) {

@@ -75,7 +75,7 @@ interface Props {
   heightBasis?: HTMLElement | null;
   /**
    * Whether this pane asks a tmux session to take its shape, or leaves it alone and scales the
-   * type. See `useAgentTerminal`; a surface small enough to be a glance should follow.
+   * type. Defaults from `layout`, which is almost always the right answer -- see below.
    */
   paneShape?: "adopt" | "follow";
 }
@@ -89,6 +89,7 @@ export function AgentTerminalPane(
   // Whether the viewer has sized this pane themselves, which outranks anything the grid prefers.
   const sized = useRef(false);
   const band = layout === "band";
+  const shape = paneShapeForLayout(layout, paneShape);
   const measureBasis = (): number => heightBasis?.clientHeight ?? viewportHeight();
   const [height, setHeight] = useState<number | null>(
     band ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE)) : null,
@@ -107,7 +108,7 @@ export function AgentTerminalPane(
       feed,
       context,
       sizing: { kind: "fit" },
-      paneShape,
+      paneShape: shape,
       zoom,
       onState,
     });
@@ -321,6 +322,29 @@ export function AgentTerminalPane(
       </footer>
     </section>
   );
+}
+
+/**
+ * A BAND never reshapes the session; a full surface does.
+ *
+ * Derived from the layout rather than asked of every caller, because the layout is exactly the
+ * thing that decides it and a caller that forgets gets the destructive answer -- and the three call
+ * sites that had it wrong were the ones nobody thought about: the composer's band, a new session's
+ * card, and a fork's.
+ *
+ * A band is a strip by construction, a card's being a few hundred pixels, and a tmux window has one
+ * size for everyone. So a band that claimed shrank the live session to its own shape: measured
+ * 2026-09-08 at 48x9 and 56x16, small enough that Claude's TUI redrew its whole frame continuously,
+ * and still that size after the band was closed. A column pane fills the session's own view and is
+ * somewhere a reader works, so it still takes the shape it can use.
+ *
+ * The override exists for the surface that is neither, of which there is none today.
+ */
+export function paneShapeForLayout(
+  layout: "column" | "band",
+  override?: "adopt" | "follow",
+): "adopt" | "follow" {
+  return override ?? (layout === "band" ? "follow" : "adopt");
 }
 
 /**

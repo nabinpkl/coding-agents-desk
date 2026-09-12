@@ -1151,11 +1151,6 @@ function SessionComposer({
             onState={noteTerminalState}
             layout="band"
             heightBasis={terminalHeightBasis}
-            // This band is a glance at a session that lives in somebody's tmux, not a place it is
-            // hosted, so it takes the pane's shape rather than imposing its own. Claiming it left
-            // two live sessions pinned at 48x9 and 56x16 -- a card's band is a strip -- and at that
-            // size Claude's TUI redraws its whole frame continuously. Measured 2026-09-08.
-            paneShape="follow"
           />
         </div>
       ) : null}

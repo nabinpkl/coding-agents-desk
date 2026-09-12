@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { AgentTerminalPane } from "./AgentTerminalPane";
+import { AgentTerminalPane, paneShapeForLayout } from "./AgentTerminalPane";
 
 let terminal: FakeTerminal;
 
@@ -192,6 +192,18 @@ it("sizes a band pane from its own height, with the viewport as its ceiling", as
   // The ceiling comes from the viewport, because the parent measures the pane itself.
   fireEvent.keyDown(screen.getByRole("separator", { name: "Resize terminal" }), { key: "End" });
   expect(pane).toHaveStyle({ height: "720px" });
+});
+
+it("never lets a band reshape the session, whichever band it is", () => {
+  // The rule every band inherits, rather than a prop each call site remembers: a tmux window has
+  // one size for everyone, and a band that claimed shrank the live session to its own strip.
+  // Asserted here rather than through a rendered pane because a viewport report needs a measured
+  // box, and jsdom measures every box at zero.
+  expect(paneShapeForLayout("band")).toBe("follow");
+  expect(paneShapeForLayout("column")).toBe("adopt");
+  // A surface that is neither can still say so, and saying so wins.
+  expect(paneShapeForLayout("band", "adopt")).toBe("adopt");
+  expect(paneShapeForLayout("column", "follow")).toBe("follow");
 });
 
 it("zooms the type per pane, without re-attaching to the session", async () => {
