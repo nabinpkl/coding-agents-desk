@@ -8,7 +8,13 @@
 // The cost this removes was measured on a wall of 18 open sessions: each session's own tick forked
 // `ps` once per registry record and `lsof` once for itself, so the machine spent about 1700 `ps`
 // and 90 `lsof` forks per 10 seconds to answer 18 questions that shared one kernel. The registry
-// pass and the process table were collapsed first; this is the `lsof`.
+// pass and the process table were collapsed first; this is the `lsof`, which fell from 90 to 4.
+//
+// End to end, those 18 streams went from 10-14 points of system CPU to 0.8 on a ten-core machine,
+// which is what 8 of them used to cost. Measure it by ALTERNATING idle and loaded windows and
+// comparing paired deltas: a single before-and-after reads whatever else the machine started doing
+// in between, and on a box running this many agents that drift is several times the signal. Two
+// attempts here reported +26 and -5 points for a load that is really 0.8.
 //
 // The poll REMAINS a poll, and deliberately. macOS publishes no notification for an arbitrary
 // process starting or exiting short of EndpointSecurity, which is its own entitlement and its own
