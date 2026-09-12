@@ -13,13 +13,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ClaudeSessionEntrypoint } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
-import type { CommandRunner } from "./processProbe.ts";
-import { PS_BINARY, runCommand } from "./processProbe.ts";
-import {
-  parseProcessLstart,
-  parseRegistryProcStart,
-  startTimesAgree,
-} from "./processStartTime.ts";
+import type { ProcessRow } from "./processProbe.ts";
+import { parseRegistryProcStart, startTimesAgree } from "./processStartTime.ts";
 
 export interface ClaudeSessionProcess {
   pid: number;
@@ -91,9 +86,15 @@ export function readTmuxSession(value: unknown): string | null {
  * Records for exited processes are left on disk, so this both checks liveness and verifies the
  * start time. A record that fails either check is skipped rather than raised: a stale file is the
  * normal state of that directory, not a fault.
+ *
+ * The kernel arrives as a TABLE rather than being asked per record. This used to fork
+ * `ps -p <pid> -o lstart=` once for every file in the directory, which on this machine is 19 forks
+ * and about 48 ms -- on every tick, of every subscribed session, so a wall of open sessions paid it
+ * squared. `ProcessRow.startedAt` is the same `parseProcessLstart` of the same `lstart` field, so
+ * the pid-reuse check below is unchanged; only where the number comes from moved.
  */
 export async function liveSessionProcesses(
-  run: CommandRunner = runCommand,
+  table: readonly ProcessRow[],
   directory: string = config.claudeSessionsDirectory,
 ): Promise<ClaudeSessionProcess[]> {
   let names: string[];
@@ -103,6 +104,7 @@ export async function liveSessionProcesses(
     // No registry at all means no Claude has run on this machine yet. Not an error.
     return [];
   }
+  const startedAtByPid = new Map(table.map((row) => [row.pid, row.startedAt]));
   const live: ClaudeSessionProcess[] = [];
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
@@ -118,21 +120,12 @@ export async function liveSessionProcesses(
     }
     const registryStart = parseRegistryProcStart(procStart);
     if (registryStart === null) continue;
-    const lstart = (await run([PS_BINARY, "-p", String(pid), "-o", "lstart="])).trim();
-    // Empty means the process is gone, which is the ordinary state of half this directory.
-    if (!lstart) continue;
-    const kernelStart = parseProcessLstart(lstart);
-    if (kernelStart === null) {
-      // The process EXISTS and we could not read when it started. That is a format we do not
-      // understand, not a dead pid, and it silently rejects every session -- so it is said out
-      // loud rather than counted as "nothing is running".
-      console.error(JSON.stringify({
-        event: "agent-feed-session-start-unparsed",
-        pid,
-        lstart: lstart.slice(0, 64),
-      }));
-      continue;
-    }
+    const kernelStart = startedAtByPid.get(pid);
+    // Absent means the process is gone, which is the ordinary state of half this directory. A
+    // process that exists but whose start time `ps` printed in a shape we cannot read is absent
+    // from the table too, and `processTable` is where that is said out loud -- it is a fact about
+    // the whole table rather than about one session, and every consumer of it is affected.
+    if (kernelStart === undefined) continue;
     if (!startTimesAgree(registryStart, kernelStart)) continue;
     live.push({
       pid,
@@ -153,9 +146,9 @@ export async function liveSessionProcesses(
 /** The live process serving one session, or null when nothing is running it. */
 export async function sessionOwner(
   sessionId: string,
-  run: CommandRunner = runCommand,
+  table: readonly ProcessRow[],
   directory?: string,
 ): Promise<ClaudeSessionProcess | null> {
-  const live = await liveSessionProcesses(run, directory);
+  const live = await liveSessionProcesses(table, directory);
   return live.find((entry) => entry.sessionId === sessionId) ?? null;
 }

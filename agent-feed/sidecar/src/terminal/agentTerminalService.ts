@@ -13,6 +13,7 @@ import type {
   TmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
+import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
 import { nextForkTitle } from "./forkTitle.ts";
 import {
@@ -741,7 +742,7 @@ export async function liveTmuxSession(
   source: "claude" | "codex",
   sessionId: string,
   processes: () => Promise<{ sessionId: string; tmuxSession: string | null }[]> =
-    liveSessionProcesses,
+    async () => liveSessionProcesses(await currentProcessTable()),
 ): Promise<string | null> {
   if (source !== "claude") return null;
   const panes = (await processes())

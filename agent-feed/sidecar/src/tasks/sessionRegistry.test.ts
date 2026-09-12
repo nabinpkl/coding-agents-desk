@@ -2,10 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CommandRunner } from "./processProbe.ts";
+import type { ProcessRow } from "./processProbe.ts";
+import { parseProcessLstart } from "./processStartTime.ts";
 import { liveSessionProcesses, sessionOwner, readTmuxSession } from "./sessionRegistry.ts";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
+
+/**
+ * One row of the table `processTable` would return for a process started at `lstart`.
+ *
+ * The start time goes through the SAME `parseProcessLstart` the table parser uses, rather than a
+ * literal: the reconciliation under test is between the registry's UTC `procStart` and the
+ * kernel's local ctime, and a hardcoded number would assert the arithmetic instead of the parse.
+ */
+function row(pid: number, lstart: string): ProcessRow {
+  return { pid, ppid: 1, startedAt: parseProcessLstart(lstart)!, cpuMs: 0, command: "claude" };
+}
 
 async function registryWith(records: Record<string, unknown>): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "adz-registry-"));
@@ -39,8 +51,7 @@ describe("liveSessionProcesses", () => {
         entrypoint: "cli",
       },
     });
-    const run: CommandRunner = async () => kernelStamp;
-    expect(await liveSessionProcesses(run, directory)).toEqual([
+    expect(await liveSessionProcesses([row(9672, kernelStamp)], directory)).toEqual([
       {
         pid: 9672,
         sessionId: SESSION,
@@ -59,8 +70,7 @@ describe("liveSessionProcesses", () => {
     const directory = await registryWith({
       "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, entrypoint: "claude-desktop" },
     });
-    const run: CommandRunner = async () => kernelStamp;
-    const [live] = await liveSessionProcesses(run, directory);
+    const [live] = await liveSessionProcesses([row(9672, kernelStamp)], directory);
     expect(live?.messagingSocketPath).toBeNull();
     expect(live?.entrypoint).toBe("claude-desktop");
   });
@@ -69,16 +79,16 @@ describe("liveSessionProcesses", () => {
     const directory = await registryWith({
       "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, entrypoint: "sdk-harness-9" },
     });
-    const run: CommandRunner = async () => kernelStamp;
-    expect((await liveSessionProcesses(run, directory))[0]?.entrypoint).toBe("other");
+    expect((await liveSessionProcesses([row(9672, kernelStamp)], directory))[0]?.entrypoint)
+      .toBe("other");
   });
 
   test("a dead pid is skipped, because stale records are the normal state of that directory", async () => {
     const directory = await registryWith({
       "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart },
     });
-    const run: CommandRunner = async () => ""; // ps prints nothing for a pid that is gone
-    expect(await liveSessionProcesses(run, directory)).toEqual([]);
+    // A pid that is gone has no row in the table at all.
+    expect(await liveSessionProcesses([], directory)).toEqual([]);
   });
 
   test("a reused pid is refused, which is what procStart is for", async () => {
@@ -86,8 +96,8 @@ describe("liveSessionProcesses", () => {
       "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart },
     });
     // Same pid, a process that started an hour later: some unrelated program now owns it.
-    const run: CommandRunner = async () => "Fri Aug 14 18:10:48 2026";
-    expect(await liveSessionProcesses(run, directory)).toEqual([]);
+    const later = await liveSessionProcesses([row(9672, "Fri Aug 14 18:10:48 2026")], directory);
+    expect(later).toEqual([]);
   });
 
   test("a malformed record does not take the whole scan down", async () => {
@@ -96,12 +106,11 @@ describe("liveSessionProcesses", () => {
       "bad.json": { nothing: true },
     });
     await writeFile(join(directory, "notjson.json"), "{{{");
-    const run: CommandRunner = async () => kernelStamp;
-    expect(await liveSessionProcesses(run, directory)).toHaveLength(1);
+    expect(await liveSessionProcesses([row(9672, kernelStamp)], directory)).toHaveLength(1);
   });
 
   test("a missing registry is an empty answer, not a throw", async () => {
-    expect(await liveSessionProcesses(async () => "", "/nonexistent/agent-desk-test")).toEqual([]);
+    expect(await liveSessionProcesses([], "/nonexistent/agent-desk-test")).toEqual([]);
   });
 });
 
@@ -115,7 +124,7 @@ describe("sessionOwner", () => {
         procStart: "Fri Aug 14 17:10:48 2026",
       },
     });
-    expect(await sessionOwner(SESSION, async () => "", directory)).toBeNull();
+    expect(await sessionOwner(SESSION, [], directory)).toBeNull();
   });
 });
 

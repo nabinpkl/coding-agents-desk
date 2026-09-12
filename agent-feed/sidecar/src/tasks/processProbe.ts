@@ -30,12 +30,11 @@ export type CommandRunner = (argv: readonly string[]) => Promise<string>;
  *
  * The sidecar is spawned by the Mac host, and PATH resolution there is not the PATH resolution a
  * developer sees in their terminal. Resolving by name works right up until it does not, and the
- * failure is invisible: an empty answer from `pgrep` reads exactly like "this session is running
+ * failure is invisible: an empty answer from `lsof` reads exactly like "this session is running
  * nothing". The repo already carries this scar for `/usr/bin/log`, which has to be invoked
  * absolutely for the same class of reason.
  */
 export const PS_BINARY = "/bin/ps";
-const PGREP_BINARY = "/usr/bin/pgrep";
 const LSOF_BINARY = "/usr/sbin/lsof";
 
 export const runCommand: CommandRunner = async (argv) => {
@@ -56,9 +55,9 @@ export const runCommand: CommandRunner = async (argv) => {
       new Response(proc.stderr).text(),
     ]);
     const code = await proc.exited;
-    // A non-zero exit is an ordinary answer here: `pgrep` exits 1 when nothing matches, `lsof`
-    // when a pid has already gone. Producing NOTHING while complaining on stderr is not -- that
-    // is the tool declining to run, and it used to be indistinguishable from a quiet machine.
+    // A non-zero exit is an ordinary answer here: `lsof` exits non-zero when a pid has already
+    // gone. Producing NOTHING while complaining on stderr is not -- that is the tool declining to
+    // run, and it used to be indistinguishable from a quiet machine.
     if (code !== 0 && !text && diagnostic.trim()) {
       console.error(JSON.stringify({
         event: "agent-feed-task-probe-failed",
@@ -173,14 +172,18 @@ export function isInsideTaskRoot(path: string): boolean {
   return path.startsWith(root) && !path.includes("/..");
 }
 
-async function childPids(run: CommandRunner, pid: number): Promise<number[]> {
-  const text = await run([PGREP_BINARY, "-P", String(pid)]);
-  return text.split(/\s+/).map(Number).filter((value) => Number.isSafeInteger(value) && value > 0);
-}
-
-/** The background tasks a session's process is running right now. */
-export async function taskShellsOf(run: CommandRunner, claudePid: number): Promise<TaskShell[]> {
-  const children = await childPids(run, claudePid);
+/**
+ * The background tasks a session's process is running right now.
+ *
+ * The children come from the shared table rather than from a `pgrep -P` of their own: `ppid` is
+ * already in every row, so the fork bought a column the caller was holding anyway.
+ */
+export async function taskShellsOf(
+  run: CommandRunner,
+  claudePid: number,
+  table: readonly ProcessRow[],
+): Promise<TaskShell[]> {
+  const children = table.filter((row) => row.ppid === claudePid).map((row) => row.pid);
   if (children.length === 0) return [];
   // One lsof for every child rather than one per child: the fork is the expensive part, and the
   // session's MCP servers and language servers are in this list too.
@@ -319,7 +322,67 @@ export function parseProcessTable(text: string): ProcessRow[] {
  * belongs to that task, and the parent chain is what proves it.
  */
 export async function processTable(run: CommandRunner): Promise<ProcessRow[]> {
-  return parseProcessTable(await run([PS_BINARY, "-eo", "pid=,ppid=,lstart=,time=,command="]));
+  const text = await run([PS_BINARY, "-eo", "pid=,ppid=,lstart=,time=,command="]);
+  const rows = parseProcessTable(text);
+  // The canary for a `ps` output format we no longer understand. Every consumer of this table
+  // reads an unparseable row as an absent process, which is indistinguishable from "nothing is
+  // running" -- the same silent shape the `LC_ALL=C` scar above already cost once. A machine
+  // with processes on it never parses to zero rows, so that combination is said out loud.
+  if (rows.length === 0 && text.trim() !== "") {
+    console.error(JSON.stringify({
+      event: "agent-feed-process-table-unparsed",
+      sample: text.slice(0, 200),
+    }));
+  }
+  return rows;
+}
+
+/**
+ * The same table, shared by everything that asks within one tick.
+ *
+ * Every caller below used to reach the kernel its own way -- `liveSessionProcesses` forking
+ * `ps -p <pid>` once per registry record, `taskShellsOf` forking `pgrep -P` -- and all of it was
+ * already contained in the one table above. Measured on this machine: 19 registry records cost 19
+ * forks and 45-53 ms per pass, PER TICK, PER subscribed session, against one fork and 30-50 ms for
+ * the whole table. The per-record loop is also the term that made a wall of open sessions
+ * quadratic, since each session's tick re-walked every session's record.
+ *
+ * The window is half the fastest poll that consumes it, so a tick never reads a table the previous
+ * tick fetched, and the several probes inside ONE tick share a single fork. Derived from
+ * `backgroundTaskPollMs` rather than configured beside it: two knobs that must stay ordered
+ * relative to each other is a way to misconfigure staleness, not a way to tune it.
+ *
+ * In-flight requests are shared too. Subscribers tick together, so without this the first
+ * simultaneous pass would fork once per subscriber before any of them resolved -- which is the
+ * cost this exists to remove.
+ */
+const PROCESS_TABLE_WINDOW_MS = Math.floor(config.backgroundTaskPollMs / 2);
+
+let tableCache: { at: number; rows: readonly ProcessRow[] } | null = null;
+let tableInFlight: Promise<readonly ProcessRow[]> | null = null;
+
+export async function currentProcessTable(
+  run: CommandRunner = runCommand,
+  now: () => number = Date.now,
+): Promise<readonly ProcessRow[]> {
+  const at = now();
+  if (tableCache && at - tableCache.at < PROCESS_TABLE_WINDOW_MS) return tableCache.rows;
+  if (tableInFlight) return tableInFlight;
+  tableInFlight = processTable(run)
+    .then((rows) => {
+      tableCache = { at: now(), rows };
+      return rows as readonly ProcessRow[];
+    })
+    .finally(() => {
+      tableInFlight = null;
+    });
+  return tableInFlight;
+}
+
+/** Drops the shared table, so one test's kernel is never another's. */
+export function resetProcessTableCache(): void {
+  tableCache = null;
+  tableInFlight = null;
 }
 
 /** Index a table by parent, so a tree walk is not quadratic in the process count. */
@@ -453,7 +516,7 @@ export async function outputTargetsOf(run: CommandRunner, shell: TaskShell): Pro
   // One table and a pure walk, rather than a `pgrep -P` per node. There is exactly one tree walk
   // in this module and this is it -- a second one written against `pgrep` would drift from this
   // one the first time either grew a rule, and they answer the same question.
-  const seen = descendantsOf(await processTable(run), shell.pid).map((row) => row.pid);
+  const seen = descendantsOf(await currentProcessTable(run), shell.pid).map((row) => row.pid);
   if (seen.length === 0) return [];
   // `-F pfan`, not `pn`: the parser is stateful and pairs each name with the descriptor that
   // preceded it, so omitting the `f` field yields a stream it cannot attribute and drops silently.

@@ -1,19 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { config } from "../config.ts";
 import {
   busiestDescendant,
   type CommandRunner,
+  currentProcessTable,
   descendantsOf,
   matchShellsByCommand,
   outputTargetsOf,
   parseCpuTime,
   parseLsofDescriptors,
   parseProcessTable,
+  type ProcessRow,
   shellDetailFrom,
+  resetProcessTableCache,
   taskShellsFromDescriptors,
   taskShellsOf,
   unwrapShellCommand,
 } from "./processProbe.ts";
+
+beforeEach(resetProcessTableCache);
 
 const ROOT = config.claudeTaskRoot;
 const SESSION = "895eadd3-2049-4e2f-9989-d30d0a90eb46";
@@ -117,16 +122,35 @@ describe("taskShellsFromDescriptors", () => {
 });
 
 describe("taskShellsOf", () => {
+  /** The children of `ppid`, as rows of the shared table rather than as a `pgrep` answer. */
+  const childrenOf = (ppid: number, pids: readonly number[]): ProcessRow[] =>
+    pids.map((pid) => ({ pid, ppid, startedAt: 0, cpuMs: 0, command: "zsh" }));
+
   test("finds the running task among a session's other children", () => {
     // A real session's children are mostly MCP servers and a language server.
     const run = fakeRunner({
-      "/usr/bin/pgrep -P 61308": "61794\n61796\n63854\n",
       "/usr/sbin/lsof -p 61794,61796,63854 -F pfan":
         `p61794\nf1\naw\nn/dev/null\np63854\nf1\naw\nn${CAPTURE}\nf2\naw\nn${CAPTURE}\n`,
     });
-    return taskShellsOf(run, 61308).then((shells) => {
+    const table = childrenOf(61308, [61794, 61796, 63854]);
+    return taskShellsOf(run, 61308, table).then((shells) => {
       expect(shells).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
     });
+  });
+
+  test("takes only the session's own children, not every process in the table", async () => {
+    // The table is the whole machine. A shell holding an identical capture under some other
+    // parent belongs to that parent's session, and attributing it here would report another
+    // session's task as this one's.
+    const run = fakeRunner({
+      "/usr/sbin/lsof -p 63854 -F pfan": `p63854\nf1\naw\nn${CAPTURE}\n`,
+    });
+    const table = [
+      ...childrenOf(61308, [63854]),
+      ...childrenOf(99999, [63855]),
+    ];
+    expect(await taskShellsOf(run, 61308, table))
+      .toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
   });
 
   test("asks for every descriptor, not a range", async () => {
@@ -134,24 +158,22 @@ describe("taskShellsOf", () => {
     // as "this session is running nothing".
     let asked: readonly string[] = [];
     const run: CommandRunner = async (argv) => {
-      if (argv[0] === "/usr/bin/pgrep") return "63854\n";
       asked = argv;
       return `p63854\nf12\naw\nn${CAPTURE}\n`;
     };
-    const shells = await taskShellsOf(run, 61308);
+    const shells = await taskShellsOf(run, 61308, childrenOf(61308, [63854]));
     expect(asked).toEqual(["/usr/sbin/lsof", "-p", "63854", "-F", "pfan"]);
     expect(shells).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
   });
 
-  test("a session with no children runs no tasks and spawns no lsof", async () => {
+  test("a session with no children runs no tasks and spawns nothing at all", async () => {
     let calls = 0;
-    const run: CommandRunner = async (argv) => {
+    const run: CommandRunner = async () => {
       calls += 1;
-      expect(argv[0]).toBe("/usr/bin/pgrep");
       return "";
     };
-    expect(await taskShellsOf(run, 999)).toEqual([]);
-    expect(calls).toBe(1);
+    expect(await taskShellsOf(run, 999, childrenOf(61308, [63854]))).toEqual([]);
+    expect(calls).toBe(0);
   });
 });
 
@@ -393,5 +415,69 @@ describe("matchShellsByCommand", () => {
     const table = rows([`900 500 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval 'something else' < /dev/null`]);
     expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size)
       .toBe(0);
+  });
+});
+
+describe("currentProcessTable", () => {
+  const ROW = "9672 1 Fri Aug 14 13:10:48 2026 0:00.00 claude";
+
+  test("several probes in one tick share a single fork", async () => {
+    let forks = 0;
+    const run: CommandRunner = async () => {
+      forks += 1;
+      return ROW;
+    };
+    await currentProcessTable(run);
+    await currentProcessTable(run);
+    await currentProcessTable(run);
+    // The whole point of the change: owner liveness, the session's children and the descendant
+    // walk are three readings of one snapshot, and they used to be three trips to the kernel.
+    expect(forks).toBe(1);
+  });
+
+  test("simultaneous askers share the fork that is already in flight", async () => {
+    // Subscribers tick together. Waiting only on the CACHE would let every one of them start its
+    // own `ps` before the first had returned, which is the cost this exists to remove.
+    let forks = 0;
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const run: CommandRunner = async () => {
+      forks += 1;
+      await gate;
+      return ROW;
+    };
+    const all = Promise.all([currentProcessTable(run), currentProcessTable(run), currentProcessTable(run)]);
+    release();
+    const tables = await all;
+    expect(forks).toBe(1);
+    for (const table of tables) expect(table).toHaveLength(1);
+  });
+
+  test("a table older than the window is refetched", async () => {
+    let forks = 0;
+    const run: CommandRunner = async () => {
+      forks += 1;
+      return ROW;
+    };
+    let clock = 1_000_000;
+    const now = () => clock;
+    await currentProcessTable(run, now);
+    clock += config.backgroundTaskPollMs;
+    await currentProcessTable(run, now);
+    expect(forks).toBe(2);
+  });
+
+  test("a failed fork is not cached, so the next tick tries again", async () => {
+    // `runCommand` answers "" for a tool that would not run. Caching that would report an empty
+    // machine for as long as the window lasts, and every consumer reads an absent row as a dead
+    // process -- the silent shape this module keeps paying for.
+    let forks = 0;
+    const run: CommandRunner = async () => {
+      forks += 1;
+      throw new Error("ps could not be spawned");
+    };
+    await expect(currentProcessTable(run)).rejects.toThrow("ps could not be spawned");
+    await expect(currentProcessTable(run)).rejects.toThrow("ps could not be spawned");
+    expect(forks).toBe(2);
   });
 });

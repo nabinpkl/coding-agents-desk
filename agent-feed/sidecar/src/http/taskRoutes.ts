@@ -17,7 +17,7 @@ import {
   snapshotOffset,
   trimPartialFirstLine,
 } from "../tasks/outputFollower.ts";
-import { isInsideTaskRoot, outputTargetsOf, runCommand, taskShellsOf } from "../tasks/processProbe.ts";
+import { currentProcessTable, isInsideTaskRoot, outputTargetsOf, runCommand, taskShellsOf } from "../tasks/processProbe.ts";
 import { sessionOwner } from "../tasks/sessionRegistry.ts";
 import { claudeTranscriptPath, scanSessionTasks } from "../tasks/taskIdentity.ts";
 import { encodeServerSentEvent, startServerSentEventStream } from "./httpResponses.ts";
@@ -63,9 +63,11 @@ interface OutputTarget {
 }
 
 async function resolveOutputTarget(sessionId: string, taskId: string): Promise<OutputTarget | null> {
-  const owner = await sessionOwner(sessionId, runCommand);
+  const table = await currentProcessTable(runCommand);
+  const owner = await sessionOwner(sessionId, table);
   if (owner) {
-    const shell = (await taskShellsOf(runCommand, owner.pid)).find((entry) => entry.taskId === taskId);
+    const shell = (await taskShellsOf(runCommand, owner.pid, table))
+      .find((entry) => entry.taskId === taskId);
     if (shell) {
       const targets = await outputTargetsOf(runCommand, shell);
       // Prefer where the work is really going; fall back to the capture, which is the right

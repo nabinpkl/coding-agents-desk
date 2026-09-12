@@ -31,7 +31,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
 import type { CommandRunner } from "../tasks/processProbe.ts";
-import { runCommand } from "../tasks/processProbe.ts";
+import { currentProcessTable, runCommand } from "../tasks/processProbe.ts";
 import { parseRegistryProcStart, startTimesAgree } from "../tasks/processStartTime.ts";
 import { sessionOwner, type ClaudeSessionProcess } from "../tasks/sessionRegistry.ts";
 
@@ -145,7 +145,7 @@ export async function resolveInbox(
   run: CommandRunner = runCommand,
   sessionsDirectory: string = config.claudeSessionsDirectory,
 ): Promise<InboxResolution> {
-  const owner = await sessionOwner(sessionId, run, sessionsDirectory);
+  const owner = await sessionOwner(sessionId, await currentProcessTable(run), sessionsDirectory);
   if (!owner) return { kind: "unavailable", reason: "not-running", owner: null };
   const unavailable = (reason: CliInputUnavailableReason): InboxResolution =>
     ({ kind: "unavailable", reason, owner });

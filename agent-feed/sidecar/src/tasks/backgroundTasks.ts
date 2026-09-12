@@ -19,10 +19,10 @@ import { config } from "../config.ts";
 import {
   busiestDescendant,
   type CommandRunner,
+  currentProcessTable,
   isInsideTaskRoot,
   matchShellsByCommand,
   type ProcessRow,
-  processTable,
   runCommand,
   shellDetailFrom,
   type TaskShell,
@@ -277,10 +277,15 @@ export async function backgroundTaskSnapshot(
   run: CommandRunner = runCommand,
   now: number = Date.now(),
 ): Promise<BackgroundTaskSnapshot> {
-  const owner = await sessionOwner(sessionId, run);
+  // One table for the whole probe, and shared with every other session probing in the same tick.
+  // Owner liveness, the session's children, and the descendant walk below all used to reach the
+  // kernel separately; they are three readings of one snapshot, and taking them from one is also
+  // what makes them consistent with each other.
+  const table = await currentProcessTable(run);
+  const owner = await sessionOwner(sessionId, table);
   if (!owner) return { running: [], finished: [], ownerAlive: false };
 
-  const shells = await taskShellsOf(run, owner.pid);
+  const shells = await taskShellsOf(run, owner.pid, table);
   const transcriptPath = await claudeTranscriptPath(sessionId);
   const scan = transcriptPath
     ? await scanSessionTasks(sessionId, transcriptPath, new Set(shells.map((shell) => shell.taskId)))
@@ -306,9 +311,10 @@ export async function backgroundTaskSnapshot(
     }
   }
 
-  // One table, or none. A Monitor holds no capture file, so a session can have watchers running
-  // with no `shells` at all -- the table is needed whenever either could be live.
-  const processes = shells.length === 0 && scan.monitors.size === 0 ? [] : await processTable(run);
+  // A Monitor holds no capture file, so a session can have watchers running with no `shells` at
+  // all -- the table is needed whenever either could be live. It is already in hand, so the
+  // question is only whether to hand it on, not whether to fetch it.
+  const processes = shells.length === 0 && scan.monitors.size === 0 ? [] : table;
 
   return assembleSnapshot({
     shells,

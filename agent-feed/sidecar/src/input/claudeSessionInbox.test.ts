@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { CommandRunner } from "../tasks/processProbe.ts";
+import { type CommandRunner, resetProcessTableCache } from "../tasks/processProbe.ts";
 import {
   cliInputStatus,
   deliverCliInput,
@@ -29,7 +29,18 @@ const KERNEL_STAMP = (() => {
     `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())} ${at.getFullYear()}`;
 })();
 
-const alive: CommandRunner = async () => KERNEL_STAMP;
+/**
+ * One row of the `ps -eo` table, for the pid every fixture below registers.
+ *
+ * A table rather than the bare ctime string a `ps -p <pid>` answer used to be: liveness is read
+ * from the shared process table now, so a stub that answers the old shape parses to no rows and
+ * every session reads as not running.
+ */
+// The process table is shared and cached for a window, so without this one test's kernel would
+// still be answering in the next one.
+beforeEach(resetProcessTableCache);
+
+const alive: CommandRunner = async () => `9672 1 ${KERNEL_STAMP} 0:00.00 claude`;
 
 interface Registry {
   directory: string;
