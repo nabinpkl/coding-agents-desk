@@ -219,8 +219,16 @@ export interface RetiredBotSession extends BotSessionRef {
   endedPane?: string;
   removedWorktree?: string;
   deletedBranch?: string;
-  /** The remote the branch was deleted from, present only when it was. */
+  /** The remote branch that was deleted, as `<remote>/<branch>`, present only when it was. */
   deletedRemoteBranch?: string;
+  /**
+   * A remote branch the local delete left behind, as `<remote>/<branch>`. Named, never removed.
+   *
+   * Deleting the local branch is what makes its remote copy hard to see: nothing local points at
+   * it, so it drops out of `git branch` and turns up only for somebody running `git ls-remote`.
+   * Whether it should go is not this call's decision, so it says the name and stops.
+   */
+  orphanedRemoteBranch?: string;
   /** Asked for, and did not happen. Empty when everything asked for ran. */
   failed: { step: "pane" | "worktree" | "branch" | "remote"; reason: string }[];
 }

@@ -393,3 +393,24 @@ export async function deleteRemoteBranch(options: {
     );
   }
 }
+
+/**
+ * The remote-tracking ref for a branch, as `<remote>/<branch>`, or null when this clone has none.
+ *
+ * Local and offline on purpose: it reads what this clone last heard, not what the remote holds
+ * now. That is the honest thing to report and the only thing that can be reported without a
+ * network round trip inside a teardown, and a stale answer errs towards mentioning a branch that
+ * is already gone rather than staying quiet about one that is not.
+ */
+export async function remoteTrackingRef(options: {
+  checkout: string;
+  remote: string;
+  branch: string;
+}): Promise<string | null> {
+  const ref = `${options.remote}/${options.branch}`;
+  const found = await git(
+    ["rev-parse", "--verify", "--quiet", `refs/remotes/${ref}`],
+    options.checkout,
+  );
+  return found.code === 0 ? ref : null;
+}

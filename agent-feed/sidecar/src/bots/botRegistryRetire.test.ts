@@ -246,8 +246,65 @@ test("deletes the tracked remote branch when the commits survive without it", as
     remote: "delete",
   }, { kind: "user" });
 
-  expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", deletedRemoteBranch: "origin", failed: [] });
+  expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", deletedRemoteBranch: "origin/side", failed: [] });
   expect(await remoteBranches(remote!)).toEqual(["main"]);
+});
+
+test("names the remote branch the local delete leaves behind, and does not touch it", async () => {
+  // The step a person doing this by hand forgets, and the reason forgetting it is expensive: once
+  // the local branch is gone nothing points at the remote copy, so it stops appearing in `git
+  // branch` and the next reader to meet it meets a branch of that name holding work they do not
+  // recognise.
+  const { registry } = await fixture();
+  const { checkout, worktree, remote } = await checkoutWithWorktree({ remote: true });
+  projects.add(checkout);
+  const ref = { source: "claude" as const, sessionId: "orphan" };
+  sessions.set("claude:orphan", { projectPath: worktree, summary: summary(ref) });
+  const bot = await addBot(registry, { requestId: "add", name: "Repo bot", directoryPath: checkout }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+  await git(["merge", "-q", "side"], checkout);
+
+  const { retired } = await registry.retireSessions(bot.botId, {
+    requestId: "retire",
+    sessionRefs: [ref],
+    worktree: "remove",
+    branch: "delete",
+    // The default, said out loud: this is the case the report exists for.
+    remote: "keep",
+  }, { kind: "user" });
+
+  expect(retired[0]).toEqual({
+    ...ref,
+    removedWorktree: worktree,
+    deletedBranch: "side",
+    orphanedRemoteBranch: "origin/side",
+    failed: [],
+  });
+  // Named, not removed.
+  expect(await remoteBranches(remote!)).toEqual(["main", "side"]);
+});
+
+test("says nothing about a remote branch when the local one was never pushed", async () => {
+  // No tracking, so there is nothing this call can prove is the same branch -- the same reason a
+  // remote DELETE is refused there. A guess would name `origin/side` for a branch that may be a
+  // peer's unrelated work.
+  const { registry } = await fixture();
+  const { checkout, worktree } = await checkoutWithWorktree();
+  projects.add(checkout);
+  const ref = { source: "claude" as const, sessionId: "untracked" };
+  sessions.set("claude:untracked", { projectPath: worktree, summary: summary(ref) });
+  const bot = await addBot(registry, { requestId: "add", name: "Repo bot", directoryPath: checkout }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+  await git(["merge", "-q", "side"], checkout);
+
+  const { retired } = await registry.retireSessions(bot.botId, {
+    requestId: "retire",
+    sessionRefs: [ref],
+    worktree: "remove",
+    branch: "delete",
+  }, { kind: "user" });
+
+  expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", failed: [] });
 });
 
 test("refuses a remote delete whose commits live only on that remote", async () => {
