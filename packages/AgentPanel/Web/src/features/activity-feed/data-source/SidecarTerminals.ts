@@ -17,6 +17,16 @@ import { TerminalViewers, type TerminalViewer } from "@/features/activity-feed/d
 
 export class SidecarTerminals extends SidecarComposers {
   private readonly terminals = new TerminalViewers(this.transport);
+  /**
+   * The tail of each terminal's write chain, so the next write waits for the one before it.
+   *
+   * Keyed by terminal rather than held globally: two terminals have nothing to say to each other,
+   * and one slow write should not hold up a different session's typing.
+   *
+   * Entries delete themselves when a chain drains, so a terminal that ends without a close --
+   * a page discarded, a pty that exited -- leaves nothing behind.
+   */
+  private readonly writeChains = new Map<string, Promise<void>>();
 
   async openTerminal(
     context: AgentTerminalContext,
@@ -67,10 +77,47 @@ export class SidecarTerminals extends SidecarComposers {
     return this.terminals.subscribe(terminalId, handlers, options);
   }
 
-  async sendTerminalInput(
+  /**
+   * One write, queued behind everything already on its way to the same terminal.
+   *
+   * Every write is its own request and its own write to the pty, and that is deliberate rather
+   * than incidental: the far end is a TUI, and a keystroke is not the same event as a chunk of
+   * text arriving at once. Claude's own composer, readline, fzf and zsh's autosuggestions all
+   * behave differently for a burst that lands in one `read` than for the same characters typed,
+   * so merging the queue into one body would make a person's typing read as a machine's paste.
+   * A real paste already arrives from xterm as a single `onData` and stays a single write, which
+   * is the distinction being preserved rather than erased.
+   *
+   * What the chain fixes is order. These were fired and forgotten, so N+1 could leave while N was
+   * still in flight and the two could be handled in either order: measured through the IDE's new
+   * terminal, `echo ide-terminal-$PWD` arrived at the shell as `echo ide-etinrmla-$PWD`. Waiting
+   * for the response rather than for the request to be written is stronger than strictly needed,
+   * and it is the only completion a browser can observe.
+   *
+   * The tail swallows a rejection so one refused write cannot wedge the terminal shut. The caller
+   * still gets the rejection, on the promise this returns.
+   */
+  sendTerminalInput(
     terminalId: string,
     data: string,
     encoding: "utf8" | "base64" = "utf8",
+  ): Promise<void> {
+    const written = (this.writeChains.get(terminalId) ?? Promise.resolve())
+      .then(() => this.writeToTerminal(terminalId, data, encoding));
+    const tail = written.then(() => {}, () => {});
+    this.writeChains.set(terminalId, tail);
+    // Only when nothing queued up behind this one, which is what makes the map hold the terminals
+    // being typed into rather than every terminal ever opened.
+    void tail.then(() => {
+      if (this.writeChains.get(terminalId) === tail) this.writeChains.delete(terminalId);
+    });
+    return written;
+  }
+
+  private async writeToTerminal(
+    terminalId: string,
+    data: string,
+    encoding: "utf8" | "base64",
   ): Promise<void> {
     expectEmpty(await this.transport.request(
       "POST",
