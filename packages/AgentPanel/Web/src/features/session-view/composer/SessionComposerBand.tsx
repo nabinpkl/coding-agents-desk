@@ -12,17 +12,17 @@ import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
-import { submitComposer } from "@/features/session-view/sessionComposerActions";
-import type { useClaudeWindowQuestion } from "@/features/session-view/AskUserQuestionMirror";
+import { submitComposer } from "@/features/session-view/composer/sessionComposerActions";
+import type { useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
 import { List, Paperclip } from "lucide-react";
 import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
-import { AskUserQuestionMirror } from "@/features/session-view/AskUserQuestionMirror";
-import type { ComposerAction } from "@/features/session-view/SessionComposer";
-import type { ComposerModel } from "@/features/session-view/sessionComposerModel";
-import type { ComposerEditor } from "@/features/session-view/sessionComposerEditor";
+import { AskUserQuestionMirror } from "@/features/session-view/composer/AskUserQuestionMirror";
+import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
+import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
 
 export function SessionComposerBand({
   actions,

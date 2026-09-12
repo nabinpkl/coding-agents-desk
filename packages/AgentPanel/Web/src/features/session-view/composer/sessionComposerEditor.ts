@@ -11,7 +11,7 @@ import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
 import { cliInputReasonText } from "@/features/cli-input/useCliInput";
 import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
 import { harnessName } from "@/features/session-view/SessionView";
-import type { ComposerModel } from "@/features/session-view/sessionComposerModel";
+import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
 export interface ComposerEditor {
   value: string;

@@ -32,7 +32,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R6 | `agent-feed/sidecar/src/terminal` | 16 (24) -> 6 (10) | D |
 | R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) -> dissolved | D |
 | R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) -> 7 (10) | D |
-| R9 | `packages/AgentPanel/Web/src/features/session-view` | 13 (13) | R |
+| R9 | `packages/AgentPanel/Web/src/features/session-view` | 13 (13) -> 5 (5) | D |
 | R10 | The gate: fitness check 7, the pre-commit hook, this file's summary | | R |
 
 Re-measured after every task, because moving files out of a parent changes the parent's count:
@@ -268,6 +268,24 @@ in either tree.
 The feature keeps 7: the hook itself, the pane, the key rail, the tile, the surface, one stable
 string for what a terminal is pointed at, and which sessions type into their own terminal rather
 than into the composer.
+
+### R9 `packages/AgentPanel/Web/src/features/session-view`, 13 source files
+
+- `composer/` (8) the band under the transcript and everything that composes into it: the band as
+  it is drawn once every question about which band it is has been answered, what the field is in
+  whichever band is showing, what the composer's parts read, sending and the action row that offers
+  it, the textarea that grows, the mirror of a window's own composer, and Claude's AskUserQuestion
+  panel mirrored. `SessionComposer`, `SessionComposerBand`, `sessionComposerEditor`,
+  `sessionComposerModel`, `sessionComposerActions`, `useAutoGrowingTextArea`, `useWindowComposer`,
+  `AskUserQuestionMirror`.
+
+The feature keeps 5: the session view, the terminal band beneath it and what the view knows about
+it, the extension prompt, and taking an image dropped on a session.
+
+`SessionExtensionUI` says in its own first line that it is rendered inside the session band, and
+its two callers are `SessionComposer` and `SessionView` -- one inside the group and one outside, so
+the callers rule ties. It stays flat. The count was already earned at eight; a ninth file added on
+a tie-break is the opinion the rule exists to keep out.
 
 ## Decisions
 

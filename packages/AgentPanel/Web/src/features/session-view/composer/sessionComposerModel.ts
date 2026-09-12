@@ -10,7 +10,7 @@ import type { AgentSessionControlState } from "@/features/activity-feed/data-sou
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { CliInputHandle } from "@/features/cli-input/useCliInput";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
-import type { useWindowComposer } from "@/features/session-view/useWindowComposer";
+import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 
 /** Which surface owns composition for this session, and what it needs to write. */

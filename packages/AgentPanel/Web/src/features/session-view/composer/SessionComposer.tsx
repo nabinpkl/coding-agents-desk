@@ -72,7 +72,7 @@ import {
   toggleTerminalComposer,
   useTerminalComposerShown,
 } from "@/features/terminal/terminalComposerPreference";
-import { AskUserQuestionMirror, useClaudeWindowQuestion } from "@/features/session-view/AskUserQuestionMirror";
+import { AskUserQuestionMirror, useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
   composerReasonText,
@@ -80,17 +80,17 @@ import {
   TerminalNotice,
 } from "@/features/session-view/SessionTerminalControls";
 import type { AgentTerminalComposer, TerminalState } from "@/features/session-view/sessionTerminalTypes";
-import { useAutoGrowingTextArea } from "@/features/session-view/useAutoGrowingTextArea";
-import { useWindowComposer } from "@/features/session-view/useWindowComposer";
+import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
+import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import { harnessName } from "@/features/session-view/SessionView";
-import { composerActions, submitComposer, submitOwnedTransport } from "@/features/session-view/sessionComposerActions";
+import { composerActions, submitComposer, submitOwnedTransport } from "@/features/session-view/composer/sessionComposerActions";
 import {
   composerCaption,
   composerEditor,
   composerSectionLabel,
-} from "@/features/session-view/sessionComposerEditor";
-import type { ComposerModel } from "@/features/session-view/sessionComposerModel";
-import { SessionComposerBand } from "@/features/session-view/SessionComposerBand";
+} from "@/features/session-view/composer/sessionComposerEditor";
+import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 
 /** One action in the composer's action row, rendered in array order. */
 export type ComposerAction = {
