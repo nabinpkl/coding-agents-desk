@@ -1,12 +1,18 @@
 "use client";
 
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "katex/dist/katex.min.css";
 import "@/features/activity-feed/markdown/markdown.css";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { MermaidBlock } from "@/features/activity-feed/markdown/MermaidBlock";
 import { applyProseHtml } from "@/features/activity-feed/markdown/patchProse";
-import { createStreamingBlocks, toBlocks } from "@/features/activity-feed/markdown/proseBlocks";
+import {
+  createStreamingBlocks,
+  FENCE_SLOT_ATTRIBUTE,
+  toBlocks,
+  type FenceBlock,
+} from "@/features/activity-feed/markdown/proseBlocks";
 
 // What each prose element was last given, so the patch can diff against the string
 // we produced rather than the browser's reserialization of it. Keyed by the element
@@ -23,17 +29,67 @@ const renderedHtml = new WeakMap<Element, string>();
  * happened and replaces the run otherwise, so the steady state of a growing
  * paragraph is one `characterData` mutation per tick instead of a teardown.
  */
-const ProseBlock = memo(function ProseBlock({ html }: { html: string }) {
+const ProseBlock = memo(function ProseBlock({
+  html,
+  fences,
+  settled,
+}: {
+  html: string;
+  fences: readonly FenceBlock[];
+  settled: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  // The empty divs `peelNestedFences` left in the HTML, which the fences below are mounted into.
+  // Held in state rather than read during render because they do not exist until this element has
+  // its HTML: the effect writes the HTML and then hands the nodes back, and being a LAYOUT effect
+  // is what keeps that second pass inside the same paint, so a fence never flashes at zero height
+  // in a feed that measures its rows.
+  const [slots, setSlots] = useState<readonly Element[]>([]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    if (renderedHtml.get(el) === html) return;
-    applyProseHtml(el, renderedHtml.get(el) ?? "", html);
-    renderedHtml.set(el, html);
+    if (renderedHtml.get(el) !== html) {
+      applyProseHtml(el, renderedHtml.get(el) ?? "", html);
+      renderedHtml.set(el, html);
+    }
+    const found = [...el.querySelectorAll(`[${FENCE_SLOT_ATTRIBUTE}]`)];
+    setSlots((current) => (
+      current.length === found.length && current.every((node, at) => node === found[at])
+        ? current
+        : found
+    ));
   }, [html]);
-  return <div ref={ref} className="agent-panel-md__prose" />;
+  return (
+    <>
+      <div ref={ref} className="agent-panel-md__prose" />
+      {slots.map((slot, at) => {
+        // The slot's own number, not its position: the prose is sanitized but still
+        // transcript-authored, so a message that wrote this attribute itself must not be able to
+        // shift every fence after it onto the wrong code.
+        const index = Number(slot.getAttribute(FENCE_SLOT_ATTRIBUTE));
+        const fence = Number.isInteger(index) ? fences[index] : undefined;
+        if (fence === undefined) return null;
+        return createPortal(<Fence block={fence} settled={settled} />, slot, `fence-${at}`);
+      })}
+    </>
+  );
 });
+
+/**
+ * One fenced block, wherever it was written.
+ *
+ * The single place that turns a fence into a component, so a fence nested in a list item is the
+ * same thing to a reader as one at the top level -- highlighted, labelled, copyable -- and the
+ * mermaid decision is made once rather than once per call site.
+ */
+function Fence({ block, settled }: { block: FenceBlock; settled: boolean }) {
+  if (block.kind === "mermaid") {
+    return settled
+      ? <MermaidBlock code={block.code} />
+      : <CodeBlock code={block.code} lang="mermaid" highlight={false} />;
+  }
+  return <CodeBlock code={block.code} lang={block.lang} highlight={settled} />;
+}
 
 /**
  * Synchronous-first Markdown renderer for the activity feed.
@@ -84,17 +140,8 @@ export function Markdown({
     <div className={surface}>
       {blocks.map((b, i) => {
         const settled = !streaming || i < blocks.length - 1;
-        if (b.kind === "code") {
-          return <CodeBlock key={i} code={b.code} lang={b.lang} highlight={settled} />;
-        }
-        if (b.kind === "mermaid") {
-          return settled ? (
-            <MermaidBlock key={i} code={b.code} />
-          ) : (
-            <CodeBlock key={i} code={b.code} lang="mermaid" highlight={false} />
-          );
-        }
-        return <ProseBlock key={i} html={b.html} />;
+        if (b.kind !== "prose") return <Fence key={i} block={b} settled={settled} />;
+        return <ProseBlock key={i} html={b.html} fences={b.fences} settled={settled} />;
       })}
     </div>
   );

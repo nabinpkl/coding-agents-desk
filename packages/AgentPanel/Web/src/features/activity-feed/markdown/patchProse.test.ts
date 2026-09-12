@@ -114,4 +114,21 @@ describe("applyProseHtml", () => {
     applyProseHtml(host, "<p>Done. th</p>", "<p>Done. </p>");
     expect(host.innerHTML).toBe("<p>Done. </p>");
   });
+
+  // A nested fence is peeled out of the prose and drawn by a portal into the empty slot left
+  // behind, so this element holds text that did not come from `next`. A pure append removes
+  // nothing, and every string ends with the empty string, so without the slot being excluded the
+  // appended character lands in whatever the code block's last line happens to be.
+  test("appends to the prose, not into a code block portalled in after it", () => {
+    const host = el();
+    const before = '<p>abc</p><div data-agent-panel-fence="0"></div>';
+    applyProseHtml(host, "", before);
+    const slot = host.querySelector("[data-agent-panel-fence]")!;
+    slot.innerHTML = "<pre><code>const x = 1</code></pre>";
+
+    applyProseHtml(host, before, '<p>abcd</p><div data-agent-panel-fence="0"></div>');
+
+    expect(host.querySelector("p")?.textContent).toBe("abcd");
+    expect(slot.textContent).toBe("const x = 1");
+  });
 });

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createStreamingBlocks, toBlocks } from "@/features/activity-feed/markdown/proseBlocks";
+import {
+  createStreamingBlocks,
+  FENCE_SLOT_ATTRIBUTE,
+  toBlocks,
+} from "@/features/activity-feed/markdown/proseBlocks";
 
 // The whole point of the incremental reader is that it is not a different renderer.
 // So the test is not "does it produce something reasonable" but "is it the same
@@ -54,6 +58,13 @@ describe("createStreamingBlocks", () => {
       // that had settled the paragraph would render a heading as body text.
       ["a setext heading", "head\n===\n\nbody"],
       ["an unclosed fence", "intro\n\n```js\nconst x = 1\nconst y = 2"],
+      // A nested fence is peeled out of the prose it was written in, so the slot's number has to
+      // mean the same thing whether the run was parsed in one pass or grown over many.
+      ["a fence nested in a list item", "- item:\n\n  ```js\n  x = 1\n  ```\n\nafter"],
+      [
+        "a nested fence far behind the live window",
+        `${"filler paragraph.\n\n".repeat(60)}- one:\n\n  \`\`\`js\n  x = 1\n  \`\`\`\n\n- two\n`,
+      ],
       // marked rewrites a half-typed bullet's own `raw` (`"- "` comes back `"-\n"`),
       // so a reader that demanded the tail tile itself exactly would bail out on
       // every list the model types. The tokens it SETTLES still tile; the last one
@@ -117,5 +128,48 @@ describe("createStreamingBlocks", () => {
     }
     // ...and the last block is still being rebuilt, or nothing would ever update.
     expect(seen[seen.length - 1]!.at(-1)).not.toBe(first!.at(-1));
+  });
+});
+
+describe("toBlocks", () => {
+  const nested = "1. first:\n\n   ```ts\n   const x = 1\n   ```\n\n2. second\n";
+
+  // Marked renders a fence inside a list item as a bare `<pre><code>`, which cannot be a React
+  // component and is not highlighted, copyable, or narrow enough to stay inside the column.
+  it("peels a fence out of the list item it was written in", () => {
+    const blocks = toBlocks(nested);
+    expect(blocks).toHaveLength(1);
+    const [block] = blocks;
+    expect(block!.kind).toBe("prose");
+    if (block!.kind !== "prose") return;
+    expect(block!.fences).toEqual([{ kind: "code", code: "const x = 1", lang: "ts" }]);
+    expect(block!.html).toContain(`${FENCE_SLOT_ATTRIBUTE}="0"`);
+    expect(block!.html).not.toContain("<pre");
+    // The list is still one list: peeling replaces the fence in place rather than cutting the
+    // prose run around it.
+    expect(block!.html.match(/<ol/g)).toHaveLength(1);
+  });
+
+  it("reads a nested mermaid fence as mermaid, the way a top-level one is read", () => {
+    const blocks = toBlocks("- chart:\n\n  ```mermaid\n  graph TD; A-->B\n  ```\n");
+    const [block] = blocks;
+    if (block!.kind !== "prose") throw new Error("expected one prose block");
+    expect(block!.fences).toEqual([{ kind: "mermaid", code: "graph TD; A-->B" }]);
+  });
+
+  it("numbers every slot in a run, so two nested fences do not collide", () => {
+    const blocks = toBlocks("- a:\n\n  ```js\n  1\n  ```\n\n- b:\n\n  ```js\n  2\n  ```\n");
+    const [block] = blocks;
+    if (block!.kind !== "prose") throw new Error("expected one prose block");
+    expect(block!.fences.map((fence) => (fence.kind === "code" ? fence.code : null))).toEqual(["1", "2"]);
+    expect(block!.html).toContain(`${FENCE_SLOT_ATTRIBUTE}="0"`);
+    expect(block!.html).toContain(`${FENCE_SLOT_ATTRIBUTE}="1"`);
+  });
+
+  it("leaves a top-level fence a block of its own", () => {
+    expect(toBlocks("intro\n\n```js\nx = 1\n```\n")).toEqual([
+      { kind: "prose", html: expect.any(String), fences: [] },
+      { kind: "code", code: "x = 1", lang: "js" },
+    ]);
   });
 });

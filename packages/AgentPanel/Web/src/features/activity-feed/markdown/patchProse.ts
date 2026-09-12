@@ -1,3 +1,5 @@
+import { FENCE_SLOT_ATTRIBUTE } from "@/features/activity-feed/markdown/proseBlocks";
+
 // Applying a re-rendered Markdown block to the DOM without rebuilding it.
 //
 // The reveal hands this renderer a slightly longer document about thirty times a
@@ -54,14 +56,32 @@ export function trailingTextEdit(
   return { removed, added };
 }
 
-/** The last text node in `el` that carries content, ignoring inter-element whitespace. */
+/**
+ * The last text node in `el` that carries content, ignoring inter-element whitespace.
+ *
+ * A fence slot's subtree is not `el`'s content at all: it is a peeled code block, mounted there
+ * through a portal by whoever rendered this run, and its text came from a different string
+ * entirely. Left in, it would be the last text node whenever a nested fence ends the run -- and an
+ * append that removed nothing (`removed` is empty for a pure append, and every string ends with
+ * the empty string) would be written INTO the code.
+ */
 function lastContentTextNode(el: Element): Text | null {
-  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const walker = el.ownerDocument.createTreeWalker(
+    el,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          return (node as Element).hasAttribute(FENCE_SLOT_ATTRIBUTE)
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_SKIP;
+        }
+        return (node as Text).data.trim() === "" ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_ACCEPT;
+      },
+    },
+  );
   let last: Text | null = null;
-  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    const text = node as Text;
-    if (text.data.trim() !== "") last = text;
-  }
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) last = node as Text;
   return last;
 }
 

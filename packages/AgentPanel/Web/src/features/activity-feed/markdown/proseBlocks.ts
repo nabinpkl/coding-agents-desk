@@ -55,10 +55,76 @@ function sanitizeProse(html: string): string {
   return DOMPurify.sanitize(html, { ADD_ATTR: ["style"] });
 }
 
-export type Block =
-  | { kind: "prose"; html: string }
+/** A fenced block, however deep in the document it was written. */
+export type FenceBlock =
   | { kind: "code"; code: string; lang: string }
   | { kind: "mermaid"; code: string };
+
+export type Block =
+  | {
+    kind: "prose";
+    html: string;
+    /**
+     * The fences this run holds that its HTML cannot draw.
+     *
+     * Marked renders a fence nested in a list item or a blockquote as a bare `<pre><code>`, which
+     * is neither highlighted nor copyable and, until it was given a rule of its own, was wide
+     * enough to push the whole transcript sideways. A nested fence is therefore peeled like a
+     * top-level one and the prose keeps an empty slot where it stood, for the renderer to mount
+     * the same component into. Indexed by the number in the slot's attribute, and never reordered
+     * once written -- a streaming run appends to this list, it does not rebuild it.
+     */
+    fences: readonly FenceBlock[];
+  }
+  | FenceBlock;
+
+/** The attribute a peeled nested fence leaves behind, carrying its index into `fences`. */
+export const FENCE_SLOT_ATTRIBUTE = "data-agent-panel-fence";
+
+/** What a fenced token becomes, wherever it was found. */
+function fenceBlock(token: Token): FenceBlock {
+  const text = (token as unknown as { text: string }).text;
+  // marked keeps the whole fence info string in `lang` (e.g. "js {1,3}");
+  // take the first word so highlight hints don't defeat grammar lookup.
+  const info = ((token as unknown as { lang?: string }).lang ?? "").trim().split(/\s+/)[0] ?? "";
+  if (info.toLowerCase() === "mermaid") return { kind: "mermaid", code: text };
+  return { kind: "code", code: text, lang: info };
+}
+
+/** The token fields that hold other tokens. `items` is a list's; `tokens` is everything else's. */
+const NESTED_TOKEN_KEYS = ["tokens", "items"] as const;
+
+/**
+ * Takes every fence out of `token`'s descendants, leaving an empty slot in its place.
+ *
+ * Mutates the lexer's output, which is safe because both readers lex afresh on every pass and
+ * neither keeps tokens past the parse -- `createStreamingBlocks` carries finished BLOCKS forward,
+ * not the tokens they came from. It also leaves each token's own `raw` alone, which is what the
+ * streaming reader measures its settled prefix with.
+ */
+function peelNestedFences(token: Token, into: FenceBlock[], base: number): void {
+  for (const key of NESTED_TOKEN_KEYS) {
+    const children = (token as unknown as Record<string, unknown>)[key];
+    if (!Array.isArray(children)) continue;
+    for (let at = 0; at < children.length; at += 1) {
+      const child = children[at] as Token | undefined;
+      if (child === undefined || typeof child !== "object") continue;
+      if (child.type === "code") {
+        const index = base + into.length;
+        into.push(fenceBlock(child));
+        children[at] = {
+          type: "html",
+          raw: "",
+          block: true,
+          pre: false,
+          text: `<div ${FENCE_SLOT_ATTRIBUTE}="${index}"></div>`,
+        } as unknown as Token;
+        continue;
+      }
+      peelNestedFences(child, into, base);
+    }
+  }
+}
 
 /**
  * Appends `tokens` to `into`, peeling fenced code (and mermaid) out into their own
@@ -79,29 +145,28 @@ function appendTokens(into: Block[], tokens: readonly Token[], links: TokensList
 
   const flushProse = () => {
     if (prose.length === 0) return;
+    const last = into[into.length - 1];
+    // A run that merges into the block before it continues its numbering, so a slot's index means
+    // the same thing to the renderer whichever pass wrote it.
+    const carried = last?.kind === "prose" ? last.fences : [];
+    const fences: FenceBlock[] = [];
+    for (const token of prose) peelNestedFences(token, fences, carried.length);
     const run = prose as unknown as TokensList;
     run.links = links;
     const html = sanitizeProse(marked.parser(run));
-    const last = into[into.length - 1];
     // Replaced, not mutated: the incremental path hands out an array that shares
     // these objects with its own settled list, and growing one in place would edit
     // a block a caller is still holding.
-    if (last?.kind === "prose") into[into.length - 1] = { kind: "prose", html: last.html + html };
-    else into.push({ kind: "prose", html });
+    if (last?.kind === "prose") {
+      into[into.length - 1] = { kind: "prose", html: last.html + html, fences: [...carried, ...fences] };
+    } else into.push({ kind: "prose", html, fences });
     prose = [];
   };
 
   for (const token of tokens) {
     if (token.type === "code") {
       flushProse();
-      // marked keeps the whole fence info string in `lang` (e.g. "js {1,3}");
-      // take the first word so highlight hints don't defeat grammar lookup.
-      const info = (token.lang ?? "").trim().split(/\s+/)[0] ?? "";
-      if (info.toLowerCase() === "mermaid") {
-        into.push({ kind: "mermaid", code: token.text });
-      } else {
-        into.push({ kind: "code", code: token.text, lang: info });
-      }
+      into.push(fenceBlock(token));
     } else {
       prose.push(token);
     }

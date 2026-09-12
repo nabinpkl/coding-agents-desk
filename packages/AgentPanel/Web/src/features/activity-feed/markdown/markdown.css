@@ -129,21 +129,18 @@
      nested one; this is only the inline kind. */
   overflow-wrap: anywhere;
 }
-/* A fence INSIDE a list item or a blockquote never reaches `CodeBlock`: `appendTokens` peels only
-   TOP-LEVEL `code` tokens out of the document, so a nested one stays in the prose HTML as marked's
-   bare `<pre><code>`. With no rule of its own it kept the browser default -- `white-space: pre`
-   with `overflow: visible` -- so one long line pushed every ancestor wider than the column and
-   gave the whole transcript a horizontal scroll.
+/* A `<pre>` that reached the prose HTML rather than being peeled into `CodeBlock`, which today
+   means one written as raw HTML in the message: every FENCE is peeled, nested ones included.
 
-   Measured 2026-09-11 on a compaction summary, which is the message an ordinary transcript is
-   likeliest to hit this with: fences inside numbered lists are the shape those summaries are
-   written in, and the summary is the last row in the session until somebody says something -- so
-   the scroll appears at the compaction and leaves with the next message. 934px of code in a 902px
-   column, spilling 32px past the row's border.
-
-   Same chrome as the peeled block, because nothing in the source tells a reader which fence was
-   top-level, and a nested one should not read as prose. */
-.agent-panel-md__prose pre {
+   The rule is here because of what that costs when it is missing. A bare `<pre>` keeps the browser
+   default -- `white-space: pre` with `overflow: visible` -- so one long line pushes every ancestor
+   wider than the column and gives the whole transcript a horizontal scroll. Measured 2026-09-11,
+   when nested fences still landed here: 934px of code in a 902px column, spilling 32px past the
+   row's border, on a compaction summary. Chrome to match the peeled block, so the two do not read
+   as different kinds of thing. The `:not` keeps it off the peeled block's OWN `<pre>`, which is a
+   portal's child and so a descendant of this prose element: without it a nested fence got this
+   box drawn inside its wrapper's box and 0.9em applied twice. */
+.agent-panel-md__prose pre:not(.agent-panel-code *) {
   margin: var(--agent-panel-md-block-gap) 0;
   padding: 0.6em 0.8em;
   border: 1px solid var(--border);
@@ -153,7 +150,7 @@
   font-size: 0.9em;
   line-height: 1.5;
 }
-.agent-panel-md__prose pre code {
+.agent-panel-md__prose pre:not(.agent-panel-code *) code {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: inherit;
 }
