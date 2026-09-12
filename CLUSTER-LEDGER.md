@@ -55,5 +55,23 @@ Forks taken, with the alternative not taken. The standing tiebreakers, both from
 viewer: promote a sibling rather than nest, and when a file could sit in two places, put it with
 its callers.
 
+### `origin/dir-clustering` was replaced rather than continued
+
+The remote branch already held a run at this: `c53375c1` a ledger, `5cf77225` the desktop-viewer
+grouping, `30ced4e2` a fix to it. All three sit on `d75ccace`, which is BEFORE the import-alias
+migration (`6a4d2182`), so that branch still writes `../../..` everywhere and its fitness gate has
+no check 6. Its grouping is not lost: `79f79128` on `main` is the same work replayed on top of the
+migration, and says so in its own message. The remote branch is a snapshot of a tree that no longer
+exists, and rebasing this work onto it would reintroduce every relative import the migration
+removed.
+
+So this run restarts from `79f79128` and takes none of that branch's content. It keeps all of its
+history: the stale tip `30ced4e2` is merged in with `-s ours`, which records it as an ancestor and
+changes not one byte of the tree, so the push is an ordinary fast-forward and nothing on the remote
+is discarded. The alternative was a force-push, which reaches the same tree by throwing the old
+commits away; there is no reason to destroy history that costs nothing to carry. The second
+alternative, a new branch name, loses nothing either but leaves two branches with one name's worth
+of meaning and the wrong one on top.
+
 ## Deferred
 
