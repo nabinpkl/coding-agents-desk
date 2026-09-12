@@ -29,7 +29,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R3 | `packages/AgentPanel/Web/src/app` | 24 (50) -> 10 (32) | D |
 | R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) -> 7 (9) | D |
 | R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) -> 5 (7) | D |
-| R6 | `agent-feed/sidecar/src/terminal` | 16 (24) | R |
+| R6 | `agent-feed/sidecar/src/terminal` | 16 (24) -> 6 (10) | D |
 | R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) | R |
 | R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) | R |
 | R9 | `packages/AgentPanel/Web/src/features/session-view` | 13 (13) | R |
@@ -191,6 +191,29 @@ The three vendor catalog files stay with the catalog rather than joining their v
 R7. That is the callers rule and it is also the layer the code is built on: `transcriptCatalog`
 dispatches by vendor to find sessions, `sources/sourceAdapters` dispatches by vendor to read their
 lines, and those two dispatches are separate on purpose.
+
+### R6 `agent-feed/sidecar/src/terminal`, 16 source files
+
+`agentTerminalBackends` says its own job in its first line: reaching a live connection through
+whichever backend its target names. There are two backends, and each is a group.
+
+- `tmux/` (7) attaching with tmux's own primitives rather than through the PTY manager: the
+  attachment, what a pane is showing and has shown, running tmux at all, making a window the shape
+  a viewer asked for, which sessions exist, the multiplexer's session list, and the name a title
+  becomes. `tmuxAttachment`, `tmuxCapture`, `tmuxCommand`, `tmuxPaneSize`, `tmuxSessionList`,
+  `tmuxSessions`, `tmuxSessionNames`.
+- `pty/` (3) talking to the PTY manager: the client, the protocol both of them and tmux read, and
+  one envelope read as the one thing the wire says about a terminal. `ptyClient`, `ptyProtocol`,
+  `terminalStreamMessages`.
+
+`terminal/` keeps 6: the service that opens, feeds and closes what a panel is watching, the backend
+switch, what a terminal is pointed at, what a request can be refused for, the fakes its tests run
+against, and starting a Claude session in a pane this sidecar owns.
+
+`terminalStreamMessages` went to `pty/` against the callers rule: its one caller is
+`agentTerminalService`, which stays flat. It is a PTY manager envelope, it imports `ptyProtocol`,
+and it says both in its first line -- and the alternative leaves `pty/` at two, under the floor,
+for a file that is unambiguously about the PTY manager.
 
 ## Decisions
 

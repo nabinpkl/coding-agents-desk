@@ -13,7 +13,7 @@ import {
   parseTmuxSessions,
   terminalHistoryPayload,
   TmuxUnavailable,
-} from "@/terminal/tmuxSessions";
+} from "@/terminal/tmux/tmuxSessions";
 
 test("reads one session per line in the order tmux listed them", () => {
   expect(parseTmuxSessions(

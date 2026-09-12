@@ -6,8 +6,8 @@
 // belongs to whoever started it and a browser tab closing is not a reason to end their work.
 
 import { expect, test } from "bun:test";
-import { hexKeyArguments, TmuxAttachments, type TmuxPaneRuntime } from "@/terminal/tmuxAttachment";
-import type { PtyEnvelope } from "@/terminal/ptyProtocol";
+import { hexKeyArguments, TmuxAttachments, type TmuxPaneRuntime } from "@/terminal/tmux/tmuxAttachment";
+import type { PtyEnvelope } from "@/terminal/pty/ptyProtocol";
 
 interface Recorded {
   pipes: number;

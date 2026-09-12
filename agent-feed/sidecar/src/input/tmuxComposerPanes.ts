@@ -4,7 +4,7 @@
 // Both are about exclusivity: resolving a pane is the expensive act in this module, and
 // two pushes reading the same box would each paste their whole text into it.
 
-import { captureTmuxPaneView, TmuxUnavailable } from "@/terminal/tmuxSessions";
+import { captureTmuxPaneView, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { composerBox, composerText } from "@/input/composerBox";
 import { waitFor } from "@/input/composerKeystrokes";

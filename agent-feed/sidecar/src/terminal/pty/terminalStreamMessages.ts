@@ -5,7 +5,7 @@
 // means the envelope carried nothing a viewer would show, which is not an error.
 
 import type { AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
-import type { PtyEnvelope } from "@/terminal/ptyProtocol";
+import type { PtyEnvelope } from "@/terminal/pty/ptyProtocol";
 
 const BOOTSTRAP_COLUMNS = 80;
 const BOOTSTRAP_ROWS = 24;

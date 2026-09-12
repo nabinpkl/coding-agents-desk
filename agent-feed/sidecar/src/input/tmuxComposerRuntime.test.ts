@@ -31,7 +31,7 @@ import {
   syncTmuxComposer,
   type TmuxComposerRuntime,
 } from "@/input/tmuxComposer";
-import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmuxSessions";
+import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 
 test("reports tmux itself being gone as its own reason, rather than as an empty composer", async () => {
   const tmux = runtime({

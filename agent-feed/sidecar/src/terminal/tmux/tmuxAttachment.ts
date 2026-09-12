@@ -28,8 +28,8 @@
 //   nothing before, so a joining viewer's first screen has to come from `capture-pane`. That is the
 //   same split the tile's history already makes, and `terminalHistoryPayload` composes it.
 
-import type { PtyEnvelope } from "@/terminal/ptyProtocol";
-import { adoptPaneSize, refreshPaneSize, type SharedPane } from "@/terminal/tmuxPaneSize";
+import type { PtyEnvelope } from "@/terminal/pty/ptyProtocol";
+import { adoptPaneSize, refreshPaneSize, type SharedPane } from "@/terminal/tmux/tmuxPaneSize";
 
 /** Everything this needs from tmux, injected so the logic can be tested without a tmux server. */
 export interface TmuxPaneRuntime {

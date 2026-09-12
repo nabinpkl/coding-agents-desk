@@ -27,7 +27,7 @@ import {
   keystrokesFor,
   readComposerAt,
 } from "@/input/tmuxComposer";
-import type { TmuxPaneView } from "@/terminal/tmuxSessions";
+import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
   expect(composerBox(screenWith(["make the hover ring stronger"])))

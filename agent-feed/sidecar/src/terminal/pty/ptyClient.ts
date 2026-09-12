@@ -4,7 +4,7 @@ import {
   takePtyFrames,
   type PtyEnvelope,
   type PtySessionSummary,
-} from "@/terminal/ptyProtocol";
+} from "@/terminal/pty/ptyProtocol";
 
 type EnvelopeListener = (envelope: PtyEnvelope) => void;
 type FailureListener = (error: Error) => void;

@@ -83,7 +83,7 @@ import {
   type RailModifiers,
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
-import { hexSend, TmuxUnavailable } from "@/terminal/tmuxSessions";
+import { hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 import {
   CARRIAGE_RETURN,

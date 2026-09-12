@@ -8,11 +8,11 @@
 // `tmuxSessionList.ts` says which sessions exist and starts new ones, and this drives a
 // pane that already exists.
 
-import { TmuxUnavailable, tmux } from "@/terminal/tmuxCommand";
+import { TmuxUnavailable, tmux } from "@/terminal/tmux/tmuxCommand";
 
 // Re-exported because this is the address nine callers already have, and the four parts
 // are one conversation with one tmux server.
-export { TmuxUnavailable } from "@/terminal/tmuxCommand";
+export { TmuxUnavailable } from "@/terminal/tmux/tmuxCommand";
 export {
   captureHistoryArgs,
   captureScreenArgs,
@@ -26,7 +26,7 @@ export {
   terminalHistoryPayload,
   waitForPaneToSettle,
   type TmuxPaneView,
-} from "@/terminal/tmuxCapture";
+} from "@/terminal/tmux/tmuxCapture";
 export {
   createTmuxSession,
   findTmuxSessionByIdentity,
@@ -41,7 +41,7 @@ export {
   stampTmuxSessionIdentity,
   tmuxSessionExists,
   type NewTmuxSession,
-} from "@/terminal/tmuxSessionList";
+} from "@/terminal/tmux/tmuxSessionList";
 
 /**
  * Gives the session's mouse setting back to whoever configured it.

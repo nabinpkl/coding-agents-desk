@@ -11,7 +11,7 @@ import {
   type TmuxComposerRuntime,
   type TmuxComposerWatchRuntime,
 } from "@/input/tmuxComposer";
-import type { TmuxPaneView } from "@/terminal/tmuxSessions";
+import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 
 export const RULE = "─".repeat(60);
 
