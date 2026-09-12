@@ -39,7 +39,8 @@ export function SessionRowMenu({
   if (onRename) items.push({ label: "Rename session", icon: Pencil, onSelect: onRename });
   if (onFork) items.push({ label: "Fork session", icon: GitFork, onSelect: onFork });
   // "from bot", not "from canvas": this drops the Bot's reference to the session wherever the row
-  // is being read, and is the only one of the two that outlives the panel being reloaded.
+  // is being read, and is the only one of the two that asks the sidecar for anything. Both survive
+  // a reload; only this one survives it for somebody else.
   items.push({ label: "Remove from bot", icon: Unlink, onSelect: onDetach });
   // Below the Bot-level removal, and worded as the smaller act it is: this one is undone by
   // clicking the session in the sidebar, where every session a Bot holds is listed whether or not

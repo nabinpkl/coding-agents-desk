@@ -39,7 +39,11 @@ import { useBots } from "../features/bots/useBots";
 import { BotCanvas, type BotCommandError } from "../features/bots/BotCanvas";
 import {
   loadCanvasOpenKeys,
+  loadDetachedBotIds,
+  loadDetachedSessionKeys,
   storeCanvasOpenKeys,
+  storeDetachedBotIds,
+  storeDetachedSessionKeys,
 } from "../features/bots/botCanvasPreferences";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { botCanvasHues } from "../features/bots/botSurface";
@@ -165,17 +169,14 @@ export function App({ feed, host, fill = false }: Props) {
     }
   }, [sidebarMode]);
   const botsState = useBots(feed);
-  // Which Bots are off the canvas right now. Held here rather than inside the canvas so the cards
-  // and the sidebar roster that arranges them read one set, and held in memory rather than stored
-  // because it is not a fact worth keeping: the roster lists every Bot either way, so a canvas that
-  // comes back whole on the next visit costs one click to arrange again and never hides a Bot from
-  // a reader who has forgotten they took it off.
-  const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(() => new Set());
-  // Which of the Bots' sessions are off the canvas, as `source:sessionId`. The smaller sibling of
-  // `detachedBotIds` and held for the same reasons: one set read by both the cards and the sidebar
-  // roster, and in memory rather than stored, because the sidebar lists every session a Bot holds
-  // either way and a canvas that comes back whole costs one click to tidy again.
-  const [detachedSessionKeys, setDetachedSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  // What the reader has taken off the canvas: whole Bots by id, then single sessions as
+  // `source:sessionId`. Both live here rather than inside the canvas so the cards and the sidebar
+  // roster that arranges them read one set each, and both are remembered across reloads --
+  // `botCanvasPreferences` carries why that is safe now and was not before.
+  const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(loadDetachedBotIds);
+  const [detachedSessionKeys, setDetachedSessionKeys] = useState<ReadonlySet<string>>(
+    loadDetachedSessionKeys,
+  );
   const removeSessionFromCanvas = useCallback((session: BotSessionRef) => {
     setDetachedSessionKeys((current) => new Set(current).add(`${session.source}:${session.sessionId}`));
   }, []);
@@ -195,6 +196,11 @@ export function App({ feed, host, fill = false }: Props) {
   // one, a Bot leaving the canvas -- rather than a call beside each of them, which is how one of
   // them ends up forgotten.
   useEffect(() => storeCanvasOpenKeys(canvasOpenKeys), [canvasOpenKeys]);
+  // The same one-write rule, and these two need it more than the open keys do: each set shrinks
+  // from the sidebar roster and from a real detach as well as growing from a menu, so a call beside
+  // each of those is how one of them ends up forgotten.
+  useEffect(() => storeDetachedBotIds(detachedBotIds), [detachedBotIds]);
+  useEffect(() => storeDetachedSessionKeys(detachedSessionKeys), [detachedSessionKeys]);
   const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because

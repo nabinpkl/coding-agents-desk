@@ -166,10 +166,8 @@ const OPEN_SESSIONS_KEY = "agent-panel.bot-canvas.open-session";
  *
  * Identity only, and deliberately unresolved. A key may name a session that has since ended or a
  * Bot that no longer holds it, in which case no card opens and the canvas is the one it would have
- * been anyway -- there is nothing to repair, so nothing checks. What is NOT stored is which Bots are
- * on the canvas, for the reason `detachedBotIds` gives: a canvas that comes back whole costs one
- * click to arrange again, where one that comes back missing a Bot hides it from a reader who has
- * forgotten they took it off.
+ * been anyway -- there is nothing to repair, so nothing checks. What is on the canvas at all is
+ * stored beside this, and the note on the detached sets below says what changed to earn that.
  */
 export function loadCanvasOpenKeys(): ReadonlySet<string> {
   if (typeof window === "undefined") return new Set();
@@ -263,4 +261,69 @@ export function moveInOrder(order: string[], from: number, to: number): string[]
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved!);
   return next;
+}
+
+/**
+ * What the reader has taken off the canvas: whole Bots by id, and single sessions as
+ * `source:sessionId`.
+ *
+ * This reverses what the open-keys note above says, and the reversal is the point rather than an
+ * oversight. Not storing it was right when the only sign that a Bot was off the canvas was the
+ * canvas being one card shorter -- a set that came back would hide a Bot from a reader who had
+ * forgotten taking it off, and rebuilding the canvas cost one click. The sidebar roster has since
+ * become the answer to both halves: it lists every Bot and every session either way, dims the ones
+ * that are off, and carries the toggle that puts them back. So the absence is stated on screen
+ * rather than inferred from a gap, and the reader who has forgotten is told.
+ *
+ * What makes it worth storing rather than merely allowed is the cost of the other side. Taking
+ * things off is how a busy canvas is made readable, and this panel is edited while it is read, so
+ * a set that forgets is one the reader re-enters many times a day.
+ *
+ * Identity only and deliberately unresolved, like the open keys: an id naming a Bot that no longer
+ * exists, or a key naming a session its Bot no longer holds, hides nothing that exists. Nothing
+ * prunes either against the live roster, and deliberately not -- the Bots arrive over a stream, so
+ * a prune on write would run once against an empty roster on every reload and throw the whole set
+ * away. They grow only by an explicit removal and shrink on restore, which is bound enough.
+ */
+const DETACHED_BOTS_KEY = "agent-panel.bot-canvas.off-canvas-bots";
+const DETACHED_SESSIONS_KEY = "agent-panel.bot-canvas.off-canvas-sessions";
+
+function loadDetached(key: string, shaped: (value: string) => boolean): ReadonlySet<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    // Each entry judged on its own: the dangerous direction for this store is the one where a bad
+    // value HIDES something, so an unreadable entry is dropped without costing the ones beside it.
+    return new Set(parsed.filter((value): value is string => typeof value === "string" && shaped(value)));
+  } catch {
+    return new Set();
+  }
+}
+
+function storeDetached(key: string, values: ReadonlySet<string>): void {
+  try {
+    if (values.size === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify([...values]));
+  } catch {
+    // The canvas still hides and restores; it just forgets what by the next visit.
+  }
+}
+
+export function loadDetachedBotIds(): ReadonlySet<string> {
+  return loadDetached(DETACHED_BOTS_KEY, (id) => id.length > 0);
+}
+
+export function storeDetachedBotIds(ids: ReadonlySet<string>): void {
+  storeDetached(DETACHED_BOTS_KEY, ids);
+}
+
+export function loadDetachedSessionKeys(): ReadonlySet<string> {
+  return loadDetached(DETACHED_SESSIONS_KEY, (key) => key.includes(":"));
+}
+
+export function storeDetachedSessionKeys(keys: ReadonlySet<string>): void {
+  storeDetached(DETACHED_SESSIONS_KEY, keys);
 }
