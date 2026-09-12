@@ -3,8 +3,6 @@ import type {
   AddBotCommand,
   AddBotSessionsCommand,
   BotCreatedBy,
-  BotGrant,
-  BotLaunchCommand,
   BotMetadata,
   BotRecord,
   BotSessionRef,
@@ -15,354 +13,43 @@ import type {
   DetachBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
 import { startClaudeSession, startForkedClaudeSession } from "../terminal/claudeSessionLaunch.ts";
-import {
-  branchFromTitle,
-  directoryBelongsTo,
-  prepareWorktree,
-  worktreeOf,
-  WorktreeError,
-} from "../git/worktree.ts";
+import { directoryBelongsTo, worktreeOf } from "../git/worktree.ts";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "./botStore.ts";
+import {
+  normalizeAddBot,
+  normalizeLaunchFor,
+  normalizeSessionRef,
+  normalizeSessionRefCommand,
+  type NormalizedLaunch,
+} from "./botCommands.ts";
+import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "./botIdempotency.ts";
+import { BotSessionStarter } from "./botSessionLaunch.ts";
+import {
+  BotConflictError,
+  BotForbiddenError,
+  BotInvalidError,
+  BotLaunchError,
+  BotNotFoundError,
+  type BotActor,
+  type BotRegistryCatalog,
+  type BotSessionLauncher,
+  type ResolvedBotSession,
+} from "./botTypes.ts";
 
-export type BotActor =
-  | { kind: "user" }
-  | { kind: "agent"; session: BotSessionRef };
-
-export interface ResolvedBotSession {
-  projectPath: string;
-  summary: SessionSummary;
-}
-
-export interface BotRegistryCatalog {
-  resolveProject(path: string): { projectPath: string } | undefined;
-  resolveSession(ref: BotSessionRef): ResolvedBotSession | undefined;
-  subscribe(listener: () => void): () => void;
-}
-
-export class BotInvalidError extends Error {}
-export class BotNotFoundError extends Error {}
-export class BotConflictError extends Error {}
-export class BotForbiddenError extends Error {}
-/**
- * The Bot exists; its session does not.
- *
- * Its own class because it is the one failure here that leaves something behind. Every other
- * refusal happens before the record is written, so the caller can retry the identical command;
- * this one has already spent a name and a directory, and a retry would collide with the Bot it
- * just made. The message therefore names what to do with it rather than only what went wrong.
- */
-export class BotLaunchError extends Error {}
-
-/**
- * What actually starts a Bot's session, injected so the tests never spawn one.
- *
- * A seam rather than a direct call because the alternative is a test suite that either runs tmux
- * or does not exercise this path at all, and the second is how the ordering below stops being
- * checked.
- */
-export interface BotSessionLauncher {
-  /** A session with no history, in `cwd`. */
-  start(options: {
-    cwd: string;
-    sessionId: string;
-    title: string;
-    prompt?: string;
-  }): Promise<{ tmuxSession: string }>;
-  /** A session that starts where `sessionId` is, running in `cwd` under `forkId`. */
-  fork(options: {
-    cwd: string;
-    sessionId: string;
-    forkId: string;
-    title: string;
-    brief?: string;
-  }): Promise<{ tmuxSession: string }>;
-}
-
-const MAX_NAME = 64;
-const MAX_DIRECTORY_PATH = 4_096;
-const MAX_ROLE = 120;
-const MAX_DESCRIPTION = 1_000;
-const MAX_LABELS = 12;
-const MAX_LABEL = 32;
-const MAX_CUSTOM_ENTRIES = 16;
-const MAX_CUSTOM_KEY = 64;
-const MAX_CUSTOM_VALUE = 256;
-const MAX_ICON_URL = 2_048;
-/**
- * How long a launch prompt may be.
- *
- * It becomes one argv element passed through two shells, where the ceiling is the kernel's
- * argument limit, about a megabyte -- so this is not that constraint. It is the size at which a
- * "first turn" has stopped being one: a grounding brief written by hand runs a few thousand
- * characters, and something ten times that belongs in a file the session reads for itself.
- */
-const MAX_LAUNCH_PROMPT = 32_768;
-const MAX_SESSION_REFS_PER_COMMAND = 64;
-const MAX_IDEMPOTENCY_ENTRIES = 512;
-
-interface NormalizedAddBot {
-  requestId: string;
-  name: string;
-  normalizedName: string;
-  iconUrl?: string;
-  directoryPath: string;
-  metadata: BotMetadata;
-  grants: BotGrant[];
-  launch?: NormalizedLaunch;
-}
-
-interface NormalizedLaunch {
-  title: string;
-  prompt?: string;
-  from?: BotSessionRef;
-  worktree?: { branch?: string };
-}
-
-interface NormalizedSessionRefCommand {
-  requestId: string;
-  sessionRefs: BotSessionRef[];
-}
-
-function compactOptional(value: unknown, name: string, maximum: number): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new BotInvalidError(`${name} must be a string`);
-  const compact = value.trim();
-  if (compact === "") return undefined;
-  if (compact.length > maximum) throw new BotInvalidError(`${name} must be at most ${maximum} characters`);
-  return compact;
-}
-
-function normalizeRequestId(value: unknown): string {
-  if (typeof value !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
-    throw new BotInvalidError("requestId is required and must be a bounded identifier");
-  }
-  return value;
-}
-
-function normalizeName(value: unknown): { name: string; normalizedName: string } {
-  const name = compactOptional(value, "name", MAX_NAME);
-  if (!name) throw new BotInvalidError("name is required");
-  return { name, normalizedName: name.normalize("NFKC").toLocaleLowerCase("en-US") };
-}
-
-function normalizeIconUrl(value: unknown): string | undefined {
-  const raw = compactOptional(value, "iconUrl", MAX_ICON_URL);
-  if (!raw) return undefined;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch (error) {
-    throw new BotInvalidError("iconUrl must be a valid https URL", { cause: error });
-  }
-  if (url.protocol !== "https:") throw new BotInvalidError("iconUrl must use https");
-  return url.toString();
-}
-
-function normalizeLabels(value: unknown): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > MAX_LABELS) {
-    throw new BotInvalidError(`metadata.labels must contain at most ${MAX_LABELS} strings`);
-  }
-  const labels = value.map((entry) => compactOptional(entry, "metadata label", MAX_LABEL));
-  if (labels.some((entry) => entry === undefined)) {
-    throw new BotInvalidError("metadata labels cannot be empty");
-  }
-  return [...new Set(labels as string[])];
-}
-
-function normalizeCustom(value: unknown): Record<string, string> {
-  if (value === undefined) return {};
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BotInvalidError("metadata.custom must be an object of string values");
-  }
-  const entries = Object.entries(value);
-  if (entries.length > MAX_CUSTOM_ENTRIES) {
-    throw new BotInvalidError(`metadata.custom must contain at most ${MAX_CUSTOM_ENTRIES} entries`);
-  }
-  const normalized: Record<string, string> = {};
-  for (const [key, raw] of entries) {
-    const normalizedKey = compactOptional(key, "metadata key", MAX_CUSTOM_KEY);
-    const normalizedValue = compactOptional(raw, `metadata.${key}`, MAX_CUSTOM_VALUE);
-    if (!normalizedKey || !normalizedValue) {
-      throw new BotInvalidError("metadata custom keys and values cannot be empty");
-    }
-    normalized[normalizedKey] = normalizedValue;
-  }
-  return normalized;
-}
-
-function normalizeGrants(value: unknown): BotGrant[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.some((grant) => grant !== "add_bot")) {
-    throw new BotInvalidError('grants may contain only "add_bot"');
-  }
-  return value.includes("add_bot") ? ["add_bot"] : [];
-}
-
-function normalizeSessionRef(value: unknown): BotSessionRef {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BotInvalidError("sessionRefs must contain source-qualified session references");
-  }
-  const ref = value as Partial<BotSessionRef>;
-  if (
-    (ref.source !== "claude" && ref.source !== "codex" && ref.source !== "pi")
-    || typeof ref.sessionId !== "string"
-    || !/^[A-Za-z0-9._:-]{1,128}$/.test(ref.sessionId)
-  ) {
-    throw new BotInvalidError("sessionRefs must name an existing source and sessionId");
-  }
-  return { source: ref.source, sessionId: ref.sessionId };
-}
-
-/**
- * The launch options, with the Bot's own name standing in for a title nobody gave.
- *
- * The title is validated by the same rule a rename obeys, because it is the same field: `-n`
- * writes it to the session registry, and a line break in it would split the argument rather than
- * the name. A Bot name is already bounded well inside that, so the default never refuses.
- */
-function normalizeLaunch(value: unknown, botName: string): NormalizedLaunch | undefined {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BotInvalidError("launch must be an object");
-  }
-  const command = value as BotLaunchCommand;
-  const title = compactOptional(command.title, "launch.title", MAX_NAME) ?? botName;
-  const refusal = sessionTitleRefusal(title);
-  if (refusal) throw new BotInvalidError(`launch.title: ${refusal}`);
-  if (command.from !== undefined && normalizeSessionRef(command.from).source !== "claude") {
-    // `--fork-session` is a Claude CLI flag. Codex has `resume` and no fork, so a Codex source
-    // would be silently resumed into the original transcript rather than branched from it.
-    throw new BotInvalidError("launch.from must name a claude session");
-  }
-  return {
-    title,
-    // Only trimmed, never reshaped: the prompt is the session's first turn and its line breaks
-    // are the reader's.
-    prompt: compactOptional(command.prompt, "launch.prompt", MAX_LAUNCH_PROMPT),
-    ...(command.from === undefined ? {} : { from: normalizeSessionRef(command.from) }),
-    ...(command.worktree === undefined ? {} : { worktree: normalizeWorktree(command.worktree) }),
-  };
-}
-
-/**
- * The worktree request, if there is one.
- *
- * The branch is optional and the sidecar derives it from the title, so `{}` is the ordinary thing
- * to send: a reader ticking a box has an opinion about isolation and none about branch names.
- */
-function normalizeWorktree(value: unknown): { branch?: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BotInvalidError("launch.worktree must be an object");
-  }
-  const branch = compactOptional((value as { branch?: unknown }).branch, "launch.worktree.branch", MAX_NAME);
-  return branch === undefined ? {} : { branch };
-}
-
-function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
-  const { name, normalizedName } = normalizeName(command.name);
-  const directoryPath = compactOptional(command.directoryPath, "directoryPath", MAX_DIRECTORY_PATH);
-  if (!directoryPath?.startsWith("/")) {
-    throw new BotInvalidError("directoryPath must be an absolute existing AgentDesk project path");
-  }
-  return {
-    requestId: normalizeRequestId(command.requestId),
-    name,
-    normalizedName,
-    iconUrl: normalizeIconUrl(command.iconUrl),
-    directoryPath,
-    metadata: {
-      role: compactOptional(command.metadata?.role, "metadata.role", MAX_ROLE),
-      description: compactOptional(command.metadata?.description, "metadata.description", MAX_DESCRIPTION),
-      labels: normalizeLabels(command.metadata?.labels),
-      custom: normalizeCustom(command.metadata?.custom),
-    },
-    grants: normalizeGrants(command.grants),
-    launch: normalizeLaunch(command.launch, name),
-  };
-}
-
-/**
- * A launch on an existing Bot, whose title cannot default to the Bot's name.
- *
- * At creation the Bot's name is the obvious title for its only session. On a Bot that already has
- * sessions it is the opposite: every session would be called the same thing, and `-n` makes that
- * name the address other agents send to. So a title is required here and defaulted there.
- */
-function normalizeLaunchFor(botId: string, value: unknown): NormalizedLaunch | undefined {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BotInvalidError("launch must be an object");
-  }
-  if (compactOptional((value as BotLaunchCommand).title, "launch.title", MAX_NAME) === undefined) {
-    throw new BotInvalidError("launch.title is required when adding a session to an existing Bot");
-  }
-  return normalizeLaunch(value, botId);
-}
-
-function normalizeSessionRefCommand(
-  command: { requestId: string; sessionRefs?: BotSessionRef[] },
-  { optional = false }: { optional?: boolean } = {},
-): NormalizedSessionRefCommand {
-  if (optional && command.sessionRefs === undefined) {
-    return { requestId: normalizeRequestId(command.requestId), sessionRefs: [] };
-  }
-  if (!Array.isArray(command.sessionRefs) || command.sessionRefs.length === 0) {
-    throw new BotInvalidError("sessionRefs must contain at least one session");
-  }
-  if (command.sessionRefs.length > MAX_SESSION_REFS_PER_COMMAND) {
-    throw new BotInvalidError(`sessionRefs may contain at most ${MAX_SESSION_REFS_PER_COMMAND} sessions`);
-  }
-  const sessionRefs = command.sessionRefs.map(normalizeSessionRef);
-  if (new Set(sessionRefs.map(sessionKey)).size !== sessionRefs.length) {
-    throw new BotInvalidError("sessionRefs cannot contain duplicates");
-  }
-  return { requestId: normalizeRequestId(command.requestId), sessionRefs };
-}
-
-function sessionKey(ref: BotSessionRef): string {
-  return `${ref.source}:${ref.sessionId}`;
-}
-
-function actorKey(actor: BotActor): string {
-  return actor.kind === "user" ? "user" : `agent:${sessionKey(actor.session)}`;
-}
-
-function commandSignature(value: unknown): string {
-  return JSON.stringify(value);
-}
-
-function appendIdempotency(
-  snapshot: StoredBotSnapshot,
-  key: string,
-  signature: string,
-  botId: string,
-): StoredBotSnapshot["idempotency"] {
-  const idempotency = { ...snapshot.idempotency, [key]: { signature, botId } };
-  while (Object.keys(idempotency).length > MAX_IDEMPOTENCY_ENTRIES) {
-    const oldest = Object.keys(idempotency)[0];
-    if (!oldest) break;
-    delete idempotency[oldest];
-  }
-  return idempotency;
-}
-
-function priorBot(
-  snapshot: StoredBotSnapshot,
-  idempotencyKey: string,
-  signature: string,
-): BotRecord | undefined {
-  const prior = snapshot.idempotency[idempotencyKey];
-  if (!prior) return undefined;
-  if (prior.signature !== signature) {
-    throw new BotConflictError("requestId was reused with different Bot data");
-  }
-  const existing = snapshot.bots.find((bot) => bot.botId === prior.botId);
-  if (!existing) throw new Error(`bots.json idempotency record references missing Bot ${prior.botId}`);
-  return existing;
-}
+// Re-exported because callers reach for the registry's vocabulary through the registry.
+// The declarations live in `botTypes.ts`.
+export {
+  BotConflictError,
+  BotForbiddenError,
+  BotInvalidError,
+  BotLaunchError,
+  BotNotFoundError,
+  type BotActor,
+  type BotRegistryCatalog,
+  type BotSessionLauncher,
+  type ResolvedBotSession,
+};
 
 async function directoryAvailability(path: string): Promise<"available" | "missing"> {
   try {
@@ -373,6 +60,9 @@ async function directoryAvailability(path: string): Promise<"available" | "missi
 }
 
 export class BotRegistry {
+  /** Bringing a session into existence, which is its own act. See `botSessionLaunch.ts`. */
+  private readonly starter: BotSessionStarter;
+
   constructor(
     private readonly store: BotStore,
     private readonly catalog: BotRegistryCatalog,
@@ -390,7 +80,9 @@ export class BotRegistry {
      * generator would let a test's readable stand-in reach a place that needs the real shape.
      */
     private readonly newSessionId: () => string = () => crypto.randomUUID(),
-  ) {}
+  ) {
+    this.starter = new BotSessionStarter(store, catalog, launcher, newSessionId);
+  }
 
   async snapshot(): Promise<BotSnapshot> {
     return this.view(await this.store.snapshot());
@@ -478,135 +170,13 @@ export class BotRegistry {
     // Everything after this point has already written a Bot, so every failure here is a
     // `BotLaunchError`: the caller cannot simply retry a different command, and the message has to
     // say what survived.
-    const started = await this.launchOrExplain(created.bot, normalized.launch);
+    const started = await this.starter.launchOrExplain(created.bot, normalized.launch);
     return {
       bot: await this.viewRecord(
-        await this.recordStartedSession(created.bot.botId, { source: "claude", sessionId: started.sessionId }),
+        await this.starter.recordStartedSession(created.bot.botId, { source: "claude", sessionId: started.sessionId }),
       ),
       started,
     };
-  }
-
-  /**
-   * Starts a session for a Bot that already exists, saying what survived when it cannot.
-   *
-   * Split out because the two callers differ only in what they have already spent. Creating a Bot
-   * has spent a name and a directory by the time it gets here; adding a session to one has spent
-   * nothing, and its own failures are ordinary refusals raised before anything is written.
-   */
-  private async launchOrExplain(
-    bot: BotRecord,
-    launch: NormalizedLaunch,
-  ): Promise<StartedBotSession> {
-    try {
-      return await this.launchSession(bot, launch);
-    } catch (error) {
-      if (error instanceof BotLaunchError) throw error;
-      throw new BotLaunchError(
-        `Bot "${bot.name}" was created, but its session could not be started. `
-          + "Resend this request once the cause is fixed, or attach a session to "
-          + `${bot.botId} by hand.`,
-        { cause: error },
-      );
-    }
-  }
-
-  /**
-   * The one path that brings a session into existence, whichever endpoint asked for it.
-   *
-   * Creating a Bot with its first session and adding a session to an existing Bot are the same
-   * act -- start something in this directory -- and they used to be three different mechanisms:
-   * this one, a terminal context that created a session as a side effect of attaching a viewer,
-   * and a hand-rolled `tmux new-session` for anyone who had neither. All of them made the same
-   * four decisions, and only one of them made all four correctly.
-   *
-   * The four are: which directory it runs in, whether it starts empty or from another session's
-   * context, what its first turn is, and which pane it lands in. They are made here, once.
-   */
-  private async launchSession(
-    bot: BotRecord,
-    launch: NormalizedLaunch,
-  ): Promise<StartedBotSession> {
-    const checkout = bot.environment.path;
-    // A fork runs where its source runs unless it asked for a tree of its own, so a fork of a
-    // session already in a worktree stays in that worktree rather than being pulled back into the
-    // checkout it branched away from.
-    const source = launch.from ? this.resolveOwnSession(bot, launch.from) : undefined;
-    const cwd = launch.worktree
-      ? (await this.prepare(checkout, launch)).path
-      : source?.projectPath ?? checkout;
-
-    const sessionId = this.newSessionId();
-    const started = launch.from
-      ? await this.launcher.fork({
-        cwd,
-        sessionId: launch.from.sessionId,
-        forkId: sessionId,
-        title: launch.title,
-        brief: launch.prompt,
-      })
-      : await this.launcher.start({ cwd, sessionId, title: launch.title, prompt: launch.prompt });
-    return { sessionId, title: launch.title, projectPath: cwd, tmuxSession: started.tmuxSession };
-  }
-
-  /** The worktree a launch asked for, refused in this Bot's own words when git will not make it. */
-  private async prepare(checkout: string, launch: NormalizedLaunch): Promise<{ path: string }> {
-    const branch = launch.worktree?.branch ?? branchFromTitle(launch.title);
-    try {
-      return await prepareWorktree({ checkout, branch });
-    } catch (error) {
-      if (error instanceof WorktreeError) throw new BotConflictError(error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * The session a fork branches from, which must be one of this Bot's own.
-   *
-   * A Bot is what says which sessions belong to a directory, so "fork that one" is only meaningful
-   * about a session it holds. Resolving it here also gives the fork its source's directory, which
-   * is not always the Bot's: a session in a worktree forks inside that worktree.
-   */
-  private resolveOwnSession(bot: BotRecord, ref: BotSessionRef): ResolvedBotSession {
-    if (!bot.sessionRefs.some((held) => sessionKey(held) === sessionKey(ref))) {
-      throw new BotNotFoundError(`session ${sessionKey(ref)} is not attached to this Bot`);
-    }
-    const resolved = this.catalog.resolveSession(ref);
-    if (!resolved) {
-      throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
-    }
-    return resolved;
-  }
-
-  /**
-   * Attaches a session this registry just started.
-   *
-   * Deliberately not `attachSessions`, which resolves every reference against the catalog and
-   * refuses one it cannot find. That check is right for a reference a caller supplies -- it is the
-   * only thing stopping a Bot claiming another directory's session -- and wrong here, because the
-   * session was started seconds ago in the Bot's own directory and has not written a transcript
-   * yet, so there is nothing for the catalog to have seen. The id is known-good by construction:
-   * this method's caller generated it and passed it to `--session-id`.
-   *
-   * Until the first turn lands the reference sits in `missingSessionRefs`, which is the honest
-   * reading of it, and moves to `sessions` on its own when the catalog picks the file up.
-   */
-  private async recordStartedSession(botId: string, ref: BotSessionRef): Promise<BotRecord> {
-    return this.store.mutate((snapshot) => {
-      const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
-      if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
-      const bot = snapshot.bots[index]!;
-      if (bot.sessionRefs.some((existing) => sessionKey(existing) === sessionKey(ref))) {
-        return { snapshot, value: bot };
-      }
-      const updated: BotRecord = { ...bot, sessionRefs: [...bot.sessionRefs, ref] };
-      const bots = [...snapshot.bots];
-      bots[index] = updated;
-      return {
-        snapshot: { ...snapshot, revision: snapshot.revision + 1, bots },
-        value: updated,
-      };
-    });
   }
 
   /**
@@ -708,10 +278,10 @@ export class BotRegistry {
     // Nothing durable has been spent on the launch itself yet, so its refusals stay ordinary
     // refusals -- a branch that exists, a source that is not this Bot's -- and the caller can fix
     // the command and send a different one.
-    const started = await this.launchSession(record.bot, launch);
+    const started = await this.starter.launchSession(record.bot, launch);
     return {
       bot: await this.viewRecord(
-        await this.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }),
+        await this.starter.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }),
       ),
       started,
     };

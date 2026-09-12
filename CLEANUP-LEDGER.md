@@ -39,7 +39,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R5 | D | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
 | R6 | D | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
 | R7 | D | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
-| R8 | R | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
+| R8 | D | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
 | R9 | R | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
 | R10 | R | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
 | R11 | R | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
@@ -183,6 +183,19 @@ Split into `botRegistryHarness.ts`, `botRegistryLaunch.test.ts` and
 `botRegistrySessions.test.ts`. The harness is a function, not module state, so each file gets its
 own catalog and its own `afterEach` -- the isolation one file had by being one file. The git
 worktree helpers moved to the file whose tests use them. 898 sidecar tests, unchanged.
+
+### R8 `bots/botRegistry.ts` (861)
+
+- The vocabulary: who is asking, what the catalog answers, what can go wrong, what a launcher is.
+- Turning a request off the wire into something actionable: every length limit and every field's
+  normal form, all of it before anything is written.
+- Answering a resent request with the Bot the first one made.
+- Bringing a session into existence for a Bot, and recording it once it exists.
+- The registry: what a command is allowed to do, and the snapshot a reader sees.
+
+Split into `botTypes.ts`, `botCommands.ts`, `botIdempotency.ts`, `botSessionLaunch.ts`. 861 to
+431. `BotSessionStarter` holds the registry's own store and catalog, handed over at construction,
+so both halves write through one store.
 
 ## Decisions
 

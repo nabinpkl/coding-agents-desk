@@ -1,0 +1,61 @@
+// What a Bot registry talks about: who is asking, what the catalog can answer, what
+// can go wrong, and what starting a session looks like from here.
+//
+// Separate from the registry so its command normalizer, its idempotency records and its
+// session launcher can all name these without importing the class that uses them.
+
+import type { BotSessionRef, SessionSummary } from "@agentdesk/agent-feed-wire";
+
+export type BotActor =
+  | { kind: "user" }
+  | { kind: "agent"; session: BotSessionRef };
+
+export interface ResolvedBotSession {
+  projectPath: string;
+  summary: SessionSummary;
+}
+
+export interface BotRegistryCatalog {
+  resolveProject(path: string): { projectPath: string } | undefined;
+  resolveSession(ref: BotSessionRef): ResolvedBotSession | undefined;
+  subscribe(listener: () => void): () => void;
+}
+
+export class BotInvalidError extends Error {}
+export class BotNotFoundError extends Error {}
+export class BotConflictError extends Error {}
+export class BotForbiddenError extends Error {}
+/**
+ * The Bot exists; its session does not.
+ *
+ * Its own class because it is the one failure here that leaves something behind. Every other
+ * refusal happens before the record is written, so the caller can retry the identical command;
+ * this one has already spent a name and a directory, and a retry would collide with the Bot it
+ * just made. The message therefore names what to do with it rather than only what went wrong.
+ */
+export class BotLaunchError extends Error {}
+
+/**
+ * What actually starts a Bot's session, injected so the tests never spawn one.
+ *
+ * A seam rather than a direct call because the alternative is a test suite that either runs tmux
+ * or does not exercise this path at all, and the second is how the ordering below stops being
+ * checked.
+ */
+export interface BotSessionLauncher {
+  /** A session with no history, in `cwd`. */
+  start(options: {
+    cwd: string;
+    sessionId: string;
+    title: string;
+    prompt?: string;
+  }): Promise<{ tmuxSession: string }>;
+  /** A session that starts where `sessionId` is, running in `cwd` under `forkId`. */
+  fork(options: {
+    cwd: string;
+    sessionId: string;
+    forkId: string;
+    title: string;
+    brief?: string;
+  }): Promise<{ tmuxSession: string }>;
+}
