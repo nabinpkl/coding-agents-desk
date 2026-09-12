@@ -33,13 +33,14 @@ export function ForkSessionDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
-  /** Set when the dialog opens, cleared once the seeded text has actually been selected. */
-  const pendingSelect = useRef(false);
+  /** The text this opening wants selected, until it has been. Null once it is, or when closed. */
+  const wantsSelected = useRef<string | null>(null);
 
   useEffect(() => {
     if (!request) return;
-    setTitle(nextForkTitle(request.session.title || request.session.sessionId, takenTitles));
-    pendingSelect.current = true;
+    const seed = nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
+    setTitle(seed);
+    wantsSelected.current = seed;
     // Deliberately keyed on the request alone: `takenTitles` is rebuilt on every inventory push,
     // and depending on it would retype the reader's field underneath them while they are in it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,16 +56,23 @@ export function ForkSessionDialog({
   /**
    * Selects the proposal so typing replaces it, once the field is actually showing it.
    *
-   * Keyed on the title rather than done beside `showModal`, because React writes the new value onto
-   * the input as a property and that clears any selection made before it lands. Measured: selecting
-   * in a frame callback after `showModal` left the caret at one end and nothing highlighted, so the
-   * reader had to clear the field by hand -- which is most of what this dialog exists to avoid.
+   * Not done beside `showModal`: React writes the new value onto the input as a property, and that
+   * clears any selection made before it lands. Measured -- selecting in a frame callback after
+   * `showModal` left the caret at one end and nothing highlighted, so the reader had to clear the
+   * field by hand, which is most of what this dialog exists to avoid.
+   *
+   * It waits for the field to hold the exact text this opening seeded, rather than for any value,
+   * because both of the other spellings are wrong in one direction. Firing on the title alone
+   * misses a REOPEN with the same proposal, where `setTitle` writes the value it already has and
+   * React skips the render -- measured, and the second open selected nothing. Firing on the request
+   * alone runs while the previous proposal is still in the field, and selects that.
    */
   useEffect(() => {
-    if (!pendingSelect.current || !title) return;
-    pendingSelect.current = false;
-    field.current?.select();
-  }, [title]);
+    if (wantsSelected.current === null) return;
+    if (!field.current || field.current.value !== wantsSelected.current) return;
+    wantsSelected.current = null;
+    field.current.select();
+  }, [request, title]);
 
   if (!request) return null;
 

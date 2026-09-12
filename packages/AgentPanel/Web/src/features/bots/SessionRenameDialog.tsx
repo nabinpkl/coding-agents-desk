@@ -24,14 +24,18 @@ export function SessionRenameDialog({
   const [title, setTitle] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The text this opening wants selected, until it has been. Null once it is, or when closed. */
+  const wantsSelected = useRef<string | null>(null);
 
   // Seeded from the session rather than left empty: a rename is usually an edit of the name that
   // is there, and starting blank makes the reader retype what they can already see.
   useEffect(() => {
     if (!session) return;
-    setTitle(session.title || session.sessionId);
+    const seed = session.title || session.sessionId;
+    setTitle(seed);
     setPending(false);
     setError(null);
+    wantsSelected.current = seed;
   }, [session]);
 
   useEffect(() => {
@@ -39,8 +43,29 @@ export function SessionRenameDialog({
     if (!dialog || !session || dialog.open) return;
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
-    globalThis.requestAnimationFrame?.(() => field.current?.select());
   }, [session]);
+
+  /**
+   * Selects the seeded name so typing replaces it, once the field is actually showing it.
+   *
+   * Not done beside `showModal`: React writes the new value onto the input as a property, and that
+   * clears any selection made before it lands. Measured on the live panel -- selecting in a frame
+   * callback after `showModal` left a 17-character name focused with nothing highlighted, so an
+   * edit began by clearing the field by hand.
+   *
+   * It waits for the field to hold the exact text this opening seeded, rather than for any value,
+   * because both of the other spellings are wrong in one direction. Firing on the title alone
+   * misses a REOPEN of the same session, where `setTitle` writes the value it already has and
+   * React skips the render -- measured, and the second open selected nothing. Firing on the
+   * session alone runs while the previous session's title is still in the field, and selects that.
+   * `ForkSessionDialog` carries the same effect for the same reasons.
+   */
+  useEffect(() => {
+    if (wantsSelected.current === null) return;
+    if (!field.current || field.current.value !== wantsSelected.current) return;
+    wantsSelected.current = null;
+    field.current.select();
+  }, [session, title]);
 
   if (!session) return null;
 
