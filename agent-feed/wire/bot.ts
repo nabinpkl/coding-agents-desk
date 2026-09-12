@@ -2,7 +2,7 @@
 // provider sessions from that directory can then be attached to its projection.
 
 import type { SourceId } from "./activity.ts";
-import type { SessionSummary } from "./session.ts";
+import type { SessionSummary, StartedSession } from "./session.ts";
 
 export type BotGrant = "add_bot";
 
@@ -108,16 +108,6 @@ export interface BotLaunchCommand {
   worktree?: { branch?: string };
 }
 
-/** A session this call brought into existence, and where to watch it. */
-export interface StartedBotSession {
-  sessionId: string;
-  title: string;
-  /** Where it is running: the Bot's directory, or the worktree that was made for it. */
-  projectPath: string;
-  /** The tmux session it runs in, which `TmuxTerminalContext` attaches to. */
-  tmuxSession: string;
-}
-
 export interface AddBotCommand {
   requestId: string;
   name: string;
@@ -155,7 +145,7 @@ export interface AddBotSessionsCommand {
 export interface BotSessionsAdded {
   bot: BotView;
   /** Present when this call started something. The caller has nowhere else to read it from yet. */
-  started?: StartedBotSession;
+  started?: StartedSession;
 }
 
 /**

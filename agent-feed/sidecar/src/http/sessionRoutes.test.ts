@@ -24,11 +24,30 @@ mock.module("../input/tmuxComposer.ts", () => ({
   },
 }));
 
+/**
+ * The fork asks the launch path to start a session, so what a test can observe is the argv-shaped
+ * question it asked -- the pane itself is tmux's answer and is not made here.
+ */
+const forked: { cwd: string; sessionId: string; forkId: string; title: string; brief?: string }[] = [];
+let forkFailure: Error | null = null;
+mock.module("../terminal/claudeSessionLaunch.ts", () => ({
+  startClaudeSession: async () => {
+    throw new Error("a fork must never start a session with no history");
+  },
+  startForkedClaudeSession: async (options: (typeof forked)[number]) => {
+    forked.push(options);
+    if (forkFailure) throw forkFailure;
+    return { sessionId: options.forkId, title: options.title, tmuxSession: `fork-pane-${options.forkId}` };
+  },
+}));
+
 afterEach(async () => {
   state.sessions.clear();
   state.watcherState = "idle";
   renamed.length = 0;
   outcome = { renamed: true };
+  forked.length = 0;
+  forkFailure = null;
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -121,6 +140,97 @@ test("declines a Codex rename rather than answering for a name it cannot change"
   state.watcherState = "live";
   const request = new Request(
     `http://localhost/api/sessions/codex/${SESSION_ID}/title`,
+    { method: "POST", body: JSON.stringify({ title: "Anything" }) },
+  );
+  expect(route(request, new URL(request.url), server)).toBeUndefined();
+});
+
+function fork(sessionId: string, body: unknown): Promise<Response> {
+  const request = new Request(`http://localhost/api/sessions/claude/${sessionId}/fork`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return Promise.resolve(route(request, new URL(request.url), server) as Promise<Response>);
+}
+
+test("forking answers with the session it started and the pane to watch it in", async () => {
+  // 201, because the response names something that did not exist before the request.
+  state.watcherState = "live";
+  await sessionTranscript();
+
+  const response = await fork(SESSION_ID, { title: "A sibling", prompt: "the other half" });
+
+  expect(response.status).toBe(201);
+  const started = await response.json() as { sessionId: string; title: string; tmuxSession: string };
+  expect(started.title).toBe("A sibling");
+  expect(started.tmuxSession).toBe(`fork-pane-${started.sessionId}`);
+  expect(started.sessionId).not.toBe(SESSION_ID);
+  expect(forked).toEqual([{
+    cwd: expect.any(String),
+    sessionId: SESSION_ID,
+    forkId: started.sessionId,
+    title: "A sibling",
+    brief: "the other half",
+  }]);
+});
+
+test("a fork is named by the session in the path, not by anything in the body", async () => {
+  // The whole point of moving this off the Bot endpoint: the source is the thing being addressed.
+  state.watcherState = "live";
+  await sessionTranscript();
+
+  await fork(SESSION_ID, { title: "Mine", sessionId: "44444444-4444-4444-8444-444444444444" });
+
+  expect(forked[0]?.sessionId).toBe(SESSION_ID);
+});
+
+test("refuses a title that cannot be one argument of one command", async () => {
+  state.watcherState = "live";
+  await sessionTranscript();
+
+  expect((await fork(SESSION_ID, { title: "   " })).status).toBe(400);
+  expect((await fork(SESSION_ID, { title: "one\ntwo" })).status).toBe(400);
+  expect((await fork(SESSION_ID, { title: 7 })).status).toBe(400);
+  expect((await fork(SESSION_ID, {})).status).toBe(400);
+  // Refused before anything was started.
+  expect(forked).toEqual([]);
+});
+
+test("answers 404 for a session the catalog does not hold", async () => {
+  state.watcherState = "live";
+  const response = await fork("44444444-4444-4444-8444-444444444444", { title: "Nowhere" });
+  expect(response.status).toBe(404);
+  expect(forked).toEqual([]);
+});
+
+test("answers 502 when the CLI could not be started, naming what failed", async () => {
+  // Not a 500: the request was valid and what failed is the thing this sidecar delegates to.
+  state.watcherState = "live";
+  await sessionTranscript();
+  forkFailure = new Error("tmux said no");
+
+  const response = await fork(SESSION_ID, { title: "Doomed" });
+
+  expect(response.status).toBe(502);
+  expect(await errorMessage(response)).toMatch(/tmux said no/);
+});
+
+test("waits for the catalog rather than reporting a session it has not read yet", async () => {
+  // 503 and not 404: the fork resolves its source through the catalog, so a catalog that is still
+  // starting would otherwise say "no such session" about one that is plainly there.
+  state.watcherState = "idle";
+  await sessionTranscript();
+
+  const response = await fork(SESSION_ID, { title: "Too early" });
+
+  expect(response.status).toBe(503);
+  expect(forked).toEqual([]);
+});
+
+test("declines a Codex fork rather than resuming the transcript it cannot branch", async () => {
+  state.watcherState = "live";
+  const request = new Request(
+    `http://localhost/api/sessions/codex/${SESSION_ID}/fork`,
     { method: "POST", body: JSON.stringify({ title: "Anything" }) },
   );
   expect(route(request, new URL(request.url), server)).toBeUndefined();

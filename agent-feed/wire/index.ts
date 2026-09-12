@@ -39,7 +39,6 @@ export type {
   BotGrant,
   BotLaunchCommand,
   BotSessionsAdded,
-  StartedBotSession,
   BotMetadata,
   BotRecord,
   BotSessionRef,
@@ -98,8 +97,10 @@ export type {
   AgentRunState,
   AgentSessionCapabilities,
   Bin,
+  ForkSessionCommand,
   ProjectSummary,
   SessionSummary,
+  StartedSession,
 } from "./session.ts";
 
 export type {

@@ -26,13 +26,19 @@ import type {
   EventMode,
   TranscriptSourceId,
 } from "../transcripts/sources/transcriptTypes.ts";
-import type { EventsPage, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
+import type { EventsPage, ForkSessionCommand, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import {
   renameClaudeSession,
   SessionRenameInvalidError,
   SessionRenameNotFoundError,
   SessionRenameUnavailableError,
 } from "../transcripts/renameSession.ts";
+import {
+  forkClaudeSession,
+  SessionForkInvalidError,
+  SessionForkNotFoundError,
+} from "../transcripts/forkSession.ts";
+import { WorktreeError } from "../git/worktree.ts";
 import { errorResponse, jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
@@ -42,6 +48,9 @@ const RAW_EVENT_ROUTE =
 // Claude only, in the pattern rather than in a branch: Codex titles live in a database this does
 // not write, so a Codex path here would be a 404 dressed as a route that exists.
 const TITLE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/title$/i;
+// Claude only for a second reason on top of the title's: `--fork-session` is a Claude CLI flag,
+// and Codex would silently resume the original transcript instead of branching from it.
+const FORK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/fork$/i;
 
 function sourceId(value: string): TranscriptSourceId {
   return value.toLowerCase() as TranscriptSourceId;
@@ -283,7 +292,11 @@ export function subscribeTranscriptTimeline(
 }
 
 /**
- * Renames one session, which means giving its transcript a new `custom-title` record.
+ * Renames one session, by asking the running session to rename itself.
+ *
+ * Deliberately NOT a `custom-title` record appended from outside: that moves the title and leaves
+ * the address behind, and it puts a second writer on a file the CLI owns. `renameSession.ts` has
+ * the whole argument.
  *
  * A POST rather than a PUT because the host relay admits GET and POST only, the same reason the
  * Bot detach endpoint is a POST.
@@ -317,19 +330,65 @@ async function renameSession(sessionId: string, request: Request): Promise<Respo
   }
 }
 
+/**
+ * Forks one session into a new one, in its own pane.
+ *
+ * The source is the session in the PATH, which is the whole point of moving this off the Bot
+ * endpoint: forking is something you do to a session, and a reader deciding to branch is looking
+ * at a transcript rather than at a roster.
+ */
+async function forkSession(sessionId: string, request: Request): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse("invalid-request", "request body must be JSON", 400);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return errorResponse("invalid-request", "request body must be an object", 400);
+  }
+  try {
+    return jsonResponse(await forkClaudeSession(sessionId, body as ForkSessionCommand), 201);
+  } catch (error) {
+    if (error instanceof SessionForkInvalidError) {
+      return errorResponse("invalid-fork", error.message, 400);
+    }
+    if (error instanceof SessionForkNotFoundError) {
+      return errorResponse("session-not-found", error.message, 404);
+    }
+    // 409, not 400: nothing about the request was wrong. The branch is taken, or the directory is
+    // already somebody else's worktree, and the same request works once that is resolved.
+    if (error instanceof WorktreeError) {
+      return errorResponse("fork-conflict", error.message, 409);
+    }
+    // 502 rather than 500, for the reason the Bot launch route gives: the request was valid and
+    // what failed is the thing this sidecar delegates to -- tmux, or the CLI it starts.
+    console.error("Session fork failed", error);
+    return errorResponse(
+      "fork-failed",
+      error instanceof Error ? error.message : String(error),
+      502,
+    );
+  }
+}
+
 export function createSessionRoutes(
   resolveAgentSession?: AgentSessionDescriptorResolver,
 ): RouteHandler {
   return (request, url) => {
     if (request.method === "POST") {
       const titleMatch = TITLE_ROUTE.exec(url.pathname);
-      if (!titleMatch) return undefined;
+      const forkMatch = FORK_ROUTE.exec(url.pathname);
+      if (!titleMatch && !forkMatch) return undefined;
       if (getWatcherState() !== "live") {
-        // The panel's own envelope, unlike the GET paths below: this one is read by the rename
-        // dialog, which shows `error.message` and would otherwise say only "sidecar answered 503".
+        // The panel's own envelope, unlike the GET paths below: these are read by dialogs that
+        // show `error.message` and would otherwise say only "sidecar answered 503". The fork needs
+        // it for a second reason -- it resolves its source through the catalog, so a catalog that
+        // is still starting would answer "no such session" about one that is plainly there.
         return errorResponse("inventory-not-ready", "the session catalog is still starting", 503);
       }
-      return renameSession(titleMatch[1]!.toLowerCase(), request);
+      if (titleMatch) return renameSession(titleMatch[1]!.toLowerCase(), request);
+      return forkSession(forkMatch![1]!.toLowerCase(), request);
     }
     if (request.method !== "GET") return undefined;
     if (getWatcherState() !== "live") {

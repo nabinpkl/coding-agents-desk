@@ -11,16 +11,19 @@ import type {
   BotSessionsAdded,
   BotSnapshot,
   BotView,
-  StartedBotSession,
+  StartedSession,
   DetachBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
-import { startClaudeSession, startForkedClaudeSession } from "../terminal/claudeSessionLaunch.ts";
 import {
-  branchFromTitle,
+  launchSession,
+  LIVE_SESSION_LAUNCHER,
+  MAX_LAUNCH_PROMPT,
+  type SessionLauncher,
+} from "../transcripts/forkSession.ts";
+import {
   directoryBelongsTo,
-  prepareWorktree,
   worktreeOf,
   WorktreeError,
 } from "../git/worktree.ts";
@@ -61,24 +64,11 @@ export class BotLaunchError extends Error {}
  * A seam rather than a direct call because the alternative is a test suite that either runs tmux
  * or does not exercise this path at all, and the second is how the ordering below stops being
  * checked.
+ *
+ * The shape itself lives with the launch path rather than here: a Bot is one of its two callers
+ * now, and neither owns it. Aliased so this file's own callers and tests keep one import.
  */
-export interface BotSessionLauncher {
-  /** A session with no history, in `cwd`. */
-  start(options: {
-    cwd: string;
-    sessionId: string;
-    title: string;
-    prompt?: string;
-  }): Promise<{ tmuxSession: string }>;
-  /** A session that starts where `sessionId` is, running in `cwd` under `forkId`. */
-  fork(options: {
-    cwd: string;
-    sessionId: string;
-    forkId: string;
-    title: string;
-    brief?: string;
-  }): Promise<{ tmuxSession: string }>;
-}
+export type BotSessionLauncher = SessionLauncher;
 
 const MAX_NAME = 64;
 const MAX_DIRECTORY_PATH = 4_096;
@@ -90,15 +80,6 @@ const MAX_CUSTOM_ENTRIES = 16;
 const MAX_CUSTOM_KEY = 64;
 const MAX_CUSTOM_VALUE = 256;
 const MAX_ICON_URL = 2_048;
-/**
- * How long a launch prompt may be.
- *
- * It becomes one argv element passed through two shells, where the ceiling is the kernel's
- * argument limit, about a megabyte -- so this is not that constraint. It is the size at which a
- * "first turn" has stopped being one: a grounding brief written by hand runs a few thousand
- * characters, and something ten times that belongs in a file the session reads for itself.
- */
-const MAX_LAUNCH_PROMPT = 32_768;
 const MAX_SESSION_REFS_PER_COMMAND = 64;
 const MAX_IDEMPOTENCY_ENTRIES = 512;
 
@@ -378,10 +359,7 @@ export class BotRegistry {
     private readonly catalog: BotRegistryCatalog,
     private readonly now: () => number = Date.now,
     private readonly newId: () => string = () => crypto.randomUUID(),
-    private readonly launcher: BotSessionLauncher = {
-      start: startClaudeSession,
-      fork: startForkedClaudeSession,
-    },
+    private readonly launcher: BotSessionLauncher = LIVE_SESSION_LAUNCHER,
     /**
      * Separate from `newId`, and it must produce a real UUID.
      *
@@ -497,7 +475,7 @@ export class BotRegistry {
   private async launchOrExplain(
     bot: BotRecord,
     launch: NormalizedLaunch,
-  ): Promise<StartedBotSession> {
+  ): Promise<StartedSession> {
     try {
       return await this.launchSession(bot, launch);
     } catch (error) {
@@ -526,35 +504,28 @@ export class BotRegistry {
   private async launchSession(
     bot: BotRecord,
     launch: NormalizedLaunch,
-  ): Promise<StartedBotSession> {
-    const checkout = bot.environment.path;
-    // A fork runs where its source runs unless it asked for a tree of its own, so a fork of a
-    // session already in a worktree stays in that worktree rather than being pulled back into the
-    // checkout it branched away from.
+  ): Promise<StartedSession> {
+    // The one thing a Bot decides that the shared path cannot: whether the source is one of ITS
+    // sessions. A Bot is what says which sessions belong to a directory, so "fork that one" is
+    // only meaningful about a session it holds -- and resolving it here is also what gives the
+    // fork its source's directory, which is not always the Bot's.
     const source = launch.from ? this.resolveOwnSession(bot, launch.from) : undefined;
-    const cwd = launch.worktree
-      ? (await this.prepare(checkout, launch)).path
-      : source?.projectPath ?? checkout;
-
-    const sessionId = this.newSessionId();
-    const started = launch.from
-      ? await this.launcher.fork({
-        cwd,
-        sessionId: launch.from.sessionId,
-        forkId: sessionId,
-        title: launch.title,
-        brief: launch.prompt,
-      })
-      : await this.launcher.start({ cwd, sessionId, title: launch.title, prompt: launch.prompt });
-    return { sessionId, title: launch.title, projectPath: cwd, tmuxSession: started.tmuxSession };
-  }
-
-  /** The worktree a launch asked for, refused in this Bot's own words when git will not make it. */
-  private async prepare(checkout: string, launch: NormalizedLaunch): Promise<{ path: string }> {
-    const branch = launch.worktree?.branch ?? branchFromTitle(launch.title);
     try {
-      return await prepareWorktree({ checkout, branch });
+      return await launchSession(
+        {
+          checkout: bot.environment.path,
+          ...(source ? { sourcePath: source.projectPath } : {}),
+          ...(launch.from ? { from: launch.from.sessionId } : {}),
+          title: launch.title,
+          ...(launch.prompt === undefined ? {} : { prompt: launch.prompt }),
+          ...(launch.worktree === undefined ? {} : { worktree: launch.worktree }),
+        },
+        this.launcher,
+        this.newSessionId,
+      );
     } catch (error) {
+      // Said in this Bot's vocabulary rather than git's, which is why the shared path lets the
+      // worktree failure out unmapped instead of choosing a wording for both of its callers.
       if (error instanceof WorktreeError) throw new BotConflictError(error.message);
       throw error;
     }
