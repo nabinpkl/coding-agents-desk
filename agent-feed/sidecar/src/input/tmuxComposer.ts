@@ -346,8 +346,20 @@ export function composerPanes(): TmuxComposerPanes {
  * Process-wide rather than per-runtime, because the thing being serialised is the pane, and the
  * two live surfaces (a phone and a Mac, both real, both able to drive one session) reach it
  * through different requests.
+ *
+ * On `globalThis` rather than in this module, and that is not ceremony. The sidecar runs under
+ * `bun --watch`, which re-reads a changed module IN PROCESS and rebinds the port without the
+ * supervisor ever seeing an exit -- so module-level state is discarded while the requests already
+ * running are not. A plain `const` here would hand the reloaded module an empty map, and the turns
+ * still in flight from the previous one would be serialised against nothing: two of them on one
+ * box again, which is the whole defect coming back at exactly the moment somebody is editing this
+ * file. Measured 2026-09-07: both sidecars re-executed at 20:11:27 while a reader was typing, and
+ * that reader got their draft back concatenated.
  */
-const TURNS = new Map<string, Promise<void>>();
+const TURN_STORE = Symbol.for("agentdesk.composerTurns");
+const TURNS: Map<string, Promise<void>> =
+  ((globalThis as Record<symbol, unknown>)[TURN_STORE] ??= new Map<string, Promise<void>>()) as
+    Map<string, Promise<void>>;
 
 /**
  * Runs `work` after whatever is already in flight for this session, and reports its own result.

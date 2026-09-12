@@ -653,3 +653,18 @@ test("a push that landed is not reported as failed because the pane stopped answ
     .toEqual({ text: "alpha", hint: null, reason: null, wrapped: false });
   expect(tmux.sent).toEqual([`${OPEN}alpha${CLOSE}`]);
 });
+
+test("the turn a session is taking outlives a reload of this module", async () => {
+  // `bun --watch` re-reads a changed module in process, so anything held in a module-level `const`
+  // is thrown away while the requests already running keep going. Serialisation kept there would
+  // stop serialising the moment somebody edits this file, which is when it is needed most.
+  const store = Symbol.for("agentdesk.composerTurns");
+  const held = (globalThis as Record<symbol, unknown>)[store];
+  expect(held).toBeInstanceOf(Map);
+
+  // And a fresh evaluation of this module finds the same one rather than starting its own.
+  const reloaded = await import(`./tmuxComposer.ts?reloaded=${Date.now()}`);
+  const tmux = runtime({ screen: async () => screenWith([""]) });
+  await reloaded.syncTmuxComposer("reload-probe", "alpha", tmux);
+  expect((globalThis as Record<symbol, unknown>)[store]).toBe(held);
+});
