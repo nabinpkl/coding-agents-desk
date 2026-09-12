@@ -53,7 +53,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R19 | D | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
 | R20 | D | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
 | R21 | D | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
-| R22 | R | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
+| R22 | D | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
 | R23 | R | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
 | R24 | R | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
 | R25 | R | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
@@ -332,6 +332,19 @@ seventy lines of doc are the contract, and the hook is one implementation of it.
 
 Split into `fixtureData.ts` and `fixtureRoutes.ts`. 568 to 82.
 
+### R22 `desktop-viewer/useDesktopKeyboard.ts` (906)
+
+- What this reader chose, and the two storage keys that outlive one mounted surface.
+- The keyboard's own state: which keyboard types, what the presentation reducer was told, and
+  everything forgotten when it goes away.
+- Putting input on the control channel: a key batch, a string, the draft a paste is edited in.
+- The hidden capture field, and what the browser reports through it.
+- What the Mac answers: whether the tap landed on editable text, and which keys it acknowledged.
+
+Split into `desktopKeyboardPreferences.ts`, `desktopKeyboardContext.ts`,
+`desktopKeyboardSession.ts`, `desktopKeyboardSend.ts`, `desktopKeyboardCapture.ts`,
+`desktopKeyboardControl.ts`. 906 to 292.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -345,6 +358,19 @@ Forks taken, with the alternative not taken and why. At a fork, the option that 
 - **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
   not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
   than pushing to an explicit refspec does.
+
+### Decision: the keyboard's parts take a context object rather than closing over the state
+
+Thirty-six `useCallback`s shared nineteen refs and eleven setters, so no group of them could move
+without carrying the state with it. Every callback became a free function taking one
+`KeyboardContext`, which the hook builds each render and hands over through a ref.
+
+The alternative was leaving it whole, which is what "one concept, merely long" would have argued
+for -- but it is not one concept: arming, sending, capturing and acknowledging are four, and each
+now has an address. The cost is named honestly: every returned callback is now stable (deps `[]`)
+where several used to change identity with `report`, so an effect listing one no longer re-runs
+when `report` changes. Nothing in the panel passes an unstable `report`, and the 24 keyboard tests
+cover the paths that would notice.
 
 ### Decision: the two transcript adapters are split the same way, but not shared
 
