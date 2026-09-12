@@ -619,6 +619,37 @@ The corollary for the other direction: a probe that reports **success** deserves
 when it is the only thing that agrees with you. See also the exit-code rule under Commits, which is
 the same mistake at a different layer.
 
+### `log show` answers nothing here, so os_log is a live channel and not a record
+
+Measured 2026-09-09, twice in one evening, and it is the absent-result rule above with a specific
+face. **`/usr/bin/log show` returns zero lines for EVERY process in this session** -- not just for
+debug levels, not just for one subsystem. `log show --last 1m --style compact` with no predicate at
+all returned nothing on a plainly busy machine, while `log stream` on the same shell printed
+CoreSpotlight traffic immediately. Treat the whole retrospective tool as unavailable.
+
+What that costs, concretely. The host logs every line of the agent-feed sidecar's stdout and stderr
+at `.notice` (`AgentFeedSidecarProcess.consumeOutput`), so a `log show` query for that subsystem
+returning zero reads as "the host does not keep the sidecar's output". It does keep it. It cannot
+be read back from here, which is a different sentence with a different fix, and an hour was spent
+on the wrong one.
+
+- **Test the probe against a case that MUST produce output before believing an absence.** One
+  unpredicated `log show --last 1m` settles it in seconds, and it is the cheapest second look in
+  this file.
+- **`log stream` works, and only forward.** Start it, then make the thing happen. It cannot answer
+  a question about a failure that already happened.
+- **So anything you may need AFTER the fact needs a file.** The sidecar's output is written to
+  `/Users/Shared/agentdesk/logs/<user>-agent-feed-sidecar.log`, beside the WebRTC diagnostics log
+  and named per user for the same reason (`runtime-paths.mjs`), bounded at 16MB, with a line at
+  every spawn so a reader going backwards knows which run they are in.
+  `AGENTDESK_AGENT_FEED_SIDECAR_LOG` overrides the path.
+
+One state that used to need noticing by hand no longer does: a `bun --watch` sidecar that threw
+during a reload stays ALIVE with its port free, so every exit-driven restart path misses it. The
+host now probes the port rather than the process and restarts after a minute of silence. If a
+surface goes blank, `/api/config` answering is still worth checking, but a sidecar sitting dead for
+half an hour is no longer the expected shape of that.
+
 ## A channel that is turned off without being awaited will race its own re-opening
 
 Settled 2026-09-08, on the tmux terminal tiles, and the shape recurs anywhere a resource is
