@@ -853,7 +853,7 @@ function SessionComposer({
       ),
       disabled: !windowComposer.canSubmit || windowComposer.pending,
       className:
-        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+        "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void windowComposer.submitWindow(),
     });
   } else if (tmuxBand) {
@@ -865,7 +865,7 @@ function SessionComposer({
       icon: <Paperclip className="size-4" aria-hidden />,
       disabled: tmuxComposer.pending,
       className:
-        "flex size-9 touch-manipulation items-center justify-center rounded-lg border border-border text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-40",
+        "flex size-11 touch-manipulation items-center justify-center rounded-xl border border-border text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-40",
       onClick: () => filePicker.current?.click(),
     });
     // One action beyond that, like the bands below it and for the same reason: Steer and Stop act
@@ -881,7 +881,7 @@ function SessionComposer({
       ),
       disabled: tmuxComposer.pending || !editorValue.trim(),
       className:
-        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+        "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void tmuxComposer.submit(),
     });
   } else if (inboxBand || agentTerminalBand) {
@@ -898,7 +898,7 @@ function SessionComposer({
       ),
       disabled: unavailable || deliveryPending || !editorValue.trim(),
       className:
-        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+        "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void submitOwnedTransport(),
     });
   } else if (!unavailable) {
@@ -922,7 +922,7 @@ function SessionComposer({
         icon: <Square className="size-3.5 fill-current" aria-hidden />,
         disabled: pending,
         className:
-          "flex size-9 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-40",
+          "flex size-11 items-center justify-center rounded-xl text-destructive hover:bg-destructive/10 disabled:opacity-40",
         onClick: () => void onAbort(),
       });
     }
@@ -937,7 +937,7 @@ function SessionComposer({
       ),
       disabled: pending || !editorValue.trim(),
       className:
-        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+        "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void submit("next"),
     });
   }
@@ -952,14 +952,12 @@ function SessionComposer({
     // reached: a redraw between frames, or a session that exited under the field. Same precedence
     // as the inbox next door -- the reason outranks a request's own error, because "that session
     // is gone" explains the failure where a request that had nowhere to go does not.
+    // Only when something is wrong. The standing lines that used to sit here -- what the field
+    // was for, and that Tab takes the suggestion -- were true of every session all the time, so
+    // they said nothing about THIS one and cost a row under the composer to say it.
     caption = tmuxComposer.reason
       ? tmuxComposerReasonText(tmuxComposer.reason)
-      : tmuxComposer.error
-        // Said out loud because this reader has no terminal footer to learn it from. The offer is
-        // in the placeholder and the key that takes it is not visible anywhere else.
-        ?? (tmuxComposer.hint === null
-          ? "Typing into this session's own terminal."
-          : "Tab takes Claude's suggestion.");
+      : tmuxComposer.error;
     captionIsError = tmuxComposer.reason != null || tmuxComposer.error != null;
   } else if (inboxBand) {
     // The reason outranks a transport error: "this session is not running" explains the failure,
@@ -1156,13 +1154,15 @@ function SessionComposer({
             title={terminalComposer.shown
               ? "Hide this session's terminal and type in the composer instead."
               : "Type in this session's terminal instead, resuming it in tmux if nothing is running it."}
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+            className={`flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted ${
               terminalComposer.shown
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             }`}
           >
-            {"\u2b1a"}
+            {/* The thing it opens: a terminal. It used to be a dotted square, which named
+                nothing -- the pressed state is what says whether it is open. */}
+            <TerminalIcon className="size-4" aria-hidden />
           </button>
         ) : null}
         {/* Every one of these acts on the draft, so they go where the draft goes. */}
