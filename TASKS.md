@@ -73,8 +73,30 @@ that there was a divergence at all -- the reader is shown the file on disk with 
 version existed.
 
 So the scope is a file whose text autosave will not rescue, which is usually none and occasionally
-one, not every open tab. That is what makes it fit in `localStorage` beside the other panel
-preferences; a store of every draft would not, against a 4MB per-file text cap and a ~5MB quota.
+one, not every open tab.
+
+**It does not belong in `localStorage`, and the count is not what decides that -- one draft can be
+too big on its own.** Measured 2026-09-10 at the panel's dev origin in Chrome for Testing: a single
+key holds 4MB and throws `QuotaExceededError` at 5MB. The text cap is 4MB, so one draft of a file
+at the limit consumes the whole origin quota. The write itself is cheap (6ms for 4MB, so this is
+not a jank argument), but every other thing the panel persists -- sidebar state, selection, the bot
+canvas, usage, the IDE's own preferences -- shares that quota, and each of them wraps its write in
+`try`/`catch` by house rule. They would not fail loudly. They would silently stop persisting, and
+the reader's whole panel would quietly forget its arrangement because one large file was open.
+
+The sidecar is the home, which is also where the Swift had it: `WorkspaceIDEFileDraftStore` wrote a
+file per draft under Application Support, not into the webview. No quota, the atomic-write and
+versioned-store patterns are already there in `workspaceStore.ts`, and a draft then follows the
+reader between the phone and the Mac the way `orderedOpenPaths` does rather than resurrecting on
+one surface only.
+
+The open question that carries, and it is a decision rather than a detail: a sidecar draft is
+**shared**, so two surfaces editing one path race for it. That is consistent with the open-tab and
+expanded-directory state already being shared, and inconsistent with a draft being one reader's
+private working copy. Settle it before writing the store, not after.
+
+Worth knowing while sizing any of this: a 4MB file is not usable in the editor today regardless.
+R11 records that `CodeEditor.tsx` is a textarea with no virtualisation, so it lays out every line.
 
 One deliberate difference, recorded so it is not read as an oversight: the document cap is 32MB
 where the Swift's was 100MB. The Swift's number was the QUIC frame budget, which no longer applies
