@@ -61,7 +61,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R27 | D | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
 | R28 | D | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
 | R29 | D | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
-| R30 | R | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
+| R30 | D | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
 | R31 | R | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
 | R32 | R | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
 | R33 | R | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
@@ -441,6 +441,24 @@ separate file rather than an addition to it.
 Split into `tmuxComposerHarness.ts`, `tmuxComposerKeys.test.ts`, `tmuxComposerRuntime.test.ts`,
 `tmuxComposerWatch.test.ts`. 67 tests moved whole; 898 sidecar tests, unchanged.
 
+### R30 `desktop-viewer/TileViewport.tsx` (1312)
+
+- The numbers a gesture is tuned against, and where the puck's resting place is remembered.
+- Everything one mount holds while a gesture is in flight -- the object the parts share.
+- What a gesture reports: start, what the view did, how it ended.
+- The marks a touch leaves while it decides what it is.
+- Where the Mac's cursor is, as this viewer believes it.
+- Scrolling: coalescing, momentum, and the wheel events that go to the Mac.
+- What a pointer landing on the tile turns out to be.
+- The puck, and its double-tap arbitration.
+- The box the picture is shown in, and the one capture request a settled gesture may make.
+- The two things drawn over the video that are not the video.
+
+Split into `tileViewportConstants.ts`, `tileViewportRuntime.ts`, `tileViewportGestureTelemetry.ts`,
+`tileViewportDragVisuals.ts`, `tileViewportCursorMirror.ts`, `tileViewportScrolling.ts`,
+`tileViewportPointerHandlers.ts`, `tileViewportPuck.ts`, `tileViewportFrame.ts`,
+`TileViewportOverlays.tsx`. 1312 to 449.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -454,6 +472,17 @@ Forks taken, with the alternative not taken and why. At a fork, the option that 
 - **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
   not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
   than pushing to an explicit refspec does.
+
+### Decision: the viewport's parts are staged onto one runtime object
+
+Same shape as the keyboard, and for the same reason: a press, three moves and a release have to
+agree about what is happening, and the agreement was one 960-line closure. `ViewportRuntime` is
+that agreement, built once per mount; each part is a factory returning the functions it owns, and
+they are `Object.assign`ed onto the runtime in turn.
+
+Staged rather than constructed at once because the parts call each other -- a press asks the
+gesture telemetry to open, the cursor mirror to warp and the scrolling to end. Every such call
+happens at event time, by which point all of them are on the object.
 
 ### Decision: the keyboard's parts take a context object rather than closing over the state
 
