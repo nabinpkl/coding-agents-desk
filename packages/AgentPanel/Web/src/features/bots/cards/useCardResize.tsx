@@ -154,7 +154,13 @@ export function useCardResize({
       aria-valuenow={height}
       aria-valuetext={`${height} pixels`}
       tabIndex={0}
-      className="group flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border outline-none"
+      // Eight rather than the twelve these were. A grip is a row and a column IN the card rather
+      // than a strip overlaid on its edge, so every pixel of it is a pixel the transcript beside it
+      // does not get -- twelve on the right and twelve on the bottom, out of a card 446 wide. What
+      // has to be grabbable is the whole strip, and the strip is the whole width of this element
+      // whatever its size; the pill in the middle is two pixels and was never the target. Eight
+      // still takes a pointer without hunting and gives the transcript back four each way.
+      className="group flex h-2 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border outline-none"
       onPointerDown={startDrag}
       onPointerMove={(event) => dragTo(event, { height: true })}
       onPointerUp={finishDrag}
@@ -167,7 +173,7 @@ export function useCardResize({
 
   const edge =
     canResizeWidth && displayWidth === null ? (
-      <div className="flex w-3 shrink-0 flex-col">
+      <div className="flex w-2 shrink-0 flex-col">
         <div
           role="separator"
           aria-label={`Widen ${name} ${noun}`}
@@ -202,13 +208,15 @@ export function useCardResize({
             // A tooltip because there is no label: the two separators say what they do through
             // their names, and this one has none to say it with.
             title="Resize both ways"
-            className="group flex size-3 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border"
+            // Square, and square at whatever the two edges are: this is the corner they meet in,
+            // so its size is theirs rather than a number of its own.
+            className="group flex size-2 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border"
             onPointerDown={startDrag}
             onPointerMove={(event) => dragTo(event, { width: true, height: true })}
             onPointerUp={finishDrag}
             onPointerCancel={finishDrag}
           >
-            <span className="size-1.5 rounded-[1px] bg-border transition-colors group-hover:bg-primary/60" />
+            <span className="size-1 rounded-[1px] bg-border transition-colors group-hover:bg-primary/60" />
           </div>
         ) : null}
       </div>
