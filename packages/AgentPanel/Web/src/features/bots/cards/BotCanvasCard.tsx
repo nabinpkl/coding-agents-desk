@@ -314,19 +314,24 @@ export function BotCanvasCard({
           <ul
             role="list"
             aria-label={`${bot.name} sessions`}
-            // The leading inset is the half that matters, and it is larger than the other three
-            // on purpose. A session's rail sitting 8px inside the Bot's read as one thick striped
+            // The leading inset is the half that matters, and it is twice the other three on
+            // purpose. A session's rail sitting 8px inside the Bot's read as one thick striped
             // edge rather than as a bar inside a card -- two rails of the same colour that close
             // together are one rail, and the nesting they exist to show is the thing that goes
             // missing. Twenty here, on top of the Bot's own six-pixel rail, leaves 26px of plain
             // Bot surface before the first session's edge, which is enough for the emptiness
-            // itself to say one contains the other. The other three sides stay at sixteen because
-            // no rail runs along them and they have nothing to separate.
+            // itself to say one contains the other.
             //
-            // The gap between sessions moves with it rather than staying where it was: a roster
-            // packed more tightly than its own inset reads as one block of cards that happens to
-            // start late, instead of as several cards standing in a container.
-            className="flex items-start gap-4 p-4 pl-5"
+            // The other three are ten, and they are not the same question. Nothing runs along
+            // them, so all they have to do is show that the card sits ON the Bot rather than
+            // being it. Sixteen did that and then kept going: on an open card, which fills its
+            // Bot, the surplus reads as a band of Bot colour framing the transcript, and a band
+            // is what a reader calls a border. Ten still shows the surface and stops there.
+            //
+            // The gap between sessions is the larger number rather than the inset's, because it
+            // separates two cards that each have a rail, where the inset separates a card from an
+            // edge.
+            className="flex items-start gap-4 p-2.5 pl-5"
           >
             {shown.map((session) => (
               <BotSessionCard
