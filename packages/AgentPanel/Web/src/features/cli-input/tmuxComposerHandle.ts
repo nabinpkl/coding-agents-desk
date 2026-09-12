@@ -52,6 +52,17 @@ export interface TmuxComposerHandle {
    * beside it already does for a terminal session that stopped running.
    */
   mirrored: boolean;
+  /**
+   * Whether this session HAS a pane, which latches the same way and is a weaker claim.
+   *
+   * `mirrored` needs a composer box to have been seen; this needs only a reading that was not
+   * `no-pane`. The two differ for as long as the pane is showing something other than a prompt --
+   * a question dialog, most of all, which takes the box away for its whole duration. A surface
+   * that drives the KEYBOARD of the pane rather than its box wants this one: it is still the
+   * session's real terminal while a dialog stands in it, and a reader who opens that session in
+   * the panel because it asked them something must not be told it has no terminal.
+   */
+  paned: boolean;
   /** Why the pane cannot be reached right now, or null while it can. */
   reason: TmuxComposerUnavailableReason | null;
   draft: string;

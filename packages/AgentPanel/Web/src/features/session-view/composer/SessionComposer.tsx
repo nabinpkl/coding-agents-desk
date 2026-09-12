@@ -286,20 +286,26 @@ export function SessionComposer({
   //   The Desktop panel is a live surface somebody may be watching, so it is mirrored click by
   //   click. It shows one question at a time and nothing here has measured what it does with a
   //   call carrying several, so it answers the first and the band says how many it cannot reach.
+  //
+  // Which half applies is decided by `paned` rather than by the band, and the difference is the
+  // whole of whether this works. The band waits for a composer BOX, and a dialog takes the box
+  // away for its whole duration -- so a reader who opens a session because it asked them something
+  // arrives with the band unlatched, and would be told the pane does not exist.
+  const paned = tmuxComposer.paned;
   const tmuxQuestion = useTmuxQuestion(
     feed,
     tmuxComposerSession,
-    isClaude && tmuxBand ? question : null,
+    isClaude && paned ? question : null,
   );
   const windowQuestion = useWindowQuestion(
     windowComposerClient,
     sessionId,
-    isClaude && !tmuxBand && question != null,
+    isClaude && !paned && question != null,
     question,
   );
   const questionMirror: QuestionMirrorModel | null = !isClaude || question == null
     ? null
-    : tmuxBand
+    : paned
     ? {
       callId: question.callId,
       questions: tmuxQuestion.questions,

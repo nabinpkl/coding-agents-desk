@@ -77,8 +77,10 @@ export function useTmuxComposer(
   active: boolean,
 ): TmuxComposerHandle {
   const [state, setState] = useState<TmuxComposerState | null>(null);
-  /** Latched by the first reading that found a pane; see `mirrored` on the handle. */
+  /** Latched by the first reading that found a composer box; see `mirrored` on the handle. */
   const [mirrored, setMirrored] = useState(false);
+  /** Latched by the first reading that found a PANE, box or not; see `paned` on the handle. */
+  const [paned, setPaned] = useState(false);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,6 +221,9 @@ export function useTmuxComposer(
     // not know this route, a proxy that swallowed the body -- has an `undefined` text, which is
     // not null, and would otherwise latch this session into a band with nothing behind it.
     // `reason === null` is the other half of the same claim.
+    // Before the box check below, because a pane showing a dialog reports `no-composer` for the
+    // dialog's whole duration -- and that is exactly when something wants to drive its keyboard.
+    if (next.reason !== "no-pane") setPaned(true);
     if (next.reason !== null || typeof next.text !== "string") return;
     setMirrored(true);
     // An unsent edit is newer than anything the pane can show, and a reading that cannot be
@@ -236,6 +241,7 @@ export function useTmuxComposer(
     edited.current = false;
     pushAgain.current = false;
     setMirrored(false);
+    setPaned(false);
     setCommands([]);
     setBoth("");
   }, [key, setBoth]);
@@ -443,6 +449,7 @@ export function useTmuxComposer(
     // Latched, so the band survives the session it mirrors exiting. `state` still carries the
     // live answer, which is what `reason` reports.
     mirrored,
+    paned,
     reason: state?.reason ?? null,
     draft,
     // Only while the box is empty, which is the only time Claude offers one and the only time a

@@ -30,6 +30,26 @@ export function emptyDrafts(questions: readonly AskUserQuestionItem[]): Question
 }
 
 /**
+ * One draft per question, keeping every answer already given.
+ *
+ * Needed because a call's questions ARRIVE, rather than existing all at once: the tool_use's input
+ * streams into the transcript, so the panel can hold three questions of four and then a moment
+ * later hold the fourth. Measured on a live pane -- a draft built from the first reading stayed
+ * three long, and every click on the fourth question was dropped by the write, which then read as
+ * the surface ignoring that question entirely.
+ *
+ * Not a reset, which is the other half of it: the answers already given are to questions that have
+ * not changed, and rebuilding would throw them away each time another one appeared.
+ */
+export function alignDrafts(
+  drafts: readonly QuestionDraft[],
+  count: number,
+): QuestionDraft[] {
+  if (drafts.length === count) return [...drafts];
+  return Array.from({ length: count }, (_, at) => drafts[at] ?? { chosen: [], other: "" });
+}
+
+/**
  * Picks or unpicks one option.
  *
  * A single-select question replaces whatever was there, and picking an option clears that

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import {
+  alignDrafts,
   chooseOption,
   emptyDrafts,
   isAnswered,
@@ -111,5 +112,22 @@ describe("toAnswers", () => {
     const drafts = writeOther(emptyDrafts([SINGLE]), 0, "   ", false);
     expect(isAnswered(drafts[0]!)).toBe(false);
     expect(toAnswers([SINGLE], drafts)).toBeNull();
+  });
+
+  it("grows to a question that arrived late without losing the answers already given", () => {
+    // A tool call's input streams into the transcript, so a draft can be built while the panel
+    // holds only some of the questions. Measured on a live pane: it stayed short, and every click
+    // on the last question was dropped by the write.
+    const answered = chooseOption(emptyDrafts([SINGLE]), 0, 1, false);
+    const grown = alignDrafts(answered, 2);
+    expect(grown).toHaveLength(2);
+    expect(grown[0]!.chosen).toEqual([1]);
+    expect(isAnswered(grown[1]!)).toBe(false);
+    // And a write to the question that arrived late now lands.
+    expect(chooseOption(grown, 1, 0, true)[1]!.chosen).toEqual([0]);
+  });
+
+  it("drops drafts for questions that are no longer there", () => {
+    expect(alignDrafts(emptyDrafts([SINGLE, MANY]), 1)).toHaveLength(1);
   });
 });

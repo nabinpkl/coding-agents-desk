@@ -23,7 +23,31 @@ describe("tmux composer", () => {
     await settle();
     expect(draft()).toBe("make the hover ring stronger");
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
+    expect(screen.getByTestId("paned").textContent).toBe("true");
     expect(feed.subscribes).toBe(1);
+  });
+
+  it("knows the pane is there while a dialog is standing in the composer's place", async () => {
+    // A question dialog replaces the box entirely, so every reading for its whole duration is
+    // `no-composer`. The field correctly stays away -- there is nothing to mirror -- but the pane
+    // is the session's real terminal throughout, and a surface that drives its KEYBOARD has to be
+    // told so. Latching both on the box is what left a reader who opened a session because it
+    // asked them a question being told the session had no terminal.
+    const feed = pane(
+      "",
+      { text: null, hint: null, reason: "no-composer", exact: true, commands: [] },
+    );
+    render(<Probe feed={feed} />);
+    await settle();
+    expect(screen.getByTestId("mirrored").textContent).toBe("false");
+    expect(screen.getByTestId("paned").textContent).toBe("true");
+  });
+
+  it("does not claim a pane for a session that has none", async () => {
+    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+    render(<Probe feed={feed} />);
+    await settle();
+    expect(screen.getByTestId("paned").textContent).toBe("false");
   });
 
   it("pushes what was typed, and only after the keystrokes stop", async () => {

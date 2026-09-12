@@ -18,6 +18,7 @@ import type { TmuxQuestionAnswer, TmuxQuestionOutcome, TmuxQuestionRefusal } fro
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { AskUserQuestionItem, OpenAskUserQuestion } from "@/app/askUserQuestion";
 import {
+  alignDrafts,
   chooseOption,
   emptyDrafts,
   isAnswered,
@@ -60,6 +61,7 @@ export function useTmuxQuestion(
   question: OpenAskUserQuestion | null,
 ) {
   const questions: AskUserQuestionItem[] = question?.questions ?? [];
+  const count = questions.length;
   const [drafts, setDrafts] = useState<QuestionDraft[]>(() => emptyDrafts(questions));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,17 +73,25 @@ export function useTmuxQuestion(
     setError(null);
   }, [question?.callId]);
 
+  // Every write aligns first, because a call's questions arrive rather than existing all at once:
+  // the tool_use's input streams into the transcript, and a draft built from the first reading is
+  // short until the last question lands. `alignDrafts` keeps what has been answered already.
   const choose = useCallback((at: number, index: number) => {
     setError(null);
-    setDrafts((current) => chooseOption(current, at, index, questions[at]?.multiSelect === true));
-  }, [questions]);
+    setDrafts((current) =>
+      chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
+    );
+  }, [count, questions]);
 
   const write = useCallback((at: number, text: string) => {
     setError(null);
-    setDrafts((current) => writeOther(current, at, text, questions[at]?.multiSelect === true));
-  }, [questions]);
+    setDrafts((current) =>
+      writeOther(alignDrafts(current, count), at, text, questions[at]?.multiSelect === true)
+    );
+  }, [count, questions]);
 
-  const answers = toAnswers(questions, drafts);
+  const aligned = alignDrafts(drafts, count);
+  const answers = toAnswers(questions, aligned);
   const submit = useCallback(async () => {
     if (!answers) return;
     setPending(true);
@@ -107,11 +117,11 @@ export function useTmuxQuestion(
 
   return {
     questions,
-    drafts,
+    drafts: aligned,
     pending,
     error,
     /** Whether every question has something to send, which is what the dialog needs to finish. */
-    canSubmit: questions.length > 0 && drafts.every(isAnswered),
+    canSubmit: count > 0 && aligned.every(isAnswered),
     choose,
     write,
     submit,

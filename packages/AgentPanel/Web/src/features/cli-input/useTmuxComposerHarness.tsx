@@ -100,6 +100,7 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
     <div>
       <span data-testid="draft">{composer.draft}</span>
       <span data-testid="mirrored">{String(composer.mirrored)}</span>
+      <span data-testid="paned">{String(composer.paned)}</span>
       <span data-testid="reason">{composer.reason ?? "-"}</span>
       <span data-testid="hint">{composer.hint ?? "-"}</span>
       <span data-testid="images">
