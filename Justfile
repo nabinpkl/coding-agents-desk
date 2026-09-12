@@ -3280,6 +3280,12 @@ client-archive:
 # Launcher page for this tailnet host: one card per app on its port, each
 # opening in a new tab. Serves tools/tailnet-apps/ on :8080, reachable as
 # http://<this-mac>.ts.net:8080 from the phone and the Mac alike.
+#
+# The bare https://<this-mac>.ts.net/ (443) is tailscale serve, not this
+# recipe: `tailscale serve --bg http://127.0.0.1:8080` proxies 443 to this
+# port with the tailnet's trusted cert, no root needed, and the config
+# persists across restarts. `tailscale serve status` shows it;
+# `tailscale serve --https=443 off` removes it.
 tailnet-apps port="8080":
     #!/usr/bin/env bash
     set -euo pipefail
