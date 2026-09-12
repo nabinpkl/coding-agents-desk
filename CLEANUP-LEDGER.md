@@ -539,14 +539,21 @@ have diverged the first time either part wrote one.
 - What a terminal is pointed at: which pane, which directory, which command, and whether a new
   one may be started at all.
 - One PTY manager envelope, read as the one thing the wire says about a terminal.
+- Reaching a live connection through whichever backend the target names, and the one error
+  shape every way either can fail reads as.
 - Owning the live terminals: the map, the shared stream, and the two backends bytes arrive on.
 
-Split into `agentTerminalErrors.ts`, `agentTerminalIdentity.ts`, `terminalStreamMessages.ts`.
-814 to 491. The `identify*` family were private methods reading three collaborators off `this`;
+Split into `agentTerminalErrors.ts`, `agentTerminalIdentity.ts`, `terminalStreamMessages.ts`,
+`agentTerminalBackends.ts`. 814 to 402. The `identify*` family were private methods reading three collaborators off `this`;
 they are free functions over a `TerminalIdentityDeps` record now, and the class keeps a one-line
 `identify` that hands them over, so `open` is untouched. `agentTerminalService.ts` stays the entry
-point: ten files import it, and it re-exports the four errors, `liveTmuxSession` and
-`ResolvedAgentTerminalSession` so none of them had to move.
+point: ten files import it, and it re-exports the four errors, `liveTmuxSession`,
+`AgentTerminalPtyClient` and `ResolvedAgentTerminalSession` so none of them had to move.
+
+The first pass landed at 506 -- the delegating `identify` put back most of what the identity
+module took out -- so `open`'s two branches went out as well, in a second commit. What is left
+is what the service is actually for: the map of live terminals, the one stream every viewer
+shares, and everything after "there is a connection".
 
 ## Decisions
 

@@ -46,6 +46,11 @@ import {
   type TerminalIdentity,
 } from "./agentTerminalIdentity.ts";
 import { streamMessage } from "./terminalStreamMessages.ts";
+import {
+  connectPtyTerminal,
+  connectTmuxTerminal,
+  type AgentTerminalPtyClient,
+} from "./agentTerminalBackends.ts";
 
 // Re-exported because this file is the terminal's entry point: the routes want the errors, the
 // composer wants the pane lookup, and neither should have to know which sibling holds them.
@@ -56,7 +61,7 @@ export {
   AgentTerminalUnavailableError,
   liveTmuxSession,
 };
-export type { ResolvedAgentTerminalSession };
+export type { AgentTerminalPtyClient, ResolvedAgentTerminalSession };
 
 const MAXIMUM_INPUT_BYTES = 64 * 1024;
 
@@ -78,11 +83,6 @@ interface ActiveTerminal {
   removeEnvelope: () => void;
   removeFailure: () => void;
   ended: boolean;
-}
-
-export interface AgentTerminalPtyClient {
-  listSessions(): Promise<PtySessionSummary[]>;
-  openSession(options: Parameters<PtyManagerClient["openSession"]>[0]): Promise<PtySessionConnection>;
 }
 
 export class AgentTerminalService {
@@ -171,120 +171,20 @@ export class AgentTerminalService {
     // installed to attach it is how a machine with tmux and no daemon ends up listing sessions it
     // cannot open.
     if (identity.tmuxSession) {
-      const created = identity.createTmux !== null &&
-        !(await this.tmuxExists(identity.tmuxSession));
-      if (created) {
-        await this.startTmux(identity.createTmux!, identity.tmuxSession, { columns, rows });
-        // Only for a pane THIS call just created. An existing pane has already collapsed its
-        // startup into scrollback, which is what makes joining one feel instant; a newborn one
-        // would otherwise pipe every byte of that startup live and make the viewer emulate it.
-        await this.sessionTmux.settle(identity.tmuxSession);
-      }
-      // Stamped on every open, not only on the one that created the pane. That is what adopts a
-      // pane started before this existed, and what re-stamps one whose option was lost -- and it
-      // is idempotent, so the ordinary case costs one tmux call that changes nothing.
-      //
-      // Best effort, deliberately: the stamp makes a pane findable AFTER a rename, and a terminal
-      // that opens is worth more than one refused because its label could not be written.
-      if (identity.stampSession) {
-        await this.stampSessionIdentity(identity.tmuxSession, identity.stampSession)
-          .catch(() => {});
-      }
-      return this.attachTmux(identity, identity.tmuxSession, { columns, rows });
-    }
-
-    let sessions: PtySessionSummary[];
-    try {
-      sessions = await this.pty.listSessions();
-    } catch (error) {
-      throw new AgentTerminalUnavailableError("PTY manager is unavailable", { cause: error });
-    }
-    const existing = sessions.find((session) => session.name === identity.ptySessionName);
-    if (existing && !isRunning(existing)) {
-      throw new AgentTerminalConflictError("the deterministic terminal session has already exited");
-    }
-    if (!existing && identity.refuseNew) {
-      throw new AgentTerminalConflictError(identity.refuseNew);
-    }
-
-    let connection: PtySessionConnection;
-    try {
-      connection = await this.pty.openSession({
-        sessionName: identity.ptySessionName,
-        launch: {
-          cwd: identity.cwd,
-          executable: "/bin/zsh",
-          // Through a login shell, so a command is found on the user's own PATH rather than the
-          // sidecar's, which is deliberately stripped of it. With no command it IS the shell: the
-          // pty gives it a tty, which is what makes `-l` interactive.
-          arguments: identity.command.length === 0
-            ? ["-l"]
-            : ["-l", "-c", 'exec "$0" "$@"', ...identity.command],
+      const connection = await connectTmuxTerminal(
+        {
+          attachments: this.tmux,
+          sessionTmux: this.sessionTmux,
+          stampSessionIdentity: this.stampSessionIdentity,
         },
-        columns,
-        rows,
-        createIfMissing: existing === undefined,
-        clientTitle: "Agent Feed",
-      });
-    } catch (error) {
-      throw new AgentTerminalUnavailableError("PTY manager refused the terminal connection", {
-        cause: error,
-      });
-    }
-    if (connection.attachment.sessionName !== identity.ptySessionName) {
-      connection.detach();
-      throw new AgentTerminalConflictError("PTY manager returned the wrong terminal session");
+        identity,
+        identity.tmuxSession,
+        { columns, rows },
+      );
+      return this.register(identity, connection);
     }
 
-    return this.register(identity, connection);
-  }
-
-  private async tmuxExists(session: string): Promise<boolean> {
-    try {
-      return await this.sessionTmux.exists(session);
-    } catch (error) {
-      throw new AgentTerminalUnavailableError("tmux could not be asked about its sessions", {
-        cause: error,
-      });
-    }
-  }
-
-  /**
-   * Starts the session's own tmux, resuming it, because nothing is running it yet.
-   *
-   * At the viewer's geometry: this session has no other client to take a size from, and a detached
-   * `new-session` would otherwise sit at 80x24 for its whole life while the viewer reads it.
-   */
-  private async startTmux(
-    create: { cwd: string; command: readonly string[] },
-    session: string,
-    dimensions: { columns: number; rows: number },
-  ): Promise<void> {
-    try {
-      await this.sessionTmux.create({ session, ...create, ...dimensions });
-    } catch (error) {
-      throw new AgentTerminalUnavailableError(`tmux could not start ${session}`, { cause: error });
-    }
-  }
-
-  /**
-   * Joins a tmux session with tmux's own primitives, no daemon involved.
-   *
-   * The failure is reported as unavailable rather than not-found because from the panel's side the
-   * two are the same shape -- a tile that cannot open -- and the message is what tells them apart.
-   */
-  private async attachTmux(
-    identity: TerminalIdentity,
-    session: string,
-    dimensions: { columns: number; rows: number },
-  ): Promise<AgentTerminalDescriptor> {
-    let connection: TmuxSessionConnection;
-    try {
-      connection = await this.tmux.open(session, dimensions);
-    } catch (error) {
-      throw new AgentTerminalUnavailableError(`tmux could not attach ${session}`, { cause: error });
-    }
-    return this.register(identity, connection);
+    return this.register(identity, await connectPtyTerminal(this.pty, identity, { columns, rows }));
   }
 
   /**
@@ -499,8 +399,4 @@ export class AgentTerminalService {
 }
 
 
-
-function isRunning(session: PtySessionSummary): boolean {
-  return session.state === "SESSION_STATE_RUNNING" || session.state === 1;
-}
 
