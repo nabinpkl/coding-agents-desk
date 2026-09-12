@@ -36,6 +36,18 @@ export type TmuxComposerUnavailableReason =
  */
 export interface TmuxComposerState {
   text: string | null;
+  /**
+   * The suggestion Claude is offering in the box, or null when it offers none.
+   *
+   * Not part of `text`, and that distinction is the whole reason this field exists: the hint sits
+   * in the same box as a prompt and is drawn FAINT, so a reader that stripped the colour would
+   * mirror Claude's own suggestion back into the session as though somebody had typed it. It is
+   * shown as what it is -- a placeholder, which Tab accepts -- and never pushed.
+   *
+   * Only ever a whole empty box. Measured on a live pane: typing a prefix of a suggestion does not
+   * ghost the rest of it after the cursor, so there is no half-typed row to split.
+   */
+  hint: string | null;
   reason: TmuxComposerUnavailableReason | null;
   /**
    * True when the composer's text ran onto more than one screen row.

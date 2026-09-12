@@ -25,8 +25,17 @@ export interface TmuxComposerHandle {
   reason: TmuxComposerUnavailableReason | null;
   draft: string;
   change: (value: string) => void;
+  /**
+   * Claude's own suggestion for this empty box, or null when it is offering none.
+   *
+   * Shown the way the terminal shows it -- faint, in the box, taking no space in the value -- and
+   * never pushed. `accept` is what turns it into text.
+   */
+  hint: string | null;
   /** Brings the pane up to date, then presses Return in it. */
   submit: () => Promise<void>;
+  /** Takes Claude up on `hint`, by pressing Tab in the pane the way a reader there would. */
+  accept: () => Promise<void>;
   pending: boolean;
   error: string | null;
   /**
@@ -64,7 +73,10 @@ export interface TmuxComposerHandle {
 export function useTmuxComposer(
   feed: Pick<
     SidecarDataSource,
-    "subscribeTmuxComposer" | "syncTmuxComposer" | "submitTmuxComposer"
+    | "subscribeTmuxComposer"
+    | "syncTmuxComposer"
+    | "submitTmuxComposer"
+    | "acceptTmuxComposerHint"
   >,
   session: SessionAddress,
   active: boolean,
@@ -186,6 +198,21 @@ export function useTmuxComposer(
     }
   }, [feed, setBoth]);
 
+  /**
+   * Takes the suggestion, and then says nothing about the result.
+   *
+   * The pane redraws with the words in it and the stream reports that, which is also what makes
+   * this safe while the reader has typed nothing: `edited` is false, so the reading is adopted.
+   */
+  const accept = useCallback(async () => {
+    setError(null);
+    try {
+      setState(await feed.acceptTmuxComposerHint(sessionRef.current));
+    } catch (failure) {
+      setError(String((failure as Error).message ?? failure));
+    }
+  }, [feed]);
+
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
       clearTimeout(pushTimer.current);
@@ -202,8 +229,12 @@ export function useTmuxComposer(
     mirrored,
     reason: state?.reason ?? null,
     draft,
+    // Only while the box is empty, which is the only time Claude offers one and the only time a
+    // placeholder can be seen. A stale hint beside typed text would be a suggestion for nothing.
+    hint: draft.length === 0 ? state?.hint ?? null : null,
     change,
     submit,
+    accept,
     pending,
     error,
     onBlur,

@@ -15,6 +15,7 @@
 
 import type { TmuxComposerState } from "@agentdesk/agent-feed-wire";
 import {
+  acceptTmuxComposerHint,
   MAXIMUM_COMPOSER_BYTES,
   liveTmuxComposerRuntime,
   observeTmuxComposer,
@@ -29,13 +30,15 @@ import type { RouteHandler } from "./route.ts";
 const RETRY = new TextEncoder().encode("retry: 20000\n\n");
 
 const COMPOSER_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/stream)?$/i;
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/stream)?$/i;
 
 /** The composer, injected, so the route's address shape can be pinned without a tmux server. */
 export interface TmuxComposerDependencies {
   observe: (sessionId: string, listener: TmuxComposerListener) => () => void;
   sync: (sessionId: string, text: string) => Promise<TmuxComposerState>;
   submit: (sessionId: string) => Promise<TmuxComposerState>;
+  /** Presses Tab, which is how Claude's own suggestion becomes text in its box. */
+  accept: (sessionId: string) => Promise<TmuxComposerState>;
 }
 
 /**
@@ -53,6 +56,7 @@ export function liveTmuxComposerDependencies(
     observe: (sessionId, listener) => observeTmuxComposer(sessionId, listener, runtime),
     sync: (sessionId, text) => syncTmuxComposer(sessionId, text, runtime),
     submit: (sessionId) => submitTmuxComposer(sessionId, runtime),
+    accept: (sessionId) => acceptTmuxComposerHint(sessionId, runtime),
   };
 }
 
@@ -62,9 +66,10 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
     if (!match) return undefined;
     const sessionId = match[1]!.toLowerCase();
     const action = match[2];
-    if (action === "/submit") {
+    if (action === "/submit" || action === "/accept") {
       if (request.method !== "POST") return undefined;
-      return composer.submit(sessionId).then((state) => jsonResponse(state));
+      const pressed = action === "/submit" ? composer.submit : composer.accept;
+      return pressed(sessionId).then((state) => jsonResponse(state));
     }
     if (action === "/stream") {
       if (request.method !== "GET") return undefined;

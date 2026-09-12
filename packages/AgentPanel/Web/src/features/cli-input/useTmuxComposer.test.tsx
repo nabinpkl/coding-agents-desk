@@ -6,8 +6,8 @@ import { useTmuxComposer } from "./useTmuxComposer";
 
 const SESSION: SessionAddress = { source: "claude", sessionId: "s1" };
 
-function holding(text: string, wrapped = false): TmuxComposerState {
-  return { text, reason: null, wrapped };
+function holding(text: string, wrapped = false, hint: string | null = null): TmuxComposerState {
+  return { text, hint, reason: null, wrapped };
 }
 
 /**
@@ -24,6 +24,7 @@ function pane(initial = "", opening?: TmuxComposerState) {
     live: false,
     pushes: [] as string[],
     submits: 0,
+    accepts: 0,
     /** Sends one state to whoever is subscribed, as the pane writing would. */
     emit(state: TmuxComposerState) {
       listener?.(state);
@@ -55,6 +56,10 @@ function pane(initial = "", opening?: TmuxComposerState) {
       feed.box = "";
       return holding("");
     },
+    acceptTmuxComposerHint: async (): Promise<TmuxComposerState> => {
+      feed.accepts += 1;
+      return { text: null, hint: null, reason: null, wrapped: false };
+    },
   };
   return feed;
 }
@@ -66,12 +71,15 @@ function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; active?
       <span data-testid="draft">{composer.draft}</span>
       <span data-testid="mirrored">{String(composer.mirrored)}</span>
       <span data-testid="reason">{composer.reason ?? "-"}</span>
+      <span data-testid="hint">{composer.hint ?? "-"}</span>
       <input
         aria-label="composer"
         value={composer.draft}
         onChange={(event) => composer.change(event.target.value)}
         onBlur={composer.onBlur}
+        placeholder={composer.hint ?? "Type into Claude's terminal…"}
       />
+      <button type="button" onClick={() => void composer.accept()}>accept</button>
       <button type="button" onClick={() => void composer.submit()}>send</button>
     </div>
   );
@@ -191,7 +199,7 @@ describe("tmux composer", () => {
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     await act(async () => {
-      feed.emit({ text: null, reason: "no-pane", wrapped: false });
+      feed.emit({ text: null, hint: null, reason: "no-pane", wrapped: false });
     });
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     expect(screen.getByTestId("reason").textContent).toBe("no-pane");
@@ -199,7 +207,7 @@ describe("tmux composer", () => {
   });
 
   it("never claims a session whose first word is that it has no pane", async () => {
-    const feed = pane("", { text: null, reason: "no-pane", wrapped: false });
+    const feed = pane("", { text: null, hint: null, reason: "no-pane", wrapped: false });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
@@ -213,6 +221,41 @@ describe("tmux composer", () => {
     expect(feed.subscribes).toBe(0);
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
     unmount();
+  });
+
+  it("offers Claude's suggestion as a placeholder, and stops once anything is typed", async () => {
+    // A placeholder because that is exactly what it is: shown in the empty box, taking no part in
+    // the value, gone the moment the reader types. Pushing it would type Claude's own guess into
+    // the session as if somebody had meant it.
+    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, wrapped: false });
+    render(<Probe feed={feed} />);
+    await settle();
+    expect(screen.getByTestId("hint").textContent).toBe("stop adding the three suggestions");
+    expect(draft()).toBe("");
+    expect(screen.getByLabelText("composer").getAttribute("placeholder"))
+      .toBe("stop adding the three suggestions");
+
+    await type("something of my own");
+    expect(screen.getByTestId("hint").textContent).toBe("-");
+    await settle(200);
+    // And the suggestion never reaches the pane: only what was typed does.
+    expect(feed.pushes).toEqual(["something of my own"]);
+  });
+
+  it("accepts the suggestion by pressing Tab in the pane, not by typing its words", async () => {
+    // What accepting means belongs to Claude. The pane redraws with the words in it and the
+    // stream reports that, which is why nothing here guesses at the result.
+    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, wrapped: false });
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => { screen.getByText("accept").click(); });
+    expect(feed.accepts).toBe(1);
+    expect(feed.pushes).toEqual([]);
+
+    // The pane comes back holding it, and the field adopts it because nothing was typed here.
+    feed.box = "stop adding the three suggestions";
+    await act(async () => { feed.announce(); });
+    expect(draft()).toBe("stop adding the three suggestions");
   });
 
   it("lets the stream go when the band does", async () => {

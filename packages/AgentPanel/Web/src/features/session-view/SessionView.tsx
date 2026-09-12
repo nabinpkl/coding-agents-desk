@@ -636,6 +636,14 @@ function SessionComposer({
     sendOnEnter: boolean;
     onFocus?: () => void;
     onBlur?: () => void;
+    /**
+     * What Tab does instead of moving focus, when there is something to accept.
+     *
+     * Only the mirrored terminal band has one: it is the only field whose placeholder is a real
+     * offer from the other side rather than a label. Absent everywhere else, so Tab keeps moving
+     * focus, which is what a keyboard reader expects of it.
+     */
+    onAcceptHint?: () => void;
   } = windowBand
     ? {
         value: windowComposer.draft,
@@ -670,7 +678,10 @@ function SessionComposer({
         onChange: tmuxComposer.change,
         disabled: tmuxComposer.pending,
         ariaLabel: "Type into this session's terminal composer",
-        placeholder: "Type into Claude's terminal\u2026",
+        // Claude's own suggestion when it is offering one, shown where the terminal shows it and
+        // as what it is: a placeholder, which takes no part in the value and is never pushed.
+        // Tab accepts it, the same key that accepts it in the pane.
+        placeholder: tmuxComposer.hint ?? "Type into Claude's terminal\u2026",
         // A coarse guard rather than the sidecar's own limit restated: that one counts BYTES and
         // this counts UTF-16 units, so they are not the same quantity and cannot be. The number
         // is the sidecar's, which is smaller than a turn sent once because this text is retyped
@@ -680,6 +691,9 @@ function SessionComposer({
         // No `onFocus`: the stream behind this field is already current, where the bands either
         // side of it re-read something at the moment somebody is about to act on it.
         onBlur: tmuxComposer.onBlur,
+        ...(tmuxComposer.hint === null
+          ? {}
+          : { onAcceptHint: () => void tmuxComposer.accept() }),
       }
     : inboxBand
     ? {
@@ -875,7 +889,12 @@ function SessionComposer({
     // is gone" explains the failure where a request that had nowhere to go does not.
     caption = tmuxComposer.reason
       ? tmuxComposerReasonText(tmuxComposer.reason)
-      : tmuxComposer.error ?? "Typing into this session's own terminal.";
+      : tmuxComposer.error
+        // Said out loud because this reader has no terminal footer to learn it from. The offer is
+        // in the placeholder and the key that takes it is not visible anywhere else.
+        ?? (tmuxComposer.hint === null
+          ? "Typing into this session's own terminal."
+          : "Tab takes Claude's suggestion.");
     captionIsError = tmuxComposer.reason != null || tmuxComposer.error != null;
   } else if (inboxBand) {
     // The reason outranks a transport error: "this session is not running" explains the failure,
@@ -968,6 +987,13 @@ function SessionComposer({
           onFocus={editor.onFocus}
           onBlur={editor.onBlur}
           onKeyDown={(event) => {
+            // Tab takes the offer rather than leaving the field, but only while there IS one:
+            // with no suggestion to accept it stays the key that moves focus.
+            if (editor.onAcceptHint && event.key === "Tab" && !event.shiftKey) {
+              event.preventDefault();
+              editor.onAcceptHint();
+              return;
+            }
             if (
               editor.sendOnEnter &&
               event.key === "Enter" &&

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  composerRows,
+  acceptTmuxComposerHint,
+  composerBox,
   composerText,
   keystrokesFor,
   observeTmuxComposer,
@@ -35,41 +36,43 @@ const OPEN = "\u001b[200~";
 const CLOSE = "\u001b[201~";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
-  expect(composerRows(screenWith(["make the hover ring stronger"])))
-    .toEqual(["make the hover ring stronger"]);
+  expect(composerBox(screenWith(["make the hover ring stronger"])))
+    .toEqual({ rows: ["make the hover ring stronger"], hint: null });
   // The distinction the whole reconciliation rests on: "" is adopted into the field, null is not.
-  expect(composerRows(screenWith([]))).toEqual([""]);
+  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null });
 });
 
 test("keeps every wrapped row, because the row count is what clearing costs", () => {
-  const rows = composerRows(screenWith([
+  const box = composerBox(screenWith([
     "the quick brown fox jumps over the lazy dog the quick",
     "brown fox jumps over the lazy dog the quick brown fox",
     "jumps over the lazy dog",
   ]));
-  expect(rows).toHaveLength(3);
+  expect(box!.rows).toHaveLength(3);
   // Rejoined with the space the wrap consumed, which is what makes this a hypothesis and not a
   // reading. Measured on a live pane: neither row carries that space.
-  expect(composerText(rows!)).toBe(
+  expect(composerText(box!.rows)).toBe(
     "the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog",
   );
 });
 
-test("reads Claude's own hint as an empty box, not as somebody's text", () => {
+test("reads Claude's own hint as an empty box holding a suggestion", () => {
   // Verbatim from a live pane after a turn. Strip the escapes and this is indistinguishable from
   // a reader having typed those words, and the mirror would have filled their field with it and
-  // then typed it back into the session. Faint is the only thing that says otherwise.
+  // then typed it back into the session. Faint is the only thing that says otherwise -- and the
+  // suggestion is worth keeping rather than discarding, because Tab is what turns it into text.
   const screen = [
     RULE,
-    "\u001b[39m❯\u00a0\u001b[2m<no suggestion>\u001b[0m",
+    "\u001b[39m❯\u00a0\u001b[2mstop adding the three suggestions\u001b[0m",
     RULE,
   ].join("\n");
-  expect(composerRows(screen)).toEqual([""]);
+  expect(composerBox(screen))
+    .toEqual({ rows: [""], hint: "stop adding the three suggestions" });
 });
 
 test("keeps text that merely sits under a colour, because only faint means a hint", () => {
   const screen = [RULE, "\u001b[39m❯\u00a0\u001b[1mtyped in bold\u001b[0m", RULE].join("\n");
-  expect(composerRows(screen)).toEqual(["typed in bold"]);
+  expect(composerBox(screen)).toEqual({ rows: ["typed in bold"], hint: null });
 });
 
 test("takes the last box, not a turn the transcript echoed with the same marker", () => {
@@ -82,19 +85,19 @@ test("takes the last box, not a turn the transcript echoed with the same marker"
     "❯\u00a0what is being typed now",
     RULE,
   ].join("\n");
-  expect(composerRows(screen)).toEqual(["what is being typed now"]);
+  expect(composerBox(screen)).toEqual({ rows: ["what is being typed now"], hint: null });
 });
 
 test("answers nothing for a screen mid-redraw, which is retryable rather than broken", () => {
   // The composer box genuinely vanishes between frames; measured on a live pane right after a
   // Ctrl+U. Reporting "" here would push an empty composer into the reader's field.
-  expect(composerRows(["  adprobe  Opus 5", "  ⏵⏵ auto mode on"].join("\n"))).toBeNull();
+  expect(composerBox(["  adprobe  Opus 5", "  ⏵⏵ auto mode on"].join("\n"))).toBeNull();
   // A marker with no rule above it is transcript text, not a box.
-  expect(composerRows(["  output", "❯\u00a0quoted, in a message"].join("\n"))).toBeNull();
+  expect(composerBox(["  output", "❯\u00a0quoted, in a message"].join("\n"))).toBeNull();
 });
 
 test("stops at the bottom rule rather than swallowing the status lines", () => {
-  expect(composerRows(screenWith(["hello"]))).toEqual(["hello"]);
+  expect(composerBox(screenWith(["hello"]))).toEqual({ rows: ["hello"], hint: null });
 });
 
 test("sends nothing when the box already reads that way", () => {
@@ -167,7 +170,7 @@ test("reports a session that is not running in tmux, without reaching for a scre
     },
   });
   expect(await readTmuxComposer("session", tmux))
-    .toEqual({ text: null, reason: "no-pane", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
   expect(asked).toBe(false);
 });
 
@@ -176,13 +179,13 @@ test("reports tmux itself being gone as its own reason, rather than as an empty 
     screen: async () => { throw new TmuxUnavailable("no server running"); },
   });
   expect(await readTmuxComposer("session", tmux))
-    .toEqual({ text: null, reason: "tmux-unavailable", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", wrapped: false });
 });
 
 test("marks a multi-row reading as wrapped, so the panel knows not to trust it exactly", async () => {
   const tmux = runtime({ screen: async () => screenWith(["alpha bravo", "charlie"]) });
   expect(await readTmuxComposer("session", tmux))
-    .toEqual({ text: "alpha bravo charlie", reason: null, wrapped: true });
+    .toEqual({ text: "alpha bravo charlie", hint: null, reason: null, wrapped: true });
 });
 
 test("re-reads the screen before every push, rather than trusting the caller's view of it", async () => {
@@ -200,8 +203,20 @@ test("re-reads the screen before every push, rather than trusting the caller's v
 test("a push into a session with no pane sends nothing and says why", async () => {
   const tmux = runtime({ pane: async () => null });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, reason: "no-pane", wrapped: false });
+    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
   expect(tmux.sent).toEqual([]);
+});
+
+test("accepting the hint presses Tab, and guesses nothing about what lands", async () => {
+  // Measured on a live pane: after a Tab the same row comes back with no faint run at all, which
+  // is Claude turning its own suggestion into text. What the box then holds is the watcher's to
+  // report, so `text` is null here rather than a copy of the hint.
+  const tmux = runtime({
+    screen: async () => { throw new Error("accepting must not read the screen"); },
+  });
+  expect(await acceptTmuxComposerHint("session", tmux))
+    .toEqual({ text: null, hint: null, reason: null, wrapped: false });
+  expect(tmux.sent).toEqual(["\t"]);
 });
 
 test("submitting presses Return, and needs no screen to do it", async () => {
@@ -209,7 +224,7 @@ test("submitting presses Return, and needs no screen to do it", async () => {
     screen: async () => { throw new Error("submit must not read the screen"); },
   });
   expect(await submitTmuxComposer("session", tmux))
-    .toEqual({ text: "", reason: null, wrapped: false });
+    .toEqual({ text: "", hint: null, reason: null, wrapped: false });
   expect(tmux.sent).toEqual(["\r"]);
 });
 
@@ -254,7 +269,7 @@ test("reports what the composer holds without waiting for the pane to write", as
     onEnd: () => {},
   }, tmux);
   await settle(60);
-  expect(seen).toEqual([{ text: "make the hover ring stronger", reason: null, wrapped: false }]);
+  expect(seen).toEqual([{ text: "make the hover ring stronger", hint: null, reason: null, wrapped: false }]);
   expect(state.watching).toBe(true);
   stop();
   expect(state.watching).toBe(false);
@@ -296,8 +311,8 @@ test("reports only what changed, so a redraw above the box costs nobody anything
   write();
   await settle(300);
   expect(seen).toEqual([
-    { text: "hello", reason: null, wrapped: false },
-    { text: "hello there", reason: null, wrapped: false },
+    { text: "hello", hint: null, reason: null, wrapped: false },
+    { text: "hello there", hint: null, reason: null, wrapped: false },
   ]);
   stop();
 });
@@ -315,7 +330,7 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
     onEnd: () => { ended += 1; },
   }, tmux);
   await settle(60);
-  expect(seen).toEqual([{ text: null, reason: "no-pane", wrapped: false }]);
+  expect(seen).toEqual([{ text: null, hint: null, reason: "no-pane", wrapped: false }]);
   expect(ended).toBe(1);
   expect(state.watching).toBe(false);
   expect(state.screens).toBe(0);

@@ -16,10 +16,11 @@
 //   Ctrl+U kills one VISUAL row, not the whole prompt: a four-row composer needs four of them.
 //   That is the one exact lever over a composer whose text cannot be read exactly.
 //
-//   An EMPTY box is not always empty-looking. Claude draws a hint in it -- `<no suggestion>` after
-//   a turn -- and the only thing separating that from typed words is that the hint is FAINT. So
-//   the screen is read with its colour on, which is the one place an escape sequence here is
-//   content rather than noise.
+//   An EMPTY box is not always empty-looking. Claude draws a suggestion in it, and the only thing
+//   separating that from typed words is that it is FAINT. So the screen is read with its colour
+//   on, which is the one place an escape sequence here is content rather than noise. The hint
+//   travels beside the text rather than as part of it, and Tab is what fills it in -- measured:
+//   after a Tab the same row comes back with no faint run at all.
 //
 // What falls out of those three is the shape of `keystrokesFor`. An exactly-known composer is
 // edited incrementally, which is what makes typing feel like typing. An inexactly-known one is
@@ -69,6 +70,8 @@ const FAINT = "2";
 const KILL_ROW = "\u0015";
 const BACKSPACE = "\u007f";
 const CARRIAGE_RETURN = "\r";
+/** What accepts Claude's suggestion. Measured: the row comes back with no faint run at all. */
+const TAB = "\t";
 const PASTE_START = "\u001b[200~";
 const PASTE_END = "\u001b[201~";
 
@@ -80,20 +83,30 @@ const PASTE_END = "\u001b[201~";
  */
 export const MAXIMUM_COMPOSER_BYTES = 16 * 1024;
 
-/**
- * The composer's rows as the screen shows them, or null when the screen shows no composer.
- *
- * Rows rather than text, because the ROW COUNT is exact where the text is not, and it is the row
- * count that clearing depends on.
- */
-export function composerRows(screen: string): string[] | null {
+/** What the box is showing: what is in it, and what Claude is offering to put there. */
+export interface ComposerBox {
+  /**
+   * The composer's rows as the screen shows them.
+   *
+   * Rows rather than text, because the ROW COUNT is exact where the text is not, and it is the
+   * row count that clearing depends on.
+   */
+  rows: string[];
+  /** Claude's suggestion, when the box is holding one instead of somebody's text. */
+  hint: string | null;
+}
+
+/** What the composer box holds, or null when the screen shows no box at all. */
+export function composerBox(screen: string): ComposerBox | null {
   const raw = screen.split("\n");
   const lines = raw.map(plainText);
   const head = lastPromptRow(lines);
   if (head === null) return null;
-  // A placeholder occupies the box and holds nothing, so it reads as an empty composer rather
-  // than as text. Asked of the RAW row, because the answer is in the escapes.
-  if (isPlaceholder(raw[head]!)) return [""];
+  // A suggestion fills the box and IS the box, so the composer reads as empty and the suggestion
+  // travels separately. Asked of the RAW row, because the answer is in the escapes.
+  if (isPlaceholder(raw[head]!)) {
+    return { rows: [""], hint: lines[head]!.slice(PROMPT.length).replace(GAP, "") || null };
+  }
   const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
   for (let index = head + 1; index < lines.length; index += 1) {
     const line = lines[index]!;
@@ -104,7 +117,7 @@ export function composerRows(screen: string): string[] | null {
     if (!line.startsWith(INDENT)) break;
     rows.push(line.slice(INDENT.length));
   }
-  return rows;
+  return { rows, hint: null };
 }
 
 /** A screen line with its colour taken off and its padding trimmed, which is what parses. */
@@ -383,7 +396,12 @@ export async function readTmuxComposer(
 ): Promise<TmuxComposerState> {
   const reading = await observe(sessionId, runtime);
   if ("reason" in reading) return unavailable(reading.reason);
-  return { text: composerText(reading.rows), reason: null, wrapped: reading.rows.length > 1 };
+  return {
+    text: composerText(reading.rows),
+    hint: reading.hint,
+    reason: null,
+    wrapped: reading.rows.length > 1,
+  };
 }
 
 /**
@@ -413,13 +431,41 @@ export async function syncTmuxComposer(
       throw error;
     }
   }
-  return { text: desired, reason: null, wrapped: false };
+  // No hint: whatever Claude was offering, the box now holds what was asked for instead. An empty
+  // push is the one case where a suggestion comes back, and the watcher reports it a moment later.
+  return { text: desired, hint: null, reason: null, wrapped: false };
 }
 
 /** Presses Return in the pane, which is what makes Claude take the turn. */
 export async function submitTmuxComposer(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
+): Promise<TmuxComposerState> {
+  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, wrapped: false }, runtime);
+}
+
+/**
+ * Presses Tab, which is how Claude's own suggestion becomes text in its box.
+ *
+ * Deliberately a key rather than a push of the hint's text. What the suggestion means, and what
+ * accepting it does, belong to Claude: pushing the words back would be this module deciding that
+ * accepting is the same as typing them, which is true only until it is not.
+ *
+ * What the box then holds is not guessed at here. The watcher reads the pane and says.
+ */
+export async function acceptTmuxComposerHint(
+  sessionId: string,
+  runtime: TmuxComposerRuntime = LIVE,
+): Promise<TmuxComposerState> {
+  return press(sessionId, TAB, { text: null, hint: null, reason: null, wrapped: false }, runtime);
+}
+
+/** One key into the session's pane, with the state to report when it lands. */
+async function press(
+  sessionId: string,
+  key: string,
+  landed: TmuxComposerState,
+  runtime: TmuxComposerRuntime,
 ): Promise<TmuxComposerState> {
   let pane: string | null;
   try {
@@ -430,16 +476,16 @@ export async function submitTmuxComposer(
   }
   if (!pane) return unavailable("no-pane");
   try {
-    await runtime.send(pane, new TextEncoder().encode(CARRIAGE_RETURN));
+    await runtime.send(pane, new TextEncoder().encode(key));
   } catch (error) {
     if (error instanceof TmuxUnavailable) return unavailable("tmux-unavailable");
     throw error;
   }
-  return { text: "", reason: null, wrapped: false };
+  return landed;
 }
 
 function unavailable(reason: NonNullable<TmuxComposerState["reason"]>): TmuxComposerState {
-  return { text: null, reason, wrapped: false };
+  return { text: null, hint: null, reason, wrapped: false };
 }
 
 /** The pane and its composer rows, or the reason there are none. */
@@ -447,7 +493,7 @@ async function observe(
   sessionId: string,
   runtime: TmuxComposerRuntime,
 ): Promise<
-  { pane: string; rows: string[] } | { reason: NonNullable<TmuxComposerState["reason"]> }
+  (ComposerBox & { pane: string }) | { reason: NonNullable<TmuxComposerState["reason"]> }
 > {
   let pane: string | null;
   try {
@@ -464,7 +510,7 @@ async function observe(
     if (error instanceof TmuxUnavailable) return { reason: "tmux-unavailable" };
     throw error;
   }
-  const rows = composerRows(screen);
-  if (!rows) return { reason: "no-composer" };
-  return { pane, rows };
+  const box = composerBox(screen);
+  if (!box) return { reason: "no-composer" };
+  return { pane, ...box };
 }

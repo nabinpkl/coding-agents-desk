@@ -8,12 +8,13 @@ import {
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const server = { timeout() {} } as never;
 
-const HOLDING: TmuxComposerState = { text: "hello", reason: null, wrapped: false };
+const HOLDING: TmuxComposerState = { text: "hello", hint: null, reason: null, wrapped: false };
 
 function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const synced: string[] = [];
   const submitted: string[] = [];
   const watched: string[] = [];
+  const accepted: string[] = [];
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
@@ -22,15 +23,19 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
     },
     sync: async (_sessionId, text) => {
       synced.push(text);
-      return { text, reason: null, wrapped: false };
+      return { text, hint: null, reason: null, wrapped: false };
     },
     submit: async (sessionId) => {
       submitted.push(sessionId);
-      return { text: "", reason: null, wrapped: false };
+      return { text: "", hint: null, reason: null, wrapped: false };
+    },
+    accept: async (sessionId) => {
+      accepted.push(sessionId);
+      return { text: null, hint: null, reason: null, wrapped: false };
     },
     ...overrides,
   };
-  return { route: createTmuxComposerRoutes(composer), synced, submitted, watched };
+  return { route: createTmuxComposerRoutes(composer), synced, submitted, watched, accepted };
 }
 
 function call(
@@ -112,18 +117,29 @@ test("a session with no pane answers 200 with the reason, not an error status", 
   // The panel renders this beside the field. A 4xx would be indistinguishable from a request it
   // got wrong, which is a different thing to tell the reader.
   const { route } = routeWith({
-    sync: async () => ({ text: null, reason: "no-pane", wrapped: false }),
+    sync: async () => ({ text: null, hint: null, reason: "no-pane", wrapped: false }),
   });
   const response = await call(
     route, "POST", `/api/sessions/claude/${SESSION}/composer`, { text: "hello" },
   );
   expect(response?.status).toBe(200);
-  expect(await response!.json()).toEqual({ text: null, reason: "no-pane", wrapped: false });
+  expect(await response!.json()).toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
 });
 
-test("submitting is its own address", async () => {
-  const { route, submitted } = routeWith();
-  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/submit`);
-  expect(response?.status).toBe(200);
+test("submitting is its own address, and so is accepting the hint", async () => {
+  const { route, submitted, accepted } = routeWith();
+  const submitResponse = await call(
+    route, "POST", `/api/sessions/claude/${SESSION}/composer/submit`,
+  );
+  expect(submitResponse?.status).toBe(200);
+  expect(submitted).toEqual([SESSION]);
+
+  // Its own address rather than a flag on submit, because the two press different keys at a
+  // session somebody else is watching, and one of them takes their turn.
+  const acceptResponse = await call(
+    route, "POST", `/api/sessions/claude/${SESSION}/composer/accept`,
+  );
+  expect(acceptResponse?.status).toBe(200);
+  expect(accepted).toEqual([SESSION]);
   expect(submitted).toEqual([SESSION]);
 });

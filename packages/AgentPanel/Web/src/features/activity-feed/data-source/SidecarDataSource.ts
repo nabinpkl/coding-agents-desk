@@ -119,7 +119,7 @@ function cliInputPath(session: SessionAddress): string {
  */
 function tmuxComposerPath(
   session: SessionAddress,
-  action: "" | "/submit" | "/stream" = "",
+  action: "" | "/submit" | "/accept" | "/stream" = "",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
 }
@@ -824,6 +824,18 @@ export class SidecarDataSource implements AgentDataSource {
   async submitTmuxComposer(session: SessionAddress): Promise<TmuxComposerState> {
     return parse<TmuxComposerState>(
       await this.transport.request("POST", tmuxComposerPath(session, "/submit")),
+    );
+  }
+
+  /**
+   * Presses Tab, which is how Claude's own suggestion becomes text in its box.
+   *
+   * A key rather than a push of the hint's words, because what accepting a suggestion means
+   * belongs to Claude. What the box then holds arrives on the stream like any other change.
+   */
+  async acceptTmuxComposerHint(session: SessionAddress): Promise<TmuxComposerState> {
+    return parse<TmuxComposerState>(
+      await this.transport.request("POST", tmuxComposerPath(session, "/accept")),
     );
   }
 
