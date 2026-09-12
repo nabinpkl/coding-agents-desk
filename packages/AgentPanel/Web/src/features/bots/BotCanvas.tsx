@@ -794,10 +794,14 @@ function BotCanvasCard({
           // The one flexible thing in the card: closed rows keep their own height, so a drag lands
           // entirely on the open session. Squeezed hard enough the session collapses to nothing and
           // the roster stays readable, which is the recoverable way round -- drag it taller again.
+          // A Bot's sessions stand SIDE BY SIDE, which is the same shape the canvas has one level
+          // up: a strip of boxes each at its own width, and nothing wrapping out of it. A column
+          // per session is what makes opening one a local act -- it grows downwards in its own
+          // place while the rest keep theirs, instead of taking over the width of a list.
           <ul
             role="list"
             aria-label={`${bot.name} sessions`}
-            className="flex min-h-0 flex-1 flex-col items-start gap-2 p-2"
+            className="flex items-start gap-2 p-2"
           >
             {bot.sessions.map((session) => (
               <BotSessionCard
