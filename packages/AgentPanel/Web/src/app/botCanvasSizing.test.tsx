@@ -85,17 +85,17 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
 
-    // Swapping the row's field for its terminal hands that pane the session's column to be a share
+    // Putting the row's screen above its field hands that pane the session's column to be a share
     // of. Left to ask the viewport it would open taller than the card holding it.
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal beside the composer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
     expect(terminalPaneMock.composerContext).toEqual({
       kind: "session-tmux",
       source: "claude",
       sessionId: "sid-claude-01",
     });
     expect(terminalPaneMock.composerHasBasis).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal instead of the composer" }));
-    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
+    // And the field is still there under it, which is what the screen standing ABOVE it means.
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
 
     // The thread terminal opens from the control the row lends the session, and it names the BOT's

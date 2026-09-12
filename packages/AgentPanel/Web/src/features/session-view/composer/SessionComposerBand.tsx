@@ -12,7 +12,6 @@ import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
-import type { TerminalComposerMode } from "@/features/terminal/terminalComposerPreference";
 import { submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import type { useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
 import { List, Paperclip } from "lucide-react";
@@ -24,27 +23,6 @@ import { AskUserQuestionMirror } from "@/features/session-view/composer/AskUserQ
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
-
-/**
- * What the terminal control says it will do NEXT, since a press walks rather than toggles.
- *
- * Named for the destination rather than the current state: a control the reader is about to press
- * is answering "what do I get", and "Hide the terminal" on a button that shows a peek was the
- * reading that made the two-state label wrong once it stopped being two.
- */
-const TERMINAL_BUTTON_LABEL: Record<TerminalComposerMode, string> = {
-  field: "Show the terminal beside the composer",
-  echo: "Show the terminal instead of the composer",
-  terminal: "Hide the terminal",
-};
-
-const TERMINAL_BUTTON_TITLE: Record<TerminalComposerMode, string> = {
-  field:
-    "Show this session's terminal under the composer, so text typed here can be watched arriving"
-    + " in the agent's own composer line. Resumes it in tmux if nothing is running it.",
-  echo: "Give the whole band to the terminal and type directly into it.",
-  terminal: "Hide this session's terminal and type in the composer instead.",
-};
 
 export function SessionComposerBand({
   actions,
@@ -66,7 +44,6 @@ export function SessionComposerBand({
   softwareKeyboard,
   terminalComposer,
   terminalHeightBasis,
-  terminalInput,
   terminalPane,
   tmuxBand,
   tmuxComposer,
@@ -91,20 +68,14 @@ export function SessionComposerBand({
   softwareKeyboard: boolean;
   terminalComposer: {
     context: SessionTmuxTerminalContext;
-    mode: TerminalComposerMode;
-    cycle: () => void;
+    shown: boolean;
+    toggle: () => void;
   } | null;
   terminalPane: {
     context: SessionTmuxTerminalContext;
     layout: "band" | "echo";
   } | null;
   terminalHeightBasis: HTMLElement | null;
-  /**
-   * Whether the pane has the band to itself, which is the only arrangement that takes the field
-   * away. A flag rather than the context it used to be: what is DRAWN comes from `terminalPane`
-   * now, and this is the one question the field and the action row ask.
-   */
-  terminalInput: boolean;
   tmuxBand: boolean;
   tmuxComposer: ComposerModel["tmuxComposer"];
   usage: TokenUsage | null;
@@ -183,14 +154,14 @@ export function SessionComposerBand({
           field are the key rail, the send button and then a phone's keyboard, so a list there is
           behind the thumb reaching for it. Open only while the pane's own menu is, which is only
           while somebody is part-way through a command. */}
-      {editor.commands && editor.commands.shown.length > 0 && !terminalInput ? (
+      {editor.commands && editor.commands.shown.length > 0 ? (
         <ComposerCommandList
           commands={editor.commands.shown}
           onChoose={editor.commands.onChoose}
         />
       ) : null}
-      <div className={`flex items-end gap-1.5 ${terminalInput ? "justify-end" : ""}`}>
-        {terminalInput ? null : <div
+      <div className="flex items-end gap-1.5">
+        <div
           // The box is this wrapper rather than the field, so the images sit INSIDE it, above the
           // text, the way the composer they are mirroring holds them. The field keeps its own
           // scrolling and auto-grow and gives up only its border.
@@ -255,22 +226,22 @@ export function SessionComposerBand({
           disabled={editor.disabled}
           className="max-h-48 min-h-12 w-full resize-none bg-transparent px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none"
         />
-        </div>}
-        {/* Offered only where there is a pane: a session without one has nothing to show. The one
-            control that survives the swap, because it is the way back from either side. A draft
-            typed in the field is still in this component's state while the terminal has the band,
-            so switching away and back does not cost it. */}
+        </div>
+        {/* Offered only where there is a pane: a session without one has nothing to show. It sits
+            beside the field rather than replacing anything, because the field never goes away --
+            what it controls is whether the session's screen stands above it. */}
         {terminalComposer ? (
           <button
             type="button"
-            onClick={terminalComposer.cycle}
-            // Pressed for both arrangements that show the pane: what the control reports is
-            // whether the terminal is up, and the label carries which of the two it is.
-            aria-pressed={terminalComposer.mode !== "field"}
-            aria-label={TERMINAL_BUTTON_LABEL[terminalComposer.mode]}
-            title={TERMINAL_BUTTON_TITLE[terminalComposer.mode]}
+            onClick={terminalComposer.toggle}
+            aria-pressed={terminalComposer.shown}
+            aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
+            title={terminalComposer.shown
+              ? "Hide this session's screen and keep only the composer."
+              : "Show this session's screen above the composer, so text typed here can be watched"
+                + " arriving in the agent's own composer line."}
             className={`flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted ${
-              terminalComposer.mode !== "field"
+              terminalComposer.shown
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             }`}
@@ -281,7 +252,7 @@ export function SessionComposerBand({
           </button>
         ) : null}
         {/* Every one of these acts on the draft, so they go where the draft goes. */}
-        {terminalInput ? null : actions.map((action) => (
+        {actions.map((action) => (
           <button
             key={action.key}
             type="button"

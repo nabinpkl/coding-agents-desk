@@ -173,7 +173,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("walks the band from the field, to both surfaces, to the terminal alone", () => {
+  it("puts the thread's own screen above the field, without taking the field away", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
 
@@ -181,7 +181,7 @@ describe("App shell", () => {
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Claude session terminal" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal beside the composer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
 
     // The session id, not a pane name. Which tmux pane that is -- the one a live process runs in,
     // or one started to resume the id -- is the sidecar's to answer, and it is the only side that
@@ -192,18 +192,11 @@ describe("App shell", () => {
       source: "claude",
       sessionId: "sid-claude-01",
     });
-    // BOTH, which is the arrangement the other two cannot show: a reader typing in the field
-    // watching their own text arrive in the agent's composer line. Affordable because the pane is
-    // a peek rather than a second full-height input surface.
+    // BOTH. The screen stands ABOVE the field rather than in place of it, which is the whole
+    // point: a reader types here and watches their own text arrive in the agent's composer line.
+    // Affordable because the pane is a peek rather than a second full-height input surface.
     expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal instead of the composer" }));
-
-    // And here the field does go: the band spends its whole height on the terminal, which is what
-    // it meant when this was two states. Giving the field up is the deliberate second press.
-    expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
     expect(screen.queryByRole("region", { name: "Claude session terminal" }))
@@ -218,22 +211,19 @@ describe("App shell", () => {
   it("shows a terminal on the session it was asked for, and leaves the others on their field", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal beside the composer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
     expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
 
-    // The other session is untouched: its own field, and a control still offering the first step.
+    // The other session is untouched: no screen of its own, and a control still reading as off.
     fireEvent.click(screen.getByText("Session Codex 01"));
     expect(screen.getByLabelText("Codex composer text")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Codex session terminal" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show the terminal beside the composer" }))
-      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show the terminal" })).toBeInTheDocument();
 
-    // And coming back finds the arrangement still standing, which is what remembering it is for --
-    // including WHICH arrangement, not merely that there was one.
+    // And coming back finds the screen still standing, which is what remembering it is for.
     fireEvent.click(screen.getByText("Session Claude 01"));
     expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show the terminal instead of the composer" }))
-      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
     unmount();
   });
 

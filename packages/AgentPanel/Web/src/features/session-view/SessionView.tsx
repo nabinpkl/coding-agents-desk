@@ -64,8 +64,8 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import {
-  cycleTerminalComposer,
-  useTerminalComposerMode,
+  toggleTerminalComposer,
+  useTerminalComposerShown,
 } from "@/features/terminal/terminalComposerPreference";
 import { SessionComposer } from "@/features/session-view/composer/SessionComposer";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
@@ -225,7 +225,7 @@ export function SessionView({
   // window composer and a plain send. Asked only for claude rows; every other source leaves the
   // hook inert and never issues a request.
   const cliInput = useCliInput(feed, { source, sessionId }, source === "claude");
-  const terminalComposerMode = useTerminalComposerMode({ source, sessionId });
+  const terminalComposerShown = useTerminalComposerShown({ source, sessionId });
 
   const terminalComposer = useMemo<AgentTerminalComposer | null>(() => {
     if (terminal.kind !== "ready") return null;
@@ -439,8 +439,8 @@ export function SessionView({
         terminalComposer={composerTerminal
           ? {
             context: composerTerminal,
-            mode: terminalComposerMode,
-            cycle: () => cycleTerminalComposer({ source, sessionId }),
+            shown: terminalComposerShown,
+            toggle: () => toggleTerminalComposer({ source, sessionId }),
           }
           : null}
         terminalHeightBasis={column}
