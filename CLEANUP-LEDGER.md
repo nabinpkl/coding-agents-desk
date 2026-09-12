@@ -43,7 +43,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R9 | D | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
 | R10 | D | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
 | R11 | D | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
-| R12 | R | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
+| R12 | D | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
 | R13 | R | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
 | R14 | R | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
 | R15 | R | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
@@ -231,6 +231,17 @@ Split into `KeyboardDeckKeycap.tsx`, holding `DeckKeycap` and the character ball
 already presentational -- the deck resolves touches to cells, not to elements -- so nothing about
 hit testing moved with it. 515 to 408.
 
+### R12 `transcripts/eventIndex.ts` (646)
+
+- Shared bookkeeping: what a subscriber is told, how big a raw event may be, where a nice index
+  lands a raw line, and the one place a session's index is dropped from.
+- Building the index by scanning the file, deduping concurrent builds, and coping with truncation.
+- Answering a reader out of a built index: counts, mode translation, usage, events, raw lines.
+- Who is reading and for how long: the refcount, and one chokidar watch per file fanned out to
+  every follower.
+
+Split into `eventIndexState.ts`, `eventIndexBuild.ts`, `eventIndexReads.ts`. 646 to 179.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -258,6 +269,14 @@ it moves code without merging any, and it keeps the twins independent if they ev
 taken, because it would have written the duplication into two new files whose names differ by one
 word, which is the wreckage the clustering outcome exists to prevent. `LiveSessionRegistry` takes
 the three differences as options (`vendor`, `idleDropMs`, `forget`), so no behaviour merged.
+
+### Decision: `eventIndex.ts` keeps a facade, where `activityDisplayItems.ts` did not
+
+The opposite call to R6, on purpose. The event index is refcounted: `acquireIndex` and
+`releaseIndex` are what make a built index valid to read, so a caller reaching straight into
+`eventIndexReads.ts` would be reading something it has not claimed. One address is the invariant,
+not a convenience, so the entry re-exports and the two importers were left alone. R6 had no such
+invariant -- `buildFeedLayout` is a pure function -- so a barrel there would only have hidden it.
 
 ### Decision: the four activity-feed importers were rewritten, not shielded by a re-export
 
