@@ -302,6 +302,55 @@ with no rebuild, no reinstall, and no re-pair.
   all derive from it, and the kill-before-relaunch step matches the variant's exact installed
   executable rather than a bare `pkill -f AgentDeskHost`, which would kill both.
 
+### A restart used to hand this Mac back the SHIPPED configuration
+
+Settled 2026-09-10, after an evening spent on an IDE that was not broken.
+
+`live` is a property of how the host was **launched**, not of the tree. The two variables that
+choose it (`AGENTDESK_BUN_PATH`, `AGENTDESK_AGENT_FEED_SIDECAR_ENTRY`) reach the host only from the
+process that launched it, so a host started any other way runs the frozen binary -- and launchd is
+the other way. `LaunchAgentInstaller` registers the app with `RunAtLoad` and no environment, so
+every reboot started the bundled sidecar and no dev server at all.
+
+It fails silently by construction. Three of the four paths into the bundled arm log a reason, but
+the first one does not, because an absent entry variable is not a fallback, it is the shipping path:
+
+```swift
+guard let entry = value("AGENTDESK_AGENT_FEED_SIDECAR_ENTRY") else { return bundled }
+```
+
+What that looked like: a sidecar compiled before the workspace routes existed, answering
+`404 not found` in `text/plain` to every `/api/workspace/*` call, so the IDE surface rendered
+perfectly and reported "the sidecar answered 404 with no JSON". Every probe aimed at the panel found
+a healthy layer. The only record anywhere on the machine was one `reloadsOnEdit=false` line.
+
+So **this Mac's login launch belongs to the dev path**, installed once with `just dev-login-install`
+and reversed with `just dev-login-uninstall`:
+
+- **`com.example.agentdesk.AgentDeskHost.devlogin`** runs `tools/dev-login.sh` -> `just host-login`, which is
+  `host-run`'s launch half with no build in it. A login that compiles is a login that can fail to
+  produce a host at all.
+- **`com.example.agentdesk.AgentDeskHost.paneldev`** runs the Vite dev server in the foreground, `KeepAlive`.
+  It is a separate job rather than a child of the first because **launchd reaps a job's process
+  group when the job exits**: measured, `agent-webview-dev-ensure` reported "serving at" from
+  inside the login job and the port was empty seconds later. A server that must outlive its starter
+  has to BE a job -- which is also how it earns a restart when Vite dies at 3am.
+- The app's own agent is booted out and deleted by the install, because two `RunAtLoad` jobs have no
+  defined order and the loser is whichever host `open` then merely activates. It stays gone: every
+  launch this path makes carries `AGENTDESK_DEV_ITERATION_RUN`, which is the flag
+  `applicationDidFinishLaunching` checks before registering it.
+- `AGENTDESK_AUTO_APPROVE` is **not** set by the login path, though `host-run` sets it. Nobody is
+  watching a launch that happens at login, and a pairing request that approves itself on an
+  unattended Mac is a different thing from one approved in front of you.
+- `host-login` reclaims the sidecar ports first. A sidecar outlives a host that was killed rather
+  than asked to quit, and it keeps the port; the new host's sidecar then cannot bind and the machine
+  serves the dead host's. Measured while building this: an orphaned bundled sidecar held 7682 while
+  `bun --watch` ran beside it, and `/api/workspace/list` answered 404 with both of them up.
+
+`just host-run` is still the iteration command and still the stop-and-wait checkpoint. The login
+path only starts what is already installed, so **an installed app moves forward only when you run
+`host-run`**.
+
 ### The dev origin is HTTPS over the tailnet, and that is load-bearing
 
 The origin is `https://<this-mac>.<tailnet>.ts.net:5173`, derived per machine by

@@ -145,6 +145,11 @@ agent_panel_origin_var := "AGENTDESK_AGENT_PANEL_ORIGIN"
 # either way, and it reaches its own tier's sidecar through that host's relay, not through Vite.
 agent_panel_dev_port := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_PORT", "5173")
 agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp/agentdesk-agent-panel-dev.log")
+# Where the login launch writes what it did. A file rather than os_log, because this runs at
+# login and the question it answers is always asked afterwards -- and `log show` returns nothing on
+# this machine, for any process, so os_log here would be a record that cannot be read back.
+dev_login_log := env_var_or_default("AGENTDESK_DEV_LOGIN_LOG", "/tmp/agentdesk-dev-login.log")
+panel_dev_login_log := env_var_or_default("AGENTDESK_PANEL_DEV_LOGIN_LOG", "/tmp/agentdesk-panel-dev-login.log")
 # The dev server's TLS material belongs to its durable runtime, outside the checkout.
 # Deleting build caches must not erase the certificate/key of the running server.
 agent_panel_dev_tls_dir := shell('node tools/runtime-paths.mjs panel-tls')
@@ -2042,6 +2047,196 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     echo "$HOST_PID $APP/Contents/MacOS/AgentDeskHost"
     # DOM bridge first-class: wire this variant's native-messaging manifest on every launch.
     just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
+
+# Bring the dev loop up at login, without building anything.
+#
+# `host-run` is the iteration command: build, install, launch. This is the LAUNCH half alone, for
+# the one caller that has no reason to build -- launchd, at login. Without it a reboot silently
+# returns this machine to the SHIPPED configuration, because launchd starts the installed app with
+# launchd's environment and that carries none of the dev variables. The host then serves the frozen
+# sidecar and the bundled panel while the tree being edited reaches nothing at all.
+#
+# Measured 2026-09-10, which is why this exists: a reboot left the sidecar on a binary compiled
+# before the workspace routes existed, so the IDE answered `404 not found` with no JSON, and the
+# only record of the switch anywhere on the machine was one `reloadsOnEdit=false` line in a log
+# file. A wrong configuration that announces itself is a bad morning; one that does not is a day.
+#
+# Builds are deliberately absent. A login that compiles is a login that can fail to produce a host
+# at all, and the installed app is by definition the last one that built. Run `just host-run` to
+# move the installed app forward; this only starts what is already there.
+host-login:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    APP='{{host_app}}'
+    if [ ! -d "$APP" ]; then
+        echo "ERROR: no installed host at $APP. Run 'just host-run' once to install one." >&2
+        exit 1
+    fi
+    # Whoever is already here wins. launchd starts this job once per login, but a person can run it
+    # too, and `open` on a running app activates it rather than relaunching -- which would leave a
+    # host started WITHOUT this environment looking like one started with it.
+    RUNNING="$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost" | head -1)"
+    if [ -n "$RUNNING" ]; then
+        echo "host-login: already running (pid $RUNNING); leaving it alone" >&2
+        exit 0
+    fi
+    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-7682}"
+    NAME="$(sh tools/tailnet-dns-name.sh)"
+    PANEL_ORIGIN="https://$NAME:{{agent_panel_dev_port}}"
+    # WAIT for the panel dev server rather than starting one. The `*.paneldev` agent owns it, and a
+    # server started from inside THIS job would not survive it: launchd reaps a job's process group
+    # when the job exits, so the detached Vite that `agent-webview-dev-ensure` leaves behind dies
+    # with the recipe that started it. Measured 2026-09-10 -- the log said "serving at" and the port
+    # was empty seconds later.
+    #
+    # Both jobs are started by the same login, in no defined order, so this waits instead of
+    # assuming. Sixty seconds covers a cold start that has to mint a certificate.
+    serving() { curl -fs -o /dev/null --max-time 4 "$PANEL_ORIGIN/@vite/client"; }
+    for _ in $(seq 1 60); do serving && break; sleep 1; done
+    if ! serving; then
+        # No panel agent installed, or it cannot come up. Start one the hand-run way and say so,
+        # because from here on this server dies with this recipe.
+        echo "host-login: nothing serving $PANEL_ORIGIN after 60s; starting one that will not outlive this job" >&2
+        PANEL_ORIGIN="$(just agent-webview-dev-ensure '{{agent_panel_dev_port}}' "http://127.0.0.1:$FEEDPORT")"
+        case "$PANEL_ORIGIN" in
+            https://*) ;;
+            *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
+        esac
+    fi
+    BUN_PATH="$(command -v bun || true)"
+    if [ -z "$BUN_PATH" ]; then
+        echo "ERROR: the live sidecar needs bun on PATH" >&2
+        exit 1
+    fi
+    # The live sidecar resolves its dependencies from the source tree rather than from a compiled
+    # binary, so the tree has to have them before the host spawns bun against it.
+    node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+      agent-feed-sidecar '{{agent_feed_sidecar_dir}}' '{{justfile_directory()}}/.build/js-dependencies' >&2
+    # A sidecar outlives the host that spawned it whenever that host was killed rather than asked to
+    # quit, and it keeps the port. The new host then starts its own, which cannot bind, and the
+    # machine serves the DEAD host's sidecar -- which is how a live sidecar and a 404 coexist.
+    # Measured while building this recipe: an orphaned bundled sidecar held 7682 while `bun --watch`
+    # ran alongside it, and `/api/workspace/list` answered 404 with both of them up.
+    sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
+    sh tools/reclaim-port.sh "voice sidecar" "${AGENTDESK_VOICE_SIDECAR_PORT:-7692}"
+    if [ -s '{{host_stdio}}' ]; then
+        tail -c '{{host_stdio_keep_bytes}}' '{{host_stdio}}' > '{{host_stdio}}.prev' 2>/dev/null || true
+    fi
+    : > '{{host_stdio}}'
+    # `open --env` hands these to this app alone. `launch-env.sh` is the other way and is wrong here:
+    # it goes through `launchctl setenv`, which publishes every value to every process that starts
+    # on this Mac for as long as it is set, and a login job has no natural moment to unset them.
+    #
+    # AGENTDESK_DEV_ITERATION_RUN is load-bearing rather than cosmetic. It stops the host
+    # registering its OWN LaunchAgent, which has no environment in it -- so a host started here can
+    # never install the thing that would start an env-less copy at the next login.
+    #
+    # AGENTDESK_AUTO_APPROVE is deliberately NOT set. `host-run` sets it because a person is sitting
+    # there watching the launch they just asked for; nothing is watching this one, and a pairing
+    # request that approves itself while the Mac is unattended is a different thing entirely.
+    open --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' \
+      --env "AGENTDESK_DEV_ITERATION_RUN=1" \
+      --env "AGENTDESK_AGENT_PANEL_ORIGIN=$PANEL_ORIGIN" \
+      --env "AGENTDESK_BUN_PATH=$BUN_PATH" \
+      --env 'AGENTDESK_AGENT_FEED_SIDECAR_ENTRY={{agent_feed_sidecar_dir}}/src/server.ts' \
+      --env 'AGENTDESK_RUNTIME_ROOT={{runtime_root}}' \
+      --env 'AGENT_FEED_GRID_ENCODER_PATH={{grid_encoder}}' \
+      --env 'AGENT_FEED_PTY_MANAGER_SOCKET={{host_pty_manager_socket_path}}' \
+      "$APP"
+    HOST_PID=""
+    for _ in $(seq 1 50); do
+        HOST_PID="$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost" | head -1)"
+        [ -n "$HOST_PID" ] && break
+        sleep 0.1
+    done
+    test -n "$HOST_PID" || { echo "ERROR: installed host did not launch: $APP" >&2; exit 1; }
+    echo "host-login: pid $HOST_PID panel $PANEL_ORIGIN sidecar live"
+
+# Make the dev loop what this Mac comes back to after a restart.
+#
+# Two LaunchAgents cannot both own the login launch, so this takes ownership from the app's own.
+# `LaunchAgentInstaller` writes `{{host_bundle_id}}` with `RunAtLoad` and NO environment, which is
+# right for a daily driver and is precisely the frozen configuration on a machine being developed
+# on. It is booted out and removed here; the host will not write it again, because every launch
+# this path makes carries AGENTDESK_DEV_ITERATION_RUN and that is the flag it checks.
+#
+# Reversible: `just dev-login-uninstall`, after which the next ordinary launch of the app restores
+# its own agent and the machine is a daily driver again.
+dev-login-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    AGENTS="$HOME/Library/LaunchAgents"
+    LABEL='{{host_bundle_id}}.devlogin'
+    PANEL_LABEL='{{host_bundle_id}}.paneldev'
+    mkdir -p "$AGENTS"
+    # The toolchain is located HERE, from a shell that has a working PATH, rather than guessed by
+    # the script launchd runs. Every one of these lives somewhere a login job cannot find: `just`
+    # under ~/.local/bin, `node` inside an nvm version directory that moves on every upgrade, `bun`
+    # in Homebrew, `tailscale` in /usr/local. Capturing the resolved directories means an upgrade
+    # that moves one is a re-install of this agent rather than a login that half works.
+    TOOL_DIRS=""
+    for TOOL in just bun node tailscale; do
+        TOOL_PATH="$(command -v "$TOOL" || true)"
+        if [ -z "$TOOL_PATH" ]; then
+            echo "ERROR: $TOOL is not on PATH, and the login launch needs it" >&2
+            exit 1
+        fi
+        TOOL_DIRS="$TOOL_DIRS$(dirname "$TOOL_PATH"):"
+    done
+    LOGIN_PATH="${TOOL_DIRS}/usr/bin:/bin:/usr/sbin:/sbin"
+    # write_agent <label> <script> <keep-alive> <log>
+    write_agent() {
+        AGENT_PLIST="$AGENTS/$1.plist"
+        cat > "$AGENT_PLIST" <<PLISTEOF
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>Label</key><string>$1</string>
+      <key>ProgramArguments</key>
+      <array><string>{{justfile_directory()}}/tools/$2</string></array>
+      <key>RunAtLoad</key><true/>
+      <key>KeepAlive</key><$3/>
+      <key>ProcessType</key><string>Interactive</string>
+      <key>LimitLoadToSessionType</key><string>Aqua</string>
+      <key>EnvironmentVariables</key>
+      <dict><key>PATH</key><string>$LOGIN_PATH</string></dict>
+      <key>StandardOutPath</key><string>$4</string>
+      <key>StandardErrorPath</key><string>$4</string>
+    </dict>
+    </plist>
+    PLISTEOF
+        # The heredoc is indented to sit inside this recipe, so take that indent back off. Every
+        # value written here is a label or an absolute path, so none of them starts with spaces of
+        # its own -- and `plutil -lint` is the check that this stayed true.
+        sed -i '' 's/^    //' "$AGENT_PLIST"
+        plutil -lint "$AGENT_PLIST" >/dev/null
+        launchctl bootout "gui/$(id -u)/$1" 2>/dev/null || true
+        launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST"
+    }
+    # Hand the app's own login agent over rather than racing it. Ordering between two RunAtLoad jobs
+    # is undefined, and the loser of that race is whichever host `open` then merely activates.
+    launchctl bootout "gui/$(id -u)/{{host_bundle_id}}" 2>/dev/null || true
+    rm -f "$AGENTS/{{host_bundle_id}}.plist"
+    write_agent "$LABEL" dev-login.sh false '{{dev_login_log}}'
+    # The panel dev server is a second job rather than a child of the first, because a child does
+    # not outlive it. KeepAlive on this one alone: it is the only piece that is a long-running
+    # server in its own right, and the panel cannot load at all without it.
+    write_agent "$PANEL_LABEL" panel-dev-login.sh true '{{panel_dev_login_log}}'
+    echo "dev-login-install: $LABEL and $PANEL_LABEL own this Mac's login launch"
+    echo "  host log:  {{dev_login_log}}"
+    echo "  panel log: {{panel_dev_login_log}}"
+
+# Give the login launch back to the app's own agent.
+dev-login-uninstall:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for LABEL in '{{host_bundle_id}}.devlogin' '{{host_bundle_id}}.paneldev'; do
+        launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+        rm -f "$HOME/Library/LaunchAgents/$LABEL.plist"
+        echo "dev-login-uninstall: removed $LABEL"
+    done
+    echo "The next ordinary launch of the app reinstalls its own agent, and this Mac is a daily driver again."
 
 restart-pty-runtime variant="stable": build-pty-runtime
     #!/usr/bin/env bash
