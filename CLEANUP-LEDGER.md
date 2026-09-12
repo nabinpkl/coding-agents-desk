@@ -49,7 +49,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R15 | D | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
 | R16 | D | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
 | R17 | D | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
-| R18 | R | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
+| R18 | D | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
 | R19 | R | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
 | R20 | R | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
 | R21 | R | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
@@ -290,6 +290,18 @@ modules R6 created now has its own suite at its own name. 939 panel tests, uncha
 
 Split into `codexRollouts.ts`, `codexPayloads.ts`, `codexNormalize.ts`. 629 to 71.
 
+### R18 `transcripts/sources/claudeTranscript.ts` (764)
+
+- Claude's files on disk: where a transcript lives, what the catalog learns from its edges without
+  reading it whole, and the sidecar file a large tool result was persisted to.
+- What a line carries: the turn-boundary signal, the tool vocabulary its summaries are written in,
+  the blocks a message's content becomes, and what its usage says about tokens and cache.
+- Turning one line into the blocks a reader sees.
+- The `SourceAdapter` itself.
+
+Split into `claudeProjects.ts`, `claudePayloads.ts`, `claudeNormalize.ts`, the same four-way shape
+R17 gave Codex. 764 to 74.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -303,6 +315,13 @@ Forks taken, with the alternative not taken and why. At a fork, the option that 
 - **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
   not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
   than pushing to an explicit refspec does.
+
+### Decision: the two transcript adapters are split the same way, but not shared
+
+Claude and Codex now both read rollouts/projects, payloads, normalize, adapter. Unlike the live
+backends in R2, nothing was merged: the two file layouts, envelopes and tool vocabularies have no
+overlapping code, only an overlapping shape. Naming the parts alike is what makes that shape
+visible; merging them would have invented a shared abstraction over two genuinely different wires.
 
 ### Decision: one shared session registry, not a copy per vendor
 
