@@ -222,6 +222,24 @@ def render_html(G: nx.DiGraph, node_community: dict, out_path: str, repo_root: s
   #file-view-close {{ cursor: pointer; color: #888; background: none; border: none; font-size: 14px; }}
   #file-view-close:hover {{ color: #e0e0e0; }}
   #file-view-body {{ flex: 1; overflow: auto; margin: 0; padding: 10px 14px; font-size: 11px; line-height: 1.5; font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: pre; color: #ccc; }}
+  #path-filter-wrap {{ border-bottom: 1px solid #2a2a4e; padding: 12px; height: 320px; display: flex; flex-direction: column; overflow: hidden; }}
+  #sidebar.viewing-file #path-filter-wrap {{ display: none; }}
+  #path-filter-wrap h3 {{ font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }}
+  #path-filter-tree {{ flex: 1; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; font-size: 12px; }}
+  #path-filter-tree details {{ margin-left: 14px; min-width: 0; }}
+  #path-filter-tree > details {{ margin-left: 0; }}
+  #path-filter-tree summary {{ list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 2px 0; user-select: none; min-width: 0; }}
+  #path-filter-tree summary::-webkit-details-marker {{ display: none; }}
+  #path-filter-tree summary::before {{ content: '\u25b8'; color: #666; font-size: 10px; display: inline-block; width: 10px; transition: transform 0.1s; flex-shrink: 0; }}
+  #path-filter-tree details[open] > summary::before {{ transform: rotate(90deg); }}
+  .tree-file {{ display: flex; align-items: center; gap: 6px; padding: 2px 0; margin-left: 14px; cursor: pointer; user-select: none; min-width: 0; }}
+  .tree-cb {{ appearance: none; -webkit-appearance: none; width: 13px; height: 13px; border: 1.5px solid #3a3a5e; border-radius: 3px; background: #0f0f1a; cursor: pointer; position: relative; flex-shrink: 0; }}
+  .tree-cb:checked {{ background: #4E79A7; border-color: #4E79A7; }}
+  .tree-cb:checked::after {{ content: ''; position: absolute; left: 3px; top: 1px; width: 3px; height: 6px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }}
+  .tree-cb:indeterminate {{ background: #4E79A7; border-color: #4E79A7; }}
+  .tree-cb:indeterminate::after {{ content: ''; position: absolute; left: 2px; top: 5px; width: 7px; height: 2px; background: #fff; border: none; }}
+  .tree-name {{ flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ccc; }}
+  .tree-count {{ color: #666; font-size: 10px; flex-shrink: 0; }}
   #legend-wrap {{ flex: 1; overflow-y: auto; padding: 12px; }}
   #sidebar.viewing-file #legend-wrap {{ display: none; }}
   #legend-wrap h3 {{ font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }}
@@ -249,6 +267,10 @@ def render_html(G: nx.DiGraph, node_community: dict, out_path: str, repo_root: s
       <button id="file-view-close" title="Close">&times;</button>
     </div>
     <pre id="file-view-body"></pre>
+  </div>
+  <div id="path-filter-wrap">
+    <h3>Filter by Path</h3>
+    <div id="path-filter-tree"></div>
   </div>
   <div id="legend-wrap">
     <h3>Import Clusters (by shared folder)</h3>
@@ -303,9 +325,11 @@ function showInfo(nodeId) {{
 }}
 
 function focusNode(nodeId) {{
+  focusedNodeId = nodeId;
   network.focus(nodeId, {{ scale: 1.4, animation: true }});
   network.selectNodes([nodeId]);
   showInfo(nodeId);
+  applyFilter();
 }}
 
 function openFileView(sourceFile) {{
@@ -330,7 +354,15 @@ document.addEventListener('click', e => {{
 }});
 
 network.on('click', params => {{
-  if (params.nodes.length > 0) showInfo(params.nodes[0]);
+  if (params.nodes.length > 0) {{
+    focusedNodeId = params.nodes[0];
+    showInfo(focusedNodeId);
+    applyFilter();
+  }} else if (focusedNodeId !== null) {{
+    // clicking empty canvas resets the isolation back to the full (filtered) graph
+    focusedNodeId = null;
+    applyFilter();
+  }}
 }});
 
 const searchInput = document.getElementById('search');
@@ -357,6 +389,131 @@ LEGEND.forEach(c => {{
   item.className = 'legend-item';
   item.innerHTML = `<div class="legend-dot" style="background:${{esc(c.color)}}"></div><div class="legend-label">${{esc(c.label)}}</div><div class="legend-count">${{c.count}}</div>`;
   legendEl.appendChild(item);
+}});
+
+// Path filter -- a real folder tree, computed from whatever RAW_NODES
+// actually holds (nothing about any specific path is hardcoded). Every
+// folder AND every individual file gets its own checkbox, so you can
+// exclude a whole top-level directory or one file like
+// "agent-feed/wire/index.ts" -- the depth you filter at is up to you.
+function buildTree(nodes) {{
+  const root = {{ name: '', children: new Map(), fileId: null }};
+  nodes.forEach(n => {{
+    const parts = n._source_file.split('/');
+    let cur = root;
+    parts.forEach((part, i) => {{
+      if (!cur.children.has(part)) cur.children.set(part, {{ name: part, children: new Map(), fileId: null }});
+      cur = cur.children.get(part);
+      if (i === parts.length - 1) cur.fileId = n.id;
+    }});
+  }});
+  return root;
+}}
+
+function collectLeafIds(node, out) {{
+  out = out || [];
+  if (node.fileId !== null) out.push(node.fileId);
+  node.children.forEach(child => collectLeafIds(child, out));
+  return out;
+}}
+
+const tree = buildTree(RAW_NODES);
+const excludedIds = new Set();
+const folderCheckboxes = [];  // {{ el, leafIds }}
+const fileCheckboxes = [];    // {{ el, id }}
+
+// Clicking a node isolates it plus its immediate (1-hop, either direction)
+// connections on the canvas -- everything else hides until you click empty
+// canvas or another node. This composes with the path filter: a file
+// excluded there stays hidden even inside a focused neighborhood.
+let focusedNodeId = null;
+
+function applyFilter() {{
+  const focusSet = focusedNodeId !== null
+    ? new Set([focusedNodeId, ...network.getConnectedNodes(focusedNodeId)])
+    : null;
+  const isHidden = (id) => excludedIds.has(id) || (focusSet !== null && !focusSet.has(id));
+
+  nodesDS.update(RAW_NODES.map(n => ({{ id: n.id, hidden: isHidden(n.id) }})));
+
+  const visibleCount = RAW_NODES.filter(n => !isHidden(n.id)).length;
+  const visibleEdgeCount = RAW_EDGES.filter(e => !isHidden(e.from) && !isHidden(e.to)).length;
+  const focusNote = focusSet !== null
+    ? ` · showing ${{focusSet.size}} connected file${{focusSet.size === 1 ? '' : 's'}} (click empty canvas to reset)`
+    : '';
+  document.getElementById('stats').textContent =
+    `${{visibleCount}} files (${{RAW_NODES.length}} total) · ${{visibleEdgeCount}} import edges · {len(community_members)} clusters${{focusNote}}`;
+}}
+
+function syncCheckboxes() {{
+  fileCheckboxes.forEach(({{ el, id }}) => {{ el.checked = !excludedIds.has(id); el.indeterminate = false; }});
+  folderCheckboxes.forEach(({{ el, leafIds }}) => {{
+    const excludedCount = leafIds.filter(id => excludedIds.has(id)).length;
+    el.checked = excludedCount === 0;
+    el.indeterminate = excludedCount > 0 && excludedCount < leafIds.length;
+  }});
+}}
+
+function renderNode(node) {{
+  const leafIds = collectLeafIds(node);
+  const isFile = node.children.size === 0;
+
+  if (isFile) {{
+    const row = document.createElement('label');
+    row.className = 'tree-file';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'tree-cb';
+    cb.checked = true;
+    cb.addEventListener('change', () => {{
+      if (cb.checked) excludedIds.delete(node.fileId); else excludedIds.add(node.fileId);
+      syncCheckboxes();
+      applyFilter();
+    }});
+    fileCheckboxes.push({{ el: cb, id: node.fileId }});
+    const name = document.createElement('span');
+    name.className = 'tree-name';
+    name.textContent = node.name;
+    row.appendChild(cb);
+    row.appendChild(name);
+    return row;
+  }}
+
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'tree-cb';
+  cb.checked = true;
+  cb.addEventListener('click', e => e.stopPropagation());  // don't toggle expand/collapse
+  cb.addEventListener('change', () => {{
+    if (cb.checked) leafIds.forEach(id => excludedIds.delete(id));
+    else leafIds.forEach(id => excludedIds.add(id));
+    syncCheckboxes();
+    applyFilter();
+  }});
+  folderCheckboxes.push({{ el: cb, leafIds }});
+  const name = document.createElement('span');
+  name.className = 'tree-name';
+  name.textContent = node.name || '/';
+  const count = document.createElement('span');
+  count.className = 'tree-count';
+  count.textContent = leafIds.length;
+  summary.appendChild(cb);
+  summary.appendChild(name);
+  summary.appendChild(count);
+  details.appendChild(summary);
+
+  const childNames = Array.from(node.children.keys()).sort((a, b) => a.localeCompare(b));
+  childNames.forEach(name => {{
+    details.appendChild(renderNode(node.children.get(name)));
+  }});
+  return details;
+}}
+
+const treeEl = document.getElementById('path-filter-tree');
+Array.from(tree.children.keys()).sort((a, b) => a.localeCompare(b)).forEach(name => {{
+  treeEl.appendChild(renderNode(tree.children.get(name)));
 }});
 </script>
 </body>
