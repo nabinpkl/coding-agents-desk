@@ -34,7 +34,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 |---|---|---|---|
 | R1 | D | 3/542 | `packages/AgentPanel/Web/src/features/usage/UsageModal.tsx` |
 | R2 | D | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
-| R3 | R | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
+| R3 | D | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
 | R4 | R | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
 | R5 | R | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
 | R6 | R | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
@@ -110,6 +110,22 @@ Split into `claudeLiveFlows.ts`, `claudeLiveMessages.ts`, and `liveSessionRegist
 codex, see the decision below). `claudeLiveBackend.ts` keeps the backend surface, the observer
 loop, and the ingest routing that owns flows. 726 to 423.
 
+### R3 `live/codexLiveBackend.ts` (816)
+
+- The `AgentBackend` surface, the observer subscription and its reconnect loop, and the ingest
+  routing that owns flows.
+- Which observed flows are codex response sockets, and which item rows one has mid-stream.
+- The assistant rows a turn is building, keyed by codex's own item id, and the user rows a
+  `response.create` carries.
+- What one websocket message does to those rows, and what a completed response reports about
+  tokens and cache hits.
+- Which sessions hold a live projection -- the same concept the claude mirror has.
+
+Split into `codexLiveFlows.ts`, `codexLiveItems.ts`, `codexLiveEvents.ts`, and onto the shared
+`liveSessionRegistry.ts` R2 introduced. 816 to 357. Two files where claude needed one, because
+codex's rows are a stateful store (`items`, `lastContent`) and claude's message is a plain value
+the flow already holds.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -142,3 +158,8 @@ and `usageGrid.ts`, which they sit beside and call. Flat changes less.
 ## Deferred
 
 Improvements noticed in passing and deliberately not made. This is not a bug-fixing arc.
+
+- `CodexLiveBackend.dispose` never cleared its per-session `items` and `lastContent` maps, only
+  the session drop paths did. Preserved exactly: `LiveSessionRegistry.clear` deliberately does not
+  call `forget`, so dispose leaves those rows behind the way it always has.
+- `CodexLiveBackend.acceptStreamEnded` takes a `ts` it does not use. Predates this arc.
