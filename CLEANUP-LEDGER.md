@@ -37,7 +37,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R3 | D | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
 | R4 | D | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
 | R5 | D | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
-| R6 | R | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
+| R6 | D | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
 | R7 | R | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
 | R8 | R | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
 | R9 | R | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
@@ -155,6 +155,21 @@ Split into `composerTypes.ts`, `composerWindowAccess.ts`, `composerTargets.ts`,
 commands are handed over by reference, not copied, so both still agree about which pids are
 observed and what each session last resolved to.
 
+### R6 `activity-feed/activityDisplayItems.ts` (515)
+
+- What a row in the feed is: the `DisplayItem` union, its accessors, its stable key, and the role
+  an event renders as.
+- Folding a run of tool calls into one row: which tools never fold, how short a run is not worth
+  folding, and what a folded run calls itself.
+- What one event says in a line: the collapsed preview, the intent the agent gave for its tool
+  calls, and the command a shell tool ran.
+- What the feed renders for a window of events: which rows exist, which tool results fold into the
+  call that asked, and how one event's blocks split between body and Raw drawer.
+
+Split into `activityEventText.ts` and `activityFeedLayout.ts`; the first two concepts stay in
+`activityDisplayItems.ts`. `projectIncrementalReasoning` moved with `buildFeedLayout`, its only
+caller.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -183,6 +198,13 @@ taken, because it would have written the duplication into two new files whose na
 word, which is the wreckage the clustering outcome exists to prevent. `LiveSessionRegistry` takes
 the three differences as options (`vendor`, `idleDropMs`, `forget`), so no behaviour merged.
 
+### Decision: the four activity-feed importers were rewritten, not shielded by a re-export
+
+Keeping `activityDisplayItems.ts` re-exporting the moved names would have changed nothing outside
+the split, which is the smaller option. Not taken: a re-export leaves every reader still finding
+`buildFeedLayout` at the old address, which is the clustering outcome undone by a barrel. The four
+importers changed on their import lines only.
+
 ### Decision: composer parts are siblings in `desktop/`, not a `desktop/composer/`
 
 Five files came out of one, which normally argues for a directory. Not taken: `desktop/` is already
@@ -206,3 +228,6 @@ Improvements noticed in passing and deliberately not made. This is not a bug-fix
   the session drop paths did. Preserved exactly: `LiveSessionRegistry.clear` deliberately does not
   call `forget`, so dispose leaves those rows behind the way it always has.
 - `CodexLiveBackend.acceptStreamEnded` takes a `ts` it does not use. Predates this arc.
+- In `activityEventText.ts`, `shellCommand`'s doc comment sits above `toolIntent`'s rather than
+  above `shellCommand`. It was already detached in `activityDisplayItems.ts`; moved verbatim,
+  detachment and all, rather than quietly re-homed.

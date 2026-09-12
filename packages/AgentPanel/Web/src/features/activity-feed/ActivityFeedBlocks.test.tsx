@@ -2,16 +2,18 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
+import { leadEvent } from "./activityDisplayItems";
+import {
+  eventPreview,
+  isFlowBlock,
+  shellCommand,
+  stripInlineMarkdown,
+  toolIntent,
+} from "./activityEventText";
 import {
   buildFeedLayout,
-  eventPreview,
-  leadEvent,
-  isFlowBlock,
   partitionEventBlocks,
-  shellCommand,
-  toolIntent,
-  stripInlineMarkdown,
-} from "./activityDisplayItems";
+} from "./activityFeedLayout";
 import {
   LabeledTextBlock,
   RawDetails,

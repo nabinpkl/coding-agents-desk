@@ -11,14 +11,14 @@ import {
 } from "./useSessionEventsStream";
 import { useStickToBottom } from "./useStickToBottom";
 import {
-  buildFeedLayout,
-  displayRole,
-  eventPreview,
-  itemKey,
-  leadEvent,
   type DisplayItem,
   type DisplayRole,
+  displayRole,
+  itemKey,
+  leadEvent,
 } from "./activityDisplayItems";
+import { eventPreview } from "./activityEventText";
+import { buildFeedLayout } from "./activityFeedLayout";
 import {
   jumpScrollTop,
   selectStickyCurrentIndex,

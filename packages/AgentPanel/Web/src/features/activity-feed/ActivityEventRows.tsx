@@ -6,16 +6,20 @@ import { Markdown } from "./markdown/Markdown";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "./ActivitySystemBlocks";
 import {
+  type DisplayRole,
   clusterLabel,
   displayRole,
+} from "./activityDisplayItems";
+import {
   eventPreview,
   isFlowBlock,
-  partitionEventBlocks,
   shellCommand,
   toolIntent,
-  type DisplayRole,
+} from "./activityEventText";
+import {
   type PairedToolResult,
-} from "./activityDisplayItems";
+  partitionEventBlocks,
+} from "./activityFeedLayout";
 import type { ActivityBlock, ActivityEvent, EventCacheHit } from "./useSessionEventsStream";
 import type { SessionReference } from "./data-source/AgentDataSource";
 import { markdownSafePrefix, useProgressiveText } from "./streamingText";

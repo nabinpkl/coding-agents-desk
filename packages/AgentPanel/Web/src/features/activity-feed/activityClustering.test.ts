@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildFeedLayout,
   clusterLabel,
   isSkillActivation,
   itemKey,
   leadEvent,
 } from "./activityDisplayItems";
+import { buildFeedLayout } from "./activityFeedLayout";
 import type { ActivityEvent } from "./useSessionEventsStream";
 
 let nextIndex = 0;
