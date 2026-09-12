@@ -132,16 +132,19 @@ export function BotSessionCard({
         // says which session this is. `border-primary` still wins over the shade while the card is
         // open, and that is the right order -- open is about right now, the shade is about which.
         className={`relative flex overflow-hidden rounded-lg border ${
-          shaded ? "bot-session-edge bot-session-fill" : ""
+          shaded ? "bot-session-edge bot-session-fill bot-rail" : ""
         } ${open ? "border-primary" : shaded ? "" : "border-border"}`}
         style={{
           ...shaded,
           ...(open ? { height: resize.height } : null),
           // Inline because it has to beat Tailwind's `border` shorthand, which sets all four widths
-          // from the utility layer. The leading edge is where a card in a horizontal strip is read
-          // from, and in light -- where the surface has no contrast headroom to spend and the
-          // ladder lives entirely in the border -- a hairline is the whole signal. Three pixels is
-          // what makes it one a reader can see without looking for it.
+          // from the utility layer. What is ON that edge changed with `bot-rail`: it used to be
+          // this session's own step of the border ladder, so the one edge a reader starts from was
+          // saying which session among several -- the question the fill and the other three borders
+          // were already answering. It now carries the BOT's rail, the same colour and the same
+          // solidity as the bar down the card around it, so the leading edge answers whose session
+          // this is and the rest of the card answers which. Three pixels against the Bot card's
+          // four, which is what puts the container's edge above the ones nested inside it.
           ...(shaded ? { borderLeftWidth: 3 } : null),
         }}
         // The WHOLE card takes the file, titlebar included, and a closed one takes it too. The

@@ -181,9 +181,15 @@ export function BotCanvasCard({
   // neutral border reads as a mistake rather than as a colour. A Bot the roster has not ranked
   // falls back to the plain card it was, which is defensive rather than expected: the canvas shows
   // a subset of the roster the hues are built from.
-  const surface = hue === undefined ? "bg-card" : "bot-surface";
+  // `bot-rail` is the second half of that: a solid bar of the Bot's colour down the leading edge,
+  // which is where a card in a horizontal strip is read from. The tint alone was doing this job and
+  // could only ever whisper it -- it is a large area with text on it, so it is bounded by contrast
+  // -- while a rail carries nothing and is bounded only by the gamut. So the card says whose it is
+  // twice, faintly over its whole body and unmistakably on one edge, and the sessions inside it
+  // repeat the second half verbatim.
+  const surface = hue === undefined ? "bg-card" : "bot-surface bot-rail";
   // A card being carried says something about right now, which outranks saying whose it is.
-  const edge = lifted ? "z-10 border-primary shadow-xl" : surface === "bg-card" ? "border-border" : "";
+  const edge = lifted ? "z-10 border-primary shadow-xl" : hue === undefined ? "border-border" : "";
   return (
     // Width always, height only while it holds the open session: closed, a card is as tall as its
     // own roster and a remembered height would be empty space. The card is a ROW -- its content
@@ -195,6 +201,11 @@ export function BotCanvasCard({
       className={`flex shrink-0 overflow-hidden rounded-xl border ${surface} ${edge}`}
       style={{
         ...botSurfaceStyle(hue),
+        // Inline because Tailwind's `border` sets all four widths from the utility layer, which
+        // beats the component layer the rail's colour lives in whatever the source order. Four
+        // against a session's three: the Bot is the container, and a container's edge reading
+        // heavier than the edges inside it is what says which way the nesting goes.
+        ...(hue === undefined ? null : { borderLeftWidth: 4 }),
         // No size of its own, at any panel width. A Bot card is exactly as big as the sessions
         // standing in it, in both directions: it once held a width and a height, and both turned
         // into empty space the moment the sessions carried their own. A narrow panel is not an

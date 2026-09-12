@@ -182,10 +182,28 @@
 :root {
   --bot-surface-l: 0.9915;
   --bot-surface-c: 0.0125;
-  --bot-border-l: 0.865;
-  --bot-border-c: 0.050;
+  --bot-border-l: 0.840;
+  --bot-border-c: 0.080;
   --bot-accent-l: 0.860;
   --bot-accent-c: 0.075;
+  /* The solid edge down a card's leading side, and the only colour in this file with no contrast
+     floor under it at all: no text sits on a rail, so sRGB is the whole budget. That is why it is
+     the most saturated thing in the palette while the surface two lines up stays a whisper -- the
+     two are answering different questions and are not on the same budget.
+
+     A Bot's rail and its sessions' rails are THE SAME COLOUR, which is the entire point of having
+     one. The hue says whose card this is and says it identically at both levels, so a session
+     three cards along still reads as belonging to a Bot whose head is off the left of the screen.
+     What tells one session from another is the surface and the border, which ladder; the rail
+     deliberately does not, because a grouping cue that varies inside the group is not one.
+
+     Measured over 72 hues against the sRGB a display paints: 3.03:1 against the light card and
+     6.31:1 against the dark, with painted chroma never below 0.110 in either. It leaves sRGB for
+     half the hue circle in light and a third in dark, which costs a rail nothing where it would
+     wreck a ladder -- clipping breaks a ladder by landing two ADJACENT steps on one colour, and
+     the nearest two Bots ever get on this wheel is 85 degrees, which holds 0.169 dEok. */
+  --bot-rail-l: 0.620;
+  --bot-rail-c: 0.170;
   /* Light moves the session ladder in the BORDER only, and the zeros are the measurement rather
      than an omission. `--muted-foreground` has 4.55:1 on the Bot's own surface against 4.73 on the
      untinted card, so there is 0.05 of headroom and every direction spends it: darkening the
@@ -194,8 +212,16 @@
      because no text sits on a border -- the same asymmetry the block above already runs on. */
   --bot-session-surface-dl: 0;
   --bot-session-surface-dc: 0;
-  --bot-session-border-dl: -0.038;
-  --bot-session-border-dc: 0.006;
+  /* Chroma-led now, against the rule the ladders here otherwise follow, and the reason is that
+     this ladder has a second job. Lightness-led is what keeps six steps separable, and it still
+     is -- but a border at chroma 0.050 climbing by 0.006 paints a chroma-to-lightness ratio of
+     0.058, which is a grey with a rumour of hue in it, and a reader looking at a card ringed in
+     that does not see the Bot's colour at all. Tripling the base chroma and doubling the step
+     takes that ratio to 0.094 and costs 0.0385 dEok of adjacent separation down to 0.0281, which
+     is still wider than the surface ladder dark is judged readable on. So light gives up a little
+     of "which session" to stop losing "whose session" outright. */
+  --bot-session-border-dl: -0.036;
+  --bot-session-border-dc: 0.012;
   /* A session's own FACE steps in light where its card surface cannot, and the difference is what
      bounds each. The surface is bounded by `--muted-foreground` over a large area, which the block
      above records as having 0.05 of headroom here; a 24px disc is bounded by `--foreground` on
@@ -247,22 +273,32 @@
   :root {
     --bot-surface-l: 0.234;
     --bot-surface-c: 0.022;
-    --bot-border-l: 0.400;
-    --bot-border-c: 0.055;
+    --bot-border-l: 0.440;
+    --bot-border-c: 0.100;
     --bot-accent-l: 0.380;
     --bot-accent-c: 0.060;
+    --bot-rail-l: 0.720;
+    --bot-rail-c: 0.150;
     /* Dark carries the ladder on the surface, where it has room in a way light does not: the Bot's
        card sits at 0.234 with `--card` at 0.205 below it, so six steps can climb away from the
        page without leaving it. */
     --bot-session-surface-dl: 0.020;
     --bot-session-surface-dc: 0.003;
-    --bot-session-border-dl: 0.038;
-    --bot-session-border-dc: 0.004;
+    /* Where "every session border looks white" came from, and it was a fair reading. This ladder
+       climbed lightness hard and chroma barely at all, so its top step painted l 0.590 at chroma
+       0.075 -- a ratio of 0.127, which on a dark card is a pale outline that happens to lean a
+       degree or two off neutral. Chroma-led fixes it: 0.100 climbing by 0.014 reaches 0.170, the
+       most the sRGB gamut will paint at these lightnesses, so the top step is now as coloured as
+       the hue can be rather than as light as the ladder could reach. Adjacent separation falls
+       from 0.0382 to 0.0333 dEok, which dark can afford where light could not -- it has the
+       surface ladder underneath carrying the same distinction. */
+    --bot-session-border-dl: 0.032;
+    --bot-session-border-dc: 0.014;
     /* The disc ladder, and dark is the tighter of the two themes rather than the looser one it is
        everywhere else. Everything here climbs AWAY from the page, and the disc climbing carries it
        TOWARD the near-white text sitting on it: at 0.034 a step, `--foreground` falls to 4.44:1 at
        hue 275 and fails AA. 0.028 holds 5.05:1 over 72 hues and six steps, with adjacent steps
-       0.028 dEok apart after clipping, which is still wider than the border ladder's 0.020. */
+       0.028 dEok apart after clipping, which is still wider than the surface ladder's 0.020. */
     --bot-session-accent-dl: 0.028;
     --bot-session-accent-dc: 0.004;
     /* Dark carries the ladder into the interior too, but at 0.012 a step rather than the card's
@@ -352,9 +388,9 @@
      Dark carries it on the surface: `--muted-foreground` holds 4.56:1 at the top step against
      6.40:1 on the Bot's own surface, and `--foreground` 11.32:1 against 15.9:1. AA wants 4.5, so
      the sixth step is the last one that fits and the ladder cycles there rather than climbing into
-     text nobody can read. Light leaves the surface alone and moves the border from 1.44:1 to
-     2.95:1 against the card it rings. Worst adjacent separation, after clipping: 0.020 dEok in
-     dark, 0.038 in light. */
+     text nobody can read. Light leaves the surface alone and moves the border from 1.55:1 to
+     2.76:1 against the card it rings. Worst adjacent separation, after clipping: 0.020 dEok on
+     dark's surface, 0.0281 on light's border. */
   .bot-session-fill {
     /* The two surfaces an OPEN session shows, handed DOWN as variables rather than painted here.
        `SessionView` is the same component the app's thread view renders, and it paints its own
@@ -442,6 +478,26 @@
       calc(var(--bot-border-c) + var(--bot-session-step) * var(--bot-session-border-dc))
       var(--bot-hue)
     );
+  }
+
+  /* The one edge that does not ladder, worn by a Bot card and by every session card inside it in
+     exactly the same colour. Grouping and distinction are on separate channels here and this is
+     the grouping one: the rail answers "whose card is this", the surface and the border answer
+     "which of them", and a reader mid-scroll with neither end of a Bot in view still has the
+     rail in front of them. Measured numbers are with the tokens, which is also where the reason
+     it can be this saturated lives.
+
+     LAST in this layer on purpose. It overrides one side of the `border-color` that `.bot-surface`
+     and `.bot-session-edge` set on all four, and between rules of equal specificity in one layer
+     the later one wins -- so moving this above either of them silently returns both rails to the
+     faint border colour. The WIDTH is not here: Tailwind's `border` utility sets all four widths
+     from the utility layer, which beats this one whatever the order, so the cards set it inline.
+
+     Not applied while a session is open, because `border-primary` is a utility and outranks the
+     whole of this layer. That is the same order the shade border already lives under and the same
+     reason: open is a fact about right now, and right now outranks which. */
+  .bot-rail {
+    border-left-color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--bot-hue));
   }
 }
 
