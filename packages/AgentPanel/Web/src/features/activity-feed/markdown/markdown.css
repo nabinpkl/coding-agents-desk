@@ -125,9 +125,39 @@
      that has nowhere to put it: on a phone it ran past the column and gave the whole transcript a
      horizontal scroll. `anywhere` rather than `break-word` because it also lowers the box's
      min-content width, which is what the line above it is measured against. Code FENCES keep their
-     own horizontal scroll (`.agent-panel-code__body`); this is only the inline kind. */
+     own horizontal scroll -- `.agent-panel-code__body` for a top-level one, the rule below for a
+     nested one; this is only the inline kind. */
   overflow-wrap: anywhere;
 }
+/* A fence INSIDE a list item or a blockquote never reaches `CodeBlock`: `appendTokens` peels only
+   TOP-LEVEL `code` tokens out of the document, so a nested one stays in the prose HTML as marked's
+   bare `<pre><code>`. With no rule of its own it kept the browser default -- `white-space: pre`
+   with `overflow: visible` -- so one long line pushed every ancestor wider than the column and
+   gave the whole transcript a horizontal scroll.
+
+   Measured 2026-09-11 on a compaction summary, which is the message an ordinary transcript is
+   likeliest to hit this with: fences inside numbered lists are the shape those summaries are
+   written in, and the summary is the last row in the session until somebody says something -- so
+   the scroll appears at the compaction and leaves with the next message. 934px of code in a 902px
+   column, spilling 32px past the row's border.
+
+   Same chrome as the peeled block, because nothing in the source tells a reader which fence was
+   top-level, and a nested one should not read as prose. */
+.agent-panel-md__prose pre {
+  margin: var(--agent-panel-md-block-gap) 0;
+  padding: 0.6em 0.8em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+  overflow-x: auto;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.agent-panel-md__prose pre code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: inherit;
+}
+
 .agent-panel-md__prose hr {
   border: none;
   border-top: 1px solid var(--border);
