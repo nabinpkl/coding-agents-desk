@@ -63,7 +63,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R29 | D | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
 | R30 | D | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
 | R31 | D | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
-| R32 | R | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
+| R32 | D | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
 | R33 | R | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
 | R34 | R | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
 | R35 | R | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
@@ -475,6 +475,15 @@ Split into `sessionTerminalTypes.ts`, `SessionComposer.tsx`, `sessionComposerMod
 `sessionComposerEditor.ts`, `sessionComposerActions.tsx`, `SessionComposerBand.tsx`,
 `useWindowComposer.ts`, `AskUserQuestionMirror.tsx`, `SessionExtensionUI.tsx`,
 `SessionTerminalControls.tsx`, `useAutoGrowingTextArea.ts`. 2216 to 449 and 423.
+
+### R32 `sidebar/AgentSidebar.tsx` (571)
+
+- The sidebar and its dialog: which mode is showing, and the roster under it.
+- One project row, and the sessions revealed under it in batches.
+- The one-line rows shown instead of content: loading, empty, failed.
+
+Split into `ProjectSidebarItem.tsx` and `SidebarStatusRows.tsx`. The batch sizes moved with the row
+they describe, since how many sessions a project opens on is a fact about that row. 571 to 382.
 
 ## Decisions
 
