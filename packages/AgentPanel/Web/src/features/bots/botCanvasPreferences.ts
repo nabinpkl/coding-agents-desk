@@ -125,3 +125,40 @@ export function storeBotCardSizes(sizes: BotCardSizes): void {
     // The canvas stays usable on its in-memory sizes when storage is disabled.
   }
 }
+
+const OPEN_SESSION_KEY = "agent-panel.bot-canvas.open-session";
+
+/**
+ * Which session the canvas had open, as `source:sessionId`, remembered across reloads.
+ *
+ * The same reason the sidebar's own selection is remembered: this panel is edited while it is being
+ * read, so a reload happens many times an hour, and every one of them closed the card someone was
+ * reading and left a canvas of collapsed rosters to click back through.
+ *
+ * Identity only, and deliberately unresolved. The key may name a session that has since ended or a
+ * Bot that no longer holds it, in which case no card opens and the canvas is the one it would have
+ * been anyway -- there is nothing to repair, so nothing checks. What is NOT stored is which Bots are
+ * on the canvas, for the reason `detachedBotIds` gives: a canvas that comes back whole costs one
+ * click to arrange again, where one that comes back missing a Bot hides it from a reader who has
+ * forgotten they took it off.
+ */
+export function loadCanvasOpenKey(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(OPEN_SESSION_KEY);
+    // Checked for the shape it is written in, so a hand-edited value cannot become a lookup for a
+    // key no session could ever have.
+    return typeof raw === "string" && raw.includes(":") ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeCanvasOpenKey(key: string | null): void {
+  try {
+    if (key === null) localStorage.removeItem(OPEN_SESSION_KEY);
+    else localStorage.setItem(OPEN_SESSION_KEY, key);
+  } catch {
+    // The canvas still opens and closes rows; it just forgets which one by the next visit.
+  }
+}

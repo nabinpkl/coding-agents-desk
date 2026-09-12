@@ -562,6 +562,55 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("reopens the canvas card that was open before a reload", () => {
+    const openOneBot = () => {
+      const harness = setup();
+      deliverProjects(harness.transport);
+      deliverSessions(harness.transport);
+      fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+      act(() => {
+        harness.transport.deliver("/api/bots/stream", {
+          version: 2,
+          revision: 1,
+          bots: [
+            {
+              botId: "bot-1",
+              name: "Release Captain",
+              environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+              sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+              metadata: { labels: [], custom: {} },
+              grants: [],
+              createdAt: 1,
+              createdBy: { kind: "user" },
+              environmentAvailability: "available",
+              sessions: [FIXTURE_SESSIONS[0]!],
+              missingSessionRefs: [],
+            },
+          ],
+        });
+      });
+      return harness;
+    };
+
+    const first = openOneBot();
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+    first.unmount();
+
+    // A reload throws away every piece of React state, and this panel is edited while it is being
+    // read. Coming back to a canvas of collapsed rosters means clicking back to what you were
+    // reading after every save.
+    const second = openOneBot();
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+
+    // Closing it is remembered too, so the card does not come back after being deliberately shut.
+    fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
+    second.unmount();
+    const third = openOneBot();
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+    third.unmount();
+  });
+
   it("gives a canvas row the whole session, sized against the card rather than the page", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

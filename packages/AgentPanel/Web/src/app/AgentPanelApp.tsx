@@ -37,6 +37,10 @@ import { searchWithSidebarMode, sidebarModeFromSearch } from "../features/sideba
 import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
 import { useBots } from "../features/bots/useBots";
 import { BotCanvas } from "../features/bots/BotCanvas";
+import {
+  loadCanvasOpenKey,
+  storeCanvasOpenKey,
+} from "../features/bots/botCanvasPreferences";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
@@ -164,10 +168,14 @@ export function App({ feed, host, fill = false }: Props) {
   // Which session the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
-  const [canvasOpenKey, setCanvasOpenKey] = useState<string | null>(null);
+  const [canvasOpenKey, setCanvasOpenKey] = useState<string | null>(loadCanvasOpenKey);
   const toggleCanvasSession = useCallback((key: string) => {
     setCanvasOpenKey((current) => (current === key ? null : key));
   }, []);
+  // One write for every way the open card changes -- the row's own toggle, the sidebar roster
+  // opening one, a Bot leaving the canvas -- rather than a call beside each of them, which is how
+  // one of them ends up forgotten.
+  useEffect(() => storeCanvasOpenKey(canvasOpenKey), [canvasOpenKey]);
   const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because
