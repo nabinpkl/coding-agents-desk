@@ -4,8 +4,9 @@ import {
   composerBox,
   composerText,
   keystrokesFor,
+  composerPanes,
   observeTmuxComposer,
-  readTmuxComposer,
+  readComposerAt,
   submitTmuxComposer,
   syncTmuxComposer,
   type TmuxComposerRuntime,
@@ -147,44 +148,39 @@ test("renders an escape visibly so a draft cannot smuggle a control sequence int
 
 function runtime(overrides: Partial<TmuxComposerRuntime> = {}): TmuxComposerRuntime & {
   sent: string[];
+  resolved: number;
 } {
   const sent: string[] = [];
+  const counted = { resolved: 0 };
   return {
     sent,
-    pane: async () => "agentdesk-1",
+    get resolved() {
+      return counted.resolved;
+    },
+    pane: async () => {
+      counted.resolved += 1;
+      return "agentdesk-1";
+    },
     screen: async () => screenWith(["hello"]),
     send: async (_pane, bytes) => {
       sent.push(new TextDecoder().decode(bytes));
     },
+    panes: composerPanes(),
     ...overrides,
   };
 }
-
-test("reports a session that is not running in tmux, without reaching for a screen", async () => {
-  let asked = false;
-  const tmux = runtime({
-    pane: async () => null,
-    screen: async () => {
-      asked = true;
-      return "";
-    },
-  });
-  expect(await readTmuxComposer("session", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
-  expect(asked).toBe(false);
-});
 
 test("reports tmux itself being gone as its own reason, rather than as an empty composer", async () => {
   const tmux = runtime({
     screen: async () => { throw new TmuxUnavailable("no server running"); },
   });
-  expect(await readTmuxComposer("session", tmux))
+  expect(await readComposerAt("agentdesk-1", tmux))
     .toEqual({ text: null, hint: null, reason: "tmux-unavailable", wrapped: false });
 });
 
 test("marks a multi-row reading as wrapped, so the panel knows not to trust it exactly", async () => {
   const tmux = runtime({ screen: async () => screenWith(["alpha bravo", "charlie"]) });
-  expect(await readTmuxComposer("session", tmux))
+  expect(await readComposerAt("agentdesk-1", tmux))
     .toEqual({ text: "alpha bravo charlie", hint: null, reason: null, wrapped: true });
 });
 
@@ -200,11 +196,19 @@ test("re-reads the screen before every push, rather than trusting the caller's v
   expect(tmux.sent).toHaveLength(1);
 });
 
-test("a push into a session with no pane sends nothing and says why", async () => {
-  const tmux = runtime({ pane: async () => null });
+test("a push into a session with no pane sends nothing, and never reaches for a screen", async () => {
+  let asked = false;
+  const tmux = runtime({
+    pane: async () => null,
+    screen: async () => {
+      asked = true;
+      return "";
+    },
+  });
   expect(await syncTmuxComposer("session", "hello", tmux))
     .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
   expect(tmux.sent).toEqual([]);
+  expect(asked).toBe(false);
 });
 
 test("accepting the hint presses Tab, and guesses nothing about what lands", async () => {
@@ -236,15 +240,24 @@ function watchable(initial: string[] = ["hello"]) {
     pane: "agentdesk-1" as string | null,
     /** How many times the screen was captured, which is the cost this change exists to remove. */
     screens: 0,
+    /** How many times the pane was gone looking for, which is the expensive one. */
+    resolved: 0,
+    sent: [] as string[],
     watching: false,
   };
   const tmux: TmuxComposerWatchRuntime = {
-    pane: async () => state.pane,
+    pane: async () => {
+      state.resolved += 1;
+      return state.pane;
+    },
     screen: async () => {
       state.screens += 1;
       return screenWith(state.rows);
     },
-    send: async () => {},
+    send: async (_pane, bytes) => {
+      state.sent.push(new TextDecoder().decode(bytes));
+    },
+    panes: composerPanes(),
     watch: async (_pane, onOutput) => {
       state.watching = true;
       notify = onOutput;
@@ -359,4 +372,78 @@ test("stopping before the pane answers still leaves nothing watching", async () 
   stop();
   await settle(60);
   expect(state.watching).toBe(false);
+});
+
+test("a push takes the pane the watch is already on, instead of going to find it again", async () => {
+  // The point of the whole registry. Resolving reads every session record on disk and asks the
+  // kernel about each pid, so a debounced push per keystroke burst was paying about fifty
+  // milliseconds to be told what the open watch had known since it opened.
+  const { tmux, state } = watchable(["hel"]);
+  const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
+  await settle(60);
+  expect(state.resolved).toBe(1);
+
+  await syncTmuxComposer("session", "hello", tmux);
+  await submitTmuxComposer("session", tmux);
+  expect(state.resolved).toBe(1);
+  expect(state.sent).toEqual([`${OPEN}lo${CLOSE}`, "\r"]);
+  stop();
+});
+
+test("a push with nobody watching goes and finds the pane for itself", async () => {
+  // The gap between a dropped stream and `EventSource` coming back is real, and typing during it
+  // has to reach the pane. A miss resolves; it does not refuse.
+  const tmux = runtime({ screen: async () => screenWith([""]) });
+  await syncTmuxComposer("session", "hello", tmux);
+  expect(tmux.resolved).toBe(1);
+  expect(tmux.sent).toEqual([`${OPEN}hello${CLOSE}`]);
+});
+
+test("a watch that let go stops lending its pane", async () => {
+  const { tmux, state } = watchable([""]);
+  const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
+  await settle(60);
+  stop();
+  await syncTmuxComposer("session", "hello", tmux);
+  expect(state.resolved).toBe(2);
+});
+
+test("a pane that stops answering is dropped, so the next push says the session is gone", async () => {
+  // Where a session that ended is found out, now that no push resolves by reflex. tmux takes the
+  // session down with the process, so the first push after that fails truthfully and forgets the
+  // pane, and the one after it resolves, finds nothing running, and says so.
+  const panes = composerPanes();
+  panes.hold("session", "agentdesk-1");
+  const tmux = runtime({
+    panes,
+    pane: async () => null,
+    screen: async () => { throw new TmuxUnavailable("can't find session"); },
+  });
+  expect(await syncTmuxComposer("session", "hello", tmux))
+    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", wrapped: false });
+  expect(await syncTmuxComposer("session", "hello", tmux))
+    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
+});
+
+test("two watchers hold one pane independently, and the first to leave does not take it", async () => {
+  const panes = composerPanes();
+  const first = panes.hold("session", "agentdesk-1");
+  const second = panes.hold("session", "agentdesk-1");
+  first();
+  expect(panes.get("session")).toBe("agentdesk-1");
+  second();
+  expect(panes.get("session")).toBeNull();
+});
+
+test("a watch that started after a forget still owns its own hold", async () => {
+  // The release closure holds the set it added to, which a forget detaches from the map. Deleting
+  // by key alone on the way out would drop the NEXT watch's pane.
+  const panes = composerPanes();
+  const stale = panes.hold("session", "agentdesk-1");
+  panes.forget("session");
+  const fresh = panes.hold("session", "agentdesk-2");
+  stale();
+  expect(panes.get("session")).toBe("agentdesk-2");
+  fresh();
+  expect(panes.get("session")).toBeNull();
 });

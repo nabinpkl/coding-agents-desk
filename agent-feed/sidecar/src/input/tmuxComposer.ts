@@ -226,11 +226,67 @@ function commonPrefix(left: string, right: string): string {
   return shared.join("");
 }
 
+/**
+ * The pane each live watch is sitting on, published so a push does not have to go and find one.
+ *
+ * Resolving a pane is the expensive act in this module: it reads every session record on disk and
+ * asks the kernel about each pid, which is a `ps` per record and about fifty milliseconds. Doing
+ * it per keystroke burst is pure waste, because a watch resolved that same pane when it opened and
+ * has been holding it ever since -- the panel cannot push at all without one, since the band that
+ * owns the field only appears once a watch has reported.
+ *
+ * Held rather than cached: an entry exists for exactly as long as a watch is on it, so it cannot
+ * go stale sitting in a map nobody is looking at. A caller that finds nothing held goes and
+ * resolves, which is what keeps a push working across the gap while a dropped stream reconnects.
+ */
+export interface TmuxComposerPanes {
+  /** Records the pane a watch is on, until the returned function is called. */
+  hold: (sessionId: string, pane: string) => () => void;
+  /** The pane a watch is holding for this session, or null when none is. */
+  get: (sessionId: string) => string | null;
+  /** Drops a pane that stopped answering, so the next caller goes and looks again. */
+  forget: (sessionId: string) => void;
+}
+
+export function composerPanes(): TmuxComposerPanes {
+  /** A token per watch rather than a count, so two panels on one session hold it independently. */
+  const held = new Map<string, Set<{ pane: string }>>();
+  return {
+    hold(sessionId, pane) {
+      const token = { pane };
+      const holders = held.get(sessionId) ?? new Set<{ pane: string }>();
+      holders.add(token);
+      held.set(sessionId, holders);
+      return () => {
+        holders.delete(token);
+        // Only if this set is still the one on the map. A `forget` between the hold and the
+        // release detaches it, and a later watch puts its own there; deleting by key alone would
+        // then drop that watch's pane on this one's way out.
+        if (holders.size === 0 && held.get(sessionId) === holders) held.delete(sessionId);
+      };
+    },
+    get(sessionId) {
+      for (const token of held.get(sessionId) ?? []) return token.pane;
+      return null;
+    },
+    forget(sessionId) {
+      held.delete(sessionId);
+    },
+  };
+}
+
 /** Everything the live functions need from tmux, injected so the suite needs no tmux server. */
 export interface TmuxComposerRuntime {
+  /**
+   * Finds which tmux session a Claude session is running in, from scratch.
+   *
+   * The expensive call, and the reason `panes` exists. Reached only by a watch opening, or by a
+   * push that arrives with nothing watching.
+   */
   pane: (sessionId: string) => Promise<string | null>;
   screen: (pane: string) => Promise<string>;
   send: (pane: string, bytes: Uint8Array) => Promise<void>;
+  panes: TmuxComposerPanes;
 }
 
 /** What watching additionally needs: a way to be told the pane wrote something. */
@@ -262,6 +318,9 @@ const LIVE: TmuxComposerRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),
   screen: captureTmuxScreen,
   send: hexSend,
+  // One registry for the process, so a watch opened through the routes is visible to a push that
+  // took the default runtime. Two would be two answers to one question.
+  panes: composerPanes(),
 };
 
 /** The live runtime, given the pane signal only the terminal service can supply. */
@@ -295,13 +354,18 @@ export interface TmuxComposerListener {
  * redraw, since a working session is writing above its composer, not into it -- is read and
  * dropped here rather than sent to every panel watching.
  *
+ * The pane is resolved ONCE, here, and then held for everything that follows: this watch's own
+ * reads, and every push the panel makes while it lasts. A session's pane does not move under it,
+ * so finding it again per read or per keystroke would be paying fifty milliseconds to be told the
+ * same thing.
+ *
  * A session with no pane ENDS rather than waiting: there is nothing to hang a pipe on, and a
  * session gains a pane later often enough to matter -- pressing the band's own terminal button
  * resumes one. Ending hands the retry to whoever asked, where a stream that stayed open would
  * have to grow a timer to notice, which is the thing this replaced.
  *
  * A pane that DIES is not noticed here, and deliberately: the pipe simply goes quiet. It is
- * noticed at the next push, which re-resolves the pane and answers `no-pane` -- the same place
+ * noticed at the next push, whose tmux call fails and drops the held pane -- the same place
  * `useCliInput` corrects a session that died under the composer, and the moment a reader is
  * about to care.
  */
@@ -317,6 +381,9 @@ export function observeTmuxComposer(
   /** What the last report said, so an unchanged screen is not reported again. */
   let reported: string | null = null;
   let unwatch: (() => void) | null = null;
+  let release: (() => void) | null = null;
+  /** Resolved once, at the top, and used by every read this watch makes. */
+  let pane: string | null = null;
 
   const end = (): void => {
     if (stopped) return;
@@ -333,10 +400,10 @@ export function observeTmuxComposer(
   };
 
   const readNow = async (): Promise<void> => {
-    if (stopped || reading) return;
+    if (stopped || reading || pane === null) return;
     reading = true;
     try {
-      report(await readTmuxComposer(sessionId, runtime));
+      report(await readComposerAt(pane, runtime));
     } catch {
       // A read that threw is not evidence about the composer, and the next output brings another.
     } finally {
@@ -353,20 +420,20 @@ export function observeTmuxComposer(
   };
 
   void (async () => {
-    let pane: string | null;
+    let found: string | null;
     try {
-      pane = await runtime.pane(sessionId);
+      found = await runtime.pane(sessionId);
     } catch {
-      pane = null;
+      found = null;
     }
     if (stopped) return;
-    if (!pane) {
+    if (!found) {
       report(unavailable("no-pane"));
       end();
       return;
     }
     try {
-      const stop = await runtime.watch(pane, schedule);
+      const stop = await runtime.watch(found, schedule);
       if (stopped) {
         stop();
         return;
@@ -377,6 +444,10 @@ export function observeTmuxComposer(
       end();
       return;
     }
+    pane = found;
+    // Published only now, with the pipe actually set: a push against a pane this watch failed to
+    // join should go and resolve for itself rather than take this one's word for it.
+    release = runtime.panes.hold(sessionId, found);
     // The first reading is not waited for: a pane that is sitting idle writes nothing, so a
     // watcher that only spoke on output would say nothing at all until somebody typed.
     await readNow();
@@ -386,21 +457,28 @@ export function observeTmuxComposer(
     stopped = true;
     if (timer) clearTimeout(timer);
     unwatch?.();
+    release?.();
   };
 }
 
-/** What the session's composer is showing, or why it cannot be seen. */
-export async function readTmuxComposer(
-  sessionId: string,
-  runtime: TmuxComposerRuntime = LIVE,
+/** What the composer in `pane` is showing, or why it cannot be seen. */
+export async function readComposerAt(
+  pane: string,
+  runtime: Pick<TmuxComposerRuntime, "screen">,
 ): Promise<TmuxComposerState> {
-  const reading = await observe(sessionId, runtime);
-  if ("reason" in reading) return unavailable(reading.reason);
+  let box: ComposerBox | null;
+  try {
+    box = composerBox(await runtime.screen(pane));
+  } catch (error) {
+    if (error instanceof TmuxUnavailable) return unavailable("tmux-unavailable");
+    throw error;
+  }
+  if (!box) return unavailable("no-composer");
   return {
-    text: composerText(reading.rows),
-    hint: reading.hint,
+    text: composerText(box.rows),
+    hint: box.hint,
     reason: null,
-    wrapped: reading.rows.length > 1,
+    wrapped: box.rows.length > 1,
   };
 }
 
@@ -420,20 +498,20 @@ export async function syncTmuxComposer(
   desired: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  const reading = await observe(sessionId, runtime);
-  if ("reason" in reading) return unavailable(reading.reason);
-  const keys = keystrokesFor(reading.rows, desired);
-  if (keys.length > 0) {
-    try {
-      await runtime.send(reading.pane, new TextEncoder().encode(keys));
-    } catch (error) {
-      if (error instanceof TmuxUnavailable) return unavailable("tmux-unavailable");
-      throw error;
-    }
+  try {
+    const pane = await paneFor(sessionId, runtime);
+    if (!pane) return unavailable("no-pane");
+    const box = composerBox(await runtime.screen(pane));
+    if (!box) return unavailable("no-composer");
+    const keys = keystrokesFor(box.rows, desired);
+    if (keys.length > 0) await runtime.send(pane, new TextEncoder().encode(keys));
+    // No hint: whatever Claude was offering, the box now holds what was asked for instead. An
+    // empty push is the one case where a suggestion comes back, and the watcher reports it a
+    // moment later.
+    return { text: desired, hint: null, reason: null, wrapped: false };
+  } catch (error) {
+    return failed(sessionId, error, runtime);
   }
-  // No hint: whatever Claude was offering, the box now holds what was asked for instead. An empty
-  // push is the one case where a suggestion comes back, and the watcher reports it a moment later.
-  return { text: desired, hint: null, reason: null, wrapped: false };
 }
 
 /** Presses Return in the pane, which is what makes Claude take the turn. */
@@ -467,50 +545,46 @@ async function press(
   landed: TmuxComposerState,
   runtime: TmuxComposerRuntime,
 ): Promise<TmuxComposerState> {
-  let pane: string | null;
   try {
-    pane = await runtime.pane(sessionId);
-  } catch (error) {
-    if (error instanceof TmuxUnavailable) return unavailable("tmux-unavailable");
-    throw error;
-  }
-  if (!pane) return unavailable("no-pane");
-  try {
+    const pane = await paneFor(sessionId, runtime);
+    if (!pane) return unavailable("no-pane");
     await runtime.send(pane, new TextEncoder().encode(key));
+    return landed;
   } catch (error) {
-    if (error instanceof TmuxUnavailable) return unavailable("tmux-unavailable");
-    throw error;
+    return failed(sessionId, error, runtime);
   }
-  return landed;
+}
+
+/**
+ * The pane to type into: the one a live watch is already on, or a fresh resolution.
+ *
+ * The held one is not verified before it is used. Verifying it would cost the resolution this
+ * exists to skip, and the tmux call about to be made is a better check than any preflight: it
+ * either lands or it fails, and `failed` turns the failure into an answer.
+ */
+async function paneFor(sessionId: string, runtime: TmuxComposerRuntime): Promise<string | null> {
+  return runtime.panes.get(sessionId) ?? await runtime.pane(sessionId);
+}
+
+/**
+ * A tmux failure, turned into a reason -- and a held pane that failed is dropped on the way.
+ *
+ * This is where a session that ended is found out. A watch does not notice: the pipe simply goes
+ * quiet, and tmux takes the session down with the process that was running in it. So the first
+ * push after that reports `tmux-unavailable`, truthfully -- tmux really did refuse -- and drops
+ * the pane, and the one after it resolves, finds no live process, and says `no-pane`, which is
+ * what the reader needs to be told.
+ */
+function failed(
+  sessionId: string,
+  error: unknown,
+  runtime: TmuxComposerRuntime,
+): TmuxComposerState {
+  if (!(error instanceof TmuxUnavailable)) throw error;
+  runtime.panes.forget(sessionId);
+  return unavailable("tmux-unavailable");
 }
 
 function unavailable(reason: NonNullable<TmuxComposerState["reason"]>): TmuxComposerState {
   return { text: null, hint: null, reason, wrapped: false };
-}
-
-/** The pane and its composer rows, or the reason there are none. */
-async function observe(
-  sessionId: string,
-  runtime: TmuxComposerRuntime,
-): Promise<
-  (ComposerBox & { pane: string }) | { reason: NonNullable<TmuxComposerState["reason"]> }
-> {
-  let pane: string | null;
-  try {
-    pane = await runtime.pane(sessionId);
-  } catch (error) {
-    if (error instanceof TmuxUnavailable) return { reason: "tmux-unavailable" };
-    throw error;
-  }
-  if (!pane) return { reason: "no-pane" };
-  let screen: string;
-  try {
-    screen = await runtime.screen(pane);
-  } catch (error) {
-    if (error instanceof TmuxUnavailable) return { reason: "tmux-unavailable" };
-    throw error;
-  }
-  const box = composerBox(screen);
-  if (!box) return { reason: "no-composer" };
-  return { pane, ...box };
 }

@@ -5,8 +5,10 @@
 // keyboard of the terminal a person is looking at. Claude-only for the same structural reason, and
 // refused by the route pattern rather than by a runtime check.
 //
-// The pane is never named by the caller. It is resolved here, from the session id, every time --
-// a request that could name a tmux session would be a way to type into any pane on the machine.
+// The pane is never named by the caller. It is always derived from the session id -- a request
+// that could name a tmux session would be a way to type into any pane on the machine -- and the
+// derivation is shared rather than repeated: a live stream publishes the pane it is watching, and
+// a push takes it from there instead of reading every session record on disk again.
 //
 // Reading is a STREAM rather than a request, and there is no request form of it. The composer
 // changes when somebody types, which is an event the pane already publishes; asking on a timer
