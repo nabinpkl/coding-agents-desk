@@ -904,31 +904,11 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("shows one Bot at a time when the canvas cannot hold two, without storing that width", () => {
+  it("never pins a card to the panel's width, however narrow the panel is", () => {
     localStorage.setItem(
       "agent-panel.bot-canvas.session-sizes",
       JSON.stringify({ "claude:sid-claude-01": { width: 900, height: 500 } }),
     );
-    // Drive the canvas measurement. The strip installs a ResizeObserver to answer one question --
-    // is there room for two cards side by side -- and jsdom's default stub is inert, so this
-    // records the observer and reports a panel too narrow to hold them.
-    const inertResizeObserver = globalThis.ResizeObserver;
-    let remeasure: (() => void) | null = null;
-    let scroller: Element | null = null;
-    Object.defineProperty(globalThis, "ResizeObserver", {
-      configurable: true,
-      value: class {
-        constructor(callback: () => void) {
-          remeasure = callback;
-        }
-        observe(node: Element) {
-          scroller = node;
-        }
-        unobserve() {}
-        disconnect() {}
-      },
-    });
-
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -953,35 +933,25 @@ describe("App shell", () => {
     });
 
     const card = document.querySelector<HTMLElement>('ul[aria-label="Bot canvas"] > li');
-    // Unmeasured, the Bot card says nothing about its own width: it is as wide as what is in it.
+    // A Bot card is as wide as what is in it, at every panel width. It used to take the panel's
+    // width below two cards' worth of room, which is what a phone got.
     expect(card!.style.width).toBe("");
     expect(card!.style.minWidth).toBe("");
 
-    act(() => {
-      Object.defineProperty(scroller!, "clientWidth", { configurable: true, value: 400 });
-      remeasure!();
-    });
+    // The regression that pinning caused, and the reason this is asserted rather than left to the
+    // card above: a session row is `shrink-0` in a flex row and holds a `flex-1 min-w-0` column, so
+    // taking its width away resolved it to ZERO. A phone showed an empty card with a sliver in it.
+    const sessions = (): HTMLElement =>
+      card!.querySelector<HTMLElement>('ul[aria-label="Release Captain sessions"] > li')!;
+    expect(sessions().style.width).toBe("260px");
 
-    // The canvas minus the strip's own padding, and no width grip: there is no other width to drag
-    // a card to when the canvas is showing exactly one.
-    expect(card).toHaveStyle({ width: "376px" });
-    expect(screen.queryByRole("separator", { name: /Release Captain/ })).toBeNull();
-
-    // A session still resizes, and committing must not write the canvas's width over the Bot's own.
-    // Scoped to the card, because the roster in the sidebar offers the same session by the same
-    // name.
+    // Opened, the width it was stored at -- which the panel does not get a say in either, and which
+    // now has a grip, because there is a width to drag.
     fireEvent.click(within(card!).getByRole("button", { name: /^Session Claude 01/ }));
-    fireEvent.keyDown(screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ }), {
-      key: "ArrowUp",
-    });
-    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.session-sizes") ?? "{}")).toEqual({
-      "claude:sid-claude-01": { width: 900, height: 476 },
-    });
-
-    Object.defineProperty(globalThis, "ResizeObserver", {
-      configurable: true,
-      value: inertResizeObserver,
-    });
+    expect(sessions().style.width).toBe("900px");
+    expect(
+      screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ }),
+    ).toBeInTheDocument();
     unmount();
   });
 

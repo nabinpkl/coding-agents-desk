@@ -3,7 +3,6 @@ import {
   DEFAULT_CARD_HEIGHT,
   DEFAULT_CARD_WIDTH,
   MAX_CARD_HEIGHT,
-  CAROUSEL_CANVAS_WIDTH,
   MAX_CARD_WIDTH,
   MIN_CARD_HEIGHT,
   MIN_CARD_WIDTH,
@@ -78,11 +77,6 @@ describe("session card sizes", () => {
     // The ends of its own range still hold.
     expect(clampCardWidth(10)).toBe(MIN_CARD_WIDTH);
     expect(clampCardWidth(99999)).toBe(MAX_CARD_WIDTH);
-  });
-
-  it("gives up on side by side below two cards' worth of canvas", () => {
-    // The threshold is a display decision the canvas makes, not a width any card is stored at.
-    expect(CAROUSEL_CANVAS_WIDTH).toBe(MIN_CARD_WIDTH * 2);
   });
 
   it("lets a card be taller than any window, because the canvas scrolls", () => {

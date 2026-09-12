@@ -6,7 +6,6 @@ import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
 import {
-  CAROUSEL_CANVAS_WIDTH,
   DEFAULT_CARD_SIZE,
   botCanvasOrderOf,
   loadBotCanvasOrder,
@@ -238,22 +237,7 @@ function BotCanvasList({
     storeBotCanvasOrder(next);
   };
   const move = useMoveAlongStrip({ canvas, list, onDrop: rearrange });
-  // How wide the canvas is. It no longer bounds a card -- the strip scrolls, so a card may be wider
-  // than the panel -- and is measured for one question only: whether there is room to put two cards
-  // side by side at all. Measured rather than queried, because the sidebar is pinnable and
-  // resizable, so the window's width is not this panel's.
-  const [canvasWidth, setCanvasWidth] = useState(0);
-  useEffect(() => {
-    const node = canvas.current;
-    if (!node || typeof ResizeObserver === "undefined") return undefined;
-    // The list's own padding is not room a card can use.
-    const measure = (): void => setCanvasWidth(Math.max(0, node.clientWidth - 24));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  const resizeSession = (key: string, size: BotCardSize, keep: boolean): void => {
+  const resizeSession =(key: string, size: BotCardSize, keep: boolean): void => {
     const next = { ...sessionSizes, [key]: size };
     setSessionSizes(next);
     // Pruned to what is on the canvas as it is written. Sessions are not bounded the way Bots are,
@@ -295,9 +279,6 @@ function BotCanvasList({
             onToggleSession={onToggleSession}
             sessionSizes={sessionSizes}
             onResizeSession={resizeSession}
-            carouselWidth={
-              canvasWidth > 0 && canvasWidth < CAROUSEL_CANVAS_WIDTH ? canvasWidth : null
-            }
             onAddSession={onAddSession}
             onForkSession={onForkSession}
             onRenameSession={onRenameSession}
@@ -462,7 +443,6 @@ function BotSessionCard({
   open,
   onToggle,
   size,
-  stretched,
   onResize,
   onResizeCommit,
   sessionContext,
@@ -476,8 +456,6 @@ function BotSessionCard({
   open: boolean;
   onToggle: () => void;
   size: BotCardSize;
-  /** True when the canvas is showing one Bot at a time, where a session takes the whole card. */
-  stretched: boolean;
   onResize: (size: BotCardSize) => void;
   onResizeCommit: (size: BotCardSize) => void;
   sessionContext: SessionViewContext;
@@ -493,23 +471,22 @@ function BotSessionCard({
   // which is what lets two of them be open at once without their controls landing in the same
   // place. State rather than a ref, because the session has to render again once the node exists.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
-  const sized = open && !stretched;
   const resize = useCardResize({
     name: title,
     noun: "session",
     size,
-    canResizeWidth: sized,
+    canResizeWidth: open,
     canResizeHeight: open,
     onResize,
     onResizeCommit,
   });
   return (
-    // Opened, the width it was last given; closed, the spine's own. Nothing at all under the
-    // carousel, where the Bot card is already pinned to the panel and a session takes what it has.
-    <li
-      className="shrink-0"
-      style={stretched ? undefined : { width: open ? resize.width : CLOSED_SESSION_WIDTH }}
-    >
+    // Opened, the width it was last given; closed, the spine's own. Always one of the two, at every
+    // panel width: this row is `shrink-0` inside a flex row, so it does not stretch to a container
+    // on the main axis, and the column inside it is `flex-1 min-w-0`. Leaving the width off
+    // therefore resolved the whole session to ZERO -- which is what a phone showed, a Bot card with
+    // an empty body and a one-pixel sliver where the roster should be.
+    <li className="shrink-0" style={{ width: open ? resize.width : CLOSED_SESSION_WIDTH }}>
       <div
         className={`flex overflow-hidden rounded-lg border ${
           open ? "border-primary" : "border-border"
@@ -621,7 +598,6 @@ function BotCanvasCard({
   onToggleSession,
   sessionSizes,
   onResizeSession,
-  carouselWidth,
   offset,
   lifted,
   onMoveStart,
@@ -644,12 +620,6 @@ function BotCanvasCard({
   /** Every session's own size, by `source:sessionId`. */
   sessionSizes: BotCardSizes;
   onResizeSession: (key: string, size: BotCardSize, keep: boolean) => void;
-  /**
-   * The width to show every card at when the canvas is too narrow to hold two, and null when it is
-   * not. Display only: it is never written back, so a phone cannot overwrite the width this Bot was
-   * given on a Mac.
-   */
-  carouselWidth: number | null;
   /** How far this card is drawn from where the strip laid it out, while a move is happening. */
   offset: number;
   /** Whether this is the card being carried, rather than one stepping aside for it. */
@@ -726,11 +696,11 @@ function BotCanvasCard({
         lifted ? "z-10 border-primary shadow-xl" : "border-border"
       }`}
       style={{
-        // No size of its own. A Bot card is exactly as big as the sessions standing in it, in both
-        // directions: it once held a width and a height, and both turned into empty space the
-        // moment the sessions carried their own. The one exception is the carousel, where the panel
-        // is too narrow to hold two Bots and pins the card rather than the reader choosing.
-        ...(carouselWidth === null ? {} : { width: carouselWidth }),
+        // No size of its own, at any panel width. A Bot card is exactly as big as the sessions
+        // standing in it, in both directions: it once held a width and a height, and both turned
+        // into empty space the moment the sessions carried their own. A narrow panel is not an
+        // exception -- the strip scrolls, so a phone crawls sideways across a card the same way a
+        // Mac does, rather than having one pinned to its width.
         transform: offset === 0 ? undefined : `translateX(${offset}px)`,
         // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
         // thing that should look like it is moving.
@@ -826,7 +796,6 @@ function BotCanvasCard({
                 open={sessionKey(session) === openKey}
                 onToggle={() => onToggleSession(sessionKey(session))}
                 size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
-                stretched={carouselWidth !== null}
                 onResize={(next) => onResizeSession(sessionKey(session), next, false)}
                 onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
                 sessionContext={sessionContext}

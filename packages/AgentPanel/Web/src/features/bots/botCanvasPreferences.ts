@@ -28,15 +28,6 @@ export const MAX_CARD_WIDTH = 8000;
 export const DEFAULT_CARD_WIDTH = 440;
 
 /**
- * The canvas width below which the strip shows exactly one card at a time.
- *
- * Two cards at the narrowest a card is allowed to be. Under that there is no arrangement of cards
- * side by side left to make, so the canvas stops trying and gives each card the whole width, which
- * is what turns a phone into a swipe between Bots rather than a sideways crawl across one.
- */
-export const CAROUSEL_CANVAS_WIDTH = MIN_CARD_WIDTH * 2;
-
-/**
  * Low enough to be out of the way rather than an opinion about what is readable: a card can be
  * squashed until only its header shows, and the session inside gives up its space first. Not zero,
  * because the grip is the last thing in the card and the card clips its own overflow -- a card
@@ -87,9 +78,8 @@ function inRange(value: unknown, min: number, max: number): value is number {
  * Width used to stop at the width of the row a card sat in, which is what made a card wrap to the
  * next line when you grew it. There are no lines now: the cards are one strip that scrolls
  * sideways, so a card wider than the panel is a card you asked to see more of, the same argument
- * that freed the height. A narrow canvas is handled by `CAROUSEL_CANVAS_WIDTH` instead, and that
- * one is a display decision rather than a stored one -- a phone must not be able to write the
- * panel's width over the width you chose on a Mac.
+ * that freed the height. A narrow canvas is no different: the strip scrolls there too, so a phone
+ * crawls sideways across a card rather than having one pinned to its width.
  */
 export function clampCardWidth(width: number): number {
   const wanted = Number.isFinite(width) ? Math.round(width) : DEFAULT_CARD_WIDTH;
