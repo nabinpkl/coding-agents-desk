@@ -476,14 +476,6 @@
     background-color: oklch(
       var(--bot-session-fill-l) var(--bot-session-fill-c) var(--bot-session-hue, var(--bot-hue))
     );
-    /* How much room the transcript's rows leave either side of themselves, which is a property of
-       how wide this card is rather than of the feed. Twelve against the thread view's
-       twenty-four: that view is the whole page and this is a card around 450 wide, where the pair
-       of them was spending a tenth of the width on nothing and reading as a scrollbar gutter. The
-       feed names this with the twenty-four spelled out as its fallback, so every other reader of
-       it is untouched. The composer band below the transcript takes the same number, or the two
-       would disagree about where the card's text begins. */
-    --feed-row-gutter: 12px;
     /* The ink for the caption on this card, on the same step as the card. Greyscale on purpose:
        what it has to track is the LIGHTNESS moving under it, and a tinted caption on a tinted card
        at eleven pixels is two colours arguing where one of them is barely visible.

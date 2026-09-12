@@ -76,21 +76,29 @@ export function showEventRoleLabel(
 export const CHIP_CLASS =
   "rounded-sm px-[0.4em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase leading-none tracking-wider ";
 /**
- * The space either side of every transcript row, and the only thing in the feed that has to know
- * how wide the column it is in happens to be.
+ * The space either side of every transcript row, as a share of the column rather than a number.
  *
- * Twenty-four is right for the thread view, which is the whole page. It is not right on a Bot
- * card: an open session there is around 450 pixels wide, so the pair of them was spending 48 on
- * nothing, and it reads as space held back for a scrollbar. Nothing is held back -- this panel
- * gets overlay scrollbars, and the scroller was measured taking zero layout width on both the real
- * panel and a headless Chrome, so the thumb floats over this gutter rather than being given it.
+ * Twenty-four was right for the thread view, which is the whole page, and wrong everywhere the
+ * feed is narrow: on a Bot card an open session is around 450 wide, so the pair of them spent a
+ * tenth of it on nothing, and on a phone at 390 the same 48 pixels is worse still. It also read as
+ * space held back for a scrollbar, and nothing is held back -- this panel gets overlay scrollbars,
+ * and the scroller was measured taking zero layout width both on the real panel and in a headless
+ * Chrome, so the thumb floats over this gutter rather than being given it.
  *
- * So the number is published rather than fixed: `.bot-session-fill` sets `--feed-row-gutter` and
- * everywhere else resolves the fallback and is untouched. Written with the fallback spelled out
- * because a bare `var()` over an unset property is invalid at computed-value time and the padding
- * would drop to zero with nothing said about it.
+ * A PERCENTAGE, not a container query, and the difference is containment. Percentage padding
+ * resolves against the containing block's inline size, which here is the transcript column itself,
+ * so this reads the width with no `container-type` anywhere -- and `container-type: inline-size`
+ * carries `contain: layout`, which would make whichever element held it the containing block for
+ * every absolutely positioned descendant inside it. A session's tasks panel is positioned against
+ * its CARD, so moving that anchor is a real change to make for a gutter.
+ *
+ * Three percent, floored at 12 and capped at 24. The cap is where the thread view sits and is why
+ * the full-page view is untouched: it reaches 24 at an 800px column and every page-width column is
+ * past that. The floor is what a phone and a small card get. Between them it ramps, so a card the
+ * reader has dragged wider gets a gutter to match rather than a step at some threshold nobody
+ * chose.
  */
-export const FEED_ROW_GUTTER_CLASS = "px-[var(--feed-row-gutter,1.5rem)]";
+export const FEED_ROW_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
 
 /**
  * An event's role chip and collapse toggle, floated so the first line of the
