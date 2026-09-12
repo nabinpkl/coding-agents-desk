@@ -480,7 +480,7 @@ function BotSessionCard({
   // which is what lets two of them be open at once without their controls landing in the same
   // place. State rather than a ref, because the session has to render again once the node exists.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
-  const sized = open && !stretched;
+  const sized = !stretched;
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -495,7 +495,9 @@ function BotSessionCard({
     // about it, the strip's `stretch` gives it the whole card, which is what a row should be.
     <li className="shrink-0" style={sized ? { width: resize.width } : undefined}>
       <div
-        className={`flex overflow-hidden ${open ? "rounded-lg border border-primary" : ""}`}
+        className={`flex overflow-hidden rounded-lg border ${
+          open ? "border-primary" : "border-border"
+        }`}
         style={open ? { height: resize.height } : undefined}
       >
         <div className="flex min-w-0 flex-1 flex-col">
@@ -505,8 +507,8 @@ function BotSessionCard({
               titlebar: it is where its controls land, the way the app header is where the thread
               view's land. */}
           <div
-            className={`@container flex shrink-0 flex-wrap items-start border-l-2 pr-1.5 ${
-              open ? "border-primary bg-muted" : "border-transparent"
+            className={`@container flex shrink-0 flex-wrap items-start pr-1.5 ${
+              open ? "bg-muted" : ""
             }`}
           >
             <button
@@ -792,7 +794,11 @@ function BotCanvasCard({
           // The one flexible thing in the card: closed rows keep their own height, so a drag lands
           // entirely on the open session. Squeezed hard enough the session collapses to nothing and
           // the roster stays readable, which is the recoverable way round -- drag it taller again.
-          <ul role="list" aria-label={`${bot.name} sessions`} className="flex min-h-0 flex-1 flex-col">
+          <ul
+            role="list"
+            aria-label={`${bot.name} sessions`}
+            className="flex min-h-0 flex-1 flex-col items-start gap-2 p-2"
+          >
             {bot.sessions.map((session) => (
               <BotSessionCard
                 key={sessionKey(session)}

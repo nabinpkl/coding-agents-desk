@@ -716,8 +716,11 @@ describe("App shell", () => {
     fireEvent.keyDown(widen, { key: "ArrowLeft" });
     expect(widen).toHaveAttribute("aria-valuenow", "596");
 
-    // A closed session is a row: nothing to drag, and nothing a drag would mean.
-    expect(screen.queryByRole("separator", { name: /Session Claude 01/ })).toBeNull();
+    // A session carries its width closed as well as open -- that is what makes it a box rather
+    // than a stretched row -- but there is no height to drag until there is something to be tall
+    // for.
+    expect(screen.getByRole("separator", { name: /^Widen Session Claude 01/ })).toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: /^Resize Session Claude 01/ })).toBeNull();
 
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     const grip = screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ });
@@ -754,9 +757,14 @@ describe("App shell", () => {
       "claude:sid-claude-01": { width: DEFAULT_CARD_WIDTH + 40, height: MIN_CARD_HEIGHT + 40 },
     });
 
-    // Closing puts the session back to a row, and its size waits for the next time it is opened.
+    // Closing takes back the height, and leaves the width where it was: a closed session is still
+    // a box, just one with nothing to be tall for.
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
-    expect(screen.queryByRole("separator", { name: /Session Claude 01/ })).toBeNull();
+    expect(screen.queryByRole("separator", { name: /^Resize Session Claude 01/ })).toBeNull();
+    expect(screen.getByRole("separator", { name: /^Widen Session Claude 01/ })).toHaveAttribute(
+      "aria-valuenow",
+      String(DEFAULT_CARD_WIDTH + 40),
+    );
     expect(screen.getByRole("separator", { name: "Widen Release Captain card" })).toBeInTheDocument();
     unmount();
   });
