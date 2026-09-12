@@ -122,6 +122,44 @@ bun add @codemirror/state @codemirror/view @codemirror/commands \
         @codemirror/language @codemirror/language-data @codemirror/theme-one-dark docx-preview
 ```
 
+### Read back a second time, against the SURFACE, 2026-09-10
+
+The first read-back covered the editing path, which is where text gets lost, and was reported as
+though it covered the port. It did not. Every deleted web source was compared against what replaced
+it: `tree.ts`, `activityBar.ts`, `sourceControl.ts`, `ideModel.ts`, `editor/mount.ts`, `dom.ts`,
+`projection.ts`, `mount.ts`, and the generated icon table.
+
+Faithful, checked line by line: the tree's aria labels, the chevron-as-the-directory-mark decision,
+the rule that ignored rows are dimmed but never badged, the git tones, the source-control grouping
+including the porcelain conflict set and the deliberate double-listing of a path edited in both
+index and worktree, the tab strip with drag reorder and its three save marks, the breadcrumb, the
+conflict bar, read-only kinds forcing preview, and the empty states.
+
+Two suspicions raised and disproved by reading rather than assuming, both worth recording so they
+are not re-raised:
+
+- **`image` and `pdf` file kinds.** The old `projection.ts` declared them and the port has no branch
+  for either. But `WorkspaceKit.WorkspaceFileKind` -- the authority the host actually produced from
+  -- is exactly `docx | html | markdown | notebook | text`, the same five the wire has now. The old
+  TypeScript type was wider than anything that ever reached it.
+- **Roster management.** `WorkspaceIDEPlatformCapabilities` carried `removeWorkspace`,
+  `reorderWorkspaces`, `assignDesktop` and `autoAssignDesktop`, all granted on the Mac, and the
+  window controller handled all four intents. The web `Intent` union declared none of them and
+  `mountSidebar` rendered select-plus-add and nothing else. So the IDE never exposed them: the
+  plumbing existed for a surface that was never built. Adding them now is new work, not a restore.
+
+What was genuinely a shortcut, and is fixed: **the file icons**. The port mapped ~45 extensions onto
+`lucide-react` outlines, which is one grey page repeated down a tree. The generated
+material-icon-theme subset was recovered from history as data -- 91 icon families, 667 extensions,
+443 filenames -- and is committed as `sidebar/fileIcons.json` rather than a 1200-line `.ts`, because
+it is generated output with no logic in it and the 500-line cap governs source. Colour is the point:
+it is what makes a language findable before the name is read.
+
+Still open, and recorded rather than fixed: **zoom has no control on a touch surface**. The old
+toolbar carried `-` and `+`; zoom now lives at the panel window level (`PanelWindowZoom.swift`,
+Command-plus / Command-minus / Command-zero), which is better on the Mac and leaves a phone with
+nothing.
+
 ## Not in this arc
 
 - **Desktop assignment from the IDE sidebar.** ADR-0115 records why it leaves rather than moves.

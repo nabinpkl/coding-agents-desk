@@ -75,6 +75,14 @@ export interface WorkspaceIde extends WorkspaceIdeState {
   useHostVersion(path: string): void;
   keepMyVersion(path: string): void;
   update(change: Partial<WorkspaceIdePreferences>): void;
+  /**
+   * Put a failure in front of the reader.
+   *
+   * Exported so the surface's own calls -- adding, renaming and removing a workspace -- report
+   * through the banner every other failure here uses, rather than through a modal `alert` that
+   * blocks the page and cannot be styled or read back by a test.
+   */
+  reportError(message: string): void;
   dismissError(): void;
   isPreview(path: string): boolean;
 }
@@ -369,7 +377,11 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     loadingPath,
     error,
     preferences,
-    selectWorkspace: useCallback((id: string) => update({ workspaceId: id }), [update]),
+    // Normalised here rather than at each caller: both the roster's "No workspaces" option and
+    // removing the last project arrive as an empty string, and storing that would persist a
+    // workspace id that can never match one.
+    selectWorkspace: useCallback((id: string) => update({ workspaceId: id || null }), [update]),
+    reportError: setError,
     openPath,
     closePath: writing.closePath,
     activate: setActivePath,

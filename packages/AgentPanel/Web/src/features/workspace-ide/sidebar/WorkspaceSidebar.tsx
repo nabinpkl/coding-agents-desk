@@ -1,8 +1,9 @@
 // The sidebar: which workspace, which section, and the section itself.
 
-import { FolderTree, GitBranch, Plus } from "lucide-react";
+import { FolderTree, GitBranch } from "lucide-react";
 import type { WorkspaceGitStatus, WorkspaceSummary, WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import { SourceControl } from "@/features/workspace-ide/sidebar/SourceControl";
+import { WorkspaceRoster } from "@/features/workspace-ide/sidebar/WorkspaceRoster";
 import { WorkspaceTree } from "@/features/workspace-ide/sidebar/WorkspaceTree";
 import type { WorkspaceIdePreferences } from "@/features/workspace-ide/workspaceIdePreferences";
 
@@ -26,6 +27,9 @@ export function WorkspaceSidebar({
   onSelectWorkspace,
   onSelectSection,
   onAddWorkspace,
+  onRenameWorkspace,
+  onRemoveWorkspace,
+  onReorderWorkspaces,
   onOpen,
   onToggleDirectory,
 }: {
@@ -38,37 +42,23 @@ export function WorkspaceSidebar({
   onSelectWorkspace: (id: string) => void;
   onSelectSection: (section: Section) => void;
   onAddWorkspace: () => void;
+  onRenameWorkspace: (id: string, name: string) => void;
+  onRemoveWorkspace: (id: string) => void;
+  onReorderWorkspaces: (ids: string[]) => void;
   onOpen: (path: string) => void;
   onToggleDirectory: (path: string, expanded: boolean) => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col border-r border-border bg-background">
-      <header className="flex min-h-[42px] shrink-0 items-center gap-1.5 border-b border-border px-2">
-        <select
-          aria-label="Select workspace"
-          value={workspaceId ?? ""}
-          disabled={workspaces.length === 0}
-          onChange={(event) => onSelectWorkspace(event.target.value)}
-          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-1.5
-            outline-none focus-visible:ring-2 focus-visible:ring-primary
-            disabled:text-muted-foreground"
-        >
-          {workspaces.length === 0
-            ? <option value="">No workspaces</option>
-            : workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
-            ))}
-        </select>
-        <button
-          type="button"
-          aria-label="Add workspace"
-          title="Add workspace"
-          onClick={onAddWorkspace}
-          className={`${CONTROL} shrink-0 border border-border hover:bg-muted/60 active:bg-muted`}
-        >
-          <Plus className="size-4" />
-        </button>
-      </header>
+      <WorkspaceRoster
+        workspaces={workspaces}
+        workspaceId={workspaceId}
+        onSelect={onSelectWorkspace}
+        onAdd={onAddWorkspace}
+        onRename={onRenameWorkspace}
+        onRemove={onRemoveWorkspace}
+        onReorder={onReorderWorkspaces}
+      />
 
       <nav
         aria-label="Workspace sidebar sections"

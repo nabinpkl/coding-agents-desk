@@ -68,6 +68,17 @@ export class WorkspaceIdeClient {
     return this.call("POST", "/api/workspace/rename", { id, name });
   }
 
+  /**
+   * Set the roster's order.
+   *
+   * The whole order every time, not a move: the store takes a permutation and refuses one that is
+   * not, so sending two indices would make the caller responsible for a rule the store already
+   * owns.
+   */
+  reorderWorkspaces(ids: readonly string[]): Promise<void> {
+    return this.call("POST", "/api/workspace/reorder", { ids: [...ids] });
+  }
+
   tree(id: string): Promise<{ tree: WorkspaceTreeNode[] }> {
     return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/tree`);
   }

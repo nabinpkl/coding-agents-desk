@@ -56,6 +56,13 @@ export function WorkspaceIdeSurface({
     });
   }, [ide]);
 
+  /** Every roster call fails the same way: into the banner, named by what was attempted. */
+  const report = useCallback(
+    (attempt: string) => (cause: unknown) =>
+      ide.reportError(`${attempt}: ${cause instanceof Error ? cause.message : String(cause)}`),
+    [ide],
+  );
+
   const addWorkspace = useCallback(() => {
     // A prompt rather than a directory picker: the browser cannot hand a page an absolute path,
     // and the sidecar needs one. It refuses anything that is not an existing, non-symlinked
@@ -65,11 +72,42 @@ export function WorkspaceIdeSurface({
     setAdding(true);
     void ide.client.addWorkspace(root.trim())
       .then(({ workspace }) => ide.selectWorkspace(workspace.id))
-      .catch((cause: unknown) => {
-        window.alert(cause instanceof Error ? cause.message : String(cause));
-      })
+      .catch(report("Could not add that workspace"))
       .finally(() => setAdding(false));
-  }, [ide]);
+  }, [ide, report]);
+
+  const renameWorkspace = useCallback(
+    (id: string, name: string) => {
+      void ide.client.renameWorkspace(id, name).catch(report("Could not rename that workspace"));
+    },
+    [ide, report],
+  );
+
+  const reorderWorkspaces = useCallback(
+    (ids: string[]) => {
+      void ide.client.reorderWorkspaces(ids).catch(report("Could not reorder the workspaces"));
+    },
+    [ide, report],
+  );
+
+  /**
+   * Unregister a project, and move the reader somewhere that still exists.
+   *
+   * Selecting the neighbour here rather than waiting for the roster event: the stream will report
+   * the new list either way, but between the removal and that event the panel would be pointed at
+   * a workspace the sidecar no longer knows, and every call it makes in that window answers 404.
+   */
+  const removeWorkspace = useCallback(
+    (id: string) => {
+      const remaining = ide.workspaces.filter((workspace) => workspace.id !== id);
+      void ide.client.removeWorkspace(id)
+        .then(() => {
+          if (ide.workspaceId === id) ide.selectWorkspace(remaining[0]?.id ?? "");
+        })
+        .catch(report("Could not remove that workspace"));
+    },
+    [ide, report],
+  );
 
   if (ide.workspaces.length === 0) {
     return (
@@ -130,6 +168,9 @@ export function WorkspaceIdeSurface({
                   onSelectWorkspace={ide.selectWorkspace}
                   onSelectSection={(section) => ide.update({ section })}
                   onAddWorkspace={addWorkspace}
+                  onRenameWorkspace={renameWorkspace}
+                  onRemoveWorkspace={removeWorkspace}
+                  onReorderWorkspaces={reorderWorkspaces}
                   onOpen={ide.openPath}
                   onToggleDirectory={ide.setDirectoryExpanded}
                 />
