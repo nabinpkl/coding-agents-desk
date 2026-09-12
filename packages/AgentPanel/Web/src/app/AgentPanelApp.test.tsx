@@ -977,6 +977,106 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("reorders the strip from a card's menu, and stands the Bots that way again after a reload", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    const deliver = () => act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }, {
+          botId: "bot-2",
+          name: "Nightly Sweeper",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+    deliver();
+
+    // Read off each card's own session list, which is labelled with its Bot. The name in the header
+    // is not a usable handle: the avatar beside it carries the Bot's initials in the same span.
+    const standing = () =>
+      [...document.querySelectorAll('ul[aria-label="Bot canvas"] > li')].map((card) =>
+        card.querySelector('ul[aria-label$=" sessions"]')?.getAttribute("aria-label") ?? "",
+      );
+    expect(standing()).toEqual(["Release Captain sessions", "Nightly Sweeper sessions"]);
+
+    // The left end offers no way further left, so the entry is absent rather than dead.
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Release Captain" }));
+    expect(screen.queryByRole("menuitem", { name: "Move left" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move right" }));
+
+    expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.order") ?? "[]")).toEqual([
+      "bot-2",
+      "bot-1",
+    ]);
+
+    // The roster arriving again does not undo the arrangement: order is remembered, not derived
+    // from whatever sequence the sidecar happened to resolve.
+    deliver();
+    expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
+    unmount();
+
+    const second = setup();
+    deliverProjects(second.transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      second.transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }, {
+          botId: "bot-2",
+          name: "Nightly Sweeper",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+    expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
+    second.unmount();
+  });
+
   it("forks a session from its canvas row menu into a terminal of its own", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

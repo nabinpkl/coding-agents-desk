@@ -8,6 +8,11 @@ import { BotAvatar } from "./BotSidebarPanel";
 import {
   CAROUSEL_CANVAS_WIDTH,
   DEFAULT_CARD_SIZE,
+  botCanvasOrderOf,
+  loadBotCanvasOrder,
+  moveInOrder,
+  orderBotsForCanvas,
+  storeBotCanvasOrder,
   MAX_CARD_HEIGHT,
   MAX_CARD_WIDTH,
   MIN_CARD_HEIGHT,
@@ -21,6 +26,9 @@ import {
 } from "./botCanvasPreferences";
 import { BotCardMenu } from "./BotCardMenu";
 import { SessionRowMenu } from "./SessionRowMenu";
+
+/** The `gap-3` between cards, in pixels, which a card stepping aside has to clear as well. */
+const STRIP_GAP = 12;
 
 /**
  * The Bots put on the canvas, with all of their curated sessions, in one scroll.
@@ -199,13 +207,27 @@ function BotCanvasList({
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
   const [sizes, setSizes] = useState<BotCardSizes>(loadBotCardSizes);
+  const [order, setOrder] = useState<string[]>(loadBotCanvasOrder);
+  const standing = orderBotsForCanvas(bots, order);
+  // The scroller and the strip inside it. The scroller is what gets measured -- the list is
+  // `w-max`, so it reports its own contents, and widening a card would grow the very thing being
+  // asked how much room a card has -- and the strip is what a move reads card positions from.
+  const canvas = useRef<HTMLDivElement | null>(null);
+  const list = useRef<HTMLUListElement | null>(null);
+  // `moveInOrder` hands back the same array when the move is a no-op, which is what makes the
+  // identity check below meaningful rather than a comparison of two fresh arrays.
+  const rearrange = (from: number, to: number): void => {
+    const current = botCanvasOrderOf(standing);
+    const next = moveInOrder(current, from, to);
+    if (next === current) return;
+    setOrder(next);
+    storeBotCanvasOrder(next);
+  };
+  const move = useMoveAlongStrip({ canvas, list, onDrop: rearrange });
   // How wide the canvas is. It no longer bounds a card -- the strip scrolls, so a card may be wider
   // than the panel -- and is measured for one question only: whether there is room to put two cards
   // side by side at all. Measured rather than queried, because the sidebar is pinnable and
-  // resizable, so the window's width is not this panel's. The SCROLLER is what gets measured, not
-  // the list inside it: the list is `w-max`, so it reports its own contents, and widening a card
-  // would grow the very thing being asked how much room a card has.
-  const canvas = useRef<HTMLDivElement | null>(null);
+  // resizable, so the window's width is not this panel's.
   const [canvasWidth, setCanvasWidth] = useState(0);
   useEffect(() => {
     const node = canvas.current;
@@ -233,10 +255,18 @@ function BotCanvasList({
           to the tallest, so a Bot with two sessions beside a Bot with twelve becomes a card mostly
           made of empty. The cost is a ragged bottom edge, which is the honest shape of a row that
           holds different amounts. */}
-      <ul role="list" aria-label="Bot canvas" className="flex w-max items-start gap-3 p-3">
-        {bots.map((bot) => (
+      <ul ref={list} role="list" aria-label="Bot canvas" className="flex w-max items-start gap-3 p-3">
+        {standing.map((bot, index) => (
           <BotCanvasCard
             key={bot.botId}
+            offset={move.offsetOf(index)}
+            lifted={move.liftedIndex === index}
+            onMoveStart={(clientX) => move.start(index, clientX)}
+            onMoveBy={move.to}
+            onMoveEnd={move.end}
+            onMoveBySteps={(steps) => rearrange(index, index + steps)}
+            canMoveLeft={index > 0}
+            canMoveRight={index < standing.length - 1}
             bot={bot}
             sessionContext={sessionContext}
             botError={botError}
@@ -257,6 +287,140 @@ function BotCanvasList({
       </ul>
     </div>
   );
+}
+
+/** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
+const EDGE_SCROLL_MARGIN = 56;
+const EDGE_SCROLL_STEP = 14;
+
+interface StripMove {
+  /** The index being carried, or null when nothing is. */
+  liftedIndex: number | null;
+  /** How far the card at `index` is displaced from where the strip laid it out. */
+  offsetOf: (index: number) => number;
+  start: (index: number, clientX: number) => void;
+  to: (clientX: number) => void;
+  end: () => void;
+}
+
+/**
+ * Carrying one card along the strip and dropping it somewhere else in the order.
+ *
+ * Everything moves by TRANSFORM and nothing is re-parented, which is not a rendering preference: a
+ * card can hold a live session -- an event stream, a background-task stream, a summary probe, a
+ * CLI-status poll, and once its terminal is open, a pty attach. Rendering the card being dragged
+ * into a layer of its own would unmount `SessionView` and stand every one of those back up on
+ * drop, so the card stays exactly where it is in the tree and is merely drawn somewhere else.
+ *
+ * Positions are read ONCE, when the drag begins. Reading them again mid-drag would be reading the
+ * transforms this is applying, and the card would chase itself.
+ */
+function useMoveAlongStrip({
+  canvas,
+  list,
+  onDrop,
+}: {
+  canvas: React.RefObject<HTMLDivElement | null>;
+  list: React.RefObject<HTMLUListElement | null>;
+  onDrop: (from: number, to: number) => void;
+}): StripMove {
+  const laidOut = useRef<{ left: number; width: number }[]>([]);
+  const from = useRef(0);
+  const pointer = useRef(0);
+  const scrolling = useRef<number | null>(null);
+  const [carried, setCarried] = useState<{ from: number; to: number; dx: number } | null>(null);
+
+  const stopScrolling = (): void => {
+    if (scrolling.current !== null) cancelAnimationFrame(scrolling.current);
+    scrolling.current = null;
+  };
+
+  const measure = (clientX: number): void => {
+    const cards = laidOut.current;
+    const held = cards[from.current];
+    if (!held) return;
+    // Against the strip rather than the window, so scrolling under the drag does not read as the
+    // pointer having moved.
+    const dx = clientX - pointer.current;
+    const centre = held.left + dx + held.width / 2;
+    let to = from.current;
+    for (let i = 0; i < cards.length; i += 1) {
+      if (i === from.current) continue;
+      const other = cards[i]!;
+      const otherCentre = other.left + other.width / 2;
+      if (i > from.current && centre > otherCentre) to = Math.max(to, i);
+      if (i < from.current && centre < otherCentre) to = Math.min(to, i);
+    }
+    setCarried({ from: from.current, to, dx });
+  };
+
+  const start = (index: number, clientX: number): void => {
+    const strip = list.current;
+    if (!strip) return;
+    const origin = strip.getBoundingClientRect().left;
+    laidOut.current = [...strip.children].map((child) => {
+      const box = child.getBoundingClientRect();
+      return { left: box.left - origin, width: box.width };
+    });
+    from.current = index;
+    pointer.current = clientX;
+    setCarried({ from: index, to: index, dx: 0 });
+  };
+
+  const to = (clientX: number): void => {
+    measure(clientX);
+    const scroller = canvas.current;
+    if (!scroller) return;
+    const box = scroller.getBoundingClientRect();
+    const step =
+      clientX > box.right - EDGE_SCROLL_MARGIN
+        ? EDGE_SCROLL_STEP
+        : clientX < box.left + EDGE_SCROLL_MARGIN
+          ? -EDGE_SCROLL_STEP
+          : 0;
+    if (step === 0) {
+      stopScrolling();
+      return;
+    }
+    if (scrolling.current !== null) return;
+    // A loop rather than a scroll per pointer event, because holding a card still against the edge
+    // is exactly how you reach a card that is off screen, and a still pointer sends no events.
+    const creep = (): void => {
+      const node = canvas.current;
+      if (!node) return;
+      node.scrollLeft += step;
+      measure(clientX);
+      scrolling.current = requestAnimationFrame(creep);
+    };
+    scrolling.current = requestAnimationFrame(creep);
+  };
+
+  const end = (): void => {
+    stopScrolling();
+    const held = carried;
+    setCarried(null);
+    if (held && held.to !== held.from) onDrop(held.from, held.to);
+  };
+
+  useEffect(() => stopScrolling, []);
+
+  return {
+    liftedIndex: carried?.from ?? null,
+    offsetOf: (index) => {
+      if (!carried) return 0;
+      if (index === carried.from) return carried.dx;
+      const held = laidOut.current[carried.from];
+      if (!held) return 0;
+      // A card the held one has passed steps aside by exactly the room the held one takes.
+      const stride = held.width + STRIP_GAP;
+      if (carried.to > carried.from && index > carried.from && index <= carried.to) return -stride;
+      if (carried.to < carried.from && index < carried.from && index >= carried.to) return stride;
+      return 0;
+    },
+    start,
+    to,
+    end,
+  };
 }
 
 function CanvasNotice({ children }: { children: React.ReactNode }) {
@@ -282,6 +446,14 @@ function BotCanvasCard({
   onToggleSession,
   size,
   carouselWidth,
+  offset,
+  lifted,
+  onMoveStart,
+  onMoveBy,
+  onMoveEnd,
+  onMoveBySteps,
+  canMoveLeft,
+  canMoveRight,
   onResize,
   onResizeCommit,
   onAddSession,
@@ -301,6 +473,17 @@ function BotCanvasCard({
    * given on a Mac.
    */
   carouselWidth: number | null;
+  /** How far this card is drawn from where the strip laid it out, while a move is happening. */
+  offset: number;
+  /** Whether this is the card being carried, rather than one stepping aside for it. */
+  lifted: boolean;
+  onMoveStart: (clientX: number) => void;
+  onMoveBy: (clientX: number) => void;
+  onMoveEnd: () => void;
+  /** The keyboard's way to the same thing: one place left or right in the order. */
+  onMoveBySteps: (steps: number) => void;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
   /** Live during a drag, so the card follows the pointer. Not written to storage. */
   onResize: (size: BotCardSize) => void;
   /** The size to keep, on pointer release or a key press. */
@@ -311,6 +494,35 @@ function BotCanvasCard({
   onDetachBot: (bot: BotView) => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
+  // A press on the header is a click until it has travelled far enough to be a carry. Without that
+  // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
+  // pixels while clicking "Add sessions" would reorder the canvas.
+  const grab = useRef<{ pointerId: number; startX: number; carrying: boolean } | null>(null);
+  const MOVE_THRESHOLD = 4;
+  const grabHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
+    // Never from a control. The header holds the add button and the Bot's menu, and a drag that
+    // began on either would swallow the press that was meant for it.
+    if ((event.target as HTMLElement).closest("button")) return;
+    grab.current = { pointerId: event.pointerId, startX: event.clientX, carrying: false };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const carryHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const held = grab.current;
+    if (!held || held.pointerId !== event.pointerId) return;
+    if (!held.carrying) {
+      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD) return;
+      held.carrying = true;
+      onMoveStart(held.startX);
+    }
+    onMoveBy(event.clientX);
+  };
+  const dropHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const held = grab.current;
+    if (!held || held.pointerId !== event.pointerId) return;
+    grab.current = null;
+    if (held.carrying) onMoveEnd();
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
   const live = bot.sessions.filter((session) => session.activity === "live").length;
   // Where the open row's session portals its controls. One node per card is enough because one row
   // is open across the whole canvas; a card with none keeps null and is never asked for. State
@@ -403,8 +615,16 @@ function BotCanvasCard({
     // land on the transcript's scrollbar.
     <li
       ref={card}
-      className="flex shrink-0 overflow-hidden rounded-xl border border-border bg-card"
-      style={{ width }}
+      className={`flex shrink-0 overflow-hidden rounded-xl border bg-card ${
+        lifted ? "z-10 border-primary shadow-xl" : "border-border"
+      }`}
+      style={{
+        width,
+        transform: offset === 0 ? undefined : `translateX(${offset}px)`,
+        // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
+        // thing that should look like it is moving.
+        transition: lifted ? undefined : "transform 150ms ease",
+      }}
     >
       <div
         className="flex min-w-0 flex-1 flex-col"
@@ -415,7 +635,13 @@ function BotCanvasCard({
             scrollport this would stick inside -- and a card never scrolls. Measured: with the
             card's top 288px above the scroller's top, the header sat at the card's top, not the
             scroller's. */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2">
+        <div
+          className="flex shrink-0 cursor-grab items-center gap-3 border-b border-border bg-card px-3 py-2 select-none active:cursor-grabbing"
+          onPointerDown={grabHeader}
+          onPointerMove={carryHeader}
+          onPointerUp={dropHeader}
+          onPointerCancel={dropHeader}
+        >
           <BotAvatar bot={bot} size="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
@@ -445,7 +671,12 @@ function BotCanvasCard({
           </button>
           {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
               takes the whole Bot off the canvas, and they are not the same scale of act. */}
-          <BotCardMenu bot={bot} onDetach={() => onDetachBot(bot)} />
+          <BotCardMenu
+            bot={bot}
+            onDetach={() => onDetachBot(bot)}
+            onMoveLeft={canMoveLeft ? () => onMoveBySteps(-1) : undefined}
+            onMoveRight={canMoveRight ? () => onMoveBySteps(1) : undefined}
+          />
         </div>
 
         {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 ? (

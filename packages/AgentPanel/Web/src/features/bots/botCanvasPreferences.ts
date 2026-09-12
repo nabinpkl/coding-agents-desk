@@ -175,3 +175,71 @@ export function storeCanvasOpenKey(key: string | null): void {
     // The canvas still opens and closes rows; it just forgets which one by the next visit.
   }
 }
+
+/**
+ * The order the Bots stand in on the canvas, left to right, as a list of their ids.
+ *
+ * Remembered because it is arranged rather than derived: the roster arrives in whatever order the
+ * sidecar resolved it, which is no order at all from the reader's side, and a strip you can put in
+ * an order that forgets it the moment you reload is not an arrangement.
+ *
+ * Held as ids rather than as positions, because position is a consequence of order and the widths
+ * beside it. Ids the canvas no longer knows are ignored on read rather than pruned on write, so a
+ * Bot taken off the canvas and put back keeps the place it had.
+ */
+const ORDER_STORAGE_KEY = "agent-panel.bot-canvas.order";
+
+export function loadBotCanvasOrder(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(ORDER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is string => typeof id === "string");
+  } catch {
+    return [];
+  }
+}
+
+export function storeBotCanvasOrder(order: string[]): void {
+  try {
+    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(order));
+  } catch {
+    // The canvas stays usable on its in-memory order when storage is disabled.
+  }
+}
+
+/**
+ * The Bots in the order the canvas puts them: the arranged ones first, in that order, then anything
+ * the arrangement has never seen.
+ *
+ * A Bot made since the last arrangement lands at the END rather than wherever its id happens to sort
+ * -- it arrives on the right, where a new thing belongs, instead of appearing in the middle of a
+ * strip you had arranged and displacing what you were reading.
+ */
+export function orderBotsForCanvas<T extends { botId: string }>(bots: T[], order: string[]): T[] {
+  const byId = new Map(bots.map((bot) => [bot.botId, bot]));
+  const arranged: T[] = [];
+  for (const id of order) {
+    const bot = byId.get(id);
+    if (!bot) continue;
+    byId.delete(id);
+    arranged.push(bot);
+  }
+  return [...arranged, ...byId.values()];
+}
+
+/** The ids of `bots`, in the order they are standing in. What a reorder is applied to. */
+export function botCanvasOrderOf<T extends { botId: string }>(bots: T[]): string[] {
+  return bots.map((bot) => bot.botId);
+}
+
+/** `order` with the entry at `from` lifted out and put back at `to`. */
+export function moveInOrder(order: string[], from: number, to: number): string[] {
+  if (from === to || from < 0 || to < 0 || from >= order.length || to >= order.length) return order;
+  const next = [...order];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved!);
+  return next;
+}

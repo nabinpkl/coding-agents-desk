@@ -7,9 +7,14 @@ import {
   MAX_CARD_WIDTH,
   MIN_CARD_HEIGHT,
   MIN_CARD_WIDTH,
+  botCanvasOrderOf,
   clampCardHeight,
   clampCardWidth,
+  loadBotCanvasOrder,
   loadBotCardSizes,
+  moveInOrder,
+  orderBotsForCanvas,
+  storeBotCanvasOrder,
   storeBotCardSizes,
 } from "./botCanvasPreferences";
 
@@ -85,5 +90,46 @@ describe("bot canvas preferences", () => {
     // by the card, and above the ceiling a stored number is corrupt rather than chosen.
     expect(clampCardHeight(10)).toBe(MIN_CARD_HEIGHT);
     expect(clampCardHeight(99999)).toBe(MAX_CARD_HEIGHT);
+  });
+});
+
+describe("bot canvas order", () => {
+  beforeEach(() => localStorage.clear());
+
+  const bots = [{ botId: "a" }, { botId: "b" }, { botId: "c" }];
+
+  it("leaves the roster alone until the canvas has been arranged", () => {
+    expect(loadBotCanvasOrder()).toEqual([]);
+    expect(botCanvasOrderOf(orderBotsForCanvas(bots, []))).toEqual(["a", "b", "c"]);
+  });
+
+  it("stands the arranged Bots in the order they were put in", () => {
+    storeBotCanvasOrder(["c", "a", "b"]);
+    expect(botCanvasOrderOf(orderBotsForCanvas(bots, loadBotCanvasOrder()))).toEqual(["c", "a", "b"]);
+  });
+
+  it("puts a Bot the arrangement has never seen at the end", () => {
+    // On the right, where a new thing belongs, rather than in the middle of a strip you arranged.
+    expect(botCanvasOrderOf(orderBotsForCanvas(bots, ["c"]))).toEqual(["c", "a", "b"]);
+  });
+
+  it("ignores an id the canvas no longer knows rather than losing the rest", () => {
+    // Not pruned on write either, so a Bot taken off the canvas and put back keeps its place.
+    expect(botCanvasOrderOf(orderBotsForCanvas(bots, ["b", "gone", "a"]))).toEqual(["b", "a", "c"]);
+  });
+
+  it("refuses an order it cannot read", () => {
+    localStorage.setItem("agent-panel.bot-canvas.order", JSON.stringify({ a: 1 }));
+    expect(loadBotCanvasOrder()).toEqual([]);
+    localStorage.setItem("agent-panel.bot-canvas.order", JSON.stringify(["a", 7, "b"]));
+    expect(loadBotCanvasOrder()).toEqual(["a", "b"]);
+  });
+
+  it("lifts one entry out and puts it back where it was dropped", () => {
+    expect(moveInOrder(["a", "b", "c", "d"], 0, 2)).toEqual(["b", "c", "a", "d"]);
+    expect(moveInOrder(["a", "b", "c", "d"], 3, 1)).toEqual(["a", "d", "b", "c"]);
+    // A move to where it already is, or off the end, changes nothing.
+    expect(moveInOrder(["a", "b"], 1, 1)).toEqual(["a", "b"]);
+    expect(moveInOrder(["a", "b"], 0, 5)).toEqual(["a", "b"]);
   });
 });
