@@ -23,6 +23,7 @@ import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 import { createTaskRoutes } from "@/http/session-routes/taskRoutes";
 import { createAgentTerminalRoutes } from "@/http/agentTerminalRoutes";
 import { createTmuxRoutes } from "@/http/tmuxRoutes";
+import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { detectUsageVendors } from "@/usage/usageReport";
@@ -119,6 +120,9 @@ const routes: RouteHandler[] = [
   createTaskRoutes(),
   // And again: `/input` is under `/api/sessions/` too.
   createCliInputRoutes(),
+  // And `/agents/<id>/transcript`, which is under `/api/sessions/` for the same reason: a
+  // subagent belongs to the session that launched it and is addressed through it.
+  createSubagentRoutes(),
   // And `/composer`, which is the other way of typing at the same session. It takes the pane
   // signal from the terminal service because that service owns the pane's one pipe.
   createTmuxComposerRoutes(liveTmuxComposerDependencies(
