@@ -144,6 +144,11 @@ it("opens a file, then reads it and shows its text", async () => {
   // control offering the way back to the source is the tell that this is the preview.
   expect(await screen.findByRole("button", { name: "Edit file" })).toBeInTheDocument();
   expect(screen.queryByLabelText("Edit README.md")).not.toBeInTheDocument();
+
+  // And it is read in the DOCUMENT register rather than the transcript one: the measure, the
+  // heading scale and the rhythm all hang off this class. jsdom measures nothing, so this pins
+  // the wiring -- that the IDE asks for the register -- and the browser check pins the pixels.
+  expect(screen.getByText("Title").closest(".agent-panel-md--document")).not.toBeNull();
 });
 
 it("opens markdown rendered, and keeps the source once a reader asks for it", async () => {

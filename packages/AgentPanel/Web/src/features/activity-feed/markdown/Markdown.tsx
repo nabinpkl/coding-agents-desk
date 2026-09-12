@@ -45,7 +45,27 @@ const ProseBlock = memo(function ProseBlock({ html }: { html: string }) {
  * streaming, the tail fence renders unhighlighted and settles into its real form
  * once the message lands.
  */
-export function Markdown({ content, streaming = false }: { content: string; streaming?: boolean }) {
+export function Markdown({
+  content,
+  streaming = false,
+  variant = "chat",
+}: {
+  content: string;
+  streaming?: boolean;
+  /**
+   * Which register the prose is read in, and the only thing that separates the two surfaces
+   * this renderer serves.
+   *
+   * `chat` is a run of prose inside a transcript row. A heading there marks a section of one
+   * message rather than of a document, the column is whatever the row is, and the scale is
+   * deliberately compressed -- see the ratios in `markdown.css`.
+   *
+   * `document` is a whole file somebody opened to READ: a README, a spec, an ADR. It gets a
+   * measure, a document heading scale, and the vertical rhythm that goes with them. Passing it
+   * costs the caller one word and changes nothing about how the Markdown is parsed.
+   */
+  variant?: "chat" | "document";
+}) {
   // Alive only for as long as this message streams. The incremental reader earns its
   // state against a document being appended to; the moment the message lands the
   // whole-document path renders it, which is both the cheaper answer for a document
@@ -57,8 +77,11 @@ export function Markdown({ content, streaming = false }: { content: string; stre
     () => (incremental ? incremental(content) : toBlocks(content)),
     [incremental, content],
   );
+  const surface = variant === "document"
+    ? "agent-panel-md agent-panel-md--document"
+    : "agent-panel-md";
   return (
-    <div className="agent-panel-md">
+    <div className={surface}>
       {blocks.map((b, i) => {
         const settled = !streaming || i < blocks.length - 1;
         if (b.kind === "code") {

@@ -278,3 +278,248 @@
   font-size: 0.9em;
   color: var(--muted-foreground);
 }
+
+/* ---- the document register --------------------------------------------- */
+
+/* Everything above is a run of prose inside a TRANSCRIPT ROW: a heading marks a section of one
+   message, the column is whatever the row is, and the scale is compressed on purpose (the ratios
+   carry their own reasoning). This block is the other thing the same renderer draws -- a whole
+   file somebody opened to read, in the workspace IDE's preview.
+
+   They are two registers, not one with a bug in it. A README wants a measure, a real heading
+   scale, and the vertical rhythm that goes with them; a chat message wants none of those, and
+   giving it them would space a two-line answer like a specification. So the document rules are an
+   opt-in modifier (`<Markdown variant="document" />`) rather than an edit to the defaults, and
+   the transcript renders byte-identically to how it did before this existed.
+
+   Sizes here are absolute rather than `em`. The tile font-size cascade the rest of this file
+   rides is a property of a feed tile, and there is no tile under the IDE's editor pane: a
+   document that grew and shrank with somebody's transcript preference would be the surprise. */
+
+.agent-panel-md--document {
+  /* The two knobs. `ch` resolves against this element's own font, so the measure moves with the
+     body size rather than having to be re-derived when it changes. 70ch of Inter at 15px is about
+     630px, which lands an average line of English prose in the low 80s of characters. */
+  --agent-panel-md-measure: 70ch;
+  --agent-panel-md-gutter: clamp(1rem, 4vw, 2.5rem);
+  /* Wider than the transcript's 0.75em, because the blocks it separates are bigger. */
+  --agent-panel-md-block-gap: 1em;
+
+  box-sizing: border-box;
+  max-width: calc(var(--agent-panel-md-measure) + 2 * var(--agent-panel-md-gutter));
+  margin-inline: auto;
+  padding-inline: var(--agent-panel-md-gutter);
+  /* The tail is deliberate: a reader working through a long file can bring its last section up
+     to eye level instead of reading it off the bottom edge of the pane. */
+  padding-block: clamp(1.5rem, 4vw, 2.75rem) clamp(3rem, 18vh, 7rem);
+
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  /* A document's own leading, not the feed's. `--agent-panel-prose-leading` is one number shared
+     by four transcript surfaces so that one paragraph does not read differently depending on who
+     wrote it; a file is not one of those four. */
+  --agent-panel-prose-leading: 1.7;
+}
+
+/* The edge reset, restated at this block's specificity.
+   The base one (`.agent-panel-md__prose > :first-child`) is 0,1,0 plus a pseudo-class and the
+   heading rules below are 0,2,1, so every document opened with its first heading's full top
+   margin under the pane's own padding: about a hundred pixels of nothing before the title.
+   Measured in the browser, not reasoned about -- the first h1 computed a 54px margin-top that
+   the reset was supposed to have zeroed. */
+.agent-panel-md--document > :first-child,
+.agent-panel-md--document .agent-panel-md__prose > :first-child {
+  margin-top: 0;
+}
+.agent-panel-md--document > :last-child,
+.agent-panel-md--document .agent-panel-md__prose > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-panel-md--document .agent-panel-md__prose {
+  /* A path or a URL in prose is one unbreakable token and there is no horizontal scroll here to
+     put it in, so it breaks rather than pushing the column open. */
+  overflow-wrap: break-word;
+}
+.agent-panel-md--document .agent-panel-md__prose p {
+  margin: var(--agent-panel-md-block-gap) 0;
+  /* Keeps the last line of a paragraph from being one orphaned word. Ignored where unsupported,
+     which costs nothing. */
+  text-wrap: pretty;
+}
+
+/* The heading scale. Ratios rather than the transcript's compressed ones, because here a heading
+   really does open a section of a document: 1.9 / 1.4 / 1.18 / 1.02 against a 15px body is
+   28 / 21 / 18 / 15px.
+
+   Top margin is much larger than bottom on every one of them, which is the whole mechanism: the
+   space belongs to the heading's relationship with the section ABOVE it, and a heading sitting
+   equidistant between two blocks reads as belonging to neither.
+
+   h1 and h2 carry a hairline rule. This palette is monochrome by design, so weight and size are
+   the only other separators available and they run out by h3; a rule is what makes the two top
+   levels legible as structure at a glance rather than as slightly bigger text. */
+.agent-panel-md--document .agent-panel-md__prose h1 {
+  font-size: 1.9em;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.021em;
+  text-wrap: balance;
+  margin: 1.9em 0 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.agent-panel-md--document .agent-panel-md__prose h2 {
+  font-size: 1.4em;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.014em;
+  text-wrap: balance;
+  margin: 1.8em 0 0.55em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.agent-panel-md--document .agent-panel-md__prose h3 {
+  font-size: 1.18em;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+  text-wrap: balance;
+  margin: 1.7em 0 0.45em;
+}
+.agent-panel-md--document .agent-panel-md__prose h4 {
+  font-size: 1.02em;
+  line-height: 1.4;
+  font-weight: 700;
+  margin: 1.5em 0 0.4em;
+}
+.agent-panel-md--document .agent-panel-md__prose h5 {
+  font-size: 0.95em;
+  line-height: 1.4;
+  font-weight: 700;
+  margin: 1.4em 0 0.35em;
+}
+/* The last rung, and the only one that gives up ink instead of size: at 0.9em it is smaller than
+   the body it labels, so weight alone would read as an accident rather than as a heading. */
+.agent-panel-md--document .agent-panel-md__prose h6 {
+  font-size: 0.9em;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--muted-foreground);
+  margin: 1.4em 0 0.35em;
+}
+
+.agent-panel-md--document .agent-panel-md__prose ul,
+.agent-panel-md--document .agent-panel-md__prose ol {
+  padding-left: 1.6em;
+  margin: var(--agent-panel-md-block-gap) 0;
+}
+/* A nested list belongs to the item above it, so it sits closer than two top-level blocks do. */
+.agent-panel-md--document .agent-panel-md__prose li > ul,
+.agent-panel-md--document .agent-panel-md__prose li > ol {
+  margin: 0.35em 0;
+}
+.agent-panel-md--document .agent-panel-md__prose li {
+  margin: 0.35em 0;
+  padding-left: 0.2em;
+}
+/* A loose list gives every item a `<p>`; a tight one does not. Without this the two kinds space
+   differently in the same document, which reads as the renderer being inconsistent rather than as
+   the author having left a blank line. */
+.agent-panel-md--document .agent-panel-md__prose li > p {
+  margin: 0.35em 0;
+}
+/* The bullet or number is punctuation, not content: at full ink it competes with the first word
+   of every item. This is the "metadata bound to a value" role, muted deliberately. */
+.agent-panel-md--document .agent-panel-md__prose li::marker {
+  color: var(--muted-foreground);
+}
+/* GFM task lists. marked puts the checkbox inside the item and leaves the list marker in place,
+   so the item shows a bullet AND a box; the bullet is the one to drop. */
+.agent-panel-md--document .agent-panel-md__prose li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.agent-panel-md--document .agent-panel-md__prose li > input[type="checkbox"] {
+  margin: 0 0.5em 0 0;
+  vertical-align: -0.08em;
+  accent-color: var(--primary);
+}
+
+.agent-panel-md--document .agent-panel-md__prose blockquote {
+  margin: calc(var(--agent-panel-md-block-gap) * 1.25) 0;
+  padding: 0.1em 0 0.1em 1.1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+}
+.agent-panel-md--document .agent-panel-md__prose blockquote p {
+  margin: 0.5em 0;
+}
+
+.agent-panel-md--document .agent-panel-md__prose hr {
+  margin: 2.5em 0;
+}
+
+.agent-panel-md--document .agent-panel-md__prose a {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-thickness 120ms;
+}
+.agent-panel-md--document .agent-panel-md__prose a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.agent-panel-md--document .agent-panel-md__prose :not(pre) > code {
+  font-size: 0.86em;
+  padding: 0.15em 0.38em;
+  border-radius: 4px;
+}
+
+.agent-panel-md--document .agent-panel-md__prose img {
+  display: block;
+  margin: calc(var(--agent-panel-md-block-gap) * 1.25) 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* A table hugs its contents rather than stretching to the column, which is what every markdown
+   reader does and is the right answer for a three-column table of short cells: stretched, the
+   values drift apart until the row is read by eye-travel rather than by proximity. `display:
+   block` and the horizontal scroll come from the base rule and are what keep a WIDE one from
+   opening the column instead. `width: 100%` was tried here and is not in this rule on purpose --
+   it sizes the block box while the table inside it still shrink-to-fits, so it reads like a
+   declaration that does something and does nothing. */
+.agent-panel-md--document .agent-panel-md__prose table {
+  margin: calc(var(--agent-panel-md-block-gap) * 1.25) 0;
+  font-size: 0.94em;
+}
+.agent-panel-md--document .agent-panel-md__prose th,
+.agent-panel-md--document .agent-panel-md__prose td {
+  padding: 0.45em 0.7em;
+}
+
+.agent-panel-md--document .agent-panel-code {
+  margin: calc(var(--agent-panel-md-block-gap) * 1.25) 0;
+  border-radius: 8px;
+}
+.agent-panel-md--document .agent-panel-code__head {
+  padding: 0.4em 0.85em;
+}
+.agent-panel-md--document .agent-panel-code__body {
+  padding: 0.85em 1em;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.agent-panel-md--document .agent-panel-mermaid {
+  margin: calc(var(--agent-panel-md-block-gap) * 1.25) 0;
+}
+
+/* Display math is a block, and a wide one overflows a measured column. KaTeX sizes it in inline
+   styles, so the scroll has to be given to it here. */
+.agent-panel-md--document .katex-display {
+  margin: calc(var(--agent-panel-md-block-gap) * 1.25) 0;
+  padding-block: 0.2em;
+  overflow-x: auto;
+  overflow-y: hidden;
+}

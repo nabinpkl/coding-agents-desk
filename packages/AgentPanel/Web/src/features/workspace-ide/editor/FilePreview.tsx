@@ -15,9 +15,20 @@ export function FilePreview({ file }: { file: OpenFile }) {
     // the panel's origin, which is the one origin that can reach this machine's sidecar.
     return <PlainText text={file.text} />;
   }
+  return <MarkdownDocument text={file.text} />;
+}
+
+/**
+ * A whole file, read as a document.
+ *
+ * The scroller holds no padding of its own: the measure, the gutters and the vertical rhythm are
+ * one set of numbers and they live together in `markdown.css` under `--document`. Padding here
+ * as well would be a second place that decides how wide a line is, and the two would drift.
+ */
+function MarkdownDocument({ text }: { text: string }) {
   return (
-    <div className="h-full overflow-auto px-4 py-3">
-      <Markdown content={file.text} />
+    <div className="h-full overflow-auto">
+      <Markdown content={text} variant="document" />
     </div>
   );
 }
@@ -66,11 +77,7 @@ function NotebookPreview({ text }: { text: string }) {
     const code = ["```python", source, "```"].join("\n");
     return outputs ? `${code}\n\n\`\`\`\n${outputs}\n\`\`\`` : code;
   }).join("\n\n");
-  return (
-    <div className="h-full overflow-auto px-4 py-3">
-      <Markdown content={document} />
-    </div>
-  );
+  return <MarkdownDocument text={document} />;
 }
 
 /**
