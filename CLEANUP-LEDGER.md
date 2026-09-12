@@ -51,7 +51,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R17 | D | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
 | R18 | D | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
 | R19 | D | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
-| R20 | R | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
+| R20 | D | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
 | R21 | R | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
 | R22 | R | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
 | R23 | R | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
@@ -312,6 +312,16 @@ R17 gave Codex. 764 to 74.
 
 Split into `useTmuxComposerHarness.tsx`, `useTmuxComposerCommands.test.tsx`,
 `useTmuxComposerImages.test.tsx`. Three describes moved whole; 939 panel tests, unchanged.
+
+### R20 `cli-input/useTmuxComposer.ts` (586)
+
+- What a mirrored composer hands its surface: the controls, the state, the image tokens, and what
+  to say when there is no composer to mirror.
+- Keeping that true: the debounced push, the readings it may and may not adopt, the images it
+  sends, the rail keys.
+
+Split into `tmuxComposerHandle.ts`. 586 to 466 -- one file out, because the interface and its
+seventy lines of doc are the contract, and the hook is one implementation of it.
 
 ## Decisions
 
