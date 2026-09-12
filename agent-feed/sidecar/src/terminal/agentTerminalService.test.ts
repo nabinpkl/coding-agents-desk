@@ -530,6 +530,57 @@ test("names a fork past the forks the project already has", async () => {
   expect(fakes.created[0]!.command.at(-1)).toBe("Source session (fork 2)");
 });
 
+test("reports the name it gave the session it started, since nothing else can be asked yet", async () => {
+  // Until the fork's first turn there is no transcript, so the caller has nowhere to read this
+  // from. The descriptor is the only moment the chosen name exists anywhere the panel can see it.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, [], ["Source session (fork 1)"]);
+
+  const descriptor = await service.open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(descriptor.startedSession).toEqual({
+    sessionId: FORK_ID,
+    title: "Source session (fork 2)",
+  });
+});
+
+test("reports no started session on a second open of one fork, which starts nothing", async () => {
+  // `identify` counts `(fork n)` fresh on every call, and by the second open the first fork's own
+  // title is among the taken ones -- so an unguarded descriptor would name the running session
+  // with a number it does not have.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+  const context = {
+    kind: "session-fork" as const,
+    source: "claude" as const,
+    sessionId: SESSION_ID,
+    forkId: FORK_ID,
+  };
+
+  const first = await service.open(context, { columns: 100, rows: 30 });
+  const second = await service.open(context, { columns: 100, rows: 30 });
+
+  expect(first.startedSession).toEqual({ sessionId: FORK_ID, title: "Source session (fork 1)" });
+  expect(second.startedSession).toBeUndefined();
+  // And it joined rather than starting a second process for one fork.
+  expect(fakes.created).toHaveLength(1);
+});
+
+test("says nothing was started when a terminal only resumes a session that exists", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  const descriptor = await service.open(
+    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(descriptor.startedSession).toBeUndefined();
+});
+
 test("puts the fork's transcript at the id its pane is named for", async () => {
   // `--session-id` is what makes the pane name and the transcript file the same uuid, so the fork
   // is findable rather than only startable.

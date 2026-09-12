@@ -1127,8 +1127,79 @@ describe("App shell", () => {
       forkId: expect.any(String),
     });
 
+    // Once the pane has started it, the fork answers to its own name rather than being described
+    // by its source's -- the sidecar picked the name, so it is the one that says what it is.
+    const forkId = terminalPaneMock.context!.forkId as string;
+    act(() => {
+      terminalPaneMock.onState!(terminalPaneMock.context!, {
+        kind: "ready",
+        descriptor: {
+          terminalId: "t1",
+          ptySessionName: `agent-tmux-agentdesk-fork-${forkId}`,
+          pid: 7,
+          columns: 80,
+          rows: 24,
+          startedSession: { sessionId: forkId, title: "Session Claude 01 (fork 1)" },
+        },
+      });
+    });
+    expect(screen.getByRole("heading", { level: 1 }))
+      .toHaveTextContent("Session Claude 01 (fork 1)");
+    // The body still names where it came from, which the heading no longer does.
+    expect(screen.getByText(/Forked from/)).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Close fork" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    unmount();
+  });
+
+  it("ignores a name from a pane belonging to a fork that is no longer open", async () => {
+    // A pane's `ready` can land after the reader closed one fork and opened another. Adopting it
+    // blindly would put the closed fork's name on the open one, which reads as the wrong session.
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+
+    act(() => {
+      terminalPaneMock.onState!(terminalPaneMock.context!, {
+        kind: "ready",
+        descriptor: {
+          terminalId: "t1",
+          ptySessionName: "agent-tmux-agentdesk-fork-stale",
+          pid: 7,
+          columns: 80,
+          rows: 24,
+          startedSession: {
+            sessionId: "11111111-1111-4111-8111-111111111111",
+            title: "Somebody else (fork 9)",
+          },
+        },
+      });
+    });
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Fork of Session Claude 01");
     unmount();
   });
 

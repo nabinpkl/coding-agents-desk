@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { GitFork, PanelLeft } from "lucide-react";
 import type {
   AddBotCommand,
+  AgentTerminalContext,
   BotSessionRef,
   BotView,
   ProjectSummary,
@@ -46,6 +47,7 @@ import { SessionRenameDialog } from "../features/bots/SessionRenameDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
+import type { AgentTerminalState } from "../features/terminal/useAgentTerminal";
 
 
 /**
@@ -512,13 +514,39 @@ export function App({ feed, host, fill = false }: Props) {
    * `forkId` is minted here, once, and never derived from `sessionId` -- forking one session twice
    * has to give two panes, and a pane named after the source would give the second fork the
    * first's terminal.
+   *
+   * `title` is the SOURCE's, which is all this knows until the pane opens. `startedTitle` is the
+   * fork's own, and arrives from the sidecar with the terminal that started it: the name is
+   * settled where the command is built, and counting `(fork n)` a second time here could answer
+   * differently against a session list that is a moment behind.
    */
   const [forkedSession, setForkedSession] = useState<
-    { source: "claude"; sessionId: string; forkId: string; title: string } | null
+    {
+      source: "claude";
+      sessionId: string;
+      forkId: string;
+      title: string;
+      startedTitle: string | null;
+    } | null
   >(null);
-  // The fork's pane renders its own errors in its footer, so there is nothing for the shell to do
-  // with its state. Stable so a re-render of the shell never restarts the pane.
-  const noteForkTerminalState = useCallback(() => {}, []);
+  // The fork's pane renders its own errors in its footer, so the shell wants only one thing from
+  // its state: the name the sidecar gave the session it just started. Stable so a re-render of the
+  // shell never restarts the pane.
+  const noteForkTerminalState = useCallback(
+    (_context: AgentTerminalContext, state: AgentTerminalState) => {
+      if (state.kind !== "ready") return;
+      const started = state.descriptor.startedSession;
+      if (!started) return;
+      // Matched on the fork this pane is for. A stale pane's `ready` can land after the reader has
+      // closed one fork and opened another, and it would otherwise rename the new one.
+      setForkedSession((current) =>
+        current && current.forkId === started.sessionId
+          ? { ...current, startedTitle: started.title }
+          : current
+      );
+    },
+    [],
+  );
   const forkSession = useCallback((session: SessionSummary) => {
     if (session.source !== "claude") return;
     setForkedSession({
@@ -526,6 +554,7 @@ export function App({ feed, host, fill = false }: Props) {
       sessionId: session.sessionId,
       forkId: crypto.randomUUID(),
       title: session.title || session.sessionId,
+      startedTitle: null,
     });
   }, []);
 
@@ -814,7 +843,9 @@ export function App({ feed, host, fill = false }: Props) {
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
               {forkedSession
-                ? `Fork of ${forkedSession.title}`
+                // Its own name once the pane has started it and said what it called it. Until then
+                // there is no session yet, and "a fork of X" is the only true thing to say.
+                ? forkedSession.startedTitle ?? `Fork of ${forkedSession.title}`
                 : sidebarMode === "canvas"
                 ? "Canvas"
                 : sidebarMode === "bots"

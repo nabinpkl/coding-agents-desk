@@ -67,7 +67,13 @@ export interface SessionForkTerminalContext {
   source: "claude";
   /** The transcript to fork FROM. Untouched: forking never writes to it. */
   sessionId: string;
-  /** This fork's own identity, minted by the caller. */
+  /**
+   * This fork's own identity, minted by the caller.
+   *
+   * Also the session id the fork is STARTED with, so its transcript lands at this uuid rather than
+   * one only the CLI knows. That is what lets a caller name a fork before it exists and find its
+   * transcript afterwards without searching for it.
+   */
   forkId: string;
 }
 
@@ -92,6 +98,17 @@ export interface AgentTerminalDescriptor {
   pid: number;
   columns: number;
   rows: number;
+  /**
+   * The session this terminal BROUGHT INTO EXISTENCE, when it did that.
+   *
+   * Only a fork does: every other kind resumes or attaches a session that already had a name. The
+   * sidecar is the one that picks a fork's name, so it says which it picked rather than leaving
+   * the caller to re-derive it -- two implementations of one counting rule, run against catalogs
+   * that can differ by a moment, would disagree exactly when two forks are made at once.
+   *
+   * Absent means nothing was started, not that the name is unknown.
+   */
+  startedSession?: { sessionId: string; title: string };
 }
 
 /** One terminal's message, carried inside an envelope on the shared stream. */

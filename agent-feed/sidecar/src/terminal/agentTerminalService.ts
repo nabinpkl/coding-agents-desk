@@ -63,6 +63,14 @@ interface TerminalIdentity {
    * session id that the sidecar resolved to a pane name itself, so there is nothing to mistype.
    */
   createTmux: { cwd: string; command: string[] } | null;
+  /**
+   * The session this terminal creates, when it creates one. Only the fork path does.
+   *
+   * Carried on the identity rather than computed at the descriptor, because the name is decided
+   * where the command is built -- it IS an argument of that command -- and deriving it a second
+   * time later could answer differently.
+   */
+  startedSession: { sessionId: string; title: string } | null;
 }
 
 /**
@@ -172,14 +180,24 @@ export class AgentTerminalService {
     // installed to attach it is how a machine with tmux and no daemon ends up listing sessions it
     // cannot open.
     if (identity.tmuxSession) {
-      if (identity.createTmux && !(await this.tmuxExists(identity.tmuxSession))) {
-        await this.startTmux(identity.createTmux, identity.tmuxSession, { columns, rows });
+      const created = identity.createTmux !== null &&
+        !(await this.tmuxExists(identity.tmuxSession));
+      if (created) {
+        await this.startTmux(identity.createTmux!, identity.tmuxSession, { columns, rows });
         // Only for a pane THIS call just created. An existing pane has already collapsed its
         // startup into scrollback, which is what makes joining one feel instant; a newborn one
         // would otherwise pipe every byte of that startup live and make the viewer emulate it.
         await this.sessionTmux.settle(identity.tmuxSession);
       }
-      return this.attachTmux(identity, identity.tmuxSession, { columns, rows });
+      // A second open of one fork joins the pane that is already running, so nothing was started
+      // and there is no name to report. The identity would happily offer one -- `identify` counts
+      // `(fork n)` fresh every call, and by now the first fork's own title is among the taken
+      // ones, so it would answer with a NUMBER THE RUNNING SESSION DOES NOT HAVE.
+      return this.attachTmux(
+        created ? identity : { ...identity, startedSession: null },
+        identity.tmuxSession,
+        { columns, rows },
+      );
     }
 
     let sessions: PtySessionSummary[];
@@ -294,6 +312,7 @@ export class AgentTerminalService {
       pid: connection.attachment.pid,
       columns: connection.attachment.columns,
       rows: connection.attachment.rows,
+      ...(identity.startedSession ? { startedSession: identity.startedSession } : {}),
     };
     const active: ActiveTerminal = {
       descriptor,
@@ -478,6 +497,7 @@ export class AgentTerminalService {
       // A tmux session is meant to be watched from more than one place, so nothing to refuse.
       refuseNew: null,
       createTmux: null,
+      startedSession: null,
     };
   }
 
@@ -539,6 +559,7 @@ export class AgentTerminalService {
       command: [],
       refuseNew: null,
       createTmux: null,
+      startedSession: null,
     };
   }
 
@@ -584,6 +605,7 @@ export class AgentTerminalService {
         command: [],
         refuseNew: null,
         createTmux: null,
+        startedSession: null,
       };
     }
 
@@ -600,6 +622,8 @@ export class AgentTerminalService {
           ? ["claude", "--resume", sessionId]
           : ["codex", "resume", sessionId],
       },
+      // Resuming, not creating: the session already exists and already has whatever name it has.
+      startedSession: null,
     };
   }
 
@@ -638,6 +662,7 @@ export class AgentTerminalService {
     }
 
     const pane = forkedPaneName(forkId);
+    const title = nextForkTitle(session.title, this.projectSessionTitles(session.projectPath));
     return {
       ptySessionName: `agent-tmux-${pane}`,
       tmuxSession: pane,
@@ -657,9 +682,13 @@ export class AgentTerminalService {
           "--session-id",
           forkId,
           "-n",
-          nextForkTitle(session.title, this.projectSessionTitles(session.projectPath)),
+          title,
         ],
       },
+      // The one path that creates a session, and so the one that has a name to report. The caller
+      // has no other way to learn it: until the first turn there is no transcript to read it from,
+      // which is exactly when a fork is on screen with nothing else to call it.
+      startedSession: { sessionId: forkId, title },
     };
   }
 
