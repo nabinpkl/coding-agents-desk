@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "bun";
 import { config } from "@/config";
+
+// `config` is `as const`, so its fields are readonly to a reader and still assignable at runtime.
+// Pointing it at a scratch directory is the only way to exercise the path derivation without
+// writing into the real `~/.claude/projects`, and the original is restored after every case.
+const mutableConfig = config as unknown as { claudeProjectsDirectory: string };
 import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 
 const SESSION = "7b20bcaf-f34b-4a32-bd0b-613c27cc3507";
@@ -15,7 +20,7 @@ const routes = createSubagentRoutes();
 
 function get(path: string): Response | Promise<Response> | undefined {
   const url = new URL(`http://localhost${path}`);
-  return routes(new Request(url), url, server);
+  return routes(new Request(url.toString()), url, server);
 }
 
 /** The first SSE payload, which is all these cases need. */
@@ -42,11 +47,11 @@ let previousProjects = "";
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "subagent-routes-"));
   previousProjects = config.claudeProjectsDirectory;
-  config.claudeProjectsDirectory = root;
+  mutableConfig.claudeProjectsDirectory = root;
 });
 
 afterEach(() => {
-  config.claudeProjectsDirectory = previousProjects;
+  mutableConfig.claudeProjectsDirectory = previousProjects;
 });
 
 async function writeTranscripts(agentId: string, lines: unknown[]): Promise<void> {
