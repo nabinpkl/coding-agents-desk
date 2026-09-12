@@ -26,7 +26,11 @@ import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire"
 // agent-feed/wire and parsed by the Agent Panel from that same declaration.
 export type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
-const SUMMARY_TITLE_CHARACTERS = 240;
+/**
+ * The longest a title stays as written. Past this a row shows an ellipsis instead of the tail, so
+ * it is also the longest a rename can usefully be: a longer one would be stored and then not said.
+ */
+export const SUMMARY_TITLE_CHARACTERS = 240;
 /**
  * How much of an opening prompt is allowed to stand in for a title.
  *
@@ -250,6 +254,24 @@ export async function resolveClaudeProject(
   if (opened) return opened;
   if (!recent || recent === openedIn) return null;
   return canonicalDirectory(recent);
+}
+
+/**
+ * Re-reads one Claude transcript into the catalog, and tells the subscribers.
+ *
+ * Shared by the file watcher and by anything that writes to a transcript itself, so a write and a
+ * write observed from outside land the same row. A path that is not a Claude transcript is a
+ * no-op rather than an error: the watcher hands this every file under the projects directory.
+ */
+export async function refreshClaudeSession(filePath: string): Promise<void> {
+  if (!isClaudeSessionCandidate(filePath)) return;
+  const sessionId = claudeAdapter.filePathToSessionId(filePath);
+  if (!sessionId) return;
+  const session = await readClaudeCandidate(filePath);
+  const key = sessionKey("claude", sessionId);
+  if (session) state.sessions.set(key, session);
+  else state.sessions.delete(key);
+  scheduleBroadcast();
 }
 
 async function readClaudeCandidate(filePath: string): Promise<Session | null> {
@@ -569,15 +591,7 @@ function attachSourceWatchers(): void {
     awaitWriteFinish: false,
   });
   const onClaudeCandidate = (path: string): void => {
-    if (!isClaudeSessionCandidate(path)) return;
-    void readClaudeCandidate(path).then((session) => {
-      const sessionId = claudeAdapter.filePathToSessionId(path);
-      if (!sessionId) return;
-      const key = sessionKey("claude", sessionId);
-      if (session) state.sessions.set(key, session);
-      else state.sessions.delete(key);
-      scheduleBroadcast();
-    }).catch((error) => {
+    void refreshClaudeSession(path).catch((error) => {
       console.error("agent feed Claude candidate reconcile failed", error);
     });
   };

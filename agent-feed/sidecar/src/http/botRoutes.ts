@@ -10,7 +10,12 @@ import {
   BotNotFoundError,
   type BotRegistry,
 } from "../bots/botRegistry.ts";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
+import {
+  encodeServerSentEvent,
+  errorResponse,
+  jsonResponse,
+  startServerSentEventStream,
+} from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
 const BOTS_ROUTE = "/api/bots";
@@ -149,8 +154,4 @@ function errorPayload(error: unknown) {
     message: error instanceof Error ? error.message : String(error),
     retryable: true,
   };
-}
-
-function errorResponse(code: string, message: string, status: number): Response {
-  return jsonResponse({ error: { code, message, retryable: status >= 500 } }, status);
 }

@@ -29,6 +29,17 @@ export function jsonResponse(payload: unknown, status = 200): Response {
 }
 
 /**
+ * The failure envelope the panel's own client reads.
+ *
+ * Shared rather than per-route, because the client tells a failure apart by `error.code` and
+ * reports `error.message`: a route that answers `{ error: "..." }` with a bare string is read as
+ * having sent no message at all, and its reason reaches the reader as "sidecar answered 400".
+ */
+export function errorResponse(code: string, message: string, status: number): Response {
+  return jsonResponse({ error: { code, message, retryable: status >= 500 } }, status);
+}
+
+/**
  * `onStart` receives `write` and a `close`.
  *
  * Most streams here are endless -- a session's events, a task's output -- and end only when the

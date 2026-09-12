@@ -316,6 +316,29 @@ export class SidecarDataSource implements AgentDataSource {
     );
   }
 
+  /**
+   * Renames one Claude session, and answers with the name it now has.
+   *
+   * A session carries two names and this sets the one a reader can see: the transcript's title,
+   * which is what `/resume`, the catalog and every row in this panel show. The other one -- the
+   * address `ListAgents` and cross-session messaging use -- is fixed when the session starts and
+   * cannot be changed from outside it, which is why forks are named at launch instead.
+   *
+   * Nothing else has to happen for this to land: the sidecar appends a record to the transcript
+   * and the inventory stream pushes the new title on its next read.
+   */
+  async renameSession(sessionId: string, title: string): Promise<string> {
+    const answer = parse<{ title?: unknown }>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/claude/${encodeURIComponent(sessionId)}/title`,
+        { body: { title } },
+      ),
+    );
+    if (typeof answer.title !== "string") throw new Error("Rename returned no title");
+    return answer.title;
+  }
+
   // ---------------------------------------------------------------------
   // Claude Desktop composer and AskUserQuestion panel
   // ---------------------------------------------------------------------

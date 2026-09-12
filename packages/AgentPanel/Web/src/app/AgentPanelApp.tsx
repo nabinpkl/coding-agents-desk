@@ -42,6 +42,7 @@ import {
   storeCanvasOpenKey,
 } from "../features/bots/botCanvasPreferences";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
+import { SessionRenameDialog } from "../features/bots/SessionRenameDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
@@ -528,6 +529,19 @@ export function App({ feed, host, fill = false }: Props) {
     });
   }, []);
 
+  /**
+   * The session whose title is being edited, if any.
+   *
+   * Held by identity rather than by summary so the dialog is opened by the row that has one; the
+   * new title is read back from the stream like every other change to a session, so nothing here
+   * has to be updated when the rename lands.
+   */
+  const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
+  const renameSession = useCallback(async (session: SessionSummary, title: string) => {
+    await feed.renameSession(session.sessionId, title);
+    setRenamingSession(null);
+  }, [feed]);
+
   const openBotSessionPicker = useCallback((bot: BotView) => {
     setBotSessionPickerId(bot.botId);
     setHoverPreviewOpen(false);
@@ -697,6 +711,7 @@ export function App({ feed, host, fill = false }: Props) {
     onSelectBotSession: openBotSession,
     onAddBotSession: openBotSessionPicker,
     onDetachBotSession: detachBotSession,
+    onRenameSession: setRenamingSession,
     detachedBotIds,
     onToggleBotOnCanvas: toggleBotOnCanvas,
     canvasOpenSessionKey: canvasOpenKey,
@@ -724,6 +739,11 @@ export function App({ feed, host, fill = false }: Props) {
           inventoryLoading={loadingLayer}
           onClose={() => setBotCreatorOpen(false)}
           onCreate={createBot}
+        />
+        <SessionRenameDialog
+          session={renamingSession}
+          onClose={() => setRenamingSession(null)}
+          onRename={renameSession}
         />
         <BotSessionPickerDialog
           open={botSessionPicker !== null}
@@ -836,6 +856,7 @@ export function App({ feed, host, fill = false }: Props) {
                 botError={botCommandError}
                 onAddSession={openBotSessionPicker}
                 onForkSession={forkSession}
+                onRenameSession={setRenamingSession}
                 onDetachSession={detachBotSession}
                 onDetachBot={toggleBotOnCanvas}
                 detachedCount={botsState.bots.length - canvasBots.length}

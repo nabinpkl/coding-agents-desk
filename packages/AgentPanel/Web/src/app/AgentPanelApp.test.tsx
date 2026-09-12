@@ -1132,6 +1132,99 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("renames a session from its canvas row menu", async () => {
+    const { transport, unmount } = setup();
+    transport.responses.set("POST /api/sessions/claude/sid-claude-01/title", {
+      status: 200,
+      body: JSON.stringify({ sessionId: "sid-claude-01", title: "What I called it" }),
+    });
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename session" }));
+
+    // Seeded with the name that is there, because a rename is usually an edit of it.
+    const field = screen.getByLabelText(/Title/) as HTMLInputElement;
+    expect(field.value).toBe("Session Claude 01");
+
+    fireEvent.change(field, { target: { value: "  What I called it  " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    });
+
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/sessions/claude/sid-claude-01/title",
+      body: { title: "What I called it" },
+    });
+    // Closed on success. The new title arrives through the inventory stream like every other
+    // change to a session, so there is nothing for the dialog to hold on to.
+    expect(screen.queryByRole("heading", { name: "Rename session" })).toBeNull();
+    unmount();
+  });
+
+  it("keeps the rename dialog open and says why when the sidecar refuses", async () => {
+    const { transport, unmount } = setup();
+    transport.responses.set("POST /api/sessions/claude/sid-claude-01/title", {
+      status: 400,
+      body: JSON.stringify({
+        error: { code: "invalid-title", message: "a session title cannot contain a line break" },
+      }),
+    });
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename session" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    });
+
+    // The sidecar's own reason, not "sidecar answered 400": the reader has to be able to fix it.
+    expect(screen.getByRole("alert")).toHaveTextContent("cannot contain a line break");
+    expect(screen.getByRole("heading", { name: "Rename session" })).toBeInTheDocument();
+    unmount();
+  });
+
   it("detaches a session from a Bot through its canvas row menu", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

@@ -45,6 +45,7 @@ export function BotSidebarPanel({
   selectedSessionKey,
   onSelectSession,
   onAddSession,
+  onRenameSession,
   onDetachSession,
   onAddBot,
   status,
@@ -57,6 +58,8 @@ export function BotSidebarPanel({
   selectedSessionKey: string | null;
   onSelectSession: (bot: BotView, session: SessionSummary) => void;
   onAddSession: (bot: BotView) => void;
+  /** Opens the rename dialog for one session. Claude only; a Codex row does not offer it. */
+  onRenameSession: (session: SessionSummary) => void;
   /**
    * Drops the reference from the Bot's projection. The session itself is untouched.
    *
@@ -216,6 +219,11 @@ export function BotSidebarPanel({
                           </button>
                           <SessionRowMenu
                             label={session.title || session.sessionId}
+                            onRename={
+                              session.source === "claude"
+                                ? () => onRenameSession(session)
+                                : undefined
+                            }
                             onDetach={() => onDetachSession(bot, session)}
                           />
                         </li>

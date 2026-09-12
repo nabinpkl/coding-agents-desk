@@ -27,12 +27,20 @@ import type {
   TranscriptSourceId,
 } from "../transcripts/sources/transcriptTypes.ts";
 import type { EventsPage, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
-import { jsonResponse } from "./httpResponses.ts";
+import {
+  renameClaudeSession,
+  SessionRenameInvalidError,
+  SessionRenameNotFoundError,
+} from "../transcripts/renameSession.ts";
+import { errorResponse, jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
 const EVENT_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events$/i;
 const RAW_EVENT_ROUTE =
   /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events\/(\d+)\/raw$/i;
+// Claude only, in the pattern rather than in a branch: Codex titles live in a database this does
+// not write, so a Codex path here would be a 404 dressed as a route that exists.
+const TITLE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/title$/i;
 
 function sourceId(value: string): TranscriptSourceId {
   return value.toLowerCase() as TranscriptSourceId;
@@ -273,10 +281,50 @@ export function subscribeTranscriptTimeline(
   };
 }
 
+/**
+ * Renames one session, which means giving its transcript a new `custom-title` record.
+ *
+ * A POST rather than a PUT because the host relay admits GET and POST only, the same reason the
+ * Bot detach endpoint is a POST.
+ */
+async function renameSession(sessionId: string, request: Request): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse("invalid-request", "request body must be JSON", 400);
+  }
+  const title = (body as { title?: unknown } | null)?.title;
+  if (typeof title !== "string") {
+    return errorResponse("invalid-title", "a session title must be a string", 400);
+  }
+  try {
+    return jsonResponse({ sessionId, title: await renameClaudeSession(sessionId, title) });
+  } catch (error) {
+    if (error instanceof SessionRenameInvalidError) {
+      return errorResponse("invalid-title", error.message, 400);
+    }
+    if (error instanceof SessionRenameNotFoundError) {
+      return errorResponse("session-not-found", error.message, 404);
+    }
+    throw error;
+  }
+}
+
 export function createSessionRoutes(
   resolveAgentSession?: AgentSessionDescriptorResolver,
 ): RouteHandler {
   return (request, url) => {
+    if (request.method === "POST") {
+      const titleMatch = TITLE_ROUTE.exec(url.pathname);
+      if (!titleMatch) return undefined;
+      if (getWatcherState() !== "live") {
+        // The panel's own envelope, unlike the GET paths below: this one is read by the rename
+        // dialog, which shows `error.message` and would otherwise say only "sidecar answered 503".
+        return errorResponse("inventory-not-ready", "the session catalog is still starting", 503);
+      }
+      return renameSession(titleMatch[1]!.toLowerCase(), request);
+    }
     if (request.method !== "GET") return undefined;
     if (getWatcherState() !== "live") {
       return jsonResponse({ error: "inventory-not-ready" }, 503);

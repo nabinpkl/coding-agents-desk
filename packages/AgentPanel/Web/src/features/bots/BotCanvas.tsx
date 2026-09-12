@@ -67,6 +67,7 @@ export function BotCanvas({
   botError,
   onAddSession,
   onForkSession,
+  onRenameSession,
   onDetachSession,
   onDetachBot,
   detachedCount,
@@ -93,6 +94,8 @@ export function BotCanvas({
   onAddSession: (bot: BotView) => void;
   /** Starts a new session branched from this one, in its own tmux pane. */
   onForkSession: (session: SessionSummary) => void;
+  /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
+  onRenameSession: (session: SessionSummary) => void;
   /**
    * Drops the reference from the Bot's projection. The session itself is untouched.
    *
@@ -168,6 +171,7 @@ export function BotCanvas({
       botError={botError}
       onAddSession={onAddSession}
       onForkSession={onForkSession}
+      onRenameSession={onRenameSession}
       onDetachSession={onDetachSession}
       onDetachBot={onDetachBot}
       openKey={openKey}
@@ -196,6 +200,7 @@ function BotCanvasList({
   botError,
   onAddSession,
   onForkSession,
+  onRenameSession,
   onDetachSession,
   onDetachBot,
   openKey,
@@ -206,6 +211,8 @@ function BotCanvasList({
   botError: string | null;
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
+  /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
+  onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
   openKey: string | null;
@@ -293,6 +300,7 @@ function BotCanvasList({
             }
             onAddSession={onAddSession}
             onForkSession={onForkSession}
+            onRenameSession={onRenameSession}
             onDetachSession={onDetachSession}
             onDetachBot={onDetachBot}
           />
@@ -460,6 +468,7 @@ function BotSessionCard({
   sessionContext,
   botError,
   onFork,
+  onRename,
   onDetach,
 }: {
   bot: BotView;
@@ -473,7 +482,10 @@ function BotSessionCard({
   onResizeCommit: (size: BotCardSize) => void;
   sessionContext: SessionViewContext;
   botError: string | null;
-  onFork: () => void;
+  /** Absent on a Codex session: only the Claude CLI has a fork to ask for. */
+  onFork?: () => void;
+  /** Absent on a Codex session, whose title this panel does not own. */
+  onRename?: () => void;
   onDetach: () => void;
 }) {
   const title = session.title || session.sessionId;
@@ -559,7 +571,12 @@ function BotSessionCard({
               />
             ) : null}
             <span className="mt-1">
-              <SessionRowMenu label={title} onFork={onFork} onDetach={onDetach} />
+              <SessionRowMenu
+                label={title}
+                onRename={onRename}
+                onFork={onFork}
+                onDetach={onDetach}
+              />
             </span>
           </div>
           {open ? (
@@ -620,6 +637,7 @@ function BotCanvasCard({
   canMoveRight,
   onAddSession,
   onForkSession,
+  onRenameSession,
   onDetachSession,
   onDetachBot,
 }: {
@@ -650,6 +668,8 @@ function BotCanvasCard({
   canMoveRight: boolean;
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
+  /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
+  onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
 }) {
@@ -816,7 +836,13 @@ function BotCanvasCard({
                 onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
                 sessionContext={sessionContext}
                 botError={botError}
-                onFork={() => onForkSession(session)}
+                // Both Claude-only, and absent rather than inert on a Codex row: forking asks the
+                // Claude CLI for a branch it alone has, and the title being renamed is a record in
+                // a transcript this panel does not write for Codex.
+                onFork={session.source === "claude" ? () => onForkSession(session) : undefined}
+                onRename={
+                  session.source === "claude" ? () => onRenameSession(session) : undefined
+                }
                 onDetach={() => onDetachSession(bot, session)}
               />
             ))}
