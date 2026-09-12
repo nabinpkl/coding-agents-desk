@@ -51,7 +51,8 @@ test("opens a UUIDv7 Codex session with the deterministic resume command", async
   };
   const service = new AgentTerminalService(
     "/unused/pty.sock",
-    () => ({ projectPath: project, activity: "ready" }),
+    () => ({ projectPath: project, activity: "ready", title: "Source session" }),
+    () => [],
     home,
     pty,
   );
@@ -117,7 +118,8 @@ test("an observer sees every terminal, including ones opened after it started", 
   } as unknown as PtySessionConnection;
   const service = new AgentTerminalService(
     "/unused/pty.sock",
-    () => ({ projectPath: project, activity: "ready" }),
+    () => ({ projectPath: project, activity: "ready", title: "Source session" }),
+    () => [],
     home,
     { listSessions: async () => [], openSession: async () => connection },
   );
@@ -155,6 +157,7 @@ test("rejects a non-canonical session id before touching the PTY manager", async
   const service = new AgentTerminalService(
     "/unused/pty.sock",
     () => undefined,
+    () => [],
     "/tmp",
     pty,
   );
@@ -218,6 +221,7 @@ test("attaches to a tmux session rather than resuming a CLI", async () => {
     // No catalog lookup happens for a tmux target: it is a process on the machine, not a
     // transcript, and refusing it because no agent session matches would refuse the whole point.
     () => undefined,
+    () => [],
     home,
     {
       listSessions: async () => [],
@@ -249,6 +253,7 @@ test("a viewer leaving a shared tmux attach never ends the session", async () =>
   const service = new AgentTerminalService(
     "/unused/pty.sock",
     () => undefined,
+    () => [],
     home,
     { listSessions: async () => [], openSession: async () => { throw new Error("no PTY here"); } },
     async () => "",
@@ -293,6 +298,7 @@ test("takes the wheel back from tmux and hands over the pane's history", async (
     new AgentTerminalService(
       "/unused/pty.sock",
       () => undefined,
+      () => [],
       home,
       { listSessions: async () => [], openSession: async () => connection },
       async (session, lines) => {
@@ -341,7 +347,8 @@ test("a resumed CLI has no tmux history to hand over", async () => {
   } as unknown as PtySessionConnection;
   const service = new AgentTerminalService(
     "/unused/pty.sock",
-    () => ({ projectPath: project, activity: "ready" }),
+    () => ({ projectPath: project, activity: "ready", title: "Source session" }),
+    () => [],
     home,
     { listSessions: async () => [], openSession: async () => connection },
     async () => { asked.push("captured"); return "should not happen\n"; },
@@ -365,6 +372,7 @@ test("refuses a tmux name that is not a plain identifier", async () => {
   const service = new AgentTerminalService(
     "/unused/pty.sock",
     () => undefined,
+    () => [],
     home,
     { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
   );
@@ -414,6 +422,8 @@ function serviceWithSessionTmux(
 async function sessionTmuxService(
   fakes: SessionTmuxFakes,
   attached: { session: string; columns: number; rows: number }[],
+  /** Titles already in the project, which is all a fork needs to pick its number. */
+  takenTitles: string[] = [],
 ): Promise<AgentTerminalService> {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);
@@ -421,7 +431,8 @@ async function sessionTmuxService(
   await mkdir(project, { recursive: true });
   const service = new AgentTerminalService(
     "/unused/pty.sock",
-    () => ({ projectPath: project, activity: "live" }),
+    () => ({ projectPath: project, activity: "live", title: "Source session" }),
+    () => takenTitles,
     home,
     { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
     async () => "",
@@ -485,11 +496,53 @@ test("forks a session into a pane of its own, never joining the one it came from
   expect(fakes.created).toEqual([{
     session: `agentdesk-fork-${FORK_ID}`,
     cwd: expect.stringContaining("projects/agent-desk"),
-    command: ["claude", "--resume", SESSION_ID, "--fork-session"],
+    command: [
+      "claude",
+      "--resume",
+      SESSION_ID,
+      "--fork-session",
+      "--session-id",
+      FORK_ID,
+      "-n",
+      "Source session (fork 1)",
+    ],
     columns: 100,
     rows: 30,
   }]);
   expect(attached).toEqual([{ session: `agentdesk-fork-${FORK_ID}`, columns: 100, rows: 30 }]);
+});
+
+test("names a fork past the forks the project already has", async () => {
+  // Without the count, both of these are "(fork 1)" and the two rows are as indistinguishable as
+  // they were when the CLI named them nothing at all.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, [], [
+    "Source session",
+    "Source session (fork 1)",
+    "Unrelated (fork 6)",
+  ]);
+
+  await service.open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(fakes.created[0]!.command.at(-1)).toBe("Source session (fork 2)");
+});
+
+test("puts the fork's transcript at the id its pane is named for", async () => {
+  // `--session-id` is what makes the pane name and the transcript file the same uuid, so the fork
+  // is findable rather than only startable.
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  await service.open(
+    { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId: FORK_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  const command = fakes.created[0]!.command;
+  expect(command[command.indexOf("--session-id") + 1]).toBe(FORK_ID);
 });
 
 test("gives two forks of one session two panes", async () => {

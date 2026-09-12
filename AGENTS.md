@@ -419,10 +419,21 @@ Five traps, each of which cost real time:
   cross-session message. Attribute by that join and never by who created the file: on 2026-09-07 a
   peer inferred authorship from file ownership, and sent a handoff about work in `BotCanvas.tsx` to
   the session that owned the file rather than the one that had written the change.
+- **A fork inherits BOTH names verbatim, and the CLI adds no suffix of its own.** Measured
+  2026-09-07: `claude --resume <id> --fork-session` with no `-n` produced a session whose registry
+  `name` and transcript `customTitle` were byte-identical to its source's. So the `(fork 3)` that
+  three sessions here share is not a counter that failed to increment -- it is a name somebody
+  typed once, inherited unchanged by every fork since. There is nothing to double up on, which is
+  why the panel passes its own `-n "<title> (fork n)"`.
 - **Name forks distinctly, because discovery is by name.** Six live sessions here were all called
   "Windows canvas", which makes the bare name address none of them and forces a `[ref]` on every
-  send -- and refs are ephemeral, resolvable only from a listing you just read. The CLI's own
-  `(fork n)` suffix is no help: three separate forks all carried `(fork 3)`.
+  send -- and refs are ephemeral, resolvable only from a listing you just read. `-n` is the whole
+  fix and it sets both names at once, so a fork started without one is indistinguishable from its
+  parent in `ListAgents` from the moment it exists.
+- **`--session-id` is accepted alongside `--fork-session`**, and the fork's transcript lands at
+  exactly that uuid (measured 2026-09-07 with a chosen id, confirmed in the registry before the
+  first turn and in the file name after it). That is what lets the panel name a fork's pane and its
+  transcript the same thing rather than discovering the file afterwards.
 
 ## An absent result is a claim about the probe until a second look agrees
 
