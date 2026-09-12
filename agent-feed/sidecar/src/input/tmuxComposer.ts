@@ -392,7 +392,7 @@ function commonest(values: readonly string[]): string | null {
 }
 
 /** A screen line with its colour taken off and its padding trimmed, which is what parses. */
-function plainText(line: string): string {
+export function plainText(line: string): string {
   return line.replace(SGR, "").replace(/\s+$/, "");
 }
 
@@ -725,8 +725,12 @@ const TURNS: Map<string, Promise<void>> =
  * The chain the next caller waits on is one that never rejects, so a failed turn holds nothing up
  * and cannot re-throw into an unrelated caller. The map entry is dropped when the chain drains,
  * which keeps this from being a per-session leak in a sidecar that sees thousands of them.
+ *
+ * Exported because this module is no longer the only thing that drives a pane: `rewindPicker.ts`
+ * takes a turn the same way, and two drivers sending into one box at once is precisely what the
+ * queue exists to prevent. The registry is process-wide (`Symbol.for`), so both see one queue.
  */
-function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+export function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
   const result = (TURNS.get(sessionId) ?? Promise.resolve()).then(work);
   const drained = result.then(() => {}, () => {});
   TURNS.set(sessionId, drained);
