@@ -2363,7 +2363,9 @@ describe("App shell", () => {
     expect(field.className).toContain("px-4");
     expect(field.className).toContain("py-3");
     expect(field.className).toContain("max-h-48");
-    expect(field.className).toContain("focus:ring-2");
+    // The ring is on the box around the field rather than the field itself, because the box also
+    // holds the images the composer is carrying and they are inside the same border.
+    expect(field.parentElement?.className).toContain("focus-within:ring-2");
     // No inline height: jsdom measures every box at zero, and writing that would collapse the field
     // to nothing. A degenerate measurement has to leave the utilities in charge.
     expect(field.style.height).toBe("");
@@ -2955,7 +2957,9 @@ describe("Claude window composer field", () => {
     expect(field.className).toContain("px-4");
     expect(field.className).toContain("py-3");
     expect(field.className).toContain("max-h-48");
-    expect(field.className).toContain("focus:ring-2");
+    // The ring is on the box around the field rather than the field itself, because the box also
+    // holds the images the composer is carrying and they are inside the same border.
+    expect(field.parentElement?.className).toContain("focus-within:ring-2");
     unmount();
   });
 

@@ -14,6 +14,34 @@ import type {
 /** How long after the last keystroke the pane is brought up to date. */
 const PUSH_DEBOUNCE_MS = 90;
 
+/**
+ * The token Claude leaves in its box where an image went.
+ *
+ * The composer's text is the only record of what it is holding: the image itself lives in a table
+ * inside that process, which nothing here can read. So the tokens are what the panel counts, and
+ * the pictures beside them are the ones this browser sent, matched to the numbers Claude gave
+ * them.
+ */
+const IMAGE_TOKEN = /\[Image #(\d+)\]/g;
+
+/** Every image the composer text says it is holding, in the order it holds them. */
+export function composerImageIds(text: string): number[] {
+  return [...text.matchAll(IMAGE_TOKEN)].map((match) => Number(match[1]));
+}
+
+/** One image in the box: the number Claude gave it, and a picture of it when this panel has one. */
+export interface ComposerImage {
+  id: number;
+  /**
+   * A preview of the bytes this browser sent, or null for an image it did not send.
+   *
+   * Null is the ordinary case for a session somebody else has been dropping files into: the box
+   * says an image is there and this panel has never seen it. Shown as the token rather than
+   * hidden, so the strip and the text never disagree about how many images are in the composer.
+   */
+  url: string | null;
+}
+
 export interface TmuxComposerHandle {
   /**
    * Whether this session is one the panel mirrors, which LATCHES on the first pane it sees.
@@ -41,13 +69,15 @@ export interface TmuxComposerHandle {
   /** Takes Claude up on `hint`, by pressing Tab in the pane the way a reader there would. */
   accept: () => Promise<void>;
   /**
-   * Puts images into the composer, in the order they were dropped.
+   * Puts images into the composer, in the order they arrived.
    *
    * Files rather than paths: the pane may be on another machine, and only the sidecar answering
    * for it can write somewhere its Claude can read. Anything that is not an image a composer takes
    * is left alone here and refused by the sidecar with a reason.
    */
   drop: (files: readonly Blob[]) => Promise<void>;
+  /** What the box is holding pictures of, for the strip above the field. */
+  images: readonly ComposerImage[];
   pending: boolean;
   error: string | null;
   /**
@@ -101,7 +131,21 @@ export function useTmuxComposer(
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [images, setImages] = useState<readonly ComposerImage[]>([]);
+
   const draftRef = useRef("");
+  /**
+   * The picture for each image number, and the pictures still waiting for one.
+   *
+   * Refs rather than state because the pairing is a sequence, not a render: an upload finishes,
+   * and some readings later a number appears in the box that was not there before. That number is
+   * the one Claude gave the image just sent, which is the only way this side can learn it -- the
+   * sidecar cannot say, because reading the box straight after a paste catches it mid-redraw.
+   */
+  const previews = useRef(new Map<number, string>());
+  const awaiting = useRef<Blob[]>([]);
+  /** What the strip was last told to show, so typing beside it does not re-render it. */
+  const shown = useRef("");
   /** An edit that has not been seen in the pane yet. Guards the read from overwriting it. */
   const edited = useRef(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,6 +164,45 @@ export function useTmuxComposer(
     edited.current = true;
     setBoth(value);
   }, [setBoth]);
+
+  /**
+   * Keeps the strip agreeing with the tokens in the field.
+   *
+   * Run off the DRAFT rather than off the reading, so it is right in both directions: a new number
+   * arrives when the pane redraws, and a token vanishes the moment somebody backspaces one out of
+   * the field, before the pane has been told.
+   */
+  useEffect(() => {
+    const ids = composerImageIds(draft);
+    for (const id of ids) {
+      if (previews.current.has(id)) continue;
+      const blob = awaiting.current.shift();
+      if (blob === undefined) break;
+      previews.current.set(id, URL.createObjectURL(blob));
+    }
+    for (const [id, url] of [...previews.current]) {
+      if (ids.includes(id)) continue;
+      URL.revokeObjectURL(url);
+      previews.current.delete(id);
+    }
+    // Cleared when the box is: a submitted turn takes its images with it, and a picture still
+    // waiting for a number it will never get would be handed to the next image dropped.
+    if (ids.length === 0) awaiting.current = [];
+    const next = ids.map((id) => ({ id, url: previews.current.get(id) ?? null }));
+    // Only when it actually moved. This runs on every keystroke, and a fresh array each time
+    // would re-render the strip for each letter typed beside it.
+    const signature = next.map((image) => `${image.id}:${image.url}`).join(" ");
+    if (signature === shown.current) return;
+    shown.current = signature;
+    setImages(next);
+  }, [draft]);
+
+  // Every preview is an object URL, which the document holds until it is told otherwise.
+  const forget = previews.current;
+  useEffect(() => () => {
+    for (const url of forget.values()) URL.revokeObjectURL(url);
+    forget.clear();
+  }, [forget]);
 
   const push = useCallback(async () => {
     const wanted = draftRef.current;
@@ -265,6 +348,9 @@ export function useTmuxComposer(
         const after = await feed.dropTmuxComposerImage(sessionRef.current, file);
         setState(after);
         if (after.reason !== null) return;
+        // Only once the pane has it. A picture queued for an image that never landed would be
+        // shown beside the next one that did.
+        awaiting.current.push(file);
       }
       edited.current = false;
     } catch (failure) {
@@ -297,6 +383,7 @@ export function useTmuxComposer(
     submit,
     accept,
     drop,
+    images,
     pending,
     error,
     onBlur,

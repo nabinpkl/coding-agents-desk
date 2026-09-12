@@ -86,6 +86,9 @@ function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; active?
       <span data-testid="mirrored">{String(composer.mirrored)}</span>
       <span data-testid="reason">{composer.reason ?? "-"}</span>
       <span data-testid="hint">{composer.hint ?? "-"}</span>
+      <span data-testid="images">
+        {composer.images.map((image) => `${image.id}:${image.url ?? "none"}`).join(" ")}
+      </span>
       <input
         aria-label="composer"
         value={composer.draft}
@@ -351,5 +354,76 @@ describe("tmux composer", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(feed.box).toBe("typed then left");
+  });
+});
+
+describe("the images a composer is holding", () => {
+  /** Which number holds which picture, as the strip would render it. */
+  function shown(): Record<string, string> {
+    const text = screen.getByTestId("images").textContent ?? "";
+    return Object.fromEntries(
+      text.split(" ").filter(Boolean).map((entry) => {
+        const split = entry.indexOf(":");
+        return [entry.slice(0, split), entry.slice(split + 1)];
+      }),
+    );
+  }
+
+  it("gives each picture the number the pane gave it, not the one this side guessed", async () => {
+    // Which number an image gets belongs to Claude, and the pane only says so when it redraws.
+    // So the picture waits, and takes a number that was not in the box before.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await press("drop");
+    expect(shown()).toEqual({});
+
+    await act(async () => { feed.emit(holding("[Image #7] [Image #8]")); });
+    const strip = shown();
+    expect(Object.keys(strip)).toEqual(["7", "8"]);
+    expect(strip["7"]).toMatch(/^blob:/);
+    // Two images, two pictures: they are not the same one shown twice.
+    expect(strip["7"]).not.toBe(strip["8"]);
+  });
+
+  it("shows an image somebody else put in the box, as its number", async () => {
+    // Dropped into the pane by whoever is sitting there: the box says it is holding an image and
+    // this panel has never seen the bytes. Named rather than hidden, so the strip and the text
+    // never disagree about how many there are.
+    const feed = pane("[Image #2] look at this");
+    render(<Probe feed={feed} />);
+    await settle();
+    expect(shown()).toEqual({ "2": "none" });
+  });
+
+  it("drops a picture the moment its token leaves the field, before the pane is told", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await press("drop");
+    await act(async () => { feed.emit(holding("[Image #7] [Image #8]")); });
+    const kept = shown()["7"]!;
+
+    await type("[Image #7]");
+    // The one still in the field keeps the picture it had; the other is gone with its token.
+    expect(shown()).toEqual({ "7": kept });
+  });
+
+  it("keeps no picture waiting once the box is emptied", async () => {
+    // A submitted turn takes its images with it. A picture still waiting for a number it will
+    // never get would be handed to the next image dropped, which is a wrong thumbnail.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await press("drop");
+    await act(async () => { feed.emit(holding("[Image #7] [Image #8]")); });
+    const submitted = Object.values(shown());
+    await act(async () => { feed.emit(holding("")); });
+    expect(shown()).toEqual({});
+
+    await press("drop");
+    await act(async () => { feed.emit(holding("[Image #9]")); });
+    // A picture sent after the turn went, not one the turn took away.
+    expect(submitted).not.toContain(shown()["9"]);
   });
 });

@@ -59,3 +59,12 @@ if (typeof (globalThis as { PointerEvent?: unknown }).PointerEvent === "undefine
     value: JsdomPointerEvent,
   });
 }
+
+// jsdom implements no object URLs, so a component that previews a file the user just handed it
+// throws on `URL.createObjectURL` rather than showing nothing. A counter keeps each one distinct,
+// which is what a test asserting "this preview is not that preview" needs.
+if (typeof URL.createObjectURL !== "function") {
+  let issued = 0;
+  URL.createObjectURL = () => `blob:agent-panel/${(issued += 1)}`;
+  URL.revokeObjectURL = () => {};
+}

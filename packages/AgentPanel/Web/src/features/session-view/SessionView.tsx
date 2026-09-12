@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type DragEvent,
   type ReactNode,
 } from "react";
@@ -39,7 +40,11 @@ import { SummaryBand } from "../summary/SummaryBand";
 import { SummaryControl } from "../summary/SummaryControl";
 import { useSummary } from "../summary/useSummary";
 import { cliInputReasonText, useCliInput, type CliInputHandle } from "../cli-input/useCliInput";
-import { tmuxComposerReasonText, useTmuxComposer } from "../cli-input/useTmuxComposer";
+import {
+  tmuxComposerReasonText,
+  useTmuxComposer,
+  type ComposerImage,
+} from "../cli-input/useTmuxComposer";
 import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
 import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../terminal/useAgentTerminal";
@@ -660,13 +665,16 @@ function SessionComposer({
      */
     onAcceptHint?: () => void;
     /**
-     * What dropping files on the field does, where that means something.
+     * What files arriving at the field do, where that means something.
      *
-     * Only the mirrored terminal band, because it is the only field whose other end can hold an
-     * image: the bands either side of it deliver text to a harness. Absent elsewhere, so a drop
-     * there does whatever the browser would have done with it.
+     * Dropped and pasted alike: they are the same arrival, and a phone has no drag at all, so the
+     * two share one handler rather than one being the real path and the other a shortcut to it.
+     * Only the mirrored terminal band has one, because it is the only field whose other end can
+     * hold an image; absent elsewhere, so a drop there does whatever the browser would have done.
      */
-    onDropFiles?: (files: readonly File[]) => void;
+    onFiles?: (files: readonly File[]) => void;
+    /** The images the composer is holding, shown above the text the way the box holds them. */
+    images?: readonly ComposerImage[];
   } = windowBand
     ? {
         value: windowComposer.draft,
@@ -717,7 +725,8 @@ function SessionComposer({
         ...(tmuxComposer.hint === null
           ? {}
           : { onAcceptHint: () => void tmuxComposer.accept() }),
-        onDropFiles: (files) => void tmuxComposer.drop(files),
+        onFiles: (files) => void tmuxComposer.drop(files),
+        images: tmuxComposer.images,
       }
     : inboxBand
     ? {
@@ -1004,26 +1013,77 @@ function SessionComposer({
         </div>
       ) : null}
       <div className={`flex items-end gap-1.5 ${terminalInput ? "justify-end" : ""}`}>
-        {terminalInput ? null : <textarea
+        {terminalInput ? null : <div
+          // The box is this wrapper rather than the field, so the images sit INSIDE it, above the
+          // text, the way the composer they are mirroring holds them. The field keeps its own
+          // scrolling and auto-grow and gives up only its border.
+          className={`flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${
+            dragging ? "border-primary ring-2 ring-primary/25" : "border-border"
+          } ${editor.disabled ? "opacity-40" : ""}`}
+          // Offered only where the other end can hold an image, so these are absent rather than
+          // inert on the other bands: without `onDragOver` preventing the default, no drop event
+          // fires at all and the browser navigates to the file instead. On the wrapper rather than
+          // the field so the images are a drop target too.
+          {...(editor.onFiles === undefined ? {} : {
+            onDragOver: (event: DragEvent<HTMLDivElement>) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              setDragging(true);
+            },
+            // Only when the pointer has actually left the box. `dragleave` also fires when it
+            // crosses onto a child -- the images, the field -- and dropping the ring there makes
+            // it flicker over exactly the area somebody is aiming at.
+            onDragLeave: (event: DragEvent<HTMLDivElement>) => {
+              const to = event.relatedTarget;
+              if (to instanceof Node && event.currentTarget.contains(to)) return;
+              setDragging(false);
+            },
+            onDrop: (event: DragEvent<HTMLDivElement>) => {
+              event.preventDefault();
+              setDragging(false);
+              editor.onFiles?.([...event.dataTransfer.files]);
+            },
+          })}
+        >
+          {editor.images && editor.images.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5 px-3 pt-3">
+              {editor.images.map((image) => (
+                <li key={image.id}>
+                  {image.url === null ? (
+                    // An image this panel never sent -- dropped into the pane by whoever is
+                    // sitting there. Named rather than hidden, so the strip and the text agree.
+                    <span
+                      className="flex h-11 w-11 items-center justify-center rounded-md border border-border bg-muted/40 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+                      title={`Image #${image.id}, dropped into the terminal`}
+                    >
+                      {`#${image.id}`}
+                    </span>
+                  ) : (
+                    <img
+                      src={image.url}
+                      alt={`Image #${image.id} in the composer`}
+                      className="h-11 w-11 rounded-md border border-border object-cover"
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <textarea
           ref={autoGrow}
           value={editor.value}
           onChange={(event) => editor.onChange(event.target.value)}
           onFocus={editor.onFocus}
           onBlur={editor.onBlur}
-          // A drop is only offered where the other end can hold an image, so these are absent
-          // rather than inert on the other bands: without `onDragOver` preventing the default, no
-          // drop event fires at all and the browser navigates to the file instead.
-          {...(editor.onDropFiles === undefined ? {} : {
-            onDragOver: (event: DragEvent<HTMLTextAreaElement>) => {
-              if (!event.dataTransfer.types.includes("Files")) return;
+          // A pasted image is the same arrival as a dropped one, and on a phone it is the only
+          // one: there is no drag there. Text pastes fall through untouched, because a clipboard
+          // carrying files is a different clipboard from one carrying words.
+          {...(editor.onFiles === undefined ? {} : {
+            onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
+              const files = [...event.clipboardData.files];
+              if (files.length === 0) return;
               event.preventDefault();
-              setDragging(true);
-            },
-            onDragLeave: () => setDragging(false),
-            onDrop: (event: DragEvent<HTMLTextAreaElement>) => {
-              event.preventDefault();
-              setDragging(false);
-              editor.onDropFiles?.([...event.dataTransfer.files]);
+              editor.onFiles?.(files);
             },
           })}
           onKeyDown={(event) => {
@@ -1049,10 +1109,9 @@ function SessionComposer({
           placeholder={editor.placeholder}
           aria-label={editor.ariaLabel}
           disabled={editor.disabled}
-          className={`max-h-48 min-h-12 flex-1 resize-none rounded-xl border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40 ${
-            dragging ? "border-primary ring-2 ring-primary/25" : "border-border"
-          }`}
-        />}
+          className="max-h-48 min-h-12 w-full resize-none bg-transparent px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none"
+        />
+        </div>}
         {/* Offered only where there is a pane: a session without one has nothing to show. The one
             control that survives the swap, because it is the way back from either side. A draft
             typed in the field is still in this component's state while the terminal has the band,
