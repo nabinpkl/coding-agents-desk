@@ -6,6 +6,7 @@ import { ActivityDot, SessionMeta } from "../sidebar/SessionMeta";
 import { SourceBadge } from "../sidebar/SourceBadge";
 import { BotAvatar } from "./BotSidebarPanel";
 import {
+  CAROUSEL_CANVAS_WIDTH,
   DEFAULT_CARD_SIZE,
   MAX_CARD_HEIGHT,
   MAX_CARD_WIDTH,
@@ -198,13 +199,16 @@ function BotCanvasList({
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
   const [sizes, setSizes] = useState<BotCardSizes>(loadBotCardSizes);
-  // How wide a row of cards actually is, which is what a card's width is clamped against. Measured
-  // rather than queried: no breakpoint has to know about the sidebar being dragged, because a card
-  // that cannot be wider than its row already gives a narrow panel one card per row.
-  const list = useRef<HTMLUListElement | null>(null);
+  // How wide the canvas is. It no longer bounds a card -- the strip scrolls, so a card may be wider
+  // than the panel -- and is measured for one question only: whether there is room to put two cards
+  // side by side at all. Measured rather than queried, because the sidebar is pinnable and
+  // resizable, so the window's width is not this panel's. The SCROLLER is what gets measured, not
+  // the list inside it: the list is `w-max`, so it reports its own contents, and widening a card
+  // would grow the very thing being asked how much room a card has.
+  const canvas = useRef<HTMLDivElement | null>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
   useEffect(() => {
-    const node = list.current;
+    const node = canvas.current;
     if (!node || typeof ResizeObserver === "undefined") return undefined;
     // The list's own padding is not room a card can use.
     const measure = (): void => setCanvasWidth(Math.max(0, node.clientWidth - 24));
@@ -219,26 +223,17 @@ function BotCanvasList({
     if (keep) storeBotCardSizes(next);
   };
   return (
-    <div className="h-full overflow-y-auto overscroll-contain">
-      {/* Cards FLOW at the widths they were given rather than filling a track template, which is
-          what makes this tiled rather than a grid: widen one and it takes the room, and whatever no
-          longer fits beside it moves to the next row. Nothing here decides how many go in a row,
-          and no breakpoint has to -- a card is clamped to the row it sits in, so a phone, or a Mac
-          with the sidebar dragged out, ends up with one card per row on the same arithmetic.
+    <div ref={canvas} className="h-full overflow-auto overscroll-contain">
+      {/* One strip, and nothing wraps out of it. A card widened here takes the room and pushes the
+          cards after it along; none of them can drop to a line below, because there is no line
+          below. That is the whole difference from the grid this replaced, and it is why the canvas
+          scrolls sideways rather than being capped to fit.
 
-          Capped and centred, while the scroller stays full width so its bar sits at the panel's
-          edge rather than floating in the middle of it.
-
-          `items-start` because a card is as tall as its own roster: without it every card in a row
-          stretches to the tallest, so a Bot with two sessions beside a Bot with twelve becomes a
-          card mostly made of empty. The cost is a ragged bottom edge, which is the honest shape of
-          rows that hold different amounts. */}
-      <ul
-        ref={list}
-        role="list"
-        aria-label="Bot canvas"
-        className="mx-auto flex max-w-[1400px] flex-wrap items-start gap-3 p-3"
-      >
+          `items-start` because a card is as tall as its own roster: without it every card stretches
+          to the tallest, so a Bot with two sessions beside a Bot with twelve becomes a card mostly
+          made of empty. The cost is a ragged bottom edge, which is the honest shape of a row that
+          holds different amounts. */}
+      <ul role="list" aria-label="Bot canvas" className="flex w-max items-start gap-3 p-3">
         {bots.map((bot) => (
           <BotCanvasCard
             key={bot.botId}
@@ -248,7 +243,9 @@ function BotCanvasList({
             openKey={openKey}
             onToggleSession={onToggleSession}
             size={sizes[bot.botId] ?? DEFAULT_CARD_SIZE}
-            canvasWidth={canvasWidth}
+            carouselWidth={
+              canvasWidth > 0 && canvasWidth < CAROUSEL_CANVAS_WIDTH ? canvasWidth : null
+            }
             onResize={(size) => resize(bot.botId, size, false)}
             onResizeCommit={(size) => resize(bot.botId, size, true)}
             onAddSession={onAddSession}
@@ -284,7 +281,7 @@ function BotCanvasCard({
   openKey,
   onToggleSession,
   size,
-  canvasWidth,
+  carouselWidth,
   onResize,
   onResizeCommit,
   onAddSession,
@@ -298,8 +295,12 @@ function BotCanvasCard({
   openKey: string | null;
   onToggleSession: (key: string) => void;
   size: BotCardSize;
-  /** How wide a row of cards is, so a card can be held inside the one it sits in. */
-  canvasWidth: number;
+  /**
+   * The width to show every card at when the canvas is too narrow to hold two, and null when it is
+   * not. Display only: it is never written back, so a phone cannot overwrite the width this Bot was
+   * given on a Mac.
+   */
+  carouselWidth: number | null;
   /** Live during a drag, so the card follows the pointer. Not written to storage. */
   onResize: (size: BotCardSize) => void;
   /** The size to keep, on pointer release or a key press. */
@@ -334,18 +335,20 @@ function BotCanvasCard({
   // taller than the screen is a card you asked to see more of at once, and the canvas scrolls.
   // Asked with a finite maximum rather than `Infinity`, which the clamps read as a number they
   // cannot trust and answer with the default.
-  const widthWithin = (width: number): number => clampCardWidth(width, canvasWidth);
+  const widthWithin = (width: number): number => clampCardWidth(width);
   const heightWithin = (height: number): number => clampCardHeight(height);
   const widest = (): number => widthWithin(MAX_CARD_WIDTH);
   const tallest = (): number => heightWithin(MAX_CARD_HEIGHT);
   // What this card actually stands at: the remembered size held inside THIS canvas and window. A
   // size saved on a bigger screen would otherwise be reported as the card's while CSS quietly drew
   // it smaller, and a drag would then start from a number the card was never at.
-  const width = widthWithin(size.width);
+  const width = carouselWidth ?? widthWithin(size.width);
   const height = heightWithin(size.height);
   const commit = (next: Partial<BotCardSize>): void =>
     onResizeCommit({
-      width: widthWithin(next.width ?? width),
+      // The card's OWN width while the canvas is showing it at the carousel's, so releasing a
+      // height drag on a phone does not quietly store the phone's width over it.
+      width: carouselWidth === null ? widthWithin(next.width ?? width) : size.width,
       height: heightWithin(next.height ?? height),
     });
   const resizeFromKeyboard = (event: React.KeyboardEvent<HTMLDivElement>, axis: "width" | "height"): void => {
@@ -400,17 +403,19 @@ function BotCanvasCard({
     // land on the transcript's scrollbar.
     <li
       ref={card}
-      className="flex overflow-hidden rounded-xl border border-border bg-card"
+      className="flex shrink-0 overflow-hidden rounded-xl border border-border bg-card"
       style={{ width }}
     >
       <div
         className="flex min-w-0 flex-1 flex-col"
         style={holdsOpen ? { height } : undefined}
       >
-        {/* Sticky so the name of whichever Bot you are reading stays overhead through a long
-            roster. The canvas is one scroller, not one per card, so this is the only thing that
-            says which Bot the rows under the fold belong to. */}
-        <div className="sticky top-0 z-10 flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2">
+        {/* Not sticky, and it never was in effect. It carried `sticky top-0` from the days of a
+            single scrolling column, but the card clips its own overflow, which makes the CARD the
+            scrollport this would stick inside -- and a card never scrolls. Measured: with the
+            card's top 288px above the scroller's top, the header sat at the card's top, not the
+            scroller's. */}
+        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2">
           <BotAvatar bot={bot} size="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
@@ -583,54 +588,58 @@ function BotCanvasCard({
       </div>
 
       {/* The card's right edge, which is the width grip and -- once there is a bottom edge to meet
-          -- the corner where the two of them join. */}
-      <div className="flex w-3 shrink-0 flex-col">
-        {/* Every card, open or not: a tile has a width whether or not you are reading it. */}
-        <div
-          role="separator"
-          aria-label={`Widen ${bot.name} card`}
-          aria-orientation="vertical"
-          aria-valuemin={MIN_CARD_WIDTH}
-          aria-valuemax={widest()}
-          aria-valuenow={width}
-          aria-valuetext={`${width} pixels`}
-          tabIndex={0}
-          className="group flex min-h-0 flex-1 cursor-col-resize touch-none items-center justify-center border-l border-border outline-none"
-          onPointerDown={startDrag}
-          onPointerMove={(event) => dragTo(event, { width: true })}
-          onPointerUp={finishDrag}
-          onPointerCancel={finishDrag}
-          onKeyDown={(event) => resizeFromKeyboard(event, "width")}
-        >
-          <span className="h-8 w-0.5 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
-        </div>
-
-        {/* Both axes in one drag, sitting where the two edges already meet.
-
-            Hidden from assistive technology and left out of the tab order on purpose, which is not
-            the usual answer for a control: it does nothing the two separators either side of it
-            cannot already do, including from the keyboard, so exposing it would be a third name for
-            the same card offering no third capability. It is a pointer shortcut over two controls
-            that are properly labelled, and a pointer is the only thing that can express a diagonal.
-
-            Only when the card has a height to drag. Closed, there is no bottom edge for a corner to
-            be the corner of. */}
-        {holdsOpen ? (
+          -- the corner where the two of them join. Absent entirely when the canvas is showing one
+          card at a time: there is no width left to drag a card to, and a drag that could only ever
+          arrive at the panel's own width would overwrite the width this Bot has on a Mac. */}
+      {carouselWidth === null ? (
+        <div className="flex w-3 shrink-0 flex-col">
+          {/* Every card, open or not: a tile has a width whether or not you are reading it. */}
           <div
-            aria-hidden
-            // A tooltip because there is no label: the two separators say what they do through
-            // their names, and this one has none to say it with.
-            title="Resize both ways"
-            className="group flex size-3 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border"
+            role="separator"
+            aria-label={`Widen ${bot.name} card`}
+            aria-orientation="vertical"
+            aria-valuemin={MIN_CARD_WIDTH}
+            aria-valuemax={widest()}
+            aria-valuenow={width}
+            aria-valuetext={`${width} pixels`}
+            tabIndex={0}
+            className="group flex min-h-0 flex-1 cursor-col-resize touch-none items-center justify-center border-l border-border outline-none"
             onPointerDown={startDrag}
-            onPointerMove={(event) => dragTo(event, { width: true, height: true })}
+            onPointerMove={(event) => dragTo(event, { width: true })}
             onPointerUp={finishDrag}
             onPointerCancel={finishDrag}
+            onKeyDown={(event) => resizeFromKeyboard(event, "width")}
           >
-            <span className="size-1.5 rounded-[1px] bg-border transition-colors group-hover:bg-primary/60" />
+            <span className="h-8 w-0.5 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary" />
           </div>
-        ) : null}
-      </div>
+
+          {/* Both axes in one drag, sitting where the two edges already meet.
+
+              Hidden from assistive technology and left out of the tab order on purpose, which is not
+              the usual answer for a control: it does nothing the two separators either side of it
+              cannot already do, including from the keyboard, so exposing it would be a third name for
+              the same card offering no third capability. It is a pointer shortcut over two controls
+              that are properly labelled, and a pointer is the only thing that can express a diagonal.
+
+              Only when the card has a height to drag. Closed, there is no bottom edge for a corner to
+              be the corner of. */}
+          {holdsOpen ? (
+            <div
+              aria-hidden
+              // A tooltip because there is no label: the two separators say what they do through
+              // their names, and this one has none to say it with.
+              title="Resize both ways"
+              className="group flex size-3 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border"
+              onPointerDown={startDrag}
+              onPointerMove={(event) => dragTo(event, { width: true, height: true })}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+            >
+              <span className="size-1.5 rounded-[1px] bg-border transition-colors group-hover:bg-primary/60" />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }

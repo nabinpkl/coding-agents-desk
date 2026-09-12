@@ -3,6 +3,7 @@ import {
   DEFAULT_CARD_HEIGHT,
   DEFAULT_CARD_WIDTH,
   MAX_CARD_HEIGHT,
+  CAROUSEL_CANVAS_WIDTH,
   MAX_CARD_WIDTH,
   MIN_CARD_HEIGHT,
   MIN_CARD_WIDTH,
@@ -62,14 +63,18 @@ describe("bot canvas preferences", () => {
     expect(loadBotCardSizes()).toEqual({});
   });
 
-  it("keeps a card inside the row it sits in", () => {
-    // A 900px card asked for in a 500px canvas is 500 wide, which is what gives a narrow panel one
-    // card per row without any breakpoint knowing about it.
-    expect(clampCardWidth(900, 500)).toBe(500);
-    // The canvas wins over the floor too: being inside the page matters more than being legible.
-    expect(clampCardWidth(900, 200)).toBe(200);
-    // Unmeasured, only the absolute range applies.
-    expect(clampCardWidth(900, 0)).toBe(900);
+  it("lets a card be wider than any panel, because the strip scrolls sideways", () => {
+    // The panel is not a bound on width. The cards are one strip, so a card wider than the panel is
+    // a card you asked to see more of, and nothing wraps out of view to make room for it.
+    expect(clampCardWidth(2400)).toBe(2400);
+    // The ends of its own range still hold.
+    expect(clampCardWidth(10)).toBe(MIN_CARD_WIDTH);
+    expect(clampCardWidth(99999)).toBe(MAX_CARD_WIDTH);
+  });
+
+  it("gives up on side by side below two cards' worth of canvas", () => {
+    // The threshold is a display decision the canvas makes, not a width any card is stored at.
+    expect(CAROUSEL_CANVAS_WIDTH).toBe(MIN_CARD_WIDTH * 2);
   });
 
   it("lets a card be taller than any window, because the canvas scrolls", () => {

@@ -897,6 +897,86 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("shows one Bot at a time when the canvas cannot hold two, without storing that width", () => {
+    localStorage.setItem(
+      "agent-panel.bot-canvas.card-sizes",
+      JSON.stringify({ "bot-1": { width: 900, height: 500 } }),
+    );
+    // Drive the canvas measurement. The strip installs a ResizeObserver to answer one question --
+    // is there room for two cards side by side -- and jsdom's default stub is inert, so this
+    // records the observer and reports a panel too narrow to hold them.
+    const inertResizeObserver = globalThis.ResizeObserver;
+    let remeasure: (() => void) | null = null;
+    let scroller: Element | null = null;
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class {
+        constructor(callback: () => void) {
+          remeasure = callback;
+        }
+        observe(node: Element) {
+          scroller = node;
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    });
+
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    const card = document.querySelector<HTMLElement>('ul[aria-label="Bot canvas"] > li');
+    // Unmeasured, the Bot stands at the width it was given.
+    expect(card).toHaveStyle({ width: "900px" });
+
+    act(() => {
+      Object.defineProperty(scroller!, "clientWidth", { configurable: true, value: 400 });
+      remeasure!();
+    });
+
+    // The canvas minus the strip's own padding, and no width grip: there is no other width to drag
+    // a card to when the canvas is showing exactly one.
+    expect(card).toHaveStyle({ width: "376px" });
+    expect(screen.queryByRole("separator", { name: "Widen Release Captain card" })).toBeNull();
+
+    // Height still resizes, and committing it must not write the canvas's width over the Bot's own.
+    // Scoped to the card, because the roster in the sidebar offers the same session by the same
+    // name.
+    fireEvent.click(within(card!).getByRole("button", { name: /^Session Claude 01/ }));
+    fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Release Captain card" }), {
+      key: "ArrowUp",
+    });
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
+      "bot-1": { width: 900, height: 476 },
+    });
+
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: inertResizeObserver,
+    });
+    unmount();
+  });
+
   it("forks a session from its canvas row menu into a terminal of its own", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
