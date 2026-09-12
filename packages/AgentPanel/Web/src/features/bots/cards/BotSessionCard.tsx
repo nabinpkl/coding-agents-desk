@@ -34,6 +34,7 @@ export function BotSessionCard({
   session,
   hue,
   shade,
+  solo,
   open,
   onToggle,
   size,
@@ -54,6 +55,15 @@ export function BotSessionCard({
   hue: number | undefined;
   /** This session's step on that Bot's shade ladder, which is what separates it from its siblings. */
   shade: number | undefined;
+  /**
+   * Whether this is the only session its Bot has, in which case it gets no rail.
+   *
+   * Over the Bot's durable roster rather than over what the canvas is showing, the same as the
+   * shade is: a Bot with three sessions and two of them taken off the canvas has not become a Bot
+   * with one, and a card that grew a rail because a sibling was hidden would be saying something
+   * about the view rather than about the Bot.
+   */
+  solo: boolean;
   open: boolean;
   onToggle: () => void;
   size: BotCardSize;
@@ -105,6 +115,10 @@ export function BotSessionCard({
   // wearing `bot-session-fill` with no `--bot-hue` would resolve the hue it inherited from the Bot
   // card around it and paint step zero of a ladder it is not on.
   const shaded = botSessionStyle(hue, shade);
+  // The rail says which Bot a card belongs to, among the Bot's several. With one session there is
+  // no "among", and a rail down the only thing in a container draws a line between a group and
+  // itself. The card keeps its shade either way, so it still reads as a card sitting on its Bot.
+  const railed = shaded !== undefined && !solo;
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -145,7 +159,7 @@ export function BotSessionCard({
         // back to and a plain `border-border` box would be the only open card that looked shut.
         className={`relative flex overflow-hidden rounded-lg border ${
           shaded
-            ? "bot-session-edge bot-session-fill bot-rail"
+            ? `bot-session-edge bot-session-fill ${railed ? "bot-rail" : ""}`
             : open
               ? "border-primary"
               : "border-border"
@@ -161,7 +175,7 @@ export function BotSessionCard({
           // solidity as the bar down the card around it, so the leading edge answers whose session
           // this is and the rest of the card answers which. Four pixels against the Bot card's six,
           // which is what puts the container's edge above the ones nested inside it.
-          ...(shaded ? { borderLeftWidth: 4 } : null),
+          ...(railed ? { borderLeftWidth: 4 } : null),
         }}
         // The WHOLE card takes the file, titlebar included, and a closed one takes it too. The
         // session's own view is only the body and only while the card is open, so a handler down
@@ -212,7 +226,9 @@ export function BotSessionCard({
                 />
               </span>
               <ChevronDown
-                className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                // Same ink as the caption under the title, for the same reason: it sits on the
+                // card's fill, and the fill moves.
+                className={`mt-0.5 size-4 shrink-0 session-muted-ink transition-transform ${open ? "rotate-180" : ""}`}
                 aria-hidden
               />
             </button>

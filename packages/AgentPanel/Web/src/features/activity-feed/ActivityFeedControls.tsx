@@ -52,7 +52,7 @@ export function ActivityFeedControls({
             "flex h-8 items-center justify-center rounded-lg px-1.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) uppercase tracking-wider transition-colors " +
             (mode === "raw"
               ? "bg-primary/20 text-primary hover:bg-primary/30"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+              : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
           }
         >
           {mode === "raw" ? "raw" : "nice"}
@@ -71,7 +71,7 @@ export function ActivityFeedControls({
             "flex h-8 items-center justify-center rounded-lg px-1.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) uppercase tracking-wider transition-colors " +
             (showCacheHits
               ? "bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 dark:text-emerald-400"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+              : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
           }
         >
           cache
@@ -82,7 +82,7 @@ export function ActivityFeedControls({
           disabled={allEventIds.length === 0}
           title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
           aria-label={allCollapsed ? "expand all" : "collapse all"}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
+          className="flex h-8 w-8 items-center justify-center rounded-lg session-muted-ink transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
         >
           {allCollapsed ? (
             <UnfoldVertical className="h-4 w-4" aria-hidden />

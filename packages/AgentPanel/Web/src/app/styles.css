@@ -204,14 +204,25 @@
      the nearest two Bots ever get on this wheel is 85 degrees, which holds 0.169 dEok. */
   --bot-rail-l: 0.620;
   --bot-rail-c: 0.170;
-  /* Light moves the session ladder in the BORDER only, and the zeros are the measurement rather
-     than an omission. `--muted-foreground` has 4.55:1 on the Bot's own surface against 4.73 on the
-     untinted card, so there is 0.05 of headroom and every direction spends it: darkening the
-     surface by 0.004 reaches 4.51, and a chroma step of 0.004 at the same lightness reaches 4.52.
-     A ladder of six needs more room than the whole light surface has. The border has all of it,
-     because no text sits on a border -- the same asymmetry the block above already runs on. */
-  --bot-session-surface-dl: 0;
-  --bot-session-surface-dc: 0;
+  /* A session's card, and the one surface here that does not ladder in LIGHTNESS at all. Every
+     other colour in this file separates by getting lighter or darker, because that is the channel
+     with room; a card cannot use it, because a light theme's cards have to stay light and a dark
+     theme's have to stay dark, and a ladder long enough to tell six apart runs out of the theme
+     before it runs out of contrast. So the six differ by HUE, a whole sixth of the circle between
+     neighbours, at one fixed lightness and one fixed chroma. Measured over 72 Bot hues: adjacent
+     sessions sit 0.0273 dEok apart here, against 0.0003 for the flat surface this replaces.
+
+     Light needed one more thing before it could be tinted at all, and it is the cap this file has
+     recorded three times: `--muted-foreground` is a FIXED 0.556, it sits at 4.55:1 on the Bot's
+     own surface with a floor of 4.5, and any tint spends what is left. That is a cap on the PAIR,
+     so the ink moves instead -- 0.500 rather than 0.556, on session cards only, which holds the
+     meta line at 4.92:1. Better than the untinted card manages, on a card that now has a colour. */
+  --bot-session-fill-l: 0.950;
+  --bot-session-fill-c: 0.050;
+  /* Published by `.bot-session-fill` as `--session-muted` and read through `.session-muted-ink`,
+     which falls back to `--muted-foreground` everywhere there is no card. The sidebar renders the
+     same `SessionMeta` and is untouched. */
+  --bot-session-ink-l: 0.500;
   /* Chroma-led now, against the rule the ladders here otherwise follow, and the reason is that
      this ladder has a second job. Lightness-led is what keeps six steps separable, and it still
      is -- but a border at chroma 0.050 climbing by 0.006 paints a chroma-to-lightness ratio of
@@ -251,18 +262,22 @@
   --bot-session-ground-c: 0.0125;
   --bot-session-interior-dl: 0;
   --bot-session-interior-dc: 0;
-  /* The three surfaces INSIDE an open session: its titlebar, and the two cards its transcript
-     draws rows on. Each is measured against what it replaces rather than against AA alone, because
-     two of them do not reach AA untinted: `--muted-foreground` on today's `--muted` titlebar is
-     4.34:1 and on today's `bg-muted/60` tool row 4.49:1. So the bar here is "no worse", and both
-     of these clear it -- the titlebar goes to 4.40:1 and the tool row to 4.50:1, each better than
-     the grey it replaces. The text row is the one that gives something up: 4.55:1 against 4.73:1
-     on the untinted card, which is the same 4.55 the Bot's own surface already sits at. */
-  --bot-session-header-l: 0.978;
-  --bot-session-header-c: 0.014;
-  /* The text row's base is `--card`, which is also the column's, so these two pairs carry the
-     same numbers in both themes and are still two facts: a change to what a ROW sits on must not
-     move the column out from under it. */
+  /* The two cards an open session's transcript draws rows on. Measured against what they replace
+     rather than against AA alone, because one of them does not reach AA untinted:
+     `--muted-foreground` on today's `bg-muted/60` tool row is 4.49:1. So the bar is "no worse",
+     and the tool row clears it at 4.50:1. The text row is the one that gives something up: 4.55:1
+     against 4.73:1 on the untinted card, which is the same 4.55 the Bot's own surface sits at.
+
+     The TITLEBAR is no longer here. It had a base and a ladder of its own, and being on a ladder
+     of its own is exactly what made an open card stop saying which session it was: the titlebar is
+     the strip with the name on it, it covers the card's fill the moment the card opens, and it
+     moved 0.012 a step where the fill now moves 0.038. Five open cards had five titlebars a
+     reader could not tell apart. It now paints the fill's own colour, so a card's identity is one
+     colour that does not change when it opens.
+
+     The text row's base is `--card`, which is also the column's, so these two pairs carry the same
+     numbers in both themes and are still two facts: a change to what a ROW sits on must not move
+     the column out from under it. */
   --bot-session-row-l: 0.9915;
   --bot-session-row-c: 0.0125;
   --bot-session-row-tool-l: 0.988;
@@ -279,11 +294,39 @@
     --bot-accent-c: 0.060;
     --bot-rail-l: 0.720;
     --bot-rail-c: 0.150;
-    /* Dark carries the ladder on the surface, where it has room in a way light does not: the Bot's
-       card sits at 0.234 with `--card` at 0.205 below it, so six steps can climb away from the
-       page without leaving it. */
-    --bot-session-surface-dl: 0.020;
-    --bot-session-surface-dc: 0.003;
+    /* Dark carries the ladder on the surface, where it has room in a way light does not -- and
+       the base is 0.180 rather than the Bot's own 0.234, which is where most of that room came
+       from. Pinned to the Bot's surface the ladder could only climb, so its whole range lived
+       between 0.234 and the ceiling `--muted-foreground` puts at 0.335, and 0.020 a step was all
+       that fitted. Six shades inside 0.100 of lightness is what "the sessions all look the same"
+       was: measured, adjacent steps sat 0.0202 dEok apart. Starting lower keeps that same ceiling
+       and takes the range to 0.155, so a step is 0.031 and adjacent steps are 0.0311 dEok apart,
+       with the meta line still at 4.54:1 against a floor of 4.5.
+
+       Unpinning costs the property that step zero WAS the Bot's surface exactly, and that turns
+       out to be worth losing on its own account: a one-session Bot used to paint its session the
+       colour of the card around it, so the only thing saying where the container ended and its
+       contents began was a one-pixel border. The session now sits visibly inset in its Bot.
+
+       Chroma is not the lever here and was measured twice before being ruled out. It runs out of
+       sRGB long before lightness does at these darknesses, so the more colourful ladders are the
+       ones a display flattens: +0.012 a step takes adjacent separation DOWN to 0.0151 and +0.018
+       to 0.0111, both worse than the 0.0202 they were meant to improve on. The sessions of one
+       Bot are shades of that Bot rather than different colours, which is also what they should
+       be -- the hue is the one thing at this level that is not theirs to vary. */
+    /* Dark can afford far more chroma than light, which is the same asymmetry the top of this
+       file runs on read from the other end: light's cards start at white and every direction is
+       downhill, dark's start at 0.234 with room on both sides. 0.090 of chroma at 0.255 puts
+       adjacent sessions 0.0510 dEok apart -- the widest separation anything in this file achieves
+       -- while leaving the card unmistakably dark and the meta line at 5.63:1, better than the
+       4.56 the old lightness ladder managed at its top step. The title holds 13.97:1.
+
+       The ink does not move here. Dark only ever needed it because the card was climbing toward
+       the text; a card that stays at one lightness does not, so this is `--muted-foreground`
+       exactly and `.session-muted-ink` is a no-op in this theme. */
+    --bot-session-fill-l: 0.255;
+    --bot-session-fill-c: 0.090;
+    --bot-session-ink-l: 0.708;
     /* Where "every session border looks white" came from, and it was a fair reading. This ladder
        climbed lightness hard and chroma barely at all, so its top step painted l 0.590 at chroma
        0.075 -- a ratio of 0.127, which on a dark card is a pale outline that happens to lean a
@@ -298,7 +341,9 @@
        everywhere else. Everything here climbs AWAY from the page, and the disc climbing carries it
        TOWARD the near-white text sitting on it: at 0.034 a step, `--foreground` falls to 4.44:1 at
        hue 275 and fails AA. 0.028 holds 5.05:1 over 72 hues and six steps, with adjacent steps
-       0.028 dEok apart after clipping, which is still wider than the surface ladder's 0.020. */
+       0.028 dEok apart after clipping. The surface ladder beside it is wider still at 0.0311, and
+       that is the right way round: a disc is eleven pixels of text on 24 of colour, where the card
+       behind it is a whole panel, so the disc needs less separation to read as a different one. */
     --bot-session-accent-dl: 0.028;
     --bot-session-accent-dc: 0.004;
     /* Dark carries the ladder into the interior too, but at 0.012 a step rather than the card's
@@ -314,18 +359,11 @@
     --bot-session-ground-c: 0.022;
     --bot-session-interior-dl: 0.012;
     --bot-session-interior-dc: 0.003;
-    /* The titlebar goes DOWN in lightness where every other surface here goes up, and that is what
-       lets it be the most saturated thing in the card without becoming the least readable. Light
-       text on a dark ground gains contrast as the ground darkens, so 0.185 buys the room for a
-       chroma of 0.030 -- above the card's own 0.022 -- and still reads `--muted-foreground` at
-       6.15:1 against 5.83:1 on the grey bar it replaces. It is also the only surface here that
-       reverses direction between the themes, because light text and dark text want opposite
-       things and the titlebar is the one asking for a tint you cannot miss.
-       The two row surfaces keep their existing order: the text card sits below the transcript
+    /* The two row surfaces keep their existing order: the text card sits below the transcript
        ground and the tool card above it, so a tinted transcript stacks the way the grey one did.
-       `--muted-foreground` holds 5.82:1 on the text row and 5.01:1 on the tool row. */
-    --bot-session-header-l: 0.185;
-    --bot-session-header-c: 0.030;
+       `--muted-foreground` holds 5.82:1 on the text row and 5.01:1 on the tool row. The titlebar
+       used to have a base here and now takes the fill's, for the reason recorded in the light
+       block above. */
     --bot-session-row-l: 0.205;
     --bot-session-row-c: 0.022;
     --bot-session-row-tool-l: 0.249;
@@ -357,7 +395,14 @@
     background-color: oklch(var(--bot-accent-l) var(--bot-accent-c) var(--bot-hue));
   }
 
-  /* One of a Bot's sessions wearing its own step of that Bot's accent, which is what makes two
+  /* Every rule from here to `.bot-rail` paints `--bot-session-hue` -- the Bot's hue turned by
+     this session's share of a 60 degree arc, published by `botSessionStyle`, which is what lets
+     two of one Bot's sessions differ in COLOUR and not only in shade. The fallback to `--bot-hue`
+     is what a solo session and an unshaded card resolve to, and it is also the whole safety of
+     the scheme: an unresolved custom property makes the declaration invalid at computed-value
+     time and the surface comes back transparent with nothing said about it.
+
+     One of a Bot's sessions wearing its own step of that Bot's accent, which is what makes two
      sessions of one Bot tell apart at the mark rather than only at the letters in it. Same split
      as every ladder here: `botSurface.ts` decides WHICH step, how far a step moves lives in the
      theme blocks above, and the numbers there carry their own measurement.
@@ -369,7 +414,7 @@
     background-color: oklch(
       calc(var(--bot-accent-l) + var(--bot-session-step) * var(--bot-session-accent-dl))
       calc(var(--bot-accent-c) + var(--bot-session-step) * var(--bot-session-accent-dc))
-      var(--bot-hue)
+      var(--bot-session-hue, var(--bot-hue))
     );
   }
 
@@ -385,11 +430,11 @@
      looks more colourful is the one a display flattens.
 
      Measured over 72 hues, six steps, in both themes, against the sRGB values a display paints.
-     Dark carries it on the surface: `--muted-foreground` holds 4.56:1 at the top step against
-     6.40:1 on the Bot's own surface, and `--foreground` 11.32:1 against 15.9:1. AA wants 4.5, so
+     Dark carries it on the surface: `--muted-foreground` holds 4.54:1 at the top step against
+     6.40:1 on the Bot's own surface, and `--foreground` 11.27:1 against 15.9:1. AA wants 4.5, so
      the sixth step is the last one that fits and the ladder cycles there rather than climbing into
      text nobody can read. Light leaves the surface alone and moves the border from 1.55:1 to
-     2.76:1 against the card it rings. Worst adjacent separation, after clipping: 0.020 dEok on
+     2.76:1 against the card it rings. Worst adjacent separation, after clipping: 0.0311 dEok on
      dark's surface, 0.0281 on light's border. */
   .bot-session-fill {
     /* The two surfaces an OPEN session shows, handed DOWN as variables rather than painted here.
@@ -406,33 +451,45 @@
     --session-view-surface: oklch(
       calc(var(--bot-session-view-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
       calc(var(--bot-session-view-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
-      var(--bot-hue)
+      var(--bot-session-hue, var(--bot-hue))
     );
     --session-view-ground: oklch(
       calc(var(--bot-session-ground-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
       calc(var(--bot-session-ground-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
-      var(--bot-hue)
+      var(--bot-session-hue, var(--bot-hue))
     );
+    /* The titlebar, which is the card's own fill and not a surface of its own. An open card lays
+       this over the top of `background-color` below, so anything else here is the card changing
+       colour the moment a reader opens it -- and it is the strip carrying the session's name, so
+       it is the last place that should. Written out rather than pointing at a variable because
+       `background-color` is set with the same calc and the two must not be able to drift.
+
+       This is also what puts the whole widened ladder where it can be seen. Every card on a canvas
+       of open sessions shows its titlebar and nothing else of its fill. */
     --session-view-header: oklch(
-      calc(var(--bot-session-header-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
-      calc(var(--bot-session-header-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
-      var(--bot-hue)
+      var(--bot-session-fill-l) var(--bot-session-fill-c) var(--bot-session-hue, var(--bot-hue))
     );
     --session-view-row: oklch(
       calc(var(--bot-session-row-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
       calc(var(--bot-session-row-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
-      var(--bot-hue)
+      var(--bot-session-hue, var(--bot-hue))
     );
     --session-view-row-tool: oklch(
       calc(var(--bot-session-row-tool-l) + var(--bot-session-step) * var(--bot-session-interior-dl))
       calc(var(--bot-session-row-tool-c) + var(--bot-session-step) * var(--bot-session-interior-dc))
-      var(--bot-hue)
+      var(--bot-session-hue, var(--bot-hue))
     );
     background-color: oklch(
-      calc(var(--bot-surface-l) + var(--bot-session-step) * var(--bot-session-surface-dl))
-      calc(var(--bot-surface-c) + var(--bot-session-step) * var(--bot-session-surface-dc))
-      var(--bot-hue)
+      var(--bot-session-fill-l) var(--bot-session-fill-c) var(--bot-session-hue, var(--bot-hue))
     );
+    /* The ink for the caption on this card, on the same step as the card. Greyscale on purpose:
+       what it has to track is the LIGHTNESS moving under it, and a tinted caption on a tinted card
+       at eleven pixels is two colours arguing where one of them is barely visible.
+
+       Handed down rather than painted here, the same way the open session's surfaces are, and for
+       the same reason: what reads it is `SessionMeta`, one component shared with the sidebar,
+       where there is no card and no step and the fallback is what has to apply. */
+    --session-muted: oklch(var(--bot-session-ink-l) 0 0);
   }
 
   /* The two surfaces `SessionView` paints, each falling back to the token it used to name
@@ -462,6 +519,15 @@
     background-color: var(--session-view-row, var(--card));
   }
 
+  /* Caption ink that follows the surface it sits on. Everywhere but a shaded session card there
+     is no `--session-muted` to inherit and this is `--muted-foreground` exactly, which is what
+     keeps one shared component rendering correctly in a sidebar row and on a coloured card.
+     Never write the inner `var()` without its fallback: an unresolved custom property makes the
+     declaration invalid at computed-value time, and the text would come back transparent. */
+  .session-muted-ink {
+    color: var(--session-muted, var(--muted-foreground));
+  }
+
   .session-view-row-tool {
     background-color: var(
       --session-view-row-tool,
@@ -476,7 +542,7 @@
     border-color: oklch(
       calc(var(--bot-border-l) + var(--bot-session-step) * var(--bot-session-border-dl))
       calc(var(--bot-border-c) + var(--bot-session-step) * var(--bot-session-border-dc))
-      var(--bot-hue)
+      var(--bot-session-hue, var(--bot-hue))
     );
   }
 

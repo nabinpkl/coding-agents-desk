@@ -6,9 +6,11 @@
 // order.
 
 import { describe, expect, test } from "vitest";
+import type { CSSProperties } from "react";
 import {
   BOT_HUE_OFFSET,
   BOT_HUE_STEP,
+  BOT_SESSION_HUE_SPACING,
   BOT_SESSION_SHADES,
   botCanvasHues,
   botSessionShades,
@@ -156,7 +158,11 @@ describe("botSessionShades", () => {
     expect(shades.get(`claude:${REFS[2]!.sessionId}`)).toBeUndefined();
   });
 
-  test("the first session is its Bot's own colour, so a Bot with one spends no colour on it", () => {
+  test("a Bot with one session still ranks it, because a lone card is still a card", () => {
+    // Step zero is a real rung and this is the one place it is the WHOLE ladder. What a solo
+    // session drops is its rail, which is the card's call and not this function's: a shade says
+    // "I am a card sitting on this Bot" and is worth having with one session, where a rail says
+    // "I am this Bot's, among its several" and is not.
     expect(botSessionShades([REFS[0]!]).get(`claude:${REFS[0]!.sessionId}`)).toBe(0);
   });
 
@@ -192,7 +198,13 @@ describe("botSessionShades", () => {
 
 describe("botSessionStyle", () => {
   test("hands CSS the Bot's hue and the session's step, and lets the theme own the rest", () => {
-    expect(botSessionStyle(137.508, 3)).toEqual({ "--bot-hue": "137.51", "--bot-session-step": "3" });
+    expect(botSessionStyle(137.508, 3)).toEqual({
+      "--bot-hue": "137.51",
+      "--bot-session-step": "3",
+      // Three slots of sixty degrees along from its Bot. The Bot's own hue is published
+      // UNTURNED beside it, because the rail reads that one and must not move with the session.
+      "--bot-session-hue": "317.51",
+    });
   });
 
   test("a step with no hue gets nothing, so it cannot shade the colour it inherited", () => {
@@ -204,7 +216,26 @@ describe("botSessionStyle", () => {
   });
 
   test("step zero is published, because it is a real step and not a missing one", () => {
-    expect(botSessionStyle(24, 0)).toEqual({ "--bot-hue": "24.00", "--bot-session-step": "0" });
+    expect(botSessionStyle(24, 0)).toEqual({
+      "--bot-hue": "24.00",
+      "--bot-session-step": "0",
+      "--bot-session-hue": "24.00",
+    });
+  });
+
+  test("a Bot's sessions are spread over the whole circle, not clustered on its own hue", () => {
+    const spread = Array.from({ length: BOT_SESSION_SHADES }, (_, step) =>
+      Number(botSessionStyle(180, step)!["--bot-session-hue" as keyof CSSProperties]));
+    expect(spread).toEqual([180, 240, 300, 0, 60, 120]);
+    // The first session lands ON its Bot's hue and every other one is a different colour entirely.
+    // That is the point rather than a side effect: a narrow arc around the Bot was measured first
+    // and moved a card 0.0054 dEok, because rotating a low-chroma colour barely moves it.
+    expect(spread[0]).toBe(180);
+    expect(new Set(spread).size).toBe(BOT_SESSION_SHADES);
+    // Evenly, so the two sessions that end up closest are as far apart as six can be.
+    for (let i = 1; i < spread.length; i += 1) {
+      expect((spread[i]! - spread[i - 1]! + 360) % 360).toBeCloseTo(BOT_SESSION_HUE_SPACING, 6);
+    }
   });
 });
 

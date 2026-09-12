@@ -36,7 +36,7 @@ export function SummaryControl({
         + "disabled:cursor-progress disabled:opacity-60 "
         + (state.kind === "ready"
           ? "bg-primary/20 text-primary hover:bg-primary/30"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+          : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
       }
     >
       {pending

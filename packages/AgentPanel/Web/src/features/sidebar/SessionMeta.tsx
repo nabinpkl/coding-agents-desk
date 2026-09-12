@@ -39,7 +39,12 @@ export function SessionMeta({
 }) {
   const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+    // `session-muted-ink` rather than `text-muted-foreground`, which is the same colour in every
+    // place this renders except one: on a Bot card's session, where the card is on a lightness
+    // ladder and a fixed grey caption is what caps how far that ladder can go. The class resolves
+    // to `--muted-foreground` wherever no card published a step, so the sidebar's rows -- the
+    // other reader of this component -- are byte-identical to what they were.
+    <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <SourceBadge source={source} />
       <span>{time}</span>
       <span className="capitalize">{activity}</span>

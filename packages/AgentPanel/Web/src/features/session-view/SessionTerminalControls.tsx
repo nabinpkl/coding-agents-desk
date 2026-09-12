@@ -51,7 +51,7 @@ export function TerminalControl({
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-60 " +
           (ready
             ? "bg-primary/20 text-primary hover:bg-primary/30"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+            : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
         }
       >
         {busy ? (

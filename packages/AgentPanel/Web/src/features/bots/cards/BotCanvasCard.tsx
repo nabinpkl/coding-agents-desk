@@ -335,6 +335,7 @@ export function BotCanvasCard({
                 session={session}
                 hue={hue}
                 shade={shades.get(sessionKey(session))}
+                solo={bot.sessionRefs.length === 1}
                 open={openKeys.has(sessionKey(session))}
                 onToggle={() => onToggleSession(sessionKey(session))}
                 size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}

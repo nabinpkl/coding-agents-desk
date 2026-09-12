@@ -149,8 +149,19 @@ export const BOT_SESSION_SHADES = 6;
  * the time, so the common case would be two cards the same colour on purpose instead of a repaint
  * after a detach.
  *
- * Step zero is the Bot's own surface unchanged, which is what makes a Bot with ONE session look
- * exactly as it did: no colour is spent where there is nothing to tell apart.
+ * A Bot with ONE session is ranked like any other and takes step zero. What it does NOT take is
+ * a rail, and that is the card's decision rather than this one's -- a rail down the only thing
+ * inside a container is a line drawn between a group and itself. The shade stays, because a
+ * session card should be visibly a card sitting ON its Bot rather than a patch of the Bot's own
+ * body, and step zero is 0.094 of lightness away from the Bot's surface in dark.
+ *
+ * Step zero is the BOTTOM of the ladder rather than the Bot's own surface, which it used to be.
+ * Pinning it there meant the ladder could only climb, and the ceiling is close: `styles.css`
+ * records `--muted-foreground` running out at 0.335, so all six shades had to fit inside 0.100 of
+ * lightness and sat 0.0202 dEok apart. Unpinned they span 0.155 and sit 0.0311 apart. What is lost
+ * is that a Bot with ONE session used to paint that session exactly the colour of the card around
+ * it; what replaces it is better, because a session card that is not the colour of its container
+ * is a session card you can see the edges of.
  */
 export function botSessionShades(
   refs: readonly BotSessionShadeIdentity[],
@@ -160,6 +171,29 @@ export function botSessionShades(
     shades.set(`${ref.source}:${ref.sessionId}`, index % BOT_SESSION_SHADES);
   });
   return shades;
+}
+
+/**
+ * How far apart two neighbouring sessions of one Bot sit on the colour wheel, in degrees.
+ *
+ * The whole circle divided by the number of slots, which is the widest six things can be spaced
+ * and is deliberately NOT a narrow arc around the Bot's own hue. A narrow arc was tried and
+ * measured first: at the chroma a card carries, rotating a nearly-grey colour leaves a nearly-grey
+ * colour, and even a 110 degree arc moved a fill 0.0054 dEok. Sixty degrees between neighbours at
+ * full separation moves it 0.0510, which is the widest separation anything on this canvas gets.
+ *
+ * So a Bot's sessions are not shades of the Bot. They are six different colours, and the first one
+ * happens to land on the Bot's own hue because the count starts there. What says they belong to
+ * one Bot is the RAIL, which does not take this and must not: it is the single channel answering
+ * "whose card is this", and a grouping cue that varies inside the group is not one. Spending the
+ * hue at this level is only affordable BECAUSE the rail exists -- before it, similarity between
+ * the fills was the only thing holding a Bot together, and it had to be paid for in sameness.
+ */
+export const BOT_SESSION_HUE_SPACING = 360 / BOT_SESSION_SHADES;
+
+/** The hue a session paints: its slot's share of the circle, started at its Bot's own hue. */
+function sessionHue(hue: number, shade: number): number {
+  return (hue + shade * BOT_SESSION_HUE_SPACING) % 360;
 }
 
 /**
@@ -175,7 +209,11 @@ export function botSessionStyle(
   shade: number | undefined,
 ): CSSProperties | undefined {
   if (hue === undefined || shade === undefined) return undefined;
-  return { "--bot-hue": hue.toFixed(2), "--bot-session-step": String(shade) } as CSSProperties;
+  return {
+    "--bot-hue": hue.toFixed(2),
+    "--bot-session-step": String(shade),
+    "--bot-session-hue": sessionHue(hue, shade).toFixed(2),
+  } as CSSProperties;
 }
 
 /**
