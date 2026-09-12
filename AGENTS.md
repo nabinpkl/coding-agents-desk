@@ -477,6 +477,29 @@ does.
   over 110s (588 with live rows on screen) and 401 over 60s (377 with live rows), and not one row
   more than 2px out of place in either.
 
+- **Verifying anything you DRIVE belongs in a debug Chrome you control, not the owner's tab.**
+  The bullet above is about a tab that stopped responding; this one bites while the page is
+  perfectly healthy. A backgrounded tab takes clicks and never takes typing. Measured 2026-09-11
+  on the question mirror: `.click()` on a radio updated React exactly as a person would, and both
+  ways of typing into a text field beside it -- the native value setter plus a bubbling `input`
+  event, and real keystrokes through `computer`'s `type` -- left the DOM value set and React state
+  untouched, or did nothing at all. `document.hidden` was `true` throughout and `document.hasFocus()`
+  was `true`, so neither one warns you. The result reads as a broken control, which is what it
+  looked like for the twenty minutes spent on it.
+
+  So split the two jobs rather than the tools. **Reading** the owner's panel -- is the surface
+  there, what does it say, is the right half driving it -- is what the extension is for, and the
+  owner's Chrome is the only place the real session, the real stream and the real logged-in state
+  exist. **Driving** it -- typing, submitting, anything whose whole point is that an input event
+  arrived -- goes to Chrome for Testing, visible and foregrounded, where the page is not throttled
+  and nothing is competing for the tab. Running the same flow in both is not duplicated work: they
+  answer different questions, and only the second one can tell a control that is broken from a tab
+  that is asleep.
+
+  The general rule under it is the absent-result one two sections down, with a twist worth naming:
+  here the probe produced an ABSENCE OF EFFECT rather than an absence of data, and an effect that
+  did not happen is just as cheap for a broken probe to produce as an empty result is.
+
 ## The dev origin serves HTTP/2, and it is load-bearing
 
 Settled 2026-09-06, after an evening spent debugging three features that were not broken.
