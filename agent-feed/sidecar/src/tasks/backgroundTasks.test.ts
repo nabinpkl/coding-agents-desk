@@ -46,6 +46,7 @@ function sources(overrides: Partial<SnapshotSources> = {}): SnapshotSources {
     captureSizes: new Map(),
     processes: [],
     monitors: new Map(),
+    agents: new Map(),
     ownerPid: 1,
     uncorroboratedAfterMs: 5000,
     ownerAlive: true,
