@@ -59,7 +59,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R25 | D | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
 | R26 | D | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
 | R27 | D | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
-| R28 | R | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
+| R28 | D | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
 | R29 | R | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
 | R30 | R | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
 | R31 | R | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
@@ -410,6 +410,23 @@ the retired peer, the attempt id a page teardown reports, the resolved display -
 Split into `ActivityEventHeading.tsx` and `ActivityBlockViews.tsx`. 765 to 374.
 `app/typeRendering.test.ts` pins the prose leading by reading this file; it now reads both, because
 the three text wrappers it counts moved with the blocks. The rule is unchanged, its subject grew.
+
+### R28 `activity-feed/ActivityFeed.tsx` (841)
+
+- Which rows the transcript has, and which of them are open -- one question, because
+  clustering depends on what the reader expanded.
+- Which bars to pin, and which transcript line is at the top of the viewport.
+- Coming back to where a session was being read, and writing down where it is left.
+- The thread's controls, portalled into the shell header.
+- One virtualised row, whichever kind it turns out to be.
+- The two pinned bars themselves.
+- The feed: the scroll element, the virtualiser, and the empty states.
+
+Split into `useFeedRows.ts`, `useStickyIndices.ts`, `useTranscriptScrollRestore.ts`,
+`ActivityFeedControls.tsx`, `ActivityFeedRow.tsx`, `ActivityFeedStickyHeaders.tsx`. 841 to 414.
+`activityStickyHeaders.ts` was deliberately left alone: its own header says the rules live there
+without React so they can be tested with no virtualiser, so the hook that reads live geometry is a
+separate file rather than an addition to it.
 
 ## Decisions
 
