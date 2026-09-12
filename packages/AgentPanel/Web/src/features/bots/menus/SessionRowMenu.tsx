@@ -1,5 +1,5 @@
 import { EyeOff, GitFork, Pencil, Unlink } from "lucide-react";
-import { RowMenu, type RowMenuItem } from "@/features/bots/RowMenu";
+import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 
 /**
  * The per-session actions menu, on a row that names one session a Bot has been given.

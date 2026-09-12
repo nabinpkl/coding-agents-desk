@@ -12,10 +12,10 @@ import type {
   ProjectSummary,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import { BotCreatorDialog } from "@/features/bots/BotCreatorDialog";
-import { SessionRenameDialog } from "@/features/bots/SessionRenameDialog";
-import { ForkSessionDialog } from "@/features/bots/ForkSessionDialog";
-import { BotSessionPickerDialog } from "@/features/bots/BotSessionPickerDialog";
+import { BotCreatorDialog } from "@/features/bots/dialogs/BotCreatorDialog";
+import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog";
+import { ForkSessionDialog } from "@/features/bots/dialogs/ForkSessionDialog";
+import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 export function AppDialogs({
   attachBotSessions,

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/BotSidebarPanel";
-import { nextSessionTitle } from "@/features/bots/sessionTitles";
+import { nextSessionTitle } from "@/features/bots/dialogs/sessionTitles";
 
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;

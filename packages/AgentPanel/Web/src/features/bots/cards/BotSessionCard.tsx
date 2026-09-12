@@ -10,10 +10,10 @@ import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
-import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
-import { useCardResize } from "@/features/bots/useCardResize";
+import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
+import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
-import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/botCanvasCards";
+import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 
 /**
  * One of a Bot's sessions, which is a Bot one level down.

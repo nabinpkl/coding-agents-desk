@@ -11,13 +11,13 @@ import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/BotSidebarPanel";
-import { SessionRowMenu } from "@/features/bots/SessionRowMenu";
+import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { botSurfaceStyle } from "@/features/bots/botSurface";
-import { BotCardMenu } from "@/features/bots/BotCardMenu";
-import { BotNewSessionCard, type NewBotSession } from "@/features/bots/BotNewSessionCard";
-import { BotSessionCard } from "@/features/bots/BotSessionCard";
+import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
+import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
+import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/botCanvasPreferences";
-import { sessionKey, type BotCommandError } from "@/features/bots/botCanvasCards";
+import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 
 export function CanvasNotice({ children }: { children: React.ReactNode }) {
   return (

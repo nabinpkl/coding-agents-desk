@@ -27,7 +27,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R1 | `agent-feed/sidecar/src/http` | 36 (62) -> 10 (18) | D |
 | R2 | `packages/AgentPanel/Web/src/features/activity-feed` | 26 (44) -> 7 (13) | D |
 | R3 | `packages/AgentPanel/Web/src/app` | 24 (50) -> 10 (32) | D |
-| R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) | R |
+| R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) -> 7 (9) | D |
 | R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) | R |
 | R6 | `agent-feed/sidecar/src/terminal` | 16 (24) | R |
 | R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) | R |
@@ -148,6 +148,27 @@ point.
 `agentPanelAppHarness` and `agentPanelAppMocks` are test support that counts as source, which is
 the counting rule biting rather than a group. They ride flat with `AgentPanelApp.tsx`, which is
 what they harness.
+
+### R4 `packages/AgentPanel/Web/src/features/bots`, 20 source files
+
+- `dialogs/` (5) the four modals the shell opens over everything else, and what to call the session
+  two of them are about to start. All four are imported by `app/AppDialogs.tsx` and by nothing else;
+  `sessionTitles` is imported by two of the four and by nothing else. `BotCreatorDialog`,
+  `BotSessionPickerDialog`, `ForkSessionDialog`, `SessionRenameDialog`, `sessionTitles`.
+- `cards/` (5) one Bot on the canvas and what is inside it: the card, a session inside the card, the
+  card that starts a new one, the widths all of them agree on, and the grips that size them.
+  `BotCanvasCard`, `BotSessionCard`, `BotNewSessionCard`, `botCanvasCards`, `useCardResize`.
+- `menus/` (3) the row menu and the two menus built on it. `RowMenu`, `BotCardMenu`,
+  `SessionRowMenu`.
+
+The feature keeps 7: the canvas, the sidebar panel, the roster hook, the two remembered facts
+(card sizes and Bot colours), and the two gestures over the strip.
+
+`useCardResize` reads like a gesture and went to `cards/` anyway: both its callers are card files.
+The alternative was a `gestures/` directory holding it with `useMoveAlongStrip` and
+`useRememberedCanvasScroll`, which is a real concept and the wrong one -- those two are gestures
+over the CANVAS and are imported by `BotCanvas`, while this one is a grip on a card. Splitting them
+that way would have put a file with a directory it shares a word with rather than a caller.
 
 ## Decisions
 

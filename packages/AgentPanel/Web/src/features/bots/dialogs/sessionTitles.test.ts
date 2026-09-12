@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forkBaseTitle, nextForkTitle, nextSessionTitle } from "@/features/bots/sessionTitles";
+import { forkBaseTitle, nextForkTitle, nextSessionTitle } from "@/features/bots/dialogs/sessionTitles";
 
 describe("naming a fork", () => {
   it("numbers the first fork of a session", () => {

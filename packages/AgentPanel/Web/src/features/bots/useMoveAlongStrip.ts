@@ -5,7 +5,7 @@
 // re-parented. That constraint is the reason the whole thing exists as transforms; see below.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { STRIP_GAP } from "@/features/bots/botCanvasCards";
+import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
 
 /** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
 const EDGE_SCROLL_MARGIN = 56;

@@ -38,7 +38,7 @@ import { loadSelection, storeSelection } from "@/features/sidebar/selectionStore
 import { useBots } from "@/features/bots/useBots";
 import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
 import { botCanvasHues } from "@/features/bots/botSurface";
-import type { NewBotSession } from "@/features/bots/BotNewSessionCard";
+import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";

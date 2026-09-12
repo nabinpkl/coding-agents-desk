@@ -4,8 +4,8 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { RowMenu } from "@/features/bots/RowMenu";
-import { useCardResize } from "@/features/bots/useCardResize";
+import { RowMenu } from "@/features/bots/menus/RowMenu";
+import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
 
 /** A session this panel started, before the catalog has ever heard of it. */

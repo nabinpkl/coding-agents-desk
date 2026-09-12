@@ -19,7 +19,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { BotCommandError } from "@/features/bots/BotCanvas";
-import type { NewBotSession } from "@/features/bots/BotNewSessionCard";
+import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 
 export function useBotCommands(
   feed: SidecarDataSource,
