@@ -74,7 +74,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R40 | D | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
 | R41 | D | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
 | R42 | D | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
-| R43 | R | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
+| R43 | D | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
 | R44 | R | - | Sweep: re-run the churn command, split whatever the splits pushed over 500. |
 | R45 | R | - | Add the 500-line cap to `tools/agent-feed-fitness.sh`, then write the summary at the top of this file. |
 
@@ -639,6 +639,24 @@ Split into `useSidebarChrome.ts`, `useProjectInventory.ts`, `useCanvasRoster.ts`
 `sidebarProps.ts`. 1211 to 487. Every comment in the original survives; the audit that checks
 that is the one from the R31 decision, run over comment lines rather than all lines.
 
+### R43 `app/AgentPanelApp.test.tsx` (4342)
+
+Split along its `describe` and `it` names, which is what the brief asks of a test file. One
+`describe("App shell")` held seventy of the file's 122 tests, so it became eight files by what
+each run of tests is about; the six smaller describes became four more.
+
+- The fakes and fixtures every file runs against, and the four modules they mock.
+- Which view the shell opens on, and the sidebar that chooses it.
+- The Bot canvas: what stands on it, how a card is sized, and what is taken off it.
+- Forking, renaming, detaching; creating a Bot and attaching sessions to one.
+- The thread's header, its terminal, and the files it can be dropped.
+- The two window composers, the AskUserQuestion mirror, and a session in a terminal.
+- What belongs to no one surface: a recovered stream, the safe area, the remembered thread.
+
+Split into `agentPanelAppMocks.tsx`, `agentPanelAppHarness.tsx`, and twelve test files. 4342 to
+378, and every file under 460. All 122 test names survive, verified by comparing the sorted
+`it("...")` strings before and after.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -783,6 +801,13 @@ before the commit; the sweep is clean across all 36 generated files.
 - R42 stopped at eight files rather than also extracting the render tree. `<main>` and the header
   read about twenty-five values each, so a component for either trades a block of JSX for a block
   of props that says nothing. The line count did not need it once the state groups were out.
+
+- R43 put the four `vi.mock` factories in `agentPanelAppMocks.tsx`, apart from the fixtures in
+  `agentPanelAppHarness.tsx`, because the harness imports `App`. A factory module that reached
+  the App reached `ActivityFeed` through it while that module's own mock was still being
+  defined, and Vitest's collection hung with no error and no failing test -- measured, on the
+  first run of the split files. The two-module split is what breaks that cycle; the `vi.mock`
+  calls themselves stay in each test file, because Vitest hoists them per file.
 
 ## Deferred
 

@@ -1,0 +1,425 @@
+/**
+ * Forking, renaming and detaching a session from its card.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { screen, fireEvent, act, waitFor, within } from "@testing-library/react";
+import {
+  BOT_WITH_ONE_SESSION,
+  FIXTURE_PROJECT_A,
+  FIXTURE_PROJECT_B,
+  FIXTURE_SESSIONS,
+  deliverProjectSessions,
+  deliverProjects,
+  restoreViewport,
+  setup,
+} from "./agentPanelAppHarness";
+import {
+  terminalPaneMock,
+} from "./agentPanelAppMocks";
+
+vi.mock("../features/activity-feed/ActivityFeed", async () => {
+  const { activityFeedModule } = await import("./agentPanelAppMocks");
+  return activityFeedModule();
+});
+vi.mock("../features/terminal/AgentTerminalPane", async () => {
+  const { terminalPaneModule } = await import("./agentPanelAppMocks");
+  return terminalPaneModule();
+});
+vi.mock("../features/activity-feed/markdown/Markdown", async () => {
+  const { markdownModule } = await import("./agentPanelAppMocks");
+  return markdownModule();
+});
+vi.mock("../features/activity-feed/DiffBlock", async () => {
+  const { diffBlockModule } = await import("./agentPanelAppMocks");
+  return diffBlockModule();
+});
+
+describe("App shell", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    // The address is app state now -- it names the selected view -- so it has to be reset between
+    // tests for the same reason storage does, or one test's choice opens every test after it.
+    window.history.replaceState(null, "", "/");
+    terminalPaneMock.context = null;
+    terminalPaneMock.onState = null;
+    terminalPaneMock.composerContext = null;
+    terminalPaneMock.composerHasBasis = null;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    restoreViewport();
+  });
+
+  /** The canvas's own list, so a query cannot pick up a matching row in the sidebar instead. */
+  const canvas = () => within(screen.getByRole("list", { name: "Bot canvas" }));
+  it("forks a session by asking its Bot, and attaches the pane the Bot answers with", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [BOT_WITH_ONE_SESSION],
+      });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({
+        bot: BOT_WITH_ONE_SESSION,
+        started: {
+          sessionId: "fork-1",
+          title: "Retry the flaky gate",
+          projectPath: FIXTURE_PROJECT_A.projectPath,
+          tmuxSession: "agentdesk-fork-fork-1",
+        },
+      }),
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+
+    // The name first, and nothing started yet. `-n` sets the session's address as well as its
+    // title, so this is the only moment it is free -- afterwards the fork has already been listed
+    // under whatever it was called.
+    const field = screen.getByLabelText("Name") as HTMLInputElement;
+    expect(field.value).toBe("Session Claude 01 (fork 1)");
+    expect(terminalPaneMock.context).toBeNull();
+
+    fireEvent.change(field, { target: { value: "Retry the flaky gate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+
+    // Creating a session is the Bot's business: the terminal resource attaches to panes and does
+    // not make them. The unticked worktree box sends nothing rather than sending false.
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
+        .toEqual({
+          requestId: expect.any(String),
+          launch: {
+            title: "Retry the flaky gate",
+            from: { source: "claude", sessionId: "sid-claude-01" },
+          },
+        });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Retry the flaky gate");
+    });
+    // A fork has no transcript to show: the CLI writes none until its first turn, so the view says
+    // that rather than spinning on a file that is not coming, and it names where it came from.
+    expect(screen.getByText(/appears here once you send the first message/)).toBeInTheDocument();
+    expect(screen.getByText(/Forked from/)).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+
+    // The pane the Bot named, attached rather than created. The panel does not rebuild that name:
+    // it is the sidecar's rule, and a second copy of it here would go wrong silently.
+    expect(terminalPaneMock.context).toEqual({ kind: "tmux", session: "agentdesk-fork-fork-1" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close fork" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    unmount();
+  });
+
+  it("does not wait for a fork's first turn to give it to its Bot", async () => {
+    // The Bot attached it at the moment it started it, so the transcript landing later is not an
+    // event this panel acts on. It used to be: the shell watched the fork's project, recognised
+    // the id it had minted, and posted an attach of its own -- three steps that existed only
+    // because creation happened somewhere that could not attach anything.
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [BOT_WITH_ONE_SESSION],
+      });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({
+        bot: BOT_WITH_ONE_SESSION,
+        started: {
+          sessionId: "fork-1",
+          title: "Session Claude 01 (fork 1)",
+          projectPath: FIXTURE_PROJECT_A.projectPath,
+          tmuxSession: "agentdesk-fork-fork-1",
+        },
+      }),
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+    await waitFor(() => {
+      expect(terminalPaneMock.context).toEqual({ kind: "tmux", session: "agentdesk-fork-fork-1" });
+    });
+
+    // The first turn lands. Nothing follows it.
+    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, [
+      ...FIXTURE_SESSIONS,
+      {
+        sessionId: "fork-1",
+        source: "claude",
+        title: "Session Claude 01 (fork 1)",
+        lastEventAt: 9,
+        activity: "live",
+        capabilities: FIXTURE_SESSIONS[0]!.capabilities,
+      },
+    ]);
+
+    expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions"))
+      .toHaveLength(1);
+    unmount();
+  });
+  it("starts nothing when the fork dialog is cancelled", async () => {
+    // The dialog is the whole commitment point. Backing out of it must leave no pane, no tmux
+    // session and no `claude --fork-session`, because a fork that exists is already listed under
+    // its name to every other agent and cannot be taken back.
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(terminalPaneMock.context).toBeNull();
+    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    unmount();
+  });
+
+  it("renames a session from its canvas row menu", async () => {
+    const { transport, unmount } = setup();
+    transport.responses.set("POST /api/sessions/claude/sid-claude-01/title", {
+      status: 200,
+      body: JSON.stringify({ sessionId: "sid-claude-01", title: "What I called it" }),
+    });
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename session" }));
+
+    // Seeded with the name that is there, because a rename is usually an edit of it.
+    const field = screen.getByLabelText(/Title/) as HTMLInputElement;
+    expect(field.value).toBe("Session Claude 01");
+
+    fireEvent.change(field, { target: { value: "  What I called it  " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    });
+
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/sessions/claude/sid-claude-01/title",
+      body: { title: "What I called it" },
+    });
+    // Closed on success. The new title arrives through the inventory stream like every other
+    // change to a session, so there is nothing for the dialog to hold on to.
+    expect(screen.queryByRole("heading", { name: "Rename session" })).toBeNull();
+    unmount();
+  });
+
+  it("keeps the rename dialog open and says why when the sidecar refuses", async () => {
+    const { transport, unmount } = setup();
+    transport.responses.set("POST /api/sessions/claude/sid-claude-01/title", {
+      status: 400,
+      body: JSON.stringify({
+        error: { code: "invalid-title", message: "a session title cannot contain a line break" },
+      }),
+    });
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename session" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    });
+
+    // The sidecar's own reason, not "sidecar answered 400": the reader has to be able to fix it.
+    expect(screen.getByRole("alert")).toHaveTextContent("cannot contain a line break");
+    expect(screen.getByRole("heading", { name: "Rename session" })).toBeInTheDocument();
+    unmount();
+  });
+
+  it("detaches a session from a Bot through its canvas row menu", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
+        }],
+      });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-1" }),
+    });
+
+    // The menu is a sibling of the row's disclosure, not inside it, so opening the menu must not
+    // also open the transcript.
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+    });
+
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach")).toEqual({
+      method: "POST",
+      path: "/api/bots/bot-1/sessions/detach",
+      body: {
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+      },
+    });
+
+    // The row a Bot can otherwise never be rid of: no summary, so no title, and it still has to
+    // carry the same action.
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for sid-forgotten" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+    });
+    expect(
+      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions/detach").at(-1)?.body,
+    ).toEqual({
+      requestId: expect.any(String),
+      sessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
+    });
+    unmount();
+  });
+
+  it("attaches a session to a Bot from its canvas card", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-beta",
+          name: "Beta Curator",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+          sessionRefs: [],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    // The picker reads the Bot's directory off the inventory stream, so opening it from the canvas
+    // has to widen that subscription exactly as opening it from the sidebar does.
+    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Beta Curator" }));
+    await waitFor(() => {
+      expect(transport.subscriptions.map((subscription) => subscription.path)).toContainEqual(
+        expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
+      );
+    });
+    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [FIXTURE_SESSIONS[0]!]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Session Claude 01/ }));
+
+    transport.responses.set("POST /api/bots/bot-beta/sessions", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-beta" }),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add sessions" }));
+    });
+
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-beta/sessions")).toEqual({
+      method: "POST",
+      path: "/api/bots/bot-beta/sessions",
+      body: {
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+      },
+    });
+    // Attaching leaves the canvas up rather than dropping the reader into the thread.
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    unmount();
+  });
+
+});
