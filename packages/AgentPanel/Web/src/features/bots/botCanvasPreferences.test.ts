@@ -12,10 +12,12 @@ import {
   clampCardWidth,
   loadBotCanvasOrder,
   loadBotCardSizes,
+  loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
   storeBotCardSizes,
+  storeSessionCardSizes,
 } from "./botCanvasPreferences";
 
 const STORAGE_KEY = "agent-panel.bot-canvas.card-sizes";
@@ -131,5 +133,31 @@ describe("bot canvas order", () => {
     // A move to where it already is, or off the end, changes nothing.
     expect(moveInOrder(["a", "b"], 1, 1)).toEqual(["a", "b"]);
     expect(moveInOrder(["a", "b"], 0, 5)).toEqual(["a", "b"]);
+  });
+});
+
+describe("session card sizes", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("keeps a size per session, under its own key rather than the Bots'", () => {
+    storeBotCardSizes({ "bot-1": { width: 500, height: 500 } });
+    storeSessionCardSizes({ "claude:s1": { width: 700, height: 900 } }, ["claude:s1"]);
+    expect(loadSessionCardSizes()).toEqual({ "claude:s1": { width: 700, height: 900 } });
+    expect(loadBotCardSizes()).toEqual({ "bot-1": { width: 500, height: 500 } });
+  });
+
+  it("drops sessions no longer on the canvas as it writes", () => {
+    // Sessions are not bounded the way Bots are -- a project here holds hundreds -- so a store that
+    // only ever grew would carry a size for every session ever opened.
+    storeSessionCardSizes(
+      { "claude:s1": { width: 700, height: 900 }, "claude:gone": { width: 400, height: 400 } },
+      ["claude:s1"],
+    );
+    expect(Object.keys(loadSessionCardSizes())).toEqual(["claude:s1"]);
+  });
+
+  it("writes nothing when nothing on the canvas matches", () => {
+    storeSessionCardSizes({ "claude:s1": { width: 700, height: 900 } }, []);
+    expect(loadSessionCardSizes()).toEqual({});
   });
 });

@@ -41,6 +41,7 @@ export function useCardResize({
   noun,
   size,
   displayWidth = null,
+  canResizeWidth = true,
   canResizeHeight,
   onResize,
   onResizeCommit,
@@ -56,7 +57,11 @@ export function useCardResize({
    * something was given on a Mac. The width grip goes with it: there is nowhere else to drag to.
    */
   displayWidth?: number | null;
-  /** Height is the reader's only while the card has a session open to be tall for. */
+  /**
+   * Whether either edge is the reader's at all. A session is a row until it is opened, and a row is
+   * as wide and as tall as what is in it -- there is nothing to drag and nothing a drag would mean.
+   */
+  canResizeWidth?: boolean;
   canResizeHeight: boolean;
   /** Live during a drag, so the card follows the pointer. Not written to storage. */
   onResize: (size: BotCardSize) => void;
@@ -161,7 +166,7 @@ export function useCardResize({
   ) : null;
 
   const edge =
-    displayWidth === null ? (
+    canResizeWidth && displayWidth === null ? (
       <div className="flex w-3 shrink-0 flex-col">
         <div
           role="separator"

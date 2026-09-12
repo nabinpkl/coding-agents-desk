@@ -65,7 +65,16 @@ export const DEFAULT_CARD_SIZE: BotCardSize = {
   height: DEFAULT_CARD_HEIGHT,
 };
 
-const STORAGE_KEY = "agent-panel.bot-canvas.card-sizes";
+const BOT_SIZES_KEY = "agent-panel.bot-canvas.card-sizes";
+
+/**
+ * Session sizes live under their own key, and unlike the Bot one this map is not bounded by
+ * anything: a project here holds hundreds of sessions, where Bots are a handful. So it is PRUNED
+ * ON WRITE to the sessions actually on the canvas. A session detached from a Bot is not coming back
+ * the way a detached Bot is, and a store that only ever grows would carry a size for every session
+ * ever opened.
+ */
+const SESSION_SIZES_KEY = "agent-panel.bot-canvas.session-sizes";
 
 function inRange(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
@@ -101,10 +110,10 @@ export function clampCardHeight(height: number): number {
   return Math.min(MAX_CARD_HEIGHT, Math.max(MIN_CARD_HEIGHT, wanted));
 }
 
-export function loadBotCardSizes(): BotCardSizes {
+function loadSizes(key: string): BotCardSizes {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return {};
@@ -124,19 +133,35 @@ export function loadBotCardSizes(): BotCardSizes {
   }
 }
 
-export function storeBotCardSizes(sizes: BotCardSizes): void {
+function storeSizes(key: string, sizes: BotCardSizes, keep?: Iterable<string>): void {
   try {
+    const wanted = keep === undefined ? null : new Set(keep);
     const clamped: BotCardSizes = {};
-    for (const [botId, size] of Object.entries(sizes)) {
-      clamped[botId] = {
-        width: clampCardWidth(size.width),
-        height: clampCardHeight(size.height),
-      };
+    for (const [id, size] of Object.entries(sizes)) {
+      if (wanted && !wanted.has(id)) continue;
+      clamped[id] = { width: clampCardWidth(size.width), height: clampCardHeight(size.height) };
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clamped));
+    localStorage.setItem(key, JSON.stringify(clamped));
   } catch {
     // The canvas stays usable on its in-memory sizes when storage is disabled.
   }
+}
+
+export function loadBotCardSizes(): BotCardSizes {
+  return loadSizes(BOT_SIZES_KEY);
+}
+
+export function storeBotCardSizes(sizes: BotCardSizes): void {
+  storeSizes(BOT_SIZES_KEY, sizes);
+}
+
+export function loadSessionCardSizes(): BotCardSizes {
+  return loadSizes(SESSION_SIZES_KEY);
+}
+
+/** `onCanvas` is every session key currently on the canvas; anything else is dropped. */
+export function storeSessionCardSizes(sizes: BotCardSizes, onCanvas: Iterable<string>): void {
+  storeSizes(SESSION_SIZES_KEY, sizes, onCanvas);
 }
 
 const OPEN_SESSION_KEY = "agent-panel.bot-canvas.open-session";

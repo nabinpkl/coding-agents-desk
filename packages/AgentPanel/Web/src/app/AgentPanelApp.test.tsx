@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  DEFAULT_CARD_WIDTH,
   MAX_CARD_HEIGHT,
   MIN_CARD_HEIGHT,
 } from "../features/bots/botCanvasPreferences";
@@ -673,6 +674,11 @@ describe("App shell", () => {
       "agent-panel.bot-canvas.card-sizes",
       JSON.stringify({ "bot-1": { width: 620, height: 900 } }),
     );
+    // The session's size is its own, under its own key.
+    localStorage.setItem(
+      "agent-panel.bot-canvas.session-sizes",
+      JSON.stringify({ "claude:sid-claude-01": { width: DEFAULT_CARD_WIDTH, height: 900 } }),
+    );
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -701,14 +707,21 @@ describe("App shell", () => {
     // on it would be empty space.
     const widen = screen.getByRole("separator", { name: "Widen Release Captain card" });
     expect(widen).toHaveAttribute("aria-valuenow", "620");
-    expect(widen.closest("li")).toHaveStyle({ width: "620px" });
-    expect(screen.queryByRole("separator", { name: "Resize Release Captain card" })).toBeNull();
+    // A MINIMUM rather than a width: the card is this wide with nothing open and grows past it for
+    // a session that wants more. Its height is whatever its sessions make it, so it has no height
+    // grip at all -- that one belongs to the session now.
+    expect(widen.closest("li")).toHaveStyle({ minWidth: "620px" });
+    expect(screen.queryByRole("separator", { name: /^Resize Release Captain/ })).toBeNull();
 
     fireEvent.keyDown(widen, { key: "ArrowLeft" });
     expect(widen).toHaveAttribute("aria-valuenow", "596");
 
+    // A closed session is a row: nothing to drag, and nothing a drag would mean.
+    expect(screen.queryByRole("separator", { name: /Session Claude 01/ })).toBeNull();
+
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
-    const grip = screen.getByRole("separator", { name: "Resize Release Captain card" });
+    const grip = screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ });
+    const widenSession = screen.getByRole("separator", { name: /^Widen Session Claude 01/ });
     // The remembered 900, untouched by the 768px-tall window it is being shown in: a card is free
     // to be taller than the screen, because the canvas scrolls.
     expect(grip).toHaveAttribute("aria-valuenow", "900");
@@ -722,27 +735,28 @@ describe("App shell", () => {
     fireEvent.keyDown(grip, { key: "Home" });
     expect(grip).toHaveAttribute("aria-valuenow", String(MIN_CARD_HEIGHT));
 
-    // Both axes are kept under the one Bot, and the width a closed card was given is still there.
-    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
-      "bot-1": { width: 596, height: MIN_CARD_HEIGHT },
-    });
-
-    // The corner moves both at once, which is the only thing on the card a keyboard cannot express.
-    // It carries no name, so it is found the way a pointer finds it: by its tooltip.
+    // The corner moves both at once, which is the only thing a keyboard cannot express. It carries
+    // no name, so it is found the way a pointer finds it: by its tooltip.
     const corner = document.querySelector<HTMLElement>('[title="Resize both ways"]');
     expect(corner).not.toBeNull();
     fireEvent.pointerDown(corner!, { pointerId: 1, clientX: 0, clientY: 0 });
     fireEvent.pointerMove(corner!, { pointerId: 1, clientX: 40, clientY: 40 });
     fireEvent.pointerUp(corner!, { pointerId: 1, clientX: 40, clientY: 40 });
-    expect(widen).toHaveAttribute("aria-valuenow", "636");
+    expect(widenSession).toHaveAttribute("aria-valuenow", String(DEFAULT_CARD_WIDTH + 40));
     expect(grip).toHaveAttribute("aria-valuenow", String(MIN_CARD_HEIGHT + 40));
+
+    // Two stores, because they are two things: the Bot keeps the width it was given, and the
+    // session keeps its own size under its own key.
     expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
-      "bot-1": { width: 636, height: MIN_CARD_HEIGHT + 40 },
+      "bot-1": { width: 596, height: 900 },
+    });
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.session-sizes") ?? "{}")).toEqual({
+      "claude:sid-claude-01": { width: DEFAULT_CARD_WIDTH + 40, height: MIN_CARD_HEIGHT + 40 },
     });
 
-    // Closing puts the card back on its own content, and the height waits for the next session.
+    // Closing puts the session back to a row, and its size waits for the next time it is opened.
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
-    expect(screen.queryByRole("separator", { name: "Resize Release Captain card" })).toBeNull();
+    expect(screen.queryByRole("separator", { name: /Session Claude 01/ })).toBeNull();
     expect(screen.getByRole("separator", { name: "Widen Release Captain card" })).toBeInTheDocument();
     unmount();
   });
@@ -946,8 +960,8 @@ describe("App shell", () => {
     });
 
     const card = document.querySelector<HTMLElement>('ul[aria-label="Bot canvas"] > li');
-    // Unmeasured, the Bot stands at the width it was given.
-    expect(card).toHaveStyle({ width: "900px" });
+    // Unmeasured, the Bot stands at least as wide as it was given.
+    expect(card).toHaveStyle({ minWidth: "900px" });
 
     act(() => {
       Object.defineProperty(scroller!, "clientWidth", { configurable: true, value: 400 });
@@ -957,17 +971,18 @@ describe("App shell", () => {
     // The canvas minus the strip's own padding, and no width grip: there is no other width to drag
     // a card to when the canvas is showing exactly one.
     expect(card).toHaveStyle({ width: "376px" });
+    expect(card).not.toHaveStyle({ minWidth: "900px" });
     expect(screen.queryByRole("separator", { name: "Widen Release Captain card" })).toBeNull();
 
-    // Height still resizes, and committing it must not write the canvas's width over the Bot's own.
+    // A session still resizes, and committing must not write the canvas's width over the Bot's own.
     // Scoped to the card, because the roster in the sidebar offers the same session by the same
     // name.
     fireEvent.click(within(card!).getByRole("button", { name: /^Session Claude 01/ }));
-    fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Release Captain card" }), {
+    fireEvent.keyDown(screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ }), {
       key: "ArrowUp",
     });
     expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.card-sizes") ?? "{}")).toEqual({
-      "bot-1": { width: 900, height: 476 },
+      "bot-1": { width: 900, height: 500 },
     });
 
     Object.defineProperty(globalThis, "ResizeObserver", {
