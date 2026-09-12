@@ -97,6 +97,7 @@ function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; active?
         placeholder={composer.hint ?? "Type into Claude's terminal…"}
       />
       <button type="button" onClick={() => void composer.accept()}>accept</button>
+      <button type="button" onClick={() => composer.remove(7)}>remove</button>
       <button
         type="button"
         // Two images of different sizes, which is how the test tells them apart in order.
@@ -407,6 +408,31 @@ describe("the images a composer is holding", () => {
     await type("[Image #7]");
     // The one still in the field keeps the picture it had; the other is gone with its token.
     expect(shown()).toEqual({ "7": kept });
+  });
+
+  it("takes an image out by deleting its token, and the space that was in front of it", async () => {
+    // Removing an image IS deleting the token: the picture is keyed to it, and Claude drops an
+    // entry that nothing in the text refers to. So it rides the ordinary push rather than a
+    // second way into the pane.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await press("drop");
+    await act(async () => { feed.emit(holding("alpha [Image #7] omega")); });
+    expect(Object.keys(shown())).toEqual(["7"]);
+
+    await act(async () => { screen.getByText("remove").click(); });
+    expect(draft()).toBe("alpha omega");
+    // And a token at the head of the box does not leave the text starting with a space. Typed
+    // here rather than announced, because an unsent edit is what the reading is guarded against.
+    await type("[Image #7] omega");
+    await act(async () => { screen.getByText("remove").click(); });
+    expect(draft()).toBe("omega");
+    // The picture goes with the token, before the pane has even been told.
+    expect(shown()).toEqual({});
+    await settle(200);
+    // Carried by the ordinary push, which is the point: there is no second way into the pane.
+    expect(feed.pushes.at(-1)).toBe("omega");
   });
 
   it("keeps no picture waiting once the box is emptied", async () => {

@@ -45,6 +45,7 @@ import {
   useTmuxComposer,
   type ComposerImage,
 } from "../cli-input/useTmuxComposer";
+import { ComposerImageStrip } from "../cli-input/ComposerImageStrip";
 import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
 import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../terminal/useAgentTerminal";
@@ -675,6 +676,8 @@ function SessionComposer({
     onFiles?: (files: readonly File[]) => void;
     /** The images the composer is holding, shown above the text the way the box holds them. */
     images?: readonly ComposerImage[];
+    /** Takes one of them back out, which is deleting its token from the text. */
+    onRemoveImage?: (id: number) => void;
   } = windowBand
     ? {
         value: windowComposer.draft,
@@ -727,6 +730,7 @@ function SessionComposer({
           : { onAcceptHint: () => void tmuxComposer.accept() }),
         onFiles: (files) => void tmuxComposer.drop(files),
         images: tmuxComposer.images,
+        onRemoveImage: tmuxComposer.remove,
       }
     : inboxBand
     ? {
@@ -1045,29 +1049,12 @@ function SessionComposer({
             },
           })}
         >
-          {editor.images && editor.images.length > 0 ? (
-            <ul className="flex flex-wrap gap-1.5 px-3 pt-3">
-              {editor.images.map((image) => (
-                <li key={image.id}>
-                  {image.url === null ? (
-                    // An image this panel never sent -- dropped into the pane by whoever is
-                    // sitting there. Named rather than hidden, so the strip and the text agree.
-                    <span
-                      className="flex h-11 w-11 items-center justify-center rounded-md border border-border bg-muted/40 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
-                      title={`Image #${image.id}, dropped into the terminal`}
-                    >
-                      {`#${image.id}`}
-                    </span>
-                  ) : (
-                    <img
-                      src={image.url}
-                      alt={`Image #${image.id} in the composer`}
-                      className="h-11 w-11 rounded-md border border-border object-cover"
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
+          {editor.images && editor.onRemoveImage ? (
+            <ComposerImageStrip
+              images={editor.images}
+              onRemove={editor.onRemoveImage}
+              disabled={editor.disabled}
+            />
           ) : null}
           <textarea
           ref={autoGrow}

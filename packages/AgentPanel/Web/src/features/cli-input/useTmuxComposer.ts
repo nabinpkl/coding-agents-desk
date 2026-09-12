@@ -78,6 +78,14 @@ export interface TmuxComposerHandle {
   drop: (files: readonly Blob[]) => Promise<void>;
   /** What the box is holding pictures of, for the strip above the field. */
   images: readonly ComposerImage[];
+  /**
+   * Takes one image back out of the composer.
+   *
+   * Deletes its token from the text, which is the whole of what removing an image means: the
+   * picture in the strip is keyed to that token, and Claude drops an entry nothing refers to. The
+   * ordinary push carries it, so there is no second way into the pane.
+   */
+  remove: (id: number) => void;
   pending: boolean;
   error: string | null;
   /**
@@ -360,6 +368,18 @@ export function useTmuxComposer(
     }
   }, [feed]);
 
+  const remove = useCallback((id: number) => {
+    // One space either side goes with the token, and one comes back when it had both. That is
+    // what keeps "alpha [Image #1] omega" reading as "alpha omega" while a token at the head of
+    // the box does not leave the text starting with a space.
+    const gone = draftRef.current.replace(
+      new RegExp(` ?\\[Image #${id}\\] ?`),
+      (taken) => (taken.startsWith(" ") && taken.endsWith(" ") ? " " : ""),
+    );
+    edited.current = true;
+    setBoth(gone);
+  }, [setBoth]);
+
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
       clearTimeout(pushTimer.current);
@@ -384,6 +404,7 @@ export function useTmuxComposer(
     accept,
     drop,
     images,
+    remove,
     pending,
     error,
     onBlur,
