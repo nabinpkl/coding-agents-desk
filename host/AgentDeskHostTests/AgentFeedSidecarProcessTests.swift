@@ -147,6 +147,126 @@ struct AgentFeedSidecarProcessTests {
         return tmp
     }
 
+
+    /// A sidecar that answers for a while, then stops answering WITHOUT exiting.
+    ///
+    /// This is the `bun --watch` failure in miniature: the process stays alive, keeps the port
+    /// bound, and serves nothing. Every signal the supervisor had before the health monitor --
+    /// the process is running, it never exited, it was ready once -- still says healthy.
+    private func makeGoesDeafBinary(port: UInt16, answersFor seconds: Double) throws -> URL {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-goes-deaf-\(port)-\(UUID().uuidString)")
+        let script = """
+        #!/usr/bin/env python3
+        import http.server, signal, socketserver, sys, threading, time
+
+        deaf = threading.Event()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if deaf.is_set():
+                    # Alive, connected, and answering nothing. Never closes the socket.
+                    time.sleep(60)
+                    return
+                body = b'{"watcherState": "live"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        socketserver.TCPServer.allow_reuse_address = True
+        server = socketserver.ThreadingTCPServer(("127.0.0.1", \(port)), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print("sidecar stub listening", flush=True)
+        time.sleep(\(seconds))
+        deaf.set()
+        print("sidecar stub has gone deaf", flush=True)
+        while True:
+            time.sleep(1)
+        """
+        try script.write(to: tmp, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path)
+        return tmp
+    }
+
+    @Test func restartsASidecarThatIsRunningButHasStoppedAnswering() async throws {
+        // The gap this closes: every other restart path here is driven by the child EXITING, and a
+        // `bun --watch` sidecar does not exit -- it re-reads in process. Measured 2026-09-09, one
+        // reloaded mid-merge, threw before reaching Bun.serve, and sat alive with its port free
+        // until somebody happened to save a file. Nothing noticed, because nothing was asking.
+        let port = try freePort()
+        let stubURL = try makeGoesDeafBinary(port: port, answersFor: 1.0)
+        defer { try? FileManager.default.removeItem(at: stubURL) }
+
+        let sidecar = AgentFeedSidecarProcess(
+            launch: Config.AgentFeedSidecarLaunch(
+                executable: stubURL,
+                arguments: [],
+                reloadsOnEdit: false
+            ),
+            port: port,
+            // A second and two strikes, so the test costs seconds rather than the minute the
+            // shipped numbers deliberately cost.
+            healthIntervalSeconds: 0.5,
+            healthFailuresBeforeRestart: 2
+        )
+        defer { sidecar.stop() }
+        sidecar.start()
+
+        // It must come up first: a monitor that fires before readiness would be testing the
+        // ready-timeout path instead, which already has its own test.
+        let ready = Date().addingTimeInterval(5)
+        while sidecar.baseURL == nil, Date() < ready {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(sidecar.baseURL != nil, "stub must answer before it goes deaf")
+        #expect(sidecar.restartCountForTesting == 0, "nothing to restart while it is answering")
+
+        // Now it goes deaf without exiting, and only the health monitor can see that.
+        let deadline = Date().addingTimeInterval(10)
+        while sidecar.restartCountForTesting == 0, Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        #expect(sidecar.restartCountForTesting >= 1, "a running sidecar that stopped answering must be restarted")
+    }
+
+    @Test func writesTheChildsOutputToAFileThatOutlivesTheMoment() async throws {
+        // The unified log already has every one of these lines at .notice, and that is not enough:
+        // `log show` returns nothing at all in some sessions on this machine while `log stream`
+        // works, so a line you can prove was written cannot be got back once the moment has passed.
+        // Every crash worth investigating is in the past.
+        let port = try freePort()
+        let logFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-sidecar-log-\(port)-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: logFile) }
+        setenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG", logFile.path, 1)
+        defer { unsetenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG") }
+
+        let stubURL = try makeStubBinary(port: port, extraLines: [
+            "print('a line only the child could have written', flush=True)",
+        ])
+        defer { try? FileManager.default.removeItem(at: stubURL) }
+        let sidecar = makeSidecar(binaryURL: stubURL, port: port)
+        defer { sidecar.stop() }
+        sidecar.start()
+
+        let deadline = Date().addingTimeInterval(5)
+        var contents = ""
+        while Date() < deadline {
+            contents = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+            if contents.contains("a line only the child could have written") { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        #expect(contents.contains("a line only the child could have written"))
+        // The spawn boundary, so somebody reading backwards can tell which run they are in.
+        #expect(contents.contains("host spawned sidecar port=\(port)"))
+    }
+
     // MARK: - Child inherits the parent environment (PATH not stripped)
 
     @Test func spawnedChildInheritsPath() async throws {

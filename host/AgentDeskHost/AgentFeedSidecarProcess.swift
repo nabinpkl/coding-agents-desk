@@ -57,6 +57,25 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // process spawn counts (which are noisy under xctest supervision). Read it
     // on the serial queue via restartCountForTesting.
     private var restartCount = 0
+    // Appends the child's stdout and stderr to a file as well as the unified log. Nil when the
+    // file could not be opened, which is never fatal: losing the transcript must not cost the
+    // sidecar.
+    private var outputFile: FileHandle?
+    private var outputFileBytes: UInt64 = 0
+    // Invalidates a health monitor belonging to an earlier spawn. Each spawn takes the next
+    // generation, so a tick scheduled before a restart finds its generation stale and stops
+    // rather than probing on behalf of a process that no longer exists.
+    private var healthGeneration = 0
+    private var healthFailures = 0
+    private let healthInterval: TimeInterval
+    private let healthLimit: Int
+    // Per-instance rather than static: a formatter is not Sendable, and every use of this one is
+    // on the supervisor's serial queue, so an instance is both correct and simpler to prove.
+    private let timestamp: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     // Maximum time (seconds) to wait for the sidecar to answer /api/config.
     private static let readyTimeoutSeconds: TimeInterval = 5
@@ -65,10 +84,31 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     private static let readinessProbeTimeoutSeconds: TimeInterval = 0.25
     // Maximum backoff between restart attempts (seconds).
     private static let maxBackoffSeconds: TimeInterval = 16
+    // How often a running sidecar is asked whether it is still answering.
+    private static let healthIntervalSeconds: TimeInterval = 15
+    // Consecutive failures before the supervisor stops believing the process. Four at fifteen
+    // seconds is a minute, comfortably past a `bun --watch` reload, which was measured at about
+    // four seconds. The cost of being too eager here is restarting a sidecar that was only busy;
+    // the cost of being too patient is what this exists to fix.
+    private static let healthFailuresBeforeRestart = 4
+    // Cap on the on-disk transcript. Its neighbour, the WebRTC diagnostics log, reached 42MB in
+    // this repository, and a post-mortem file that fills a disk is a worse bug than the one it
+    // was added to diagnose.
+    private static let outputFileMaxBytes: UInt64 = 16 * 1024 * 1024
 
-    init(launch: Config.AgentFeedSidecarLaunch, port: UInt16) {
+    /// The two health-monitor numbers are injectable ONLY so a test can exercise the monitor in a
+    /// second rather than in a minute. Production always takes the defaults; a caller passing its
+    /// own is a test saying so out loud.
+    init(
+        launch: Config.AgentFeedSidecarLaunch,
+        port: UInt16,
+        healthIntervalSeconds: TimeInterval = AgentFeedSidecarProcess.healthIntervalSeconds,
+        healthFailuresBeforeRestart: Int = AgentFeedSidecarProcess.healthFailuresBeforeRestart
+    ) {
         self.launch = launch
         self.port = port
+        self.healthInterval = healthIntervalSeconds
+        self.healthLimit = healthFailuresBeforeRestart
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar")
     }
 
@@ -142,6 +182,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         let pipe = Pipe()
         outputPipe = pipe
         outputBuffer = ""
+        openOutputFile()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else {
@@ -205,6 +246,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             restartBackoffSeconds = 1
             logger.notice("sidecar ready baseURL=\(url.absoluteString, privacy: .public)")
             readiness.publish(url)
+            startHealthMonitor()
         } else {
             logger.error("sidecar did not become ready within \(Self.readyTimeoutSeconds, privacy: .public)s; will restart")
             terminateCurrentProcess()
@@ -255,6 +297,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // The OS fired this for the live process; drop our reference to it so a
         // later teardown does not touch a dead Process.
         process = nil
+        healthGeneration += 1
         closeOutputPipe()
         logger.notice("sidecar exited unexpectedly status=\(status, privacy: .public); scheduling restart")
         readiness.clear()
@@ -278,6 +321,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     }
 
     private func terminateCurrentProcess() {
+        // Anything scheduled by the outgoing process's monitor is now about to be wrong.
+        healthGeneration += 1
         closeOutputPipe()
         guard let proc = process else { return }
         process = nil
@@ -304,14 +349,150 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         guard lines.count > 1 else { return }
         for line in lines.dropLast() where !line.isEmpty {
             logger.notice("sidecar \(String(line), privacy: .public)")
+            appendToOutputFile(String(line))
         }
         outputBuffer = String(lines.last ?? "")
+    }
+
+    /// Asks a RUNNING sidecar whether it is still answering, and restarts it when it is not.
+    ///
+    /// The gap this closes: every restart path here is driven by the child EXITING, and a `bun
+    /// --watch` sidecar does not exit. It re-reads in process and rebinds the port, so when a
+    /// reload throws before reaching `Bun.serve` the process stays alive, healthy by every signal
+    /// the supervisor had, and serving nothing. Measured 2026-09-09: one sat like that with its
+    /// port free and 0% CPU until somebody happened to save a file in the tree, because `--watch`
+    /// only reloads on a change and the change that broke it was already over.
+    ///
+    /// So liveness is asked of the PORT rather than of the process, using the same probe the
+    /// initial wait uses -- which reads `watcherState` rather than accepting any 200, so a stale
+    /// listener that accepts a connection and answers nothing useful still counts as down.
+    private func startHealthMonitor() {
+        healthGeneration += 1
+        healthFailures = 0
+        scheduleHealthCheck(generation: healthGeneration)
+    }
+
+    private func scheduleHealthCheck(generation: Int) {
+        queue.asyncAfter(deadline: .now() + healthInterval) { [weak self] in
+            self?.checkHealth(generation: generation)
+        }
+    }
+
+    private func checkHealth(generation: Int) {
+        guard !stopped, !isStopRequested, generation == healthGeneration else { return }
+        // An exit is the termination handler's business, not this one's. Two restart paths for one
+        // dead process is the duplicate `restartScheduled` already exists to collapse, and leaving
+        // it to the handler keeps the reason in the log accurate.
+        guard let proc = process, proc.isRunning else { return }
+
+        if isReady(URL(string: "http://127.0.0.1:\(port)/api/config")!) {
+            healthFailures = 0
+            scheduleHealthCheck(generation: generation)
+            return
+        }
+
+        healthFailures += 1
+        guard healthFailures >= healthLimit else {
+            logger.notice(
+                """
+                sidecar not answering \(self.healthFailures, privacy: .public)/\
+                \(self.healthLimit, privacy: .public)
+                """
+            )
+            scheduleHealthCheck(generation: generation)
+            return
+        }
+        logger.error(
+            """
+            sidecar is running but has not answered for \
+            \(self.healthInterval * Double(self.healthLimit), privacy: .public)s; \
+            restarting it
+            """
+        )
+        readiness.clear()
+        terminateCurrentProcess()
+        scheduleRestart()
     }
 
     private func closeOutputPipe() {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
         outputBuffer = ""
+        try? outputFile?.close()
+        outputFile = nil
     }
+
+    /// Where the child's output is kept so it can be read AFTER the fact.
+    ///
+    /// The unified log already has every line, at `.notice`, and that is not enough: os_log is not
+    /// reliably readable retrospectively from every session on this machine -- `log show` returns
+    /// nothing here at all, while `log stream` works, so a line you can prove was written still
+    /// cannot be got back once the moment has passed. A crash you are investigating is always in
+    /// the past. So the same lines go to a file as well.
+    ///
+    /// Beside the WebRTC diagnostics log and named the same way, for the reason `runtime-paths.mjs`
+    /// gives there: `/Users/Shared` is the one place every login session can write, `~/Library` is
+    /// 0700, and a single fixed name belongs to whichever session created it first while every
+    /// later session's appends fail on permissions -- silently, which is the session running blind
+    /// while its numbers are read off somebody else's file.
+    /// Overridable for the same reason its neighbours in `runtime-paths.mjs` are: so a test can
+    /// point it at a scratch file rather than appending to the one a live host is writing.
+    private func outputFilePath() -> String {
+        if let override = ProcessInfo.processInfo.environment["AGENTDESK_AGENT_FEED_SIDECAR_LOG"],
+           override.hasPrefix("/") {
+            return override
+        }
+        return "/Users/Shared/agentdesk/logs/\(NSUserName())-agent-feed-sidecar.log"
+    }
+
+    private func openOutputFile() {
+        try? outputFile?.close()
+        outputFile = nil
+        outputFileBytes = 0
+        let path = outputFilePath()
+        let directory = (path as NSString).deletingLastPathComponent
+        do {
+            try FileManager.default.createDirectory(
+                atPath: directory, withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: path) {
+                FileManager.default.createFile(atPath: path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
+            outputFileBytes = try handle.seekToEnd()
+            outputFile = handle
+            // Every spawn is a boundary somebody reading this file backwards needs to see: it is
+            // the line that says the sidecar they are reading is not the one that failed.
+            appendToOutputFile("=== host spawned sidecar port=\(port) reloadsOnEdit=\(launch.reloadsOnEdit)")
+        } catch {
+            // Deliberately quiet beyond one line. A diagnostics file that cannot be opened must
+            // never be the reason the sidecar does not run.
+            logger.error("sidecar output file unavailable at \(path, privacy: .public)")
+        }
+    }
+
+    private func appendToOutputFile(_ line: String) {
+        guard let handle = outputFile else { return }
+        // Truncate rather than rotate. Its neighbour reached 42MB; keeping one bounded file beats
+        // a rotation scheme nobody asked for, and losing old lines matters less than the file
+        // still being there for the failure being investigated now.
+        if outputFileBytes > Self.outputFileMaxBytes {
+            try? handle.truncate(atOffset: 0)
+            outputFileBytes = 0
+        }
+        let stamped = "\(timestamp.string(from: Date())) \(line)\n"
+        guard let data = stamped.data(using: .utf8) else { return }
+        do {
+            try handle.write(contentsOf: data)
+            outputFileBytes += UInt64(data.count)
+        } catch {
+            // One failed write is not worth a log line per line of output. Drop the handle so the
+            // next spawn opens a fresh one rather than retrying a broken descriptor forever.
+            try? handle.close()
+            outputFile = nil
+        }
+    }
+
+
 
 }
