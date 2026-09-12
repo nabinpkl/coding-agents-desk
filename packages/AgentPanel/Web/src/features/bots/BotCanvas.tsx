@@ -28,6 +28,18 @@ import { useCardResize } from "./useCardResize";
 const STRIP_GAP = 12;
 
 /**
+ * How wide a session stands while it is closed, which is not a number anyone chose and not one
+ * that is remembered.
+ *
+ * A closed session is a spine: a name, when it last said something, and the menu. It has no
+ * contents to be a width FOR, so a width dragged onto it would be a width you set for a box you
+ * could not see inside -- and it would then be the width you found the next time you opened it,
+ * which is not what you meant. Wide enough for a truncated title beside its chevron, and narrow
+ * enough that a Bot with several reads as a rank of spines rather than a stack of slabs.
+ */
+const CLOSED_SESSION_WIDTH = 260;
+
+/**
  * The Bots put on the canvas, with all of their curated sessions, in one scroll.
  *
  * The Bots view answers "what is this one Bot working on" and pays for it by making the other Bots
@@ -480,7 +492,7 @@ function BotSessionCard({
   // which is what lets two of them be open at once without their controls landing in the same
   // place. State rather than a ref, because the session has to render again once the node exists.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
-  const sized = !stretched;
+  const sized = open && !stretched;
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -491,9 +503,12 @@ function BotSessionCard({
     onResizeCommit,
   });
   return (
-    // No width when it is a row or when the canvas is showing one Bot at a time: with nothing said
-    // about it, the strip's `stretch` gives it the whole card, which is what a row should be.
-    <li className="shrink-0" style={sized ? { width: resize.width } : undefined}>
+    // Opened, the width it was last given; closed, the spine's own. Nothing at all under the
+    // carousel, where the Bot card is already pinned to the panel and a session takes what it has.
+    <li
+      className="shrink-0"
+      style={stretched ? undefined : { width: open ? resize.width : CLOSED_SESSION_WIDTH }}
+    >
       <div
         className={`flex overflow-hidden rounded-lg border ${
           open ? "border-primary" : "border-border"
