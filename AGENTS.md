@@ -217,9 +217,14 @@ Three numbers, and none of them is a taste call:
 - **Twelve is the ceiling**, because this tree's own distribution has a gap there. Its directories
   sit at 53, 36, 26, 24, 20, 17, 16, 15, 13, 13, 12, 12, and then 10 and below. Twelve is where a
   place stops and a pile starts here.
-- **Three is the floor.** A subdirectory holding one or two files is a worse index than no
-  subdirectory at all. Two files that belong together stay flat and get named for the fact that
-  they belong.
+- **Three is the floor, and it is a rule about SPLITTING rather than a property of every
+  directory.** When fan-out sends you looking for clusters, a group of one or two is not one: those
+  files stay flat and get named for the fact that they belong together, because a subdirectory
+  holding two files is a worse index than no subdirectory. It does NOT say a small directory is
+  wrong. `features/screen-viewer/` is one file and `src/types/` is one file, and both are a whole
+  thing that happens to be small, not the residue of a bad split. So the ceiling is gateable and
+  the floor is not: a check that fails every directory under three would fail five that are correct
+  as they are.
 - **One clustering level below a feature**, and a second needs its reason written beside it.
   `features/activity-feed/data-source/` is the shape. `features/activity-feed/data-source/transport/http/`
   is the failure this bounds: nesting moves the reader's cost from scanning to navigating, and
