@@ -349,6 +349,9 @@ describe("App shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // The address is app state now -- it names the selected view -- so it has to be reset between
+    // tests for the same reason storage does, or one test's choice opens every test after it.
+    window.history.replaceState(null, "", "/");
     terminalPaneMock.context = null;
     terminalPaneMock.onState = null;
     terminalPaneMock.composerContext = null;
@@ -367,6 +370,35 @@ describe("App shell", () => {
     expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "false");
     unmount();
+  });
+
+  it("comes back to the view that was chosen, not to Sessions", () => {
+    // The canvas is somewhere a reader stays: they arrange it, then reload the page many times
+    // while working on what it shows. Landing back on Sessions each time means re-choosing the
+    // arrangement before the reload has told them anything.
+    const first = setup();
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    first.unmount();
+
+    const restored = setup();
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "false");
+    restored.unmount();
+  });
+
+  it("names the chosen view in the address, and lets the address win on the way back", () => {
+    const first = setup();
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    expect(window.location.search).toBe("?view=canvas");
+    first.unmount();
+
+    // The address is what a reload actually carries, so a stored preference must not override it.
+    window.history.replaceState(null, "", "/?view=bots");
+    const restored = setup();
+    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "false");
+    restored.unmount();
   });
 
   it("gives the titlebar inset to the header at the window's leading edge", () => {
@@ -1394,7 +1426,7 @@ describe("App shell", () => {
     // The Agents window is 480pt wide, which is compact, and it is on a Mac, which hovers. Both
     // at once is the case that used to fall through to the touch story and ignore the mouse.
     installViewport({ compact: true, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300 });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions" });
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
@@ -1429,7 +1461,7 @@ describe("App shell", () => {
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
     vi.useFakeTimers();
     installViewport({ compact: false, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300 });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions" });
     const first = setup();
     deliverProjects(first.transport);
 
@@ -1443,6 +1475,7 @@ describe("App shell", () => {
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: false,
       width: 300,
+      mode: "sessions",
     });
 
     fireEvent.pointerLeave(trigger);
@@ -1461,6 +1494,7 @@ describe("App shell", () => {
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: true,
       width: 316,
+      mode: "sessions",
     });
 
     firePointerEvent(separator, "pointerdown", { pointerId: 7, clientX: 316 });
@@ -1470,6 +1504,7 @@ describe("App shell", () => {
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: true,
       width: 356,
+      mode: "sessions",
     });
 
     first.unmount();
@@ -1483,6 +1518,7 @@ describe("App shell", () => {
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: false,
       width: 356,
+      mode: "sessions",
     });
     restored.unmount();
     vi.useRealTimers();
@@ -1841,6 +1877,7 @@ describe("App shell", () => {
 describe("visibility subscriptions recover from failure", () => {
   beforeEach(() => {
     localStorage.clear();
+    window.history.replaceState(null, "", "/");
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 

@@ -33,6 +33,7 @@ import {
   loadSidebarPreferences,
   storeSidebarPreferences,
 } from "../features/sidebar/sidebarPreferences";
+import { searchWithSidebarMode, sidebarModeFromSearch } from "../features/sidebar/sidebarRoute";
 import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
 import { useBots } from "../features/bots/useBots";
 import { BotCanvas } from "../features/bots/BotCanvas";
@@ -119,10 +120,40 @@ export function App({ feed, host, fill = false }: Props) {
     [feed],
   );
   const { compact, hoverCapable } = useSidebarEnvironment();
-  const [sidebarPreferences, setSidebarPreferences] = useState(loadSidebarPreferences);
+  /**
+   * The sidebar's arrangement, with the address bar ahead of what was stored.
+   *
+   * The address is what a reload actually carries, so it wins whenever it names a view. Storage
+   * answers the case it cannot -- a fresh tab typed as the bare origin -- and the address is then
+   * written to match, so from the first paint there is one place to read the answer from rather
+   * than two that can drift.
+   */
+  const [sidebarPreferences, setSidebarPreferences] = useState(() => {
+    const stored = loadSidebarPreferences();
+    const asked = typeof window === "undefined"
+      ? null
+      : sidebarModeFromSearch(window.location.search);
+    return asked === null ? stored : { ...stored, mode: asked };
+  });
   // One owner for every rendering of the sidebar: the pinned desktop rail, hover preview,
   // and phone drawer must never disagree about which view is selected.
-  const [sidebarMode, setSidebarMode] = useState<AgentSidebarMode>("sessions");
+  const sidebarMode = sidebarPreferences.mode;
+  // Written on every change of the view rather than only on a press, so the address is right after
+  // a restore from storage too. `replaceState` rather than `pushState`: choosing a view is not a
+  // navigation, and making Back walk the tabs would take a reader out of the panel to leave it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sidebarModeFromSearch(window.location.search) === sidebarMode) return;
+    try {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${searchWithSidebarMode(window.location.search, sidebarMode)}${window.location.hash}`,
+      );
+    } catch {
+      // A custom-scheme container may refuse to rewrite its address; the panel does not need it to.
+    }
+  }, [sidebarMode]);
   const botsState = useBots(feed);
   // Which Bots are off the canvas right now. Held here rather than inside the canvas so the cards
   // and the sidebar roster that arranges them read one set, and held in memory rather than stored
@@ -483,7 +514,12 @@ export function App({ feed, host, fill = false }: Props) {
    * the tab was pressed for with a panel that has almost nothing on it.
    */
   const changeSidebarMode = useCallback((mode: AgentSidebarMode) => {
-    setSidebarMode(mode);
+    setSidebarPreferences((current) => {
+      if (current.mode === mode) return current;
+      const next = { ...current, mode };
+      storeSidebarPreferences(next);
+      return next;
+    });
     if (mode === "canvas") {
       setHoverPreviewOpen(false);
       if (usesModalSidebar) setSidebarOpen(false);
