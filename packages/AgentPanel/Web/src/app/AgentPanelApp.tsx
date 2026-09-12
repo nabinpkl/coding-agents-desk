@@ -224,6 +224,38 @@ export function App({ feed, host, fill = false }: Props) {
     : null;
   const [hoverPreviewOpen, setHoverPreviewOpen] = useState(false);
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
+  /**
+   * A session forked from another, and the pane it runs in.
+   *
+   * Held here rather than in the canvas because it takes over `main`, and because the fork's own
+   * identity has to outlive the row that started it: the source session can be detached from its
+   * Bot while its fork is still open.
+   *
+   * `forkId` is minted here, once, and never derived from `sessionId` -- forking one session twice
+   * has to give two panes, and a pane named after the source would give the second fork the
+   * first's terminal.
+   *
+   * `title` is the SOURCE's, which is all this knows until the pane opens. `startedTitle` is the
+   * fork's own, and arrives from the sidecar with the terminal that started it: the name is
+   * settled where the command is built, and counting `(fork n)` a second time here could answer
+   * differently against a session list that is a moment behind.
+   *
+   * `botId` and `projectPath` are the Bot it was forked FROM, kept so the fork can be given back
+   * to it once it exists. They are the Bot's rather than the source session's because that is
+   * what the attach is checked against.
+   */
+  const [forkedSession, setForkedSession] = useState<
+    {
+      source: "claude";
+      sessionId: string;
+      forkId: string;
+      title: string;
+      startedTitle: string | null;
+      botId: string;
+      projectPath: string;
+    } | null
+  >(null);
+
   // The subscription's identity, not merely its argument: expanding or collapsing a
   // project reopens the inventory stream exactly once, and re-rendering for any other
   // reason leaves the open stream alone. Joined on NUL, the one byte a POSIX path
@@ -231,8 +263,12 @@ export function App({ feed, host, fill = false }: Props) {
   const subscribedProjectKey = useMemo(() => {
     const paths = [...expandedProjectPaths];
     if (botSessionPicker) paths.push(botSessionPicker.environment.path);
+    // An open fork's project, so the shell can see the fork's own session the moment its first
+    // turn writes a transcript. That is the only way to learn it: a fork has nothing in the
+    // catalog until then, and the Bot stream cannot show a session nobody has attached yet.
+    if (forkedSession) paths.push(forkedSession.projectPath);
     return [...new Set(paths)].sort().join("\0");
-  }, [botSessionPicker, expandedProjectPaths]);
+  }, [botSessionPicker, expandedProjectPaths, forkedSession]);
   const subscribedProjectPaths = useMemo(
     () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
     [subscribedProjectKey],
@@ -504,31 +540,6 @@ export function App({ feed, host, fill = false }: Props) {
     openSession(project, session);
   }, [openSession, projects]);
 
-  /**
-   * A session forked from another, and the pane it runs in.
-   *
-   * Held here rather than in the canvas because it takes over `main`, and because the fork's own
-   * identity has to outlive the row that started it: the source session can be detached from its
-   * Bot while its fork is still open.
-   *
-   * `forkId` is minted here, once, and never derived from `sessionId` -- forking one session twice
-   * has to give two panes, and a pane named after the source would give the second fork the
-   * first's terminal.
-   *
-   * `title` is the SOURCE's, which is all this knows until the pane opens. `startedTitle` is the
-   * fork's own, and arrives from the sidecar with the terminal that started it: the name is
-   * settled where the command is built, and counting `(fork n)` a second time here could answer
-   * differently against a session list that is a moment behind.
-   */
-  const [forkedSession, setForkedSession] = useState<
-    {
-      source: "claude";
-      sessionId: string;
-      forkId: string;
-      title: string;
-      startedTitle: string | null;
-    } | null
-  >(null);
   // The fork's pane renders its own errors in its footer, so the shell wants only one thing from
   // its state: the name the sidecar gave the session it just started. Stable so a re-render of the
   // shell never restarts the pane.
@@ -547,7 +558,7 @@ export function App({ feed, host, fill = false }: Props) {
     },
     [],
   );
-  const forkSession = useCallback((session: SessionSummary) => {
+  const forkSession = useCallback((bot: BotView, session: SessionSummary) => {
     if (session.source !== "claude") return;
     setForkedSession({
       source: "claude",
@@ -555,8 +566,47 @@ export function App({ feed, host, fill = false }: Props) {
       forkId: crypto.randomUUID(),
       title: session.title || session.sessionId,
       startedTitle: null,
+      botId: bot.botId,
+      projectPath: bot.environment.path,
     });
   }, []);
+
+  /**
+   * Gives a fork back to the Bot its source belongs to, once there is a session to give.
+   *
+   * Not at the moment of forking, because there is nothing to attach then: a fork writes no
+   * transcript until its first turn, and the sidecar refuses a session that is not in the catalog
+   * rather than recording a reference to something that may never exist. So the shell subscribes
+   * the Bot's directory while the fork is open and waits for the session to appear under the id it
+   * chose -- which it can only do because the fork is started with that id.
+   *
+   * Attached once per fork, tracked by id rather than by a flag: the effect re-runs on every
+   * inventory push, and the Bot snapshot that would make it a no-op arrives a moment later. The
+   * set is never pruned because it cannot grow past the forks one reader makes in one page.
+   *
+   * Closing the pane before that first turn attaches nothing, which is the right reading of it:
+   * the fork is a session on disk either way, and it can be attached by hand like any other.
+   */
+  const attachedForkIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!forkedSession) return;
+    const { forkId, botId, projectPath } = forkedSession;
+    if (attachedForkIds.current.has(forkId)) return;
+    // The Bot can be removed while its fork is still open, and attaching to one that is gone would
+    // answer with an error the reader can do nothing about.
+    if (!botsState.bots.some((candidate) => candidate.botId === botId)) return;
+    const appeared = sessionsByProject.get(projectPath)
+      ?.some((session) => session.source === "claude" && session.sessionId === forkId);
+    if (!appeared) return;
+    attachedForkIds.current.add(forkId);
+    void feed
+      .attachBotSessions(botId, { sessionRefs: [{ source: "claude", sessionId: forkId }] })
+      // Reported on the same band every other Bot command failure uses. A fork that silently
+      // failed to attach is indistinguishable from one that was never meant to be.
+      .catch((error: unknown) => {
+        setBotCommandError(error instanceof Error ? error.message : String(error));
+      });
+  }, [feed, forkedSession, botsState.bots, sessionsByProject]);
 
   /**
    * The session whose title is being edited, if any.

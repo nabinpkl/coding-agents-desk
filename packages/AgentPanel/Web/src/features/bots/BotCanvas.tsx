@@ -92,8 +92,8 @@ export function BotCanvas({
    */
   botError: string | null;
   onAddSession: (bot: BotView) => void;
-  /** Starts a new session branched from this one, in its own tmux pane. */
-  onForkSession: (session: SessionSummary) => void;
+  /** Branches a new session from this one, in its own pane, and gives it to the Bot. */
+  onForkSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   /**
@@ -210,7 +210,7 @@ function BotCanvasList({
   sessionContext: SessionViewContext;
   botError: string | null;
   onAddSession: (bot: BotView) => void;
-  onForkSession: (session: SessionSummary) => void;
+  onForkSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -667,7 +667,7 @@ function BotCanvasCard({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onAddSession: (bot: BotView) => void;
-  onForkSession: (session: SessionSummary) => void;
+  onForkSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -839,7 +839,9 @@ function BotCanvasCard({
                 // Both Claude-only, and absent rather than inert on a Codex row: forking asks the
                 // Claude CLI for a branch it alone has, and the title being renamed is a record in
                 // a transcript this panel does not write for Codex.
-                onFork={session.source === "claude" ? () => onForkSession(session) : undefined}
+                onFork={
+                  session.source === "claude" ? () => onForkSession(bot, session) : undefined
+                }
                 onRename={
                   session.source === "claude" ? () => onRenameSession(session) : undefined
                 }

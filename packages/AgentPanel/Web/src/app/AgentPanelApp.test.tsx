@@ -1153,6 +1153,78 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("gives a fork back to its Bot once its first turn writes a transcript", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    const forkId = terminalPaneMock.context!.forkId as string;
+
+    // Nothing yet: a fork writes no transcript until its first turn, and the sidecar refuses a
+    // session that is not in the catalog rather than recording a reference to a maybe.
+    expect(transport.requests.some((request) => request.path === "/api/bots/bot-1/sessions"))
+      .toBe(false);
+
+    // The first turn. The session appears under the id the fork was STARTED with, which is the
+    // only reason the shell can recognize it.
+    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, [
+      ...FIXTURE_SESSIONS,
+      {
+        sessionId: forkId,
+        source: "claude",
+        title: "Session Claude 01 (fork 1)",
+        lastEventAt: 9,
+        activity: "live",
+        capabilities: FIXTURE_SESSIONS[0]!.capabilities,
+      },
+    ]);
+
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
+      .toEqual({
+        sessionRefs: [{ source: "claude", sessionId: forkId }],
+        requestId: expect.any(String),
+      });
+
+    // Once, not once per inventory push: the Bot snapshot that would make it a no-op arrives a
+    // moment after the attach, and every push in between re-runs the effect.
+    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, [
+      ...FIXTURE_SESSIONS,
+      {
+        sessionId: forkId,
+        source: "claude",
+        title: "Session Claude 01 (fork 1)",
+        lastEventAt: 10,
+        activity: "live",
+        capabilities: FIXTURE_SESSIONS[0]!.capabilities,
+      },
+    ]);
+    expect(
+      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions"),
+    ).toHaveLength(1);
+    unmount();
+  });
+
   it("ignores a name from a pane belonging to a fork that is no longer open", async () => {
     // A pane's `ready` can land after the reader closed one fork and opened another. Adopting it
     // blindly would put the closed fork's name on the open one, which reads as the wrong session.
