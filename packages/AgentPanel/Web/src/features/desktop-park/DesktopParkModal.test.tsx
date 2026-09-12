@@ -8,7 +8,7 @@ import {
   FIRST_FRAME_TIMEOUT_MS,
   ICE_SETUP_TIMEOUT_MS,
   TileStreamRtc,
-} from "@/features/desktop-viewer/TileStreamRtc";
+} from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 
 const DISPLAY = { x: 0, y: 0, w: 1800, h: 1169 };
 

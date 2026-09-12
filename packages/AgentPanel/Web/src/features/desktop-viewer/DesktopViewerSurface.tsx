@@ -16,8 +16,8 @@ import {
   postTileTelemetry,
   TileStreamRtc,
   type DesktopControlTransport,
-} from "@/features/desktop-viewer/TileStreamRtc";
-import { useCaptureScale } from "@/features/desktop-viewer/captureScale";
+} from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
+import { useCaptureScale } from "@/features/desktop-viewer/zoom/captureScale";
 import { ModeButton, ResolutionSlider } from "@/features/desktop-viewer/DesktopViewerControls";
 import { DesktopStream, DetailStream, OverviewStream } from "@/features/desktop-viewer/DesktopViewerStreams";
 import {
@@ -26,15 +26,15 @@ import {
   markOverviewReady,
   setCaptureCrop,
   useCaptureCrop,
-} from "@/features/desktop-viewer/captureCrop";
-import { setZoomMode, useZoomMode } from "@/features/desktop-viewer/zoomMode";
-import { setOverviewLayer, useOverviewLayer } from "@/features/desktop-viewer/overviewLayer";
+} from "@/features/desktop-viewer/zoom/captureCrop";
+import { setZoomMode, useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
+import { setOverviewLayer, useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
 
 /** The coarse stream only has to fill gaps and be panned over; it is not what is read. */
 const OVERVIEW_FPS = 8;
-import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/TileViewport";
-import { DesktopKeyboardChrome } from "@/features/desktop-viewer/DesktopKeyboardChrome";
-import { useDesktopKeyboard } from "@/features/desktop-viewer/useDesktopKeyboard";
+import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/tile-viewport/TileViewport";
+import { DesktopKeyboardChrome } from "@/features/desktop-viewer/keyboard-input/DesktopKeyboardChrome";
+import { useDesktopKeyboard } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboard";
 
 const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 /**

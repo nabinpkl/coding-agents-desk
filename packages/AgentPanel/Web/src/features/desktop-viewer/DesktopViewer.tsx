@@ -5,9 +5,9 @@ import { desktopDisplayId, desktopNavigationEvent, type DesktopControlEvent, typ
   type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { DesktopViewerSurface } from "@/features/desktop-viewer/DesktopViewerSurface";
-import { DesktopNavigationChrome } from "@/features/desktop-viewer/DesktopNavigationChrome";
-import { useDesktopNavigation } from "@/features/desktop-viewer/useDesktopNavigation";
-import { postTileTelemetry, type DesktopControlTransport } from "@/features/desktop-viewer/TileStreamRtc";
+import { DesktopNavigationChrome } from "@/features/desktop-viewer/navigation/DesktopNavigationChrome";
+import { useDesktopNavigation } from "@/features/desktop-viewer/navigation/useDesktopNavigation";
+import { postTileTelemetry, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 
 export function desktopDocumentFallbackHeight(viewportHeight: number, screenHeight: number): number | null {

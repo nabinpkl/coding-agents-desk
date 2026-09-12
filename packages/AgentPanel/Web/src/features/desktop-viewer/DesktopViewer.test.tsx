@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { desktopDocumentFallbackHeight, DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import type { DesktopControlEvent, DesktopControlInput } from "@agentdesk/agent-feed-wire";
-import { stubDeckLayout } from "@/features/desktop-viewer/keyboardDeckTestLayout";
+import { stubDeckLayout } from "@/features/desktop-viewer/keyboard-deck/keyboardDeckTestLayout";
 
 const tileMock = vi.hoisted(() => ({
   publishSource: true,
@@ -13,9 +13,9 @@ const tileMock = vi.hoisted(() => ({
   sent: [] as DesktopControlInput[],
 }));
 
-vi.mock("@/features/desktop-viewer/TileStreamRtc", async (importOriginal) => {
+vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOriginal) => {
   const React = await import("react");
-  const actual = await importOriginal<typeof import("@/features/desktop-viewer/TileStreamRtc")>();
+  const actual = await importOriginal<typeof import("@/features/desktop-viewer/tile-stream/TileStreamRtc")>();
   return {
     ...actual,
     TileStreamRtc: ({ onState, onControlTransport, onSourceMetadata, onControlEvent }: {

@@ -3,9 +3,9 @@
 // The streams a desktop shows: the whole display, the coarse overview under a crop, and
 // the sharp detail over it.
 
-import { TileStreamRtc } from "@/features/desktop-viewer/TileStreamRtc";
-import { useCaptureScale } from "@/features/desktop-viewer/captureScale";
-import { captureCropApplied, useCaptureCrop } from "@/features/desktop-viewer/captureCrop";
+import { TileStreamRtc } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
+import { useCaptureScale } from "@/features/desktop-viewer/zoom/captureScale";
+import { captureCropApplied, useCaptureCrop } from "@/features/desktop-viewer/zoom/captureCrop";
 
 /**
  * The stream, subscribed to the capture multiplier and the capture plan.
