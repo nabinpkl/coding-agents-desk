@@ -32,7 +32,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 
 | ID | Status | churn/lines | File |
 |---|---|---|---|
-| R1 | R | 3/542 | `packages/AgentPanel/Web/src/features/usage/UsageModal.tsx` |
+| R1 | D | 3/542 | `packages/AgentPanel/Web/src/features/usage/UsageModal.tsx` |
 | R2 | R | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
 | R3 | R | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
 | R4 | R | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
@@ -82,6 +82,20 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 
 Written before each split, one line per concept.
 
+### R1 `features/usage/UsageModal.tsx` (542)
+
+- The dialog shell: `<dialog>` open/close/backdrop lifecycle, the header, the range buttons, the
+  vendor tab row, and the switch between error, not-installed, no-records and the panel.
+- One vendor's grid: range totals, quota, day readout, calendar, legend, coverage footer, and the
+  screen-reader sentence for a single cell.
+- Token figures: the fixed-column totals row and the one stacked label-over-number figure.
+- The quota row and how fresh its reading is.
+- The hovered day's readout: that week against the one before, and the per-model list.
+
+Split into siblings inside `features/usage/`: `UsageVendorPanel.tsx`, `UsageDayDetail.tsx`,
+`UsageFigures.tsx`, `UsageQuotaRow.tsx`. `UsageModal.tsx` stays the entry point that
+`features/profile/ProfileRow.tsx` imports.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -89,6 +103,13 @@ Forks taken, with the alternative not taken and why. At a fork, the option that 
 - **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
   not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
   than pushing to an explicit refspec does.
+
+### Decision: siblings, not a subdirectory, inside `features/usage/`
+
+Five files came out of one, which the plan would normally answer with a directory named for the
+concept. `features/usage/` already IS that directory, and its six existing files are flat siblings.
+A `features/usage/modal/` would have put the modal's parts one level deeper than `UsageCalendar.tsx`
+and `usageGrid.ts`, which they sit beside and call. Flat changes less.
 
 ## Deferred
 
