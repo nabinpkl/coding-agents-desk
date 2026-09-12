@@ -65,7 +65,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R31 | D | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
 | R32 | D | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
 | R33 | D | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
-| R34 | R | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
+| R34 | D | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
 | R35 | R | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
 | R36 | R | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
 | R37 | R | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
@@ -495,6 +495,20 @@ they describe, since how many sessions a project opens on is a fact about that r
 
 Split into `agentTerminalHarness.ts`, `agentTerminalTmux.test.ts`,
 `agentTerminalSessionPane.test.ts`. 898 sidecar tests, unchanged.
+
+### R34 `input/tmuxComposer.ts` (1302)
+
+- Reading Claude's prompt box out of a pane's screen: where it is, what is in it, whether a faint
+  row is a hint, and the command menu under it.
+- Turning what the box holds into what was typed: nothing, an append, or a clear and a retype.
+- The pane a session's composer is on, held while somebody watches, and one push at a time.
+- What the composer functions need from tmux, and the watch that reports a box as it changes.
+- The commands: sync, submit, accept, drop an image, rename.
+
+Split into `composerBox.ts`, `composerKeystrokes.ts`, `tmuxComposerPanes.ts`,
+`tmuxComposerRuntime.ts`. 1302 to 366. The module header's measurements stay on
+`tmuxComposer.ts`, because they are what the whole module was built against rather than what any
+one part does; `composerBox.ts` points at them.
 
 ## Decisions
 
