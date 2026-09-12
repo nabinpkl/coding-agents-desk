@@ -35,7 +35,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R1 | D | 3/542 | `packages/AgentPanel/Web/src/features/usage/UsageModal.tsx` |
 | R2 | D | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
 | R3 | D | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
-| R4 | R | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
+| R4 | D | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
 | R5 | R | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
 | R6 | R | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
 | R7 | R | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
@@ -125,6 +125,19 @@ Split into `codexLiveFlows.ts`, `codexLiveItems.ts`, `codexLiveEvents.ts`, and o
 `liveSessionRegistry.ts` R2 introduced. 816 to 357. Two files where claude needed one, because
 codex's rows are a stateful store (`items`, `lastContent`) and claude's message is a plain value
 the flow already holds.
+
+### R4 `http/webrtcTileRoutes.test.ts` (536)
+
+- The routes themselves: what the telemetry endpoint's phase allowlist accepts and refuses, and
+  what the sessions listing and close answer.
+- Delivery: werift's RTP repair history, and correlating sender writes against selected-pair
+  delivery and receiver backlog.
+- The encoder: its control channel, PLI requests against emitted keyframes, when a peer state is
+  terminal, and which capture stream an offer belongs to.
+
+Split into `webrtcDelivery.test.ts` and `webrtcEncoder.test.ts`, with `webrtcTileRoutes.test.ts`
+keeping the two describes that go through the route function. Every `describe` moved whole; test
+count unchanged at 898.
 
 ## Decisions
 
