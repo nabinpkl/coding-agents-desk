@@ -72,7 +72,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R38 | D | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
 | R39 | D | 26/585 | `agent-feed/sidecar/src/config.ts` |
 | R40 | D | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
-| R41 | R | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
+| R41 | D | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
 | R42 | R | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
 | R43 | R | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
 | R44 | R | - | Sweep: re-run the churn command, split whatever the splits pushed over 500. |
@@ -605,6 +605,21 @@ Split into `webrtcDiagnosticsLog.ts`, `webrtcEncoderPool.ts`, `webrtcEncoderIden
 new file is under 470. `answer` is still one long function because it is a sequence whose every
 step depends on the one before; what came out of it is the control channel, which is a closure
 over five things that have to agree and had no reason to be inside it.
+
+### R41 `bots/BotCanvas.tsx` (1157)
+
+- What every part of the canvas agrees on: two widths, and what a failure names.
+- Opening the canvas where the reader left it, and keeping saying where that is.
+- Carrying one card along the strip and dropping it somewhere else in the order.
+- One of a Bot's sessions, which is a whole session rather than a preview of one.
+- One Bot on the canvas: its head, its roster, and the grips that size it.
+- The surface itself: which Bots are on it, the order they are in, and the errors it carries.
+
+Split into `botCanvasCards.ts`, `useRememberedCanvasScroll.ts`, `useMoveAlongStrip.ts`,
+`BotSessionCard.tsx`, `BotCanvasCard.tsx`. 1157 to 387. The two widths and `sessionKey` came out
+into their own file rather than staying in the surface, because a card reaching back into
+`BotCanvas.tsx` for a number would be the cycle that makes the split unreadable.
+`BotCanvas.tsx` stays the entry point and re-exports `BotCommandError`, which the app imports.
 
 ## Decisions
 
