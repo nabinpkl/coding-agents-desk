@@ -110,24 +110,52 @@ test("asks about a session by exact name", () => {
 });
 
 test("starts a session at the viewer's geometry, through a login shell that outlives it", () => {
-  expect(newSessionArgs({
+  const args = newSessionArgs({
     session: "agentdesk-abc",
     cwd: "/Users/dev/projects/agent desk",
     command: ["claude", "--resume", "abc"],
     columns: 100,
     rows: 30,
-  })).toEqual([
+  });
+
+  expect(args.slice(0, -1)).toEqual([
     // `-A`: a second create for the same name is a no-op rather than a duplicate-session error.
     "new-session", "-A", "-d", "-s", "agentdesk-abc",
     // Its own argument, so a path with a space in it needs no quoting.
     "-c", "/Users/dev/projects/agent desk",
     // Without these a detached session sits at 80x24 for life, whatever the viewer is.
     "-x", "100", "-y", "30",
-    // A login shell because tmux runs a shell-command through `/bin/sh -c`, and this process's
-    // environment is stripped of the PATH that finds `claude`. It stays after the command exits so
-    // a refused resume leaves its reason on screen.
-    "/bin/zsh -l -c 'claude --resume abc; exec /bin/zsh -l'",
   ]);
+  // A login shell because tmux runs a shell-command through `/bin/sh -c`, and this process's
+  // environment is stripped of the PATH that finds `claude`. It stays after the command exits so
+  // a refused resume leaves its reason on screen.
+  //
+  // How the command inside is quoted is deliberately not asserted here. It is read by two shells
+  // in turn, so the spelling is not the contract -- what arrives is, and the test below runs it.
+  expect(args.at(-1)).toStartWith("/bin/zsh -l -c ");
+  expect(args.at(-1)).toEndWith("; exec /bin/zsh -l'");
+});
+
+test("an argument survives the two shells it is flattened through, whatever is in it", () => {
+  // The property, not the spelling: this string is read by `/bin/sh -c` and then by `zsh -l -c`,
+  // so asserting how it is quoted asserts nothing about whether it arrives. A session title is the
+  // first argument here that is not a bare token, and both of these broke before it existed --
+  // zsh read the `(fork 1)` as a glob qualifier and answered "invalid mode specification", and an
+  // apostrophe left the shell inside an unterminated quote.
+  const argvFrom = (command: string[]): { out: string; code: number | null } => {
+    const script = newSessionArgs({
+      session: "s", cwd: "/tmp", command, columns: 80, rows: 24,
+    }).at(-1)!;
+    const spawned = Bun.spawnSync([
+      "/bin/sh", "-c", script.replace("; exec /bin/zsh -l", ""),
+    ]);
+    return { out: new TextDecoder().decode(spawned.stdout), code: spawned.exitCode };
+  };
+
+  expect(argvFrom(["/bin/echo", "-n", "Canvas session (fork 1)"]))
+    .toEqual({ out: "Canvas session (fork 1)", code: 0 });
+  expect(argvFrom(["/bin/echo", "-n", "it's a $HOME; `boom`"]))
+    .toEqual({ out: "it's a $HOME; `boom`", code: 0 });
 });
 
 test("waits until a pane stops changing, then attaches", async () => {

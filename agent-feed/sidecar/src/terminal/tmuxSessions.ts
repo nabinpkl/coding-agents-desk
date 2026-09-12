@@ -342,7 +342,13 @@ export function newSessionArgs(
   // Not `exec`: when the command exits -- a resume that is refused prints why and stops -- the
   // shell stays, so the pane holds the reason where the viewer can read it instead of the session
   // vanishing and the attach failing with nothing to show.
-  const script = `${command.join(" ")}; exec ${LOGIN_SHELL} -l`;
+  //
+  // Every argument quoted, not just the script. This is an argv being flattened into a shell
+  // script, so an argument carrying a space or a metacharacter stops being one argument the moment
+  // it is joined. It went unnoticed while every argument was a bare token; the first title passed
+  // to `-n` broke it, because zsh reads the `(fork 1)` in `Session (fork 1)` as a glob qualifier
+  // and answers "invalid mode specification" instead of running anything.
+  const script = `${command.map(shellQuote).join(" ")}; exec ${LOGIN_SHELL} -l`;
   return [
     // `-A` for the race: two viewers of one session can both find it missing, and without this the
     // loser gets "duplicate session" where it wanted the winner's. With it, a second create is a
@@ -371,9 +377,16 @@ export interface NewTmuxSession {
 
 const LOGIN_SHELL = "/bin/zsh";
 
-/** Single-quoted for `sh -c`, with the one escape single quotes have. */
+/**
+ * Single-quoted for `sh -c`, with the one escape single quotes have.
+ *
+ * A single-quoted string cannot contain a single quote at all, so each one leaves the quoting,
+ * contributes an escaped `'`, and re-enters it: `it's` becomes `'it'\''s'`. Writing that in a
+ * JavaScript string needs the backslash escaped -- `"'\\''"` -- and without it this produced
+ * `'it'''s'`, which leaves the shell inside an unterminated quote.
+ */
 function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\''")}'`;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /** Empty when the server is not running, which is not a failure: nobody has started a session. */
