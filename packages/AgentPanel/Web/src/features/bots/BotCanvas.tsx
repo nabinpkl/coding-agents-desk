@@ -10,12 +10,10 @@ import {
   DEFAULT_CARD_SIZE,
   botCanvasOrderOf,
   loadBotCanvasOrder,
-  loadBotCardSizes,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
-  storeBotCardSizes,
   storeSessionCardSizes,
   type BotCardSize,
   type BotCardSizes,
@@ -215,7 +213,6 @@ function BotCanvasList({
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
-  const [sizes, setSizes] = useState<BotCardSizes>(loadBotCardSizes);
   const [sessionSizes, setSessionSizes] = useState<BotCardSizes>(loadSessionCardSizes);
   const [order, setOrder] = useState<string[]>(loadBotCanvasOrder);
   const standing = orderBotsForCanvas(bots, order);
@@ -249,11 +246,6 @@ function BotCanvasList({
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const resize = (botId: string, size: BotCardSize, keep: boolean): void => {
-    const next = { ...sizes, [botId]: size };
-    setSizes(next);
-    if (keep) storeBotCardSizes(next);
-  };
   const resizeSession = (key: string, size: BotCardSize, keep: boolean): void => {
     const next = { ...sessionSizes, [key]: size };
     setSessionSizes(next);
@@ -294,14 +286,11 @@ function BotCanvasList({
             botError={botError}
             openKey={openKey}
             onToggleSession={onToggleSession}
-            size={sizes[bot.botId] ?? DEFAULT_CARD_SIZE}
             sessionSizes={sessionSizes}
             onResizeSession={resizeSession}
             carouselWidth={
               canvasWidth > 0 && canvasWidth < CAROUSEL_CANVAS_WIDTH ? canvasWidth : null
             }
-            onResize={(size) => resize(bot.botId, size, false)}
-            onResizeCommit={(size) => resize(bot.botId, size, true)}
             onAddSession={onAddSession}
             onForkSession={onForkSession}
             onDetachSession={onDetachSession}
@@ -618,7 +607,6 @@ function BotCanvasCard({
   botError,
   openKey,
   onToggleSession,
-  size,
   sessionSizes,
   onResizeSession,
   carouselWidth,
@@ -630,8 +618,6 @@ function BotCanvasCard({
   onMoveBySteps,
   canMoveLeft,
   canMoveRight,
-  onResize,
-  onResizeCommit,
   onAddSession,
   onForkSession,
   onDetachSession,
@@ -642,7 +628,6 @@ function BotCanvasCard({
   botError: string | null;
   openKey: string | null;
   onToggleSession: (key: string) => void;
-  size: BotCardSize;
   /** Every session's own size, by `source:sessionId`. */
   sessionSizes: BotCardSizes;
   onResizeSession: (key: string, size: BotCardSize, keep: boolean) => void;
@@ -663,10 +648,6 @@ function BotCanvasCard({
   onMoveBySteps: (steps: number) => void;
   canMoveLeft: boolean;
   canMoveRight: boolean;
-  /** Live during a drag, so the card follows the pointer. Not written to storage. */
-  onResize: (size: BotCardSize) => void;
-  /** The size to keep, on pointer release or a key press. */
-  onResizeCommit: (size: BotCardSize) => void;
   onAddSession: (bot: BotView) => void;
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -715,19 +696,6 @@ function BotCanvasCard({
     if (!holdsOpen) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }, [holdsOpen]);
-  const resize = useCardResize({
-    name: bot.name,
-    noun: "card",
-    size,
-    displayWidth: carouselWidth,
-    // A Bot card is as tall as its sessions make it. Its height used to be the authority and the
-    // open session took what was left; now the session carries its own, and a second height here
-    // would only be something for the two of them to disagree about.
-    canResizeHeight: false,
-    onResize,
-    onResizeCommit,
-  });
-  const { width } = resize;
   return (
     // Width always, height only while it holds the open session: closed, a card is as tall as its
     // own roster and a remembered height would be empty space. The card is a ROW -- its content
@@ -740,11 +708,11 @@ function BotCanvasCard({
         lifted ? "z-10 border-primary shadow-xl" : "border-border"
       }`}
       style={{
-        // A MINIMUM rather than a width, which is what lets the card grow: it is this wide with
-        // nothing open -- the answer to "how wide is a roster I am not reading" -- and as wide as
-        // an open session that wants more. Under the carousel it is pinned instead, because there
-        // the panel decides.
-        ...(carouselWidth === null ? { minWidth: width } : { width }),
+        // No size of its own. A Bot card is exactly as big as the sessions standing in it, in both
+        // directions: it once held a width and a height, and both turned into empty space the
+        // moment the sessions carried their own. The one exception is the carousel, where the panel
+        // is too narrow to hold two Bots and pins the card rather than the reader choosing.
+        ...(carouselWidth === null ? {} : { width: carouselWidth }),
         transform: offset === 0 ? undefined : `translateX(${offset}px)`,
         // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
         // thing that should look like it is moving.
@@ -852,10 +820,8 @@ function BotCanvasCard({
           </ul>
         )}
 
-        {resize.bottom}
       </div>
 
-      {resize.edge}
     </li>
   );
 }

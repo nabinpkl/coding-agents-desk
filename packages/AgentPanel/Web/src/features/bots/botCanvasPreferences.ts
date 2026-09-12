@@ -65,14 +65,15 @@ export const DEFAULT_CARD_SIZE: BotCardSize = {
   height: DEFAULT_CARD_HEIGHT,
 };
 
-const BOT_SIZES_KEY = "agent-panel.bot-canvas.card-sizes";
-
 /**
- * Session sizes live under their own key, and unlike the Bot one this map is not bounded by
- * anything: a project here holds hundreds of sessions, where Bots are a handful. So it is PRUNED
- * ON WRITE to the sessions actually on the canvas. A session detached from a Bot is not coming back
- * the way a detached Bot is, and a store that only ever grows would carry a size for every session
- * ever opened.
+ * Sizes belong to sessions, not to the Bots holding them. A Bot card once had a width and a height
+ * of its own; both became empty space beside and below its sessions the moment those carried their
+ * own, so there is one map here rather than two.
+ *
+ * Unlike a roster of Bots this map is not bounded by anything -- a project here holds hundreds of
+ * sessions -- so it is PRUNED ON WRITE to the sessions actually on the canvas. A session detached
+ * from a Bot is not coming back the way a detached Bot is, and a store that only ever grew would
+ * carry a size for every session ever opened.
  */
 const SESSION_SIZES_KEY = "agent-panel.bot-canvas.session-sizes";
 
@@ -145,14 +146,6 @@ function storeSizes(key: string, sizes: BotCardSizes, keep?: Iterable<string>): 
   } catch {
     // The canvas stays usable on its in-memory sizes when storage is disabled.
   }
-}
-
-export function loadBotCardSizes(): BotCardSizes {
-  return loadSizes(BOT_SIZES_KEY);
-}
-
-export function storeBotCardSizes(sizes: BotCardSizes): void {
-  storeSizes(BOT_SIZES_KEY, sizes);
 }
 
 export function loadSessionCardSizes(): BotCardSizes {

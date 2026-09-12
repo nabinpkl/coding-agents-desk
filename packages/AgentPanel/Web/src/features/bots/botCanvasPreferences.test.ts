@@ -11,63 +11,64 @@ import {
   clampCardHeight,
   clampCardWidth,
   loadBotCanvasOrder,
-  loadBotCardSizes,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
-  storeBotCardSizes,
   storeSessionCardSizes,
 } from "./botCanvasPreferences";
 
-const STORAGE_KEY = "agent-panel.bot-canvas.card-sizes";
+const STORAGE_KEY = "agent-panel.bot-canvas.session-sizes";
 
-describe("bot canvas preferences", () => {
+describe("session card sizes", () => {
   beforeEach(() => localStorage.clear());
 
-  it("knows nothing before a card has been resized, so every card takes the default", () => {
-    expect(loadBotCardSizes()).toEqual({});
+  it("knows nothing before a session has been resized, so every one takes the default", () => {
+    expect(loadSessionCardSizes()).toEqual({});
   });
 
-  it("remembers a size per Bot, which is what makes the canvas tiled rather than uniform", () => {
-    storeBotCardSizes({
-      "bot-wide": { width: 900, height: 910 },
-      "bot-narrow": { width: 340, height: 400 },
-    });
-    expect(loadBotCardSizes()).toEqual({
-      "bot-wide": { width: 900, height: 910 },
-      "bot-narrow": { width: 340, height: 400 },
+  it("remembers a size per session, which is what makes a Bot's strip its own shape", () => {
+    storeSessionCardSizes(
+      {
+        "claude:wide": { width: 900, height: 910 },
+        "codex:narrow": { width: 340, height: 400 },
+      },
+      ["claude:wide", "codex:narrow"],
+    );
+    expect(loadSessionCardSizes()).toEqual({
+      "claude:wide": { width: 900, height: 910 },
+      "codex:narrow": { width: 340, height: 400 },
     });
   });
 
   it("holds a size inside the usable range before storing it", () => {
-    storeBotCardSizes({ "bot-1": { width: 1, height: 1 } });
-    expect(loadBotCardSizes()["bot-1"]).toEqual({
+    storeSessionCardSizes({ "claude:s1": { width: 1, height: 1 } }, ["claude:s1"]);
+    expect(loadSessionCardSizes()["claude:s1"]).toEqual({
       width: MIN_CARD_WIDTH,
       height: MIN_CARD_HEIGHT,
     });
 
-    storeBotCardSizes({ "bot-1": { width: 99999, height: 99999 } });
-    expect(loadBotCardSizes()["bot-1"]).toEqual({
+    storeSessionCardSizes({ "claude:s1": { width: 99999, height: 99999 } }, ["claude:s1"]);
+    expect(loadSessionCardSizes()["claude:s1"]).toEqual({
       width: MAX_CARD_WIDTH,
       height: MAX_CARD_HEIGHT,
     });
   });
 
   it("judges each dimension on its own, so one bad number does not throw away the other", () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ "bot-1": { width: 700, height: "tall" } }));
-    expect(loadBotCardSizes()["bot-1"]).toEqual({ width: 700, height: DEFAULT_CARD_HEIGHT });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ "claude:s1": { width: 700, height: "tall" } }));
+    expect(loadSessionCardSizes()["claude:s1"]).toEqual({ width: 700, height: DEFAULT_CARD_HEIGHT });
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ "bot-1": { width: null, height: 700 } }));
-    expect(loadBotCardSizes()["bot-1"]).toEqual({ width: DEFAULT_CARD_WIDTH, height: 700 });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ "claude:s1": { width: null, height: 700 } }));
+    expect(loadSessionCardSizes()["claude:s1"]).toEqual({ width: DEFAULT_CARD_WIDTH, height: 700 });
   });
 
   it("falls back to knowing nothing rather than trusting what it cannot read", () => {
     localStorage.setItem(STORAGE_KEY, "not json");
-    expect(loadBotCardSizes()).toEqual({});
+    expect(loadSessionCardSizes()).toEqual({});
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(["bot-1"]));
-    expect(loadBotCardSizes()).toEqual({});
+    expect(loadSessionCardSizes()).toEqual({});
   });
 
   it("lets a card be wider than any panel, because the strip scrolls sideways", () => {
@@ -136,15 +137,8 @@ describe("bot canvas order", () => {
   });
 });
 
-describe("session card sizes", () => {
+describe("pruning session sizes", () => {
   beforeEach(() => localStorage.clear());
-
-  it("keeps a size per session, under its own key rather than the Bots'", () => {
-    storeBotCardSizes({ "bot-1": { width: 500, height: 500 } });
-    storeSessionCardSizes({ "claude:s1": { width: 700, height: 900 } }, ["claude:s1"]);
-    expect(loadSessionCardSizes()).toEqual({ "claude:s1": { width: 700, height: 900 } });
-    expect(loadBotCardSizes()).toEqual({ "bot-1": { width: 500, height: 500 } });
-  });
 
   it("drops sessions no longer on the canvas as it writes", () => {
     // Sessions are not bounded the way Bots are -- a project here holds hundreds -- so a store that
