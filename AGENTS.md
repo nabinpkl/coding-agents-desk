@@ -249,9 +249,16 @@ deserves one. Create it because the flat list went past twelve and three or more
 about the same thing. Concepts do not earn directories, counts do, and that is what keeps the
 layout from tracking whoever last had an opinion about it.
 
-Not gated yet, deliberately. Ten directories are over the ceiling as of 2026-09-09, and a gate that
-fails the day it lands teaches everyone to route around it. The 500-line cap went in last, after
-its tree satisfied it; this one goes in the same way.
+Gated since 2026-09-09, and gated the same way the 500-line cap was: only after the tree already
+satisfied it. Nine directories were over the ceiling that morning and the worst held 36; the gate
+landed on the commit that brought the last one under, because a gate that fails the day it lands
+teaches everyone to route around it. Check 7 of `tools/agent-feed-fitness.sh` is the authority and
+`tools/git-hooks/pre-commit` asks the same at commit time.
+
+How both trees got here is in `tasks/archive/`: `2026-09-09-ts-500-line-cap.md` carries the
+concepts each split file divides on, and `2026-09-09-directory-twelve-file-ceiling.md` carries
+which directory became which. Read them before re-deciding one of those boundaries, not before an
+ordinary change.
 
 ## Code
 
