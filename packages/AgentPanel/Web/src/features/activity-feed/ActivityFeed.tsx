@@ -189,6 +189,8 @@ export function ActivityFeed({
   const rowContext: EventRowContext = useMemo(
     () => ({
       session: { source, sessionId, mode },
+      // These events ARE this session's transcript, so an index names a line it can fetch back.
+      rawSource: "addressable",
       expandedTools,
       onToggleTool: toggleTool,
       pairedToolResults,

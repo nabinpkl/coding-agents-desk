@@ -7,6 +7,7 @@ afterEach(() => vi.useRealTimers());
 
 const ctx: EventRowContext = {
   session: { source: "claude", sessionId: "session", mode: "nice" },
+  rawSource: "addressable",
   expandedTools: new Set(),
   onToggleTool: () => {},
   pairedToolResults: new Map(),

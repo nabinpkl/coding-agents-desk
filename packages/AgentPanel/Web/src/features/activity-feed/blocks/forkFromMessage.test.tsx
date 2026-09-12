@@ -32,6 +32,7 @@ const DATA_SOURCE: AgentDataSource = stubDataSource({
 function context(overrides: Partial<EventRowContext> = {}): EventRowContext {
   return {
     session: { source: "claude", sessionId: "session-1", mode: "raw" },
+    rawSource: "addressable",
     expandedTools: new Set(),
     onToggleTool: () => {},
     pairedToolResults: new Map(),

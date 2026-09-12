@@ -48,6 +48,17 @@ export interface EventRowContext {
    *  mode, so a Raw fetch that knew one without the other would read a different
    *  line. */
   session: SessionReference;
+  /**
+   * Whether these events came from `session`'s own transcript, so an event index names a line
+   * that can be fetched back.
+   *
+   * `"unaddressable"` for a feed whose events belong to something else read THROUGH this session
+   * -- today that is a subagent's run, whose records carry the parent's session id and whose
+   * indices count its own file. Passing the parent through would make every raw fetch read the
+   * wrong line and say nothing about it, so the affordance is removed rather than left to be
+   * incidentally unreachable.
+   */
+  rawSource: "addressable" | "unaddressable";
   /** Tool-call keys whose body is open. */
   expandedTools: Set<string>;
   onToggleTool: (key: string) => void;
@@ -114,6 +125,7 @@ function EventBody({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
         <RawDetails
           metadata={folded}
           session={ctx.session}
+          rawSource={ctx.rawSource}
           eventIndex={ev.index}
           includesRawJson={hasRawJson}
         />
@@ -401,6 +413,7 @@ export function CompactionRow({
         <RawDetails
           metadata={folded}
           session={ctx.session}
+          rawSource={ctx.rawSource}
           eventIndex={ev.index}
           includesRawJson={hasRawJson}
         />

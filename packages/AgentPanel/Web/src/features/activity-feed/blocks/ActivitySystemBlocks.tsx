@@ -68,6 +68,7 @@ export function RawDetails({
   session,
   eventIndex,
   includesRawJson,
+  rawSource,
   label = "Raw",
 }: {
   metadata: ActivityBlock[];
@@ -77,10 +78,21 @@ export function RawDetails({
   session: SessionReference;
   eventIndex: number;
   includesRawJson: boolean;
+  /**
+   * Whether `session` and `eventIndex` together actually name a fetchable line.
+   *
+   * Required rather than defaulted, because the failure it prevents is silent. A caller whose
+   * events did NOT come from `session`'s own transcript -- a subagent's run, read through the
+   * session that launched it -- would otherwise fetch that session's transcript at the
+   * subagent's index and render an unrelated line as this row's source. Nothing about the
+   * result would look wrong.
+   */
+  rawSource: "addressable" | "unaddressable";
   label?: string;
 }) {
   // Nice is the reading surface. Transcript metadata and source JSON belong
   // to Raw mode, where each event index has the matching raw-line identity.
+  if (rawSource === "unaddressable") return null;
   if (session.mode === "nice" || (metadata.length === 0 && !includesRawJson)) return null;
   return (
     // Closed, this is plumbing, so it gets a chip's worth of space rather than a

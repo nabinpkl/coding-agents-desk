@@ -133,10 +133,33 @@ describe("complete activity blocks", () => {
 });
 
 describe("raw drawer", () => {
+  it("is absent when the events did not come from this session's own transcript", () => {
+    // Raw mode, metadata present, raw JSON available -- every condition that normally renders the
+    // drawer. It stays away because an event index from a subagent's run names a line in a
+    // different file, so fetching it against this session would show an unrelated line and look
+    // entirely normal doing it. Asserted here rather than relied on being unreachable.
+    const fetchRawEvent = vi.fn(async () => '{"type":"assistant"}');
+    const { container } = render(
+      <DataSourceProvider source={source(fetchRawEvent)}>
+        <RawDetails
+          rawSource="unaddressable"
+          metadata={[{ kind: "metadata", label: "Working Directory", text: "/repo" }]}
+          session={{ source: "claude", sessionId: "parent-session", mode: "raw" }}
+          eventIndex={12}
+          includesRawJson
+        />
+      </DataSourceProvider>,
+    );
+
+    expect(container.querySelector("details")).toBeNull();
+    expect(fetchRawEvent).not.toHaveBeenCalled();
+  });
+
   it("is absent from Nice even when metadata and raw JSON are available", () => {
     const { container } = render(
       <DataSourceProvider source={source(async () => "")}>
         <RawDetails
+          rawSource="addressable"
           metadata={[{ kind: "metadata", label: "Working Directory", text: "/repo" }]}
           session={{ source: "claude", sessionId: "session", mode: "nice" }}
           eventIndex={12}
@@ -158,6 +181,7 @@ describe("raw drawer", () => {
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
         <RawDetails
+          rawSource="addressable"
           metadata={[
             { kind: "metadata", label: "Token Usage", text: "1,234 tokens" },
             { kind: "metadata", label: "Working Directory", text: "/repo" },
@@ -201,6 +225,7 @@ describe("raw drawer", () => {
     render(
       <DataSourceProvider source={source(async () => "")}>
         <RawDetails
+          rawSource="addressable"
           metadata={[]}
           session={{ source: "claude", sessionId: "session", mode: "raw" }}
           eventIndex={12}
@@ -218,6 +243,7 @@ describe("raw drawer", () => {
     const { container } = render(
       <DataSourceProvider source={source(async () => "")}>
         <RawDetails
+          rawSource="addressable"
           metadata={[]}
           session={{ source: "claude", sessionId: "session", mode: "raw" }}
           eventIndex={12}

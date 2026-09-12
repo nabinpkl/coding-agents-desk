@@ -84,6 +84,7 @@ function ToolResultContent({
       <RawDetails
         metadata={result.metadata}
         session={ctx.session}
+        rawSource={ctx.rawSource}
         eventIndex={result.eventIndex}
         includesRawJson={result.includesRawEvent}
         label="Raw result"

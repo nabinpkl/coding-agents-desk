@@ -84,6 +84,25 @@ describe("SubagentTranscript", () => {
     await waitFor(() => expect(screen.getAllByText("only once")).toHaveLength(1));
   });
 
+  test("renders through the feed's own rows, and offers no raw drawer while doing it", async () => {
+    // `data-feed-card` is emitted by the activity feed's row components and by nothing else, so
+    // its presence is what separates the real renderer from a look-alike written for this panel.
+    // The absent drawer is the correctness half: these events are the subagent's, and an index
+    // among them names a line in a file this session reference does not point at.
+    const { source } = sourceOf([{
+      kind: "snapshot",
+      agentId: "a1",
+      events: [event(0, "reading the transcript")],
+      total: 1,
+    }]);
+    const { container } = render(
+      <SubagentTranscript source={source} session={session} agentId="a1" />,
+    );
+    await screen.findByText("reading the transcript");
+    expect(container.querySelector("[data-feed-card]")).toBeTruthy();
+    expect(container.querySelector("details")).toBeNull();
+  });
+
   test("a launched run with nothing on disk says so rather than showing an empty box", async () => {
     const { source } = sourceOf([{ kind: "unavailable", reason: "no transcript on disk yet" }]);
     render(<SubagentTranscript source={source} session={session} agentId="a1" />);
