@@ -290,22 +290,6 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
   const lines = raw.map(plainText);
   const head = lastPromptRow(lines);
   if (head === null) return null;
-  // A suggestion fills the box and IS the box, so the composer reads as empty and the suggestion
-  // travels separately. Asked of the RAW row, because the answer is in the escapes.
-  if (isPlaceholder(raw[head]!)) {
-    return {
-      rows: [""],
-      hint: lines[head]!.slice(PROMPT.length).replace(GAP, "") || null,
-      // A suggestion is drawn in a box with nothing in it, so there is nothing to be inexact
-      // about. Where the cursor is inside it does not change that.
-      exact: true,
-      // A menu needs text to filter, and a box holding a suggestion is a box holding nothing.
-      commands: [],
-      // One row, and it holds nothing to begin with, so nothing a reflow does to it can matter.
-      clearPresses: 1,
-    };
-  }
-  const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
   const closing = closingRule(lines, head);
   // Where the box's rows stop. The closing rule is the authority when there is one, because a row
   // holding NOTHING is still one of the box's rows: a composer whose text ends exactly at a wrap
@@ -320,6 +304,40 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
   // indented too, and a redraw that dropped the rule would otherwise swallow the whole footer.
   const end = closing === -1 ? unclosedEnd(lines, head) : closing;
   const below = closing === -1 ? lines.length : closing + 1;
+  /** How many visual rows the box is DRAWN across, which is what a clear actually has to kill. */
+  const drawn = Math.max(1, end - head);
+  // A suggestion fills the box and IS the box, so the composer reads as empty and the suggestion
+  // travels separately. Asked of the RAW row, because the answer is in the escapes.
+  if (isPlaceholder(raw[head]!)) {
+    return {
+      rows: [""],
+      hint: lines[head]!.slice(PROMPT.length).replace(GAP, "") || null,
+      // Corroborated by the cursor, which is the one thing on this screen that can disagree.
+      //
+      // This branch is the weakest claim in the module: it says a box is EMPTY on the evidence of
+      // a colour, and it has been wrong once already -- every truecolor run was read as faint, so
+      // a reader's own sentence read as a suggestion, the box read as empty, and every push then
+      // pasted the whole draft on top of what was in it. A suggestion sits in a box with nothing
+      // in it, and an empty box parks the caret at the start of the marker row: measured
+      // 2026-09-09, an empty composer reports the cursor at (marker row, column 2) and a typed
+      // one reports it further along the same row.
+      //
+      // So a row that LOOKS faint while the caret is somewhere else is not taken at its word. It
+      // is still read as a placeholder -- rejecting it outright would risk mirroring a real
+      // suggestion into a reader's field, which is the older and worse bug -- but it is marked
+      // inexact, which sends it down the clear-and-retype path. The cost of this check being
+      // wrong is therefore one retype, and the cost of it being absent was somebody's sentence.
+      exact: view.cursor.row === head && view.cursor.column <= BOX_COLUMN,
+      // A menu needs text to filter, and a box holding a suggestion is a box holding nothing.
+      commands: [],
+      // Sized from the rows the box DRAWS, not from the one row a suggestion needs. This branch's
+      // claim that the box is empty rests on a COLOUR, which is the weakest evidence anywhere in
+      // this module and has been wrong once already; when it is wrong the box is full, and a clear
+      // sized for the belief rather than for the screen would leave most of it standing.
+      clearPresses: drawn,
+    };
+  }
+  const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
   for (let index = head + 1; index < end; index += 1) rows.push(lines[index]!.slice(INDENT.length));
   const last = rows.length - 1;
   const column = view.cursor.column - BOX_COLUMN;
