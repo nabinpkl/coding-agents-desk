@@ -18,6 +18,11 @@ export type {
 } from "./cliInput.ts";
 
 export type {
+  TmuxComposerState,
+  TmuxComposerUnavailableReason,
+} from "./tmuxComposer.ts";
+
+export type {
   AddBotCommand,
   AttachBotSessionsCommand,
   BotCreatedBy,

@@ -79,6 +79,25 @@ export function captureScreenArgs(session: string): string[] {
 }
 
 /**
+ * The visible screen as PLAIN text, for reading rather than for painting.
+ *
+ * `captureScreenArgs` keeps the colour because its output is written into a terminal. This one is
+ * read by a parser, and an SGR run in the middle of a word is only something for that parser to
+ * strip back off. Same reason `-J` stays absent as it does everywhere else here: joining wrapped
+ * lines would reflow text laid out for the pane's own width.
+ */
+export function readScreenArgs(session: string): string[] {
+  return ["capture-pane", "-p", "-t", session];
+}
+
+/** What the pane is showing right now, as text. */
+export async function captureTmuxScreen(session: string): Promise<string> {
+  const result = await tmux(readScreenArgs(session));
+  demand("screen", result);
+  return result.out;
+}
+
+/**
  * How tall that screen is, and where the cursor sits in it.
  *
  * The height says how many rows the viewer has to open. The cursor says where to leave it, which

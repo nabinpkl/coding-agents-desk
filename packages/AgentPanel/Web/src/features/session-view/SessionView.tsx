@@ -31,6 +31,7 @@ import { SummaryBand } from "../summary/SummaryBand";
 import { SummaryControl } from "../summary/SummaryControl";
 import { useSummary } from "../summary/useSummary";
 import { cliInputReasonText, useCliInput, type CliInputHandle } from "../cli-input/useCliInput";
+import { tmuxComposerReasonText, useTmuxComposer } from "../cli-input/useTmuxComposer";
 import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
 import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../terminal/useAgentTerminal";
@@ -498,15 +499,42 @@ function SessionComposer({
     isCodex,
   );
 
-  // Delivery priority is one explicit state, not several independent availability flags. A live
-  // native window owns composition first. A Claude CLI inbox owns it next. Only a KNOWN native
-  // refusal or an unavailable inbox may fall through to the Agent Feed pty, and only while that
-  // pty is already open. Opening a process remains an explicit action in the terminal control.
+  // The same session's own prompt box, mirrored while it is running in a tmux pane.
+  //
+  // Asked for every Claude session rather than only for `inboxCandidate` ones, and that is not
+  // caution -- it is the difference between this working and never appearing. `entrypoint` says
+  // how a session was LAUNCHED, and every live tmux session on this machine reports
+  // `claude-desktop` because they were forked from Remote Control: measured, all ten of them.
+  // Whether there is a box to mirror is a different question, and the sidecar answers it by
+  // looking for the pane. Codex is left out because the box this reads is Claude's TUI's, which
+  // is also why the route refuses any other source.
+  //
+  // The address is stable because the hook keys its poll and its draft on it, and a fresh object
+  // every render would restart both on every status the Feed reads.
+  const tmuxComposerSession = useMemo(() => ({ source, sessionId }), [source, sessionId]);
+  const tmuxComposer = useTmuxComposer(feed, tmuxComposerSession, isClaude);
+
+  // Delivery priority is one explicit state, not several independent availability flags.
+  //
+  // A live tmux pane owns composition FIRST, ahead of the native window it may also be visible in.
+  // That ordering is deliberate and it is a change: where both exist, the pane is where the CLI
+  // actually is and the window is a Remote Control view OF that pane, so writing the window's
+  // accessibility field is one indirection further from the process than typing at its keyboard.
+  // It is also the only one of the two that is two-way -- what somebody types in the terminal
+  // shows up here, which an AX write cannot give.
+  //
+  // A native window owns it next, for a session that has no pane. A Claude CLI inbox after that,
+  // for one running outside tmux, where there is no box to read. Only a KNOWN native refusal or
+  // an unavailable inbox may fall through to the Agent Feed pty, and only while that pty is
+  // already open. Opening a process remains an explicit action in the terminal control.
   const transport:
     | { kind: "window" }
+    | { kind: "tmux-composer" }
     | { kind: "cli-inbox" }
     | { kind: "agent-terminal"; terminal: AgentTerminalComposer }
-    | { kind: "agent-session" } = inboxCandidate
+    | { kind: "agent-session" } = tmuxComposer.mirrored
+      ? { kind: "tmux-composer" }
+      : inboxCandidate
       ? cliInput.available
         ? { kind: "cli-inbox" }
         : agentTerminal
@@ -518,6 +546,7 @@ function SessionComposer({
           : { kind: "window" }
         : { kind: "agent-session" };
   const windowBand = transport.kind === "window";
+  const tmuxBand = transport.kind === "tmux-composer";
   const inboxBand = transport.kind === "cli-inbox";
   const agentTerminalBand = transport.kind === "agent-terminal";
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
@@ -550,9 +579,33 @@ function SessionComposer({
       setLocalDraft((current) => current.length > 0 ? current : windowComposer.draft);
       windowComposer.stopWatching();
     }
+    // The mirror answers a request behind the band it replaces, so for the moment before its
+    // first read this session composes locally. Anything typed in that moment moves across with
+    // it rather than being dropped when the field changes owner.
+    if (previousTransport.current !== "tmux-composer" && transport.kind === "tmux-composer") {
+      // Either side may be holding it: a window session whose pane has just been found hands its
+      // draft over through `localDraft` in the branch above, and that `setLocalDraft` has not
+      // landed by the time this branch runs on the same pass.
+      const carried = localDraft.length > 0 ? localDraft : windowComposer.draft;
+      if (carried.length > 0 && tmuxComposer.draft.length === 0) tmuxComposer.change(carried);
+      setLocalDraft("");
+    }
     previousTransport.current = transport.kind;
-  }, [transport.kind, windowComposer.draft, windowComposer.stopWatching]);
-  const editorValue = windowBand ? windowComposer.draft : localDraft;
+  }, [
+    localDraft,
+    transport.kind,
+    tmuxComposer.change,
+    tmuxComposer.draft,
+    windowComposer.draft,
+    windowComposer.stopWatching,
+  ]);
+  // The two mirrored transports own their own draft, because it is half of a value something
+  // outside this component holds the other half of. Everything else composes locally.
+  const editorValue = windowBand
+    ? windowComposer.draft
+    : tmuxBand
+      ? tmuxComposer.draft
+      : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
 
   // The terminal when it is the band's input surface, null when the field is. One name rather than
@@ -563,7 +616,7 @@ function SessionComposer({
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
-  const unavailable = windowBand
+  const unavailable = windowBand || tmuxBand
     ? false
     : inboxBand
       // A terminal session that stopped running: the field stays visible with the reason under
@@ -607,6 +660,25 @@ function SessionComposer({
         sendOnEnter: false,
         onFocus: windowComposer.onFocus,
         onBlur: windowComposer.onBlur,
+      }
+    : tmuxBand
+    ? {
+        // The draft lives in the hook, not in `localDraft`, because it is not local: it is one
+        // half of a value the pane holds the other half of, and the hook is what keeps the two
+        // agreeing in both directions.
+        value: tmuxComposer.draft,
+        onChange: tmuxComposer.change,
+        disabled: tmuxComposer.pending,
+        ariaLabel: "Type into this session's terminal composer",
+        placeholder: "Type into Claude's terminal\u2026",
+        // A coarse guard rather than the sidecar's own limit restated: that one counts BYTES and
+        // this counts UTF-16 units, so they are not the same quantity and cannot be. The number
+        // is the sidecar's, which is smaller than a turn sent once because this text is retyped
+        // whenever a guess about the box misses. Exceeding it is refused there, with a reason.
+        maxLength: 16 * 1024,
+        sendOnEnter: true,
+        onFocus: tmuxComposer.onFocus,
+        onBlur: tmuxComposer.onBlur,
       }
     : inboxBand
     ? {
@@ -676,6 +748,13 @@ function SessionComposer({
   };
 
   const submit = async (delivery: "next" | "steer") => {
+    // Return in the pane, not a delivery: the composer already holds the text, because every
+    // keystroke put it there. `submit` on the hook flushes anything still inside the debounce
+    // first, so Enter never presses half a sentence.
+    if (tmuxBand) {
+      if (!editorValue.trim()) return;
+      return await tmuxComposer.submit();
+    }
     if (inboxBand || agentTerminalBand) return await submitOwnedTransport();
     if (pending || !editorValue.trim()) return;
     const text = editorValue.trim();
@@ -707,6 +786,23 @@ function SessionComposer({
       className:
         "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void windowComposer.submitWindow(),
+    });
+  } else if (tmuxBand) {
+    // One action, like the bands below it and for the same reason: Steer and Stop act on a queue
+    // the panel owns, and this session owns its own.
+    actions.push({
+      key: "send-tmux-composer",
+      ariaLabel: "Send in this session's terminal",
+      title: "Press Return in this session's terminal, sending what its composer holds",
+      icon: tmuxComposer.pending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <CornerDownLeft className="size-4" aria-hidden />
+      ),
+      disabled: tmuxComposer.pending || !editorValue.trim(),
+      className:
+        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+      onClick: () => void tmuxComposer.submit(),
     });
   } else if (inboxBand || agentTerminalBand) {
     // One action, deliberately. Steer and Stop act on a queue the panel owns; a terminal session
@@ -771,6 +867,15 @@ function SessionComposer({
   if (windowBand) {
     caption = windowComposer.error ?? windowComposer.notice;
     captionIsError = windowComposer.error != null;
+  } else if (tmuxBand) {
+    // This band latches, so a reason here is a pane that WAS being mirrored and now cannot be
+    // reached: a redraw between frames, or a session that exited under the field. Same precedence
+    // as the inbox next door -- the reason outranks a request's own error, because "that session
+    // is gone" explains the failure where a request that had nowhere to go does not.
+    caption = tmuxComposer.reason
+      ? tmuxComposerReasonText(tmuxComposer.reason)
+      : tmuxComposer.error ?? "Typing into this session's own terminal.";
+    captionIsError = tmuxComposer.reason != null || tmuxComposer.error != null;
   } else if (inboxBand) {
     // The reason outranks a transport error: "this session is not running" explains the failure,
     // where the message from a request that never had anywhere to go does not.
@@ -788,7 +893,9 @@ function SessionComposer({
     caption = `${queued} queued${state.queue.steer ? `, ${state.queue.steer} steering` : ""}`;
   }
 
-  const sectionLabel = inboxBand
+  const sectionLabel = tmuxBand
+    ? "Terminal session composer, mirrored"
+    : inboxBand
     ? "Terminal session composer"
     : agentTerminalBand
     ? "Agent Feed terminal composer"

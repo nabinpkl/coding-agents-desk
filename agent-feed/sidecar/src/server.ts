@@ -9,6 +9,7 @@ import {
 import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { createBotRoutes } from "./http/botRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
+import { createTmuxComposerRoutes } from "./http/tmuxComposerRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import { createParkRoutes } from "./http/parkRoutes.ts";
 import { createWindowRoutes } from "./http/windowRoutes.ts";
@@ -114,6 +115,8 @@ const routes: RouteHandler[] = [
   createTaskRoutes(),
   // And again: `/input` is under `/api/sessions/` too.
   createCliInputRoutes(),
+  // And `/composer`, which is the other way of typing at the same session.
+  createTmuxComposerRoutes(),
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position

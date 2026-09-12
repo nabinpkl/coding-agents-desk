@@ -29,6 +29,7 @@ import type {
   BotView,
   CliInputReceipt,
   CliInputStatus,
+  TmuxComposerState,
   DetachBotSessionsCommand,
   EventsPage as WireEventsPage,
   ParkPlanResponse,
@@ -107,6 +108,17 @@ function timelinePath(session: SessionReference): string {
 
 function cliInputPath(session: SessionAddress): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/input`;
+}
+
+/**
+ * The other way of typing at the same session, so it sits at the same address.
+ *
+ * Claude-only on the sidecar, which refuses any other source from the route pattern; the source is
+ * still interpolated rather than hardcoded so a mistaken call fails as a 404 instead of quietly
+ * addressing the wrong session's pane.
+ */
+function tmuxComposerPath(session: SessionAddress, action: "" | "/submit" = ""): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
 }
 
 function summaryPath(session: SessionAddress): string {
@@ -764,6 +776,39 @@ export class SidecarDataSource implements AgentDataSource {
   async sendCliInput(session: SessionAddress, text: string): Promise<CliInputReceipt> {
     return parse<CliInputReceipt>(
       await this.transport.request("POST", cliInputPath(session), { body: { text } }),
+    );
+  }
+
+  /**
+   * What the session's own terminal composer is holding right now.
+   *
+   * Polled while somebody is composing, so it is a read with no side effect at all -- the sidecar
+   * answers it from `capture-pane`, which is why this is safe to ask several times a second.
+   */
+  async readTmuxComposer(session: SessionAddress): Promise<TmuxComposerState> {
+    return parse<TmuxComposerState>(
+      await this.transport.request("GET", tmuxComposerPath(session)),
+    );
+  }
+
+  /**
+   * Asks for the session's terminal composer to read `text`.
+   *
+   * The whole desired text, never the keystrokes: only the sidecar can see what the box currently
+   * holds, and it reads it in the same breath as it writes. A delta computed here would be
+   * computed against an observation that has already made a round trip, and the person at that
+   * keyboard is typing too.
+   */
+  async syncTmuxComposer(session: SessionAddress, text: string): Promise<TmuxComposerState> {
+    return parse<TmuxComposerState>(
+      await this.transport.request("POST", tmuxComposerPath(session), { body: { text } }),
+    );
+  }
+
+  /** Presses Return in the session's pane, which is what makes it take the turn. */
+  async submitTmuxComposer(session: SessionAddress): Promise<TmuxComposerState> {
+    return parse<TmuxComposerState>(
+      await this.transport.request("POST", tmuxComposerPath(session, "/submit")),
     );
   }
 
