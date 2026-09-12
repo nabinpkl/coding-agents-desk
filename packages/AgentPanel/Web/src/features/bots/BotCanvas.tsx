@@ -684,6 +684,9 @@ function BotCanvasCard({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
   const live = bot.sessions.filter((session) => session.activity === "live").length;
+  const counted = `${bot.sessions.length} ${bot.sessions.length === 1 ? "session" : "sessions"}${
+    live > 0 ? `, ${live} live` : ""
+  }`;
   // Whether the open session is one of THIS card's, which is what makes this card the sized one.
   const holdsOpen = openKey !== null && bot.sessions.some((session) => sessionKey(session) === openKey);
   // Brings this card into view when it becomes the open one, because the row that opened it may
@@ -725,8 +728,14 @@ function BotCanvasCard({
             scrollport this would stick inside -- and a card never scrolls. Measured: with the
             card's top 288px above the scroller's top, the header sat at the card's top, not the
             scroller's. */}
+        {/* `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
+            sized by its contents, and contents are measured at MAX-content -- so the Bot's full
+            name and full project path were setting a width the sessions never asked for, and
+            `truncate` never engaged because nothing was ever constraining it. A percentage
+            min-width cannot be resolved while that measurement is happening, so the header counts
+            as zero then and stretches to the answer afterwards. */}
         <div
-          className="flex shrink-0 cursor-grab items-center gap-3 border-b border-border bg-card px-3 py-2 select-none active:cursor-grabbing"
+          className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border bg-card px-3 py-2 select-none active:cursor-grabbing"
           onPointerDown={grabHeader}
           onPointerMove={carryHeader}
           onPointerUp={dropHeader}
@@ -743,9 +752,17 @@ function BotCanvasCard({
               {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
             </span>
           </span>
-          <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-            {live > 0 ? `${live} live · ` : ""}
-            {bot.sessions.length} {bot.sessions.length === 1 ? "session" : "sessions"}
+          {/* A count, not a sentence. "3 sessions" said in a header sitting over three sessions is
+              a word spent naming what is directly underneath it; the number is the only part that
+              was carrying anything. The dot is there only when something is live, which is the one
+              thing the spines below cannot tell you at a glance once there are several. */}
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium text-muted-foreground"
+            title={counted}
+          >
+            {live > 0 ? <ActivityDot activity="live" /> : null}
+            <span aria-hidden>{bot.sessions.length}</span>
+            <span className="sr-only">{counted}</span>
           </span>
           <button
             type="button"
