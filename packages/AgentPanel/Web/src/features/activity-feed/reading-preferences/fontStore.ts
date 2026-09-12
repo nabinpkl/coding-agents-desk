@@ -54,26 +54,33 @@ export const FONT_TOKENS: readonly FontTokenSpec[] = [
     defaultPx: 15,
     tab: "sidebar",
   },
+  // The three sizes below are the panel's whole ladder, and each one means exactly one thing:
+  // 15 names a CONTAINER, 13 names an ITEM inside one, 11 is everything that is a caption about
+  // a name rather than a name. Four roles were being read off three sizes before this -- a Bot's
+  // "dev · agent-desk" caption and its sessions' titles were both 13, so the strongest signal a
+  // reader has said they were peers while weight and ink said they were not. Keep a role on one
+  // step, and keep these descriptions true: this text is the only account of the ladder a reader
+  // of the settings modal ever sees.
   {
     key: "sidebar_body",
-    label: "Item text",
-    description: "Project and session names in each row, and empty-state text",
+    label: "Container names",
+    description: "Bot and project names, the name a card or a group is filed under, empty-state text",
     cssVar: "--agent-panel-fs-sidebar-body",
     defaultPx: 15,
     tab: "sidebar",
   },
   {
     key: "sidebar_meta",
-    label: "Meta",
-    description: "Session count, timestamp, retry notice, footer captions",
+    label: "Item names",
+    description: "Session titles in the sidebar and on canvas cards, row menus, notices and hints",
     cssVar: "--agent-panel-fs-sidebar-meta",
     defaultPx: 13,
     tab: "sidebar",
   },
   {
     key: "sidebar_chip",
-    label: "Chip",
-    description: "Source badge (CLAUDE / CODEX)",
+    label: "Captions",
+    description: "Source badge (CLAUDE / CODEX), a Bot's machine and directory, timestamps, counts",
     cssVar: "--agent-panel-fs-sidebar-chip",
     defaultPx: 11,
     tab: "sidebar",

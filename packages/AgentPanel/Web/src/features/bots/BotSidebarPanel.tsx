@@ -287,7 +287,12 @@ export function BotSidebarPanel({
                             title={offCanvas ? "Off the canvas" : undefined}
                             className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-14 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
                           >
-                            <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px)">
+                            {/* `font-medium`, matching the same session's title on its canvas card.
+                                One object drawn at two weights in two places is drift, not
+                                density: the reader learns the treatment in one surface and it
+                                does not hold in the other. Medium is the item-title weight here,
+                                a step under the Bot name's semibold above it. */}
+                            <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium">
                               {session.title || session.sessionId}
                             </span>
                             <SourceBadge source={session.source} />
@@ -305,7 +310,10 @@ export function BotSidebarPanel({
                       );
                     })}
                     {bot.missingSessionRefs.map((ref) => (
-                      <li key={attachedSessionKey(ref)} className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-14 text-xs text-muted-foreground">
+                      // Tokenised rather than `text-xs`, which is a size the reader's font settings
+                      // cannot reach: the control would move every row in this list except the
+                      // broken one. Chip tier, the same as the canvas draws a missing reference.
+                      <li key={attachedSessionKey(ref)} className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-14 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
                         <span className="min-w-0 flex-1 truncate">{ref.sessionId}</span>
                         <SourceBadge source={ref.source} />
                         <span>missing</span>
@@ -317,7 +325,8 @@ export function BotSidebarPanel({
                     ))}
                   </ul>
                 ) : (
-                  <p className="pb-2 pr-3 pl-14 text-xs text-muted-foreground">No sessions attached</p>
+                  // Same size the canvas card says this in, and reachable from the font settings.
+                  <p className="pb-2 pr-3 pl-14 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">No sessions attached</p>
                 )}
               </li>
             );

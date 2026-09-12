@@ -211,7 +211,11 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
                 close();
                 item.onSelect();
               }}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-accent/80"
+              // Sized from the same token as the rows this menu acts on, rather than a hardcoded
+              // `text-sm`. At 14px it was a point larger than every title it offers to rename,
+              // fork or detach, which puts the menu above its own subject; it also sat outside
+              // the reader's font settings, so resizing the roster left the menus behind.
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-accent/80"
             >
               <item.icon className="size-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{item.label}</span>

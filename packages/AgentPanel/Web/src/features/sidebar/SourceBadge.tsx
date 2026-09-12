@@ -11,7 +11,13 @@ export function SourceBadge({ source }: { source: string }) {
   return (
     <span
       aria-label={`Source: ${label}`}
-      className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold uppercase tracking-wide ${cls}`}
+      // `font-medium`, not semibold. This badge is metadata about a row -- which provider the
+      // session belongs to -- and it was the heaviest thing in that row: 11px but bold, uppercase,
+      // monospaced, tracked out, on a saturated fill, against a 13px title. Every one of those is
+      // an emphasis signal and they stack, so the label about the session was winning the eye
+      // ahead of the session's own name. One step of weight is all it takes to put them back in
+      // order, and the hue still does the job the badge exists for.
+      className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium uppercase tracking-wide ${cls}`}
     >
       {label}
     </span>

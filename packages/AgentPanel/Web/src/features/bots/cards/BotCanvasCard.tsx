@@ -233,7 +233,15 @@ export function BotCanvasCard({
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
               {bot.name}
             </span>
-            <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+            {/* The chip tier, not the meta tier, and that is the whole hierarchy fix on this card.
+                This line is a caption bound to the name above it -- where the Bot runs and what it
+                is pointed at -- while the session titles below it are the card's content, the
+                thing a reader scans a canvas for. Both were 13px, so the only separation was
+                weight and ink, and size was arguing against them: measured on the live canvas,
+                "dev · agent-desk" and "AD Project manager" sat at the same optical level.
+                11px also puts this line where the SIDEBAR has always drawn it, so one Bot now
+                reads the same way in both places instead of two. */}
+            <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
               {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
               {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
               {machineLabel ? " · " : ""}
