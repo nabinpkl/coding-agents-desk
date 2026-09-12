@@ -12,6 +12,7 @@ import type {
   BotSessionRef,
   RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
+import { disposalRefusal } from "@/git/sessionRetirement";
 import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
 import { sessionKey } from "@/bots/botIdempotency";
 import { BotInvalidError } from "@/bots/botTypes";
@@ -286,12 +287,10 @@ export function normalizeRetire(command: RetireBotSessionsCommand): NormalizedRe
   const worktree = disposal(command.worktree, ["remove", "keep"], "keep", "worktree");
   const branch = disposal(command.branch, ["delete", "keep"], "keep", "branch");
   const remote = disposal(command.remote, ["delete", "keep"], "keep", "remote");
-  if (branch === "delete" && worktree !== "remove") {
-    throw new BotInvalidError('branch: "delete" requires worktree: "remove"; git will not delete a branch a worktree has checked out');
-  }
-  if (remote === "delete" && branch !== "delete") {
-    throw new BotInvalidError('remote: "delete" requires branch: "delete"; the local delete is what checks the branch is merged');
-  }
+  // The same question `planSessionRetirement` asks, read from the one place it is written. Asked
+  // here as well so a malformed request is a 400 at the edge rather than a conflict from the core.
+  const impossible = disposalRefusal({ worktree, branch, remote });
+  if (impossible) throw new BotInvalidError(impossible);
   return { ...refs, worktree, branch, remote };
 }
 

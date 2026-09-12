@@ -13,6 +13,7 @@
 // it.
 
 import {
+  branchMergedIntoHead,
   branchRemote,
   deleteBranch,
   deleteRemoteBranch,
@@ -51,6 +52,26 @@ export interface SessionRetirementOutcome {
 }
 
 /**
+ * The disposal combinations that cannot mean what they say, or null when they can.
+ *
+ * Stated here rather than only at the HTTP edge, because this module is the reusable half and a
+ * core that behaves only when some particular caller has already checked something is not
+ * reusable. Without it, `remote: "delete"` with `branch: "keep"` plans cleanly, disposes nothing,
+ * and reports an empty `failed` -- the caller asked for the remote to go, nothing went, and
+ * nothing said so. The edge keeps its own copy of the question so a malformed request is still a
+ * 400 rather than a conflict, but the sentence is written once and read from here.
+ */
+export function disposalRefusal(disposals: SessionDisposals): string | null {
+  if (disposals.branch === "delete" && disposals.worktree !== "remove") {
+    return 'branch: "delete" requires worktree: "remove"; git will not delete a branch a worktree has checked out';
+  }
+  if (disposals.remote === "delete" && disposals.branch !== "delete") {
+    return 'remote: "delete" requires branch: "delete"; the checks that make a deletion safe are on the branch path, and keeping a local branch whose shared copy is gone is not a state this produces';
+  }
+  return null;
+}
+
+/**
  * Every refusal, raised before anything happens. Throws `WorktreeError`.
  *
  * `projectPath` is where the session was working. It is only needed when the worktree is being
@@ -63,6 +84,8 @@ export async function planSessionRetirement(options: {
   disposals: SessionDisposals;
 }): Promise<SessionRetirementPlan> {
   const { checkout, projectPath, disposals } = options;
+  const impossible = disposalRefusal(disposals);
+  if (impossible) throw new WorktreeError(impossible);
   if (disposals.worktree !== "remove") return { checkout };
   if (!projectPath) {
     throw new WorktreeError("the session's working directory is unknown, so its worktree cannot be removed");
@@ -73,12 +96,41 @@ export async function planSessionRetirement(options: {
   if (disposals.branch === "delete" && !branch) {
     throw new WorktreeError(`${projectPath} has a detached HEAD, so there is no branch to delete`);
   }
-  // Read while the branch still exists. `git branch -d` takes the branch's config section with it,
-  // so a remote read afterwards answers `origin` for a branch that was never on `origin`.
-  const remote = branch && disposals.remote === "delete"
-    ? await branchRemote({ checkout, branch })
-    : "";
-  return { checkout, worktree: { path: projectPath, branch, remote } };
+  return { checkout, worktree: { path: projectPath, branch, remote: await remoteToDelete(options, branch) } };
+}
+
+/**
+ * The remote branch to delete, once it has been shown to be safe to delete. Empty when not asked.
+ *
+ * Both questions are asked here, while the branch still exists, because `git branch -d` takes the
+ * branch's config with it and because a refusal has to arrive before anything has been removed.
+ *
+ * Neither is a formality. Tracking is the only evidence this repository can read that the local
+ * branch and the remote one of that name are the same branch; without it `origin/<name>` may be a
+ * peer's unrelated work, and a branch made by `git worktree add -b` tracks nothing at all. And
+ * being contained in HEAD is the check that `git branch -d` stops making the moment a branch has
+ * an upstream: from then on it accepts "safe on the remote", which is not a reason to delete the
+ * remote. Refuse rather than guess, and rather than delete on a guarantee that is about to be
+ * removed.
+ */
+async function remoteToDelete(
+  options: { checkout: string; disposals: SessionDisposals },
+  branch: string | null,
+): Promise<string> {
+  const { checkout, disposals } = options;
+  if (!branch || disposals.remote !== "delete") return "";
+  const remote = await branchRemote({ checkout, branch });
+  if (!remote) {
+    throw new WorktreeError(
+      `"${branch}" tracks no remote, so there is no remote branch this call can prove is the same one`,
+    );
+  }
+  if (!await branchMergedIntoHead({ checkout, branch })) {
+    throw new WorktreeError(
+      `"${branch}" is not contained in HEAD, so deleting it on "${remote}" would remove the only copy`,
+    );
+  }
+  return remote;
 }
 
 /**

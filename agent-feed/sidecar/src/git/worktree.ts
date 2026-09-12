@@ -310,18 +310,49 @@ export async function removeWorktree(options: {
 }
 
 /**
- * The remote a branch tracks, or `origin` when it tracks none.
+ * The remote a branch tracks, or null when it tracks none. It never guesses.
  *
  * Read BEFORE the branch is deleted, because `git branch -d` takes the branch's config section
- * with it and this answer lives there. A caller that asks afterwards gets `origin` for a branch
- * that was never on `origin`, which is the one way this could delete the wrong thing.
+ * with it and this answer lives there.
+ *
+ * Null rather than falling back to `origin`, and this is the difference between refusing and
+ * destroying somebody's work. Measured 2026-09-09 in a throwaway repository: `git worktree add -b
+ * <name>` leaves `branch.<name>.remote` UNSET, so a branch this sidecar made has no upstream at
+ * all. Give that branch a name a remote is already using -- which is exactly what happens when a
+ * worktree is remade after its remote branch outlived a hand-teardown -- and `origin` names a
+ * DIFFERENT branch that shares nothing with it. `git branch -d` is no help there either: with no
+ * upstream it compares against HEAD, so it passed on a fresh branch while the remote held commits
+ * it had never looked at.
+ *
+ * So a caller that wants a remote branch deleted has to be able to show which one it is, and
+ * tracking is the only evidence of that this repository can read.
  */
 export async function branchRemote(options: {
   checkout: string;
   branch: string;
-}): Promise<string> {
+}): Promise<string | null> {
   const configured = await git(["config", `branch.${options.branch}.remote`], options.checkout);
-  return configured.code === 0 && configured.out ? configured.out : "origin";
+  return configured.code === 0 && configured.out ? configured.out : null;
+}
+
+/**
+ * Whether the checkout's HEAD already contains this branch.
+ *
+ * The question `git branch -d` does NOT answer once a branch has an upstream: it accepts a branch
+ * merely because the branch is merged into its upstream, which means "these commits are safe on
+ * the remote". That is a fine reason to delete a local branch and a terrible one to then delete
+ * the remote copy, since the safety being relied on is the thing about to be removed. Asked
+ * separately so that deleting both copies needs the commits to survive somewhere that is neither.
+ */
+export async function branchMergedIntoHead(options: {
+  checkout: string;
+  branch: string;
+}): Promise<boolean> {
+  const merged = await git(
+    ["merge-base", "--is-ancestor", options.branch, "HEAD"],
+    options.checkout,
+  );
+  return merged.code === 0;
 }
 
 /**

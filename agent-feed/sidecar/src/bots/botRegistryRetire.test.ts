@@ -20,6 +20,7 @@ const {
   fixture,
   git,
   projects,
+  remoteBranches,
   runningPanes,
   sessions,
   summary,
@@ -202,4 +203,77 @@ test("a replayed request ends nothing and removes nothing", async () => {
   expect(second.retired).toEqual([]);
   expect(second.bot.sessionRefs).toEqual([]);
   expect(endedPanes).toEqual([]);
+});
+
+test("refuses to delete a remote branch the local one cannot be shown to be", async () => {
+  // The failure this exists for, measured in a throwaway repository on 2026-09-09: `git worktree
+  // add -b <name>` sets no upstream at all, so a branch this sidecar made tracks nothing. Guessing
+  // `origin` for it would aim `push --delete` at whatever else is using that name, and `git branch
+  // -d` says nothing about it -- with no upstream it compares against HEAD and passes.
+  const { registry, botId, ref, checkout, worktree } = await botInWorktree();
+  await git(["merge", "-q", "side"], checkout);
+
+  await expect(registry.retireSessions(botId, {
+    requestId: "retire",
+    sessionRefs: [ref],
+    worktree: "remove",
+    branch: "delete",
+    remote: "delete",
+  }, { kind: "user" })).rejects.toBeInstanceOf(BotConflictError);
+
+  // Refused during planning, so the worktree and the branch are both still here.
+  expect(await readWorktree(worktree)).not.toBeNull();
+  const branches = Bun.spawnSync(["git", "branch", "--format=%(refname:short)"], { cwd: checkout });
+  expect(branches.stdout.toString()).toContain("side");
+});
+
+test("deletes the tracked remote branch when the commits survive without it", async () => {
+  const { registry } = await fixture();
+  const { checkout, worktree, remote } = await checkoutWithWorktree({ remote: true });
+  projects.add(checkout);
+  const ref = { source: "claude" as const, sessionId: "tracked" };
+  sessions.set("claude:tracked", { projectPath: worktree, summary: summary(ref) });
+  const bot = await addBot(registry, { requestId: "add", name: "Repo bot", directoryPath: checkout }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+  await git(["merge", "-q", "side"], checkout);
+  expect(await remoteBranches(remote!)).toEqual(["main", "side"]);
+
+  const { retired } = await registry.retireSessions(bot.botId, {
+    requestId: "retire",
+    sessionRefs: [ref],
+    worktree: "remove",
+    branch: "delete",
+    remote: "delete",
+  }, { kind: "user" });
+
+  expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", deletedRemoteBranch: "origin", failed: [] });
+  expect(await remoteBranches(remote!)).toEqual(["main"]);
+});
+
+test("refuses a remote delete whose commits live only on that remote", async () => {
+  const { registry } = await fixture();
+  const { checkout, worktree, remote } = await checkoutWithWorktree({ remote: true });
+  projects.add(checkout);
+  const ref = { source: "claude" as const, sessionId: "unmerged" };
+  sessions.set("claude:unmerged", { projectPath: worktree, summary: summary(ref) });
+  const bot = await addBot(registry, { requestId: "add", name: "Repo bot", directoryPath: checkout }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+  // Pushed but never merged. `git branch -d` would ACCEPT this, because a branch with an upstream
+  // only has to be merged into that upstream -- which is to say "safe on the remote", the very
+  // thing the next step would delete.
+  await writeFile(join(worktree, "work"), "only here\n");
+  await git(["add", "work"], worktree);
+  await git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "unmerged"], worktree);
+  await git(["push", "-q", "origin", "side"], worktree);
+
+  await expect(registry.retireSessions(bot.botId, {
+    requestId: "retire",
+    sessionRefs: [ref],
+    worktree: "remove",
+    branch: "delete",
+    remote: "delete",
+  }, { kind: "user" })).rejects.toBeInstanceOf(BotConflictError);
+
+  expect(await remoteBranches(remote!)).toEqual(["main", "side"]);
+  expect(await readWorktree(worktree)).not.toBeNull();
 });
