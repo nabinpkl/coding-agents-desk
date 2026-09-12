@@ -116,3 +116,22 @@ export function sourceControlSections(
     { id: "untracked", title: "Untracked", rows: untracked },
   ] as SourceControlSection[]).filter((section) => section.rows.length > 0);
 }
+
+/**
+ * How many FILES git has something to say about.
+ *
+ * Distinct paths, not rows. A file edited in the index and again in the worktree is two rows in
+ * the section list, because it is two things to act on, but it is one file -- and a badge that
+ * said two where `git status` says one would be reporting on the sections rather than on the
+ * repository. Ignored paths are on the wire only to dim the explorer, so they are not changes.
+ */
+export function changedFileCount(entries: readonly WorkspaceGitEntry[]): number {
+  const paths = new Set<string>();
+  for (const entry of entries) {
+    const path = entry.relativePath;
+    if (!path) continue;
+    if (entry.indexStatus === "!" || entry.workTreeStatus === "!") continue;
+    paths.add(path);
+  }
+  return paths.size;
+}

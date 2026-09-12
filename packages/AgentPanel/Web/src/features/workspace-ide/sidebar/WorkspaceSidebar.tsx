@@ -3,19 +3,33 @@
 import { FolderTree, GitBranch } from "lucide-react";
 import type { WorkspaceGitStatus, WorkspaceSummary, WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import { SourceControl } from "@/features/workspace-ide/sidebar/SourceControl";
+import { changedFileCount } from "@/features/workspace-ide/sidebar/gitTones";
 import { WorkspaceRoster } from "@/features/workspace-ide/sidebar/WorkspaceRoster";
 import { WorkspaceTree } from "@/features/workspace-ide/sidebar/WorkspaceTree";
 import type { WorkspaceIdePreferences } from "@/features/workspace-ide/workspaceIdePreferences";
 
 type Section = WorkspaceIdePreferences["section"];
 
+function changedLabel(count: number): string {
+  return `${count} changed ${count === 1 ? "file" : "files"}`;
+}
+
 const SECTIONS: { id: Section; label: string; Icon: typeof FolderTree }[] = [
   { id: "explorer", label: "Explorer", Icon: FolderTree },
   { id: "sourceControl", label: "Source Control", Icon: GitBranch },
 ];
 
-const CONTROL = "grid h-7 w-8 place-items-center rounded-md outline-none transition-colors"
+const CONTROL = "relative grid h-7 w-8 place-items-center rounded-md outline-none transition-colors"
   + " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
+
+/**
+ * The count rides the tab, so the number of changed files is readable from the Explorer.
+ *
+ * Filled rather than tinted, unlike the per-section counts inside Source Control: those label a
+ * group the reader is already looking at, and this one has to be seen from the other section.
+ */
+const BADGE = "pointer-events-none absolute -bottom-0.5 -right-0.5 min-w-[14px] rounded-full"
+  + " bg-primary px-1 text-center font-mono text-[9px] leading-[14px] text-primary-foreground";
 
 export function WorkspaceSidebar({
   workspaces,
@@ -48,6 +62,7 @@ export function WorkspaceSidebar({
   onOpen: (path: string) => void;
   onToggleDirectory: (path: string, expanded: boolean) => void;
 }) {
+  const changed = changedFileCount(git?.entries ?? []);
   return (
     <div className="flex h-full min-h-0 flex-col border-r border-border bg-background">
       <WorkspaceRoster
@@ -66,21 +81,28 @@ export function WorkspaceSidebar({
       >
         {SECTIONS.map(({ id, label, Icon }) => {
           const selected = id === section;
+          const count = id === "sourceControl" ? changed : 0;
           return (
             <button
               key={id}
               type="button"
               // The name is gone from the pixels but not from the surface: the label carries it to
-              // a screen reader and the title brings it back on hover.
-              aria-label={`Show ${label}`}
+              // a screen reader and the title brings it back on hover. The count goes in both,
+              // because the badge that carries it is a glyph to everything but the eye.
+              aria-label={count > 0 ? `Show ${label}, ${changedLabel(count)}` : `Show ${label}`}
               aria-pressed={selected}
-              title={label}
+              title={count > 0 ? `${label} (${changedLabel(count)})` : label}
               onClick={() => onSelectSection(id)}
               className={`${CONTROL} ${selected
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
             >
               <Icon className="size-4" />
+              {/* Capped, because the badge sits on a 32px button and a four-digit count would
+                  cover the glyph it is annotating. */}
+              {count > 0
+                ? <span aria-hidden className={BADGE}>{count > 99 ? "99+" : count}</span>
+                : null}
             </button>
           );
         })}

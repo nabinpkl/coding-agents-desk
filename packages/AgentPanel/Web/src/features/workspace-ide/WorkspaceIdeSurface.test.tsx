@@ -144,7 +144,9 @@ it("opens a file, then reads it and shows its text", async () => {
 
 it("shows the source-control section when it is chosen, grouped by how it resolves", async () => {
   await mounted();
-  fireEvent.click(screen.getByRole("button", { name: "Show Source Control" }));
+  // Matched on the prefix, because the name carries the change count: a reader who cannot see the
+  // badge hears it here, so the name moves with the repository.
+  fireEvent.click(screen.getByRole("button", { name: /^Show Source Control/ }));
 
   const group = await screen.findByRole("button", { name: "Collapse Changes" });
   expect(group).toBeInTheDocument();
@@ -155,6 +157,15 @@ it("shows the source-control section when it is chosen, grouped by how it resolv
 it("shows the branch the stream reported", async () => {
   await mounted();
   expect(await screen.findByText("main")).toBeInTheDocument();
+});
+
+it("counts the changed files on the source-control tab, readable from the explorer", async () => {
+  await mounted();
+  expect(await screen.findByRole("tree")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Show Source Control, 1 changed file" }))
+    .toBeInTheDocument();
+  // The explorer is not a count of anything, so it keeps the bare name.
+  expect(screen.getByRole("button", { name: "Show Explorer" })).toBeInTheDocument();
 });
 
 it("hides the sidebar when the toggle asks, and remembers that across a remount", async () => {

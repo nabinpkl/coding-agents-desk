@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceGitEntry } from "@agentdesk/agent-feed-wire";
-import { gitDecorationTone, sourceControlSections } from "@/features/workspace-ide/sidebar/gitTones";
+import {
+  changedFileCount,
+  gitDecorationTone,
+  sourceControlSections,
+} from "@/features/workspace-ide/sidebar/gitTones";
 
 function entry(
   relativePath: string,
@@ -84,5 +88,38 @@ describe("sourceControlSections", () => {
   it("gives a root-level file an empty directory rather than a slash", () => {
     const [section] = sourceControlSections([entry("README.md", null, "M")]);
     expect(section!.rows[0]!.directory).toBe("");
+  });
+});
+
+describe("changedFileCount", () => {
+  it("counts nothing when git has nothing to say", () => {
+    expect(changedFileCount([])).toBe(0);
+  });
+
+  it("counts a file once when it is changed in both the index and the worktree", () => {
+    // The section list shows this path twice, under Staged Changes and under Changes, because it
+    // is two things to resolve. The badge answers a different question: how many files.
+    expect(changedFileCount([entry("src/a.ts", "M", "M")])).toBe(1);
+  });
+
+  it("leaves ignored paths out, the way the section list does", () => {
+    expect(changedFileCount([
+      entry("src/a.ts", null, "M"),
+      entry("build/out.js", "!", "!"),
+      entry("node_modules/x", null, "!"),
+    ])).toBe(1);
+  });
+
+  it("counts every kind of change, not only the tracked ones", () => {
+    expect(changedFileCount([
+      entry("conflict.ts", "U", "U"),
+      entry("staged.ts", "A", null),
+      entry("changed.ts", null, "M"),
+      entry("new.ts", "?", "?"),
+    ])).toBe(4);
+  });
+
+  it("ignores an entry with no path rather than counting an empty string", () => {
+    expect(changedFileCount([entry("", "M", null)])).toBe(0);
   });
 });
