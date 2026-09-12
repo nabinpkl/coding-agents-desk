@@ -45,7 +45,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R11 | D | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
 | R12 | D | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
 | R13 | D | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
-| R14 | R | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
+| R14 | D | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
 | R15 | R | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
 | R16 | R | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
 | R17 | R | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
@@ -250,6 +250,15 @@ Split into `eventIndexState.ts`, `eventIndexBuild.ts`, `eventIndexReads.ts`. 646
 
 Split into `DesktopParkRows.tsx` and `desktopParkGroups.ts`; the test now takes `groupByDesktop`
 from the module that holds it. 507 to 352.
+
+### R14 `tasks/processProbe.test.ts` (508)
+
+- What a session's open file descriptors say about the shells it is running (`lsof`).
+- What `ps` says: its fixed columns, the wrapper a tool call runs behind, the descendant walk, and
+  taking one snapshot per tick.
+
+Split into `processTable.test.ts`. The two halves shared only `resetProcessTableCache`, and each
+carries its own fixtures. 898 sidecar tests, unchanged.
 
 ## Decisions
 
