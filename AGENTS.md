@@ -397,28 +397,37 @@ Five traps, each of which cost real time:
   says it is for handing off context rather than orchestrating work, and not `SendMessage`. Escape
   twice in Claude Desktop opens **Rewind**, not a stop. Interrupting is a GUI act, and it is the one
   thing the viewing wall is genuinely required for rather than merely convenient.
-- **A session has TWO names and they drift apart.** `-n` sets the **address**: it is written to the
-  session's registry file as `name`, and that is what `ListAgents` prints and what `SendMessage`
-  addresses. The **title** is a `custom-title` record in the transcript, which is what `/resume`
-  shows, what the sidecar reads (`claudeTranscript.ts`, `title = customTitle ?? aiTitle`), and what
-  the Agent Panel puts on a session. Renaming changes the title and NOT the address. Measured
-  2026-09-07 end to end: a live session named `-n "Rename probe A"` was renamed through the picker
-  to "Rename probe RENAMED"; the transcript gained the record, the picker showed the new name, and
-  `ListAgents` still said **Rename probe A** with the registry's `name` and `formerNames` untouched.
-- **Renaming is `/resume` -> Ctrl+R**, not a slash command -- there is no `/rename` or `/name`. The
-  picker will not offer you the session you are sitting in, so a session cannot rename itself;
-  rename it from another session, `Ctrl+A` first if it is in a different project.
+- **A session has TWO names.** `-n` sets the **address**: it is written to the session's registry
+  file as `name`, and that is what `ListAgents` prints and what `SendMessage` addresses. The
+  **title** is a `custom-title` record in the transcript, which is what `/resume` shows, what the
+  sidecar reads (`claudeTranscript.ts`, `title = customTitle ?? aiTitle`), and what the Agent Panel
+  puts on a session.
+- **There are two ways to rename and they do NOT do the same thing.** Measured 2026-09-07 on
+  v2.1.263, after this file said the wrong thing about both:
+  - **`/rename <title>`, in the session**, changes BOTH. It writes a `custom-title` record AND an
+    `agent-name` record, and updates the running process's registry `name` to the new value with
+    `nameSource: "user"` -- so the pane header, `/resume`, the panel, and `ListAgents` all move
+    together. It takes the title inline on one line. This is the complete rename.
+  - **`/resume` -> Ctrl+R, from another session**, changes only the title. Measured: a session
+    started `-n "Rename probe A"` and renamed through the picker kept **Rename probe A** in the
+    registry, with `formerNames` untouched. The picker will not offer you the session you are
+    sitting in, so a session cannot rename itself this way.
+  - **Appending a `custom-title` record from outside** -- what the Agent Panel's Rename does -- also
+    changes only the title, and is the only one of the three that works on a session with no
+    running process to ask.
 - **A title rename is live everywhere that reads transcripts.** Measured: append a `custom-title`
   record and the sidecar's session list answers with the new title on the very next read -- no
-  restart, no cache, last record wins. So the panel, the Canvas and `/resume` pick it up at once,
-  and cross-session messaging never does.
-- **Renaming a RUNNING session is safe, and the live process adopts the new name.** Measured
+  restart, no cache, last record wins. So the panel, the Canvas and `/resume` pick it up at once.
+  Cross-session messaging does not, because it addresses by the registry `name`, which only
+  `/rename` moves.
+- **Appending a title to a RUNNING session is safe, and the live process adopts it.** Measured
   2026-09-07 against a throwaway session mid-turn: the append landed as the last line, all 33 lines
   still parsed, and the session finished that turn and the next. The CLI re-emits its own
   `custom-title` record periodically -- so the obvious worry is that it overwrites yours -- and it
   does not: after the rename its next re-emission carried the NEW title, which means it re-reads
   the title from its own transcript rather than holding the `-n` name it started with. The pane's
-  header keeps showing the `-n` address, which is the other name and is fixed at start.
+  header keeps showing the address, because an append does not touch it -- `/rename` is what moves
+  that, and it moves the header with it.
 - **Finding out WHICH session did something is a join, not a guess.** Grep the transcripts under
   `~/.claude/projects/<slug>/` for a symbol or phrase to get a transcript uuid, then map that uuid to
   a peer through `~/.claude/sessions/<pid>.json`, which carries `sessionId`, `name`, `nameSource`,
