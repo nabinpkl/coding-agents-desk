@@ -80,6 +80,13 @@ interface AgentSidebarProps {
    */
   detachedBotIds: ReadonlySet<string>;
   onToggleBotOnCanvas: (bot: BotView) => void;
+  /**
+   * The sessions NOT on the canvas, as `source:sessionId`.
+   *
+   * This roster is where they live while they are off it -- the cards subtract by the same set --
+   * so a row here is dimmed rather than dropped, and clicking it is the way back.
+   */
+  detachedSessionKeys: ReadonlySet<string>;
   /** Which sessions the canvas has open, so this roster can mark the rows that opened them. */
   canvasOpenSessionKeys: ReadonlySet<string>;
   /**
@@ -256,6 +263,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onAddBot={props.onAddBot}
             canvas={{
               detachedBotIds: props.detachedBotIds,
+              detachedSessionKeys: props.detachedSessionKeys,
               onToggle: props.onToggleBotOnCanvas,
             }}
             status={

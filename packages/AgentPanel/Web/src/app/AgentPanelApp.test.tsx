@@ -958,6 +958,86 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("takes one session off the canvas without touching the Bot, and puts it back from the roster", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    try {
+      const { transport, unmount } = setup();
+      deliverProjects(transport);
+      fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+      act(() => {
+        transport.deliver("/api/bots/stream", {
+          version: 2,
+          revision: 1,
+          bots: [{
+            ...BOT_WITH_ONE_SESSION,
+            sessionRefs: [
+              { source: "claude", sessionId: "sid-claude-01" },
+              { source: "codex", sessionId: "sid-codex-01" },
+            ],
+            sessions: FIXTURE_SESSIONS,
+          }],
+        });
+      });
+      expect(screen.getByText("2 sessions, 1 live")).toBeInTheDocument();
+
+      fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+      // Below the Bot-level removal, because it is the smaller of the two and the one that is
+      // undone by a click rather than by a request.
+      expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+        "Rename session",
+        "Fork session",
+        "Remove from bot",
+        "Remove from canvas",
+      ]);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));
+      });
+
+      // The card is gone and the Bot is untouched: nothing was asked of the sidecar, and the
+      // count says where the missing session went rather than pretending it was never there.
+      expect(canvas().queryByRole("button", { name: /^Session Claude 01/ })).toBeNull();
+      expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
+      expect(transport.requests.some((request) => request.path.endsWith("/sessions/detach"))).toBe(false);
+      expect(screen.getByText("1 session, 1 off the canvas")).toBeInTheDocument();
+
+      // Still in the roster, dimmed rather than dropped, and clicking it is the way back.
+      const roster = within(screen.getByRole("list", { name: "Bots" }));
+      const row = roster.getByRole("button", { name: /^Session Claude 01/ });
+      expect(row).toHaveAttribute("title", "Off the canvas");
+      fireEvent.click(row);
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(screen.getByText("2 sessions, 1 live")).toBeInTheDocument();
+      unmount();
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
+  it("says a card is empty because its sessions were taken off the canvas, not because it has none", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));
+    });
+
+    // "No sessions attached" would be false, and would send the reader to Add sessions for a
+    // session the Bot already has.
+    expect(canvas().getByText("Its session is off the canvas")).toBeInTheDocument();
+    expect(canvas().queryByText("No sessions attached")).toBeNull();
+    // The Bot's own header stays, which is the only way back to a Bot that was merely tidied.
+    expect(canvas().getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    unmount();
+  });
+
   it("opens a session picked in the canvas roster on the canvas, and scrolls its card to it", () => {
     const scrolled: Element[] = [];
     const scrollIntoView = vi

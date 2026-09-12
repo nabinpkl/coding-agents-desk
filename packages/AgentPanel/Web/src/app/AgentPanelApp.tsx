@@ -171,6 +171,14 @@ export function App({ feed, host, fill = false }: Props) {
   // comes back whole on the next visit costs one click to arrange again and never hides a Bot from
   // a reader who has forgotten they took it off.
   const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Which of the Bots' sessions are off the canvas, as `source:sessionId`. The smaller sibling of
+  // `detachedBotIds` and held for the same reasons: one set read by both the cards and the sidebar
+  // roster, and in memory rather than stored, because the sidebar lists every session a Bot holds
+  // either way and a canvas that comes back whole costs one click to tidy again.
+  const [detachedSessionKeys, setDetachedSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const removeSessionFromCanvas = useCallback((session: BotSessionRef) => {
+    setDetachedSessionKeys((current) => new Set(current).add(`${session.source}:${session.sessionId}`));
+  }, []);
   // Which sessions the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
@@ -192,6 +200,16 @@ export function App({ feed, host, fill = false }: Props) {
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because
   // the card it opens is not being rendered.
   const openSessionOnCanvas = useCallback((bot: BotView, session: SessionSummary) => {
+    // The row in the sidebar is the only way back for a session taken off the canvas, so it puts
+    // one back for the same reason it puts a detached Bot back: a click that appears to do nothing
+    // is worse than a click that does slightly more than asked.
+    setDetachedSessionKeys((current) => {
+      const key = `${session.source}:${session.sessionId}`;
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
     setDetachedBotIds((current) => {
       if (!current.has(bot.botId)) return current;
       const next = new Set(current);
@@ -785,6 +803,16 @@ export function App({ feed, host, fill = false }: Props) {
     // Cleared as the next removal starts rather than by the open session's own commands: the
     // failure belongs to the Bot edit, so it should outlive a send and not outlive another edit.
     setBotCommandError(null);
+    // Forgotten here rather than left to expire with the panel. Hiding a card and then removing
+    // the session from the Bot are two different acts, and a leftover key would meet the session
+    // again if it were ever attached back -- as an invisible row, on a card that never said so.
+    setDetachedSessionKeys((current) => {
+      const key = `${target.source}:${target.sessionId}`;
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
     void feed
       .detachBotSessions(bot.botId, { sessionRefs: [target] })
       .catch((error: unknown) => {
@@ -904,6 +932,7 @@ export function App({ feed, host, fill = false }: Props) {
     onRenameSession: setRenamingSession,
     detachedBotIds,
     onToggleBotOnCanvas: toggleBotOnCanvas,
+    detachedSessionKeys,
     canvasOpenSessionKeys: canvasOpenKeys,
     onOpenSessionOnCanvas: openSessionOnCanvas,
     onAddBot: () => {
@@ -1082,8 +1111,10 @@ export function App({ feed, host, fill = false }: Props) {
                 onForkSession={forkSession}
                 onRenameSession={setRenamingSession}
                 onDetachSession={detachBotSession}
+                onRemoveSessionFromCanvas={removeSessionFromCanvas}
                 onDetachBot={toggleBotOnCanvas}
                 detachedCount={botsState.bots.length - canvasBots.length}
+                detachedSessionKeys={detachedSessionKeys}
                 openKeys={canvasOpenKeys}
                 onToggleSession={toggleCanvasSession}
                 onAddBot={() => setBotCreatorOpen(true)}

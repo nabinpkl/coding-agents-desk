@@ -92,8 +92,10 @@ export function BotCanvas({
   onForkSession,
   onRenameSession,
   onDetachSession,
+  onRemoveSessionFromCanvas,
   onDetachBot,
   detachedCount,
+  detachedSessionKeys,
   openKeys,
   onToggleSession,
   onAddBot,
@@ -139,6 +141,14 @@ export function BotCanvas({
    */
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   /**
+   * Takes one session's card off this canvas, leaving the Bot's reference to it alone.
+   *
+   * Takes no Bot, unlike the removal above it, because the answer is not a fact about a Bot: the
+   * canvas hides a session, and a session belongs to one Bot at a time, so its key is the whole
+   * address.
+   */
+  onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
+  /**
    * Takes the whole Bot off this canvas. The Bot, its curated sessions and their transcripts are
    * untouched -- this arranges the view, and the sidebar's canvas panel is where it waits to come
    * back.
@@ -150,6 +160,14 @@ export function BotCanvas({
    * to Add Bot rather than to the roster their Bots are already in.
    */
   detachedCount: number;
+  /**
+   * The sessions NOT on the canvas, as `source:sessionId`, whichever Bot holds them.
+   *
+   * Subtracted from each card's roster rather than from `bots`, because a Bot with every session
+   * hidden is still a Bot on the canvas: its header is where sessions are added, and dropping the
+   * card would take away the way back to a Bot the reader only meant to tidy.
+   */
+  detachedSessionKeys: ReadonlySet<string>;
   /**
    * Which sessions are open, as `source:sessionId`, owned above this component.
    *
@@ -219,7 +237,9 @@ export function BotCanvas({
       onForkSession={onForkSession}
       onRenameSession={onRenameSession}
       onDetachSession={onDetachSession}
+      onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
       onDetachBot={onDetachBot}
+      detachedSessionKeys={detachedSessionKeys}
       openKeys={openKeys}
       onToggleSession={onToggleSession}
       newSessions={newSessions}
@@ -254,7 +274,9 @@ function BotCanvasList({
   onForkSession,
   onRenameSession,
   onDetachSession,
+  onRemoveSessionFromCanvas,
   onDetachBot,
+  detachedSessionKeys,
   openKeys,
   onToggleSession,
   newSessions,
@@ -269,7 +291,9 @@ function BotCanvasList({
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  detachedSessionKeys: ReadonlySet<string>;
   openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
   newSessions: readonly NewBotSession[];
@@ -316,7 +340,10 @@ function BotCanvasList({
   // A failure no card can carry: one about no session, or about a session that is not on this
   // canvas. An attach that FAILED is exactly that -- the session never joined the Bot, so nothing
   // shows it -- and without this the only report of it would be dropped on the floor.
+  // A session taken off the canvas has no card either, so its failure goes to the band as well --
+  // otherwise removing a hidden session from its Bot and failing would report to nobody.
   const carried = botError !== null && botError.session !== null
+    && !detachedSessionKeys.has(botError.session)
     && standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
   const orphanedError = botError !== null && !carried ? botError.message : null;
   return (
@@ -354,6 +381,7 @@ function BotCanvasList({
             hue={hues.get(bot.botId)}
             sessionContext={sessionContext}
             botError={botError}
+            detachedSessionKeys={detachedSessionKeys}
             openKeys={openKeys}
             onToggleSession={onToggleSession}
             sessionSizes={sessionSizes}
@@ -362,6 +390,7 @@ function BotCanvasList({
             onForkSession={onForkSession}
             onRenameSession={onRenameSession}
             onDetachSession={onDetachSession}
+            onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
             onDetachBot={onDetachBot}
             newSessions={newSessions.filter((each) => each.botId === bot.botId)}
             onCloseNewSession={onCloseNewSession}
@@ -531,6 +560,7 @@ function BotSessionCard({
   onFork,
   onRename,
   onDetach,
+  onRemoveFromCanvas,
 }: {
   bot: BotView;
   session: SessionSummary;
@@ -546,6 +576,8 @@ function BotSessionCard({
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
   onDetach: () => void;
+  /** Takes this card off the canvas. The Bot keeps the session, and the sidebar still lists it. */
+  onRemoveFromCanvas: () => void;
 }) {
   const title = session.title || session.sessionId;
   // Where this session portals its control strip. One per session rather than one per Bot card,
@@ -663,6 +695,7 @@ function BotSessionCard({
                 onRename={onRename}
                 onFork={onFork}
                 onDetach={onDetach}
+                onRemoveFromCanvas={onRemoveFromCanvas}
               />
             </span>
           </div>
@@ -740,6 +773,7 @@ function BotCanvasCard({
   hue,
   sessionContext,
   botError,
+  detachedSessionKeys,
   openKeys,
   onToggleSession,
   sessionSizes,
@@ -756,6 +790,7 @@ function BotCanvasCard({
   onForkSession,
   onRenameSession,
   onDetachSession,
+  onRemoveSessionFromCanvas,
   onDetachBot,
   newSessions,
   onCloseNewSession,
@@ -765,6 +800,7 @@ function BotCanvasCard({
   hue: number | undefined;
   sessionContext: SessionViewContext;
   botError: BotCommandError | null;
+  detachedSessionKeys: ReadonlySet<string>;
   openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
   /** Every session's own size, by `source:sessionId`. */
@@ -786,6 +822,8 @@ function BotCanvasCard({
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  /** Takes one session's card off the canvas; the Bot keeps the session either way. */
+  onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
   /** This Bot's share of the sessions the panel has started, already filtered to it. */
   newSessions: readonly NewBotSession[];
@@ -798,6 +836,13 @@ function BotCanvasCard({
   const starting = newSessions.filter(
     (each) => !bot.sessions.some((session) => session.sessionId === each.sessionId),
   );
+  // The Bot's sessions this canvas is showing. Everything the card says about itself is said about
+  // THESE rather than about the Bot: the count over an empty strip, the live dot that exists to
+  // summarise the spines below it, and the scroll that brings a card forward when one of its own
+  // opens. The ones that are off are named in the count's long form rather than dropped silently,
+  // because the whole hazard of hiding something is a reader who has forgotten they hid it.
+  const shown = bot.sessions.filter((session) => !detachedSessionKeys.has(sessionKey(session)));
+  const hidden = bot.sessions.length - shown.length;
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
   // pixels while clicking "Add sessions" would reorder the canvas.
@@ -827,12 +872,12 @@ function BotCanvasCard({
     if (held.carrying) onMoveEnd();
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
-  const live = bot.sessions.filter((session) => session.activity === "live").length;
-  const counted = `${bot.sessions.length} ${bot.sessions.length === 1 ? "session" : "sessions"}${
+  const live = shown.filter((session) => session.activity === "live").length;
+  const counted = `${shown.length} ${shown.length === 1 ? "session" : "sessions"}${
     live > 0 ? `, ${live} live` : ""
-  }`;
+  }${hidden > 0 ? `, ${hidden} off the canvas` : ""}`;
   // Whether an open session is one of THIS card's, which is what the scroll below acts on.
-  const holdsOpen = bot.sessions.some((session) => openKeys.has(sessionKey(session)));
+  const holdsOpen = shown.some((session) => openKeys.has(sessionKey(session)));
   // Brings this card into view when it becomes an open one, because the row that opened it may
   // have been in the sidebar rather than on the canvas, and the card can be anywhere in a tiled
   // roster of thirty. `nearest` rather than `start`: it does nothing at all when the card is
@@ -914,7 +959,7 @@ function BotCanvasCard({
             title={counted}
           >
             {live > 0 ? <ActivityDot activity="live" /> : null}
-            <span aria-hidden>{bot.sessions.length}</span>
+            <span aria-hidden>{shown.length}</span>
             <span className="sr-only">{counted}</span>
           </span>
           <button
@@ -939,9 +984,13 @@ function BotCanvasCard({
           />
         </div>
 
-        {bot.sessions.length === 0 && bot.missingSessionRefs.length === 0 && starting.length === 0 ? (
+        {shown.length === 0 && bot.missingSessionRefs.length === 0 && starting.length === 0 ? (
           <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-            No sessions attached
+            {/* Not "No sessions attached", which would be false and would send the reader to Add
+                sessions for sessions this Bot already has. The sidebar is where they went. */}
+            {hidden > 0
+              ? `${hidden === 1 ? "Its session is" : "All of its sessions are"} off the canvas`
+              : "No sessions attached"}
           </p>
         ) : (
           // The one flexible thing in the card: closed rows keep their own height, so a drag lands
@@ -956,7 +1005,7 @@ function BotCanvasCard({
             aria-label={`${bot.name} sessions`}
             className="flex items-start gap-2 p-2"
           >
-            {bot.sessions.map((session) => (
+            {shown.map((session) => (
               <BotSessionCard
                 key={sessionKey(session)}
                 bot={bot}
@@ -978,6 +1027,7 @@ function BotCanvasCard({
                   session.source === "claude" ? () => onRenameSession(session) : undefined
                 }
                 onDetach={() => onDetachSession(bot, session)}
+                onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
               />
             ))}
             {/* After the Bot's own sessions, because that is where each one lands the moment its
