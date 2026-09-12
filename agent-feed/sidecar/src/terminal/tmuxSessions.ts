@@ -79,20 +79,17 @@ export function captureScreenArgs(session: string): string[] {
 }
 
 /**
- * The visible screen as PLAIN text, for reading rather than for painting.
+ * What the pane is showing right now, colour and all.
  *
- * `captureScreenArgs` keeps the colour because its output is written into a terminal. This one is
- * read by a parser, and an SGR run in the middle of a word is only something for that parser to
- * strip back off. Same reason `-J` stays absent as it does everywhere else here: joining wrapped
- * lines would reflow text laid out for the pane's own width.
+ * The colour is not incidental to a reader, which is why this shares `captureScreenArgs` with the
+ * painting path instead of asking for plain text. Claude draws its composer placeholder in the
+ * same box as a real prompt and the only thing separating them is that the placeholder is DIM --
+ * measured as `\u001b[2m<no suggestion>\u001b[0m`, where typed text carries no such run. Strip the
+ * escapes at the source and the two become one string, and the panel mirrors a hint back into
+ * somebody's session as if they had typed it.
  */
-export function readScreenArgs(session: string): string[] {
-  return ["capture-pane", "-p", "-t", session];
-}
-
-/** What the pane is showing right now, as text. */
 export async function captureTmuxScreen(session: string): Promise<string> {
-  const result = await tmux(readScreenArgs(session));
+  const result = await tmux(captureScreenArgs(session));
   demand("screen", result);
   return result.out;
 }

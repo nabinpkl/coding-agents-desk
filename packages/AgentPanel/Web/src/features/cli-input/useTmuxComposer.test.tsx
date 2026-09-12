@@ -10,25 +10,44 @@ function holding(text: string, wrapped = false): TmuxComposerState {
   return { text, reason: null, wrapped };
 }
 
-/** A pane whose composer this test drives directly, standing in for the sidecar and tmux. */
-function pane(initial = "") {
+/**
+ * A pane whose composer this test drives directly, standing in for the sidecar and tmux.
+ *
+ * `emit` is what the sidecar's watcher does when the pane writes. Nothing is on a timer here for
+ * the same reason nothing is in the hook: the pane speaks, or it does not.
+ */
+function pane(initial = "", opening?: TmuxComposerState) {
+  let listener: ((state: TmuxComposerState) => void) | null = null;
   const feed = {
     box: initial,
-    reads: 0,
+    subscribes: 0,
+    live: false,
     pushes: [] as string[],
     submits: 0,
-    wrapped: false,
-    fail: null as string | null,
-    readTmuxComposer: async (): Promise<TmuxComposerState> => {
-      feed.reads += 1;
-      if (feed.fail) return { text: null, reason: "no-pane", wrapped: false };
-      return holding(feed.box, feed.wrapped);
+    /** Sends one state to whoever is subscribed, as the pane writing would. */
+    emit(state: TmuxComposerState) {
+      listener?.(state);
+    },
+    /** Sends what the box now holds, which is the ordinary case. */
+    announce(wrapped = false) {
+      feed.emit(holding(feed.box, wrapped));
+    },
+    subscribeTmuxComposer(
+      _session: SessionAddress,
+      onState: (state: TmuxComposerState) => void,
+    ): () => void {
+      feed.subscribes += 1;
+      feed.live = true;
+      listener = onState;
+      onState(opening ?? holding(feed.box));
+      return () => {
+        feed.live = false;
+        listener = null;
+      };
     },
     syncTmuxComposer: async (_session: SessionAddress, text: string): Promise<TmuxComposerState> => {
       feed.pushes.push(text);
-      if (feed.fail) return { text: null, reason: "no-pane", wrapped: false };
       feed.box = text;
-      feed.wrapped = false;
       return holding(text);
     },
     submitTmuxComposer: async (): Promise<TmuxComposerState> => {
@@ -86,11 +105,14 @@ afterEach(() => vi.useRealTimers());
 
 describe("tmux composer", () => {
   it("fills the field from the pane's own box before anyone types", async () => {
+    // The stream opens with what the box holds, because an idle pane never writes and a mirror
+    // that waited for output would sit empty beside a composer that was not.
     const feed = pane("make the hover ring stronger");
     render(<Probe feed={feed} />);
     await settle();
     expect(draft()).toBe("make the hover ring stronger");
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
+    expect(feed.subscribes).toBe(1);
   });
 
   it("pushes what was typed, and only after the keystrokes stop", async () => {
@@ -105,15 +127,14 @@ describe("tmux composer", () => {
     expect(feed.box).toBe("make");
   });
 
-  it("does not let a poll overwrite an edit that has not reached the pane yet", async () => {
+  it("does not let a message from the pane overwrite an edit that has not reached it yet", async () => {
     const feed = pane("");
     render(<Probe feed={feed} />);
     await settle();
     // Somebody else typed into the pane at the same moment as this reader typed here. The reader's
-    // own text is newer than anything a screen can show, so the poll must leave it alone.
+    // own text is newer than anything a screen can show, so the message must leave it alone.
     await type("mine");
-    feed.box = "theirs";
-    await settle(50);
+    await act(async () => { feed.emit(holding("theirs")); });
     expect(draft()).toBe("mine");
     // And once the push lands, the pane holds the reader's text rather than the other way round.
     await settle(200);
@@ -127,7 +148,7 @@ describe("tmux composer", () => {
     render(<Probe feed={feed} />);
     await settle();
     feed.box = "typed in the pane itself";
-    await settle(900);
+    await act(async () => { feed.announce(); });
     expect(draft()).toBe("typed in the pane itself");
   });
 
@@ -135,18 +156,15 @@ describe("tmux composer", () => {
     // A wrapped composer is reconstructed by guessing the space the wrap consumed. Filling an
     // empty field with a guess costs nothing; replacing typed text with one loses a character.
     const feed = pane("alpha bravo charlie");
-    feed.wrapped = true;
     render(<Probe feed={feed} />);
     await settle();
+    await act(async () => { feed.announce(true); });
     expect(draft()).toBe("alpha bravo charlie");
 
-    const second = pane("alpha bravo charlie");
-    second.wrapped = true;
-    render(<Probe feed={second} />);
-    await settle();
-    await type("something the reader typed", 1);
-    await settle(2000);
-    expect(screen.getAllByTestId("draft")[1]!.textContent).toBe("something the reader typed");
+    await type("something the reader typed");
+    await act(async () => { feed.emit(holding("alpha bravo charlie", true)); });
+    await settle(200);
+    expect(draft()).toBe("something the reader typed");
   });
 
   it("brings the pane up to date before pressing Return, so half a sentence is never sent", async () => {
@@ -172,28 +190,38 @@ describe("tmux composer", () => {
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
-    feed.fail = "gone";
-    await settle(900);
+    await act(async () => {
+      feed.emit({ text: null, reason: "no-pane", wrapped: false });
+    });
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     expect(screen.getByTestId("reason").textContent).toBe("no-pane");
     expect(draft()).toBe("hello");
   });
 
-  it("never claims a session that has no pane at all", async () => {
-    const feed = pane("");
-    feed.fail = "gone";
+  it("never claims a session whose first word is that it has no pane", async () => {
+    const feed = pane("", { text: null, reason: "no-pane", wrapped: false });
     render(<Probe feed={feed} />);
-    await settle(900);
+    await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
     expect(screen.getByTestId("reason").textContent).toBe("no-pane");
   });
 
-  it("stays inert for a session that is not a terminal one, and polls nothing", async () => {
+  it("stays inert for a source it does not mirror, and subscribes to nothing", async () => {
     const feed = pane("hello");
-    render(<Probe feed={feed} active={false} />);
+    const { unmount } = render(<Probe feed={feed} active={false} />);
     await settle(2000);
-    expect(feed.reads).toBe(0);
+    expect(feed.subscribes).toBe(0);
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
+    unmount();
+  });
+
+  it("lets the stream go when the band does", async () => {
+    const feed = pane("hello");
+    const { unmount } = render(<Probe feed={feed} />);
+    await settle();
+    expect(feed.live).toBe(true);
+    unmount();
+    expect(feed.live).toBe(false);
   });
 
   it("flushes an unsent edit when the field is left, rather than losing the debounce", async () => {

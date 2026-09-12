@@ -16,6 +16,11 @@
 //   Ctrl+U kills one VISUAL row, not the whole prompt: a four-row composer needs four of them.
 //   That is the one exact lever over a composer whose text cannot be read exactly.
 //
+//   An EMPTY box is not always empty-looking. Claude draws a hint in it -- `<no suggestion>` after
+//   a turn -- and the only thing separating that from typed words is that the hint is FAINT. So
+//   the screen is read with its colour on, which is the one place an escape sequence here is
+//   content rather than noise.
+//
 // What falls out of those three is the shape of `keystrokesFor`. An exactly-known composer is
 // edited incrementally, which is what makes typing feel like typing. An inexactly-known one is
 // only ever treated as a HYPOTHESIS: if the guessed text is the start of what is wanted the rest
@@ -46,6 +51,19 @@ const INDENT = "  ";
  * drawn into the top one. Eight is far more than prose contains and far less than any rule.
  */
 const RULE = /─{8}/;
+/** Every colour and style run, which the screen carries because one of them is load-bearing. */
+const SGR = /\u001b\[[0-9;]*m/g;
+/** One such run at the head of what is left, with its parameters, for asking whether it is dim. */
+const SGR_HEAD = /^\u001b\[([0-9;]*)m/;
+/**
+ * The SGR parameter for faint text, which is how Claude draws a composer PLACEHOLDER.
+ *
+ * Measured on a live pane after a turn: `\u001b[39m❯\u00a0\u001b[2m<no suggestion>\u001b[0m`. With the
+ * escapes stripped that is indistinguishable from somebody having typed those words, and the
+ * mirror would have filled a reader's field with it and then typed it back into the session. It is
+ * the only thing on the screen that says otherwise.
+ */
+const FAINT = "2";
 
 /** Kill to the start of the visual row. One per row is what empties the box. */
 const KILL_ROW = "\u0015";
@@ -69,9 +87,13 @@ export const MAXIMUM_COMPOSER_BYTES = 16 * 1024;
  * count that clearing depends on.
  */
 export function composerRows(screen: string): string[] | null {
-  const lines = screen.split("\n").map((line) => line.replace(/\s+$/, ""));
+  const raw = screen.split("\n");
+  const lines = raw.map(plainText);
   const head = lastPromptRow(lines);
   if (head === null) return null;
+  // A placeholder occupies the box and holds nothing, so it reads as an empty composer rather
+  // than as text. Asked of the RAW row, because the answer is in the escapes.
+  if (isPlaceholder(raw[head]!)) return [""];
   const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
   for (let index = head + 1; index < lines.length; index += 1) {
     const line = lines[index]!;
@@ -83,6 +105,30 @@ export function composerRows(screen: string): string[] | null {
     rows.push(line.slice(INDENT.length));
   }
   return rows;
+}
+
+/** A screen line with its colour taken off and its padding trimmed, which is what parses. */
+function plainText(line: string): string {
+  return line.replace(SGR, "").replace(/\s+$/, "");
+}
+
+/**
+ * Whether this prompt row is Claude's own hint rather than somebody's text.
+ *
+ * True when the first thing after the marker opens a faint run. Nothing a reader types arrives
+ * dim, and the hint is dim from its first character, so the question is only ever asked of the
+ * one position where the two could be confused.
+ */
+function isPlaceholder(rawPromptRow: string): boolean {
+  let rest = rawPromptRow;
+  // Style set before the marker is the box's own, not the text's; step over it.
+  for (let head = SGR_HEAD.exec(rest); head !== null; head = SGR_HEAD.exec(rest)) {
+    rest = rest.slice(head[0].length);
+  }
+  if (!rest.startsWith(PROMPT)) return false;
+  rest = rest.slice(PROMPT.length).replace(GAP, "");
+  const head = SGR_HEAD.exec(rest);
+  return head !== null && head[1]!.split(";").includes(FAINT);
 }
 
 /**
@@ -174,11 +220,161 @@ export interface TmuxComposerRuntime {
   send: (pane: string, bytes: Uint8Array) => Promise<void>;
 }
 
+/** What watching additionally needs: a way to be told the pane wrote something. */
+export interface TmuxComposerWatchRuntime extends TmuxComposerRuntime {
+  /**
+   * Asks to be told when the pane writes, until the returned function is called.
+   *
+   * Not implemented in this module, and that is structural rather than shy: a pane has exactly
+   * one pipe and the terminal service owns it, so a second one set here would not add a listener,
+   * it would silently replace that service's. `server.ts` wires this to the service's own.
+   */
+  watch: (pane: string, onOutput: () => void) => Promise<() => void>;
+}
+
+/**
+ * The shortest gap between two screen reads, and the delay after output before the first.
+ *
+ * A pane writes in bursts -- one keystroke redraws the box, one turn redraws everything -- so
+ * reading per burst would read many times for one change. Trailing rather than leading, so the
+ * read sees the burst finished rather than halfway through: a capture taken mid-redraw is the
+ * `no-composer` case, which would show as the mirror blinking out and back on every keystroke.
+ *
+ * At 150ms a pane being typed into costs at most seven reads a second and an idle one costs
+ * NONE, which is the whole point of this being driven by output instead of by a clock.
+ */
+const COALESCE_MS = 150;
+
 const LIVE: TmuxComposerRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),
   screen: captureTmuxScreen,
   send: hexSend,
 };
+
+/** The live runtime, given the pane signal only the terminal service can supply. */
+export function liveTmuxComposerRuntime(
+  watch: TmuxComposerWatchRuntime["watch"],
+): TmuxComposerWatchRuntime {
+  return { ...LIVE, watch };
+}
+
+/** Where a watcher's reports go, and how it says there will be no more of them. */
+export interface TmuxComposerListener {
+  onState: (state: TmuxComposerState) => void;
+  /**
+   * There is nothing to watch, so nothing further will be said.
+   *
+   * Separate from a reason on the state because it is about the WATCH, not the composer: it means
+   * ask again later if you still care, and the caller decides how much later. An `EventSource`
+   * decides by reconnecting, which is why nothing here holds a retry timer.
+   */
+  onEnd: () => void;
+}
+
+/**
+ * Reports what the session's composer holds, and again whenever it CHANGES, until stopped.
+ *
+ * Driven by the pane's own output rather than by a timer. That is the difference between a mirror
+ * that costs a `capture-pane` every second forever and one that costs nothing at all while
+ * nobody is typing -- which is most of the time, and exactly the state a composer sits in.
+ *
+ * Only differences are reported. A redraw that leaves the box alone -- which is nearly every
+ * redraw, since a working session is writing above its composer, not into it -- is read and
+ * dropped here rather than sent to every panel watching.
+ *
+ * A session with no pane ENDS rather than waiting: there is nothing to hang a pipe on, and a
+ * session gains a pane later often enough to matter -- pressing the band's own terminal button
+ * resumes one. Ending hands the retry to whoever asked, where a stream that stayed open would
+ * have to grow a timer to notice, which is the thing this replaced.
+ *
+ * A pane that DIES is not noticed here, and deliberately: the pipe simply goes quiet. It is
+ * noticed at the next push, which re-resolves the pane and answers `no-pane` -- the same place
+ * `useCliInput` corrects a session that died under the composer, and the moment a reader is
+ * about to care.
+ */
+export function observeTmuxComposer(
+  sessionId: string,
+  listener: TmuxComposerListener,
+  runtime: TmuxComposerWatchRuntime,
+): () => void {
+  const { onState } = listener;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let reading = false;
+  /** What the last report said, so an unchanged screen is not reported again. */
+  let reported: string | null = null;
+  let unwatch: (() => void) | null = null;
+
+  const end = (): void => {
+    if (stopped) return;
+    stopped = true;
+    listener.onEnd();
+  };
+
+  const report = (state: TmuxComposerState): void => {
+    if (stopped) return;
+    const signature = JSON.stringify(state);
+    if (signature === reported) return;
+    reported = signature;
+    onState(state);
+  };
+
+  const readNow = async (): Promise<void> => {
+    if (stopped || reading) return;
+    reading = true;
+    try {
+      report(await readTmuxComposer(sessionId, runtime));
+    } catch {
+      // A read that threw is not evidence about the composer, and the next output brings another.
+    } finally {
+      reading = false;
+    }
+  };
+
+  const schedule = (): void => {
+    if (stopped || timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      void readNow();
+    }, COALESCE_MS);
+  };
+
+  void (async () => {
+    let pane: string | null;
+    try {
+      pane = await runtime.pane(sessionId);
+    } catch {
+      pane = null;
+    }
+    if (stopped) return;
+    if (!pane) {
+      report(unavailable("no-pane"));
+      end();
+      return;
+    }
+    try {
+      const stop = await runtime.watch(pane, schedule);
+      if (stopped) {
+        stop();
+        return;
+      }
+      unwatch = stop;
+    } catch {
+      report(unavailable("tmux-unavailable"));
+      end();
+      return;
+    }
+    // The first reading is not waited for: a pane that is sitting idle writes nothing, so a
+    // watcher that only spoke on output would say nothing at all until somebody typed.
+    await readNow();
+  })();
+
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    unwatch?.();
+  };
+}
 
 /** What the session's composer is showing, or why it cannot be seen. */
 export async function readTmuxComposer(

@@ -322,6 +322,35 @@ export class AgentTerminalService {
     return this.captureHistory(active.tmuxSession, lines);
   }
 
+  /**
+   * Joins a tmux pane purely to be TOLD when it writes, without opening a terminal.
+   *
+   * Exists because a pane has exactly one pipe, and this service owns it. Anything else that
+   * wanted to know when a pane changed -- the composer mirror is the first -- would have to set a
+   * second `pipe-pane`, which does not add one: it silently replaces the first, and neither side
+   * can tell. So the signal is handed out from here, through the same fan-out every viewer uses,
+   * and a watcher costs nothing beyond a set the terminal path was going to make anyway.
+   *
+   * It never creates a session. The caller resolves which pane it means and passes the name, so
+   * watching a session that is not running is a lookup that answers nothing rather than a resume.
+   *
+   * `onOutput` carries no bytes on purpose. What it says is "this pane is not what it was", which
+   * is all a reader of the SCREEN needs; handing over the stream would invite a second, partial
+   * terminal emulator to grow next to the real one.
+   */
+  async watchPane(session: string, onOutput: () => void): Promise<() => void> {
+    // Dimensions are ignored by the tmux path -- the pane is authoritative and a viewer adopts
+    // what it finds -- so these name what this watcher would like and get nothing said back.
+    const connection = await this.tmux.open(session, { columns: 80, rows: 24 });
+    const removeEnvelope = connection.onEnvelope((envelope) => {
+      if (envelope.output) onOutput();
+    });
+    return () => {
+      removeEnvelope();
+      connection.detach();
+    };
+  }
+
   observe(listener: (envelope: AgentTerminalStreamEnvelope) => void): () => void {
     this.observers.add(listener);
     return () => this.observers.delete(listener);

@@ -13,8 +13,13 @@ const HOLDING: TmuxComposerState = { text: "hello", reason: null, wrapped: false
 function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const synced: string[] = [];
   const submitted: string[] = [];
+  const watched: string[] = [];
   const composer: TmuxComposerDependencies = {
-    read: async () => HOLDING,
+    observe: (sessionId, listener) => {
+      watched.push(sessionId);
+      listener.onState(HOLDING);
+      return () => watched.push(`stop:${sessionId}`);
+    },
     sync: async (_sessionId, text) => {
       synced.push(text);
       return { text, reason: null, wrapped: false };
@@ -25,7 +30,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
     },
     ...overrides,
   };
-  return { route: createTmuxComposerRoutes(composer), synced, submitted };
+  return { route: createTmuxComposerRoutes(composer), synced, submitted, watched };
 }
 
 function call(
@@ -42,18 +47,24 @@ function call(
   return route(request, url, server);
 }
 
-test("a claude session id is the whole address, and reading never writes", async () => {
-  const { route, synced, submitted } = routeWith();
-  const response = await call(route, "GET", `/api/sessions/claude/${SESSION}/composer`);
+test("reading is a stream, and there is no request form of it", async () => {
+  // Deliberately absent rather than merely unused: a one-shot read is what a poll is made of, and
+  // leaving one here would be an invitation to go back to asking on a timer.
+  const { route, watched, synced, submitted } = routeWith();
+  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer`)).toBeUndefined();
+
+  const response = await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/stream`);
   expect(response?.status).toBe(200);
-  expect(await response!.json()).toEqual(HOLDING);
+  expect(response?.headers.get("content-type")).toContain("text/event-stream");
+  expect(watched).toEqual([SESSION]);
   expect(synced).toEqual([]);
   expect(submitted).toEqual([]);
 });
 
 test("codex is refused by the pattern, because the box this reads is Claude's", async () => {
   const { route } = routeWith();
-  expect(await call(route, "GET", `/api/sessions/codex/${SESSION}/composer`)).toBeUndefined();
+  expect(await call(route, "GET", `/api/sessions/codex/${SESSION}/composer/stream`))
+    .toBeUndefined();
 });
 
 test("a push carries the whole desired text, not the keystrokes", async () => {
@@ -89,6 +100,14 @@ test("a missing or oversized text is the caller's fault, and says so with a stat
   expect(synced).toEqual([]);
 });
 
+test("the stream only takes a GET, and submit only a POST", async () => {
+  const { route } = routeWith();
+  expect(await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/stream`, {}))
+    .toBeUndefined();
+  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/submit`))
+    .toBeUndefined();
+});
+
 test("a session with no pane answers 200 with the reason, not an error status", async () => {
   // The panel renders this beside the field. A 4xx would be indistinguishable from a request it
   // got wrong, which is a different thing to tell the reader.
@@ -102,10 +121,8 @@ test("a session with no pane answers 200 with the reason, not an error status", 
   expect(await response!.json()).toEqual({ text: null, reason: "no-pane", wrapped: false });
 });
 
-test("submitting is its own address, and only takes a POST", async () => {
+test("submitting is its own address", async () => {
   const { route, submitted } = routeWith();
-  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/submit`))
-    .toBeUndefined();
   const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/submit`);
   expect(response?.status).toBe(200);
   expect(submitted).toEqual([SESSION]);

@@ -677,7 +677,8 @@ function SessionComposer({
         // whenever a guess about the box misses. Exceeding it is refused there, with a reason.
         maxLength: 16 * 1024,
         sendOnEnter: true,
-        onFocus: tmuxComposer.onFocus,
+        // No `onFocus`: the stream behind this field is already current, where the bands either
+        // side of it re-read something at the moment somebody is about to act on it.
         onBlur: tmuxComposer.onBlur,
       }
     : inboxBand

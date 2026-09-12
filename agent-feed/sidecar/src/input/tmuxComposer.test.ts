@@ -3,10 +3,12 @@ import {
   composerRows,
   composerText,
   keystrokesFor,
+  observeTmuxComposer,
   readTmuxComposer,
   submitTmuxComposer,
   syncTmuxComposer,
   type TmuxComposerRuntime,
+  type TmuxComposerWatchRuntime,
 } from "./tmuxComposer.ts";
 import { TmuxUnavailable } from "../terminal/tmuxSessions.ts";
 
@@ -51,6 +53,23 @@ test("keeps every wrapped row, because the row count is what clearing costs", ()
   expect(composerText(rows!)).toBe(
     "the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog",
   );
+});
+
+test("reads Claude's own hint as an empty box, not as somebody's text", () => {
+  // Verbatim from a live pane after a turn. Strip the escapes and this is indistinguishable from
+  // a reader having typed those words, and the mirror would have filled their field with it and
+  // then typed it back into the session. Faint is the only thing that says otherwise.
+  const screen = [
+    RULE,
+    "\u001b[39m❯\u00a0\u001b[2m<no suggestion>\u001b[0m",
+    RULE,
+  ].join("\n");
+  expect(composerRows(screen)).toEqual([""]);
+});
+
+test("keeps text that merely sits under a colour, because only faint means a hint", () => {
+  const screen = [RULE, "\u001b[39m❯\u00a0\u001b[1mtyped in bold\u001b[0m", RULE].join("\n");
+  expect(composerRows(screen)).toEqual(["typed in bold"]);
 });
 
 test("takes the last box, not a turn the transcript echoed with the same marker", () => {
@@ -192,4 +211,137 @@ test("submitting presses Return, and needs no screen to do it", async () => {
   expect(await submitTmuxComposer("session", tmux))
     .toEqual({ text: "", reason: null, wrapped: false });
   expect(tmux.sent).toEqual(["\r"]);
+});
+
+/** A pane that can be told to write, so the watcher can be driven without a tmux server. */
+function watchable(initial: string[] = ["hello"]) {
+  let notify: (() => void) | null = null;
+  const state = {
+    rows: initial,
+    pane: "agentdesk-1" as string | null,
+    /** How many times the screen was captured, which is the cost this change exists to remove. */
+    screens: 0,
+    watching: false,
+  };
+  const tmux: TmuxComposerWatchRuntime = {
+    pane: async () => state.pane,
+    screen: async () => {
+      state.screens += 1;
+      return screenWith(state.rows);
+    },
+    send: async () => {},
+    watch: async (_pane, onOutput) => {
+      state.watching = true;
+      notify = onOutput;
+      return () => {
+        state.watching = false;
+        notify = null;
+      };
+    },
+  };
+  return { state, tmux, write: () => notify?.() };
+}
+
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("reports what the composer holds without waiting for the pane to write", async () => {
+  // An idle pane writes nothing at all, so a watcher that only ever spoke on output would say
+  // nothing until somebody typed -- and the field would sit empty beside a box that was not.
+  const { tmux, state } = watchable(["make the hover ring stronger"]);
+  const seen: unknown[] = [];
+  const stop = observeTmuxComposer("session", {
+    onState: (reading) => { seen.push(reading); },
+    onEnd: () => {},
+  }, tmux);
+  await settle(60);
+  expect(seen).toEqual([{ text: "make the hover ring stronger", reason: null, wrapped: false }]);
+  expect(state.watching).toBe(true);
+  stop();
+  expect(state.watching).toBe(false);
+});
+
+test("reads once for a burst of output, not once per write", async () => {
+  const { tmux, state, write } = watchable([""]);
+  const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
+  await settle(60);
+  const before = state.screens;
+  for (let i = 0; i < 20; i += 1) write();
+  await settle(300);
+  // One redraw is many writes. Reading per write would read twenty times for one change, and
+  // most of those captures would land mid-redraw, where the box is not on the screen at all.
+  expect(state.screens - before).toBe(1);
+  stop();
+});
+
+test("reports only what changed, so a redraw above the box costs nobody anything", async () => {
+  const { tmux, state, write } = watchable(["hello"]);
+  const seen: unknown[] = [];
+  const stop = observeTmuxComposer("session", {
+    onState: (reading) => { seen.push(reading); },
+    onEnd: () => {},
+  }, tmux);
+  await settle(60);
+  expect(seen).toHaveLength(1);
+
+  // The session is working: it writes constantly, and its composer does not move.
+  write();
+  await settle(300);
+  write();
+  await settle(300);
+  expect(state.screens).toBeGreaterThan(1);
+  expect(seen).toHaveLength(1);
+
+  // Now somebody types into the pane itself.
+  state.rows = ["hello there"];
+  write();
+  await settle(300);
+  expect(seen).toEqual([
+    { text: "hello", reason: null, wrapped: false },
+    { text: "hello there", reason: null, wrapped: false },
+  ]);
+  stop();
+});
+
+test("says a session has no pane, ends, and hangs no pipe on nothing", async () => {
+  // Ends rather than waiting. There is nothing to watch, and a session gains a pane often enough
+  // to matter -- the band's own terminal button resumes one -- so the retry belongs to whoever
+  // asked. A stream that stayed open would need a timer to notice, which is what this replaced.
+  const { tmux, state } = watchable();
+  state.pane = null;
+  const seen: unknown[] = [];
+  let ended = 0;
+  const stop = observeTmuxComposer("session", {
+    onState: (reading) => { seen.push(reading); },
+    onEnd: () => { ended += 1; },
+  }, tmux);
+  await settle(60);
+  expect(seen).toEqual([{ text: null, reason: "no-pane", wrapped: false }]);
+  expect(ended).toBe(1);
+  expect(state.watching).toBe(false);
+  expect(state.screens).toBe(0);
+  stop();
+});
+
+test("a watched pane is never ended out from under its reader", async () => {
+  const { tmux, write } = watchable(["hello"]);
+  let ended = 0;
+  const stop = observeTmuxComposer("session", {
+    onState: () => {},
+    onEnd: () => { ended += 1; },
+  }, tmux);
+  await settle(60);
+  write();
+  await settle(300);
+  expect(ended).toBe(0);
+  stop();
+});
+
+test("stopping before the pane answers still leaves nothing watching", async () => {
+  // The resolve and the watch are both awaited, so a reader that leaves in between would
+  // otherwise have a pipe set on its behalf with nobody left to close it.
+  const { tmux, state } = watchable();
+  const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
+  stop();
+  await settle(60);
+  expect(state.watching).toBe(false);
 });

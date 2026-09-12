@@ -117,7 +117,10 @@ function cliInputPath(session: SessionAddress): string {
  * still interpolated rather than hardcoded so a mistaken call fails as a 404 instead of quietly
  * addressing the wrong session's pane.
  */
-function tmuxComposerPath(session: SessionAddress, action: "" | "/submit" = ""): string {
+function tmuxComposerPath(
+  session: SessionAddress,
+  action: "" | "/submit" | "/stream" = "",
+): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
 }
 
@@ -780,15 +783,27 @@ export class SidecarDataSource implements AgentDataSource {
   }
 
   /**
-   * What the session's own terminal composer is holding right now.
+   * What the session's own terminal composer holds, and again whenever it changes.
    *
-   * Polled while somebody is composing, so it is a read with no side effect at all -- the sidecar
-   * answers it from `capture-pane`, which is why this is safe to ask several times a second.
+   * A stream rather than a read, and there is deliberately no read form. The composer changes
+   * when somebody types, which is an event the pane already publishes; asking on a timer instead
+   * cost a `capture-pane` a second for as long as a session was open, and answered "the same as
+   * last time" nearly every time. The sidecar reports only differences, so an idle session -- the
+   * state a composer spends nearly all its life in -- costs nothing at all.
+   *
+   * Returns unsubscribe, and the caller must call it.
    */
-  async readTmuxComposer(session: SessionAddress): Promise<TmuxComposerState> {
-    return parse<TmuxComposerState>(
-      await this.transport.request("GET", tmuxComposerPath(session)),
-    );
+  subscribeTmuxComposer(
+    session: SessionAddress,
+    onState: (state: TmuxComposerState) => void,
+  ): () => void {
+    return this.transport.subscribe(tmuxComposerPath(session, "/stream"), {
+      onMessage: (payload) => onState(JSON.parse(payload) as TmuxComposerState),
+      // Silent by design: the panel already surfaces a sidecar that has stopped answering, and an
+      // `EventSource` reconnects on its own. A session that had no pane when this was opened is
+      // also the commonest reason to be here, and it is not a fault.
+      onError: () => {},
+    });
   }
 
   /**

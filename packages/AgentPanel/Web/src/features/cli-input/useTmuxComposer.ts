@@ -9,14 +9,6 @@ import type {
 
 /** How long after the last keystroke the pane is brought up to date. */
 const PUSH_DEBOUNCE_MS = 90;
-/**
- * How often the pane is re-read while nothing is being typed here.
- *
- * Slow enough that a session left open is not a subprocess every frame, fast enough that typing in
- * the terminal half and looking back at the field does not feel like waiting. Only runs while the
- * page is visible: a backgrounded tab polling somebody's tmux server buys nothing at all.
- */
-const READ_INTERVAL_MS = 800;
 
 export interface TmuxComposerHandle {
   /**
@@ -37,7 +29,12 @@ export interface TmuxComposerHandle {
   submit: () => Promise<void>;
   pending: boolean;
   error: string | null;
-  onFocus: () => void;
+  /**
+   * Flushes an edit still inside the debounce, so leaving the field never leaves the pane behind.
+   *
+   * There is deliberately no focus half. A polled read had to be refreshed at the moment somebody
+   * was about to act on it; a stream is already current.
+   */
   onBlur: () => void;
 }
 
@@ -54,16 +51,21 @@ export interface TmuxComposerHandle {
  * against an observation that already made a round trip, and the person at that keyboard is typing
  * too.
  *
- * The read is a POLL rather than a subscription, because a screen has no change event. It runs
- * whenever this band is the input surface, not only while the field has focus -- typing in the
- * terminal half and having the field agree afterwards is the whole point of it being two-way.
+ * The read is a subscription, and it runs whenever this band is the input surface rather than only
+ * while the field has focus -- typing in the terminal half and having the field agree afterwards
+ * is the whole point of it being two-way. A screen has no change event of its own, so the sidecar
+ * makes one out of the pane's output and reports only differences; nothing here is on a timer, and
+ * a session nobody is typing at costs nothing at all.
  *
  * A wrapped reading is not adopted over a draft. Claude word-wraps its own box, so a composer that
  * ran onto a second row cannot be reconstructed to the character; the sidecar says so, and text
  * that might be off by a space must not overwrite text the reader actually typed.
  */
 export function useTmuxComposer(
-  feed: Pick<SidecarDataSource, "readTmuxComposer" | "syncTmuxComposer" | "submitTmuxComposer">,
+  feed: Pick<
+    SidecarDataSource,
+    "subscribeTmuxComposer" | "syncTmuxComposer" | "submitTmuxComposer"
+  >,
   session: SessionAddress,
   active: boolean,
 ): TmuxComposerHandle {
@@ -101,35 +103,28 @@ export function useTmuxComposer(
       setState(next);
       setError(null);
       // Only clear the guard when the draft has not moved on underneath the request. Clearing it
-      // regardless would let the next poll adopt a reading taken before the last keystroke.
+      // regardless would let the next message adopt a reading taken before the last keystroke.
       if (next.reason === null && draftRef.current === wanted) edited.current = false;
     } catch (failure) {
       setError(String((failure as Error).message ?? failure));
     }
   }, [feed]);
 
-  const read = useCallback(async () => {
-    try {
-      const next = await feed.readTmuxComposer(sessionRef.current);
-      setState(next);
-      // Checked for the shape it is documented in rather than for `text !== null`, because the
-      // two differ exactly where it matters: an answer that carries neither field -- a sidecar
-      // that does not know this route, a proxy that swallowed the body -- has an `undefined`
-      // text, which is not null, and would otherwise latch this session into a band with nothing
-      // behind it. `reason === null` is the other half of the same claim.
-      if (next.reason !== null || typeof next.text !== "string") return;
-      setMirrored(true);
-      // An unsent edit is newer than anything the pane can show, and a reading that cannot be
-      // trusted to the character may only fill a field that has nothing to lose.
-      if (edited.current) return;
-      if (next.wrapped && draftRef.current.length > 0) return;
-      setBoth(next.text);
-    } catch {
-      // A dropped read is not evidence about the pane, and the panel already surfaces a sidecar
-      // that has stopped answering. Leaving the last state alone keeps a working composer working
-      // across one failed request.
-    }
-  }, [feed, setBoth]);
+  const receive = useCallback((next: TmuxComposerState) => {
+    setState(next);
+    // Checked for the shape it is documented in rather than for `text !== null`, because the two
+    // differ exactly where it matters: a message that carries neither field -- a sidecar that does
+    // not know this route, a proxy that swallowed the body -- has an `undefined` text, which is
+    // not null, and would otherwise latch this session into a band with nothing behind it.
+    // `reason === null` is the other half of the same claim.
+    if (next.reason !== null || typeof next.text !== "string") return;
+    setMirrored(true);
+    // An unsent edit is newer than anything the pane can show, and a reading that cannot be
+    // trusted to the character may only fill a field that has nothing to lose.
+    if (edited.current) return;
+    if (next.wrapped && draftRef.current.length > 0) return;
+    setBoth(next.text);
+  }, [setBoth]);
 
   // Everything resets on the session, including the draft: a draft belongs to the thread it was
   // written for, and carrying it across would type it into a different session's pane.
@@ -141,28 +136,16 @@ export function useTmuxComposer(
     setBoth("");
   }, [key, setBoth]);
 
+  // One subscription per session, for as long as this band is the input surface.
+  //
+  // No timer and no visibility gate, and losing both is the point: the sidecar speaks when the
+  // pane writes and says nothing otherwise, so an idle session costs nothing whether or not
+  // anyone is looking at it. The gate that used to stand in for that is gone with it -- it made a
+  // backgrounded tab report a session as having no pane at all, which is a different claim.
   useEffect(() => {
     if (!key) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const tick = () => {
-      if (stopped) return;
-      // Hidden means nobody is looking at either surface, so neither can have diverged in a way
-      // worth a subprocess. The visibility listener below restarts this the moment one is.
-      if (document.visibilityState === "visible") void read();
-      timer = setTimeout(tick, READ_INTERVAL_MS);
-    };
-    tick();
-    const wake = () => {
-      if (document.visibilityState === "visible") void read();
-    };
-    document.addEventListener("visibilitychange", wake);
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      document.removeEventListener("visibilitychange", wake);
-    };
-  }, [key, read]);
+    return feed.subscribeTmuxComposer(sessionRef.current, receive);
+  }, [feed, key, receive]);
 
   // The debounced push behind edits. One effect on the value rather than a call beside each of the
   // places that change it, which is how one of them ends up forgotten.
@@ -203,9 +186,6 @@ export function useTmuxComposer(
     }
   }, [feed, setBoth]);
 
-  // Focus is the moment somebody is about to type, so it is the moment a stale reading is worth
-  // correcting -- the same reason the inbox status is re-read here rather than on a timer.
-  const onFocus = useCallback(() => { void read(); }, [read]);
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
       clearTimeout(pushTimer.current);
@@ -226,7 +206,6 @@ export function useTmuxComposer(
     submit,
     pending,
     error,
-    onFocus,
     onBlur,
   };
 }
