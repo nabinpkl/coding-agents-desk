@@ -69,7 +69,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R35 | D | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
 | R36 | D | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
 | R37 | D | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
-| R38 | R | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
+| R38 | D | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
 | R39 | D | 26/585 | `agent-feed/sidecar/src/config.ts` |
 | R40 | R | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
 | R41 | R | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
@@ -571,6 +571,22 @@ object stays whole and stays in `config.ts`, so no reader of `config.something` 
 belongs beside the table it matches against, but the exported name reads `config.contextWindows`
 and would have taken the file's own import back the other way.
 
+### R38 `activity-feed/data-source/SidecarDataSource.ts` (1087)
+
+- The transport every layer calls, and what a non-2xx answer means.
+- Reading one session's thread: events, background tasks, and the prompts it raises.
+- Typing at a session that is already running somewhere else, by three routes to one box.
+- Opening a terminal, and everything said to one that is open.
+- Every terminal viewer on one connection, dispatched by id.
+- The inventory, the Bots, session commands, usage, config and the Desktop park.
+
+Split into `sidecarRoutes.ts`, `SidecarTranscript.ts`, `SidecarComposers.ts`,
+`SidecarTerminals.ts`, `sidecarTerminalStream.ts`. 1087 to 368. The class is still one class
+with one API: each file is a layer extending the one below it, so every method body, signature
+and doc comment moved verbatim and no call site changed. `sidecarTerminalStream.ts` is the
+exception and is composed rather than inherited, because it is the only part with state of its
+own to keep.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -685,6 +701,18 @@ before the commit; the sweep is clean across all 36 generated files.
   would have made `contextWindows.ts` import `config.ts` while `config.ts` imports it back for
   the environment override. The alternative -- passing the table at all four call sites -- was
   not taken because it changes three files that only want an answer for a model id.
+
+- R38 split `SidecarDataSource` into a chain of base classes rather than a facade over composed
+  objects. `AgentDataSource` requires five methods; the other forty-five are the concrete class's
+  own API and every one has callers, so composition means forty-five delegating methods that say
+  nothing and each of which separates a signature from the doc comment explaining it. Extending
+  moves every line verbatim and changes no call site. The cost is a five-deep chain, which the
+  header of `sidecarRoutes.ts` states rather than leaves to be discovered.
+- R38 restored the four section banners (`// Transcript`, `// Extension UI`, `// Claude Desktop
+  composer and AskUserQuestion panel`, `// Agent terminal`) into the files their sections landed
+  in, rather than letting the file headers stand in for them. Two files hold more than one
+  section, so the banners still divide something; `SidecarTerminals.ts` folded its banner's words
+  into the file header instead.
 
 ## Deferred
 
