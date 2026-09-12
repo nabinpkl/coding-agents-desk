@@ -9,7 +9,8 @@ import { useCallback, useState } from "react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
-import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
@@ -172,7 +173,14 @@ export function BotSessionCard({
               aria-expanded={open}
               className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
             >
-              <ActivityDot activity={session.activity} className="mt-1.5" />
+              {/* The face, not a dot. A dot said live or not live and nothing about WHICH session
+                  this was, so a Bot's roster opened with a column of identical marks. */}
+              <SessionAvatar
+                title={title}
+                activity={session.activity}
+                shaded={Boolean(shaded)}
+                className="mt-0.5"
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {title}

@@ -2,7 +2,7 @@ import { ChevronDown, SquareTerminal, X } from "lucide-react";
 import { useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
-import { ActivityDot } from "@/features/sidebar/SessionMeta";
+import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
@@ -97,8 +97,14 @@ export function BotNewSessionCard({
               className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
             >
               {/* Live, and not a guess: this card only exists while a process this panel started
-                  is running in a pane it can see. */}
-              <ActivityDot activity="live" className="mt-1.5" />
+                  is running in a pane it can see. Unshaded, because a session with no transcript
+                  yet has no rank on its Bot's ladder to take a colour from. */}
+              <SessionAvatar
+                title={session.title}
+                activity="live"
+                shaded={false}
+                className="mt-0.5"
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {session.title}

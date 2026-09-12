@@ -177,3 +177,48 @@ export function botSessionStyle(
   if (hue === undefined || shade === undefined) return undefined;
   return { "--bot-hue": hue.toFixed(2), "--bot-session-step": String(shade) } as CSSProperties;
 }
+
+/**
+ * Words that are in a title without naming anything in it, skipped when picking a session's
+ * letters.
+ *
+ * Short because the cost of a wrong entry is silent: drop a word that was carrying the name and
+ * the mark points at the wrong thing forever. These thirteen are the ones that actually turn up
+ * in session titles here, and the rule that keeps the list honest is that removing a word must
+ * never leave the title meaning something else.
+ */
+const CONNECTOR_WORDS = new Set([
+  "a", "an", "and", "at", "for", "from", "in", "of", "on", "or", "the", "to", "with",
+]);
+
+/**
+ * The one or two letters that stand for a session on its avatar.
+ *
+ * A session title is prose a person typed, so unlike a Bot's name it is often long, often a
+ * sentence, and often shares its first word with the session beside it. The mark has one job --
+ * telling two of one Bot's sessions apart at a glance -- so the letters are picked for that and
+ * not for being a faithful abbreviation.
+ *
+ * Three decisions, each one measured against titles on this canvas:
+ *
+ * - **Connectors are skipped.** "CPU and RAM usage" gives CR, not CA. The first letter of "and"
+ *   is a letter that every title with a conjunction in it would hand over.
+ * - **One word gives TWO of its letters**, where two words give one each. "evals" as a bare E
+ *   collides with every other session starting in e, and a roster of six single-word titles is
+ *   the common case here, not the edge one.
+ * - **Digits count as letters**, so "fork 2" does not silently become "F".
+ *
+ * Falls back to "S" only for a title with nothing alphanumeric in it at all, which the caller
+ * cannot produce today -- the title it passes falls back to a session id -- but which is a
+ * transparent circle rather than an empty one if it ever does.
+ */
+export function sessionInitials(title: string): string {
+  const words = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const named = words.filter((word) => !CONNECTOR_WORDS.has(word.toLowerCase()));
+  const chosen = (named.length > 0 ? named : words).slice(0, 2);
+  const letters =
+    chosen.length === 1
+      ? [...chosen[0]!].slice(0, 2).join("")
+      : chosen.map((word) => [...word][0]!).join("");
+  return letters.toUpperCase() || "S";
+}

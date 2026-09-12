@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act, within } from "@testing-library/react";
+import { CLOSED_SESSION_WIDTH } from "@/features/bots/cards/botCanvasCards";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import {
   BOT_WITH_ONE_SESSION,
@@ -326,7 +327,9 @@ describe("App shell", () => {
     // taking its width away resolved it to ZERO. A phone showed an empty card with a sliver in it.
     const sessions = (): HTMLElement =>
       card!.querySelector<HTMLElement>('ul[aria-label="Release Captain sessions"] > li')!;
-    expect(sessions().style.width).toBe("260px");
+    // The constant rather than its value: what this pins is that a closed session gets a DEFINITE
+    // width, not which one. The number moves whenever something fixed-width joins the spine.
+    expect(sessions().style.width).toBe(`${CLOSED_SESSION_WIDTH}px`);
 
     // Opened, the width it was stored at -- which the panel does not get a say in either, and which
     // now has a grip, because there is a width to drag.

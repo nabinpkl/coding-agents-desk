@@ -17,8 +17,14 @@ export const STRIP_GAP = 12;
  * could not see inside -- and it would then be the width you found the next time you opened it,
  * which is not what you meant. Wide enough for a truncated title beside its chevron, and narrow
  * enough that a Bot with several reads as a rank of spines rather than a stack of slabs.
+ *
+ * 292 rather than the 260 it was, which is 260 plus exactly what the session's avatar costs: a
+ * 24px mark and the 8px gap after it. The spine has no slack in it -- at 260 with a mark in front,
+ * the meta line under the title lost enough room that "03:39 AM" broke across two lines and the
+ * closed card grew a row instead of a column. Add a fixed-width thing to this row and this number
+ * moves with it.
  */
-export const CLOSED_SESSION_WIDTH = 260;
+export const CLOSED_SESSION_WIDTH = 292;
 
 /**
  * A failed Bot command, and which session it was about.

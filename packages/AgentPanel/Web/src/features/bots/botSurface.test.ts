@@ -14,6 +14,7 @@ import {
   botSessionShades,
   botSessionStyle,
   botSurfaceStyle,
+  sessionInitials,
 } from "@/features/bots/botSurface";
 
 const bot = (botId: string, createdAt: number) => ({ botId, createdAt });
@@ -204,5 +205,42 @@ describe("botSessionStyle", () => {
 
   test("step zero is published, because it is a real step and not a missing one", () => {
     expect(botSessionStyle(24, 0)).toEqual({ "--bot-hue": "24.00", "--bot-session-step": "0" });
+  });
+});
+
+describe("sessionInitials", () => {
+  test("takes one letter per word, so two sessions of a Bot differ at a glance", () => {
+    expect(sessionInitials("AD Project manager")).toBe("AP");
+  });
+
+  test("skips a connector rather than spending a letter on it", () => {
+    // "CA" would be C for CPU and A for "and", which every title with a conjunction would give.
+    expect(sessionInitials("CPU and RAM usage")).toBe("CR");
+  });
+
+  test("gives a one-word title two of its own letters", () => {
+    // A bare "E" collides with every other session starting in e, and single-word titles are the
+    // common case on this canvas rather than the edge one.
+    expect(sessionInitials("evals")).toBe("EV");
+    expect(sessionInitials("graphifycodebot")).toBe("GR");
+  });
+
+  test("reads through the punctuation a fork title carries", () => {
+    expect(sessionInitials("AD Project manager (fork 1)")).toBe("AP");
+    expect(sessionInitials("workspace-ide/vite")).toBe("WI");
+  });
+
+  test("counts a digit as a letter", () => {
+    expect(sessionInitials("fork 2")).toBe("F2");
+  });
+
+  test("keeps a title made only of connectors rather than coming back empty", () => {
+    // Nothing is left after filtering, so the unfiltered words are used: an odd mark beats none.
+    expect(sessionInitials("the and")).toBe("TA");
+  });
+
+  test("falls back for a title with no letters or digits in it", () => {
+    expect(sessionInitials("---")).toBe("S");
+    expect(sessionInitials("")).toBe("S");
   });
 });
