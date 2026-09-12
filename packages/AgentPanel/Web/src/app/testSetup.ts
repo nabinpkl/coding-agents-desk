@@ -28,6 +28,15 @@ Object.defineProperty(globalThis, "ResizeObserver", {
   },
 });
 
+// jsdom implements no scrolling at all, so `scrollIntoView` is simply absent and a component that
+// brings its own element into view throws rather than doing nothing. A no-op keeps that call
+// harmless everywhere; a test that cares which element was scrolled spies on this.
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  configurable: true,
+  writable: true,
+  value: function scrollIntoView() {},
+});
+
 // jsdom implements no PointerEvent, and Testing Library's fallback drops the coordinates with it,
 // so a pointer-driven component reads `clientX` as undefined and every drag assertion passes or
 // fails for the wrong reason. MouseEvent already carries the coordinate contract these components

@@ -54,6 +54,8 @@ export function BotCanvas({
   onDetachSession,
   onDetachBot,
   detachedCount,
+  openKey,
+  onToggleSession,
   onAddBot,
 }: {
   bots: BotView[];
@@ -95,6 +97,16 @@ export function BotCanvas({
    * to Add Bot rather than to the roster their Bots are already in.
    */
   detachedCount: number;
+  /**
+   * Which session is open, as `source:sessionId`, owned above this component.
+   *
+   * It used to live in `BotCanvasList`, and it moved out when the sidebar beside the canvas gained
+   * the same rows: a session picked over there opens the card over here, which cannot work while
+   * the only copy of the answer is inside the thing being driven.
+   */
+  openKey: string | null;
+  /** Opens that session, or closes it if it is the one already open. */
+  onToggleSession: (key: string) => void;
   onAddBot: () => void;
 }) {
   if (loading) {
@@ -142,6 +154,8 @@ export function BotCanvas({
       onForkSession={onForkSession}
       onDetachSession={onDetachSession}
       onDetachBot={onDetachBot}
+      openKey={openKey}
+      onToggleSession={onToggleSession}
     />
   );
 }
@@ -168,6 +182,8 @@ function BotCanvasList({
   onForkSession,
   onDetachSession,
   onDetachBot,
+  openKey,
+  onToggleSession,
 }: {
   bots: BotView[];
   sessionContext: SessionViewContext;
@@ -176,8 +192,9 @@ function BotCanvasList({
   onForkSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  openKey: string | null;
+  onToggleSession: (key: string) => void;
 }) {
-  const [openKey, setOpenKey] = useState<string | null>(null);
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
   const [sizes, setSizes] = useState<BotCardSizes>(loadBotCardSizes);
@@ -229,7 +246,7 @@ function BotCanvasList({
             sessionContext={sessionContext}
             botError={botError}
             openKey={openKey}
-            onToggleSession={(key) => setOpenKey((current) => (current === key ? null : key))}
+            onToggleSession={onToggleSession}
             size={sizes[bot.botId] ?? DEFAULT_CARD_SIZE}
             canvasWidth={canvasWidth}
             onResize={(size) => resize(bot.botId, size, false)}
@@ -300,6 +317,16 @@ function BotCanvasCard({
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
   // Whether the open session is one of THIS card's, which is what makes this card the sized one.
   const holdsOpen = openKey !== null && bot.sessions.some((session) => sessionKey(session) === openKey);
+  // Brings this card into view when it becomes the open one, because the row that opened it may
+  // have been in the sidebar rather than on the canvas, and the card can be anywhere in a tiled
+  // roster of thirty. `nearest` rather than `start`: it does nothing at all when the card is
+  // already fully visible, which is the common case of clicking a row on the canvas itself, and a
+  // card taller than the scroller aligns to its top under the same rule.
+  const card = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (!holdsOpen) return;
+    card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [holdsOpen]);
   const drag = useRef<{ pointerId: number; startX: number; startY: number; from: BotCardSize } | null>(null);
 
   // The room each edge has to move in. Width is held to the row this card sits in; height is held
@@ -371,7 +398,11 @@ function BotCanvasCard({
     // beside the strip that widens it -- because the card clips its own overflow, so a handle
     // hanging off the border would not be there to grab, and one overlaid on the inside edge would
     // land on the transcript's scrollbar.
-    <li className="flex overflow-hidden rounded-xl border border-border bg-card" style={{ width }}>
+    <li
+      ref={card}
+      className="flex overflow-hidden rounded-xl border border-border bg-card"
+      style={{ width }}
+    >
       <div
         className="flex min-w-0 flex-1 flex-col"
         style={holdsOpen ? { height } : undefined}

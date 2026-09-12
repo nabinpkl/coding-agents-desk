@@ -140,7 +140,10 @@ export function BotSidebarPanel({
                       aria-pressed={onCanvas}
                       aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
                       title={onCanvas ? "On the canvas" : "Off the canvas"}
-                      className="relative shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                      // The ring on hover is what says this face is a control. Without it the
+                      // badge reads as decoration on a picture, and nothing else on the row admits
+                      // that clicking here does anything.
+                      className="relative shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary"
                     >
                       <BotAvatar bot={bot} />
                       {/* Ringed in the row's own background so it reads as sitting ON the avatar

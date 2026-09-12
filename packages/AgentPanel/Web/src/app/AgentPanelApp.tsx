@@ -161,7 +161,26 @@ export function App({ feed, host, fill = false }: Props) {
   // comes back whole on the next visit costs one click to arrange again and never hides a Bot from
   // a reader who has forgotten they took it off.
   const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Which session the canvas has open, as `source:sessionId`. Held here rather than inside the
+  // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
+  // inside the thing it is driving.
+  const [canvasOpenKey, setCanvasOpenKey] = useState<string | null>(null);
+  const toggleCanvasSession = useCallback((key: string) => {
+    setCanvasOpenKey((current) => (current === key ? null : key));
+  }, []);
   const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
+  // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
+  // the canvas first if it was off: the alternative is a click that appears to do nothing, because
+  // the card it opens is not being rendered.
+  const openSessionOnCanvas = useCallback((bot: BotView, session: SessionSummary) => {
+    setDetachedBotIds((current) => {
+      if (!current.has(bot.botId)) return current;
+      const next = new Set(current);
+      next.delete(bot.botId);
+      return next;
+    });
+    setCanvasOpenKey(`${session.source}:${session.sessionId}`);
+  }, []);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
     setDetachedBotIds((current) => {
       // A new set rather than a mutation, because React decides whether to re-render by identity.
@@ -672,6 +691,8 @@ export function App({ feed, host, fill = false }: Props) {
     onDetachBotSession: detachBotSession,
     detachedBotIds,
     onToggleBotOnCanvas: toggleBotOnCanvas,
+    canvasOpenSessionKey: canvasOpenKey,
+    onOpenSessionOnCanvas: openSessionOnCanvas,
     onAddBot: () => {
       setBotCreatorOpen(true);
       setHoverPreviewOpen(false);
@@ -810,6 +831,8 @@ export function App({ feed, host, fill = false }: Props) {
                 onDetachSession={detachBotSession}
                 onDetachBot={toggleBotOnCanvas}
                 detachedCount={botsState.bots.length - canvasBots.length}
+                openKey={canvasOpenKey}
+                onToggleSession={toggleCanvasSession}
                 onAddBot={() => setBotCreatorOpen(true)}
               />
             ) : sidebarMode === "sessions" ? (

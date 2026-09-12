@@ -752,6 +752,65 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("opens a session picked in the canvas roster on the canvas, and scrolls its card to it", () => {
+    const scrolled: Element[] = [];
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        scrolled.push(this);
+      });
+    try {
+      const { transport, unmount } = setup();
+      deliverProjects(transport);
+      fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+      act(() => {
+        transport.deliver("/api/bots/stream", {
+          version: 2,
+          revision: 1,
+          bots: [{
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          }],
+        });
+      });
+
+      const roster = within(screen.getByRole("list", { name: "Bots" }));
+      scrollIntoView.mockClear();
+      scrolled.length = 0;
+      fireEvent.click(roster.getByRole("button", { name: /^Session Claude 01/ }));
+
+      // On the canvas, not instead of it: the roster is still up and the card unfolded in place.
+      expect(screen.getByRole("list", { name: "Bot canvas" })).toBeInTheDocument();
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+
+      // And the card came to the reader, because in a tiled roster it can be anywhere.
+      const card = canvas().getByRole("button", { name: /^Session Claude 01/ }).closest("li")!.closest("ul")!.closest("li");
+      expect(scrolled).toContain(card);
+
+      // The roster marks the row that is open, which is what "selected" means on this tab.
+      expect(roster.getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      unmount();
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
   it("says an empty canvas is empty because its Bots were taken off it, not because there are none", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

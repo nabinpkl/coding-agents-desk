@@ -78,6 +78,16 @@ interface AgentSidebarProps {
    */
   detachedBotIds: ReadonlySet<string>;
   onToggleBotOnCanvas: (bot: BotView) => void;
+  /** Which session the canvas has open, so this roster can mark the row that opened it. */
+  canvasOpenSessionKey: string | null;
+  /**
+   * Opens a session ON the canvas rather than in place of it.
+   *
+   * The distinction is the whole point of the canvas: picking a session here scrolls its card into
+   * view and unfolds it there, leaving every other Bot on screen, rather than replacing the canvas
+   * with a single thread the way the Bots tab does.
+   */
+  onOpenSessionOnCanvas: (bot: BotView, session: SessionSummary) => void;
   onAddBot: () => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
@@ -220,9 +230,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
             bots={props.bots}
             loading={props.botsLoading}
             error={props.botsError}
-            selectedBotId={props.selectedBotId}
-            selectedSessionKey={props.selectedSessionKey}
-            onSelectSession={props.onSelectBotSession}
+            // Marked from what the CANVAS has open, not from what the app has selected: over here
+            // a highlighted row means "this is the card that is unfolded", and nothing on the
+            // canvas is selected in the sense the other two tabs mean.
+            selectedBotId={
+              props.bots.find((bot) =>
+                bot.sessions.some(
+                  (session) => `${session.source}:${session.sessionId}` === props.canvasOpenSessionKey,
+                ),
+              )?.botId ?? null
+            }
+            selectedSessionKey={props.canvasOpenSessionKey}
+            onSelectSession={props.onOpenSessionOnCanvas}
             onAddSession={props.onAddBotSession}
             onDetachSession={props.onDetachBotSession}
             onAddBot={props.onAddBot}
