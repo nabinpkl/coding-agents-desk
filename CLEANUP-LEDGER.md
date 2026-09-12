@@ -57,7 +57,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R23 | D | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
 | R24 | D | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
 | R25 | D | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
-| R26 | R | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
+| R26 | D | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
 | R27 | R | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
 | R28 | R | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
 | R29 | R | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
@@ -384,6 +384,23 @@ sets it, and `stopCatalog` now asks each of them to stop rather than reaching in
 `resetCatalogBroadcast` and `stopCodexReconcile` are that ask, and are the only declarations this
 split added.
 
+### R26 `desktop-viewer/TileStreamRtc.tsx` (1275)
+
+- The wire: what the sidecar answers an offer with, what a viewer says when it leaves, one line of
+  telemetry.
+- How large a capture to ask for, given the box the picture is shown in.
+- What the receiver's own statistics say, and one reading of them turned into telemetry.
+- Whether frames are actually reaching the screen, which healthy statistics do not prove.
+- The data channel input travels on.
+- One attempt at a stream: offer, answer, media, and every way it can end.
+- The component: the reconnect loop around those attempts, and the picture.
+
+Split into `webrtcTileWire.ts`, `webrtcTileCapture.ts`, `webrtcReceiverStats.ts`,
+`tileVideoPresentation.ts`, `tileReceiverStats.ts`, `tileControlChannel.ts`,
+`tileStreamSession.ts`. 1275 to 373. The mutable slots one attempt writes for the next --
+the retired peer, the attempt id a page teardown reports, the resolved display -- are handed to
+`runTileSession` by reference as `TileSessionRuntime`, because they outlive an attempt on purpose.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -470,6 +487,8 @@ Improvements noticed in passing and deliberately not made. This is not a bug-fix
   the session drop paths did. Preserved exactly: `LiveSessionRegistry.clear` deliberately does not
   call `forget`, so dispose leaves those rows behind the way it always has.
 - `CodexLiveBackend.acceptStreamEnded` takes a `ts` it does not use. Predates this arc.
+- `postTileTelemetry`'s doc comment sits above `postWebrtcClose`'s in `webrtcTileWire.ts`, as it
+  did in `TileStreamRtc.tsx`. Moved verbatim, detachment and all.
 - In `activityEventText.ts`, `shellCommand`'s doc comment sits above `toolIntent`'s rather than
   above `shellCommand`. It was already detached in `activityDisplayItems.ts`; moved verbatim,
   detachment and all, rather than quietly re-homed.
