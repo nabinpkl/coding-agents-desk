@@ -30,140 +30,44 @@ import {
   type RailModifier,
   type RailModifiers,
 } from "@agentdesk/agent-feed-wire";
+import type {
+  AgentTerminal,
+  AgentTerminalState,
+  Dimensions,
+  TerminalLabels,
+  TerminalSizing,
+} from "./agentTerminalTypes";
+import { createTerminalFit } from "./agentTerminalFit";
+import type { TerminalRuntime } from "./agentTerminalRuntime";
+import { createTerminalReceive } from "./agentTerminalStream";
+import {
+  BASE_FONT_SIZE,
+  bytesFromBase64,
+  base64FromBinaryString,
+  DEFAULT_GRID,
+  HISTORY_LINES,
+  loadXterm,
+  MAXIMUM_FONT_SIZE,
+  MINIMUM_FONT_SIZE,
+  paddingOf,
+  proposedDimensions,
+  sizingKey,
+  TAP_SLOP_PX,
+  TERMINAL_ZOOM,
+  terminalTheme,
+  WHEEL_LINES,
+} from "./agentTerminalLayout";
 
-/**
- * A live terminal, and the chrome-facing handles for driving it from outside the grid.
- *
- * `modifiers` and `pressKey` exist for the key rail: a phone keyboard has no Ctrl, Esc, Tab or
- * arrows, so those keys are drawn beside the terminal and typed through here. They live on the
- * hook rather than in the rail because a held modifier has to reach `onData` -- the rail supplies
- * the Ctrl, the phone's own keyboard supplies the letter, and only this side sees both.
- */
-export interface AgentTerminal {
-  mountRef: RefObject<HTMLDivElement | null>;
-  labels: TerminalLabels;
-  /**
-   * How tall this terminal's screen wants to be, or null until one is attached and measured.
-   *
-   * Only meaningful where the far end owns the grid: it is the height at which the type fills the
-   * width the screen has, which is the height a pane free to choose its own should take. Capped by
-   * whoever takes it -- this is what the screen wants, not what the surface can afford.
-   */
-  contentHeight: number | null;
-  /** The type size on screen right now, whether the fit chose it or the reader did. */
-  fontSize: number | null;
-  /** Whether this terminal is what the keyboard is typing into. */
-  focused: boolean;
-  modifiers: Record<RailModifier, ModifierState>;
-  toggleModifier: (modifier: RailModifier) => void;
-  pressKey: (key: RailKey) => void;
-}
+// Re-exported: the panes that mount a terminal import the hook, and these are what they
+// hand it or read from it.
+export type {
+  AgentTerminal,
+  AgentTerminalState,
+  TerminalLabels,
+  TerminalSizing,
+} from "./agentTerminalTypes";
+export { TERMINAL_ZOOM } from "./agentTerminalLayout";
 
-export type AgentTerminalState =
-  | { kind: "ready"; descriptor: AgentTerminalDescriptor }
-  | { kind: "error"; message: string }
-  | { kind: "ended"; exitStatus?: number };
-
-/**
- * How the terminal decides its own grid.
- *
- * `fit` measures the mount and follows it, which is what a single resizable pane wants. `fixed`
- * pins the grid, which is what a wall of them needs: a tile that re-fits would renegotiate the
- * PTY size on every layout change.
- *
- * A TMUX target ignores this entirely and renders at the pane's own geometry, whichever is asked
- * for. tmux has one window size per session, so a viewer that imposed its grid reflowed the
- * session in its owner's terminal; and a viewer that merely rendered at the wrong grid painted an
- * absolutely-addressed screen into the wrong rows, so text landed a row off from where the screen
- * said it was. Both were measured on a live Claude Code pane. A terminal that is entirely BLANK is
- * a different fault -- its event stream never opened -- and `openTerminalStream` says so now.
- */
-export type TerminalSizing =
-  | { kind: "fit" }
-  | { kind: "fixed"; columns: number; rows: number };
-
-/** What the terminal knows about itself that is worth showing next to it. */
-export interface TerminalLabels {
-  sync: string;
-  ownership: string;
-  source: string;
-  view: string;
-}
-
-interface Dimensions {
-  columns: number;
-  rows: number;
-}
-
-/** A finger this far off where it landed was scrolling, not tapping. */
-const TAP_SLOP_PX = 10;
-/** How much scrollback to ask tmux for, and how much to keep. Matches the route's own ceiling. */
-const HISTORY_LINES = 50_000;
-/** Rows per wheel notch. Three is what a terminal emulator conventionally scrolls. */
-const WHEEL_LINES = 3;
-/**
- * The shape a session is STARTED at when this viewer is not the one that gets to say.
- *
- * A pane that already exists is joined at whatever shape it has, so this only ever applies to a
- * session the panel brings into existence. It matters because a band is a strip: opening a new
- * session from a card created its tmux window at the card's own size -- measured 2026-09-08, two
- * sessions started at 29x13 -- and a session is then stuck in that shape for the agent living in
- * it, however it is looked at afterwards.
- *
- * 80x24 because that is what a terminal is when nobody has said otherwise, including tmux's own
- * default. A surface that DOES claim the shape still opens at its own box, which is the whole
- * point of claiming.
- */
-const DEFAULT_GRID = { columns: 80, rows: 24 };
-
-/**
- * The one import of xterm, shared by every terminal on the page.
- *
- * It stays dynamic so the library is not in the first bundle, but a wall of terminals firing the
- * import together is one question asked ten times. Holding the promise answers it once -- and it
- * also removes a real difference between them: two of those concurrent imports were observed being
- * served different module instances, one of which was not the test's mock.
- */
-let xtermModule: Promise<typeof import("@xterm/xterm")> | null = null;
-
-function loadXterm(): Promise<typeof import("@xterm/xterm")> {
-  xtermModule ??= import("@xterm/xterm");
-  return xtermModule;
-}
-
-/** The size the type is authored at, and what a fit scales away from. */
-const BASE_FONT_SIZE = 13;
-/** Above this a small grid in a large pane stops looking like a terminal. */
-const MAXIMUM_FONT_SIZE = 28;
-/**
- * Below this the screen is not worth rendering small enough to fit, so it overflows and scrolls.
- *
- * A tmux pane is 80 columns wide by convention, and a card's band on the canvas is a few hundred
- * pixels: fitting the whole width put the type at about nine pixels, which is smaller than any
- * label around it. This is a couple of points below the base size rather than the base itself,
- * because holding out for 13 would push a third of an 80-column screen off the side, where 11
- * costs a much shorter scroll for type that reads.
- *
- * The screen stays COMPLETE either way -- this is the size it stops shrinking at, not a crop. See
- * `fittedFontSize`'s own note on why overflow scrolls here rather than clipping.
- */
-const MINIMUM_FONT_SIZE = 11;
-/**
- * The range a reader may zoom through, and the step a press moves.
- *
- * Wider at the bottom than the automatic floor: the floor is what the pane settles at when nobody
- * has said otherwise, and somebody deliberately asking for more of a wide screen on one line is
- * a different request from the pane quietly shrinking under them.
- */
-export const TERMINAL_ZOOM = { minimum: 6, maximum: MAXIMUM_FONT_SIZE, step: 1 };
-
-/**
- * One xterm bound to one sidecar terminal: the stream, the input, the size negotiation, the theme.
- *
- * Extracted from the resizable pane when a grid of terminals needed the same protocol without the
- * same chrome. The alternative was a second copy of the checkpoint/output/viewport switch, which is
- * the part where a divergence would be invisible until a screen failed to paint.
- */
 export function useAgentTerminal(
   { feed, context, sizing, paneShape = "adopt", zoom = null, onState }: {
   feed: SidecarDataSource;
@@ -317,21 +221,22 @@ export function useAgentTerminal(
       if (textarea && document.activeElement === textarea) setFocused(true);
 
       let descriptor: AgentTerminalDescriptor | null = null;
-      let unsubscribe: (() => void) | null = null;
+      const t = {} as TerminalRuntime;
+      t.unsubscribe = null;
       let resizeTimer: ReturnType<typeof setTimeout> | null = null;
       // The cell at the BASE type size, measured once by `fitType`. Kept up here because two
       // readers need it: the fit itself, and the viewport report, which must describe the box in
       // grid cells the far end can act on rather than in whatever the fit has shrunk them to.
-      let baseCell: { width: number; height: number } | null = null;
+      t.baseCell = null;
       // Whether the far end took the shape this viewer asked for. What it decides is which of TWO
       // ways of making a screen fit a box is in force, and only ever one of them: see `fitType`.
       //
       // A tmux pane answers this in its own report, so it starts false and follows what arrives.
       // Nothing else has a second viewer to lose to, and starting those false was the fault: it
       // ran the fit as well as the grid proposal on a terminal only this box was sizing.
-      let ownsPaneShape = viewerSetsGrid(isTmuxAttach(context), sizing.kind);
+      t.ownsPaneShape = viewerSetsGrid(isTmuxAttach(context), sizing.kind);
       let viewportSequence = 0;
-      let remoteClosed = false;
+      t.remoteClosed = false;
       let writes = Promise.resolve();
 
       const enqueueWrite = (operation: () => void | Promise<void>): void => {
@@ -341,7 +246,7 @@ export function useAgentTerminal(
         enqueueWrite(() => new Promise<void>((resolve) => terminal.write(bytesFromBase64(encoded), resolve)));
       };
       const publishViewport = (): void => {
-        if (!descriptor || disposed || remoteClosed) return;
+        if (!descriptor || disposed || t.remoteClosed) return;
         // What this viewer's BOX would hold, which is what the far end resizes to. A viewer that
         // does not set the grid has scaled its type to squeeze an oversized one in, so it must
         // measure at the BASE cell: reporting the fitted one describes the grid already in force
@@ -351,7 +256,7 @@ export function useAgentTerminal(
         // first fit, when nothing has been scaled and the current cell IS the base one.
         const dimensions = sizing.kind === "fixed"
           ? { columns: sizing.columns, rows: sizing.rows }
-          : proposedDimensions(terminal, mount, ownsPaneShape ? null : baseCell);
+          : proposedDimensions(terminal, mount, t.ownsPaneShape ? null : t.baseCell);
         if (!dimensions) return;
         viewportSequence += 1;
         setViewLabel(`View ${dimensions.columns}×${dimensions.rows}`);
@@ -370,9 +275,9 @@ export function useAgentTerminal(
         resizeTimer = setTimeout(() => publishViewport(), 120);
       };
       const finishRemote = (state: AgentTerminalState): void => {
-        remoteClosed = true;
-        unsubscribe?.();
-        unsubscribe = null;
+        t.remoteClosed = true;
+        t.unsubscribe?.();
+        t.unsubscribe = null;
         onState?.(context, state);
       };
       // A resumed CLI is worth keeping alive for the next visit, so its viewer leaving is a
@@ -391,76 +296,35 @@ export function useAgentTerminal(
           console.error(`Agent terminal ${closeMode} failed`, error);
         });
       };
-      const receive = (message: AgentTerminalStreamMessage): void => {
-        switch (message.type) {
-          case "checkpointBegin":
-            setSyncLabel("Synchronizing");
-            setSourceLabel(`Source ${message.columns}×${message.rows}`);
-            enqueueWrite(() => {
-              terminal.clear();
-              terminal.reset();
-              terminal.resize(message.columns, message.rows);
-              // A new grid is a new shape to fit the type to, and a new height for the pane to
-              // want. Nothing else reports this: the mount has not moved.
-              fitType();
-            });
-            break;
-          case "checkpointChunk":
-          case "output":
-            write(message.data);
-            break;
-          case "checkpointEnd":
-            enqueueWrite(() => {
-              setSyncLabel(`Revision ${message.revision}`);
-              scheduleViewport();
-            });
-            break;
-          case "viewport": {
-            // A follower never reports controlling the layout, even where the shapes happen to
-            // agree: it did not ask for this one and will not keep it if the pane moves. Braced
-            // because a declaration in a bare `case` shares the whole switch's scope.
-            const controls = message.isOwner && adoptsPaneShape;
-            setOwnershipLabel(
-              // Three different things, and a follower is not the third: "frozen" is a pane that
-              // would not take a shape it was ASKED for, which is a fault worth reading, where
-              // this one is a surface that deliberately never asks.
-              controls
-                ? "Controls layout"
-                : !adoptsPaneShape
-                  ? "Follows the pane"
-                  : message.ownerClientId !== "0"
-                    ? `Following ${message.ownerTitle || "viewer"}`
-                    : "Source frozen",
-            );
-            setSourceLabel(`Source ${message.sourceColumns}×${message.sourceRows}`);
-            setViewLabel(`View ${message.viewColumns}×${message.viewRows}`);
-            // Which of the two fits is in force, and it can change under a viewer: a pane stops
-            // being ours the moment somebody attaches a terminal to it, and starts being ours
-            // again when they leave. Re-fit on the change so the type moves with it rather than
-            // staying at whatever the other regime left behind.
-            if (paneAuthoritative && controls !== ownsPaneShape) {
-              ownsPaneShape = controls;
-              enqueueWrite(() => fitType());
-            }
-            break;
-          }
-          case "exited":
-            finishRemote({ kind: "ended", exitStatus: message.status });
-            break;
-          case "detached":
-            finishRemote({ kind: "ended" });
-            break;
-          case "error":
-            remoteClosed = true;
-            unsubscribe?.();
-            unsubscribe = null;
-            fail(new Error(message.message));
-            break;
-        }
-      };
+      // Staged: the parts call these, and none of them exists until the lines above have run.
+      Object.assign(t, {
+        terminal,
+        mount,
+        zoomRef,
+        adoptsPaneShape,
+        paneAuthoritative,
+        dimensions: null,
+        moved: false,
+        enqueueWrite,
+        write,
+        scheduleViewport,
+        finishRemote,
+        fail,
+        fitType: () => {},
+        setContentHeight,
+        setFontSize,
+        setOwnershipLabel,
+        setSourceLabel,
+        setSyncLabel,
+        setViewLabel,
+      });
+      const receive = createTerminalReceive(t);
+      const fitType = createTerminalFit(t);
+      t.fitType = fitType;
+
 
       const send = (data: string): void => {
-        if (!descriptor || remoteClosed) return;
+        if (!descriptor || t.remoteClosed) return;
         void feed.sendTerminalInput(descriptor.terminalId, data).catch(fail);
       };
       sendRef.current = send;
@@ -472,165 +336,10 @@ export function useAgentTerminal(
         if (held.ctrl || held.alt || held.shift) setModifiers(releaseArmed);
       });
       const binaryInput = terminal.onBinary((data) => {
-        if (!descriptor || remoteClosed) return;
+        if (!descriptor || t.remoteClosed) return;
         void feed.sendTerminalInput(descriptor.terminalId, base64FromBinaryString(data), "base64")
           .catch(fail);
       });
-      /**
-       * Scales the TYPE, for a grid this side does not own.
-       *
-       * A tmux pane is whatever shape its own terminal made it -- 41 columns by 20 rows, measured
-       * -- and the band showing it is nothing like that shape. At a fixed type size the screen
-       * therefore either ran off the bottom of the band and had to be scrolled, or sat in the
-       * corner of a box several times its size. Neither is fixable by resizing the pane: tmux has
-       * one window size for everyone and setting it from here reflows the session in whatever
-       * terminal its owner has it open in, which is why `tmuxAttachment` refuses to.
-       *
-       * So the grid keeps its shape and the type grows or shrinks until the whole screen fits the
-       * space. Measured ONCE, at the base size: cell metrics are proportional to the font, so
-       * everything after that is arithmetic. Re-measuring after each change instead reads a layout
-       * xterm has not finished writing, and iterating on that oscillates.
-       */
-      const fitType = (): void => {
-        const cell = terminal.dimensions?.css.cell;
-        if (!cell || cell.width <= 0 || cell.height <= 0) return;
-        const grid = { columns: terminal.cols, rows: terminal.rows };
-        if (!(grid.columns > 0) || !(grid.rows > 0)) return;
-        // Captured while the type is still at base, which is the only moment it means anything.
-        // Not a gate on the whole fit: a viewer that sets the grid never scales its type and has
-        // no use for a base cell, and gating on it there froze a pane whose reader had already
-        // chosen a size, since the size that blocked the capture was also the one it would not
-        // then update.
-        if (!baseCell && terminal.options.fontSize === BASE_FONT_SIZE) {
-          baseCell = { width: cell.width, height: cell.height };
-        }
-        // A grid this viewer ASKED for already fits the box at base type, because that is exactly
-        // what it was computed from. Scaling it as well puts two controllers on one box, and they
-        // do not agree: the fit stretches the type to fill the width, that changes the rendered
-        // height and whether a scrollbar is there, the next report measures a different box and
-        // asks for a different grid. Measured on two live cards that nobody was touching -- both
-        // cycled 40 -> 45 -> 50 -> 40 columns twice a second for as long as they were open.
-        //
-        // So exactly one of the two runs, and `viewerSetsGrid` decides which before any report
-        // arrives. Ours: the type is an input -- base, or whatever the reader chose -- and the grid
-        // follows the box. Not ours: the grid is fixed and the type follows it, which is everything
-        // below.
-        if (ownsPaneShape) {
-          // The reader's size outranks the base one here too, and costs nothing to honour: the
-          // grid is the OUTPUT on this side, so larger type means fewer columns in the same box
-          // rather than a screen that overflows it. Forcing base instead left the footer's own
-          // control dead on every pane a viewer sizes.
-          const size = zoomRef.current ?? BASE_FONT_SIZE;
-          if (terminal.options.fontSize !== size) terminal.options.fontSize = size;
-          setFontSize(terminal.options.fontSize ?? null);
-          // The band sizes itself from this, and a height asked for on behalf of a grid that is
-          // already the right shape is the loop's other half.
-          setContentHeight(null);
-          return;
-        }
-        // Only the scaling below needs it, and it is absent until a frame lands at the base size.
-        if (!baseCell) return;
-        // Both boxes: the mount is the space the band gives, and the terminal element carries the
-        // padding that makes the screen read as a screen rather than as a block of text. Missing
-        // the second one sizes the grid to the whole space and then adds the padding to it, which
-        // is an overflow and a scrollbar for the sake of eight pixels.
-        const padding = paddingOf(mount);
-        // Measured with any inset from a previous pass taken back off, because the inset is
-        // derived from the space and would otherwise eat it a little more on every reflow.
-        const frame = terminal.element;
-        if (frame) frame.style.paddingInline = "";
-        const framePadding = frame ? paddingOf(frame) : { width: 0, height: 0 };
-        const available = {
-          width: mount.clientWidth - padding.width - framePadding.width,
-          height: mount.clientHeight - padding.height - framePadding.height,
-        };
-        // What the mount must be for the screen to spend the width it has, padding included,
-        // because that is what the pane holding it can act on. NOT the height at the base size:
-        // asking for that is asking to stay at the base size forever, since the fit below would
-        // then find the height exactly binding every time.
-        const chosen = zoomRef.current;
-        // The height the screen wants, at whichever size is going to be in force. Asked for even
-        // when the reader has chosen one, so the pane grows to hold their choice and only the
-        // width is left to scroll.
-        const wanted = chosen !== null
-          ? Math.round(baseCell.height * grid.rows * (chosen / BASE_FONT_SIZE))
-          : preferredScreenHeight({
-            baseFontSize: BASE_FONT_SIZE,
-            cell: baseCell,
-            grid,
-            availableWidth: available.width,
-            maximum: MAXIMUM_FONT_SIZE,
-            minimum: MINIMUM_FONT_SIZE,
-          });
-        if (wanted !== null) {
-          setContentHeight(wanted + padding.height + framePadding.height);
-        }
-        // A reader who has said what size they want has answered the question this fit exists to
-        // ask, so it stops asking. The screen overflows and scrolls where the choice does not fit,
-        // which is what choosing one bigger than the box means.
-        if (chosen !== null) {
-          if (terminal.options.fontSize !== chosen) terminal.options.fontSize = chosen;
-          setFontSize(chosen);
-        } else {
-        const fitted = fittedFontSize({
-          baseFontSize: BASE_FONT_SIZE,
-          cell: baseCell,
-          grid,
-          available,
-          maximum: MAXIMUM_FONT_SIZE,
-          minimum: MINIMUM_FONT_SIZE,
-        });
-        // Nothing measurable to fit against, which is every render before the mount has a size.
-        if (fitted === null) return;
-        if (fitted !== terminal.options.fontSize) terminal.options.fontSize = fitted;
-        // Then settle it against the real metrics, because a cell is not proportional to its font:
-        // measured on this pane, 13pt gives a cell 16 tall and 28pt gives 35.5, where the ratio
-        // predicts 34.5. The arithmetic above is therefore a starting point that can overshoot by a
-        // few percent -- enough for a scrollbar -- and xterm updates `dimensions` synchronously
-        // with the option, so the overshoot is readable straight away. Only ever downward, so this
-        // settles instead of hunting.
-        for (let step = 0; step < 6; step += 1) {
-          // Annotated because the assignment below feeds back into inferring this.
-          const size: number = terminal.options.fontSize ?? BASE_FONT_SIZE;
-          // The floor binds here too. This loop only ever shrinks, so without the guard it walks
-          // straight back through a floored fit to whatever fits exactly -- measured on an
-          // 80-column pane in a card's band: the fit floored at 11 and this settled it to 9.4.
-          // Below the floor the answer is to overflow and scroll, not to keep shrinking.
-          if (size <= Math.max(MINIMUM_FONT_SIZE, FONT_SIZE_STEP)) break;
-          const actual = terminal.dimensions?.css.cell;
-          if (!actual) break;
-          // At or above 1 the screen fits; below it, it is the fraction of the size that would.
-          const headroom = Math.min(
-            available.width / (actual.width * grid.columns),
-            available.height / (actual.height * grid.rows),
-          );
-          // A hair of tolerance, for the same reason the fit itself carries one: an exact fit
-          // computes as 0.99999 often enough to cost a step for nothing.
-          if (headroom >= 0.999) break;
-          // Re-solved from the size actually in force rather than stepped down blindly, so an
-          // overshoot of any size is answered in one move; the second term only guarantees the
-          // loop moves at all when the solve rounds back to where it started.
-          const solved = floorToStep(size * headroom);
-          const next = Math.max(
-            MINIMUM_FONT_SIZE,
-            FONT_SIZE_STEP,
-            solved < size ? solved : floorToStep(size - FONT_SIZE_STEP),
-          );
-          if (next >= size) break;
-          terminal.options.fontSize = next;
-        }
-        setFontSize(terminal.options.fontSize ?? null);
-        }
-        const settled = terminal.dimensions?.css.cell;
-        if (frame && settled) {
-          const inset = surfaceInset({
-            availableWidth: available.width,
-            screenWidth: settled.width * grid.columns,
-            basePadding: framePadding.width / 2,
-          });
-          frame.style.paddingInline = inset === null ? "" : `${inset}px`;
-        }
-      };
 
       // A fixed grid has nothing to observe: its size is the one it was given, and re-fitting it
       // would push a new size onto the PTY every time the page reflowed. A tmux attach does both,
@@ -680,7 +389,7 @@ export function useAgentTerminal(
           }
           // A replay would clear the terminal first, erasing the history just written. The capture
           // already ends with the current screen, so there is nothing left for it to add.
-          unsubscribe = feed.subscribeTerminal(opened.terminalId, {
+          t.unsubscribe = feed.subscribeTerminal(opened.terminalId, {
             onMessage: receive,
             onError: (reason) => fail(new Error(reason)),
           }, { replay: !imported });
@@ -705,7 +414,7 @@ export function useAgentTerminal(
       // existed. `closeTerminal` is sent with keepalive so the browser does not cancel it on the
       // way out.
       const onPageHide = (): void => {
-        if (descriptor && !remoteClosed) release(descriptor.terminalId);
+        if (descriptor && !t.remoteClosed) release(descriptor.terminalId);
       };
       window.addEventListener("pagehide", onPageHide);
 
@@ -727,8 +436,8 @@ export function useAgentTerminal(
         binaryInput.dispose();
         appearance?.removeEventListener("change", updateTheme);
         window.removeEventListener("pagehide", onPageHide);
-        unsubscribe?.();
-        if (descriptor && !remoteClosed) release(descriptor.terminalId);
+        t.unsubscribe?.();
+        if (descriptor && !t.remoteClosed) release(descriptor.terminalId);
         terminal.dispose();
       };
     }).catch(fail);
@@ -769,96 +478,4 @@ export function useAgentTerminal(
       setModifiers(releaseArmed);
     },
   };
-}
-
-/** The sizing values, not the object, so a re-render with the same numbers does not restart. */
-function sizingKey(sizing: TerminalSizing): string {
-  return sizing.kind === "fixed" ? `fixed:${sizing.columns}x${sizing.rows}` : "fit";
-}
-
-
-/**
- * How many cells this viewer's box holds.
- *
- * `at` is the cell to measure in, for a caller that must not be answered in the cell currently
- * rendered: a fitted terminal has already shrunk its type to hold an oversized grid, so measuring
- * in that cell returns the oversized grid back. Omitted, it measures what is on screen.
- */
-function proposedDimensions(
-  terminal: XtermTerminal,
-  mount: HTMLElement,
-  at: { width: number; height: number } | null = null,
-): Dimensions | null {
-  if (mount.clientWidth <= 0 || mount.clientHeight <= 0) return null;
-  const cell = at ?? terminal.dimensions?.css.cell;
-  if (!cell || cell.width <= 0 || cell.height <= 0) return null;
-  const terminalElement = terminal.element;
-  if (!terminalElement) return null;
-  const style = getComputedStyle(terminalElement);
-  const horizontalPadding = pixelValue(style.paddingLeft) + pixelValue(style.paddingRight);
-  const verticalPadding = pixelValue(style.paddingTop) + pixelValue(style.paddingBottom);
-  const scrollbarWidth = terminal.options.scrollback === 0
-    || terminal.options.scrollbar?.showScrollbar === false
-    ? 0
-    : terminal.options.scrollbar?.width ?? 14;
-  return {
-    columns: Math.max(2, Math.floor((mount.clientWidth - horizontalPadding - scrollbarWidth) / cell.width)),
-    rows: Math.max(1, Math.floor((mount.clientHeight - verticalPadding) / cell.height)),
-  };
-}
-
-/** A box's padding, in CSS pixels, as one pair. */
-function paddingOf(element: HTMLElement): { width: number; height: number } {
-  const style = getComputedStyle(element);
-  return {
-    width: pixelValue(style.paddingLeft) + pixelValue(style.paddingRight),
-    height: pixelValue(style.paddingTop) + pixelValue(style.paddingBottom),
-  };
-}
-
-function pixelValue(value: string): number {
-  return Number.parseInt(value, 10) || 0;
-}
-
-function bytesFromBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
-function base64FromBinaryString(value: string): string {
-  return btoa(value);
-}
-
-function terminalTheme() {
-  return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches
-    ? {
-        background: "#0b0e14",
-        foreground: "#d8dee9",
-        cursor: "#a8c7fa",
-        selectionBackground: "#45658d99",
-        black: "#1b1d23",
-        red: "#e06c75",
-        green: "#98c379",
-        yellow: "#e5c07b",
-        blue: "#61afef",
-        magenta: "#c678dd",
-        cyan: "#56b6c2",
-        white: "#d4d7dd",
-      }
-    : {
-        background: "#ffffff",
-        foreground: "#2a2f38",
-        cursor: "#2a6fdb",
-        selectionBackground: "#b6d2ff80",
-        black: "#383a42",
-        red: "#d13b30",
-        green: "#3f8f3c",
-        yellow: "#9a6a00",
-        blue: "#2a6fdb",
-        magenta: "#9b2bb0",
-        cyan: "#0a7d8c",
-        white: "#a0a1a7",
-      };
 }

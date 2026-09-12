@@ -67,7 +67,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R33 | D | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
 | R34 | D | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
 | R35 | D | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
-| R36 | R | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
+| R36 | D | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
 | R37 | R | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
 | R38 | R | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
 | R39 | R | 26/585 | `agent-feed/sidecar/src/config.ts` |
@@ -518,6 +518,20 @@ one part does; `composerBox.ts` points at them.
   of them rather than the view around them.
 
 Split into `DesktopViewerControls.tsx` and `DesktopViewerStreams.tsx`. 518 to 361.
+
+### R36 `terminal/useAgentTerminal.ts` (864)
+
+- What a mounted terminal is, and what a caller may ask of it.
+- How big the grid is, what a cell measures, and what colour the terminal is painted.
+- What the sidecar's stream says and what it does to the screen.
+- Making the type fit a box whose grid this side does not own.
+- The mount itself: xterm, the subscription, the observers, the teardown.
+
+Split into `agentTerminalTypes.ts`, `agentTerminalLayout.ts`, `agentTerminalRuntime.ts`,
+`agentTerminalStream.ts`, `agentTerminalFit.ts`. 864 to 481. The four mutable facts both parts
+touch -- the base cell, which side owns the pane shape, whether the far end closed, and the
+subscription -- now live only on the runtime, not in the effect as well: two copies of those would
+have diverged the first time either part wrote one.
 
 ## Decisions
 
