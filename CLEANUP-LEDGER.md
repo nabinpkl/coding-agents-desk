@@ -55,7 +55,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R21 | D | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
 | R22 | D | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
 | R23 | D | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
-| R24 | R | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
+| R24 | D | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
 | R25 | R | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
 | R26 | R | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
 | R27 | R | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
@@ -356,6 +356,17 @@ Split into `desktopKeyboardPreferences.ts`, `desktopKeyboardContext.ts`,
 
 Split into `tileViewportHarness.tsx`, `tileViewportScroll.test.tsx`, `tileViewportCursor.test.tsx`,
 `tileViewportZoom.test.tsx`. 29 `it` blocks moved whole; 939 panel tests, unchanged.
+
+### R24 `terminal/tmuxSessions.ts` (701)
+
+- Running tmux at all, and what it means when tmux is not there.
+- What a pane is showing and has shown: scrollback, screen, cursor, and whether it has settled.
+- Which sessions exist, which one is a given agent session, and how a new one is started.
+- Driving a pane that already exists: bytes in, size, the pipe, the mouse option.
+
+Split into `tmuxCommand.ts`, `tmuxCapture.ts`, `tmuxSessionList.ts`. 701 to 242.
+`restoreTmuxMouse`'s doc comment, which had drifted a hundred lines above the function, moved back
+onto it -- that is a comment travelling with the code it describes, not a rewrite of either.
 
 ## Decisions
 
