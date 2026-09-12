@@ -297,31 +297,30 @@
    document that grew and shrank with somebody's transcript preference would be the surprise. */
 
 .agent-panel-md--document {
-  /* The two knobs.
+  /* One knob, and no measure: the document is as wide as the pane it was given, minus a gutter
+     that grows as the pane does. The reader is centred by the two gutters being equal rather than
+     by a fixed column parked in the middle, which is the difference that matters here -- widen
+     the editor and the text widens with it instead of the empty band on either side of it.
 
-     The measure caps the line, it does not set it: below the cap the column is simply the width
-     of the pane, so narrowing the editor narrows the document rather than parking a fixed slab in
-     the middle of it. `ch` resolves against this element's own font, so the cap moves with the
-     body size rather than having to be re-derived when it changes; 88ch of Inter at 15px is about
-     790px, which lands an average line of English prose near a hundred characters. That is the
-     top of the legible band rather than the middle of it, and it is deliberate -- this is an
-     editor pane, not a reading site, and a reader who made the pane wide did it to see more.
+     Why a formula rather than a percentage. A flat percentage is linear through the origin, so
+     the only gutter that is generous at 1600px is one that eats a phone alive at 400. This gives
+     away a fraction of what the pane has ABOVE a comfortable 40rem, so the growth is all in the
+     part that is actually surplus:
 
-     The gutter is a PERCENTAGE of the pane, not of the viewport, so it grows as the pane does and
-     a split editor does not keep a phone's margins. `vw` would have read the whole window and
-     given a narrow pane in a wide window margins it has no room for. */
-  --agent-panel-md-measure: 88ch;
-  --agent-panel-md-gutter: clamp(1rem, 4%, 3rem);
+         pane   gutter   line
+         640    16       608
+         1136   190      756
+         1600   352      896
+         2000   492      1016
+
+     Percentages resolve against the pane, not the window, which is what keeps a split editor
+     inside a wide window from being given margins it has no room for. The 34rem ceiling is a
+     backstop for an ultrawide and nothing else; it is not reached until about 2150px of pane. */
+  --agent-panel-md-gutter: clamp(1rem, calc(1rem + (100% - 40rem) * 0.35), 34rem);
   /* Wider than the transcript's 0.75em, because the blocks it separates are bigger. */
   --agent-panel-md-block-gap: 1em;
 
   box-sizing: border-box;
-  max-width: calc(var(--agent-panel-md-measure) + 2 * var(--agent-panel-md-gutter));
-  /* Leading edge, not centred. A capped column centred in a wide pane leaves a matching band of
-     nothing down both sides and reads as a page floating inside the editor; aligned left it
-     starts where the breadcrumb and the tabs above it start, and all the slack goes to one side
-     where it reads as room rather than as a margin. */
-  margin-inline: 0;
   padding-inline: var(--agent-panel-md-gutter);
   /* The tail is deliberate: a reader working through a long file can bring its last section up
      to eye level instead of reading it off the bottom edge of the pane. */
