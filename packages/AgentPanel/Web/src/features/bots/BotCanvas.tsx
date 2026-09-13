@@ -544,11 +544,6 @@ function BotSessionCard({
                   activity={session.activity}
                 />
               </span>
-              {!session.capabilities.canSend ? (
-                <span className="mt-0.5 shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                  view only
-                </span>
-              ) : null}
               <ChevronDown
                 className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
                 aria-hidden

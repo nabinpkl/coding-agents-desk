@@ -215,7 +215,6 @@ export function BotSidebarPanel({
                               {session.title || session.sessionId}
                             </span>
                             <SourceBadge source={session.source} />
-                            {!session.capabilities.canSend ? <span className="text-[11px] text-muted-foreground">view only</span> : null}
                           </button>
                           <SessionRowMenu
                             label={session.title || session.sessionId}
