@@ -48,6 +48,22 @@ import { openAskUserQuestion, type OpenAskUserQuestion } from "../../app/askUser
 const STICKY_HEIGHT_ESTIMATE = 44;
 
 /**
+ * How long a restore keeps holding the line it put back at the top of the viewport.
+ *
+ * A jump into a virtualised list lands on estimates, and the layout goes on changing under it
+ * afterwards as each row that comes into view reports what it really measures. That moves the line
+ * the jump was aimed at, and the first version of this fired once and accepted wherever it landed:
+ * measured against a real thread in a real browser, a couple of hundred lines late, which is close
+ * enough to the end to read as never having been restored at all. So the line is held instead,
+ * until the layout stops moving or the reader takes over, whichever comes first.
+ *
+ * Long enough to cover a window of rows measuring, short enough that a reader who reloads and
+ * immediately reaches for the scrollbar is not fought for long -- and their first wheel, touch,
+ * press or key ends it early anyway.
+ */
+const RESTORE_HOLD_MS = 1500;
+
+/**
  * How long the transcript has to sit still before where it is being read is written down.
  *
  * A scroll is hundreds of events and a restore is a handful of corrections; both settle inside
@@ -390,7 +406,7 @@ export function ActivityFeed({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTop, virtualItems, rowItems]);
 
-  // Puts the reader back where they were reading, once, as soon as there are rows to land on.
+  // Puts the reader back where they were reading, as soon as there are rows to land on.
   //
   // Only for a session that was left away from the tail: following it is the default, so a session
   // with nothing stored is restored by doing nothing, which is also what a reload of a live thread
@@ -400,6 +416,10 @@ export function ActivityFeed({
   // An anchor older than the loaded window resolves to the window's first row, which is the
   // nearest place to it that exists -- and landing there is what asks for the page before it.
   const restoredFor = useRef<string | null>(null);
+  // The transcript line a restore is currently holding at the top of the viewport, or null once it
+  // has let go. The line rather than its row, because paging older events in renumbers every row
+  // and a held number would then hold somebody else.
+  const [holdingEvent, setHoldingEvent] = useState<number | null>(null);
   useLayoutEffect(() => {
     const key = `${source}:${sessionId}`;
     if (restoredFor.current === key || rowItems.length === 0) return;
@@ -413,20 +433,49 @@ export function ActivityFeed({
       restoredFor.current = key;
       return;
     }
-    const measurement = rowVirtualizer.measurementsCache[rowIndex];
-    const el = parentRef.current;
     // The rows exist before the virtualiser has measured any of them, and a restore that gave up
     // there would give up for good. Left unanswered so the next commit tries again.
-    if (!measurement || !el) return;
+    if (!rowVirtualizer.measurementsCache[rowIndex] || !parentRef.current) return;
     restoredFor.current = key;
     pause();
-    // The same one synchronous write `jumpTo` makes, rather than the virtualiser's own
-    // `scrollToIndex`, which reaches the scroller through `Element.scrollTo`: rows above this one
-    // are still on their estimated heights, and what corrects for that as they measure is
-    // virtual-core's scroll anchoring, which watches the offset rather than being told it.
-    el.scrollTop = jumpScrollTop(measurement, 0);
+    setHoldingEvent(anchor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, sessionId, rowItems, virtualItems, rowVirtualizer, pause]);
+
+  /**
+   * Puts the held row back at the top after every commit that could have moved it.
+   *
+   * No dependency list on purpose: what moves it is a row being measured or collapsed, and those
+   * arrive as ordinary renders rather than as a value this could watch. Re-applying costs nothing
+   * once the answer stops changing, because writing the offset it already has is not a scroll.
+   */
+  useLayoutEffect(() => {
+    if (holdingEvent === null) return;
+    const rowIndex = rowItems.findIndex(
+      (item) => item.kind !== "tail" && leadEvent(item).index >= holdingEvent,
+    );
+    if (rowIndex >= 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
+  });
+
+  // The hold ends on its own, and early if the reader takes over -- fighting somebody who is
+  // already scrolling is worse than landing a little short of where they were.
+  useEffect(() => {
+    if (holdingEvent === null) return;
+    const el = parentRef.current;
+    const release = () => setHoldingEvent(null);
+    const timer = setTimeout(release, RESTORE_HOLD_MS);
+    el?.addEventListener("wheel", release, { passive: true });
+    el?.addEventListener("touchstart", release, { passive: true });
+    el?.addEventListener("pointerdown", release, { passive: true });
+    window.addEventListener("keydown", release, true);
+    return () => {
+      clearTimeout(timer);
+      el?.removeEventListener("wheel", release);
+      el?.removeEventListener("touchstart", release);
+      el?.removeEventListener("pointerdown", release);
+      window.removeEventListener("keydown", release, true);
+    };
+  }, [holdingEvent]);
 
   /**
    * Records where the session is being read, once the scrolling stops.
@@ -438,7 +487,7 @@ export function ActivityFeed({
    * just put the reader back on. It also costs one write per flick rather than one per frame.
    */
   useEffect(() => {
-    if (restoredFor.current !== `${source}:${sessionId}`) return;
+    if (restoredFor.current !== `${source}:${sessionId}` || holdingEvent !== null) return;
     const timer = setTimeout(() => {
       const session = { source, sessionId };
       // Back at the end is not a place worth keeping: it is where a session opens anyway, and an
@@ -447,7 +496,7 @@ export function ActivityFeed({
       else rememberTranscriptAnchor(session, topEvent);
     }, SCROLL_SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [source, sessionId, following, topEvent]);
+  }, [source, sessionId, following, topEvent, holdingEvent]);
 
   // One synchronous scroll write per jump. The earlier two-step (jump to the
   // row top, then rAF-correct for the bar) showed the row under the bar before
