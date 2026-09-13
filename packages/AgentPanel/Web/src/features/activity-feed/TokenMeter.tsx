@@ -84,6 +84,7 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
   if (usage.limit === null) {
     return (
       <span className="flex shrink-0 items-baseline gap-1 px-1">
+        <CacheCountdown usage={usage} />
         <span
           title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}`}
           aria-label={`Context: ${usage.current.toLocaleString()} tokens`}
@@ -91,7 +92,6 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
         >
           {compact}
         </span>
-        <CacheCountdown usage={usage} />
       </span>
     );
   }
@@ -116,7 +116,11 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
       title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}`}
       className="flex shrink-0 flex-col items-end gap-[2px] px-1"
     >
+      {/* Countdown first so the count keeps the right edge, directly over the
+          track below it: the occupancy and its bar are one reading and stay
+          aligned, and the cache clock sits beside them rather than between. */}
       <span className="flex items-baseline gap-1">
+        <CacheCountdown usage={usage} />
         <span
           className={
             "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
@@ -125,7 +129,6 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
         >
           {compact}
         </span>
-        <CacheCountdown usage={usage} />
       </span>
       {/* The track carries the role and the accessible name, not the wrapper:
           the bar IS the fraction, and naming it here is what makes the readout
