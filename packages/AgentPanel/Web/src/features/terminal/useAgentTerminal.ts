@@ -22,7 +22,7 @@ import {
   preferredScreenHeight,
   surfaceInset,
   viewerSetsGrid,
-} from "@/features/terminal/terminalTypeFit";
+} from "@/features/terminal/mounted-terminal/terminalTypeFit";
 import {
   applyModifiers,
   bytesForRailKey,
@@ -36,10 +36,10 @@ import type {
   Dimensions,
   TerminalLabels,
   TerminalSizing,
-} from "@/features/terminal/agentTerminalTypes";
-import { createTerminalFit } from "@/features/terminal/agentTerminalFit";
-import type { TerminalRuntime } from "@/features/terminal/agentTerminalRuntime";
-import { createTerminalReceive } from "@/features/terminal/agentTerminalStream";
+} from "@/features/terminal/mounted-terminal/agentTerminalTypes";
+import { createTerminalFit } from "@/features/terminal/mounted-terminal/agentTerminalFit";
+import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
+import { createTerminalReceive } from "@/features/terminal/mounted-terminal/agentTerminalStream";
 import {
   BASE_FONT_SIZE,
   bytesFromBase64,
@@ -56,7 +56,7 @@ import {
   TERMINAL_ZOOM,
   terminalTheme,
   WHEEL_LINES,
-} from "@/features/terminal/agentTerminalLayout";
+} from "@/features/terminal/mounted-terminal/agentTerminalLayout";
 
 // Re-exported: the panes that mount a terminal import the hook, and these are what they
 // hand it or read from it.
@@ -65,8 +65,8 @@ export type {
   AgentTerminalState,
   TerminalLabels,
   TerminalSizing,
-} from "@/features/terminal/agentTerminalTypes";
-export { TERMINAL_ZOOM } from "@/features/terminal/agentTerminalLayout";
+} from "@/features/terminal/mounted-terminal/agentTerminalTypes";
+export { TERMINAL_ZOOM } from "@/features/terminal/mounted-terminal/agentTerminalLayout";
 
 export function useAgentTerminal(
   { feed, context, sizing, paneShape = "adopt", zoom = null, onState }: {

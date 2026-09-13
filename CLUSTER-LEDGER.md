@@ -31,7 +31,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) -> 5 (7) | D |
 | R6 | `agent-feed/sidecar/src/terminal` | 16 (24) -> 6 (10) | D |
 | R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) -> dissolved | D |
-| R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) | R |
+| R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) -> 7 (10) | D |
 | R9 | `packages/AgentPanel/Web/src/features/session-view` | 13 (13) | R |
 | R10 | The gate: fitness check 7, the pre-commit hook, this file's summary | | R |
 
@@ -252,6 +252,22 @@ Three ways to do this, and the third is the one taken.
 `claudeThinking` and `codexReasoning` each have a caller in `lineClass`, which stays flat, so the
 callers rule splits rather than decides. Each went to its vendor: nothing else could be about the
 text of one Claude `thinking` block.
+
+### R8 `packages/AgentPanel/Web/src/features/terminal`, 13 source files
+
+One group, and the import graph draws its boundary exactly: six files that `useAgentTerminal`
+assembles, each imported only by that hook or by another of the six, and by nothing anywhere else
+in either tree.
+
+- `mounted-terminal/` (6) what one mounted terminal is and holds: what a caller may ask of it, how
+  big its grid is and what colour it is painted, making the type fit a box whose grid this side
+  does not own, how finely that type is sized, what it holds while its stream and its fit both read
+  it, and what the sidecar's stream does to the screen. `agentTerminalTypes`, `agentTerminalLayout`,
+  `agentTerminalFit`, `terminalTypeFit`, `agentTerminalRuntime`, `agentTerminalStream`.
+
+The feature keeps 7: the hook itself, the pane, the key rail, the tile, the surface, one stable
+string for what a terminal is pointed at, and which sessions type into their own terminal rather
+than into the composer.
 
 ## Decisions
 

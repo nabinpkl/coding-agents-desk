@@ -5,7 +5,7 @@
 // measured, and whether the far end has already closed.
 
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
-import type { Dimensions, AgentTerminalState } from "@/features/terminal/agentTerminalTypes";
+import type { Dimensions, AgentTerminalState } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 
 export interface TerminalRuntime {
   readonly terminal: XtermTerminal;
