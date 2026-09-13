@@ -9,7 +9,7 @@
 
 Before doing project work, read `FEATURE-MAP.md` first, then `PRD.md` and `SPEC.md` once. They are short on purpose.
 
-Two things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
+Three things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
 infer backwards from the shape of the tree:
 
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
@@ -23,6 +23,14 @@ infer backwards from the shape of the tree:
   current.** A superseded pipeline still compiles and still passes its tests. Do not extend one
   because you found it first, and do not merge two in your head across a compaction: check the map,
   and check `git log` for the directory you are about to edit.
+- **Pi is no longer used as a session provider here** (recorded 2026-09-13, on the owner's word).
+  Sessions run in Claude and Codex. The Pi provider is still wired in and still looks current:
+  `PiAgentBackend` registers in `agent-feed/sidecar/src/server.ts`, Pi sessions still show in the
+  sidebar with a PI badge, and `PRD.md` and `SPEC.md` still describe Pi as the directly controlled
+  provider. Do not extend it, and do not treat a gap on a Pi row as a bug to fix -- its tool rows
+  carry no summary, for one. The Pi SDK itself is NOT dead: `summary/summaryRuntime.ts` runs the
+  turn summarizer on `@earendil-works/pi-coding-agent` (the `summaryModel` in `/api/config`), so
+  retiring Pi means removing the provider, not that dependency.
 
 # Repository layout
 
