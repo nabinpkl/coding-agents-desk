@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { seedRange, olderRange } from "@/features/activity-feed/data-source/eventPaging";
 import { lastUsageFromEvents } from "@/features/activity-feed/usageFromEvents";
+import { splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 
 export interface ActivityBlock {
@@ -445,9 +446,10 @@ onEvent: (event) => {
 
   // Derived rather than cleared on arrival, so the rule holds whatever order the two
   // sources land in. The clear inside `onEvent` still runs, to let a finished message
-  // go rather than carry it; this is what decides whether it is drawn.
+  // go rather than carry it; this is what decides whether it is drawn. Split per block
+  // last, so a message's rows are the ones its transcript lines will replace.
   const liveTails = useMemo(
-    () => visibleTails(state.liveRows, events, state.mirroredMessages),
+    () => splitLiveTails(visibleTails(state.liveRows, events, state.mirroredMessages), events),
     [state.liveRows, events, state.mirroredMessages],
   );
 

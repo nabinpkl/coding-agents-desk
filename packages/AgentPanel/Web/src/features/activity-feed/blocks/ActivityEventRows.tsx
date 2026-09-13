@@ -96,7 +96,19 @@ function CollapsedPreview({ ev }: { ev: ActivityEvent }) {
  * The expanded body of one event: its content blocks, then the single Raw
  * drawer holding the metadata and the raw transcript line.
  */
-function EventBody({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
+function EventBody({
+  ev,
+  ctx,
+  besideHeading,
+}: {
+  ev: ActivityEvent;
+  ctx: EventRowContext;
+  /**
+   * Whether flowing text may sit beside the heading. Not on a tool row: its heading carries the
+   * chip and the call's intent, and thinking wrapped beside that ran straight into it.
+   */
+  besideHeading: boolean;
+}) {
   const { inline, folded, hasRawJson } = partitionEventBlocks(ev);
   return (
     <div className="space-y-[0.4em]">
@@ -110,7 +122,10 @@ function EventBody({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
         // block, and a slot that changed kind would hand a reasoning trace the
         // cursor prose left behind, showing a prefix of it until the catch-up
         // caught up. The kind is stable in practice, so this remounts nothing.
-        <div key={`${index}-${block.kind}`} className={isFlowBlock(block) ? undefined : "clear-left"}>
+        <div
+          key={`${index}-${block.kind}`}
+          className={besideHeading && isFlowBlock(block) ? undefined : "clear-left"}
+        >
           <Block
             b={block}
             ctx={ctx}
@@ -170,7 +185,9 @@ function EventRowShell({
         // do not repeat their role on every row. Raw keeps every role label.
         showRole={showEventRoleLabel(ctx.session.mode, role)}
       />
-      {isCollapsed ? <CollapsedPreview ev={ev} /> : <EventBody ev={ev} ctx={ctx} />}
+      {isCollapsed
+        ? <CollapsedPreview ev={ev} />
+        : <EventBody ev={ev} ctx={ctx} besideHeading={role !== "tool"} />}
     </div>
   );
 }

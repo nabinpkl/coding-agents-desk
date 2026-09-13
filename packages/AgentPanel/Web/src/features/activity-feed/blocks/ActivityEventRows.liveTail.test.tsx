@@ -128,6 +128,32 @@ describe("LiveTailRow", () => {
     expect(live.textContent).toBe(renderLanded(ev).container.textContent);
   });
 
+  // Thinking and calls with no prose is a `tool` row, whose heading carries the chip and the
+  // call's intent. The thinking used to wrap beside that heading and run into it.
+  it("puts a tool row's thinking under its heading, not beside it", () => {
+    const trace = "Checking the tree first";
+    const deepest = (container: HTMLElement) =>
+      [...container.querySelectorAll("*")].filter((el) => el.textContent?.includes(trace)).at(-1);
+
+    const toolRow = tail([
+      { kind: "reasoning", text: trace },
+      {
+        kind: "tool_use",
+        tool: "Bash",
+        summary: "git status",
+        callId: "call_1",
+        input: { command: "git status", description: "Show working tree status" },
+      },
+    ]);
+    toolRow.phase = "complete";
+    expect(deepest(renderLive(toolRow).container)?.closest(".clear-left")).not.toBeNull();
+
+    // A thinking row's heading is a bare chevron, so its trace still starts beside it.
+    const thinkingRow = tail([{ kind: "reasoning", text: trace }]);
+    thinkingRow.phase = "complete";
+    expect(deepest(renderLive(thinkingRow).container)?.closest(".clear-left")).toBeNull();
+  });
+
   it("marks itself live without taking a row for the marker", () => {
     const ev = tail([{ kind: "text", text: "Working" }]);
     ev.phase = "complete";
