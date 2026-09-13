@@ -117,13 +117,13 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
   const costly = usage.current >= COMPACTION_PAYS_ABOVE;
   if (usage.limit === null) {
     return (
-      <span className="flex shrink-0 items-baseline gap-1 px-1">
+      <span className="flex shrink-0 items-center gap-2 px-1">
         <CacheCountdown usage={usage} />
         <span
           title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
           aria-label={`Context: ${usage.current.toLocaleString()} tokens`}
           className={
-            "font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums "
+            "min-w-8 text-right font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums "
             + (costly ? "text-amber-500" : "text-muted-foreground")
           }
         >
@@ -152,41 +152,43 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
         : "bg-muted-foreground/60";
 
   return (
-    <span
-      title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
-      className="flex shrink-0 flex-col items-end gap-[2px] px-1"
-    >
-      {/* Countdown first so the count keeps the right edge, directly over the
-          track below it: the occupancy and its bar are one reading and stay
-          aligned, and the cache clock sits beside them rather than between. */}
-      <span className="flex items-baseline gap-1">
-        <CacheCountdown usage={usage} />
+    // Two readings, not three. The cache clock answers "how long is this context still cheap to
+    // re-read"; the count and the track answer "how big is it", and they are one object drawn as
+    // one -- same width, same edges, stacked, with only their own hairline gap between them. The
+    // gap out to the clock is four times that, which is what keeps the bar from reading as the
+    // clock's.
+    <span className="flex shrink-0 items-center gap-2 px-1">
+      <CacheCountdown usage={usage} />
+      <span
+        title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
+        className="flex flex-col items-end gap-[2px]"
+      >
         <span
           className={
-            "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
+            "min-w-8 text-right font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
             tone
           }
         >
           {compact}
         </span>
-      </span>
-      {/* The track carries the role and the accessible name, not the wrapper:
-          the bar IS the fraction, and naming it here is what makes the readout
-          addressable rather than a decorative div. Fixed width so the header
-          does not reflow every time the count crosses a digit boundary, which on
-          a live thread is every few seconds. */}
-      <span
-        role="progressbar"
-        aria-label={`Context: ${percent}% of ${usage.limit.toLocaleString()} tokens${costly ? COSTLY_NOTE : ""}`}
-        aria-valuenow={percent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        className="h-[3px] w-8 overflow-hidden rounded-full bg-muted"
-      >
+        {/* The track carries the role and the accessible name, not the wrapper: the bar IS the
+            fraction, and naming it here is what makes the readout addressable rather than a
+            decorative div. Its width is the count's, fixed, so the two share an edge on both
+            sides and the header does not reflow every time the count crosses a digit boundary --
+            which on a live thread is every few seconds. */}
         <span
-          className={"block h-full rounded-full " + fill}
-          style={{ width: `${percent}%` }}
-        />
+          role="progressbar"
+          aria-label={`Context: ${percent}% of ${usage.limit.toLocaleString()} tokens${costly ? COSTLY_NOTE : ""}`}
+          aria-valuenow={percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          className="h-[3px] w-full overflow-hidden rounded-full bg-muted"
+        >
+          <span
+            className={"block h-full rounded-full " + fill}
+            style={{ width: `${percent}%` }}
+          />
+        </span>
       </span>
     </span>
   );
