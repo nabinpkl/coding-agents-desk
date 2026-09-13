@@ -412,6 +412,13 @@ Five traps, each of which cost real time:
   record and the sidecar's session list answers with the new title on the very next read -- no
   restart, no cache, last record wins. So the panel, the Canvas and `/resume` pick it up at once,
   and cross-session messaging never does.
+- **Renaming a RUNNING session is safe, and the live process adopts the new name.** Measured
+  2026-09-07 against a throwaway session mid-turn: the append landed as the last line, all 33 lines
+  still parsed, and the session finished that turn and the next. The CLI re-emits its own
+  `custom-title` record periodically -- so the obvious worry is that it overwrites yours -- and it
+  does not: after the rename its next re-emission carried the NEW title, which means it re-reads
+  the title from its own transcript rather than holding the `-n` name it started with. The pane's
+  header keeps showing the `-n` address, which is the other name and is fixed at start.
 - **Finding out WHICH session did something is a join, not a guess.** Grep the transcripts under
   `~/.claude/projects/<slug>/` for a symbol or phrase to get a transcript uuid, then map that uuid to
   a peer through `~/.claude/sessions/<pid>.json`, which carries `sessionId`, `name`, `nameSource`,
