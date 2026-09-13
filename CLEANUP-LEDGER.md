@@ -44,7 +44,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R10 | D | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
 | R11 | D | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
 | R12 | D | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
-| R13 | R | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
+| R13 | D | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
 | R14 | R | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
 | R15 | R | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
 | R16 | R | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
@@ -241,6 +241,15 @@ hit testing moved with it. 515 to 408.
   every follower.
 
 Split into `eventIndexState.ts`, `eventIndexBuild.ts`, `eventIndexReads.ts`. 646 to 179.
+
+### R13 `desktop-park/DesktopParkModal.tsx` (507)
+
+- The modal and its panel: the live tile, the plan, the footer of options.
+- One window's row, what the last park or restore reported, and a button that can be busy.
+- Windows grouped by the Desktop they are on now.
+
+Split into `DesktopParkRows.tsx` and `desktopParkGroups.ts`; the test now takes `groupByDesktop`
+from the module that holds it. 507 to 352.
 
 ## Decisions
 

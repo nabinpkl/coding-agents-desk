@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ParkPlanResponse, ParkStateResponse } from "@agentdesk/agent-feed-wire";
-import { DesktopParkPanel, groupByDesktop } from "./DesktopParkModal";
+import { DesktopParkPanel } from "./DesktopParkModal";
+import { groupByDesktop } from "./desktopParkGroups";
 import type { DesktopParkHandle } from "./useDesktopPark";
 import {
   FIRST_FRAME_TIMEOUT_MS,
