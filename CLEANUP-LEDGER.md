@@ -73,7 +73,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R39 | D | 26/585 | `agent-feed/sidecar/src/config.ts` |
 | R40 | D | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
 | R41 | D | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
-| R42 | R | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
+| R42 | D | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
 | R43 | R | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
 | R44 | R | - | Sweep: re-run the churn command, split whatever the splits pushed over 500. |
 | R45 | R | - | Add the 500-line cap to `tools/agent-feed-fitness.sh`, then write the summary at the top of this file. |
@@ -621,6 +621,24 @@ into their own file rather than staying in the surface, because a card reaching 
 `BotCanvas.tsx` for a number would be the cycle that makes the split unreadable.
 `BotCanvas.tsx` stays the entry point and re-exports `BotCommandError`, which the app imports.
 
+### R42 `app/AgentPanelApp.tsx` (1211)
+
+One component of a thousand lines, holding six things that never change together.
+
+- The sidebar's own arrangement: which view, how wide, and how it is revealed.
+- The project and session inventory, and the one stream it all arrives on.
+- What the reader arranged on the canvas: which Bots are on it, which sessions are open.
+- Everything the shell asks a Bot to do, and the failures it reports back.
+- Which thread is open, how it is read, and how it is reopened after a reload.
+- Starting a fresh Pi session in a project, and what the sidebar says while it happens.
+- The four dialogs the shell opens over everything else.
+- Everything all three renderings of the sidebar are handed.
+
+Split into `useSidebarChrome.ts`, `useProjectInventory.ts`, `useCanvasRoster.ts`,
+`useBotCommands.ts`, `useThreadSelection.ts`, `usePiSessionCreation.ts`, `AppDialogs.tsx`,
+`sidebarProps.ts`. 1211 to 487. Every comment in the original survives; the audit that checks
+that is the one from the R31 decision, run over comment lines rather than all lines.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -756,6 +774,15 @@ before the commit; the sweep is clean across all 36 generated files.
 - R40 gave `isTerminalWebrtcConnectionState` and `ATTEMPT_PATTERN` files of their own concept
   rather than leaving them in the route table that three of the new modules would then import
   from. A leaf importing the entry point back is the cycle that makes a split unreadable.
+
+- R42 kept the five hook results as objects (`chrome.drawerOpen`, `commands.startFork`) rather
+  than destructuring them back into seventy loose names. Destructuring cost about ninety lines of
+  its own and would have left the file over the cap; more to the point, the prefix is what says
+  which group a value belongs to at the point it is read. The mechanical prefixing pass skipped
+  strings, comments and JSX attribute names, and the string-literal audit came back clean.
+- R42 stopped at eight files rather than also extracting the render tree. `<main>` and the header
+  read about twenty-five values each, so a component for either trades a block of JSX for a block
+  of props that says nothing. The line count did not need it once the state groups were out.
 
 ## Deferred
 
