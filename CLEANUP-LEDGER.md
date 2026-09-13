@@ -48,7 +48,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R14 | D | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
 | R15 | D | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
 | R16 | D | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
-| R17 | R | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
+| R17 | D | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
 | R18 | R | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
 | R19 | R | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
 | R20 | R | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
@@ -278,6 +278,17 @@ made. `processProbe.ts` stays the address thirteen callers already have. 556 to 
 
 Split into `activityFeedLayout.test.tsx` and `activityEventText.test.tsx`, so each of the three
 modules R6 created now has its own suite at its own name. 939 panel tests, unchanged.
+
+### R17 `transcripts/sources/codexTranscript.ts` (629)
+
+- Where Codex keeps rollouts and its state database, and how to ask a rollout whether its last
+  turn finished without reading all of it.
+- What a rollout line's payload is: `response_item` against `event_msg`, the patch summaries, the
+  labels each type wears on screen.
+- Turning one line into the blocks a reader sees.
+- The `SourceAdapter` itself, assembled from those three.
+
+Split into `codexRollouts.ts`, `codexPayloads.ts`, `codexNormalize.ts`. 629 to 71.
 
 ## Decisions
 
