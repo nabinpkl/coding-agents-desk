@@ -229,7 +229,13 @@ export function BotSidebarPanel({
                       {bot.name}
                     </span>
                     {bot.metadata.role ? (
-                      <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+                      // Caption tier, with the line below it. A role is a caption about the name
+                      // above it, and at 13px it was the same size as the session titles a few
+                      // rows down -- the one thing the canvas card was just fixed for. It reads
+                      // differently here only because this surface gives the role its own line
+                      // where the card concatenates it into one caption, which is why moving that
+                      // card's line left this one behind.
+                      <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
                         {bot.metadata.role}
                       </span>
                     ) : null}
