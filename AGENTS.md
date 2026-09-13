@@ -412,9 +412,17 @@ Five traps, each of which cost real time:
     started `-n "Rename probe A"` and renamed through the picker kept **Rename probe A** in the
     registry, with `formerNames` untouched. The picker will not offer you the session you are
     sitting in, so a session cannot rename itself this way.
-  - **Appending a `custom-title` record from outside** -- what the Agent Panel's Rename does -- also
-    changes only the title, and is the only one of the three that works on a session with no
-    running process to ask.
+  - **Appending a `custom-title` record from outside** also changes only the title. It is the only
+    one of the three that works on a session with no running process, and the Agent Panel
+    deliberately does NOT use it: a rename that moves the title and leaves the address behind reads
+    as having worked while every other agent still finds the old name.
+- **The panel renames by running `/rename` in the session's pane, and three measurements make that
+  work.** A bracketed paste of `/rename <title>` IS dispatched as a command -- Claude reads pastes
+  literally enough to skip the menu a typed `/` opens, but still runs the command, so the rename
+  reuses the composer's ordinary paste path rather than a second input mechanism. It runs
+  immediately even mid-turn and does not interrupt the turn. And it is refused when the composer
+  holds anything, because the only way to type a command into a box is to type it where the reader
+  was writing.
 - **A title rename is live everywhere that reads transcripts.** Measured: append a `custom-title`
   record and the sidecar's session list answers with the new title on the very next read -- no
   restart, no cache, last record wins. So the panel, the Canvas and `/resume` pick it up at once.

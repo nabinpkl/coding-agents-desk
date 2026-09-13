@@ -345,13 +345,17 @@ export class SidecarDataSource implements AgentDataSource {
   /**
    * Renames one Claude session, and answers with the name it now has.
    *
-   * A session carries two names and this sets the one a reader can see: the transcript's title,
-   * which is what `/resume`, the catalog and every row in this panel show. The other one -- the
-   * address `ListAgents` and cross-session messaging use -- is fixed when the session starts and
-   * cannot be changed from outside it, which is why forks are named at launch instead.
+   * A session carries two names -- the transcript title every row here shows, and the registry
+   * address `ListAgents` prints and cross-session messaging delivers to -- and this moves both,
+   * because the sidecar renames by running Claude's own `/rename` in the session rather than by
+   * writing its transcript.
    *
-   * Nothing else has to happen for this to land: the sidecar appends a record to the transcript
-   * and the inventory stream pushes the new title on its next read.
+   * That is also why it can fail for reasons that are not about the name: a session with no
+   * running process has nothing to ask, and one with unsent text in its composer must not be
+   * typed into. Both come back as a conflict carrying the reason, which the dialog shows.
+   *
+   * Nothing else has to happen for a successful rename to land: the session writes its own
+   * records and the inventory stream pushes the new title on its next read.
    */
   async renameSession(sessionId: string, title: string): Promise<string> {
     const answer = parse<{ title?: unknown }>(

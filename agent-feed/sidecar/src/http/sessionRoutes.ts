@@ -31,6 +31,7 @@ import {
   renameClaudeSession,
   SessionRenameInvalidError,
   SessionRenameNotFoundError,
+  SessionRenameUnavailableError,
 } from "../transcripts/renameSession.ts";
 import { errorResponse, jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
@@ -306,6 +307,11 @@ async function renameSession(sessionId: string, request: Request): Promise<Respo
     }
     if (error instanceof SessionRenameNotFoundError) {
       return errorResponse("session-not-found", error.message, 404);
+    }
+    // 409, not 400: nothing about the request was wrong, and the same request works once the
+    // session is running or its composer is clear.
+    if (error instanceof SessionRenameUnavailableError) {
+      return errorResponse("rename-unavailable", error.message, 409);
     }
     throw error;
   }

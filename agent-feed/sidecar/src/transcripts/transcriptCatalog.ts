@@ -259,9 +259,8 @@ export async function resolveClaudeProject(
 /**
  * Re-reads one Claude transcript into the catalog, and tells the subscribers.
  *
- * Shared by the file watcher and by anything that writes to a transcript itself, so a write and a
- * write observed from outside land the same row. A path that is not a Claude transcript is a
- * no-op rather than an error: the watcher hands this every file under the projects directory.
+ * A path that is not a Claude transcript is a no-op rather than an error, because the watcher
+ * hands this every file under the projects directory.
  */
 export async function refreshClaudeSession(filePath: string): Promise<void> {
   if (!isClaudeSessionCandidate(filePath)) return;

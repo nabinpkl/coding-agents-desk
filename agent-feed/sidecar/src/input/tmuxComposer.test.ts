@@ -8,6 +8,7 @@ import {
   dropTmuxComposerImage,
   observeTmuxComposer,
   readComposerAt,
+  renameTmuxSession,
   submitTmuxComposer,
   syncTmuxComposer,
   type TmuxComposerRuntime,
@@ -471,4 +472,42 @@ test("a drop into a session with no pane pastes nothing and says why", async () 
   expect(await dropTmuxComposerImage("session", "/tmp/x.png", tmux))
     .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
   expect(tmux.sent).toEqual([]);
+});
+
+test("renames by pasting Claude's own command into an empty composer, with the Return", async () => {
+  // One send, so nothing can be typed between the command and the Return into the box that was
+  // just checked empty. Pasted rather than typed: measured that Claude dispatches a slash command
+  // that arrives as a bracketed paste, which is also how it avoids the menu a typed `/` opens.
+  const tmux = runtime({ screen: async () => screenWith([""]) });
+
+  expect(await renameTmuxSession("s1", "What I called it", tmux)).toEqual({ renamed: true });
+  expect(tmux.sent).toEqual([`${OPEN}/rename What I called it${CLOSE}\r`]);
+});
+
+test("refuses to rename over text somebody is in the middle of writing", async () => {
+  // The only way to type a command into a box is to type it where the reader was writing.
+  const tmux = runtime({ screen: async () => screenWith(["half a thought"]) });
+
+  expect(await renameTmuxSession("s1", "New name", tmux))
+    .toEqual({ renamed: false, reason: "composer-busy" });
+  expect(tmux.sent).toEqual([]);
+});
+
+test("refuses to rename a session with no pane to ask", async () => {
+  // There is deliberately no fallback to writing the transcript: that moves the title and leaves
+  // the address behind, which is the half rename this mechanism exists to avoid.
+  const tmux = runtime({ pane: async () => null, screen: async () => screenWith([""]) });
+
+  expect(await renameTmuxSession("s1", "New name", tmux))
+    .toEqual({ renamed: false, reason: "no-pane" });
+  expect(tmux.sent).toEqual([]);
+});
+
+test("reports tmux being gone as its own reason rather than as a busy composer", async () => {
+  const tmux = runtime({
+    screen: async () => { throw new TmuxUnavailable("no server running"); },
+  });
+
+  expect(await renameTmuxSession("s1", "New name", tmux))
+    .toEqual({ renamed: false, reason: "tmux-unavailable" });
 });

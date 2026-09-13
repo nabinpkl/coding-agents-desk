@@ -86,11 +86,13 @@ export function SessionRenameDialog({
             className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
         </label>
-        {/* Said here rather than discovered afterwards: a reader who renames a session to address
-            it from another one would otherwise find the old name still answering. */}
+        {/* Said here rather than discovered afterwards: this runs a command in the session, so it
+            needs one that is running with nothing half-typed in it, and the reasons a rename can
+            be refused are about the session rather than about the name. */}
         <p className="text-xs text-muted-foreground">
-          Changes the name shown here and in <code>/resume</code>. The address other sessions
-          message it by is fixed when the session starts and does not change.
+          Runs <code>/rename</code> in the session, so it changes the name everywhere &mdash; here,
+          in <code>/resume</code>, and the one other agents message it by. The session has to be
+          running, with nothing unsent in its composer.
         </p>
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">

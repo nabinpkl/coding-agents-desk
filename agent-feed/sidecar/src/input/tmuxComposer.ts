@@ -560,6 +560,59 @@ function separator(box: ComposerBox): string {
   return composerText(box.rows).length === 0 ? "" : " ";
 }
 
+/**
+ * What a rename attempt did, or the reason it did nothing.
+ *
+ * `composer-busy` is the one reason that is not a failure: somebody has text in that box, and
+ * renaming would type a command into the middle of what they were writing.
+ */
+export type SessionRenameOutcome =
+  | { renamed: true }
+  | { renamed: false; reason: TmuxComposerState["reason"] | "composer-busy" };
+
+/**
+ * Renames the session by running Claude's own `/rename`, in the pane the session is running in.
+ *
+ * The CLI is asked rather than its transcript written, because `/rename` changes BOTH of a
+ * session's names -- it writes the `custom-title` record the panel reads AND the `agent-name`
+ * record, and updates the process's registry `name`, which is the address `ListAgents` prints and
+ * `SendMessage` uses. Appending a record from outside can only ever move the first of those, so a
+ * session renamed that way keeps answering to its old name everywhere that matters for discovery.
+ * It also means no second writer on a file the CLI owns.
+ *
+ * Sent as a bracketed paste, the same way every other insertion in this module goes: measured
+ * 2026-09-07 that Claude dispatches a slash command that arrives pasted, so this avoids the
+ * command menu that a typed leading `/` opens without giving up the dispatch.
+ *
+ * Runs even while the session is mid-turn, and does not interrupt it: measured against a session
+ * counting to forty, which finished its count with the new name already on it.
+ *
+ * Refused when the composer holds anything, because the only way to type a command into a box is
+ * to type it where the reader was writing.
+ */
+export async function renameTmuxSession(
+  sessionId: string,
+  title: string,
+  runtime: TmuxComposerRuntime = LIVE,
+): Promise<SessionRenameOutcome> {
+  try {
+    const pane = await paneFor(sessionId, runtime);
+    if (!pane) return { renamed: false, reason: "no-pane" };
+    const box = composerBox(await runtime.screen(pane));
+    if (!box) return { renamed: false, reason: "no-composer" };
+    if (composerText(box.rows).length > 0) return { renamed: false, reason: "composer-busy" };
+    const encoder = new TextEncoder();
+    // One send, not two: the command and the Return travel together so nothing can be typed
+    // between them into the box this just checked was empty.
+    const keys = keystrokesFor(box.rows, `/rename ${title}`);
+    await runtime.send(pane, encoder.encode(keys + CARRIAGE_RETURN));
+    return { renamed: true };
+  } catch (error) {
+    const state = failed(sessionId, error, runtime);
+    return { renamed: false, reason: state.reason };
+  }
+}
+
 /** Presses Return in the pane, which is what makes Claude take the turn. */
 export async function submitTmuxComposer(
   sessionId: string,
