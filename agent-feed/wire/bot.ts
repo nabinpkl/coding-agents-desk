@@ -112,7 +112,11 @@ export interface AddBotCommand {
   requestId: string;
   name: string;
   iconUrl?: string;
-  /** Must exactly name an existing AgentDesk project directory. */
+  /**
+   * Must exactly name a directory this machine has: either one the catalog knows, or one under the
+   * home directory the folder picker lists from. A project with no sessions in it yet qualifies --
+   * that is what naming a Bot before its first turn means.
+   */
   directoryPath: string;
   /** Start a tmux-backed Claude session in that directory and attach it to the new Bot. */
   launch?: BotLaunchCommand;

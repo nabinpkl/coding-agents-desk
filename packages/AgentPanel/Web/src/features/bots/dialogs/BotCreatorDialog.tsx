@@ -1,8 +1,9 @@
-import { Folder, LoaderCircle, Monitor, Upload, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { LoaderCircle, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
 import { BotAvatar } from "@/features/bots/BotSidebarPanel";
-import { machineKey, type BotMachine } from "@/features/bots/botMachines";
+import { type BotMachine } from "@/features/bots/botMachines";
+import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
 
 /**
@@ -61,7 +62,7 @@ export function BotCreatorDialog({
   // At least one machine always exists -- the app names this one when its embedder names none --
   // so an empty list is a caller that is wrong rather than a state to render around.
   const [machine, setMachine] = useState<BotMachine>(() => machines[0]!);
-  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [iconUrl, setIconUrl] = useState("");
   const [role, setRole] = useState("");
@@ -94,10 +95,18 @@ export function BotCreatorDialog({
     [bots, machineOfBot, machine.id],
   );
 
+  // Memoized on the machine, not rebuilt per render: the picker re-reads the folder it is
+  // showing whenever this identity changes, and a fresh closure every render would make that a
+  // request loop for as long as the picker is open.
+  const browse = useCallback(
+    (path: string | null) => machine.feed.browseDirectories(path),
+    [machine],
+  );
+
   useEffect(() => {
     if (!open) return;
     setMachine(machines[0]!);
-    setSelectedProject(null);
+    setSelectedPath(null);
     setName("");
     setIconUrl("");
     setRole("");
@@ -119,8 +128,8 @@ export function BotCreatorDialog({
   }, [open]);
 
   useEffect(() => {
-    if (selectedProject) globalThis.requestAnimationFrame?.(() => nameInput.current?.focus());
-  }, [selectedProject]);
+    if (selectedPath) globalThis.requestAnimationFrame?.(() => nameInput.current?.focus());
+  }, [selectedPath]);
 
   if (!open) return null;
 
@@ -150,14 +159,14 @@ export function BotCreatorDialog({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!selectedProject || pending || !name.trim()) return;
+    if (!selectedPath || pending || !name.trim()) return;
     setPending(true);
     setError(null);
     try {
       await onCreate({
         name: name.trim(),
         ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}),
-        directoryPath: selectedProject.projectPath,
+        directoryPath: selectedPath,
         metadata: {
           ...(role.trim() ? { role: role.trim() } : {}),
           ...(description.trim() ? { description: description.trim() } : {}),
@@ -206,99 +215,32 @@ export function BotCreatorDialog({
         </header>
 
         <form onSubmit={submit} className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
-          <div className="min-h-0 overflow-y-auto border-b border-border md:border-r md:border-b-0">
-            <div className="sticky top-0 z-10 border-b border-border bg-card">
-              {/* Only when there is a choice. One machine means every directory is on it, and a
-                  picker with a single option is a control that teaches the reader nothing. */}
-              {machines.length > 1 ? (
-                <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
-                  <Monitor className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="sr-only" id="bot-creator-machine">Machine</span>
-                  <div role="group" aria-labelledby="bot-creator-machine" className="flex flex-wrap gap-1.5">
-                    {machines.map((candidate) => {
-                      const selected = candidate.id === machine.id;
-                      return (
-                        <button
-                          key={machineKey(candidate)}
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => {
-                            if (selected) return;
-                            setMachine(candidate);
-                            // A directory belongs to one machine, so a selection cannot survive the
-                            // move: keeping it would submit this machine's path to that one.
-                            setSelectedProject(null);
-                            setError(null);
-                          }}
-                          className={`min-h-8 rounded-full border px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-                            selected
-                              ? "border-primary bg-primary/10 text-foreground"
-                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
-                          }`}
-                        >
-                          {candidate.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-              <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Directory
-              </div>
-            </div>
-            {machineProjectsLoading && machineProjects.length === 0 ? (
-              <div role="status" className="flex min-h-32 items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin" aria-hidden />
-                Loading projects…
-              </div>
-            ) : machineProjects.length === 0 ? (
-              <div role="status" className="flex min-h-32 items-center justify-center p-4 text-sm text-muted-foreground">
-                {peerProjects.error ?? `No AgentDesk projects on ${machine.label}`}
-              </div>
-            ) : (
-              <fieldset className="p-2">
-                <legend className="sr-only">Select Bot directory</legend>
-                {machineProjects.map((project) => {
-                  const unavailable = claimedDirectories.has(project.projectPath);
-                  return (
-                    <label
-                      key={project.projectPath}
-                      className={`flex min-h-12 items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors ${
-                        unavailable
-                          ? "cursor-not-allowed text-muted-foreground"
-                          : "cursor-pointer hover:bg-muted focus-within:ring-2 focus-within:ring-primary active:bg-muted/80"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="bot-directory"
-                        value={project.projectPath}
-                        checked={selectedProject?.projectPath === project.projectPath}
-                        disabled={unavailable}
-                        onChange={() => {
-                          setSelectedProject(project);
-                          setError(null);
-                        }}
-                        className="mt-1"
-                      />
-                      <Folder className="mt-0.5 size-4 shrink-0" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">{project.displayName || project.projectPath}</span>
-                        <span className="block truncate font-mono text-xs text-muted-foreground">{project.projectPath}</span>
-                        {unavailable ? <span className="text-xs">already assigned to a Bot</span> : null}
-                      </span>
-                    </label>
-                  );
-                })}
-              </fieldset>
-            )}
-          </div>
+          <BotDirectoryColumn
+            machines={machines}
+            machine={machine}
+            onMachine={(next) => {
+              setMachine(next);
+              // A directory belongs to one machine, so a selection cannot survive the move:
+              // keeping it would submit this machine's path to that one.
+              setSelectedPath(null);
+              setError(null);
+            }}
+            projects={machineProjects}
+            loading={machineProjectsLoading}
+            error={peerProjects.error}
+            claimed={claimedDirectories}
+            selectedPath={selectedPath}
+            onSelect={(path) => {
+              setSelectedPath(path);
+              setError(null);
+            }}
+            browse={browse}
+          />
 
           <div className="min-h-0 overflow-y-auto p-4">
-            {!selectedProject ? (
+            {!selectedPath ? (
               <div className="flex min-h-48 items-center justify-center text-center text-sm text-muted-foreground">
-                Choose the existing directory this Bot represents.
+                Choose the directory this Bot represents.
               </div>
             ) : (
               <div className="space-y-4">
@@ -306,7 +248,7 @@ export function BotCreatorDialog({
                   <BotAvatar bot={{ name: name || "New Bot", ...(iconUrl ? { iconUrl } : {}) }} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{name || "New Bot"}</p>
-                    <p className="truncate font-mono text-xs text-muted-foreground">{selectedProject.projectPath}</p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">{selectedPath}</p>
                   </div>
                 </div>
                 <label className="block text-sm font-medium">
@@ -439,7 +381,7 @@ export function BotCreatorDialog({
             </button>
             <button
               type="submit"
-              disabled={!selectedProject || !name.trim() || pending}
+              disabled={!selectedPath || !name.trim() || pending}
               className="flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : null}

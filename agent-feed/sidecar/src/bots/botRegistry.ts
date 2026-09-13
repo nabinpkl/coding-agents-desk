@@ -107,7 +107,7 @@ export class BotRegistry {
   async add(command: AddBotCommand, actor: BotActor): Promise<BotSessionsAdded> {
     const normalized = normalizeAddBot(command);
     const project = this.catalog.resolveProject(normalized.directoryPath);
-    if (!project) throw new BotNotFoundError("selected directory is not in the current AgentDesk project catalog");
+    if (!project) throw new BotNotFoundError("selected directory is not one this machine can bind a Bot to");
     if (normalized.launch && actor.kind !== "user") {
       // Adding a row and starting a process are different powers. `add_bot` grants the first; a
       // Bot that could also spawn agents would be granting itself the second.

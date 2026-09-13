@@ -54,6 +54,7 @@ import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
+import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
 
@@ -69,9 +70,11 @@ const describeAgentSession = (source: string, sessionId: string) =>
 const botStore = new BotStore(config.botsPath);
 const botRegistry = new BotRegistry(botStore, {
   resolveProject(path) {
-    return getSnapshot().some((session) => session.project === path)
-      ? { projectPath: path }
-      : undefined;
+    // The catalog first, then any directory this machine has under home: a project nobody has
+    // started a session in yet is not in the catalog, and it is the one the panel's folder picker
+    // exists to bind. `botDirectory.ts` carries the confinement and why it is there.
+    return bindableDirectory(path, (candidate) =>
+      getSnapshot().some((session) => session.project === candidate));
   },
   resolveSession(ref) {
     const session = findSession(ref.source, ref.sessionId);

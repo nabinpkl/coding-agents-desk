@@ -40,6 +40,7 @@ import type {
   SummaryStreamMessage,
   TokenUsage,
   UsageStreamMessage,
+  WorkspaceBrowseListing,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
@@ -143,6 +144,24 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
       },
       onError: (reason) => onError?.(reason),
     });
+  }
+
+  /**
+   * The directories inside one directory, for choosing a Bot's own.
+   *
+   * Here rather than only on `WorkspaceIdeClient` because a Bot can be created on any machine the
+   * canvas reads, and the picker has to list the directories of the machine the reader chose. The
+   * route is the IDE's -- one server-side folder picker, since nothing in the web platform hands a
+   * page an absolute path -- and it is confined to home by the sidecar.
+   *
+   * A null path means "start where the sidecar starts", which is that machine's home directory. The
+   * panel cannot know what that is, and guessing it here would be a second place holding the answer.
+   */
+  async browseDirectories(path: string | null): Promise<WorkspaceBrowseListing> {
+    const query = path === null ? "" : `?path=${encodeURIComponent(path)}`;
+    return parse<WorkspaceBrowseListing>(
+      await this.transport.request("GET", `/api/workspace/browse${query}`),
+    );
   }
 
   async createBot(command: Omit<AddBotCommand, "requestId">): Promise<BotView> {

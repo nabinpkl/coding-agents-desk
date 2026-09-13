@@ -19,10 +19,15 @@ export function WorkspacePicker({
   browse,
   onChoose,
   onCancel,
+  title = "Choose a project folder",
+  confirmLabel = "Add this folder",
 }: {
   browse: (path: string | null) => Promise<WorkspaceBrowseListing>;
   onChoose: (path: string) => void;
   onCancel: () => void;
+  /** What the reader is choosing FOR, since the same picker now serves the IDE and a new Bot. */
+  title?: string;
+  confirmLabel?: string;
 }) {
   const [listing, setListing] = useState<WorkspaceBrowseListing | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -47,7 +52,7 @@ export function WorkspacePicker({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Choose a project folder"
+      aria-label={title}
       className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onCancel();
@@ -57,7 +62,7 @@ export function WorkspacePicker({
         border border-border bg-background shadow-xl"
       >
         <header className="shrink-0 border-b border-border px-4 py-3">
-          <h2 className="m-0 text-sm font-medium">Choose a project folder</h2>
+          <h2 className="m-0 text-sm font-medium">{title}</h2>
           {/* The path is the answer to "where am I", so it stays visible while browsing rather
               than only appearing on the button. */}
           <p className="m-0 mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono
@@ -133,7 +138,7 @@ export function WorkspacePicker({
               outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary
               disabled:opacity-40"
           >
-            Add this folder
+            {confirmLabel}
           </button>
         </footer>
       </div>

@@ -8,7 +8,7 @@ export function createAddBotTool(registry: BotRegistry, caller: BotSessionRef) {
   return defineTool({
     name: "add_bot",
     label: "Add Bot",
-    description: "Add a named Bot to AgentDesk around one existing AgentDesk project directory. Sessions are attached to the Bot separately.",
+    description: "Add a named Bot to AgentDesk around one existing project directory on this machine. Sessions are attached to the Bot separately.",
     promptSnippet: "Add a curated AgentDesk Bot around an explicitly named existing project directory",
     promptGuidelines: [
       "Use add_bot only when the user has identified the exact existing project directory.",
@@ -17,7 +17,7 @@ export function createAddBotTool(registry: BotRegistry, caller: BotSessionRef) {
     executionMode: "sequential",
     parameters: Type.Object({
       name: Type.String({ minLength: 1, maxLength: 64, description: "User-facing Bot name" }),
-      directory_path: Type.String({ minLength: 1, maxLength: 4096, description: "Exact existing AgentDesk project directory" }),
+      directory_path: Type.String({ minLength: 1, maxLength: 4096, description: "Exact existing project directory on this machine" }),
       icon_url: Type.Optional(Type.String({ maxLength: 2048, description: "Optional https Bot icon URL" })),
       role: Type.Optional(Type.String({ maxLength: 120 })),
       description: Type.Optional(Type.String({ maxLength: 1000 })),

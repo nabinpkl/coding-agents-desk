@@ -201,7 +201,7 @@ export function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
   const { name, normalizedName } = normalizeName(command.name);
   const directoryPath = compactOptional(command.directoryPath, "directoryPath", MAX_DIRECTORY_PATH);
   if (!directoryPath?.startsWith("/")) {
-    throw new BotInvalidError("directoryPath must be an absolute existing AgentDesk project path");
+    throw new BotInvalidError("directoryPath must be an absolute path to an existing directory");
   }
   return {
     requestId: normalizeRequestId(command.requestId),
