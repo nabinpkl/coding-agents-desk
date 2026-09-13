@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
-import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
-import { codexAdapter } from "@/transcripts/sources/codexTranscript";
-import type { SourceAdapter } from "@/transcripts/sources/transcriptTypes";
+import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { codexAdapter } from "@/transcripts/codex/codexTranscript";
+import type { SourceAdapter } from "@/transcripts/transcriptTypes";
 
 // Asserted THROUGH the adapters rather than against the classifier directly.
 // The classifier reads the raw record and the adapter renders it, and the bug

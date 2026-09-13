@@ -6,7 +6,7 @@
 import { stat } from "node:fs/promises";
 import { piLocation, scanPiSessions } from "@/agents/piSessionCatalog";
 import { PI_AGENT_CAPABILITIES, type PiSessionLocation } from "@/agents/piAgentBackend";
-import type { Session } from "@/transcripts/sources/transcriptTypes";
+import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import { broadcast, findSession, scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";
 import { makeSession } from "@/transcripts/catalog/catalogRecords";

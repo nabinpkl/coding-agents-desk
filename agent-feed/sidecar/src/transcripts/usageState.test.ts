@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { mergeUsage } from "@/transcripts/usageState";
-import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
-import { codexAdapter } from "@/transcripts/sources/codexTranscript";
+import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
 test('a report that names no model inherits the last known model and limit', () => {
   const first = mergeUsage(undefined, {

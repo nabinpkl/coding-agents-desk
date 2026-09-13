@@ -22,7 +22,7 @@ import type {
   SourceId,
   TokenUsage,
   TranscriptSourceId,
-} from "@/transcripts/sources/transcriptTypes";
+} from "@/transcripts/transcriptTypes";
 import type { EventsPage, TimelineMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
 import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";

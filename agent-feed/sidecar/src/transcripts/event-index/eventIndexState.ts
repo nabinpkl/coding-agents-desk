@@ -3,7 +3,7 @@
 // place a session's index is dropped from.
 
 import { state } from "@/transcripts/transcriptState";
-import type { ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 
 /**
  * One newly indexed line, addressed in both views.

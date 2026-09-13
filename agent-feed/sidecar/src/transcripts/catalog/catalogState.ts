@@ -10,7 +10,7 @@ import type {
   AgentSessionDescriptor,
 } from "@/agents/agentBackend";
 import { state, type WatcherState } from "@/transcripts/transcriptState";
-import type { Session, SourceId } from "@/transcripts/sources/transcriptTypes";
+import type { Session, SourceId } from "@/transcripts/transcriptTypes";
 
 /**
  * The longest a title stays as written. Past this a row shows an ellipsis instead of the tail, so

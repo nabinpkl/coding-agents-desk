@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ActivityBlock, ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 import { isHarnessUserText, isHumanTurnStart } from "@/transcripts/humanTurns";
 
 function userEvent(blocks: ActivityBlock[]): ActivityEvent {

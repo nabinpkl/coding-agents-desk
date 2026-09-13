@@ -6,7 +6,7 @@
 
 import { stat } from "node:fs/promises";
 import { state } from "@/transcripts/transcriptState";
-import { adapterFor } from "@/transcripts/sources/sourceAdapters";
+import { adapterFor } from "@/transcripts/sourceAdapters";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { mergeUsage } from "@/transcripts/usageState";
 import type {
@@ -16,7 +16,7 @@ import type {
   SourceAdapter,
   TranscriptSourceId,
   TokenUsage,
-} from "@/transcripts/sources/transcriptTypes";
+} from "@/transcripts/transcriptTypes";
 import { dropIndexState, niceInsertionPoint, INDEX_READ_BYTES } from "@/transcripts/event-index/eventIndexState";
 
 // Re-deliver a previously emitted event to the session's subscribers without

@@ -6,7 +6,7 @@
 // the feed and in the Raw drawer.
 
 import { isHarnessUserText } from "@/transcripts/humanTurns";
-import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
 import {
   metadataBlock,
   metadataText,
@@ -14,7 +14,7 @@ import {
   plainEvent,
   rawBlock,
   stringifyForDisplay,
-} from "@/transcripts/sources/plainActivity";
+} from "@/transcripts/plainActivity";
 import {
   CODEX_EVENT_LABELS,
   CODEX_TOP_LEVEL_LABELS,
@@ -29,9 +29,9 @@ import {
   type NormalizedCodexBlock,
   type NormalizedCodexLine,
   type ResponseItemPayload,
-} from "@/transcripts/sources/codexPayloads";
-import { extractReasoningText, joinTextContent } from "@/transcripts/sources/codexReasoning";
-import { classifyCodexLine } from "@/transcripts/sources/lineClass";
+} from "@/transcripts/codex/codexPayloads";
+import { extractReasoningText, joinTextContent } from "@/transcripts/codex/codexReasoning";
+import { classifyCodexLine } from "@/transcripts/lineClass";
 
 export function normalizeMessageContent(content: unknown): NormalizedCodexBlock[] {
   if (typeof content === 'string') {

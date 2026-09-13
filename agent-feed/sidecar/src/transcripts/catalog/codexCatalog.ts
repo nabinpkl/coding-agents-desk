@@ -9,8 +9,8 @@ import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { config } from "@/config";
-import { codexAdapter, resolveStateDbPath } from "@/transcripts/sources/codexTranscript";
-import type { Session } from "@/transcripts/sources/transcriptTypes";
+import { codexAdapter, resolveStateDbPath } from "@/transcripts/codex/codexTranscript";
+import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import {
   broadcast,

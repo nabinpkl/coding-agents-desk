@@ -25,7 +25,7 @@ import {
 import type {
   EventMode,
   TranscriptSourceId,
-} from "@/transcripts/sources/transcriptTypes";
+} from "@/transcripts/transcriptTypes";
 import type { EventsPage, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import {
   renameClaudeSession,

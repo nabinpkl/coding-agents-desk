@@ -4,7 +4,7 @@
 // adapter seam.
 
 import { expect, test } from 'bun:test';
-import { codexAdapter } from "@/transcripts/sources/codexTranscript";
+import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
 test('codex assistant message records carry their item id as messageId', () => {
   const r = codexAdapter.processLine(JSON.stringify({

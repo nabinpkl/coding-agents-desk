@@ -3,9 +3,9 @@
 // usage record says about tokens and the prompt cache.
 
 import { contextWindowFor } from "@/config";
-import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import { basename } from 'node:path';
-import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/sources/plainActivity";
+import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
 
 /**
  * The turn-boundary signal a line carries, or undefined when it carries none.

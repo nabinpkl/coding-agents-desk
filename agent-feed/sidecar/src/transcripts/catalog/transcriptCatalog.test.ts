@@ -15,9 +15,9 @@ import {
   stopCatalog,
 } from "@/transcripts/catalog/transcriptCatalog";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
-import type { Session } from "@/transcripts/sources/transcriptTypes";
+import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
-import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
+import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 
 const temporaryDirectories: string[] = [];
 

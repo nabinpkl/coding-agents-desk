@@ -7,7 +7,7 @@
 // socket has something to complete.
 
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { ActivityBlock, EventCacheHit } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, EventCacheHit } from "@/transcripts/transcriptTypes";
 
 const TOOL_RESULT_PREVIEW_CAP = 16_000;
 

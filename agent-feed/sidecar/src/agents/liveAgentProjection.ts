@@ -2,7 +2,7 @@ import type {
   ActivityBlock,
   ActivityEvent,
   ParsedLine,
-} from "@/transcripts/sources/transcriptTypes";
+} from "@/transcripts/transcriptTypes";
 import type {
   AgentQueueState,
   AgentRunState,

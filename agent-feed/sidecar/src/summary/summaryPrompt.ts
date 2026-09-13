@@ -15,7 +15,7 @@ import type {
   SummaryPhase,
   SummaryResult,
 } from "@agentdesk/agent-feed-wire";
-import type { ActivityBlock, ActivityEvent } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 import { describeToolCall } from "@/summary/toolCalls";
 
 /**

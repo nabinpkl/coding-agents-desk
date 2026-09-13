@@ -6,7 +6,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename, relative } from "node:path";
 import { config } from "@/config";
-import type { Session, SourceId } from "@/transcripts/sources/transcriptTypes";
+import type { Session, SourceId } from "@/transcripts/transcriptTypes";
 import {
   CLAUDE_SESSION_PATTERN,
   PROMPT_TITLE_CHARACTERS,

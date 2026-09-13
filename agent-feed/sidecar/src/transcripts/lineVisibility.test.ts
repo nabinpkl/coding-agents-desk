@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
-import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
-import { codexAdapter } from "@/transcripts/sources/codexTranscript";
-import { PLAIN_PREVIEW_MAX_BYTES } from "@/transcripts/sources/plainActivity";
-import type { LineResult } from "@/transcripts/sources/transcriptTypes";
+import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { codexAdapter } from "@/transcripts/codex/codexTranscript";
+import { PLAIN_PREVIEW_MAX_BYTES } from "@/transcripts/plainActivity";
+import type { LineResult } from "@/transcripts/transcriptTypes";
 
 function visible(result: LineResult | null): NonNullable<LineResult['event']> {
   expect(result).not.toBeNull();

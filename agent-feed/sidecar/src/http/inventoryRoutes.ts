@@ -7,7 +7,7 @@ import {
   subscribeCatalog,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
-import type { Session } from "@/transcripts/sources/transcriptTypes";
+import type { Session } from "@/transcripts/transcriptTypes";
 import {
   encodeServerSentEvent,
   jsonResponse,

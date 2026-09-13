@@ -30,7 +30,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) -> 7 (9) | D |
 | R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) -> 5 (7) | D |
 | R6 | `agent-feed/sidecar/src/terminal` | 16 (24) -> 6 (10) | D |
-| R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) | R |
+| R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) -> dissolved | D |
 | R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) | R |
 | R9 | `packages/AgentPanel/Web/src/features/session-view` | 13 (13) | R |
 | R10 | The gate: fitness check 7, the pre-commit hook, this file's summary | | R |
@@ -214,6 +214,44 @@ against, and starting a Claude session in a pane this sidecar owns.
 `agentTerminalService`, which stays flat. It is a PTY manager envelope, it imports `ptyProtocol`,
 and it says both in its first line -- and the alternative leaves `pty/` at two, under the floor,
 for a file that is unambiguously about the PTY manager.
+
+### R7 `agent-feed/sidecar/src/transcripts/sources`, 15 source files
+
+The only fan-out here is the vendor. Eleven of the fifteen are Claude's or Codex's and are imported
+by that vendor's own files and nothing else; the other four are the seam between them.
+
+- `transcripts/claude/` (5) everything Claude-specific: the adapter, one transcript line as the
+  blocks a reader sees, what a line carries, where its files are on disk, and the text of one
+  `thinking` block. `claudeTranscript`, `claudeNormalize`, `claudePayloads`, `claudeProjects`,
+  `claudeThinking`.
+- `transcripts/codex/` (6) the same for Codex, plus what a tool call row says it did and where the
+  rollouts live. `codexTranscript`, `codexNormalize`, `codexPayloads`, `codexReasoning`,
+  `codexRollouts`, `codexToolSummary`.
+
+`sources/` does not survive. Its remaining four are the seam, not a source: `transcriptTypes` is
+"the adapter seam" and is imported by roughly fifty files across the sidecar, `sourceAdapters` is
+the fourteen-line registry that dispatches to the two adapters, and `lineClass` and `plainActivity`
+are read by both vendors. They move up to `transcripts/`, which lands at 9.
+
+Three ways to do this, and the third is the one taken.
+
+1. **`sources/claude/` and `sources/codex/`**, a second clustering level. Rejected: `AGENTS.md`
+   asks for a written reason and the reason would have been weak. The nesting is truthful -- a
+   partition of a set by the axis the code already dispatches on -- but it buys nothing that (3)
+   does not, and costs the reader a level.
+2. **Promote the two vendors and leave `sources/` holding the other four.** This is the brief's
+   stated preference and it is what was tried first. It leaves a directory called `sources` whose
+   contents are not sources: the two adapters, which are the sources, would be outside it, and
+   `sourceAdapters.ts` -- the registry pointing AT them -- would be inside. A name that has become
+   a lie is worse than the extra level in (1).
+3. **Promote the two vendors and dissolve `sources/` entirely.** One level everywhere, no
+   misnamed directory, and `transcriptTypes` ends up at `@/transcripts/transcriptTypes`, which is
+   what fifty importers across the sidecar are actually reaching for. It moves four more files than
+   (2), which is the cost.
+
+`claudeThinking` and `codexReasoning` each have a caller in `lineClass`, which stays flat, so the
+callers rule splits rather than decides. Each went to its vendor: nothing else could be about the
+text of one Claude `thinking` block.
 
 ## Decisions
 

@@ -8,7 +8,7 @@
 import chokidar from "chokidar";
 import { state, type TranscriptFollow } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
-import type { TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
+import type { TranscriptSourceId } from "@/transcripts/transcriptTypes";
 import {
   dropIndexState,
   MAX_RAW_EVENT_BYTES,
@@ -23,7 +23,7 @@ export type {
   ActivityEvent,
   ActivityBlock,
   EventMode,
-} from "@/transcripts/sources/transcriptTypes";
+} from "@/transcripts/transcriptTypes";
 
 // Re-exported because the index is one subsystem with one address: a caller must not
 // reach past it to a half, since the refcounting below is what keeps the halves valid.

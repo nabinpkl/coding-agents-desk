@@ -6,8 +6,8 @@ import { open } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { config } from "@/config";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
-import type { Header } from "@/transcripts/sources/transcriptTypes";
-import { turnClosedFor } from "@/transcripts/sources/claudePayloads";
+import type { Header } from "@/transcripts/transcriptTypes";
+import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 
 const PROJECTS_ROOT = config.claudeProjectsDirectory;
 const HEADER_EDGE_BYTES = 32 * 1024;

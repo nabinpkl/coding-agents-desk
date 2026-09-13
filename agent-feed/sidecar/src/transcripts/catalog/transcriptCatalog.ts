@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { config } from "@/config";
 import { state } from "@/transcripts/transcriptState";
-import type { SourceId } from "@/transcripts/sources/transcriptTypes";
+import type { SourceId } from "@/transcripts/transcriptTypes";
 import {
   broadcast,
   resetCatalogBroadcast,
@@ -19,7 +19,7 @@ import {
   scheduleBroadcast,
 } from "@/transcripts/catalog/catalogState";
 import { projectSummaries } from "@/transcripts/catalog/catalogViews";
-import { resolveStateDbPath } from "@/transcripts/sources/codexTranscript";
+import { resolveStateDbPath } from "@/transcripts/codex/codexTranscript";
 
 // The Pi watcher debounces here rather than in `piCatalog.ts`, because the debounce
 // belongs to the watcher and the watcher is attached below.

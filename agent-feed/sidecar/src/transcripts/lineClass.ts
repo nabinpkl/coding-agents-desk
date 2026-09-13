@@ -1,6 +1,6 @@
-import { extractReasoningText } from "@/transcripts/sources/codexReasoning";
-import { isTracelessThinking } from "@/transcripts/sources/claudeThinking";
-import type { LineClass } from "@/transcripts/sources/transcriptTypes";
+import { extractReasoningText } from "@/transcripts/codex/codexReasoning";
+import { isTracelessThinking } from "@/transcripts/claude/claudeThinking";
+import type { LineClass } from "@/transcripts/transcriptTypes";
 
 /**
  * Which transcript lines the nice view lets through.

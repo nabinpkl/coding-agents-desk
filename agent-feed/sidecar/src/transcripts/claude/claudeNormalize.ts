@@ -5,7 +5,7 @@
 // this, which is what keeps a block's index the same in the feed and in the Raw drawer.
 
 import { isHarnessUserText } from "@/transcripts/humanTurns";
-import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
 import {
   metadataBlock,
   metadataText,
@@ -13,8 +13,8 @@ import {
   plainEvent,
   rawBlock,
   stringifyForDisplay,
-} from "@/transcripts/sources/plainActivity";
-import { classifyClaudeLine } from "@/transcripts/sources/lineClass";
+} from "@/transcripts/plainActivity";
+import { classifyClaudeLine } from "@/transcripts/lineClass";
 import {
   assistantModel,
   extractClaudeCacheHit,
@@ -24,7 +24,7 @@ import {
   truncate,
   turnClosedFor,
   type NormalizedClaudeBlock,
-} from "@/transcripts/sources/claudePayloads";
+} from "@/transcripts/claude/claudePayloads";
 
 export interface NormalizedClaudeLine {
   result: LineResult;

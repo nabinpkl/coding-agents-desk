@@ -1,7 +1,7 @@
 // Parser registry used by on-demand event indexing and raw-event reads.
-import type { SourceAdapter, TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
-import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
-import { codexAdapter } from "@/transcripts/sources/codexTranscript";
+import type { SourceAdapter, TranscriptSourceId } from "@/transcripts/transcriptTypes";
+import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
 export const adapters: SourceAdapter[] = [claudeAdapter, codexAdapter];
 

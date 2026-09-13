@@ -15,7 +15,7 @@ import type {
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import { state } from "@/transcripts/transcriptState";
 import { compactTitle } from "@/transcripts/catalog/catalogRecords";
-import type { Bin, Session, SourceId } from "@/transcripts/sources/transcriptTypes";
+import type { Bin, Session, SourceId } from "@/transcripts/transcriptTypes";
 import {
   memoizedProjectSummaries,
   rememberProjectSummaries,

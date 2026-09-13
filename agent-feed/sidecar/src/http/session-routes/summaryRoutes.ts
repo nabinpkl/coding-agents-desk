@@ -32,7 +32,7 @@ import {
   summarizeSession,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
-import type { SourceId, TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
+import type { SourceId, TranscriptSourceId } from "@/transcripts/transcriptTypes";
 import {
   encodeServerSentEvent,
   jsonResponse,

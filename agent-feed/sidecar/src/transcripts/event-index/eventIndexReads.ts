@@ -4,14 +4,14 @@
 
 import { stat } from "node:fs/promises";
 import { state } from "@/transcripts/transcriptState";
-import { adapterFor } from "@/transcripts/sources/sourceAdapters";
+import { adapterFor } from "@/transcripts/sourceAdapters";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import type {
   ActivityEvent,
   EventMode,
   TranscriptSourceId,
   TokenUsage,
-} from "@/transcripts/sources/transcriptTypes";
+} from "@/transcripts/transcriptTypes";
 import { MAX_RAW_EVENT_BYTES, niceInsertionPoint, RawEventTooLargeError } from "@/transcripts/event-index/eventIndexState";
 import { ensureIndexed } from "@/transcripts/event-index/eventIndexBuild";
 

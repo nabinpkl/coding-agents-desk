@@ -10,12 +10,12 @@
 // reads its edges, `claudePayloads.ts` says what a line carries, `claudeNormalize.ts`
 // turns one into blocks, and this assembles the `SourceAdapter` from them.
 
-import type { Header, LineResult, ParsedLine, SourceAdapter } from "@/transcripts/sources/transcriptTypes";
-import { plainEvent } from "@/transcripts/sources/plainActivity";
+import type { Header, LineResult, ParsedLine, SourceAdapter } from "@/transcripts/transcriptTypes";
+import { plainEvent } from "@/transcripts/plainActivity";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
-import { arrowToolUse, persistedOutputPath, truncate } from "@/transcripts/sources/claudePayloads";
-import { normalizedLine } from "@/transcripts/sources/claudeNormalize";
-import { filePathToSessionId, readHeader, readSidecar } from "@/transcripts/sources/claudeProjects";
+import { arrowToolUse, persistedOutputPath, truncate } from "@/transcripts/claude/claudePayloads";
+import { normalizedLine } from "@/transcripts/claude/claudeNormalize";
+import { filePathToSessionId, readHeader, readSidecar } from "@/transcripts/claude/claudeProjects";
 
 function processLine(line: string): LineResult | null {
   return normalizedLine(line)?.result ?? null;

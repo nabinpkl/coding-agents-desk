@@ -9,8 +9,8 @@
 // including that the two readers agree.
 
 import { expect, test } from 'bun:test';
-import { claudeAdapter } from "@/transcripts/sources/claudeTranscript";
-import { codexAdapter } from "@/transcripts/sources/codexTranscript";
+import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
 // --- Claude ---
 

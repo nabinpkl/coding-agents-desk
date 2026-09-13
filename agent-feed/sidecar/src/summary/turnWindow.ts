@@ -12,7 +12,7 @@
 
 import type { SummaryCoverage, SummaryFileChange } from "@agentdesk/agent-feed-wire";
 import { isHumanTurnStart } from "@/transcripts/humanTurns";
-import type { ActivityEvent, EventMode } from "@/transcripts/sources/transcriptTypes";
+import type { ActivityEvent, EventMode } from "@/transcripts/transcriptTypes";
 import { renderEvent } from "@/summary/summaryPrompt";
 import { filesTouchedIn } from "@/summary/toolCalls";
 

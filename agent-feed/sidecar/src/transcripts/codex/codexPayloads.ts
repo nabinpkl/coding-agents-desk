@@ -5,16 +5,16 @@
 // Everything here is about reading one of those, not about turning it into blocks.
 
 import { basename } from 'node:path';
-import type { ActivityBlock, LineResult } from "@/transcripts/sources/transcriptTypes";
-import { metadataBlock, metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/sources/plainActivity";
-import { joinTextContent } from "@/transcripts/sources/codexReasoning";
+import type { ActivityBlock, LineResult } from "@/transcripts/transcriptTypes";
+import { metadataBlock, metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
+import { joinTextContent } from "@/transcripts/codex/codexReasoning";
 import {
   ITEMS_NAMED,
   PATCH_CHANGE_MARKS,
   commandSummary,
   summarizeJsonCall,
   summarizeScriptCall,
-} from "@/transcripts/sources/codexToolSummary";
+} from "@/transcripts/codex/codexToolSummary";
 
 export function tsMs(line: { timestamp?: string } | undefined): number {
   const t = line?.timestamp;

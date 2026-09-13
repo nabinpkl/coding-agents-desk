@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { config } from "@/config";
-import { turnClosedFor } from "@/transcripts/sources/codexPayloads";
+import { turnClosedFor } from "@/transcripts/codex/codexPayloads";
 
 const CODEX_HOME = config.codexHomeDirectory;
 
