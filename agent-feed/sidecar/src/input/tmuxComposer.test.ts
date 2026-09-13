@@ -487,6 +487,51 @@ test("re-reads the screen before every push, rather than trusting the caller's v
   expect(tmux.sent).toHaveLength(1);
 });
 
+test("sends a clear and the text replacing it as two writes, not one", async () => {
+  // Measured 2026-09-09 on a live pane: Ctrl+E, nine Ctrl+U and a 167-character paste in ONE
+  // `send-keys` left the box holding the old text with the new appended and not one kill applied.
+  // The same keys with a gap before the paste replaced the box. Claude applies an input chunk in
+  // one pass, so a paste riding along with the kills is applied to the state they had not changed
+  // yet -- and a big paste is what makes the chunk big enough to lose them.
+  //
+  // A pane that only empties once it has SEEN the kills, so a single write cannot pass this.
+  let held = "alpha bravo charlie";
+  const tmux = runtime({
+    // Inexact, which is what routes this through the clear.
+    screen: async () => screenWith([held], { row: 0, column: 0 }),
+    send: async (_pane, bytes) => {
+      const keys = new TextDecoder().decode(bytes);
+      tmux.sent.push(keys);
+      if (keys.includes(KILL)) held = "";
+      else held += typed(keys);
+    },
+  });
+  await syncTmuxComposer("session", "replaced entirely", tmux);
+  expect(tmux.sent).toHaveLength(2);
+  // The kills go alone, and carry no text with them.
+  expect(tmux.sent[0]).not.toContain(OPEN);
+  expect(tmux.sent[0]).toContain(KILL);
+  // The text follows on its own, once the box has been seen to empty.
+  expect(tmux.sent[1]).toBe(`${OPEN}replaced entirely${CLOSE}`);
+  expect(held).toBe("replaced entirely");
+});
+
+test("keeps an ordinary append in one write, so typing does not pay for a screen read", async () => {
+  // The other half of the split, and the reason it is conditional. Append is what every keystroke
+  // a reader types goes through; gating it would put a `capture-pane` in front of each one.
+  let held = "hel";
+  const tmux = runtime({
+    screen: async () => screenWith([held]),
+    send: async (_pane, bytes) => {
+      const keys = new TextDecoder().decode(bytes);
+      tmux.sent.push(keys);
+      held += typed(keys);
+    },
+  });
+  await syncTmuxComposer("session", "hello", tmux);
+  expect(tmux.sent).toEqual([`${END}${OPEN}lo${CLOSE}`]);
+});
+
 test("a push into a session with no pane sends nothing, and never reaches for a screen", async () => {
   let asked = false;
   const tmux = runtime({

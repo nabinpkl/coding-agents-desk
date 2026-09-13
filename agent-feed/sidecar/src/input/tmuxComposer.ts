@@ -523,6 +523,74 @@ export function keystrokesFor(box: ComposerBox, desired: string): string {
   return END + KILL_ROW.repeat(box.clearPresses) + paste(desired);
 }
 
+/**
+ * Sends what `keystrokesFor` computed, in as many writes as the composer can actually apply.
+ *
+ * A clear and the text replacing it MUST NOT travel in one write, and this is measured rather
+ * than defensive. 2026-09-09, on a live pane holding a three-row composer: `Ctrl+E`, nine
+ * `Ctrl+U` and a 167-character paste sent as ONE `send-keys` left the box holding the old text
+ * with the new text appended to it -- not one kill had taken effect. The identical keys with a
+ * 15ms gap before the paste emptied the box and replaced it, as did 40ms. The same burst with a
+ * SHORT paste also worked, which is the tell: Claude's renderer is applying one input chunk in
+ * one pass, so a paste arriving in the same chunk as the kills is applied to the state the kills
+ * had not yet changed. A big paste is what makes the chunk big enough to lose them.
+ *
+ * Left as one write, that is this module's oldest defect with a new cause: every push pastes the
+ * whole draft onto a box it failed to empty, so a reader gets every prefix of their sentence
+ * back, joined end to end.
+ *
+ * Only a DESTRUCTIVE prefix is split off and waited for. `END` alone changes nothing the paste
+ * depends on, and gating it would put a screen read in front of every keystroke a reader types --
+ * which is the append path, and the common one.
+ */
+async function sendEdit(
+  pane: string,
+  keys: string,
+  runtime: Pick<TmuxComposerRuntime, "screen" | "send">,
+): Promise<void> {
+  const encoder = new TextEncoder();
+  const at = keys.indexOf(PASTE_START);
+  const edit = at === -1 ? keys : keys.slice(0, at);
+  if (at === -1 || !(edit.includes(KILL_ROW) || edit.includes(BACKSPACE))) {
+    await runtime.send(pane, encoder.encode(keys));
+    return;
+  }
+  await runtime.send(pane, encoder.encode(edit));
+  // A clear is done when the box reads empty; a backspace run, when it reads anything other than
+  // what it read before. Waiting on the SCREEN rather than on a sleep is the same discipline
+  // `settle` already uses, and it is what keeps this correct on a pane that is busy rather than
+  // correct on the one it was measured against.
+  const cleared = edit.includes(KILL_ROW);
+  await waitFor(pane, runtime, (text) => (cleared ? text.length === 0 : true));
+  await runtime.send(pane, encoder.encode(keys.slice(at)));
+}
+
+/**
+ * Polls the composer until `done` accepts what it holds, or the redraw limit passes.
+ *
+ * Giving up and carrying on is deliberate: the limit is an order of magnitude past the worst
+ * redraw measured, so reaching it means something is wrong that this cannot fix by waiting
+ * longer, and the alternative -- refusing to finish an edit -- leaves the box half cleared.
+ */
+async function waitFor(
+  pane: string,
+  runtime: Pick<TmuxComposerRuntime, "screen">,
+  done: (text: string) => boolean,
+): Promise<void> {
+  const deadline = Date.now() + REDRAW_LIMIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((wake) => setTimeout(wake, REDRAW_POLL_MS));
+    let view: TmuxPaneView;
+    try {
+      view = await runtime.screen(pane);
+    } catch {
+      return;
+    }
+    const box = composerBox(view);
+    if (box && done(composerText(box.rows))) return;
+  }
+}
+
 /** Nothing to insert sends nothing: an empty bracketed paste still makes Claude redraw the box. */
 function paste(text: string): string {
   if (text.length === 0) return "";
@@ -696,18 +764,7 @@ async function settle(
   runtime: TmuxComposerRuntime,
 ): Promise<void> {
   if (before === null) return;
-  const deadline = Date.now() + REDRAW_LIMIT_MS;
-  while (Date.now() < deadline) {
-    await new Promise((wake) => setTimeout(wake, REDRAW_POLL_MS));
-    let view: TmuxPaneView;
-    try {
-      view = await runtime.screen(pane);
-    } catch {
-      return;
-    }
-    const box = composerBox(view);
-    if (box && composerText(box.rows) !== before) return;
-  }
+  await waitFor(pane, runtime, (text) => text !== before);
 }
 
 /** Everything the live functions need from tmux, injected so the suite needs no tmux server. */
@@ -950,7 +1007,7 @@ export async function syncTmuxComposer(
       if (!box) return unavailable("no-composer");
       const keys = keystrokesFor(box, desired);
       if (keys.length > 0) {
-        await runtime.send(pane, new TextEncoder().encode(keys));
+        await sendEdit(pane, keys, runtime);
         await settle(pane, composerText(box.rows), runtime);
       }
       // No hint and no menu: whatever Claude was offering, the box now holds what was asked
