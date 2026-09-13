@@ -26,7 +26,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 |---|---|---|---|
 | R1 | `agent-feed/sidecar/src/http` | 36 (62) -> 10 (18) | D |
 | R2 | `packages/AgentPanel/Web/src/features/activity-feed` | 26 (44) -> 7 (13) | D |
-| R3 | `packages/AgentPanel/Web/src/app` | 24 (50) | R |
+| R3 | `packages/AgentPanel/Web/src/app` | 24 (50) -> 10 (32) | D |
 | R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) | R |
 | R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) | R |
 | R6 | `agent-feed/sidecar/src/terminal` | 16 (24) | R |
@@ -121,6 +121,33 @@ directory, never between features. Left flat, noted in Deferred.
 `activityNormalization` has no callers at all, only its own test and a mention in the data source's
 contract fixture. With nothing to follow it stays beside the type it builds, which is in
 `useSessionEventsStream`, flat.
+
+### R3 `packages/AgentPanel/Web/src/app`, 24 source files
+
+- `shell-state/` (7) one hook per thing the App shell holds, plus the record of everything all
+  three renderings of the sidebar are handed. Every one of the seven is imported by
+  `AgentPanelApp.tsx`, `sidebarProps.ts`, or both, and by nothing else. `sidebarProps`,
+  `useSidebarChrome`, `useThreadSelection`, `useBotCommands`, `useCanvasRoster`,
+  `usePiSessionCreation`, `useProjectInventory`.
+- `page/` (4) the page rather than the app: which surface this page is, its visibility lifecycle,
+  the soft keyboard's inset, and which regions drag the native window. All four are `main.tsx`
+  imports and nothing else reads them. `panelEntry`, `pageLifecycle`, `keyboardInset`, `windowDrag`.
+- `fake-sidecar/` (3) the fake sidecar the panel runs against with no host and no agent: its entry,
+  its routing table, and the projects, sessions and transcript lines it answers with. `fixture`,
+  `fixtureRoutes`, `fixtureData`. Named for what it is rather than `fixture/`, because this
+  repository already uses "fixture" for the wire contract document that neither end owns.
+
+`app/` keeps 10: the shell and its dialogs, the surface switch, the entry point, the
+AskUserQuestion view, the two dev-server modules, and the App-shell test scaffolding.
+
+`testSetup.ts` and `sidecarBoard.ts` are named by path from outside `src` -- `vitest.config.ts`
+`setupFiles` and a relative import in `vite.config.ts`. Both stay flat: `app/` is already under the
+ceiling without them, and moving a file to make a config edit necessary is the opposite of the
+point.
+
+`agentPanelAppHarness` and `agentPanelAppMocks` are test support that counts as source, which is
+the counting rule biting rather than a group. They ride flat with `AgentPanelApp.tsx`, which is
+what they harness.
 
 ## Decisions
 

@@ -26,14 +26,14 @@ import {
   HoverSidebarPreview,
   ResizableSidebar,
 } from "@/features/sidebar/SidebarPresentation";
-import { useSidebarChrome } from "@/app/useSidebarChrome";
-import { useProjectInventory } from "@/app/useProjectInventory";
-import { useCanvasRoster } from "@/app/useCanvasRoster";
-import { useBotCommands } from "@/app/useBotCommands";
-import { useThreadSelection } from "@/app/useThreadSelection";
-import { usePiSessionCreation } from "@/app/usePiSessionCreation";
+import { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
+import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
+import { useBotCommands } from "@/app/shell-state/useBotCommands";
+import { useThreadSelection } from "@/app/shell-state/useThreadSelection";
+import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
-import { sidebarProps } from "@/app/sidebarProps";
+import { sidebarProps } from "@/app/shell-state/sidebarProps";
 import { loadSelection, storeSelection } from "@/features/sidebar/selectionStore";
 import { useBots } from "@/features/bots/useBots";
 import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";

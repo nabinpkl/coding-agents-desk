@@ -13,7 +13,7 @@ import {
   FIXTURE_RAW_LINE,
   FIXTURE_SESSIONS,
   fixtureEvents,
-} from "@/app/fixtureData";
+} from "@/app/fake-sidecar/fixtureData";
 
 /** What one request answers with: a status, then zero or more messages, then an end. */
 export interface FixtureRoute {

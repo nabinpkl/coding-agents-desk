@@ -9,12 +9,12 @@ import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
 import type { useBots } from "@/features/bots/useBots";
 import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
 import type { useUsage } from "@/features/usage/useUsage";
-import type { useSidebarChrome } from "@/app/useSidebarChrome";
-import type { useProjectInventory } from "@/app/useProjectInventory";
-import type { useCanvasRoster } from "@/app/useCanvasRoster";
-import type { useBotCommands } from "@/app/useBotCommands";
-import type { useThreadSelection } from "@/app/useThreadSelection";
-import type { usePiSessionCreation } from "@/app/usePiSessionCreation";
+import type { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
+import type { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
+import type { useBotCommands } from "@/app/shell-state/useBotCommands";
+import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
+import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 
 export function sidebarProps({
   botsState,

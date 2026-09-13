@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installWindowDrag, isWindowDragTarget } from "@/app/windowDrag";
+import { installWindowDrag, isWindowDragTarget } from "@/app/page/windowDrag";
 
 function buildTitlebar(): {
   header: HTMLElement;
