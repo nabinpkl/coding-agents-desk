@@ -71,4 +71,21 @@ if [ -n "$bad_tags" ]; then
     exit 1
 fi
 
+# 5. No file in the two live TypeScript trees runs past 500 lines. Not a style rule: a file that
+#    long has stopped being one idea, and the reader who needs one of the ideas in it pays for
+#    all of them. The cap is what makes a growing file split at the moment it stops being about
+#    one thing, rather than at the moment somebody has an afternoon to spend on it. Both trees
+#    were brought under it file by file; this is what keeps them there.
+oversize="$(
+    find packages/AgentPanel/Web/src agent-feed/sidecar/src \
+        \( -name '*.ts' -o -name '*.tsx' \) -print0 \
+        | xargs -0 wc -l \
+        | awk '$2 != "total" && $1 > 500 { print "  " $1 " " $2 }'
+)"
+if [ -n "$oversize" ]; then
+    echo "agent-feed-fitness: these files are past the 500-line cap:" >&2
+    printf '%s\n' "$oversize" >&2
+    exit 1
+fi
+
 echo "agent-feed-fitness: OK"

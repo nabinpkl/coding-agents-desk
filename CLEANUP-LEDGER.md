@@ -1,5 +1,66 @@
 # TypeScript cleanup ledger
 
+## Done
+
+Both trees are under the 500-line cap, and `tools/agent-feed-fitness.sh` now fails when they
+are not. The largest file in either is 487 lines; before this arc it was 4,342.
+
+**45 tasks, 45 files split, 176 new files.** Every one was a move: the sidecar's test count
+never left **898 pass / 0 fail**, and the panel's never left **939**, though its test files grew
+from 75 to 96 as the long test files split along their own `describe` and `it` names.
+
+### New directories
+
+None. Every split landed as siblings beside the file it came out of, and that was a decision
+taken twice rather than a default: `terminal/`, `http/`, `data-source/`, `bots/`, `app/` and
+`features/*` are already the concept directories, and a directory inside one of them would have
+named the same idea twice. Where nine files came out of one (`webrtcTileRoutes.ts`), nine
+`webrtc*` siblings were already sitting beside it, so the naming convention already existed and
+a directory would have split it across two places. Both are recorded under `## Decisions`.
+
+### What each new file holds
+
+Grouped by the file it came out of; the per-task sections below carry the concepts one line
+each, and the commits carry why the concepts divide where they do.
+
+- **Live backends and transcripts** (`live/`, `transcripts/`, `sources/`): a session registry
+  shared by both live backends, the flows and messages of each, an event index split into its
+  state, its build and its reads, a transcript catalog split by source, and each vendor's
+  rollouts, payloads and normalization apart from each other.
+- **The terminal** (`terminal/`, both trees): what a terminal is pointed at, the connection each
+  backend reaches, the tmux verbs, the pane size, the layout, the stream, the fit, and the
+  refusals; on the panel side, the runtime a mounted terminal keeps.
+- **The desktop viewer** (`desktop-viewer/`): a keyboard split into preferences, context,
+  session, send, capture and control; a viewport split into constants, runtime, gestures,
+  scrolling, pointers, and each of its overlays; a tile stream split into its wire, its capture,
+  its receiver stats, its video presentation, its control channel and its session.
+- **The webrtc tile** (`http/`): the diagnostics log, the encoder pool, which encoder a request
+  belongs to, what a viewer says about a connection, what an offer may say, who owns input, the
+  peer that is built, the sessions census, and the route table.
+- **The panel shell** (`app/`): one hook per thing the shell remembers -- the sidebar's
+  arrangement, the project inventory, the canvas roster, the Bot commands, the open thread, and
+  a pending Pi session -- plus the dialogs and the sidebar's props.
+- **The Bot canvas** (`bots/`): a Bot card, a session card inside one, remembering where the
+  strip was scrolled to, dragging a card to a new place, and the widths every part agrees on.
+- **The session view** (`session-view/`): a composer split into its model, its editor, its
+  actions and its band, plus the window composer, the question mirror and the extension UI.
+- **The data source** (`data-source/`): one layer per thing its methods are about -- the
+  transport, the transcript, the composers, the terminals -- and the terminal viewer fan-out.
+- **Config** (`sidecar/`): reading an environment variable, a model's context window, and
+  finding a binary this machine may not have.
+- **Test harnesses**: `botRegistryHarness`, `useDesktopKeyboardHarness`, `tileViewportHarness`,
+  `useTmuxComposerHarness`, `tmuxComposerHarness`, `agentTerminalHarness`,
+  `agentPanelAppHarness` and `agentPanelAppMocks` -- each a function or a module rather than
+  module state, so every split test file gets its own fixtures and its own cleanup.
+
+### Still deferred
+
+Nothing was fixed in passing. `## Deferred` at the foot of this file lists what was noticed and
+left: two `CodexLiveBackend` details that predate this arc, and two doc comments that were
+already detached from the code they describe and were moved detached rather than quietly
+re-homed.
+
+
 One job, two trees, and nothing else:
 
 - `packages/AgentPanel/Web/src/**`
@@ -75,8 +136,8 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R41 | D | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
 | R42 | D | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
 | R43 | D | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
-| R44 | R | - | Sweep: re-run the churn command, split whatever the splits pushed over 500. |
-| R45 | R | - | Add the 500-line cap to `tools/agent-feed-fitness.sh`, then write the summary at the top of this file. |
+| R44 | D | - | Sweep: re-run the churn command, split whatever the splits pushed over 500. |
+| R45 | D | - | Add the 500-line cap to `tools/agent-feed-fitness.sh`, then write the summary at the top of this file. |
 
 ## Concepts found, per file
 
