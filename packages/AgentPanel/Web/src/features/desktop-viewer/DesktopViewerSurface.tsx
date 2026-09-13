@@ -17,7 +17,9 @@ import {
   TileStreamRtc,
   type DesktopControlTransport,
 } from "./TileStreamRtc";
-import { getCaptureScale, setCaptureScale, useCaptureScale } from "./captureScale";
+import { useCaptureScale } from "./captureScale";
+import { ModeButton, ResolutionSlider } from "./DesktopViewerControls";
+import { DesktopStream, DetailStream, OverviewStream } from "./DesktopViewerStreams";
 import {
   captureCropApplied,
   clearOverviewReady,
@@ -43,7 +45,6 @@ const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
  * spawn and retire a capture per step, which is both wasteful and the surest way to provoke the
  * teardown race. The label still follows the thumb; only the request waits.
  */
-const CAPTURE_SCALE_SETTLE_MS = 400;
 
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
@@ -357,162 +358,5 @@ export function DesktopViewerSurface({
         </p>
       </div>
     </main>
-  );
-}
-
-function ModeButton({
-  active,
-  disabled = false,
-  label,
-  icon,
-  onClick,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] transition-colors
-        focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white
-        disabled:cursor-wait disabled:opacity-50
-        ${active ? "bg-white text-black" : "text-white/75 hover:bg-white/10 active:bg-white/15"}`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-/** Best-effort readout of what the current knob asks the encoder for, capped at source-native. */
-function encodedCaptureSize(sourceWidth: number, sourceHeight: number, scale: number): string {
-  const capped = Math.min(1, scale);
-  return `${Math.round(sourceWidth * capped)}×${Math.round(sourceHeight * capped)}`;
-}
-
-/**
- * The stream, subscribed to the capture multiplier and the capture plan.
- *
- * This exists so the subscriptions live BELOW the viewport rather than above it. Reading either
- * value in the surface would re-render the surface, which rebuilds the element handed to
- * `TileViewport` as `children` and disturbs the effect holding its view and cursor. Here, a
- * resolution or plan change re-renders this component alone and the view around it does not move.
- * That matters more for the plan than for the multiplier, because the plan is produced by that
- * very effect: routing it upwards would let each settled zoom reset the view it came from.
- */
-function DesktopStream(
-  props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan">,
-) {
-  const { onFirstFrame, ...rest } = props;
-  return (
-    <TileStreamRtc
-      {...rest}
-      captureScale={useCaptureScale()}
-      capturePlan={useCaptureCrop()}
-      // The stream is what knows when a requested plan became visible, and the viewport is what
-      // has to start placing the frame by that plan's region at that instant. Announcing it here
-      // keeps those two from having to know about each other.
-      onFirstFrame={() => {
-        captureCropApplied();
-        onFirstFrame?.();
-      }}
-    />
-  );
-}
-
-/** The coarse whole-display stream: no plan, ever, and the ordinary control owner. */
-function OverviewStream(
-  props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan" | "control">,
-) {
-  // Viewport-sized, as DeskZoom's overview is its window's backing size: the resolution knob is
-  // for a single stream. Applied here it sent a phone a 3858-wide overview beside the sharp
-  // stream, and the link dropped both.
-  return <TileStreamRtc {...props} captureScale={1} capturePlan={null} />;
-}
-
-/**
- * The sharp cropped stream: the store's plan, mounted only while there is one, and never the
- * control owner, since the overview beneath it already is. Its first frame is the swap signal.
- */
-function DetailStream(
-  props: Pick<Parameters<typeof TileStreamRtc>[0], "windowID" | "displayId" | "fill" | "httpTransport">,
-) {
-  const plan = useCaptureCrop();
-  // Both hooks before the early return: a hook that runs only once a plan exists changes the
-  // hook count between renders, and React answers that by unmounting the whole tree to white.
-  const captureScale = useCaptureScale();
-  if (!plan) return null;
-  return (
-    <TileStreamRtc
-      {...props}
-      captureScale={captureScale}
-      capturePlan={plan}
-      control={false}
-      onFirstFrame={captureCropApplied}
-    />
-  );
-}
-
-function ResolutionSlider({
-  sourceWidth,
-  sourceHeight,
-}: {
-  sourceWidth?: number;
-  sourceHeight?: number;
-}) {
-  // The slider owns the value while it is being moved, and reports only where it came to rest.
-  //
-  // Lifting every intermediate step re-rendered the whole viewer -- video element included -- once
-  // per step, and a controlled range whose parent re-renders that heavily loses the race with the
-  // pointer: React writes a now-stale value back into the DOM mid-drag and the thumb snaps, usually
-  // toward whichever end the drag was heading for. Keeping the drag local means one cheap re-render
-  // per step here, and one renegotiation when it settles.
-  // Seeded from the store and owned here while it moves; the store hears only where it came to
-  // rest. Deliberately not subscribed: this control is the one writing, and re-rendering it from
-  // its own write would fight the pointer mid-drag.
-  const [draft, setDraft] = useState(getCaptureScale);
-  useEffect(() => {
-    if (draft === getCaptureScale()) return;
-    const settle = setTimeout(() => setCaptureScale(draft), CAPTURE_SCALE_SETTLE_MS);
-    return () => clearTimeout(settle);
-  }, [draft]);
-  const encoded = sourceWidth && sourceHeight
-    ? encodedCaptureSize(sourceWidth, sourceHeight, draft)
-    : null;
-  return (
-    // Deliberately not a <label> wrapping the input. A label forwards a press anywhere inside it to
-    // the control, so pressing the word or the readout dispatched a click on the range -- and the
-    // readout sits at the right end, so it landed on the maximum every time.
-    <div
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-white/75"
-      title={encoded ? `Capture resolution ${encoded} (${draft.toFixed(2)}×)` : "Capture resolution"}
-    >
-      <span aria-hidden className="text-white/60">Res</span>
-      <input
-        type="range"
-        min={CAPTURE_SCALE_MIN}
-        max={CAPTURE_SCALE_MAX}
-        step={0.25}
-        value={draft}
-        onChange={(event) => setDraft(Number.parseFloat(event.target.value))}
-        aria-label="Capture resolution"
-        aria-valuetext={encoded ? `${encoded}, ${draft.toFixed(2)} times` : `${draft.toFixed(2)} times`}
-        // `appearance-none` also removes the thumb, so it is drawn back explicitly -- without it
-        // there is no grab target and the only way to change the value is to click the track.
-        className="h-1 w-32 cursor-pointer appearance-none rounded-full bg-white/25 outline-none
-          focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white
-          [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none
-          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
-          [&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full
-          [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white"
-      />
-      <span className="w-9 tabular-nums text-right text-white/60">{draft.toFixed(2)}×</span>
-    </div>
   );
 }

@@ -66,7 +66,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R32 | D | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
 | R33 | D | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
 | R34 | D | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
-| R35 | R | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
+| R35 | D | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
 | R36 | R | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
 | R37 | R | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
 | R38 | R | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
@@ -509,6 +509,15 @@ Split into `composerBox.ts`, `composerKeystrokes.ts`, `tmuxComposerPanes.ts`,
 `tmuxComposerRuntime.ts`. 1302 to 366. The module header's measurements stay on
 `tmuxComposer.ts`, because they are what the whole module was built against rather than what any
 one part does; `composerBox.ts` points at them.
+
+### R35 `desktop-viewer/DesktopViewerSurface.tsx` (518)
+
+- The surface: the dock, the navigation, and which streams are mounted.
+- The two controls that are not the picture: the mode buttons and the resolution knob.
+- The streams themselves, each subscribed below the viewport so a resolution change re-renders one
+  of them rather than the view around them.
+
+Split into `DesktopViewerControls.tsx` and `DesktopViewerStreams.tsx`. 518 to 361.
 
 ## Decisions
 
