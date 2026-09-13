@@ -328,6 +328,11 @@ export function BotCanvasCard({
             // Bot, the surplus reads as a band of Bot colour framing the transcript, and a band
             // is what a reader calls a border. Ten still shows the surface and stops there.
             //
+            // A Bot is exactly as big as the sessions in it, so trimming this shrank the BOT card
+            // and gave the transcript nothing. `DEFAULT_CARD_WIDTH` and `DEFAULT_CARD_HEIGHT` take
+            // the difference back, which puts the Bot at the size it was and spends the trim on
+            // the transcript. Move these numbers and move those.
+            //
             // The gap between sessions is the larger number rather than the inset's, because it
             // separates two cards that each have a rail, where the inset separates a card from an
             // edge.

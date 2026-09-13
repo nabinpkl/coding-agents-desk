@@ -25,7 +25,18 @@ export const MIN_CARD_WIDTH = 320;
  */
 export const MAX_CARD_WIDTH = 8000;
 
-export const DEFAULT_CARD_WIDTH = 440;
+/**
+ * 446 rather than the 440 it was, and the six pixels came from the Bot card around it rather than
+ * from anywhere new. A Bot is exactly as big as the sessions standing in it, so when the roster's
+ * trailing inset went from sixteen to ten (`BotCanvasCard`), the Bot card got six pixels narrower
+ * and the transcript got nothing. Taking them here puts the Bot back at the size it was and spends
+ * the trim on the thing a reader is actually looking at.
+ *
+ * It reaches a card that has never been dragged, which is the only card it can reach: a stored
+ * width is the reader's own answer and nothing here may rewrite it. Move the roster's inset again
+ * and this number moves with it, in the opposite direction and by the same amount.
+ */
+export const DEFAULT_CARD_WIDTH = 446;
 
 /**
  * Low enough to be out of the way rather than an opinion about what is readable: a card can be
@@ -42,7 +53,9 @@ export const MIN_CARD_HEIGHT = 80;
  * cannot cross a screen in one gesture, so nothing reaches it by pulling.
  */
 export const MAX_CARD_HEIGHT = 8000;
-export const DEFAULT_CARD_HEIGHT = 780;
+/** 792 for the reason `DEFAULT_CARD_WIDTH` is 446, doubled: the trim took six off the top and six
+ *  off the bottom where it took six off one side only. */
+export const DEFAULT_CARD_HEIGHT = 792;
 
 export interface BotCardSize {
   width: number;
