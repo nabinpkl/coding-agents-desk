@@ -9,6 +9,11 @@
  *
  * `-n` sets BOTH of those names in one go, so naming the fork here fixes the panel's list and
  * `ListAgents` at the same time.
+ *
+ * This is the PROPOSAL, not the name. It seeds the field in the fork dialog and the reader may
+ * type over it, which is why the rule lives on this side now: the sidecar used to derive the name
+ * and had the last word on it, and a reader who wanted their fork called something else had to
+ * rename it afterwards. The sidecar is handed a finished title and no longer names anything.
  */
 
 /** `<base> (fork <n>)`, with the number captured so an existing suffix can be read off. */

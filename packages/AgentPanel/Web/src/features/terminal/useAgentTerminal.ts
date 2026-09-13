@@ -126,7 +126,8 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
   feed: SidecarDataSource;
   context: AgentTerminalContext;
   sizing: TerminalSizing;
-  onState: (context: AgentTerminalContext, state: AgentTerminalState) => void;
+  /** Optional: a pane with nothing to learn from the state passes nothing. */
+  onState?: (context: AgentTerminalContext, state: AgentTerminalState) => void;
 }): AgentTerminal {
   const mountRef = useRef<HTMLDivElement>(null);
   const [syncLabel, setSyncLabel] = useState("Opening terminal");
@@ -153,7 +154,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
     let teardown = (): void => {};
     const fail = (error: unknown): void => {
       if (disposed) return;
-      onState(context, { kind: "error", message: String((error as Error).message ?? error) });
+      onState?.(context, { kind: "error", message: String((error as Error).message ?? error) });
     };
 
     void loadXterm().then(({ Terminal }) => {
@@ -284,7 +285,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
         remoteClosed = true;
         unsubscribe?.();
         unsubscribe = null;
-        onState(context, state);
+        onState?.(context, state);
       };
       // A resumed CLI is worth keeping alive for the next visit, so its viewer leaving is a
       // detach. An attach is not: the PTY session outliving its viewer means the tmux client stays
@@ -517,7 +518,7 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
             onMessage: receive,
             onError: (reason) => fail(new Error(reason)),
           }, { replay: !imported });
-          onState(context, { kind: "ready", descriptor: opened });
+          onState?.(context, { kind: "ready", descriptor: opened });
           terminal.focus();
           // An attach has no checkpoint to wait for -- the capture above IS its first screen -- so
           // nothing else would ever move the label off "Opening terminal", and a terminal that is

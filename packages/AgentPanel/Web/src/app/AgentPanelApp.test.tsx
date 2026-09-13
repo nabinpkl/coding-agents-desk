@@ -1082,41 +1082,33 @@ describe("App shell", () => {
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
 
+    // The name first, and nothing started yet. `-n` sets the session's address as well as its
+    // title, so this is the only moment it is free -- afterwards the fork has already been listed
+    // under whatever it was called.
+    const field = screen.getByLabelText("Name") as HTMLInputElement;
+    expect(field.value).toBe("Session Claude 01 (fork 1)");
+    expect(terminalPaneMock.context).toBeNull();
+
+    fireEvent.change(field, { target: { value: "Retry the flaky gate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+
+    // Its own name from the first paint, with no round trip through the pane: the shell chose it.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Retry the flaky gate");
     // A fork has no transcript to show: the CLI writes none until its first turn, so the view says
-    // that rather than spinning on a file that is not coming.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Fork of Session Claude 01");
+    // that rather than spinning on a file that is not coming, and it names where it came from.
     expect(screen.getByText(/appears here once you send the first message/)).toBeInTheDocument();
+    expect(screen.getByText(/Forked from/)).toBeInTheDocument();
     expect(screen.queryByTestId("activity-feed")).toBeNull();
 
     // The terminal is the whole session until then, and it points at the fork rather than at the
-    // session it branched from.
+    // session it branched from -- carrying the name, which is an argument of its command.
     expect(terminalPaneMock.context).toEqual({
       kind: "session-fork",
       source: "claude",
       sessionId: "sid-claude-01",
       forkId: expect.any(String),
+      title: "Retry the flaky gate",
     });
-
-    // Once the pane has started it, the fork answers to its own name rather than being described
-    // by its source's -- the sidecar picked the name, so it is the one that says what it is.
-    const forkId = terminalPaneMock.context!.forkId as string;
-    act(() => {
-      terminalPaneMock.onState!(terminalPaneMock.context!, {
-        kind: "ready",
-        descriptor: {
-          terminalId: "t1",
-          ptySessionName: `agent-tmux-agentdesk-fork-${forkId}`,
-          pid: 7,
-          columns: 80,
-          rows: 24,
-          startedSession: { sessionId: forkId, title: "Session Claude 01 (fork 1)" },
-        },
-      });
-    });
-    expect(screen.getByRole("heading", { level: 1 }))
-      .toHaveTextContent("Session Claude 01 (fork 1)");
-    // The body still names where it came from, which the heading no longer does.
-    expect(screen.getByText(/Forked from/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close fork" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
@@ -1149,6 +1141,7 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
     const forkId = terminalPaneMock.context!.forkId as string;
 
     // Nothing yet: a fork writes no transcript until its first turn, and the sidecar refuses a
@@ -1195,9 +1188,10 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("ignores a name from a pane belonging to a fork that is no longer open", async () => {
-    // A pane's `ready` can land after the reader closed one fork and opened another. Adopting it
-    // blindly would put the closed fork's name on the open one, which reads as the wrong session.
+  it("starts nothing when the fork dialog is cancelled", async () => {
+    // The dialog is the whole commitment point. Backing out of it must leave no pane, no tmux
+    // session and no `claude --fork-session`, because a fork that exists is already listed under
+    // its name to every other agent and cannot be taken back.
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -1223,25 +1217,11 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-    act(() => {
-      terminalPaneMock.onState!(terminalPaneMock.context!, {
-        kind: "ready",
-        descriptor: {
-          terminalId: "t1",
-          ptySessionName: "agent-tmux-agentdesk-fork-stale",
-          pid: 7,
-          columns: 80,
-          rows: 24,
-          startedSession: {
-            sessionId: "11111111-1111-4111-8111-111111111111",
-            title: "Somebody else (fork 9)",
-          },
-        },
-      });
-    });
-
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Fork of Session Claude 01");
+    expect(terminalPaneMock.context).toBeNull();
+    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     unmount();
   });
 

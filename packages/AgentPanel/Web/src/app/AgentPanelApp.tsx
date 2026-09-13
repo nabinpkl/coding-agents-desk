@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { GitFork, PanelLeft } from "lucide-react";
 import type {
   AddBotCommand,
-  AgentTerminalContext,
   BotSessionRef,
   BotView,
   ProjectSummary,
@@ -44,10 +43,10 @@ import {
 } from "../features/bots/botCanvasPreferences";
 import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
 import { SessionRenameDialog } from "../features/bots/SessionRenameDialog";
+import { ForkSessionDialog } from "../features/bots/ForkSessionDialog";
 import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
 import { SessionView, type SessionViewContext } from "../features/session-view/SessionView";
 import { AgentTerminalPane } from "../features/terminal/AgentTerminalPane";
-import type { AgentTerminalState } from "../features/terminal/useAgentTerminal";
 
 
 /**
@@ -235,10 +234,11 @@ export function App({ feed, host, fill = false }: Props) {
    * has to give two panes, and a pane named after the source would give the second fork the
    * first's terminal.
    *
-   * `title` is the SOURCE's, which is all this knows until the pane opens. `startedTitle` is the
-   * fork's own, and arrives from the sidecar with the terminal that started it: the name is
-   * settled where the command is built, and counting `(fork n)` a second time here could answer
-   * differently against a session list that is a moment behind.
+   * `forkTitle` is the fork's own name, chosen in the dialog before any of this exists. It used to
+   * arrive from the sidecar after the pane opened, because the sidecar derived it -- so the header
+   * read "Fork of X" until the terminal was up, and the reader had no say in it at all. The name
+   * is settled first now, which is what `-n` requires of it: that flag sets the session's ADDRESS
+   * as well as its title, so a fork is listed under this name from its first moment.
    *
    * `botId` and `projectPath` are the Bot it was forked FROM, kept so the fork can be given back
    * to it once it exists. They are the Bot's rather than the source session's because that is
@@ -249,12 +249,29 @@ export function App({ feed, host, fill = false }: Props) {
       source: "claude";
       sessionId: string;
       forkId: string;
-      title: string;
-      startedTitle: string | null;
+      forkTitle: string;
+      /** What it was forked FROM, which is the one thing the empty view has to say. */
+      sourceTitle: string;
       botId: string;
       projectPath: string;
     } | null
   >(null);
+  /** The session whose fork is being named, if any. Nothing is started until it is confirmed. */
+  const [forkRequest, setForkRequest] = useState<
+    { session: SessionSummary; botId: string; projectPath: string } | null
+  >(null);
+  /**
+   * The names already standing in the project a fork would join, which is what its number counts
+   * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
+   * rows the reader can see -- a second reading could be a moment ahead of them and propose a
+   * number for a fork that is not on screen yet.
+   */
+  const forkTitlesInProject = useMemo(
+    () => forkRequest
+      ? (sessionsByProject.get(forkRequest.projectPath) ?? []).map((session) => session.title)
+      : [],
+    [forkRequest, sessionsByProject],
+  );
 
   // The subscription's identity, not merely its argument: expanding or collapsing a
   // project reopens the inventory stream exactly once, and re-rendering for any other
@@ -540,36 +557,37 @@ export function App({ feed, host, fill = false }: Props) {
     openSession(project, session);
   }, [openSession, projects]);
 
-  // The fork's pane renders its own errors in its footer, so the shell wants only one thing from
-  // its state: the name the sidecar gave the session it just started. Stable so a re-render of the
-  // shell never restarts the pane.
-  const noteForkTerminalState = useCallback(
-    (_context: AgentTerminalContext, state: AgentTerminalState) => {
-      if (state.kind !== "ready") return;
-      const started = state.descriptor.startedSession;
-      if (!started) return;
-      // Matched on the fork this pane is for. A stale pane's `ready` can land after the reader has
-      // closed one fork and opened another, and it would otherwise rename the new one.
-      setForkedSession((current) =>
-        current && current.forkId === started.sessionId
-          ? { ...current, startedTitle: started.title }
-          : current
-      );
-    },
-    [],
-  );
+  // Asks for a name rather than forking. Nothing is started here: the pane, the tmux session and
+  // the `claude --fork-session` behind it all wait on the dialog being confirmed, because `-n` is
+  // an argument of that command and there is no second chance to set it.
   const forkSession = useCallback((bot: BotView, session: SessionSummary) => {
     if (session.source !== "claude") return;
-    setForkedSession({
-      source: "claude",
-      sessionId: session.sessionId,
-      forkId: crypto.randomUUID(),
-      title: session.title || session.sessionId,
-      startedTitle: null,
+    setForkRequest({
+      session,
       botId: bot.botId,
       projectPath: bot.environment.path,
     });
   }, []);
+  const startFork = useCallback(
+    (
+      request: { session: SessionSummary; botId: string; projectPath: string },
+      forkTitle: string,
+    ) => {
+      setForkRequest(null);
+      setForkedSession({
+        source: "claude",
+        sessionId: request.session.sessionId,
+        // Minted at the moment the fork is actually started, so a dialog opened and cancelled
+        // leaves no id behind and two confirms of one row are two different forks.
+        forkId: crypto.randomUUID(),
+        forkTitle,
+        sourceTitle: request.session.title || request.session.sessionId,
+        botId: request.botId,
+        projectPath: request.projectPath,
+      });
+    },
+    [],
+  );
 
   /**
    * Gives a fork back to the Bot its source belongs to, once there is a session to give.
@@ -824,6 +842,15 @@ export function App({ feed, host, fill = false }: Props) {
           onClose={() => setRenamingSession(null)}
           onRename={renameSession}
         />
+        <ForkSessionDialog
+          request={forkRequest}
+          // Every title in the source's project, so the proposal counts past the forks that are
+          // already there. Read from the same list the sidebar renders, which is what the reader
+          // is looking at when they press Fork.
+          takenTitles={forkTitlesInProject}
+          onClose={() => setForkRequest(null)}
+          onFork={startFork}
+        />
         <BotSessionPickerDialog
           open={botSessionPicker !== null}
           bot={botSessionPicker}
@@ -893,9 +920,7 @@ export function App({ feed, host, fill = false }: Props) {
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
               {forkedSession
-                // Its own name once the pane has started it and said what it called it. Until then
-                // there is no session yet, and "a fork of X" is the only true thing to say.
-                ? forkedSession.startedTitle ?? `Fork of ${forkedSession.title}`
+                ? forkedSession.forkTitle
                 : sidebarMode === "canvas"
                 ? "Canvas"
                 : sidebarMode === "bots"
@@ -914,7 +939,7 @@ export function App({ feed, host, fill = false }: Props) {
           <main className="min-h-0 flex-1 overflow-hidden bg-background">
             {forkedSession ? (
               <ForkedSessionView
-                title={forkedSession.title}
+                title={forkedSession.sourceTitle}
                 onClose={() => setForkedSession(null)}
               />
             ) : displayedThread ? (
@@ -960,8 +985,8 @@ export function App({ feed, host, fill = false }: Props) {
                 source: forkedSession.source,
                 sessionId: forkedSession.sessionId,
                 forkId: forkedSession.forkId,
+                title: forkedSession.forkTitle,
               }}
-              onState={noteForkTerminalState}
               layout="band"
             />
           ) : null}

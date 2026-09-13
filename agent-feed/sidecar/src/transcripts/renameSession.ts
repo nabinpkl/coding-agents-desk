@@ -16,7 +16,8 @@
  * outcome this exists to avoid, so it is refused with a reason instead.
  */
 import { renameTmuxSession } from "../input/tmuxComposer.ts";
-import { findSession, SUMMARY_TITLE_CHARACTERS } from "./transcriptCatalog.ts";
+import { findSession } from "./transcriptCatalog.ts";
+import { sessionTitleRefusal } from "./sessionTitle.ts";
 
 export class SessionRenameInvalidError extends Error {}
 export class SessionRenameNotFoundError extends Error {}
@@ -34,19 +35,8 @@ export async function renameClaudeSession(
   requestedTitle: string,
 ): Promise<string> {
   const title = requestedTitle.trim();
-  if (!title) throw new SessionRenameInvalidError("a session title cannot be empty");
-  // The catalog's own cap, not a second one: a longer title would be stored and then read back
-  // truncated, so the row would not say what the reader typed.
-  if (title.length > SUMMARY_TITLE_CHARACTERS) {
-    throw new SessionRenameInvalidError(
-      `a session title cannot exceed ${SUMMARY_TITLE_CHARACTERS} characters`,
-    );
-  }
-  // `/rename` takes its title to the end of one line, so a line break would end the command early
-  // and leave the rest sitting in the composer as text.
-  if (/[\n\r]/.test(title)) {
-    throw new SessionRenameInvalidError("a session title cannot contain a line break");
-  }
+  const invalid = sessionTitleRefusal(title);
+  if (invalid) throw new SessionRenameInvalidError(invalid);
   if (!findSession("claude", sessionId)) {
     throw new SessionRenameNotFoundError("session not found");
   }

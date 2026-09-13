@@ -75,6 +75,15 @@ export interface SessionForkTerminalContext {
    * transcript afterwards without searching for it.
    */
   forkId: string;
+  /**
+   * What to call the fork, decided by the caller and passed to the CLI as `-n`.
+   *
+   * Required, and the sidecar derives nothing: naming a fork is the reader's act, taken in the
+   * dialog that opens before the fork starts, so there is no second name for a default to be. A
+   * caller with no opinion sends the proposal the panel offered rather than omitting the field,
+   * which is what keeps one title on the wire instead of one here and another in the sidecar.
+   */
+  title: string;
 }
 
 /** What a terminal is pointed at. */
@@ -101,12 +110,14 @@ export interface AgentTerminalDescriptor {
   /**
    * The session this terminal BROUGHT INTO EXISTENCE, when it did that.
    *
-   * Only a fork does: every other kind resumes or attaches a session that already had a name. The
-   * sidecar is the one that picks a fork's name, so it says which it picked rather than leaving
-   * the caller to re-derive it -- two implementations of one counting rule, run against catalogs
-   * that can differ by a moment, would disagree exactly when two forks are made at once.
+   * Only a fork does: every other kind resumes or attaches a session that already had a name.
    *
-   * Absent means nothing was started, not that the name is unknown.
+   * The caller named it, so this is not how the name is learned. What it reports is that THIS open
+   * is the one that started the session -- a second open of a live fork joins its pane and says
+   * nothing, which is the difference between a session to attach to a Bot and one already attached.
+   * The title travels with it as the name after trimming, so the two sides cannot drift.
+   *
+   * Absent means nothing was started.
    */
   startedSession?: { sessionId: string; title: string };
 }

@@ -36,7 +36,14 @@ const viewportHeight = (): number => globalThis.visualViewport?.height || global
 interface Props {
   feed: SidecarDataSource;
   context: AgentTerminalContext;
-  onState: (context: AgentTerminalContext, state: AgentTerminalState) => void;
+  /**
+   * Watches the terminal's own state, for a caller that has something to do with it.
+   *
+   * Optional because not every pane does: the fork pane renders its errors in its own footer and
+   * the shell above it knows the fork's name before the terminal exists, so it has nothing to
+   * learn here and a no-op passed only to satisfy a signature is noise.
+   */
+  onState?: (context: AgentTerminalContext, state: AgentTerminalState) => void;
   /**
    * Where the pane's height comes from, which also decides which way a drag grows.
    *

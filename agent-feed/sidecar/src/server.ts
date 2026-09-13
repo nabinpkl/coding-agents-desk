@@ -32,7 +32,6 @@ import {
   getWatcherState,
   findSession,
   summarizeSession,
-  sessionSummaries,
   subscribeCatalog,
   startCatalog,
   stopCatalog,
@@ -84,13 +83,8 @@ const agentTerminals = new AgentTerminalService(
     return {
       projectPath: session.project,
       activity: summary.activity,
-      title: summary.title,
     };
   },
-  // The same projection the session list is rendered from, so a fork counts the names a reader can
-  // actually see rather than a second reading of the catalog that could disagree with them.
-  (projectPath) =>
-    sessionSummaries(projectPath, describeAgentSession).map((summary) => summary.title),
 );
 backends.register(new PiAgentBackend({
   resolveSession: resolvePiSession,

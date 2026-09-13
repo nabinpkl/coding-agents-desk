@@ -15,7 +15,7 @@ import type {
 import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
 import { currentProcessTable } from "../tasks/processProbe.ts";
 import { liveSessionProcesses } from "../tasks/sessionRegistry.ts";
-import { nextForkTitle } from "./forkTitle.ts";
+import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
 import {
   captureTmuxHistory,
   createTmuxSession,
@@ -42,8 +42,6 @@ export class AgentTerminalUnavailableError extends Error {}
 export interface ResolvedAgentTerminalSession {
   projectPath: string;
   activity: string;
-  /** What the session is called, as the panel shows it. Only the fork path reads it. */
-  title: string;
 }
 
 /** Everything `open` needs that depends on what the terminal is pointed at. */
@@ -116,14 +114,6 @@ export class AgentTerminalService {
       source: "claude" | "codex",
       sessionId: string,
     ) => ResolvedAgentTerminalSession | undefined,
-    /**
-     * Every session title already taken in one project, which is how a fork picks its number.
-     *
-     * Required rather than defaulted to none: a default would answer "nothing is taken" for a
-     * wiring mistake, and every fork would then be `(fork 1)` -- the exact collision this exists
-     * to remove, arriving silently.
-     */
-    private readonly projectSessionTitles: (projectPath: string) => string[],
     private readonly userHomeDirectory = homedir(),
     private readonly pty: AgentTerminalPtyClient = new PtyManagerClient(socketPath),
     // Injected so the tests can watch what the service asks of tmux without one being installed.
@@ -663,7 +653,12 @@ export class AgentTerminalService {
     }
 
     const pane = forkedPaneName(forkId);
-    const title = nextForkTitle(session.title, this.projectSessionTitles(session.projectPath));
+    // Taken from the caller, never derived. The panel proposes a name and the reader may type over
+    // it before the fork starts, so a title computed here would be a second answer to a question
+    // that has already been asked -- and it would silently win.
+    const title = context.title.trim();
+    const refusal = sessionTitleRefusal(title);
+    if (refusal) throw new AgentTerminalInvalidError(refusal);
     return {
       ptySessionName: `agent-tmux-${pane}`,
       tmuxSession: pane,

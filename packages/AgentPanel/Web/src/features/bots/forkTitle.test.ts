@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { forkBaseTitle, nextForkTitle } from "./forkTitle.ts";
+import { describe, expect, it } from "vitest";
+import { forkBaseTitle, nextForkTitle } from "./forkTitle";
 
 describe("naming a fork", () => {
   it("numbers the first fork of a session", () => {

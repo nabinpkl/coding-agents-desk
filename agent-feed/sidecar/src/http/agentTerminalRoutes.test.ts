@@ -177,21 +177,36 @@ test("opens a session-backed target with no project path of its own", async () =
 test("carries a fork's own id through to the service, not just the session it came from", async () => {
   // The parser is a separate gate from the service: a kind the service understands is still
   // refused here until this function knows it, and a field this function drops never reaches the
-  // service no matter what the service does with it. `forkId` is that field -- it names the pane,
-  // so losing it would put every fork of one session in one terminal.
+  // service no matter what the service does with it. `forkId` names the pane, so losing it would
+  // put every fork of one session in one terminal; `title` is the name the reader chose, and the
+  // service derives no replacement for it, so dropping it here refuses the fork rather than
+  // quietly starting one under a different name.
   const { calls, route } = fakeService();
   const forkId = "9f0c5d5a-6c53-4b2a-9d8e-2f7c1a4b6e30";
+  const context = {
+    kind: "session-fork",
+    source: "claude",
+    sessionId: SESSION_ID,
+    forkId,
+    title: "Retry the flaky gate",
+  };
   const response = await call(route, "POST", "/api/terminals", {
-    context: { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId },
+    context,
     columns: 100,
     rows: 30,
   });
 
   expect(response?.status).toBe(201);
-  expect(calls).toEqual([{ open: {
+  expect(calls).toEqual([{ open: { context, dimensions: { columns: 100, rows: 30 } } }]);
+
+  // And a fork with no title at all is refused by the parser, not passed on as undefined.
+  const untitled = await call(route, "POST", "/api/terminals", {
     context: { kind: "session-fork", source: "claude", sessionId: SESSION_ID, forkId },
-    dimensions: { columns: 100, rows: 30 },
-  } }]);
+    columns: 100,
+    rows: 30,
+  });
+  expect(untitled?.status).toBe(400);
+  expect(calls).toHaveLength(1);
 });
 
 test("a context without a known kind is refused before the service sees it", async () => {

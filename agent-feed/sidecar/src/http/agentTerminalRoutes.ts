@@ -95,13 +95,15 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
   }
   // A fork names the session it branches FROM plus its own identity. Both are needed: the first
   // says what to resume, the second names the pane, and without it two forks of one session would
-  // land in one terminal.
+  // land in one terminal. The title comes with them because the reader chose it before the fork
+  // started; the service refuses one it cannot use rather than substituting its own.
   if (kind === "session-fork") {
     return {
       kind,
       source: stringValue(context.source, "context.source") as "claude",
       sessionId: stringValue(context.sessionId, "context.sessionId"),
       forkId: stringValue(context.forkId, "context.forkId"),
+      title: stringValue(context.title, "context.title"),
     };
   }
   if (kind !== "agent-session") {
