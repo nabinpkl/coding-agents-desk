@@ -66,6 +66,20 @@ const SGR_HEAD = /^\u001b\[([0-9;]*)m/;
  */
 const FAINT = "2";
 
+/**
+ * What Claude collapses an attachment into, and treats as a SINGLE character.
+ *
+ * Measured on a live pane, both kinds. With `[Image #2] omega` in the box, six backspaces rubbed
+ * out " omega" one character at a time and the SEVENTH took the whole token; the same held for
+ * `[Pasted text #3 +38 lines]`, twenty-six characters that went in one press. So the count of
+ * backspaces a correction needs is not the length of the text being removed, and a diff that used
+ * the length would delete as many extra characters to the left as the token is long.
+ *
+ * Both kinds matter even though the panel only ever creates images: a person typing in the pane
+ * makes the other one by pasting anything long, and this side has to read their box correctly.
+ */
+const ATTACHMENT = /\[(?:Image|Pasted text) #\d+(?: \+\d+ lines)?\]/g;
+
 /** Kill to the start of the visual row. One per row is what empties the box. */
 const KILL_ROW = "\u0015";
 const BACKSPACE = "\u007f";
@@ -198,9 +212,9 @@ export function keystrokesFor(rows: readonly string[], desired: string): string 
   // A single row is known exactly, so a correction rubs out only what diverged -- which keeps a
   // backspace in the panel costing a backspace in the pane rather than a whole retype.
   if (rows.length === 1) {
-    const shared = commonPrefix(current, desired);
-    const removed = [...current.slice(shared.length)].length;
-    return BACKSPACE.repeat(removed) + paste(desired.slice(shared.length));
+    const shared = sharedPrefix(current, desired);
+    const removed = backspacesFor(current.slice(shared));
+    return BACKSPACE.repeat(removed) + paste(desired.slice(shared));
   }
   return KILL_ROW.repeat(rows.length) + paste(desired);
 }
@@ -212,6 +226,32 @@ function paste(text: string): string {
   // rather than as the start of a sequence the pane will act on. Same guard the terminal prompt
   // route makes, for the same reason.
   return `${PASTE_START}${text.replaceAll("\u001b", "\u241b")}${PASTE_END}`;
+}
+
+/**
+ * How many backspaces rub out `text`, which is not how long it is.
+ *
+ * Each attachment token goes in one press; everything else goes by code point, so an emoji costs
+ * one backspace rather than two.
+ */
+function backspacesFor(text: string): number {
+  return [...text.replaceAll(ATTACHMENT, "\u0000")].length;
+}
+
+/**
+ * How much of `current` to keep, which is the shared prefix moved back off any token it split.
+ *
+ * A prefix that ends inside a token would have the rest of that token counted character by
+ * character and then deleted whole, taking the neighbours with it. Backing up to the token's start
+ * costs one extra press and cannot be wrong.
+ */
+function sharedPrefix(current: string, desired: string): number {
+  let shared = commonPrefix(current, desired).length;
+  for (const token of current.matchAll(ATTACHMENT)) {
+    const start = token.index;
+    if (shared > start && shared < start + token[0].length) shared = start;
+  }
+  return shared;
 }
 
 /** By code point, so an emoji costs one backspace rather than two. */

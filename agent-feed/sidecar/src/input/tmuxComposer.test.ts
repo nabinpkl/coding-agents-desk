@@ -511,3 +511,29 @@ test("reports tmux being gone as its own reason rather than as a busy composer",
   expect(await renameTmuxSession("s1", "New name", tmux))
     .toEqual({ renamed: false, reason: "tmux-unavailable" });
 });
+
+test("rubs out an attachment token with ONE backspace, because that is what the box does", () => {
+  // Measured on a live pane: with `[Image #2] omega` in the box, six presses took " omega" one
+  // character at a time and the seventh took the whole token. Counting its characters instead
+  // would have sent eleven presses and deleted four characters of whatever sat to its left.
+  expect(keystrokesFor(["alpha [Image #2] omega"], "alpha "))
+    .toBe(BACKSPACE.repeat(7));
+  // Twenty-six characters, one press, same as the image.
+  expect(keystrokesFor(["[Pasted text #3 +38 lines] tail"], ""))
+    .toBe(BACKSPACE.repeat(6));
+});
+
+test("never splits a token, since half of one cannot be deleted", () => {
+  // The shared prefix ends inside `[Image #12]` here. Counting from there would rub out the rest
+  // of the token by character and then meet a token that goes whole, taking the neighbours too.
+  // Backed up to the token's start, so it is six presses for " after" and one for the token,
+  // then the whole tail is retyped.
+  expect(keystrokesFor(["before [Image #12] after"], "before [Image #1] after"))
+    .toBe(`${BACKSPACE.repeat(7)}${OPEN}[Image #1] after${CLOSE}`);
+});
+
+test("takes a token out of the middle without touching what sits either side", () => {
+  // What removing an image from the panel's strip comes to: the token goes and the text does not.
+  expect(keystrokesFor(["alpha [Image #2] omega"], "alpha omega"))
+    .toBe(`${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`);
+});
