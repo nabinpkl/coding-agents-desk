@@ -7,6 +7,7 @@ import type { EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import type { CodexMessageEvent } from "@/live/codexNetworkSource";
 import type { FlowContext } from "@/live/codexLiveFlows";
 import { blockForItem, publishTurnInput, type CodexItemStore } from "@/live/codexLiveItems";
+import { summarizeToolUse } from "@/transcripts/codex/codexPayloads";
 
 // Cached input tokens from the Responses-API usage shape the codex websocket
 // publishes on `response.completed`. The transcript's `token_count` record
@@ -171,6 +172,9 @@ export function applyCodexEvent(
         } catch {
           // Incomplete arguments: leave the block without an input rather than dropping it.
         }
+        // Without a summary the live row's header read only the tool name until the durable row
+        // replaced it. Same summarizer as the durable parser, so the hand-off does not change it.
+        block.summary = summarizeToolUse(block.tool ?? "tool", block.input ?? {}, raw);
       }
       current.toolRaw?.delete(itemId);
       context.streaming.delete(itemId);

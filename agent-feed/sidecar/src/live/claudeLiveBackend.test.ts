@@ -221,6 +221,29 @@ describe("ClaudeLiveBackend ingest", () => {
     await local.dispose();
   });
 
+  test("a streamed tool call carries the same summary its durable row will", async () => {
+    // The row's header reads `summary`; without it a live Bash row said only "Bash".
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("fb", "/v1/messages", "api.anthropic.com", "bash1"));
+    local.acceptObserverEvent(delta("fb", { type: "message_start", message: { id: "msg_bash" } }));
+    local.acceptObserverEvent(delta("fb", {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", id: "toolu_bash", name: "Bash" },
+    }));
+    local.acceptObserverEvent(delta("fb", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"command":"git sta' } }));
+    local.acceptObserverEvent(delta("fb", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: 'tus --short"}' } }));
+    local.acceptObserverEvent(delta("fb", { type: "content_block_stop", index: 0 }));
+    local.acceptObserverEvent(delta("fb", { type: "message_stop" }));
+    await flush(160);
+    const page = await local.page("sess-bash1", 0, 10, "nice");
+    const block = page.events[0]!.blocks[0]!;
+    expect(block.kind).toBe("tool_use");
+    expect(block.input).toEqual({ command: "git status --short" });
+    expect(block.summary).toBe("git status --short");
+    await local.dispose();
+  });
+
   test("tool results carried in the follow-up request body become user events", async () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("t1", "/v1/messages", "api.anthropic.com", "tool1"));

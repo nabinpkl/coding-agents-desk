@@ -5,6 +5,7 @@ import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
+import { summarizeToolUse } from "@/transcripts/codex/codexPayloads";
 
 const FIXTURE_PATH = resolve(import.meta.dir, "fixtures/codexDesktopLiveFixture.jsonl");
 const SESSION_ID = "019fe292-5466-7393-b931-8bf0c2cece82";
@@ -120,6 +121,10 @@ describe("CodexLiveBackend fixture ingest", () => {
     expect(toolBlock.input).toBeTypeOf("object");
     expect((toolBlock.input as Record<string, unknown>).workdir).toBe("/workdir");
     expect((toolBlock.input as Record<string, unknown>).cmd).toBeTypeOf("string");
+    // The live row's header reads `summary`, and the durable row that replaces it must say the same.
+    const input = toolBlock.input as Record<string, unknown>;
+    expect(toolBlock.summary).not.toBe("exec_command");
+    expect(toolBlock.summary).toBe(summarizeToolUse("exec_command", input, JSON.stringify(input)));
     expect(tool!.phase).toBe("complete");
   });
 

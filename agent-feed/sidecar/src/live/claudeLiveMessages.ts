@@ -10,6 +10,7 @@ import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import type { AnthropicStreamEvent } from "@/live/claudeNetworkSource";
 import type { ToolResultItem } from "@/live/claudeRequestBody";
+import { summarizeToolUse } from "@/transcripts/claude/claudePayloads";
 
 const TOOL_RESULT_PREVIEW_CAP = 16_000;
 
@@ -168,6 +169,10 @@ export function applyStreamEvent(
         } catch {
           // Incomplete input_json: leave the block without an input rather than dropping it.
         }
+        // The row's header and the sticky bar both read `summary`, so without it a live Bash row
+        // said only "Bash" until the durable row replaced it. Same summarizer as the durable
+        // parser, so the hand-off does not change the line.
+        block.summary = summarizeToolUse(block.tool ?? "tool", block.input);
         message.toolRaw.delete(event.index);
       }
       publishMessage(projection, message);
