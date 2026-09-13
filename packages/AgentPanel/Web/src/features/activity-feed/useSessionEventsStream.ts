@@ -90,9 +90,56 @@ interface State {
   sequence: number;
   runState: "idle" | "running" | "ended" | "error";
   queue: { steer: number; followUp: number };
-  /** The live in-flight assistant message (the live mirror), shown below the
-   *  durable rows until the durable transcript contains its `messageId`. */
+  /** The live in-flight assistant message, as the mirror last published it. What
+   *  the reader actually sees is `visibleTail` below, which holds it only while
+   *  it is still ahead of the transcript. */
   liveTail: ActivityEvent | null;
+}
+
+/**
+ * The tail to draw under the thread, or nothing.
+ *
+ * The mirror runs AHEAD of the file: a transcript line is written after the fact,
+ * so the only thing a tail is ever about is the part of the turn the reader cannot
+ * see yet. Once the transcript has reached it, the file is the authority and the
+ * preview has nothing left to add.
+ *
+ * Stated as a comparison against the transcript's own progress rather than as a
+ * handoff on `messageId`, because the handoff assumes the mirror and the file agree
+ * about which message is being written, and a mirror that stops mid-turn breaks that
+ * assumption in the one direction nothing recovers from: it keeps publishing a row
+ * whose id never reaches the file, so the id never matches, and the preview sits
+ * under a thread that is streaming perfectly well behind it. Measured 2026-09-09,
+ * with a three-hour-old finished message pinned below a live session as a 9,554px
+ * block, in a feed that follows its own bottom.
+ *
+ * A tail the transcript has already passed is therefore dropped whatever its id, and
+ * the file is never held back waiting for one to arrive.
+ *
+ * "Passed" is measured against the newest transcript row belonging to a DIFFERENT
+ * message, because those are the only rows that say the mirror is behind. A tail's
+ * `ts` is the moment its message began streaming, so a file that already holds
+ * another message from that moment or later is not waiting on this one. The two
+ * kinds of row this deliberately ignores:
+ *
+ * - Rows of the tail's OWN message. A transcript appends per tool step, so the file
+ *   fills in a message that is still being written; that is the handoff, and it is
+ *   settled on `messageId` where the tail completes, not here.
+ * - Rows carrying no message at all -- tool results, the reader's own turns. They
+ *   are written throughout a turn and belong to no message, so their arrival is not
+ *   evidence about which message the file has reached.
+ */
+export function visibleTail(
+  tail: ActivityEvent | null,
+  durable: readonly ActivityEvent[],
+): ActivityEvent | null {
+  if (!tail) return null;
+  let newestOther = Number.NEGATIVE_INFINITY;
+  for (const event of durable) {
+    if (event.messageId === undefined || event.messageId === tail.messageId) continue;
+    if (event.ts > newestOther) newestOther = event.ts;
+  }
+  return tail.ts > newestOther ? tail : null;
 }
 
 /** Whichever occupancy report is more recent, by the timestamp on the line that
@@ -339,6 +386,11 @@ onEvent: (event) => {
     return arr;
   }, [state.events]);
 
+  // Derived rather than cleared on arrival, so the rule holds whatever order the two
+  // sources land in. The clear inside `onEvent` still runs, to let a finished message
+  // go rather than carry it; this is what decides whether it is drawn.
+  const tail = useMemo(() => visibleTail(state.liveTail, events), [state.liveTail, events]);
+
   return {
     events,
     total: state.total,
@@ -351,6 +403,6 @@ onEvent: (event) => {
     sequence: state.sequence,
     runState: state.runState,
     queue: state.queue,
-    liveTail: state.liveTail,
+    liveTail: tail,
   };
 }
