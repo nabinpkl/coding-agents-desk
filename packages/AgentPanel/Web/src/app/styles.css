@@ -247,6 +247,34 @@
      different Bot. */
   --bot-session-accent-dl: -0.044;
   --bot-session-accent-dc: 0.006;
+  /* An OPEN session's interior: the column `SessionView` lays out, the ground its transcript
+     scrolls on, and the two cards that transcript draws rows on. Four opaque surfaces that cover
+     the card's own fill entirely, so a card which was the right colour closed goes plain the
+     moment it opens unless they carry the colour themselves.
+
+     None of these ladder. Nothing about a session is a step any more -- the fill went to one hue
+     each -- so every surface here is its own lightness, one chroma, and the session's hue.
+
+     Light's chroma is a whisper, and that is the ceiling rather than the restraint. The transcript
+     is where `--muted-foreground` does most of its work and it is a fixed 0.556; measured over 72
+     hues, the three big surfaces fail AA at 0.020 and the tool row at 0.015. So 0.018 and 0.0125
+     are the last values that clear the floor, at 4.51:1 apiece, against 4.62 and 4.57 untinted.
+     Dark carries the same surfaces at 0.090, five times as much, and the asymmetry is the one the
+     surface and border tokens above already record: light's card sits at the top of the range with
+     nothing above it to move to, so any tint can only be spent.
+
+     Raising the ink here the way `--bot-session-ink-l` raises the caption's would buy the room,
+     and it is deliberately not done: the caption is one shared component, where the transcript's
+     muted text is seventeen places across eight files. That is its own change rather than a
+     detail of this one. */
+  --bot-session-view-l: 0.9915;
+  --bot-session-view-c: 0.018;
+  --bot-session-ground-l: 0.9915;
+  --bot-session-ground-c: 0.018;
+  --bot-session-row-l: 0.9915;
+  --bot-session-row-c: 0.018;
+  --bot-session-row-tool-l: 0.988;
+  --bot-session-row-tool-c: 0.0125;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -311,6 +339,30 @@
        behind it is a whole panel, so the disc needs less separation to read as a different one. */
     --bot-session-accent-dl: 0.028;
     --bot-session-accent-dc: 0.004;
+    /* The same four surfaces, at the fill's OWN chroma, which is what "the same treatment as the
+       titlebar" has to mean if it means anything: the bar and the transcript under it are one
+       colour at one saturation, and only each surface's lightness separates them -- exactly as it
+       did when all four were greys. Their lightnesses are unchanged for that reason.
+
+       Dark can afford it outright. Over 72 hues the transcript holds `--muted-foreground` at
+       5.73:1 and `--foreground` at 14.24:1, against 6.14 and 15.25 for the whisper this replaces,
+       and two sessions a sixth of the circle apart sit 0.0446 dEok apart on the ground where the
+       whisper managed 0.0220.
+
+       0.060 was measured and reaches 0.0444, the same separation for a third less chroma, and was
+       not taken: the point of this is that the interior IS the card's colour rather than a hint
+       of it, and one number shared with the fill is what says so. It is also where the headroom
+       is if the wash is ever too much. Past there the gamut takes it back rather than giving more
+       -- 0.110 falls to 0.0344 -- which is the clipping wall the fill ladder hit twice before it
+       stopped laddering. */
+    --bot-session-view-l: 0.205;
+    --bot-session-view-c: 0.090;
+    --bot-session-ground-l: 0.220;
+    --bot-session-ground-c: 0.090;
+    --bot-session-row-l: 0.205;
+    --bot-session-row-c: 0.090;
+    --bot-session-row-tool-l: 0.249;
+    --bot-session-row-tool-c: 0.090;
   }
 }
 
@@ -380,24 +432,44 @@
      2.76:1 against the card it rings. Worst adjacent separation, after clipping: 0.0311 dEok on
      dark's surface, 0.0281 on light's border. */
   .bot-session-fill {
-    /* The titlebar, and the ONLY surface inside an open card that takes the session's colour.
-       Handed DOWN as a variable rather than painted here, because `SessionView` is the same
-       component the app's thread view renders: the thread view finds no variable, resolves its
-       fallback and is untouched, where a prop would have put a Bot's canvas in the signature of a
-       view that knows nothing about Bots.
+    /* Everything an OPEN session paints over this card, handed DOWN as variables rather than
+       painted here. `SessionView` is the same component the app's thread view renders, and it
+       paints its own column, its own transcript ground and its own row cards -- all opaque, all
+       over the top of the `background-color` below. So a card that was the right colour closed
+       went plain the moment it opened, which is what a reader reported. Passing them down is what
+       lets one component serve both places: the thread view finds no variable, resolves its
+       fallback, and is untouched. Threading a prop through `SessionView` instead would put a Bot's
+       canvas in the signature of a view that knows nothing about Bots.
 
-       The card's interior used to take it too -- the column, the transcript ground, and both row
-       surfaces, on a ladder of their own. It is the one place the tint could not earn its keep:
-       the transcript is the largest area on the canvas and the densest text on it, so a wash there
-       is read as the panel's own ground being off-colour rather than as this session's colour,
-       and it is the area with the least need to be identified. What answers "which session" is
-       the edge and the bar with the name on it, both of which a reader is already looking at.
+       The interior was neutral for one commit (`7b6289e8`), on the argument that a wash under the
+       panel's densest text reads as the ground being off-colour rather than as this session's
+       colour. That argument is about a WHISPER, which is what the interior carried then -- 0.022
+       against the fill's 0.090 in dark, so the bar was four times the colour of the body under it
+       and the body read as a cast. At the fill's own chroma it is not a cast, it is the card. The
+       numbers for both are in the theme blocks above, and light stays a whisper either way because
+       light has nothing to spend.
 
-       So the title is written out here rather than pointing at a variable -- `background-color`
-       below is set from the same two tokens, and a card whose bar was a different colour from its
-       own body would be saying there are two things here. It is also what puts the whole widened
-       ladder where it can be seen: every card on a canvas of open sessions shows its titlebar and
-       nothing else of its fill. */
+       Here rather than in rules of their own because they are the same fact this class already
+       states, and none of them must be able to disagree with the others about which colour this
+       session is. */
+    --session-view-surface: oklch(
+      var(--bot-session-view-l) var(--bot-session-view-c) var(--bot-session-hue, var(--bot-hue))
+    );
+    --session-view-ground: oklch(
+      var(--bot-session-ground-l) var(--bot-session-ground-c) var(--bot-session-hue, var(--bot-hue))
+    );
+    --session-view-row: oklch(
+      var(--bot-session-row-l) var(--bot-session-row-c) var(--bot-session-hue, var(--bot-hue))
+    );
+    --session-view-row-tool: oklch(
+      var(--bot-session-row-tool-l) var(--bot-session-row-tool-c)
+      var(--bot-session-hue, var(--bot-hue))
+    );
+    /* The titlebar, which is the card's own fill and not a surface of its own. An open card lays
+       this over the top of `background-color` below, so anything else here is the card changing
+       colour the moment a reader opens it -- and it is the strip carrying the session's name, so
+       it is the last place that should. Written out rather than pointing at a variable because
+       `background-color` is set with the same two tokens and the two must not be able to drift. */
     --session-view-header: oklch(
       var(--bot-session-fill-l) var(--bot-session-fill-c) var(--bot-session-hue, var(--bot-hue))
     );
@@ -408,20 +480,44 @@
        what it has to track is the LIGHTNESS moving under it, and a tinted caption on a tinted card
        at eleven pixels is two colours arguing where one of them is barely visible.
 
-       Handed down rather than painted here, the same way the titlebar above is, and for the same
+       Handed down rather than painted here, the same way the surfaces above are, and for the same
        reason: what reads it is `SessionMeta`, one component shared with the sidebar, where there
-       is no card and no step and the fallback is what has to apply. */
+       is no card at all and the fallback is what has to apply. */
     --session-muted: oklch(var(--bot-session-ink-l) 0 0);
   }
 
-  /* An open session's titlebar, and the only one of these left: the column, the transcript ground
-     and the two row surfaces went back to the utilities they used to name outright when the
-     interior stopped taking the tint. Outside a Bot card this resolves to `--muted`, the grey the
-     bar used to name, so the app's own thread view is untouched. Never write it as a bare `var()`
-     with no fallback -- an unresolved custom property makes the declaration invalid at
-     computed-value time, and the bar would come back transparent with nothing said about it. */
+  /* The five surfaces an open session shows, each falling back to the token or utility it used to
+     name outright. The fallback is the whole safety of the scheme: everywhere but a Bot card there
+     is no `--session-view-*` to inherit, so these resolve to `--card`, `--background`, `--muted`
+     and what `bg-muted/60` compiled to, and the app's own thread view renders exactly as it did.
+     Never write any of them as a bare `var()` with no fallback -- an unresolved custom property
+     makes the declaration invalid at computed-value time, and the surface would come back
+     transparent with nothing said about it.
+
+     The tool row's fallback spells out the `color-mix` rather than naming `--muted`, because a row
+     that sits ON the transcript ground has to keep letting it through when there is no tint to
+     inherit. */
+  .session-view-surface {
+    background-color: var(--session-view-surface, var(--card));
+  }
+
+  .session-view-ground {
+    background-color: var(--session-view-ground, var(--background));
+  }
+
   .session-view-header {
     background-color: var(--session-view-header, var(--muted));
+  }
+
+  .session-view-row {
+    background-color: var(--session-view-row, var(--card));
+  }
+
+  .session-view-row-tool {
+    background-color: var(
+      --session-view-row-tool,
+      color-mix(in oklab, var(--muted) 60%, transparent)
+    );
   }
 
   /* Caption ink that follows the surface it sits on. Everywhere but a shaded session card there
