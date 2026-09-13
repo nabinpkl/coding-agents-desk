@@ -36,7 +36,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R2 | D | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
 | R3 | D | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
 | R4 | D | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
-| R5 | R | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
+| R5 | D | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
 | R6 | R | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
 | R7 | R | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
 | R8 | R | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
@@ -139,10 +139,32 @@ Split into `webrtcDelivery.test.ts` and `webrtcEncoder.test.ts`, with `webrtcTil
 keeping the two describes that go through the route function. Every `describe` moved whole; test
 count unchanged at 898.
 
+### R5 `desktop/composerCoordinator.ts` (928)
+
+- The vocabulary: a session key, a failure with a code the panel renders, a status worth telling a
+  watcher about.
+- Reaching a window: the one helper-verb wrapper, moving a window between Desktops, and running
+  something with the window here before putting it back.
+- Which window shows a session, per source -- two resolvers answering different questions.
+- Borrowing a window for as long as a surface is watching, and giving it back.
+- The backstop poll: what it re-resolves, what it may read for free, what each watcher is told.
+- The coordinator itself: the surfaces asking for a write, serialized.
+
+Split into `composerTypes.ts`, `composerWindowAccess.ts`, `composerTargets.ts`,
+`composerLeases.ts`, `composerWatchPoll.ts`. 928 to 328. The maps and sets the poll shares with the
+commands are handed over by reference, not copied, so both still agree about which pids are
+observed and what each session last resolved to.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
 
+- **Merge `origin/main`, do not rebase onto it.** The plan said rebase, and rebasing after a push
+  rewrites already-pushed history, which needs a force-push this session cannot make. Merging keeps
+  every push a fast-forward and gets the same thing the rebase was for: the freshest `main` under
+  the next split. The repo's own history already carries merges from `main` into topic branches.
+  One duplicate of `f6bf6bb7` rode in on the rebase that had already happened; harmless, and the
+  merge that follows sees the same change on both sides.
 - **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
   not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
   than pushing to an explicit refspec does.
@@ -160,6 +182,14 @@ it moves code without merging any, and it keeps the twins independent if they ev
 taken, because it would have written the duplication into two new files whose names differ by one
 word, which is the wreckage the clustering outcome exists to prevent. `LiveSessionRegistry` takes
 the three differences as options (`vendor`, `idleDropMs`, `forget`), so no behaviour merged.
+
+### Decision: composer parts are siblings in `desktop/`, not a `desktop/composer/`
+
+Five files came out of one, which normally argues for a directory. Not taken: `desktop/` is already
+eleven flat files, four of which (`controlHelper`, `rendererReviver`, `claudeSessionResolver`,
+`codexSessionResolver`) are the coordinator's own collaborators and would have been left outside a
+`composer/` that held only the new ones. Moving `composerCoordinator.ts` into a subdirectory would
+also have changed the one import `http/windowRoutes.ts` makes of it, for no reader's benefit.
 
 ### Decision: siblings, not a subdirectory, inside `features/usage/`
 
