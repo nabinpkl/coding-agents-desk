@@ -50,7 +50,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R16 | D | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
 | R17 | D | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
 | R18 | D | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
-| R19 | R | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
+| R19 | D | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
 | R20 | R | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
 | R21 | R | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
 | R22 | R | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
@@ -301,6 +301,17 @@ Split into `codexRollouts.ts`, `codexPayloads.ts`, `codexNormalize.ts`. 629 to 7
 
 Split into `claudeProjects.ts`, `claudePayloads.ts`, `claudeNormalize.ts`, the same four-way shape
 R17 gave Codex. 764 to 74.
+
+### R19 `cli-input/useTmuxComposer.test.tsx` (713)
+
+- The mirrored pane a test runs against: the fake stream, the rendered probe, and the typing
+  helpers every debounced push needs.
+- Mirroring the box: what fills it, what pushes, what a reading may and may not overwrite.
+- The command menu a pane is showing.
+- The images a composer is holding, and the rail keys that go straight through.
+
+Split into `useTmuxComposerHarness.tsx`, `useTmuxComposerCommands.test.tsx`,
+`useTmuxComposerImages.test.tsx`. Three describes moved whole; 939 panel tests, unchanged.
 
 ## Decisions
 
