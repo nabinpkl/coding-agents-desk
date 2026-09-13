@@ -24,21 +24,21 @@ import { config } from "@/config";
 import { controlHelper } from "@/desktop/controlHelper";
 import { helperBinary, missingHelperMessage } from "@/desktop/helperBinary";
 import { jsonResponse } from "@/http/httpResponses";
-import { packetizeH264 } from "@/http/h264Packetizer";
-import { packetizeH265 } from "@/http/h265Packetizer";
-import { resolveDisplayTarget, DisplayTargetUnavailable } from "@/http/webrtcDisplayTarget";
-import { chooseTileVideoCodec } from "@/http/webrtcTileCodec";
+import { packetizeH264 } from "@/http/tile-codec/h264Packetizer";
+import { packetizeH265 } from "@/http/tile-codec/h265Packetizer";
+import { resolveDisplayTarget, DisplayTargetUnavailable } from "@/http/tile-encoder/webrtcDisplayTarget";
+import { chooseTileVideoCodec } from "@/http/tile-codec/webrtcTileCodec";
 import {
   candidateLines,
   diag,
   nextDiagSequence,
-} from "@/http/webrtcDiagnosticsLog";
+} from "@/http/tile-diagnostics/webrtcDiagnosticsLog";
 import {
   connectionDiagnostics,
   pruneConnectionDiagnostics,
   WebrtcDeliveryDiagnostics,
   type ConnectionDiagnostic,
-} from "@/http/webrtcConnectionDiagnostics";
+} from "@/http/tile-diagnostics/webrtcConnectionDiagnostics";
 import {
   acquireSharedEncoder,
   encoderStdin,
@@ -49,17 +49,17 @@ import {
   waitForEncoderMetadata,
   type EncoderSubscriber,
   type SharedEncoder,
-} from "@/http/webrtcEncoderPool";
-import { encoderStreamKey } from "@/http/webrtcEncoderIdentity";
-import { createTileControl } from "@/http/webrtcTileControl";
+} from "@/http/tile-encoder/webrtcEncoderPool";
+import { encoderStreamKey } from "@/http/tile-encoder/webrtcEncoderIdentity";
+import { createTileControl } from "@/http/tile-control/webrtcTileControl";
 import {
   ATTEMPT_PATTERN,
   bounded,
   encoderSourceRect,
   type TileOffer,
-} from "@/http/webrtcTileOffer";
-import { isTerminalWebrtcConnectionState } from "@/http/webrtcConnectionState";
-import { releaseSupersededViewer } from "@/http/webrtcSessions";
+} from "@/http/tile-peer/webrtcTileOffer";
+import { isTerminalWebrtcConnectionState } from "@/http/tile-peer/webrtcConnectionState";
+import { releaseSupersededViewer } from "@/http/tile-diagnostics/webrtcSessions";
 
 /**
  * The Mac's tailnet address, derived from the CGNAT range tailscale uses.

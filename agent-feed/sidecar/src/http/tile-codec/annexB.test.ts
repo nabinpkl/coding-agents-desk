@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { splitAnnexB } from "@/http/annexB";
+import { splitAnnexB } from "@/http/tile-codec/annexB";
 
 describe("splitAnnexB", () => {
   test("splits four-byte start codes into bare NAL units", () => {

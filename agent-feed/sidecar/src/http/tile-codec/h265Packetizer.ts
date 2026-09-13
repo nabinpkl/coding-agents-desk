@@ -2,7 +2,7 @@
 // equal to transmission order. The negotiated sprop-max-don-diff is zero, so
 // DONL and DOND are deliberately absent.
 
-import { splitAnnexB } from "@/http/annexB";
+import { splitAnnexB } from "@/http/tile-codec/annexB";
 
 const AP_TYPE = 48;
 const FU_TYPE = 49;

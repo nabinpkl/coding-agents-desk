@@ -18,15 +18,15 @@ import {
   desktopControlInput,
   desktopControlLine,
   desktopControlRejectionReason,
-} from "@/http/webrtcDesktopControl";
-import { DesktopControlOwnership } from "@/http/webrtcDesktopControlOwnership";
-import { diag } from "@/http/webrtcDiagnosticsLog";
+} from "@/http/tile-control/webrtcDesktopControl";
+import { DesktopControlOwnership } from "@/http/tile-control/webrtcDesktopControlOwnership";
+import { diag } from "@/http/tile-diagnostics/webrtcDiagnosticsLog";
 import {
   encoderStdin,
   rememberCursorAck,
   reserveInputRevision,
   type SharedEncoder,
-} from "@/http/webrtcEncoderPool";
+} from "@/http/tile-encoder/webrtcEncoderPool";
 
 // Input affects the whole Mac, even when two peers capture different monitors.
 const controlOwnership = new DesktopControlOwnership<symbol>();

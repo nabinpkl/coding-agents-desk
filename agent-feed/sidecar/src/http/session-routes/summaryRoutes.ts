@@ -39,7 +39,7 @@ import {
   startServerSentEventStream,
 } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
-import { readTranscriptPage } from "@/http/sessionRoutes";
+import { readTranscriptPage } from "@/http/session-routes/sessionRoutes";
 
 const SUMMARY_ROUTE =
   /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/summary$/;

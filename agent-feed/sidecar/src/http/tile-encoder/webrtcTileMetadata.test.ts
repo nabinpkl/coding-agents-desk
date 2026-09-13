@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { gridEncoderSourceMetadata } from "@/http/webrtcTileMetadata";
+import { gridEncoderSourceMetadata } from "@/http/tile-encoder/webrtcTileMetadata";
 
 describe("gridEncoderSourceMetadata", () => {
   test("keeps logical input points separate from encoded pixel dimensions", () => {

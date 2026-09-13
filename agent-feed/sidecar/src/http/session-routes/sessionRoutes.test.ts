@@ -2,7 +2,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createSessionRoutes } from "@/http/sessionRoutes";
+import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
 import { sessionKey } from "@/transcripts/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
@@ -17,7 +17,7 @@ const SESSION_ID = "33333333-3333-4333-8333-333333333333";
  */
 const renamed: { sessionId: string; title: string }[] = [];
 let outcome: { renamed: true } | { renamed: false; reason: string } = { renamed: true };
-mock.module("../input/tmuxComposer.ts", () => ({
+mock.module("@/input/tmuxComposer.ts", () => ({
   renameTmuxSession: async (sessionId: string, title: string) => {
     renamed.push({ sessionId, title });
     return outcome;

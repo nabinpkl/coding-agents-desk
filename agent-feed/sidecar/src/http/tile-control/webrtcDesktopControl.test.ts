@@ -8,7 +8,7 @@ import {
   MAX_DESKTOP_CONTROL_MESSAGE_BYTES,
   MAX_DESKTOP_KEY_BATCH,
   MAX_DESKTOP_TEXT_UNITS,
-} from "@/http/webrtcDesktopControl";
+} from "@/http/tile-control/webrtcDesktopControl";
 
 describe("desktop control v2 input", () => {
   test("validates every command and preserves canonical NDJSON", () => {

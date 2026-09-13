@@ -25,7 +25,7 @@ import type {
 } from "@/transcripts/sources/transcriptTypes";
 import type { EventsPage, TimelineMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
-import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/sessionRoutes";
+import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
 import type { RouteHandler } from "@/http/route";
 
 const TIMELINE_ROUTE =

@@ -4,7 +4,7 @@ import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend
 import { config } from "@/config";
 import type { SummaryRunInput, SummaryRunner } from "@/summary/summaryRuntime";
 import { state } from "@/transcripts/transcriptState";
-import { createSummaryRoutes } from "@/http/summaryRoutes";
+import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 
 const server = { timeout() {} } as never;
 

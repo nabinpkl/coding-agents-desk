@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { frames, KIND_META, type Framed } from "@/http/encoderFrames";
+import { frames, KIND_META, type Framed } from "@/http/tile-encoder/encoderFrames";
 
 function framed(kind: number, payload: number[]): number[] {
   return [kind, 0, 0, 0, payload.length, ...payload];

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { packetizeH264 } from "@/http/h264Packetizer";
+import { packetizeH264 } from "@/http/tile-codec/h264Packetizer";
 
 function annexB(...units: number[][]): Uint8Array {
   const parts: number[] = [];

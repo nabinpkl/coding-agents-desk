@@ -17,19 +17,19 @@ import { config } from "@/config";
 import { controlHelper } from "@/desktop/controlHelper";
 import { acquireEncoderSlot } from "@/desktop/encoderSlots";
 import { helperBinary } from "@/desktop/helperBinary";
-import { frames, KIND_META } from "@/http/encoderFrames";
-import { desktopControlLine } from "@/http/webrtcDesktopControl";
-import { WebrtcDesktopControlEvents } from "@/http/webrtcDesktopControlEvents";
-import { DesktopControlOwnership } from "@/http/webrtcDesktopControlOwnership";
-import { gridEncoderSourceMetadata } from "@/http/webrtcTileMetadata";
-import type { TileVideoCodec } from "@/http/webrtcTileCodec";
-import { diag, WebrtcEncoderDiagnostics } from "@/http/webrtcDiagnosticsLog";
+import { frames, KIND_META } from "@/http/tile-encoder/encoderFrames";
+import { desktopControlLine } from "@/http/tile-control/webrtcDesktopControl";
+import { WebrtcDesktopControlEvents } from "@/http/tile-control/webrtcDesktopControlEvents";
+import { DesktopControlOwnership } from "@/http/tile-control/webrtcDesktopControlOwnership";
+import { gridEncoderSourceMetadata } from "@/http/tile-encoder/webrtcTileMetadata";
+import type { TileVideoCodec } from "@/http/tile-codec/webrtcTileCodec";
+import { diag, WebrtcEncoderDiagnostics } from "@/http/tile-diagnostics/webrtcDiagnosticsLog";
 import {
   captureIdentity,
   encoderDisposition,
   encoderStreamKey,
   geometryTag,
-} from "@/http/webrtcEncoderIdentity";
+} from "@/http/tile-encoder/webrtcEncoderIdentity";
 
 /** Kind 3 in the encoder framing: one Annex-B access unit. */
 const KIND_ACCESS_UNIT = 3;

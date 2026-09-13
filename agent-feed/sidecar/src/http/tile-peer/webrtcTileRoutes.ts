@@ -21,31 +21,31 @@
 
 import { jsonResponse } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
-import { answer } from "@/http/webrtcTileAnswer";
-import { recordClientTelemetry, type TileTelemetry } from "@/http/webrtcConnectionDiagnostics";
-import { closeWebrtcSessions, webrtcSessionsSnapshot } from "@/http/webrtcSessions";
-import { drainEncoderTeardowns } from "@/http/webrtcEncoderPool";
-import { ATTEMPT_PATTERN, type TileOffer } from "@/http/webrtcTileOffer";
-import { diag } from "@/http/webrtcDiagnosticsLog";
-import type { WebrtcSessionsClose } from "@/http/webrtcSessions";
+import { answer } from "@/http/tile-peer/webrtcTileAnswer";
+import { recordClientTelemetry, type TileTelemetry } from "@/http/tile-diagnostics/webrtcConnectionDiagnostics";
+import { closeWebrtcSessions, webrtcSessionsSnapshot } from "@/http/tile-diagnostics/webrtcSessions";
+import { drainEncoderTeardowns } from "@/http/tile-encoder/webrtcEncoderPool";
+import { ATTEMPT_PATTERN, type TileOffer } from "@/http/tile-peer/webrtcTileOffer";
+import { diag } from "@/http/tile-diagnostics/webrtcDiagnosticsLog";
+import type { WebrtcSessionsClose } from "@/http/tile-diagnostics/webrtcSessions";
 
-export { WebrtcEncoderDiagnostics } from "@/http/webrtcDiagnosticsLog";
-export { writeEncoderControl } from "@/http/webrtcEncoderPool";
-export { isTerminalWebrtcConnectionState } from "@/http/webrtcConnectionState";
-export { encoderDisposition, encoderStreamKey, type EncoderDisposition } from "@/http/webrtcEncoderIdentity";
-export { encoderSourceRect } from "@/http/webrtcTileOffer";
+export { WebrtcEncoderDiagnostics } from "@/http/tile-diagnostics/webrtcDiagnosticsLog";
+export { writeEncoderControl } from "@/http/tile-encoder/webrtcEncoderPool";
+export { isTerminalWebrtcConnectionState } from "@/http/tile-peer/webrtcConnectionState";
+export { encoderDisposition, encoderStreamKey, type EncoderDisposition } from "@/http/tile-encoder/webrtcEncoderIdentity";
+export { encoderSourceRect } from "@/http/tile-peer/webrtcTileOffer";
 export {
   parseWebrtcDeliveryClientSample,
   WebrtcDeliveryDiagnostics,
   type WebrtcDeliveryClientSample,
   type WebrtcDeliveryServerSample,
-} from "@/http/webrtcConnectionDiagnostics";
+} from "@/http/tile-diagnostics/webrtcConnectionDiagnostics";
 export {
   closeWebrtcSessions,
   webrtcSessionsSnapshot,
   type WebrtcSessionsClose,
   type WebrtcSessionsSnapshot,
-} from "@/http/webrtcSessions";
+} from "@/http/tile-diagnostics/webrtcSessions";
 
 /** The target is a window id, or the literal `display` for the whole screen. */
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;

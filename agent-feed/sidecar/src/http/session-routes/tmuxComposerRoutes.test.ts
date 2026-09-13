@@ -3,7 +3,7 @@ import type { RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wir
 import {
   createTmuxComposerRoutes,
   type TmuxComposerDependencies,
-} from "@/http/tmuxComposerRoutes";
+} from "@/http/session-routes/tmuxComposerRoutes";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const server = { timeout() {} } as never;

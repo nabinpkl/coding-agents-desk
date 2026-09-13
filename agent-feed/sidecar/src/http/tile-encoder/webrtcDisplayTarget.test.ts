@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { desktopNavigationEvent } from "@agentdesk/agent-feed-wire";
 import fixture from "@repo/agent-feed/wire/navigation-fixture.json";
-import { desktopControlInput, desktopControlLine } from "@/http/webrtcDesktopControl";
-import { DisplayTargetUnavailable, resolveDisplayTarget } from "@/http/webrtcDisplayTarget";
+import { desktopControlInput, desktopControlLine } from "@/http/tile-control/webrtcDesktopControl";
+import { DisplayTargetUnavailable, resolveDisplayTarget } from "@/http/tile-encoder/webrtcDisplayTarget";
 
 describe("desktop navigation contracts", () => {
   test("shared native commands survive exact NDJSON forwarding", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DesktopControlOwnership } from "@/http/webrtcDesktopControlOwnership";
+import { DesktopControlOwnership } from "@/http/tile-control/webrtcDesktopControlOwnership";
 
 describe("DesktopControlOwnership", () => {
   test("grants once, revokes the previous owner, and advances a monotonic epoch", () => {
