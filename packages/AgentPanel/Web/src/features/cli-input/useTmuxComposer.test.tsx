@@ -25,6 +25,13 @@ function pane(initial = "", opening?: TmuxComposerState) {
     pushes: [] as string[],
     submits: 0,
     accepts: 0,
+    /**
+     * The size of each image handed over, in the order the pane would number them.
+     *
+     * Sizes rather than contents: reading a `Blob` is asynchronous in a way fake timers do not
+     * drive, and what this test is about is which image arrives first.
+     */
+    drops: [] as number[],
     /** Sends one state to whoever is subscribed, as the pane writing would. */
     emit(state: TmuxComposerState) {
       listener?.(state);
@@ -60,6 +67,13 @@ function pane(initial = "", opening?: TmuxComposerState) {
       feed.accepts += 1;
       return { text: null, hint: null, reason: null, wrapped: false };
     },
+    dropTmuxComposerImage: async (
+      _session: SessionAddress,
+      image: Blob,
+    ): Promise<TmuxComposerState> => {
+      feed.drops.push(image.size);
+      return { text: null, hint: null, reason: null, wrapped: false };
+    },
   };
   return feed;
 }
@@ -80,6 +94,13 @@ function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; active?
         placeholder={composer.hint ?? "Type into Claude's terminal…"}
       />
       <button type="button" onClick={() => void composer.accept()}>accept</button>
+      <button
+        type="button"
+        // Two images of different sizes, which is how the test tells them apart in order.
+        onClick={() => void composer.drop([new Blob(["1"]), new Blob(["22"])])}
+      >
+        drop
+      </button>
       <button type="button" onClick={() => void composer.submit()}>send</button>
     </div>
   );
@@ -105,6 +126,20 @@ async function settle(ms = 0) {
     await vi.advanceTimersByTimeAsync(0);
   });
 }
+
+/**
+ * Clicks a button and lets the chain of awaits behind it finish.
+ *
+ * More than one flush because a drop is a sequence of round trips rather than one: the draft,
+ * then each image, each of which reads its own bytes. A single flush leaves it half done.
+ */
+async function press(label: string) {
+  await act(async () => {
+    screen.getByText(label).click();
+    for (let flush = 0; flush < 8; flush += 1) await vi.advanceTimersByTimeAsync(0);
+  });
+}
+
 
 const draft = () => screen.getByTestId("draft").textContent;
 
@@ -256,6 +291,45 @@ describe("tmux composer", () => {
     feed.box = "stop adding the three suggestions";
     await act(async () => { feed.announce(); });
     expect(draft()).toBe("stop adding the three suggestions");
+  });
+
+  it("sends the draft before the images, so typed text never lands after them", async () => {
+    // A drop appends to whatever the box holds, and text still sitting in the debounce has not
+    // reached the box yet. Sent in the wrong order it would arrive after the image.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await type("look at this");
+    await press("drop");
+    expect(feed.pushes).toEqual(["look at this"]);
+    // One at a time and in order, because the pane numbers them in the order they arrive.
+    expect(feed.drops).toEqual([1, 2]);
+  });
+
+  it("lets the pane's reading win after a drop, since it is not what was sent", async () => {
+    // Claude replaces the path with its own `[Image #1]`, so the field cannot be filled from
+    // anything this side knows. The guard that protects a draft from a stale reading has to come
+    // off, or the field would sit showing the text that was typed before the drop.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await type("look at this");
+    await press("drop");
+    await act(async () => { feed.emit(holding("look at this [Image #1] [Image #2]")); });
+    expect(draft()).toBe("look at this [Image #1] [Image #2]");
+  });
+
+  it("does not send an image to a session whose pane has gone", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    feed.syncTmuxComposer = async () => ({
+      text: null, hint: null, reason: "no-pane", wrapped: false,
+    });
+    await type("look at this");
+    await press("drop");
+    expect(feed.drops).toEqual([]);
+    expect(screen.getByTestId("reason").textContent).toBe("no-pane");
   });
 
   it("lets the stream go when the band does", async () => {

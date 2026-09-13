@@ -15,6 +15,7 @@ import type {
   AddBotCommand,
   AttachBotSessionsCommand,
   ActivityEvent,
+  ComposerImageDrop,
   AgentCommandReceipt,
   AgentSessionDescriptor,
   AgentTerminalContext,
@@ -119,9 +120,34 @@ function cliInputPath(session: SessionAddress): string {
  */
 function tmuxComposerPath(
   session: SessionAddress,
-  action: "" | "/submit" | "/accept" | "/stream" = "",
+  action: "" | "/submit" | "/accept" | "/image" | "/stream" = "",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
+}
+
+/**
+ * A blob's bytes as base64, without holding a second copy of them as a JS string of characters.
+ *
+ * `FileReader` rather than `btoa` over a byte string: the argument to `btoa` has to be built one
+ * character at a time, which for a few megabytes of screenshot is a string longer than the image
+ * and a loop the main thread notices. The reader hands back a `data:` URL and the base64 is
+ * everything after its comma.
+ */
+function base64FromBlob(image: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("could not read the image"));
+    reader.onload = () => {
+      const url = String(reader.result);
+      const comma = url.indexOf(",");
+      if (comma < 0) {
+        reject(new Error("could not read the image"));
+        return;
+      }
+      resolve(url.slice(comma + 1));
+    };
+    reader.readAsDataURL(image);
+  });
 }
 
 function summaryPath(session: SessionAddress): string {
@@ -859,6 +885,25 @@ export class SidecarDataSource implements AgentDataSource {
   async acceptTmuxComposerHint(session: SessionAddress): Promise<TmuxComposerState> {
     return parse<TmuxComposerState>(
       await this.transport.request("POST", tmuxComposerPath(session, "/accept")),
+    );
+  }
+
+  /**
+   * Hands one image to the session's composer.
+   *
+   * The bytes go over, never a path, and none comes back. The sidecar that answers this is the
+   * process on the machine the pane is on -- which may not be this one, and need not be a Mac at
+   * all from the panel's side -- so it is the only party that can write a file that pane's Claude
+   * can read. A drop is therefore a transfer, not a reference.
+   *
+   * Base64 because the transport is JSON on both arms: in the webview it is a relay of text
+   * frames, so binary would be encoded there regardless.
+   */
+  async dropTmuxComposerImage(session: SessionAddress, image: Blob): Promise<TmuxComposerState> {
+    return parse<TmuxComposerState>(
+      await this.transport.request("POST", tmuxComposerPath(session, "/image"), {
+        body: { data: await base64FromBlob(image) } satisfies ComposerImageDrop,
+      }),
     );
   }
 

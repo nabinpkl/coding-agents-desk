@@ -514,6 +514,52 @@ export async function syncTmuxComposer(
   }
 }
 
+/**
+ * Puts the image at `path` into the session's composer, by pasting the path the way a drop does.
+ *
+ * A bare paste rather than a `sync`, and the difference matters: Claude's paste handler reads the
+ * text of THIS paste to decide whether it is looking at a file path, so the path has to arrive on
+ * its own. A sync that appended it to the box would send exactly the same bytes while the box
+ * agrees, and on the one push where it does not, would clear and retype the whole composer as a
+ * single paste -- which parses as one image plus everything else as text, in the wrong order.
+ *
+ * The separating space is sent OUTSIDE the paste, as an ordinary keystroke. Measured: a paste of
+ * " /tmp/x.png" splits on the space that precedes the slash and the empty half is dropped, so a
+ * space put inside the paste never reaches the box at all.
+ *
+ * What the box then holds is not guessed at. Claude replaces the path with its own `[Image #N]`,
+ * which is a different string from the one sent, so the watcher reads the pane and says.
+ */
+export async function dropTmuxComposerImage(
+  sessionId: string,
+  path: string,
+  runtime: TmuxComposerRuntime = LIVE,
+): Promise<TmuxComposerState> {
+  try {
+    const pane = await paneFor(sessionId, runtime);
+    if (!pane) return unavailable("no-pane");
+    const box = composerBox(await runtime.screen(pane));
+    if (!box) return unavailable("no-composer");
+    const keys = separator(box) + paste(path);
+    await runtime.send(pane, new TextEncoder().encode(keys));
+    return { text: null, hint: null, reason: null, wrapped: false };
+  } catch (error) {
+    return failed(sessionId, error, runtime);
+  }
+}
+
+/**
+ * A space, unless the box is empty.
+ *
+ * It cannot ask whether the text already ends in one: `capture-pane` strips a row's trailing
+ * padding, so a composer ending in a space and one that does not are the same screen. A box that
+ * really did end in a space therefore gets a second one, which is the same rounding the append
+ * path already lives with and is invisible in a prompt.
+ */
+function separator(box: ComposerBox): string {
+  return composerText(box.rows).length === 0 ? "" : " ";
+}
+
 /** Presses Return in the pane, which is what makes Claude take the turn. */
 export async function submitTmuxComposer(
   sessionId: string,

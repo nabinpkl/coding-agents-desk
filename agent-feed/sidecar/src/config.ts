@@ -179,6 +179,15 @@ export const config = {
     "AGENT_FEED_CLAUDE_TASK_ROOT",
     `/private/tmp/claude-${userInfo().uid}`,
   ),
+  // Where an image dropped into the panel's composer is written for the pane's Claude to read.
+  //
+  // Under the per-user runtime root rather than a shared or temporary directory, because the pane
+  // and the sidecar are always the same login session -- the pane is resolved out of THIS user's
+  // `~/.claude/sessions` -- so 0700 is exactly the right reach. `composerImages.ts` sweeps it.
+  composerImageDirectory: directoryEnvironment(
+    "AGENT_FEED_COMPOSER_IMAGE_DIR",
+    join(runtimePaths().root, "agent-panel", "composer-images"),
+  ),
   codexHomeDirectory: directoryEnvironment(
     "AGENT_FEED_CODEX_HOME",
     join(userHomeDirectory, ".codex"),

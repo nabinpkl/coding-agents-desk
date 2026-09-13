@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { CornerDownLeft, List, LoaderCircle, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
 import type {
@@ -573,6 +581,13 @@ function SessionComposer({
   // somebody has already typed, hand that exact draft to the selected local transport before the
   // native watcher releases ownership.
   const [localDraft, setLocalDraft] = useState("");
+  /**
+   * Whether files are being dragged over the field right now.
+   *
+   * Only for the ring. A drop target with no visible edge is one nobody discovers, and the browser
+   * gives no hint of its own -- the cursor says "you may drop" over the whole page.
+   */
+  const [dragging, setDragging] = useState(false);
   const previousTransport = useRef(transport.kind);
   useEffect(() => {
     if (previousTransport.current === "window" && transport.kind !== "window") {
@@ -644,6 +659,14 @@ function SessionComposer({
      * focus, which is what a keyboard reader expects of it.
      */
     onAcceptHint?: () => void;
+    /**
+     * What dropping files on the field does, where that means something.
+     *
+     * Only the mirrored terminal band, because it is the only field whose other end can hold an
+     * image: the bands either side of it deliver text to a harness. Absent elsewhere, so a drop
+     * there does whatever the browser would have done with it.
+     */
+    onDropFiles?: (files: readonly File[]) => void;
   } = windowBand
     ? {
         value: windowComposer.draft,
@@ -694,6 +717,7 @@ function SessionComposer({
         ...(tmuxComposer.hint === null
           ? {}
           : { onAcceptHint: () => void tmuxComposer.accept() }),
+        onDropFiles: (files) => void tmuxComposer.drop(files),
       }
     : inboxBand
     ? {
@@ -986,6 +1010,22 @@ function SessionComposer({
           onChange={(event) => editor.onChange(event.target.value)}
           onFocus={editor.onFocus}
           onBlur={editor.onBlur}
+          // A drop is only offered where the other end can hold an image, so these are absent
+          // rather than inert on the other bands: without `onDragOver` preventing the default, no
+          // drop event fires at all and the browser navigates to the file instead.
+          {...(editor.onDropFiles === undefined ? {} : {
+            onDragOver: (event: DragEvent<HTMLTextAreaElement>) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              setDragging(true);
+            },
+            onDragLeave: () => setDragging(false),
+            onDrop: (event: DragEvent<HTMLTextAreaElement>) => {
+              event.preventDefault();
+              setDragging(false);
+              editor.onDropFiles?.([...event.dataTransfer.files]);
+            },
+          })}
           onKeyDown={(event) => {
             // Tab takes the offer rather than leaving the field, but only while there IS one:
             // with no suggestion to accept it stays the key that moves focus.
@@ -1009,7 +1049,9 @@ function SessionComposer({
           placeholder={editor.placeholder}
           aria-label={editor.ariaLabel}
           disabled={editor.disabled}
-          className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
+          className={`max-h-48 min-h-12 flex-1 resize-none rounded-xl border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40 ${
+            dragging ? "border-primary ring-2 ring-primary/25" : "border-border"
+          }`}
         />}
         {/* Offered only where there is a pane: a session without one has nothing to show. The one
             control that survives the swap, because it is the way back from either side. A draft

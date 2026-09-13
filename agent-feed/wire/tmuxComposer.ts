@@ -59,3 +59,50 @@ export interface TmuxComposerState {
    */
   wrapped: boolean;
 }
+
+/**
+ * The image kinds a composer will take, which is Claude's own list and not ours.
+ *
+ * Measured in the CLI (2.1.263): a dropped path reaches an image only if it matches
+ * `/\.(png|jpe?g|gif|webp)$/i`, and the bytes are then sniffed independently of that name. So the
+ * sidecar writes its file with an extension from THIS list, chosen by sniffing the bytes it was
+ * given -- a name and a content that disagree end up in somebody's composer as a literal file
+ * path, which is the one failure mode worth engineering against.
+ */
+export const COMPOSER_IMAGE_MEDIA_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+] as const;
+
+export type ComposerImageMediaType = (typeof COMPOSER_IMAGE_MEDIA_TYPES)[number];
+
+/**
+ * How large an image the panel may hand over, before base64.
+ *
+ * Generous next to the composer's own text limit because this is one transfer rather than text
+ * retyped whenever a guess about the box misses, and a phone screenshot is a couple of megabytes.
+ * Claude resizes to the API's own limits itself, so this is about what a browser should be asked
+ * to encode and a sidecar to hold, not about what the model will accept.
+ *
+ * Shared rather than restated on each side: the panel refuses a file this big before spending a
+ * second encoding it, and the sidecar refuses one anyway, and those two have to be the same number
+ * or the panel is lying about which files it will take.
+ */
+export const MAXIMUM_COMPOSER_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * `POST /api/sessions/claude/{id}/composer/image` -- one image, into the pane's own composer.
+ *
+ * Base64 rather than raw bytes because the panel's transport is JSON both ways: in the webview it
+ * is a relay of text frames, and a binary body would have to be encoded there anyway.
+ *
+ * There is no path in this request, in either direction. The panel never names a file and never
+ * learns one: it hands over bytes, and the sidecar -- which is the process on the machine the pane
+ * is actually on -- writes them somewhere that machine's Claude can read. That is what makes this
+ * work for a session on another Mac, where a path the panel chose would name nothing at all.
+ */
+export interface ComposerImageDrop {
+  data: string;
+}

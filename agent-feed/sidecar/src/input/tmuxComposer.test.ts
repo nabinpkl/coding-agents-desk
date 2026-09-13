@@ -5,6 +5,7 @@ import {
   composerText,
   keystrokesFor,
   composerPanes,
+  dropTmuxComposerImage,
   observeTmuxComposer,
   readComposerAt,
   submitTmuxComposer,
@@ -446,4 +447,28 @@ test("a watch that started after a forget still owns its own hold", async () => 
   expect(panes.get("session")).toBe("agentdesk-2");
   fresh();
   expect(panes.get("session")).toBeNull();
+});
+
+test("a dropped image is pasted as its path alone, which is what a terminal drop sends", async () => {
+  // Measured in the CLI: the paste handler reads the text of THIS paste to decide whether it is
+  // looking at a file path, so the path cannot ride along with anything else.
+  const tmux = runtime({ screen: async () => screenWith([""]) });
+  expect(await dropTmuxComposerImage("session", "/tmp/a-b/c.png", tmux))
+    .toEqual({ text: null, hint: null, reason: null, wrapped: false });
+  expect(tmux.sent).toEqual([`${OPEN}/tmp/a-b/c.png${CLOSE}`]);
+});
+
+test("separates the path from text already in the box, with a space outside the paste", async () => {
+  // Measured: a paste of " /tmp/x.png" splits on the space that precedes the slash and the empty
+  // half is filtered away, so a space put INSIDE the paste never reaches the box.
+  const tmux = runtime({ screen: async () => screenWith(["look at this"]) });
+  await dropTmuxComposerImage("session", "/tmp/x.png", tmux);
+  expect(tmux.sent).toEqual([` ${OPEN}/tmp/x.png${CLOSE}`]);
+});
+
+test("a drop into a session with no pane pastes nothing and says why", async () => {
+  const tmux = runtime({ panes: composerPanes(), pane: async () => null });
+  expect(await dropTmuxComposerImage("session", "/tmp/x.png", tmux))
+    .toEqual({ text: null, hint: null, reason: "no-pane", wrapped: false });
+  expect(tmux.sent).toEqual([]);
 });

@@ -15,9 +15,15 @@
 // instead meant a `capture-pane` every second for the whole time a session was open, nearly all
 // of them answering "the same as last time". The stream reports only differences.
 
-import type { TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import {
+  MAXIMUM_COMPOSER_IMAGE_BYTES,
+  type ComposerImageMediaType,
+  type TmuxComposerState,
+} from "@agentdesk/agent-feed-wire";
+import { imageMediaType, writeComposerImage } from "../input/composerImages.ts";
 import {
   acceptTmuxComposerHint,
+  dropTmuxComposerImage,
   MAXIMUM_COMPOSER_BYTES,
   liveTmuxComposerRuntime,
   observeTmuxComposer,
@@ -26,13 +32,18 @@ import {
   type TmuxComposerListener,
   type TmuxComposerWatchRuntime,
 } from "../input/tmuxComposer.ts";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
+import {
+  encodeServerSentEvent,
+  errorResponse,
+  jsonResponse,
+  startServerSentEventStream,
+} from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
 const RETRY = new TextEncoder().encode("retry: 20000\n\n");
 
 const COMPOSER_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/stream)?$/i;
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/stream)?$/i;
 
 /** The composer, injected, so the route's address shape can be pinned without a tmux server. */
 export interface TmuxComposerDependencies {
@@ -41,6 +52,18 @@ export interface TmuxComposerDependencies {
   submit: (sessionId: string) => Promise<TmuxComposerState>;
   /** Presses Tab, which is how Claude's own suggestion becomes text in its box. */
   accept: (sessionId: string) => Promise<TmuxComposerState>;
+  /**
+   * Puts an image in the composer, having first written it where that pane's Claude can read it.
+   *
+   * Bytes rather than a path, in both directions. The panel is not on the machine the pane is on
+   * -- it may not even be on a Mac -- so a path it chose would name nothing, and a path it was
+   * handed would be a filesystem it has no business knowing.
+   */
+  drop: (
+    sessionId: string,
+    image: Uint8Array,
+    mediaType: ComposerImageMediaType,
+  ) => Promise<TmuxComposerState>;
 }
 
 /**
@@ -59,6 +82,8 @@ export function liveTmuxComposerDependencies(
     sync: (sessionId, text) => syncTmuxComposer(sessionId, text, runtime),
     submit: (sessionId) => submitTmuxComposer(sessionId, runtime),
     accept: (sessionId) => acceptTmuxComposerHint(sessionId, runtime),
+    drop: async (sessionId, image, mediaType) =>
+      dropTmuxComposerImage(sessionId, await writeComposerImage(image, mediaType), runtime),
   };
 }
 
@@ -72,6 +97,10 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
       if (request.method !== "POST") return undefined;
       const pressed = action === "/submit" ? composer.submit : composer.accept;
       return pressed(sessionId).then((state) => jsonResponse(state));
+    }
+    if (action === "/image") {
+      if (request.method !== "POST") return undefined;
+      return drop(composer, request, sessionId);
     }
     if (action === "/stream") {
       if (request.method !== "GET") return undefined;
@@ -102,16 +131,54 @@ async function sync(
   try {
     body = await request.json() as typeof body;
   } catch {
-    return jsonResponse({ error: "invalid json body" }, 400);
+    return errorResponse("invalid-body", "the request body was not JSON", 400);
   }
   // An empty string is a legitimate ask -- it is what clearing the field means -- so this checks
   // the type and not the length. That is the one place this route differs from the inbox next
   // door, which refuses a blank turn because delivering one would cost a model call.
-  if (typeof body.text !== "string") return jsonResponse({ error: "text is required" }, 400);
+  if (typeof body.text !== "string") return errorResponse("text-required", "a push must carry the text the composer should hold", 400);
   if (Buffer.byteLength(body.text, "utf8") > MAXIMUM_COMPOSER_BYTES) {
-    return jsonResponse({ error: "text is too large" }, 413);
+    return errorResponse("text-too-large", "that is more text than a composer will take", 413);
   }
   // 200 with the reason in the body, for the same reason the inbox does it: "that session is not
   // in a pane" is a fact the panel renders beside the field, not a malformed request.
   return jsonResponse(await composer.sync(sessionId, body.text));
+}
+
+/**
+ * One dropped image: decoded, identified by its own bytes, and pasted into the pane.
+ *
+ * The kind is sniffed rather than taken from the request, because the file this writes is read
+ * back by a program that sniffs for itself. A caller's `content-type` that disagreed with its
+ * bytes would produce a name Claude accepts and content it then refuses, and the failure would
+ * surface as the file's path appearing in somebody's composer rather than as this 415.
+ */
+async function drop(
+  composer: TmuxComposerDependencies,
+  request: Request,
+  sessionId: string,
+): Promise<Response> {
+  let body: { data?: unknown };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return errorResponse("invalid-body", "the request body was not JSON", 400);
+  }
+  if (typeof body.data !== "string" || body.data.length === 0) {
+    return errorResponse("image-required", "a drop must carry the image as base64", 400);
+  }
+  // `Buffer.from` does not refuse bad base64, it decodes as far as it can -- so an empty result is
+  // the only thing this can say about the encoding, and the sniff below judges the rest.
+  const bytes = Uint8Array.from(Buffer.from(body.data, "base64"));
+  if (bytes.length === 0) return errorResponse("image-not-base64", "the image did not decode as base64", 400);
+  if (bytes.length > MAXIMUM_COMPOSER_IMAGE_BYTES) return errorResponse("image-too-large", "that image is larger than a composer will take", 413);
+  const mediaType = imageMediaType(bytes);
+  if (mediaType === null) {
+    return errorResponse(
+      "image-unsupported",
+      "a terminal composer takes png, jpeg, gif and webp",
+      415,
+    );
+  }
+  return jsonResponse(await composer.drop(sessionId, bytes, mediaType));
 }

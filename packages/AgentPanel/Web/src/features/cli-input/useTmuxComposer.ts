@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { TmuxComposerState, TmuxComposerUnavailableReason } from "@agentdesk/agent-feed-wire";
+import {
+  MAXIMUM_COMPOSER_IMAGE_BYTES,
+  type TmuxComposerState,
+  type TmuxComposerUnavailableReason,
+} from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
@@ -36,6 +40,14 @@ export interface TmuxComposerHandle {
   submit: () => Promise<void>;
   /** Takes Claude up on `hint`, by pressing Tab in the pane the way a reader there would. */
   accept: () => Promise<void>;
+  /**
+   * Puts images into the composer, in the order they were dropped.
+   *
+   * Files rather than paths: the pane may be on another machine, and only the sidecar answering
+   * for it can write somewhere its Claude can read. Anything that is not an image a composer takes
+   * is left alone here and refused by the sidecar with a reason.
+   */
+  drop: (files: readonly Blob[]) => Promise<void>;
   pending: boolean;
   error: string | null;
   /**
@@ -77,6 +89,7 @@ export function useTmuxComposer(
     | "syncTmuxComposer"
     | "submitTmuxComposer"
     | "acceptTmuxComposerHint"
+    | "dropTmuxComposerImage"
   >,
   session: SessionAddress,
   active: boolean,
@@ -213,6 +226,54 @@ export function useTmuxComposer(
     }
   }, [feed]);
 
+  /**
+   * Sends each image, then hands the field back to the pane.
+   *
+   * Three things in an order that is the whole of the logic. The draft goes first, because a drop
+   * lands at the end of what the box holds and text still sitting in the debounce would arrive
+   * after the image otherwise. Then the images, one at a time and awaited, because Claude numbers
+   * them in the order they arrive. Then `edited` is cleared: what comes back is not what was sent
+   * -- Claude replaces the path with its own `[Image #N]` -- so the reading has to win, and it
+   * would not against a guard that says the field is newer.
+   */
+  const drop = useCallback(async (files: readonly Blob[]) => {
+    if (files.length === 0) return;
+    if (pushTimer.current) {
+      clearTimeout(pushTimer.current);
+      pushTimer.current = null;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      // Size is the one thing worth judging before the upload, because encoding a file this side
+      // is what the upload costs. WHETHER it is an image is not judged here at all: the sidecar
+      // sniffs the bytes, and a second opinion from the browser's own `type` -- which is empty on
+      // some platforms for files that are perfectly good images -- could only disagree with it.
+      const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
+      if (sendable.length < files.length) {
+        setError(
+          `An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`,
+        );
+      }
+      if (sendable.length === 0) return;
+      if (edited.current) {
+        const synced = await feed.syncTmuxComposer(sessionRef.current, draftRef.current);
+        setState(synced);
+        if (synced.reason !== null) return;
+      }
+      for (const file of sendable) {
+        const after = await feed.dropTmuxComposerImage(sessionRef.current, file);
+        setState(after);
+        if (after.reason !== null) return;
+      }
+      edited.current = false;
+    } catch (failure) {
+      setError(String((failure as Error).message ?? failure));
+    } finally {
+      setPending(false);
+    }
+  }, [feed]);
+
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
       clearTimeout(pushTimer.current);
@@ -235,6 +296,7 @@ export function useTmuxComposer(
     change,
     submit,
     accept,
+    drop,
     pending,
     error,
     onBlur,

@@ -18,8 +18,15 @@ export type {
 } from "./cliInput.ts";
 
 export type {
+  ComposerImageDrop,
+  ComposerImageMediaType,
   TmuxComposerState,
   TmuxComposerUnavailableReason,
+} from "./tmuxComposer.ts";
+
+export {
+  COMPOSER_IMAGE_MEDIA_TYPES,
+  MAXIMUM_COMPOSER_IMAGE_BYTES,
 } from "./tmuxComposer.ts";
 
 export type {

@@ -15,6 +15,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const submitted: string[] = [];
   const watched: string[] = [];
   const accepted: string[] = [];
+  const dropped: { bytes: number; mediaType: string }[] = [];
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
@@ -33,10 +34,28 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
       accepted.push(sessionId);
       return { text: null, hint: null, reason: null, wrapped: false };
     },
+    drop: async (_sessionId, image, mediaType) => {
+      dropped.push({ bytes: image.length, mediaType });
+      return { text: null, hint: null, reason: null, wrapped: false };
+    },
     ...overrides,
   };
-  return { route: createTmuxComposerRoutes(composer), synced, submitted, watched, accepted };
+  return {
+    route: createTmuxComposerRoutes(composer),
+    synced,
+    submitted,
+    watched,
+    accepted,
+    dropped,
+  };
 }
+
+/** The smallest real PNG, so the sniff has something honest to identify. */
+const PNG = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a4944415478da6360000000020001" +
+    "48afa4710000000049454e44ae426082",
+  "hex",
+);
 
 function call(
   route: ReturnType<typeof createTmuxComposerRoutes>,
@@ -142,4 +161,55 @@ test("submitting is its own address, and so is accepting the hint", async () => 
   expect(acceptResponse?.status).toBe(200);
   expect(accepted).toEqual([SESSION]);
   expect(submitted).toEqual([SESSION]);
+});
+
+test("a dropped image is identified by its own bytes, not by what the caller called it", async () => {
+  const { route, dropped } = routeWith();
+  const response = await call(
+    route,
+    "POST",
+    `/api/sessions/claude/${SESSION}/composer/image`,
+    { data: PNG.toString("base64") },
+  );
+  expect(response?.status).toBe(200);
+  expect(dropped).toEqual([{ bytes: PNG.length, mediaType: "image/png" }]);
+});
+
+test("something that is not an image is refused here, rather than in somebody's composer", async () => {
+  // The failure this status exists to prevent is not an exception. A file written with a name
+  // Claude accepts and content it then refuses lands in the pane as a literal file path, visible
+  // to whoever is sitting in front of it.
+  const { route, dropped } = routeWith();
+  const response = await call(
+    route,
+    "POST",
+    `/api/sessions/claude/${SESSION}/composer/image`,
+    { data: Buffer.from("this is a text file, not a png").toString("base64") },
+  );
+  expect(response?.status).toBe(415);
+  // In the envelope the panel's client actually reads: a bare string reaches the reader as
+  // "sidecar answered 415", and a drop is an ordinary thing to get wrong.
+  expect(await response!.json()).toMatchObject({
+    error: { code: "image-unsupported", message: expect.stringContaining("png") },
+  });
+  expect(dropped).toEqual([]);
+});
+
+test("an oversized or missing image is the caller's fault, and says so with a status", async () => {
+  const { route, dropped } = routeWith();
+  const path = `/api/sessions/claude/${SESSION}/composer/image`;
+  expect((await call(route, "POST", path, {}))?.status).toBe(400);
+  // Decodes to nothing, which is all a base64 decoder can say about text that is not base64.
+  expect((await call(route, "POST", path, { data: "!!!!" }))?.status).toBe(400);
+  const huge = Buffer.concat([PNG, Buffer.alloc(10 * 1024 * 1024)]).toString("base64");
+  expect((await call(route, "POST", path, { data: huge }))?.status).toBe(413);
+  expect(dropped).toEqual([]);
+});
+
+test("dropping only takes a POST, and codex has no composer to drop into", async () => {
+  const { route } = routeWith();
+  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/image`))
+    .toBeUndefined();
+  expect(await call(route, "POST", `/api/sessions/codex/${SESSION}/composer/image`, { data: "x" }))
+    .toBeUndefined();
 });
