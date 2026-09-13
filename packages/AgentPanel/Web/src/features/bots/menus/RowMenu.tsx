@@ -1,5 +1,8 @@
 import { EllipsisVertical, type LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+/** The gap this menu keeps between itself and the edge it is measured against. */
+const MARGIN = 8;
 
 export interface RowMenuItem {
   label: string;
@@ -22,6 +25,8 @@ export interface RowMenuItem {
  */
 export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
   const [open, setOpen] = useState(false);
+  /** Whether this opening has to go upward to stay inside whatever is clipping it. */
+  const [upward, setUpward] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
 
@@ -42,8 +47,39 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
     menu.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, [open]);
 
+  /**
+   * Chooses the direction at the moment of opening, against whatever is actually clipping this.
+   *
+   * A row menu lives inside a scroller more often than not -- a roster, a card, a transcript --
+   * and a scroller clips its children on every side. Opening downward from a row near the bottom
+   * therefore does not overflow into the page; it is cut off, and the last rows in a list are
+   * exactly the ones a reader reaches for. Measured at open rather than fixed by a prop, because
+   * the same row is near the bottom or not depending on where the list is scrolled to.
+   */
+  useLayoutEffect(() => {
+    if (!open) return;
+    const button = trigger.current;
+    const popup = menu.current;
+    if (!button || !popup) return;
+    const below = button.getBoundingClientRect().bottom;
+    const needed = popup.getBoundingClientRect().height + MARGIN;
+    // The nearest ancestor that clips, or the viewport when nothing does.
+    let limit = globalThis.innerHeight ?? 0;
+    for (let node = button.parentElement; node; node = node.parentElement) {
+      // The clipping values, named rather than everything-but-visible: `getComputedStyle` answers
+      // with an empty string for a property nothing has set in some engines, and treating that as
+      // a clipper makes the nearest wrapper the limit and sends every menu upward.
+      const overflow = getComputedStyle(node).overflowY;
+      if (overflow !== "auto" && overflow !== "scroll" && overflow !== "hidden") continue;
+      limit = Math.min(limit, node.getBoundingClientRect().bottom);
+      break;
+    }
+    setUpward(below + needed > limit);
+  }, [open]);
+
   const close = (restoreFocus = true) => {
     setOpen(false);
+    setUpward(false);
     if (restoreFocus) globalThis.requestAnimationFrame?.(() => trigger.current?.focus());
   };
 
@@ -67,7 +103,10 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
           ref={menu}
           role="menu"
           aria-label={`Actions for ${label}`}
-          className="absolute top-full right-0 z-50 mt-1 min-w-44 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl"
+          className={
+            "absolute right-0 z-50 min-w-44 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl "
+            + (upward ? "bottom-full mb-1" : "top-full mt-1")
+          }
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
