@@ -1,5 +1,66 @@
 # Cluster ledger
 
+## Done
+
+Every directory in both live TypeScript trees is at twelve source files or under, and the ceiling
+is now gated. Nine directories were over on `79f79128`; the worst held 36. Nothing changed but
+import lines: no file was split, merged, renamed, or edited for any other reason, and no route
+path, wire field, storage key, CSS class or exported prop moved.
+
+Twenty-two new directories, each earned by a count rather than by a concept:
+
+| Directory | Source files | What it holds |
+|---|---|---|
+| `sidecar/http/tile-codec/` | 4 | The byte formats between the encoder's Annex-B output and an RTP track: the NAL splitter, the two packetizers, the negotiated codec. |
+| `sidecar/http/tile-encoder/` | 5 | The grid-encoder children: the pool that is the only place a capture starts, which encoder a request belongs to, its display, its stdout framing, its metadata. |
+| `sidecar/http/tile-peer/` | 4 | One peer for one capture: the route, offer in and answer out, the clamp on everything a browser sent, whether the peer is gone for good. |
+| `sidecar/http/tile-control/` | 4 | The data channel that drives the Mac: who owns input across every peer, what a viewer may send, the events sent back. |
+| `sidecar/http/tile-diagnostics/` | 3 | Whether anything is arriving: the log every layer writes to, the sender/receiver correlation, the census behind `just webrtc-sessions`. |
+| `sidecar/http/session-routes/` | 6 | One thread, read and driven: its transcript and title, the subscription that opens it, a digested turn, its tasks, the two ways text reaches its CLI. |
+| `sidecar/transcripts/catalog/` | 8 | The catalog of every session this machine can show, its three per-vendor finders, and the watchers that keep it true. |
+| `sidecar/transcripts/event-index/` | 4 | Who is reading a transcript, for how long, and what they are told as it grows. |
+| `sidecar/transcripts/claude/` | 5 | Everything Claude-specific about reading a transcript line. |
+| `sidecar/transcripts/codex/` | 6 | The same for Codex, plus what a tool call row says it did. |
+| `sidecar/terminal/tmux/` | 7 | Attaching with tmux's own primitives instead of through the PTY manager. |
+| `sidecar/terminal/pty/` | 3 | Talking to the PTY manager: the client, the protocol, one envelope. |
+| `panel/app/shell-state/` | 7 | One hook per thing the App shell holds, plus what all three renderings of the sidebar are handed. |
+| `panel/app/page/` | 4 | The page rather than the app: which surface it is, its lifecycle, the keyboard inset, the native drag regions. |
+| `panel/app/fake-sidecar/` | 3 | The fake sidecar the panel runs against with no host and no agent. |
+| `panel/activity-feed/blocks/` | 6 | One event, drawn. |
+| `panel/activity-feed/rows/` | 4 | What the stream becomes before anything is drawn. |
+| `panel/activity-feed/scroll-position/` | 3 | Following the tail, and coming back where a session was left. |
+| `panel/activity-feed/sticky-headers/` | 3 | The two bars pinned over the top of the transcript. |
+| `panel/activity-feed/reading-preferences/` | 3 | Font size, the view a thread opens in, whether cache badges show. |
+| `panel/bots/dialogs/` | 5 | The four modals `AppDialogs` opens, and what to call the session two of them start. |
+| `panel/bots/cards/` | 5 | One Bot on the canvas, a session inside it, the new-session card, their widths, the grips that size them. |
+| `panel/bots/menus/` | 3 | The row menu and the two built on it. |
+| `panel/terminal/mounted-terminal/` | 6 | What one mounted terminal is and holds, which is what `useAgentTerminal` assembles. |
+| `panel/session-view/composer/` | 8 | The band under the transcript and everything that composes into it. |
+
+One directory was removed: `sidecar/transcripts/sources/`. Its four remaining files were the seam
+between the two vendors rather than sources, so they moved up to `transcripts/`. R7 has the
+reasoning and the two alternatives.
+
+The gate landed last, green the day it landed:
+
+- **Check 7 in `tools/agent-feed-fitness.sh`** fails when a directory in either tree holds more
+  than twelve source files, naming each one and its count.
+- **`tools/git-hooks/pre-commit`** asks the same question of the directories a commit touches,
+  counted out of the index so it measures what will land rather than what the worktree happens to
+  hold.
+- **Check 6 gained `mock.module`**, a fourth specifier form nothing was checking. It cost two
+  silently-broken tests during R1.
+
+The three-file floor is deliberately NOT gated. `AGENTS.md` was amended during this arc
+(`6299e55d`) to say why: it governs the moment you are splitting, and says nothing about a
+directory that is simply small. Five directories are under three and all five are correct --
+`screen-viewer` is a whole surface that is one file, `src/types` is shared types.
+
+Everything below is the working record: the groups as written before each move, the decisions taken
+at each fork, and what was found and left alone.
+
+---
+
 Bringing every directory in the two live TypeScript trees under the twelve-file ceiling stated in
 `AGENTS.md`, "How long a file gets, and how flat a directory gets". The 500-line cap landed first
 and produced its own failure: files that are each one idea, in directories that are a pile. This
@@ -9,8 +70,8 @@ The rule, in four lines:
 
 - Twelve source files per directory is the ceiling. A test rides with its source and is not
   counted separately.
-- Three source files is the floor for a new directory. One or two of their own is a worse index
-  than none.
+- Three source files is the floor when you are SPLITTING: a group of one or two is not a cluster,
+  so those files stay flat. It is not a property every directory must satisfy, and it is not gated.
 - One clustering level below a feature. Promote a sibling rather than deepen; a second level needs
   its reason written here.
 - Only fan-out promotes a cluster. Past twelve AND three or more files about the same thing.
@@ -33,7 +94,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) -> dissolved | D |
 | R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) -> 7 (10) | D |
 | R9 | `packages/AgentPanel/Web/src/features/session-view` | 13 (13) -> 5 (5) | D |
-| R10 | The gate: fitness check 7, the pre-commit hook, this file's summary | | R |
+| R10 | The gate: fitness check 7, the pre-commit hook, this file's summary | | D |
 
 Re-measured after every task, because moving files out of a parent changes the parent's count:
 
@@ -287,6 +348,32 @@ its two callers are `SessionComposer` and `SessionView` -- one inside the group 
 the callers rule ties. It stays flat. The count was already earned at eight; a ninth file added on
 a tie-break is the opinion the rule exists to keep out.
 
+### R10 the gate
+
+Last, so it is green the day it lands, and it is: both trees were already under the ceiling before
+a line of it was written.
+
+Check 7 counts with `find -maxdepth 1`, excluding `*.test.ts` and `*.test.tsx`, and names every
+offender with its count. The pre-commit hook asks the same question but only of the directories the
+commit touches -- that is the only place a commit can make things worse, and asking about the whole
+tree would refuse a commit over somebody else's directory. It counts out of the INDEX, like the
+line cap beside it, because a pathspec commit builds a temporary index holding exactly what will
+land.
+
+Both were checked by making them fail rather than by reading them. Thirteen throwaway sources in
+`features/profile/` failed both; twelve passed both; twelve plus five throwaway TESTS passed both,
+which is the "a test rides with its source" clause actually working. Check 6's new `mock.module`
+form was checked the same way, and needed `git add -N` first -- check 6 uses `git grep`, so it sees
+tracked files only, where checks 5 and 7 use `find` and see everything.
+
+One thing to know if you edit the hook from a worktree, as this arc did. `just git-hooks-install`
+symlinks `$(git rev-parse --git-common-dir)/hooks/pre-commit` at the MAIN checkout's copy, and
+`--git-common-dir` is shared by every worktree, so the file a commit here actually runs is the one
+on `main` -- not the edited copy sitting beside you. The new rule starts firing when this branch
+lands. Verify a hook edit by running the file directly, which is what was done above.
+
+The floor is not gated, per `AGENTS.md` as amended at `6299e55d`.
+
 ## Decisions
 
 Forks taken, with the alternative not taken. The standing tiebreakers, both from the desktop
@@ -365,4 +452,19 @@ Things this arc found and deliberately did not do, because they are a different 
 - **`activityNormalization` has no callers.** Only its own test, and a comment in the data source's
   contract fixture calling it "the normalization target". Either it is dead or the fixture test is
   meant to be reaching it. Someone should find out; a clustering pass is not the place.
+- **Both suites time out under load, and the timeouts read exactly like real failures.** Eight
+  across this arc, every one green on an immediate rerun with nothing changed. Three were
+  `transcripts/watchTree.test.ts` at its 20-second limit during R6 and R7 -- corroborated
+  independently by another session, on a diff that never touched that file. The other five were
+  panel tests at Vitest's 5-second default: four app-shell renders during R8 and
+  `markdown/proseBlocks.test.ts` during R10, none of them in a directory this arc had moved. The
+  tell is the wall clock -- a sidecar run that normally takes 17s took 57s on the run that failed.
+  Worth someone raising the limits or finding what blocks; not investigated here.
+- **`desktop-viewer/keyboard-input/` and `tile-viewport/` are at 10, and `data-source/` at 12.**
+  Under the ceiling and therefore not this arc's business, but each is one or two files from being
+  the next task. The gate will say so when it happens.
+- **A source path written as a plain string is unguarded.** `app/typeRendering.test.ts` reads two
+  components off disk with `readFileSync`, so `tsc` cannot see the reference and moving the files
+  broke it with ENOENT. No gate was added: the suite catches it, and the grep in Decisions returns
+  eight lines across both trees, six of them CSS.
 

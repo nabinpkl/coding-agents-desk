@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Refuses a commit that breaks either rule the fitness gate enforces on the live TypeScript trees:
-# a file past 500 lines, or a relative import.
+# Refuses a commit that breaks any of the three rules the fitness gate enforces on the live
+# TypeScript trees: a file past 500 lines, a relative import, or a directory holding more than
+# twelve source files.
 #
-# The same rule as check 5 in `tools/agent-feed-fitness.sh`, moved to the moment it is cheap to
-# obey. The gate is the authority and this is not a second opinion: same two trees, same two
-# extensions, same limit, same `wc -l`. If they ever disagree, the gate is right and this is the
-# bug.
+# The same rules as checks 5, 6 and 7 in `tools/agent-feed-fitness.sh`, moved to the moment they
+# are cheap to obey. The gate is the authority and this is not a second opinion: same two trees,
+# same two extensions, same limits, same counting. If they ever disagree, the gate is right and
+# this is the bug.
 #
 # Why both. The gate answers "is the tree under the cap", which is the question that matters and
 # the wrong moment to ask it: by the time `just check` says no, the file is written and splitting
@@ -30,7 +31,7 @@ staged="$(git diff --cached --name-only --diff-filter=ACMR -- $TREES | grep -E '
 
 # The three specifier forms this codebase writes, anchored or parenthesised so one quoted INSIDE a
 # string stays legal. Same expression as check 6 of the fitness gate, which is the authority.
-RELATIVE='^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|require)\([[:space:]]*["'"'"']\.'
+RELATIVE='^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|mock\.module|require)\([[:space:]]*["'"'"']\.'
 
 oversize=""
 relative=""
@@ -49,6 +50,37 @@ while IFS= read -r path; do
     fi
 done <<< "$staged"
 
+# Check 7's rule: no directory in these trees holds more than twelve source files. Only the
+# directories this commit actually touches, because that is the only place it can make things
+# worse, and asking about the whole tree on every commit would refuse a commit for somebody else's
+# directory.
+#
+# Counted out of the INDEX for the same reason the line cap is: a pathspec commit builds a
+# temporary index holding exactly what will land, so this counts the directory as the commit will
+# leave it rather than as the worktree happens to look. A test rides with its source and is not
+# counted.
+#
+# The three-file floor is deliberately absent. It governs the moment you are splitting -- a group
+# of one or two is not a cluster -- and says nothing about a directory that is simply small, so
+# there is nothing here for a hook to refuse.
+DIR_LIMIT=12
+oversized_dirs=""
+while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    count="$(
+        git ls-files --cached -- "$dir" | awk -v prefix="$dir/" '
+            index($0, prefix) == 1 {
+                rest = substr($0, length(prefix) + 1)
+                if (rest !~ /\// && rest ~ /\.tsx?$/ && rest !~ /\.test\.tsx?$/) n++
+            }
+            END { print n + 0 }
+        '
+    )"
+    if [ "$count" -gt "$DIR_LIMIT" ]; then
+        oversized_dirs="$oversized_dirs  $count $dir"$'\n'
+    fi
+done <<< "$(printf '%s\n' "$staged" | sed 's|/[^/]*$||' | sort -u)"
+
 status=0
 
 if [ -n "$oversize" ]; then
@@ -64,6 +96,15 @@ if [ -n "$relative" ]; then
     printf '%s' "$relative" >&2
     echo "pre-commit: a relative import breaks when either end moves, so it makes moving one file" >&2
     echo "pre-commit: cost every importer too. An aliased one names only what moved." >&2
+    status=1
+fi
+
+if [ -n "$oversized_dirs" ]; then
+    echo "pre-commit: this commit leaves these directories past the ${DIR_LIMIT}-file cap:" >&2
+    printf '%s' "$oversized_dirs" >&2
+    echo "pre-commit: cluster the files that are about the same thing into sibling directories." >&2
+    echo "pre-commit: a flat list of fifty hides exactly what a two-thousand-line file hid, which" >&2
+    echo "pre-commit: is where one thing ends and the next begins. Fewer than three is not a cluster." >&2
     status=1
 fi
 
