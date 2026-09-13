@@ -153,11 +153,12 @@ describe("event heading", () => {
     const textCard = view.container.querySelector('[data-feed-card="text"]');
     const toolCard = view.container.querySelector('[data-feed-card="tool"]');
     expect(textCard?.className).toContain("rounded-md");
-    // The two row surfaces are named rather than painted, so a session inside a shaded Bot card
-    // can hand them its colour and every other reader of this feed gets the grey they always had.
-    expect(textCard?.className).toContain("session-view-row");
+    // Painted outright rather than named: a transcript row is one grey wherever it is read, on
+    // the canvas as much as in the thread view. What says which session a card is showing is its
+    // titlebar and its edge, not the rows under them.
+    expect(textCard?.className).toContain("bg-card");
     expect(toolCard?.className).toContain("rounded-md");
-    expect(toolCard?.className).toContain("session-view-row-tool");
+    expect(toolCard?.className).toContain("bg-muted/60");
     expect(textCard?.className).not.toContain("border-dashed");
     expect(toolCard?.className).not.toContain("border-dashed");
     expect(textCard?.parentElement?.className).toContain("py-[0.1em]");
