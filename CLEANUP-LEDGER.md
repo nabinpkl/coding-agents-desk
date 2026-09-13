@@ -68,7 +68,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R34 | D | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
 | R35 | D | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
 | R36 | D | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
-| R37 | R | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
+| R37 | D | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
 | R38 | R | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
 | R39 | R | 26/585 | `agent-feed/sidecar/src/config.ts` |
 | R40 | R | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
@@ -533,6 +533,21 @@ touch -- the base cell, which side owns the pane shape, whether the far end clos
 subscription -- now live only on the runtime, not in the effect as well: two copies of those would
 have diverged the first time either part wrote one.
 
+### R37 `terminal/agentTerminalService.ts` (814)
+
+- What a terminal request can be refused for, and the checks that refuse it.
+- What a terminal is pointed at: which pane, which directory, which command, and whether a new
+  one may be started at all.
+- One PTY manager envelope, read as the one thing the wire says about a terminal.
+- Owning the live terminals: the map, the shared stream, and the two backends bytes arrive on.
+
+Split into `agentTerminalErrors.ts`, `agentTerminalIdentity.ts`, `terminalStreamMessages.ts`.
+814 to 491. The `identify*` family were private methods reading three collaborators off `this`;
+they are free functions over a `TerminalIdentityDeps` record now, and the class keeps a one-line
+`identify` that hands them over, so `open` is untouched. `agentTerminalService.ts` stays the entry
+point: ten files import it, and it re-exports the four errors, `liveTmuxSession` and
+`ResolvedAgentTerminalSession` so none of them had to move.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -629,6 +644,16 @@ identifiers INSIDE a string. Three user-visible strings were rewritten that way 
 the terminal m.session", twice more -- and they typecheck cleanly, so nothing but reading catches
 them. Every generated file is now swept for `m.`/`ctx.`/`deps.`/`live.` inside string literals
 before the commit; the sweep is clean across all 36 generated files.
+
+- R37 kept the three new modules as siblings in `terminal/` rather than a new directory, though
+  three files came out of one. `terminal/` is already the concept directory and holds the tmux and
+  PTY halves these read; a `terminal/identity/` under it would have named the same idea twice. The
+  alternative was a directory per the three-file rule, not taken because the rule exists to stop a
+  flat dumping ground and this directory is not one.
+- R37 dropped `forkClaudeSessionCommand` from the import list. It was imported and never called, so
+  the identity module took only `claudeSessionPaneName`, which is what it uses. Not a fix: rewriting
+  the import list is part of the move, and carrying a name nothing reads into a new file would have
+  been the larger change.
 
 ## Deferred
 
