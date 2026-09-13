@@ -52,7 +52,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R18 | D | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
 | R19 | D | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
 | R20 | D | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
-| R21 | R | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
+| R21 | D | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
 | R22 | R | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
 | R23 | R | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
 | R24 | R | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
@@ -322,6 +322,15 @@ Split into `useTmuxComposerHarness.tsx`, `useTmuxComposerCommands.test.tsx`,
 
 Split into `tmuxComposerHandle.ts`. 586 to 466 -- one file out, because the interface and its
 seventy lines of doc are the contract, and the hook is one implementation of it.
+
+### R21 `app/fixture.ts` (568)
+
+- What the fake sidecar shows: the projects, the sessions, and one set of transcript lines
+  projected into both modes.
+- Which request path answers with what, and the live turn it dribbles out one frame at a time.
+- Installing it as the page's message handler, before the transport is constructed.
+
+Split into `fixtureData.ts` and `fixtureRoutes.ts`. 568 to 82.
 
 ## Decisions
 
