@@ -46,7 +46,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R12 | D | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
 | R13 | D | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
 | R14 | D | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
-| R15 | R | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
+| R15 | D | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
 | R16 | R | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
 | R17 | R | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
 | R18 | R | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
@@ -259,6 +259,16 @@ from the module that holds it. 507 to 352.
 
 Split into `processTable.test.ts`. The two halves shared only `resetProcessTableCache`, and each
 carries its own fixtures. 898 sidecar tests, unchanged.
+
+### R15 `tasks/processProbe.ts` (556)
+
+- Shelling out at all: the injected runner, and the two absolute binary paths.
+- What `ps` says: one snapshot per tick, parsed into rows, walked for descendants, unwrapped out of
+  the harness's shell wrapper.
+- What `lsof` says: which shell holds which task's capture open, and where its output really goes.
+
+Split into `commandRunner.ts` and `processTable.ts`, pairing with the `processTable.test.ts` R14
+made. `processProbe.ts` stays the address thirteen callers already have. 556 to 214.
 
 ## Decisions
 
