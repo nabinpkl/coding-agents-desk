@@ -28,6 +28,7 @@ import type {
   BotView,
   DetachBotSessionsCommand,
   ForkSessionCommand,
+  LastSessionMessage,
   ParkPlanResponse,
   ParkReport,
   ParkRestoreReport,
@@ -228,6 +229,30 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
         "POST",
         `/api/sessions/claude/${encodeURIComponent(sessionId)}/fork`,
         { body: command },
+      ),
+    );
+  }
+
+  /**
+   * The newest message a person wrote in this session, and the row it is.
+   *
+   * What a fork asked for from the session's own ⋮ starts before. The reader has picked no row --
+   * that is the point of it, since the row menu that offers a fork is ON the row, so the longer
+   * the transcript the further away the affordance was -- and this is where "the last thing I
+   * said" gets turned into one.
+   *
+   * Answered by the sidecar rather than found here. Which lines are people talking is a rule with
+   * one home (`humanTurns.ts`, and the scar in its comment), and the surfaces that ask hold no
+   * transcript to look through: a closed card and a roster row have streamed nothing.
+   *
+   * Rejects with the sidecar's own reason when there is no such message, which is a real state --
+   * a session whose first turn has not landed yet -- and not an error to swallow.
+   */
+  async lastMessage(sessionId: string): Promise<LastSessionMessage> {
+    return parse<LastSessionMessage>(
+      await this.transport.request(
+        "GET",
+        `/api/sessions/claude/${encodeURIComponent(sessionId)}/last-message`,
       ),
     );
   }

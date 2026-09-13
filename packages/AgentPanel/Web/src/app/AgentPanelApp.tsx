@@ -420,6 +420,7 @@ export function App({ feed, host, fill = false }: Props) {
                 botError={commands.botCommandError}
                 onAddSession={commands.openBotSessionPicker}
                 onForkSession={commands.forkSession}
+                onForkFromLastMessage={commands.forkFromLastMessage}
                 onRenameSession={commands.setRenamingSession}
                 onDetachSession={commands.detachBotSession}
                 onRemoveSessionFromCanvas={roster.removeSessionFromCanvas}

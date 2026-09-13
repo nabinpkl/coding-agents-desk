@@ -100,24 +100,36 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-/**
- * A transcript the catalog knows about, holding two things a person said.
- *
- * The rename needs only the catalog row; forking from a message needs the file to have messages
- * in it, because the anchor is resolved by reading them.
- */
-async function sessionTranscript(): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "agent-feed-rename-"));
-  roots.push(root);
-  const transcript = join(root, `${SESSION_ID}.jsonl`);
-  const said = (text: string) => JSON.stringify({
+/** One line of the transcript, as the CLI writes a person speaking. */
+function said(root: string, text: string): string {
+  return JSON.stringify({
     type: "user",
     message: { role: "user", content: text },
     cwd: root,
     timestamp: "2026-09-09T05:00:00.000Z",
     uuid: crypto.randomUUID(),
   });
-  await writeFile(transcript, `${[said("ALPHA one"), said("BRAVO two")].join("\n")}\n`);
+}
+
+/** The same line, as the CLI writes the agent answering. */
+function answered(root: string, text: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+    cwd: root,
+    timestamp: "2026-09-09T05:00:01.000Z",
+    uuid: crypto.randomUUID(),
+  });
+}
+
+/** A transcript the catalog knows about, holding whatever `lines` writes into it. */
+async function transcriptHolding(
+  lines: (root: string) => readonly string[],
+): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-rename-"));
+  roots.push(root);
+  const transcript = join(root, `${SESSION_ID}.jsonl`);
+  await writeFile(transcript, `${lines(root).join("\n")}\n`);
   state.sessions.set(sessionKey("claude", SESSION_ID), {
     source: "claude",
     sessionId: SESSION_ID,
@@ -125,6 +137,16 @@ async function sessionTranscript(): Promise<void> {
     transcriptPath: transcript,
     lastEventAt: 1_000,
   });
+}
+
+/**
+ * A transcript holding two things a person said.
+ *
+ * The rename needs only the catalog row; forking from a message needs the file to have messages
+ * in it, because the anchor is resolved by reading them.
+ */
+async function sessionTranscript(): Promise<void> {
+  await transcriptHolding((root) => [said(root, "ALPHA one"), said(root, "BRAVO two")]);
 }
 
 /** The reason a refusal gave, which is the half of it a reader can act on. */
@@ -346,4 +368,69 @@ test("refuses a row that is not something a person said, before starting anythin
   expect(response.status).toBe(400);
   expect(forked).toEqual([]);
   expect(rewound).toEqual([]);
+});
+
+function lastMessage(source: string, sessionId: string): Promise<Response> {
+  const request = new Request(`http://localhost/api/sessions/${source}/${sessionId}/last-message`);
+  return Promise.resolve(route(request, new URL(request.url), server) as Promise<Response>);
+}
+
+test("answers the newest message a person wrote, addressed the way a fork takes it", async () => {
+  // The row a reader would have had to scroll to. BRAVO is the newest of the two, and the id is
+  // the one `ForkSessionCommand.from` names -- so the answer goes straight back as a fork.
+  state.watcherState = "live";
+  await sessionTranscript();
+
+  const response = await lastMessage("claude", SESSION_ID);
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    eventId: `claude:${SESSION_ID}:line:1`,
+    text: "BRAVO two",
+  });
+});
+
+test("skips everything that is not a person talking", async () => {
+  // The scar this whole flag exists for: an answer, and a `<system-reminder>` the harness wrote as
+  // the user. Neither is a row the rewind picker lists, so neither can anchor a fork.
+  state.watcherState = "live";
+  await transcriptHolding((root) => [
+    said(root, "ALPHA one"),
+    answered(root, "BRAVO two"),
+    said(root, "<system-reminder>a note nobody typed</system-reminder>"),
+  ]);
+
+  expect(await (await lastMessage("claude", SESSION_ID)).json()).toEqual({
+    eventId: `claude:${SESSION_ID}:line:0`,
+    text: "ALPHA one",
+  });
+});
+
+test("says so when nobody has written a message yet", async () => {
+  // 404 with a reason rather than an empty body: the caller opens a dialog quoting this, and an
+  // empty quote would read as a message that says nothing.
+  state.watcherState = "live";
+  await transcriptHolding((root) => [answered(root, "nobody asked me anything")]);
+
+  const response = await lastMessage("claude", SESSION_ID);
+
+  expect(response.status).toBe(404);
+  expect(await errorMessage(response)).toMatch(/nobody has written/);
+});
+
+test("answers 404 for a session the catalog does not hold, and 503 before it is read", async () => {
+  state.watcherState = "live";
+  expect((await lastMessage("claude", "44444444-4444-4444-8444-444444444444")).status).toBe(404);
+  state.watcherState = "idle";
+  await sessionTranscript();
+  expect((await lastMessage("claude", SESSION_ID)).status).toBe(503);
+});
+
+test("declines a Codex path, which has no fork to feed", async () => {
+  state.watcherState = "live";
+  const request = new Request(`http://localhost/api/sessions/codex/${SESSION_ID}/last-message`);
+  // Not undefined: `/api/sessions/...` with an unrecognized shape is this handler's 400, and that
+  // is what the existing GET routes answer too.
+  const response = await route(request, new URL(request.url), server) as Response;
+  expect(response.status).toBe(400);
 });

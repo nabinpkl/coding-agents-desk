@@ -38,6 +38,7 @@ import {
   SessionForkInvalidError,
   SessionForkNotFoundError,
 } from "@/transcripts/forkSession";
+import { lastHumanMessage } from "@/transcripts/messageAnchor";
 import { WorktreeError } from "@/git/worktree";
 import { errorResponse, jsonResponse } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
@@ -51,6 +52,9 @@ const TITLE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/title$/i;
 // Claude only for a second reason on top of the title's: `--fork-session` is a Claude CLI flag,
 // and Codex would silently resume the original transcript instead of branching from it.
 const FORK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/fork$/i;
+// Claude only for the fork's reason: this is read in order to ask for one, and its answer is
+// addressed the way `ForkSessionCommand.from` is.
+const LAST_MESSAGE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/last-message$/i;
 
 function sourceId(value: string): TranscriptSourceId {
   return value.toLowerCase() as TranscriptSourceId;
@@ -191,6 +195,27 @@ async function rawEvent(
   } finally {
     releaseIndex(source, sessionId);
   }
+}
+
+/**
+ * The newest message a person wrote in one session.
+ *
+ * Read by a fork that was asked for from a session rather than from a row -- the ⋮ on a card, where
+ * nobody has picked a message and the point is not having to scroll to find one. The panel is not
+ * asked to work it out: it is a rule about which transcript lines are people talking, and a card
+ * that is closed has no transcript loaded to apply it to.
+ */
+async function lastMessageResponse(sessionId: string): Promise<Response> {
+  const session = findSession("claude", sessionId);
+  if (!session) return errorResponse("session-not-found", "no such session", 404);
+  const message = await lastHumanMessage(sessionId, session.transcriptPath);
+  // 404 rather than an empty body. "Nobody has written one" and "here is one that says nothing"
+  // are different answers, and a caller that could not tell them apart would open a fork dialog
+  // quoting nothing and start a fork anchored to a row that does not exist.
+  if (!message) {
+    return errorResponse("no-message", "nobody has written a message in this session yet", 404);
+  }
+  return jsonResponse(message);
 }
 
 /**
@@ -431,6 +456,9 @@ export function createSessionRoutes(
       if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
       return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit, mode);
     }
+
+    const lastMessageMatch = LAST_MESSAGE_ROUTE.exec(url.pathname);
+    if (lastMessageMatch) return lastMessageResponse(lastMessageMatch[1]!.toLowerCase());
 
     const rawMatch = RAW_EVENT_ROUTE.exec(url.pathname);
     if (rawMatch) {

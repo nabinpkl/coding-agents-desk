@@ -283,6 +283,7 @@ describe("App shell", () => {
       expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
         "Rename session",
         "Fork session",
+        "Fork from last message",
         "Remove from bot",
         "Remove from canvas",
       ]);

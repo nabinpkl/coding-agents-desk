@@ -50,6 +50,7 @@ export function BotCanvasCard({
   canMoveRight,
   onAddSession,
   onForkSession,
+  onForkFromLastMessage,
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
@@ -81,6 +82,7 @@ export function BotCanvasCard({
   canMoveRight: boolean;
   onAddSession: (bot: BotView) => void;
   onForkSession: (bot: BotView, session: SessionSummary) => void;
+  onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -292,6 +294,11 @@ export function BotCanvasCard({
                 // a transcript this panel does not write for Codex.
                 onFork={
                   session.source === "claude" ? () => onForkSession(bot, session) : undefined
+                }
+                onForkFromLastMessage={
+                  session.source === "claude"
+                    ? () => onForkFromLastMessage(session, bot.environment.path)
+                    : undefined
                 }
                 onRename={
                   session.source === "claude" ? () => onRenameSession(session) : undefined

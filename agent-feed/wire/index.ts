@@ -101,6 +101,7 @@ export type {
   AgentSessionCapabilities,
   Bin,
   ForkSessionCommand,
+  LastSessionMessage,
   ProjectSummary,
   SessionSummary,
   StartedSession,

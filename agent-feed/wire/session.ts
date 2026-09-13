@@ -127,3 +127,18 @@ export interface ForkSessionCommand {
    */
   from?: { eventId: string };
 }
+
+/**
+ * The newest message a person wrote in a session, addressed the way a transcript row is.
+ *
+ * Answered by the sidecar rather than counted in the panel, for the reason `messageAnchor.ts`
+ * gives: a transcript line is a tool result, an attachment, a title record or a person speaking,
+ * and which is which is one rule with one home. The surfaces that ask are the second reason -- a
+ * closed card and a roster row hold no transcript at all, so there is nothing there to count.
+ */
+export interface LastSessionMessage {
+  /** The row's id, `claude:<sessionId>:line:<rawIndex>`, exactly as `ForkSessionCommand.from` takes it. */
+  eventId: string;
+  /** What it says, which is what the fork offers back to be edited. */
+  text: string;
+}

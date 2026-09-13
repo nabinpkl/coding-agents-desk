@@ -130,6 +130,36 @@ export function useBotCommands(
       from: request.message,
     });
   }, []);
+
+  /**
+   * The same dialog again, from the session's own ⋮ rather than from a message.
+   *
+   * The message is looked up instead of picked. A reader who wants to branch from the last thing
+   * they said would otherwise have to scroll back to that row to reach its menu, and one turn of
+   * tool calls is enough to put it off the screen -- so the affordance was furthest away exactly
+   * when it was most wanted.
+   *
+   * The Bot is deliberately NOT carried through. This goes to the session endpoint like every
+   * other fork from a message, so it lands in the catalog on its own rather than on the Bot the
+   * row happened to be read from; see `forkFromMessage`.
+   */
+  const forkFromLastMessage = useCallback(async (session: SessionSummary, projectPath: string) => {
+    if (session.source !== "claude") return;
+    setBotCommandError(null);
+    try {
+      setForkRequest({ session, projectPath, from: await feed.lastMessage(session.sessionId) });
+    } catch (error) {
+      // Named against the session, unlike a failed fork: this one failed before anything was
+      // started, so the card it was asked from is still there to say so on.
+      setBotCommandError({
+        session: `${session.source}:${session.sessionId}`,
+        message: `Could not find the last message: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }, [feed]);
+
   const startFork = useCallback(
     async (
       request: ForkRequest,
@@ -313,6 +343,7 @@ export function useBotCommands(
     setRenamingSession,
     forkSession,
     forkFromMessage,
+    forkFromLastMessage,
     startFork,
     startNewSession,
     closeNewSession,

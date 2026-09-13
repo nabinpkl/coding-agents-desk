@@ -38,6 +38,7 @@ export function BotSessionCard({
   sessionContext,
   botError,
   onFork,
+  onForkFromLastMessage,
   onRename,
   onDetach,
   onRemoveFromCanvas,
@@ -53,6 +54,8 @@ export function BotSessionCard({
   botError: BotCommandError | null;
   /** Absent on a Codex session: only the Claude CLI has a fork to ask for. */
   onFork?: () => void;
+  /** The same fork, starting just before the last thing a person said. Codex-absent likewise. */
+  onForkFromLastMessage?: () => void;
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
   onDetach: () => void;
@@ -174,6 +177,7 @@ export function BotSessionCard({
                 label={title}
                 onRename={onRename}
                 onFork={onFork}
+                onForkFromLastMessage={onForkFromLastMessage}
                 onDetach={onDetach}
                 onRemoveFromCanvas={onRemoveFromCanvas}
               />
