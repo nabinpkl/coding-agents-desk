@@ -60,7 +60,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R26 | D | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
 | R27 | D | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
 | R28 | D | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
-| R29 | R | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
+| R29 | D | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
 | R30 | R | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
 | R31 | R | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
 | R32 | R | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
@@ -427,6 +427,19 @@ Split into `useFeedRows.ts`, `useStickyIndices.ts`, `useTranscriptScrollRestore.
 `activityStickyHeaders.ts` was deliberately left alone: its own header says the rules live there
 without React so they can be tested with no virtualiser, so the hook that reads live geometry is a
 separate file rather than an addition to it.
+
+### R29 `input/tmuxComposer.test.ts` (1125)
+
+- A pane screen built the way tmux would have drawn it, which every one of these tests reads a
+  composer out of.
+- Reading the box: where it is, what is in it, whether the reading is exact, and the command menu
+  drawn under it.
+- The keystrokes that turn what the box holds into what was typed.
+- Pushing into a pane, and the two commands that are pastes rather than typing.
+- Watching a pane, and the one-push-at-a-time rule two watchers share.
+
+Split into `tmuxComposerHarness.ts`, `tmuxComposerKeys.test.ts`, `tmuxComposerRuntime.test.ts`,
+`tmuxComposerWatch.test.ts`. 67 tests moved whole; 898 sidecar tests, unchanged.
 
 ## Decisions
 
