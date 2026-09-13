@@ -6,6 +6,7 @@
 // projection a reader is subscribed to.
 
 import { contextWindowFor } from "@/config";
+import { cacheTtlFromUsage } from "@/cacheTtl";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import type { AnthropicStreamEvent } from "@/live/claudeNetworkSource";
@@ -35,11 +36,17 @@ export function usageFor(model: string | undefined, usage: unknown, ts: number):
   const output = typeof u.output_tokens === "number" ? u.output_tokens : 0;
   const current = input + cacheCreate + cacheRead + output;
   if (current <= 0) return null;
+  // Read here as well as in the durable adapter, not folded into it: the panel picks
+  // whichever of the two snapshots is newer rather than merging them, so a live report
+  // that named no lifetime would blank the countdown for exactly as long as a session
+  // is streaming, which is when it is most watched.
+  const cacheTtlMs = cacheTtlFromUsage(u);
   return {
     current,
     limit: contextWindowFor(model),
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
+    ...(cacheTtlMs ? { cacheTtlMs } : {}),
   };
 }
 

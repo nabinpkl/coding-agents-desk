@@ -225,3 +225,45 @@ test('an undeclared session is left exactly as it was', () => {
   const usage = { current: 10, limit: 200_000, updatedAt: 1, model: 'claude-opus-5' };
   expect(withDeclaredModel(usage, undefined)).toBe(usage);
 });
+
+test("mergeUsage: a report that names no lifetime inherits the session's", () => {
+  const warm = mergeUsage(undefined, {
+    current: 200_000,
+    limit: 1_000_000,
+    updatedAt: 10,
+    model: "claude-opus-5",
+    cacheTtlMs: 3_600_000,
+  });
+  const pureHit = mergeUsage(warm, { current: 201_000, limit: 1_000_000, updatedAt: 20 });
+  expect(pureHit.cacheTtlMs).toBe(3_600_000);
+  expect(pureHit.updatedAt).toBe(20);
+});
+
+test("mergeUsage: a lifetime survives a model switch, unlike the window", () => {
+  const warm = mergeUsage(undefined, {
+    current: 100_000,
+    limit: 1_000_000,
+    updatedAt: 10,
+    model: "claude-opus-5[1m]",
+    cacheTtlMs: 3_600_000,
+  });
+  const switched = mergeUsage(warm, {
+    current: 100_000,
+    limit: 200_000,
+    updatedAt: 20,
+    model: "claude-sonnet-5",
+  });
+  expect(switched.limit).toBe(200_000);
+  expect(switched.cacheTtlMs).toBe(3_600_000);
+});
+
+test("mergeUsage: a newer lifetime replaces the old one", () => {
+  const warm = mergeUsage(undefined, { current: 10, limit: null, updatedAt: 1, cacheTtlMs: 300_000 });
+  expect(
+    mergeUsage(warm, { current: 20, limit: null, updatedAt: 2, cacheTtlMs: 3_600_000 }).cacheTtlMs,
+  ).toBe(3_600_000);
+});
+
+test("mergeUsage: no lifetime anywhere stays absent rather than becoming zero", () => {
+  expect(mergeUsage(undefined, { current: 10, limit: null, updatedAt: 1 }).cacheTtlMs).toBeUndefined();
+});

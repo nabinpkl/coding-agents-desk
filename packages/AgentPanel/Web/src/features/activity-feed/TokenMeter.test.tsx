@@ -73,3 +73,62 @@ describe("newerUsage", () => {
     expect(newerUsage(null, null)).toBeNull();
   });
 });
+
+describe("cache countdown", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("counts the minutes of prompt cache left", () => {
+    // The step it counts down to is 20x: a cached context re-reads at 0.1x base
+    // input and an expired one rewrites at 2.0x, so the minute this reaches zero
+    // is the minute the next message gets ten times more expensive.
+    render(
+      <TokenMeter
+        usage={{
+          current: 500_000,
+          limit: 1_000_000,
+          updatedAt: Date.now() - 20.5 * 60_000,
+          cacheTtlMs: HOUR,
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Prompt cache: 40 minutes left").textContent).toBe("40m");
+  });
+
+  it("holds at zero once expired rather than going negative", () => {
+    render(
+      <TokenMeter
+        usage={{ current: 500_000, limit: null, updatedAt: Date.now() - 3 * HOUR, cacheTtlMs: HOUR }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Prompt cache: 0 minutes left").textContent).toBe("0m");
+  });
+
+  it("shows no countdown when the sidecar published no lifetime", () => {
+    // Codex reports no cache breakdown, and a clock counting down to a deadline
+    // we invented would read exactly like one counting down to a real deadline.
+    render(<TokenMeter usage={{ current: 500_000, limit: 1_000_000, updatedAt: Date.now() }} />);
+
+    expect(screen.queryByLabelText(/Prompt cache/)).toBeNull();
+  });
+});
+
+describe("newerUsage cache lifetime", () => {
+  it("carries the lifetime forward when the newer report names none", () => {
+    const warm = { current: 1, limit: 200_000, updatedAt: 10, cacheTtlMs: 3_600_000 };
+    // A request that was a pure cache hit wrote nothing, so it reports no
+    // lifetime. That says the cache was used, not that it stopped having one.
+    const pureHit = { current: 2, limit: 200_000, updatedAt: 20 };
+
+    expect(newerUsage(warm, pureHit)).toEqual({ ...pureHit, cacheTtlMs: 3_600_000 });
+    expect(newerUsage(pureHit, warm)).toEqual({ ...pureHit, cacheTtlMs: 3_600_000 });
+  });
+
+  it("takes the newer report's own lifetime when it names one", () => {
+    const warm = { current: 1, limit: null, updatedAt: 10, cacheTtlMs: 3_600_000 };
+    const short = { current: 2, limit: null, updatedAt: 20, cacheTtlMs: 300_000 };
+
+    expect(newerUsage(warm, short)).toBe(short);
+  });
+});

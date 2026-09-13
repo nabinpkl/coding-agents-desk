@@ -1,9 +1,70 @@
+import { useEffect, useState } from "react";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 
 /** Fill fraction above which the meter reads as a warning rather than a fact. */
 const WARN_FRACTION = 0.75;
 /** Fill fraction above which compaction is imminent enough to say so loudly. */
 const CRITICAL_FRACTION = 0.9;
+/** Minutes of cache left below which the countdown stops being a fact and starts
+ *  being a warning. Ten because the thing it is warning about takes a minute or
+ *  two to act on: compacting while warm is what makes the next message cheap. */
+const CACHE_WARN_MINUTES = 10;
+/** How often the countdown re-reads the clock. It renders whole minutes, so this
+ *  only bounds how stale the displayed minute can be, and every session header on
+ *  screen pays it. */
+const CACHE_TICK_MS = 15_000;
+
+/** Whole minutes until the prompt cache behind this context expires, or null when
+ *  the sidecar published no lifetime for it. Floors at zero and stays there: an
+ *  expired cache does not get more expired, and the next request is what moves it. */
+function minutesOfCacheLeft(usage: TokenUsage, now: number): number | null {
+  if (!usage.cacheTtlMs) return null;
+  const remaining = usage.updatedAt + usage.cacheTtlMs - now;
+  return remaining <= 0 ? 0 : Math.ceil(remaining / 60_000);
+}
+
+/**
+ * Minutes of prompt cache left, beside the occupancy count.
+ *
+ * It is here because the step it counts down to is a 20x one and nothing else on
+ * the surface shows it: a context that is still cached re-reads at 0.1x base
+ * input, and one that has expired rewrites at 2.0x, paid in full on the next
+ * message. A 500k session that sleeps through its hour pays about ten times what
+ * the same message costs while warm, and the transcript looks identical either
+ * way.
+ */
+function CacheCountdown({ usage }: { usage: TokenUsage }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), CACHE_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const minutes = minutesOfCacheLeft(usage, now);
+  if (minutes === null) return null;
+  const tone =
+    minutes === 0
+      ? "text-destructive"
+      : minutes <= CACHE_WARN_MINUTES
+        ? "text-amber-500"
+        : "text-muted-foreground/70";
+  return (
+    <span
+      title={
+        minutes === 0
+          ? "Prompt cache expired: the next message rewrites the whole context"
+          : `Prompt cache expires in ${minutes} min`
+      }
+      aria-label={`Prompt cache: ${minutes} minutes left`}
+      className={
+        "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
+        tone
+      }
+    >
+      {minutes}m
+    </span>
+  );
+}
 
 /**
  * Occupancy as a compact count, with a fill bar when the window is known.
@@ -22,12 +83,15 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
   const compact = formatTokens(usage.current);
   if (usage.limit === null) {
     return (
-      <span
-        title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}`}
-        aria-label={`Context: ${usage.current.toLocaleString()} tokens`}
-        className="shrink-0 px-1 font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums text-muted-foreground"
-      >
-        {compact}
+      <span className="flex shrink-0 items-baseline gap-1 px-1">
+        <span
+          title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}`}
+          aria-label={`Context: ${usage.current.toLocaleString()} tokens`}
+          className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums text-muted-foreground"
+        >
+          {compact}
+        </span>
+        <CacheCountdown usage={usage} />
       </span>
     );
   }
@@ -52,13 +116,16 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
       title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}`}
       className="flex shrink-0 flex-col items-end gap-[2px] px-1"
     >
-      <span
-        className={
-          "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
-          tone
-        }
-      >
-        {compact}
+      <span className="flex items-baseline gap-1">
+        <span
+          className={
+            "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
+            tone
+          }
+        >
+          {compact}
+        </span>
+        <CacheCountdown usage={usage} />
       </span>
       {/* The track carries the role and the accessible name, not the wrapper:
           the bar IS the fraction, and naming it here is what makes the readout

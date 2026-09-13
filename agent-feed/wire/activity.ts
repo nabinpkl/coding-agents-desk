@@ -124,9 +124,19 @@ export interface ActivityEvent extends ParsedLine {
 // occupancy, so the session-level merge carries the last known model and limit
 // forward instead of blanking the meter (124 Codex records in this project
 // publish occupancy with no window).
+//
+// `cacheTtlMs` is how long the prompt cache behind this context stays warm, so
+// `updatedAt + cacheTtlMs` is the moment re-reading it stops costing 0.1x and
+// rewriting it starts costing 2.0x. It is read off the request's own
+// `cache_creation` breakdown rather than assumed, and it is sticky for the same
+// reason `limit` is: a request that wrote nothing to the cache is a pure hit and
+// names no lifetime, which is not the same as the lifetime having changed.
+// Absent on providers that publish no such breakdown, and the panel then counts
+// down to nothing rather than to a guess.
 export interface TokenUsage {
   current: number;
   limit: number | null;
   updatedAt: number;
   model?: string;
+  cacheTtlMs?: number;
 }

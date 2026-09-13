@@ -79,6 +79,10 @@ export interface TokenUsage {
   limit: number | null;
   updatedAt: number;
   model?: string;
+  /** Lifetime of the prompt cache behind this context, so `updatedAt + cacheTtlMs`
+   *  is when re-reading it stops being cheap. Resolved by the sidecar from the
+   *  request's own cache breakdown; absent where the provider reports none. */
+  cacheTtlMs?: number;
 }
 
 interface State {
@@ -169,14 +173,21 @@ export function visibleTails(
 
 /** Whichever occupancy report is more recent, by the timestamp on the line that
  *  produced it. Both are already-resolved snapshots, so this picks rather than
- *  merges. */
+ *  merges -- with one exception: the cache lifetime is carried over when the
+ *  winner names none. A request that wrote nothing to the cache reports no
+ *  lifetime, which says the request was a pure hit, not that the cache stopped
+ *  having one, and picking it wholesale would drop the countdown on the rows
+ *  that arrive most often. */
 export function newerUsage(
   left: TokenUsage | null,
   right: TokenUsage | null,
 ): TokenUsage | null {
   if (!left) return right;
   if (!right) return left;
-  return right.updatedAt >= left.updatedAt ? right : left;
+  const [older, newer] =
+    right.updatedAt >= left.updatedAt ? [left, right] : [right, left];
+  if (newer.cacheTtlMs !== undefined || older.cacheTtlMs === undefined) return newer;
+  return { ...newer, cacheTtlMs: older.cacheTtlMs };
 }
 
 export function useSessionEventsStream(

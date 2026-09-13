@@ -3,6 +3,7 @@
 // usage record says about tokens and the prompt cache.
 
 import { contextWindowFor } from "@/config";
+import { cacheTtlFromUsage } from "@/cacheTtl";
 import type { ActivityBlock, DeclaredModel, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import { basename } from 'node:path';
 import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
@@ -269,11 +270,13 @@ export function extractClaudeUsage(
   const output = typeof u.output_tokens === 'number' ? u.output_tokens : 0;
   const current = input + cacheCreate + cacheRead + output;
   if (current <= 0) return null;
+  const cacheTtlMs = cacheTtlFromUsage(u);
   return {
     current,
     limit: contextWindowFor(model),
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
+    ...(cacheTtlMs ? { cacheTtlMs } : {}),
   };
 }
 

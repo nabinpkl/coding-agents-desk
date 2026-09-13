@@ -26,11 +26,18 @@ export function mergeUsage(
     next.model === undefined
       ? next.limit ?? previous?.limit ?? null
       : next.limit;
+  // Sticky without the model's exception, because a cache lifetime is a property of the
+  // client rather than of the model: switching model mid-session does not move it, and
+  // the records that name no lifetime are the ones that wrote nothing to the cache --
+  // a pure hit, and a compaction boundary, which carries no usage record at all and is
+  // precisely when the reader most wants the clock still running.
+  const cacheTtlMs = next.cacheTtlMs ?? previous?.cacheTtlMs;
   return {
     current: next.current,
     limit,
     updatedAt: next.updatedAt,
     ...(model ? { model } : {}),
+    ...(cacheTtlMs ? { cacheTtlMs } : {}),
   };
 }
 
