@@ -40,7 +40,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R6 | D | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
 | R7 | D | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
 | R8 | D | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
-| R9 | R | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
+| R9 | D | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
 | R10 | R | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
 | R11 | R | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
 | R12 | R | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
@@ -196,6 +196,15 @@ worktree helpers moved to the file whose tests use them. 898 sidecar tests, unch
 Split into `botTypes.ts`, `botCommands.ts`, `botIdempotency.ts`, `botSessionLaunch.ts`. 861 to
 431. `BotSessionStarter` holds the registry's own store and catalog, handed over at construction,
 so both halves write through one store.
+
+### R9 `terminal/tmuxAttachment.ts` (501)
+
+- One viewer's connection to a pane: envelopes out, bytes in, checkpoints.
+- One shared pipe per tmux session, because a pane has exactly one pipe.
+- Making a window the shape a viewer asked for, on a window every client shares.
+
+Split into `tmuxPaneSize.ts`, which takes `SharedPane` with it: everything about the size is about
+a resource that cannot be held twice, and every comment in it is a measurement. 501 to 356.
 
 ## Decisions
 
