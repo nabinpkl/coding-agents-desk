@@ -1,13 +1,26 @@
 /**
- * Turning "this row in the panel" into "this many messages back, and it says this", and
- * finding the row when the reader named no row at all.
+ * Turning "this row in the panel" into "this many messages back, and it says this", and finding
+ * the row when the reader named no row at all.
  *
  * The panel addresses a transcript line by the id the event index gave it,
  * `claude:<sessionId>:line:<rawIndex>`. The rewind picker addresses a message by how far back from
  * the newest it is, and proves it by what the row says. Neither can be derived from the other
- * without reading the transcript, so this is where the transcript gets read -- through the file
- * for the question that has to count from the beginning, and through the event index for the one
- * that only has to look at the end.
+ * without reading the transcript, so this is where the transcript gets read -- and it is read
+ * through the event index, never the file.
+ *
+ * That is the one structural decision in this module. The index is what NUMBERS a transcript:
+ * `eventIndexBuild` counts the lines that parse into an event and mints `line:<n>` from that count.
+ * A second reader that opened the file and counted its own lines would be a second copy of that
+ * rule, agreeing until the day something stopped parsing, and the failure would be an anchor
+ * quietly off by one -- a fork that starts before the wrong message and looks exactly like a fork
+ * that worked. Reading through the index also means the ids only ever have one author.
+ *
+ * The cost went the same way rather than against it. Measured on an 80MB transcript, warm: reading
+ * the whole file and parsing it is about 300ms EVERY time it is asked, while the index pays about
+ * 375ms once and answers from byte offsets in single-digit milliseconds after -- and the panel has
+ * usually already built it, because it is the same index the session's transcript is served from.
+ * A file genuinely cold on disk was once seen at fifteen seconds; that is the disk rather than the
+ * parse, both paths pay it, and only this one pays it once.
  *
  * Two things make the translation less obvious than it sounds, and both are why the panel is not
  * asked to do it:
@@ -16,13 +29,13 @@
  *   attachment, a title record or a person speaking, and only the last of those is an entry in the
  *   picker. `isHumanTurnStart` is this repository's answer to which is which, and it carries a
  *   scar: a summarizer once read a tool result as the person speaking because it tested
- *   `type === "user"` alone.
+ *   `type === "user"` alone. It is asked once, in the adapter, and rides every event as
+ *   `humanTurn`; this module reads that flag rather than asking again.
  * - **The panel may be looking at a different set.** It renders in file order, so a session that
  *   has been rewound before shows its abandoned turns alongside its live ones, while the picker
  *   lists only the live conversation. Counting here does not make that agree -- nothing can --
  *   which is exactly why the count travels with the text that has to match it.
  */
-import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import {
   acquireIndex,
   ensureIndexed,
@@ -30,7 +43,6 @@ import {
   readEvents,
   releaseIndex,
 } from "@/transcripts/event-index/eventIndex";
-import { isHumanTurnStart } from "@/transcripts/humanTurns";
 
 /** Where a message sits, said the way the rewind picker is addressed. */
 export interface MessageAnchor {
@@ -41,6 +53,17 @@ export interface MessageAnchor {
 }
 
 export class MessageAnchorError extends Error {}
+
+/**
+ * How many events are read at a time.
+ *
+ * Walking back from the end, the answer is almost always in the first page: what sits between a
+ * person's last message and the end of the transcript is one turn, and a turn is tool calls and
+ * their results. Counting forward from an anchor it is a page size and nothing more -- the whole
+ * range gets read either way, and this only decides how many reads that takes. A page too small
+ * costs another read; a page too large holds more of the file in memory than the count needs.
+ */
+const MESSAGE_PAGE = 256;
 
 /**
  * The raw line index an event id names, for a session that must be the one addressed.
@@ -62,43 +85,46 @@ export function lineFromEventId(eventId: string, sessionId: string): number {
 /**
  * Where the message on `line` sits among the transcript's messages.
  *
- * Reads the whole file, unlike `lastHumanMessage` below, because the question is different: this
- * one counts the messages BEFORE a given row, so there is no tail to stop at and the index's byte
- * offsets would still leave every line to be parsed. It costs what that implies -- measured at
- * about fifteen seconds on an 80MB transcript -- and it is paid once, after the reader has already
- * confirmed the fork.
+ * Two reads rather than one pass: the row itself, which either is a message somebody wrote or is
+ * the refusal, and then everything after it, which is only ever counted. Nothing before the anchor
+ * is read at all, and for the rows a reader actually forks from -- the recent ones -- that is most
+ * of the file skipped.
  */
 export async function anchorAtLine(
+  sessionId: string,
   transcriptPath: string,
   line: number,
 ): Promise<MessageAnchor> {
-  let target: string | null = null;
-  let after = 0;
-  for (const message of humanMessages(await Bun.file(transcriptPath).text())) {
-    if (message.rawIndex === line) {
-      target = message.text;
-      after = 0;
-      continue;
+  // Held across both reads, so a page read from somewhere else cannot drop the index between the
+  // row and the count of what follows it.
+  acquireIndex("claude", sessionId);
+  try {
+    await ensureIndexed("claude", sessionId, transcriptPath);
+    const total = getEventCount("claude", sessionId, "raw");
+    const [target] = await readEvents("claude", sessionId, transcriptPath, line, 1);
+    // Covers a line past the end and a line that is a tool result, an assistant turn or a harness
+    // envelope, which are one refusal because they are one mistake: the picker has no such entry.
+    if (!target || target.humanTurn !== true) {
+      throw new MessageAnchorError("that line is not a message somebody wrote");
     }
-    if (target !== null) after += 1;
+    let after = 0;
+    for (let offset = line + 1; offset < total; offset += MESSAGE_PAGE) {
+      const page = await readEvents(
+        "claude",
+        sessionId,
+        transcriptPath,
+        offset,
+        Math.min(MESSAGE_PAGE, total - offset),
+      );
+      for (const event of page) if (event.humanTurn === true) after += 1;
+    }
+    // The newest message is one back from the end, not none, which is what the picker's opening
+    // selection means: it starts BELOW the newest, on `(current)`.
+    return { fromEnd: after + 1, text: messageText(target) };
+  } finally {
+    releaseIndex("claude", sessionId);
   }
-  if (target === null) {
-    throw new MessageAnchorError("that line is not a message somebody wrote");
-  }
-  // The newest message is one back from the end, not none, which is what the picker's opening
-  // selection means: it starts BELOW the newest, on `(current)`.
-  return { fromEnd: after + 1, text: target };
 }
-
-/**
- * How many events are read at a time, walking backwards.
- *
- * The answer is almost always in the first page: what sits between a person's last message and the
- * end of the transcript is one turn, and a turn is tool calls and their results. A page big enough
- * to hold a long one costs a few hundred KB of the file, and a page too small only costs another
- * read.
- */
-const MESSAGE_SEARCH_PAGE = 256;
 
 /**
  * The newest message a person wrote, or null when nobody has written one with prose in it.
@@ -107,14 +133,6 @@ const MESSAGE_SEARCH_PAGE = 256;
  * turn puts a person's last message hundreds of rows above the bottom of the transcript, and the
  * row menu offering the fork is ON that row -- so the affordance was furthest away exactly when
  * the transcript was longest.
- *
- * Read through the event index rather than off the file, unlike everything else here, and the
- * reason is measured: parsing an 80MB transcript end to end takes about fifteen seconds, which is
- * a menu that does nothing for fifteen seconds. The index reads the tail by byte offset instead,
- * and it is the same index the panel builds to show the session at all -- so a session anybody is
- * reading answers in milliseconds, and one nobody is pays the scan the reader was about to pay
- * anyway. It also mints the id, which is the other half of the point: `eventIndexBuild` numbers
- * the lines that parse into an event, and an id built anywhere else is a second copy of that rule.
  *
  * A message with no prose is skipped rather than returned. The text is not decoration: the rewind
  * picker is driven by matching what its rows say, so an anchor with nothing to match on is one the
@@ -131,7 +149,7 @@ export async function lastHumanMessage(
     await ensureIndexed("claude", sessionId, transcriptPath);
     let end = getEventCount("claude", sessionId, "raw");
     while (end > 0) {
-      const offset = Math.max(0, end - MESSAGE_SEARCH_PAGE);
+      const offset = Math.max(0, end - MESSAGE_PAGE);
       const page = await readEvents("claude", sessionId, transcriptPath, offset, end - offset);
       for (let at = page.length - 1; at >= 0; at -= 1) {
         const event = page[at]!;
@@ -144,27 +162,6 @@ export async function lastHumanMessage(
     return null;
   } finally {
     releaseIndex("claude", sessionId);
-  }
-}
-
-/**
- * Every message a person wrote in the file, in order, numbered the way an event id numbers it.
- *
- * That number is NOT a position in the file. The event index numbers the lines that PARSE into an
- * event (`eventIndexBuild.emitParsedRaw`), and the id it mints carries that count -- so the two
- * agree only as long as nothing unparseable sits between them. Today they always agree, because a
- * Claude line that is not blank always parses into something. Counting it here rather than
- * trusting that is what stops one stray blank line shifting every anchor after it.
- */
-function* humanMessages(contents: string): Generator<{ rawIndex: number; text: string }> {
-  let rawIndex = -1;
-  for (const raw of contents.split("\n")) {
-    if (!raw) continue;
-    const parsed = claudeAdapter.processLine(raw)?.event;
-    if (!parsed) continue;
-    rawIndex += 1;
-    if (!isHumanTurnStart(parsed)) continue;
-    yield { rawIndex, text: messageText(parsed) };
   }
 }
 

@@ -78,9 +78,9 @@ function conversation(): readonly string[] {
 test("counts messages from the end, the way the picker is addressed", async () => {
   const path = await transcript(conversation());
 
-  expect(await anchorAtLine(path, 6)).toEqual({ fromEnd: 1, text: "CHARLIE three" });
-  expect(await anchorAtLine(path, 3)).toEqual({ fromEnd: 2, text: "BRAVO two" });
-  expect(await anchorAtLine(path, 0)).toEqual({ fromEnd: 3, text: "ALPHA one" });
+  expect(await anchorAtLine(SESSION, path, 6)).toEqual({ fromEnd: 1, text: "CHARLIE three" });
+  expect(await anchorAtLine(SESSION, path, 3)).toEqual({ fromEnd: 2, text: "BRAVO two" });
+  expect(await anchorAtLine(SESSION, path, 0)).toEqual({ fromEnd: 3, text: "ALPHA one" });
 });
 
 test("a tool result is not a message, however the transcript labels it", async () => {
@@ -88,24 +88,24 @@ test("a tool result is not a message, however the transcript labels it", async (
   // speaking because it tested `type === "user"` alone. Counting it here would put every anchor
   // before it off by one.
   const path = await transcript(conversation());
-  await expect(anchorAtLine(path, 2)).rejects.toBeInstanceOf(MessageAnchorError);
+  await expect(anchorAtLine(SESSION, path, 2)).rejects.toBeInstanceOf(MessageAnchorError);
 });
 
 test("a harness envelope is not a message either", async () => {
   const path = await transcript(conversation());
-  await expect(anchorAtLine(path, 5)).rejects.toBeInstanceOf(MessageAnchorError);
+  await expect(anchorAtLine(SESSION, path, 5)).rejects.toBeInstanceOf(MessageAnchorError);
   // And it is not counted, which is what the offsets above already assert: CHARLIE is one back
   // from the end rather than two.
 });
 
 test("an assistant line is not something to fork from", async () => {
   const path = await transcript(conversation());
-  await expect(anchorAtLine(path, 1)).rejects.toBeInstanceOf(MessageAnchorError);
+  await expect(anchorAtLine(SESSION, path, 1)).rejects.toBeInstanceOf(MessageAnchorError);
 });
 
 test("refuses a line that is not in the file at all", async () => {
   const path = await transcript(conversation());
-  await expect(anchorAtLine(path, 99)).rejects.toBeInstanceOf(MessageAnchorError);
+  await expect(anchorAtLine(SESSION, path, 99)).rejects.toBeInstanceOf(MessageAnchorError);
 });
 
 test("reads an event id the way the event index writes one", () => {

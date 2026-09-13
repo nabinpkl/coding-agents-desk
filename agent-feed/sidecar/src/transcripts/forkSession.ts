@@ -248,7 +248,7 @@ async function resolveAnchor(
     throw new SessionForkInvalidError("from.eventId must be a string");
   }
   try {
-    return await anchorAtLine(transcriptPath, lineFromEventId(from.eventId, sessionId));
+    return await anchorAtLine(sessionId, transcriptPath, lineFromEventId(from.eventId, sessionId));
   } catch (error) {
     if (error instanceof MessageAnchorError) throw new SessionForkInvalidError(`from: ${error.message}`);
     throw error;
