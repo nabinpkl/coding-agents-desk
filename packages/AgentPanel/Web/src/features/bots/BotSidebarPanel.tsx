@@ -2,6 +2,7 @@ import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { botCanvasHues, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
@@ -291,8 +292,23 @@ export function BotSidebarPanel({
                             onClick={() => onSelectSession(bot, session)}
                             aria-current={active ? "page" : undefined}
                             title={offCanvas ? "Off the canvas" : undefined}
-                            className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-14 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+                            // `pl-6` where this was `pl-14`, which costs the title nothing: 24px of
+                            // padding plus the 24px mark and the 8px gap after it puts the text at
+                            // the same 56px it started at. The indent is now SPOKEN by the mark
+                            // rather than by empty space, which is what lets a narrow sidebar carry
+                            // one at all -- added to the old indent it would have taken 32px off
+                            // every title in the roster.
+                            className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-6 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
                           >
+                            {/* The same mark the canvas card draws, and the only place this list
+                                says whether a session is live at all: the row had no activity on
+                                it before, so the ring is information the sidebar was missing
+                                rather than a restatement of something beside it. */}
+                            <SessionAvatar
+                              title={session.title || session.sessionId}
+                              activity={session.activity}
+                              shaded={Boolean(shaded)}
+                            />
                             {/* `font-medium`, matching the same session's title on its canvas card.
                                 One object drawn at two weights in two places is drift, not
                                 density: the reader learns the treatment in one surface and it
