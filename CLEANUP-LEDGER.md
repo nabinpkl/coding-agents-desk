@@ -33,7 +33,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | ID | Status | churn/lines | File |
 |---|---|---|---|
 | R1 | D | 3/542 | `packages/AgentPanel/Web/src/features/usage/UsageModal.tsx` |
-| R2 | R | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
+| R2 | D | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
 | R3 | R | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
 | R4 | R | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
 | R5 | R | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
@@ -96,6 +96,20 @@ Split into siblings inside `features/usage/`: `UsageVendorPanel.tsx`, `UsageDayD
 `UsageFigures.tsx`, `UsageQuotaRow.tsx`. `UsageModal.tsx` stays the entry point that
 `features/profile/ProfileRow.tsx` imports.
 
+### R2 `live/claudeLiveBackend.ts` (726)
+
+- The `AgentBackend` surface a read-only mirror can answer: describe, page, subscribe, usage, and
+  the five calls that throw because this backend can never send.
+- The observer subscription and its reconnect-with-backoff loop.
+- Observed flows: which are Anthropic message streams, and what one buffers while its session id
+  is still being fetched from the request body.
+- One assistant message assembled from its stream events, and what its usage record says.
+- Which sessions hold a live projection, and when one is let go.
+
+Split into `claudeLiveFlows.ts`, `claudeLiveMessages.ts`, and `liveSessionRegistry.ts` (shared with
+codex, see the decision below). `claudeLiveBackend.ts` keeps the backend surface, the observer
+loop, and the ingest routing that owns flows. 726 to 423.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -103,6 +117,20 @@ Forks taken, with the alternative not taken and why. At a fork, the option that 
 - **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
   not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
   than pushing to an explicit refspec does.
+
+### Decision: one shared session registry, not a copy per vendor
+
+`claudeLiveBackend` and `codexLiveBackend` are near-identical twins for their whole session
+residency half: `projectionFor`, `ensureProjection`, `touch`, `scheduleSessionDrop`,
+`enforceSessionBound`, `dropSession`, `onSessionLive` and the subscriber counting differ only in
+the vendor word in one error message, which idle-drop setting they read, and two extra maps codex
+clears. Diffed before deciding.
+
+The alternative was `claudeLiveSessions.ts` beside `codexLiveSessions.ts`: strictly smaller, since
+it moves code without merging any, and it keeps the twins independent if they ever diverge. Not
+taken, because it would have written the duplication into two new files whose names differ by one
+word, which is the wreckage the clustering outcome exists to prevent. `LiveSessionRegistry` takes
+the three differences as options (`vendor`, `idleDropMs`, `forget`), so no behaviour merged.
 
 ### Decision: siblings, not a subdirectory, inside `features/usage/`
 
