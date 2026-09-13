@@ -3276,3 +3276,12 @@ testflight-open:
 # Short archive recipe kept as the local archive action.
 client-archive:
     just client-archive-release
+
+# Launcher page for this tailnet host: one card per app on its port, each
+# opening in a new tab. Serves tools/tailnet-apps/ on :8080, reachable as
+# http://<this-mac>.ts.net:8080 from the phone and the Mac alike.
+tailnet-apps port="8080":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sh '{{justfile_directory()}}/tools/reclaim-port.sh' "tailnet apps page" '{{port}}'
+    exec python3 -m http.server '{{port}}' --directory '{{justfile_directory()}}/tools/tailnet-apps'
