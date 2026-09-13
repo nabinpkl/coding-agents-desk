@@ -1696,7 +1696,13 @@ remote-sidecar-watch-all:
             continue
         fi
         echo "remote-sidecar-watch-all: watching $PEER on port $PORT"
-        bash tools/remote-sidecar.sh watch "$PEER" "$PORT" 2>&1 | sed "s/^/[$PEER] /" &
+        # Prefixed by a read loop rather than by `sed`, which buffers when its output is not a
+        # terminal -- and under launchd it never is. Measured: the watcher had shipped and was
+        # back in its poll loop while the log still ended at the line before, because ~4KB of it
+        # was sitting in sed's buffer. A supervised job whose log arrives in blocks cannot answer
+        # "did it ship", which is the only question anyone opens this log to ask.
+        bash tools/remote-sidecar.sh watch "$PEER" "$PORT" 2>&1 \
+            | while IFS= read -r LINE; do printf '[%s] %s\n' "$PEER" "$LINE"; done &
         PIDS="$PIDS $!"
     done
     [ -n "$PIDS" ] || idle "no usable peers in AGENTDESK_PANEL_REMOTE_SIDECARS"
@@ -2293,6 +2299,24 @@ dev-login-install:
         sed -i '' 's/^    //' "$AGENT_PLIST"
         plutil -lint "$AGENT_PLIST" >/dev/null
         launchctl bootout "gui/$(id -u)/$1" 2>/dev/null || true
+        # `bootout` RETURNS BEFORE THE JOB IS GONE. It asks launchd to tear the service down, and a
+        # long-running one takes seconds to actually go; `bootstrap` against a service that still
+        # exists fails with "Bootstrap failed: 5: Input/output error" and nothing else. Measured
+        # 2026-09-13 installing three agents: the host's job, which had already exited, replaced
+        # itself fine, and the panel's Vite server did not -- so the install died halfway with the
+        # dev server booted out and no replacement, which is the worst of the three states.
+        #
+        # Polled rather than slept, because the wait is however long that job takes to die and any
+        # fixed number is either too short on a busy machine or wasted on every install.
+        WAITED=0
+        while launchctl print "gui/$(id -u)/$1" >/dev/null 2>&1; do
+            if [ "$WAITED" -ge 100 ]; then
+                echo "ERROR: $1 would not boot out after 20s; nothing was replaced" >&2
+                exit 1
+            fi
+            sleep 0.2
+            WAITED=$((WAITED + 1))
+        done
         launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST"
     }
     # Hand the app's own login agent over rather than racing it. Ordering between two RunAtLoad jobs
