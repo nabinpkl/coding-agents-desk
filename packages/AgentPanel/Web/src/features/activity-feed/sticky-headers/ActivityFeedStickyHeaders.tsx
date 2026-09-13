@@ -10,6 +10,7 @@ import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSo
 import { eventPreview } from "@/features/activity-feed/rows/activityEventText";
 import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "@/features/activity-feed/rows/activityDisplayItems";
 import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 // Compact pinned header for the most recent USER event the viewer scrolled
 // past. Full-width opaque strip flush with the top of the scroll area, so
@@ -35,7 +36,7 @@ export function StickyUserHeader({
       type="button"
       onClick={onClick}
       title="jump to message"
-      className="flex w-full items-center gap-2 border-b border-primary/40 bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted"
+      className={`flex w-full items-center gap-2 border-b border-primary/40 bg-card ${COLUMN_GUTTER_CLASS} py-2 text-left shadow-sm transition-colors hover:bg-muted`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <span className="shrink-0 rounded-md bg-primary/30 px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-semibold uppercase tracking-wider text-primary">
@@ -70,7 +71,7 @@ export function StickyEventHeader({
       onClick={onClick}
       title="jump to event start"
       className={
-        "flex w-full items-center gap-[0.4em] border-b border-l-[3px] border-border bg-card/95 px-3 py-1.5 text-left shadow-sm backdrop-blur transition-colors hover:bg-muted " +
+        `flex w-full items-center gap-[0.4em] border-b border-l-[3px] border-border bg-card/95 ${COLUMN_GUTTER_CLASS} py-1.5 text-left shadow-sm backdrop-blur transition-colors hover:bg-muted ` +
         ROLE_BORDER[role]
       }
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}

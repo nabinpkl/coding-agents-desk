@@ -8,6 +8,8 @@
  * Renders nothing when the count is zero. An idle session should not pay a band, and a chip that
  * is always present but usually says "0" trains people to stop seeing it.
  */
+
+import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 export function RunningTasksChip({
   count,
   open,
@@ -19,7 +21,7 @@ export function RunningTasksChip({
 }) {
   if (count <= 0) return null;
   return (
-    <div className="flex shrink-0 items-center border-t border-border bg-card px-2 py-1">
+    <div className={`flex shrink-0 items-center border-t border-border bg-card ${COLUMN_GUTTER_CLASS} py-1`}>
       <button
         type="button"
         onClick={onToggle}

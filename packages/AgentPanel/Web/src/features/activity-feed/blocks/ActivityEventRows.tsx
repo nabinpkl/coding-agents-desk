@@ -29,7 +29,7 @@ import {
   CacheBadge,
   CHIP_CLASS,
   EventHeading,
-  FEED_ROW_GUTTER_CLASS,
+  COLUMN_GUTTER_CLASS,
   ROLE_STYLES,
   showEventRoleLabel,
 } from "@/features/activity-feed/blocks/ActivityEventHeading";
@@ -198,7 +198,7 @@ export function UserRow({
     // every other row. Everything inside stays left-aligned -- prose, code and diffs are read
     // from a left margin whichever side of the feed they sit on.
     <div
-      className={`${FEED_ROW_GUTTER_CLASS} flex items-start justify-end gap-1 py-[0.4em]`}
+      className={`${COLUMN_GUTTER_CLASS} flex items-start justify-end gap-1 py-[0.4em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       {/* Outside the card, on its left. The card is the one thing in this feed that is not
@@ -275,8 +275,8 @@ export function SegmentEventRow({
       (!isLast ? "border-b border-dashed border-border/60 " : "") +
       (isHighlighted ? "ring-2 ring-primary ring-inset " : "");
   const rowSpacing = isNice
-    ? `${FEED_ROW_GUTTER_CLASS} py-[0.1em]`
-    : FEED_ROW_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "");
+    ? `${COLUMN_GUTTER_CLASS} py-[0.1em]`
+    : COLUMN_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "");
   return (
     <div
       className={rowSpacing}
@@ -360,7 +360,7 @@ export function ClusterRow({
     (!isLast ? "border-b border-dashed border-border/60 " : "");
   return (
     <div
-      className={FEED_ROW_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
+      className={COLUMN_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className={wrapperClass}>
@@ -402,7 +402,7 @@ export function CompactionRow({
   const { folded, hasRawJson } = partitionEventBlocks(ev);
   return (
     <div
-      className={`${FEED_ROW_GUTTER_CLASS} py-[0.5em]`}
+      className={`${COLUMN_GUTTER_CLASS} py-[0.5em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className="flex items-center gap-2 text-muted-foreground">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import type { SummaryResult } from "@agentdesk/agent-feed-wire";
 import type { SummaryState } from "@/features/summary/useSummary";
+import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 /**
  * The digest, above the composer.
@@ -50,7 +51,7 @@ export function SummaryBand({
       // page: inside a Bot card, 45vh is most of a screen and all of a card, so the band would do
       // exactly what the cap exists to prevent. The flex column above it has a definite height in
       // both places, so the percentage resolves in both.
-      className="max-h-[45%] shrink-0 overflow-y-auto border-t border-border bg-card px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px)"
+      className={`max-h-[45%] shrink-0 overflow-y-auto border-t border-border bg-card ${COLUMN_GUTTER_CLASS} py-2 text-(length:--agent-panel-fs-sidebar-body,15px)`}
     >
       {state.kind === "pending" ? (
         <RunInProgress reasoning={state.reasoning} thought={state.thought} onDismiss={onDismiss} />

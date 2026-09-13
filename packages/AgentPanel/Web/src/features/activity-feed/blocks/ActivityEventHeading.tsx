@@ -76,7 +76,12 @@ export function showEventRoleLabel(
 export const CHIP_CLASS =
   "rounded-sm px-[0.4em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase leading-none tracking-wider ";
 /**
- * The space either side of every transcript row, as a share of the column rather than a number.
+ * The space either side of everything that spans the session's column: every transcript row, the
+ * sticky headers over them, the summary and extension bands under them, and the composer. One
+ * expression because they are one edge -- a band that started somewhere else would be saying it
+ * belongs to something other than the text above it.
+ *
+ * As a share of the column rather than a number.
  *
  * Twenty-four was right for the thread view, which is the whole page, and wrong everywhere the
  * feed is narrow: on a Bot card an open session is around 450 wide, so the pair of them spent a
@@ -98,7 +103,7 @@ export const CHIP_CLASS =
  * reader has dragged wider gets a gutter to match rather than a step at some threshold nobody
  * chose.
  */
-export const FEED_ROW_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
+export const COLUMN_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
 
 /**
  * An event's role chip and collapse toggle, floated so the first line of the

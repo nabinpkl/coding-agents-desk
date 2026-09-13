@@ -25,6 +25,7 @@ import type { QuestionMirrorModel } from "@/features/session-view/composer/quest
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
+import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 export function SessionComposerBand({
   actions,
@@ -91,7 +92,7 @@ export function SessionComposerBand({
     ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
     : null;
   return (
-    <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-[clamp(0.75rem,3%,1.5rem)] py-3">
+    <section aria-label={sectionLabel} className={`shrink-0 border-t border-border bg-card ${COLUMN_GUTTER_CLASS} py-3`}>
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 

@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { AgentUiRequest } from "@agentdesk/agent-feed-wire";
+import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 export function ExtensionUISurface({
   requests,
@@ -19,7 +20,7 @@ export function ExtensionUISurface({
   if (!request) return null;
   if (!request.expectsResponse) {
     return (
-      <div role="status" className="flex shrink-0 items-start gap-2 border-t border-border bg-muted/40 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px)">
+      <div role="status" className={`flex shrink-0 items-start gap-2 border-t border-border bg-muted/40 ${COLUMN_GUTTER_CLASS} py-2 text-(length:--agent-panel-fs-sidebar-meta,13px)`}>
         <div className="min-w-0 flex-1">
           <span className="font-medium">{request.title ?? request.key ?? "Pi extension"}</span>
           {request.message ? <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{request.message}</p> : null}
@@ -55,7 +56,7 @@ export function ExtensionUIPrompt({
     }
   };
   return (
-    <section role="dialog" aria-label={request.title ?? "Pi extension request"} className="shrink-0 border-t border-primary/30 bg-primary/5 px-3 py-2">
+    <section role="dialog" aria-label={request.title ?? "Pi extension request"} className={`shrink-0 border-t border-primary/30 bg-primary/5 ${COLUMN_GUTTER_CLASS} py-2`}>
       <p className="text-(length:--agent-panel-fs-sidebar-body,15px) font-medium">{request.title ?? "Pi extension request"}</p>
       {request.message ? <p className="mt-1 whitespace-pre-wrap text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">{request.message}</p> : null}
       {request.kind === "select" ? (
