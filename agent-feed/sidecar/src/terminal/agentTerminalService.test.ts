@@ -174,3 +174,78 @@ test("rejects a non-canonical session id before touching the PTY manager", async
     sessionId: SESSION_ID.toUpperCase(),
   }, { columns: 80, rows: 24 })).rejects.toBeInstanceOf(AgentTerminalInvalidError);
 });
+
+test("opens a workspace shell in the root, under one name per directory", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const root = join(home, "projects", "agent-desk");
+  await mkdir(root, { recursive: true });
+  const canonicalRoot = await realpath(root);
+  const opened: { sessionName: string; launch: { cwd: string; arguments: string[] } }[] = [];
+  const pty: AgentTerminalPtyClient = {
+    listSessions: async () => [],
+    openSession: async (options) => {
+      opened.push(options as (typeof opened)[number]);
+      return {
+        attachment: { sessionName: options.sessionName, pid: 7, columns: 100, rows: 30 },
+        onEnvelope: () => () => {},
+        onFailure: () => () => {},
+        requestCheckpoint() {},
+        sendInput() {},
+        sendBinaryInput() {},
+        updateViewerState() {},
+        detach() {},
+        kill() {},
+        closeTransport() {},
+      } as unknown as PtySessionConnection;
+    },
+  };
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => undefined,
+    home,
+    pty,
+  );
+
+  const first = await service.open(
+    { kind: "workspace", workspacePath: root },
+    { columns: 100, rows: 30 },
+  );
+  const second = await service.open(
+    { kind: "workspace", workspacePath: root },
+    { columns: 100, rows: 30 },
+  );
+
+  // The login shell itself, in the workspace, with nothing to exec: this terminal is a place to
+  // work rather than a CLI being resumed.
+  expect(opened[0]).toMatchObject({
+    launch: { cwd: canonicalRoot, executable: "/bin/zsh", arguments: ["-l"] },
+  });
+  // Named after the directory so a reader recognises it, and the same name both times so the
+  // second tab to open this workspace joins the shell the first one started.
+  expect(first.ptySessionName).toMatch(/^agent-workspace-agent-desk-[0-9a-f]{8}$/);
+  expect(second.ptySessionName).toBe(first.ptySessionName);
+  // Two terminals, one session: each viewer gets its own id and they share the far end.
+  expect(second.terminalId).not.toBe(first.terminalId);
+  service.stop();
+});
+
+test("refuses a workspace shell outside the user home", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  const elsewhere = await mkdtemp(join(tmpdir(), "agent-terminal-elsewhere-"));
+  roots.push(home, elsewhere);
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => undefined,
+    home,
+    { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
+  );
+
+  // The panel only ever sends a root it has registered, and the sidecar does not take its word
+  // for it: the panel is a browser tab, and this is what keeps `/api/terminals` from being a
+  // shell anywhere on the machine.
+  await expect(
+    service.open({ kind: "workspace", workspacePath: elsewhere }, { columns: 80, rows: 24 }),
+  ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  service.stop();
+});

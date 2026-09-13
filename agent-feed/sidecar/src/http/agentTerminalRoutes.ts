@@ -93,12 +93,18 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
       sessionId: stringValue(context.sessionId, "context.sessionId"),
     };
   }
+  // A shell in a directory rather than anything to do with an agent. The path is read here and
+  // vouched for by the service, which is where every other directory this route accepts is
+  // checked against the user's home.
+  if (kind === "workspace") {
+    return { kind, workspacePath: stringValue(context.workspacePath, "context.workspacePath") };
+  }
   // Nothing below creates anything. The two contexts that did -- a fork and a fresh session --
   // moved to the Bot that owns the directory they run in, so this resource is an attachment
   // capability again and asking for one twice is the same as asking once.
   if (kind !== "agent-session") {
     throw new AgentTerminalInvalidError(
-      "context.kind must be agent-session, tmux or session-tmux",
+      "context.kind must be agent-session, tmux, session-tmux or workspace",
     );
   }
   return {

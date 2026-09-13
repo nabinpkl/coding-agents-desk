@@ -9,11 +9,11 @@ import { useCallback, useRef, useState } from "react";
 import { FolderPlus } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
 import { EditorPane } from "@/features/workspace-ide/editor/EditorPane";
 import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
 import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
+import { WorkspaceTerminal } from "@/features/workspace-ide/WorkspaceTerminal";
 import { useWorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import {
   clampFraction,
@@ -151,6 +151,7 @@ export function WorkspaceIdeSurface({
   }
 
   const { preferences } = ide;
+  const current = ide.workspaces.find((workspace) => workspace.id === ide.workspaceId);
   return (
     <div ref={frame} className="flex h-full min-h-0 w-full flex-col">
       {ide.error
@@ -208,10 +209,25 @@ export function WorkspaceIdeSurface({
                   className="min-h-0 shrink-0 border-t border-border"
                   style={{ height: `${preferences.terminalFraction * 100}%` }}
                 >
-                  {/* The panel's own terminal, over tmux through the sidecar. The IDE used to
-                      carry its own PTY client for this, which was a second way to reach the same
-                      shell. */}
-                  <TerminalsSurface feed={feed} />
+                  {/* A shell in the workspace being browsed, through the sidecar's PTY manager.
+                      Keyed on the workspace so switching projects gets that project's shell
+                      rather than the previous one re-pointed: the hook re-attaches on a context
+                      change, and a remount is the honest way to say the terminal is a different
+                      one. */}
+                  {current
+                    ? (
+                      <WorkspaceTerminal
+                        key={current.id}
+                        feed={feed}
+                        workspaceName={current.name}
+                        workspacePath={current.root}
+                      />
+                    )
+                    : (
+                      <p className="p-3 text-xs text-muted-foreground">
+                        Choose a workspace to open a shell in it.
+                      </p>
+                    )}
                 </div>
               </>
             )

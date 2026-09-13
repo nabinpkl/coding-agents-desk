@@ -57,11 +57,35 @@ export interface SessionTmuxTerminalContext {
  * `TmuxTerminalContext` above takes.
  */
 
+/**
+ * A login shell in a registered workspace's root, owned by whoever opened it.
+ *
+ * The one context that is not pointed at an agent. The IDE's lower pane is a place to run `git
+ * log` and `bun test` next to the file being read, and neither tmux kind is that: attaching to a
+ * pane puts a second viewer on a session somebody else is working in, and the wall of every tmux
+ * session on the machine answers a different question entirely.
+ *
+ * The PATH rather than the workspace id, because the id means nothing outside the IDE's own roster
+ * and resolving it would put the workspace service inside the terminal service for one lookup.
+ * What guards it is what already guards `AgentSessionTerminalContext.projectPath`: absolute,
+ * existing, a directory, and inside the user's home.
+ *
+ * It still names something that already exists. The PTY session name is derived from the path, so
+ * a second reader of one workspace joins the shell the first one opened instead of starting a
+ * second in the same directory.
+ */
+export interface WorkspaceTerminalContext {
+  kind: "workspace";
+  /** The workspace root, as `WorkspaceSummary.root` gives it. */
+  workspacePath: string;
+}
+
 /** What a terminal is pointed at. */
 export type AgentTerminalContext =
   | AgentSessionTerminalContext
   | TmuxTerminalContext
-  | SessionTmuxTerminalContext;
+  | SessionTmuxTerminalContext
+  | WorkspaceTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {

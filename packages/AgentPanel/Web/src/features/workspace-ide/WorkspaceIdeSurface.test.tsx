@@ -14,8 +14,10 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 
 // The terminal pane is a whole other surface with an xterm inside it; this file is about the IDE.
-vi.mock("@/features/terminal/TerminalsSurface", () => ({
-  TerminalsSurface: () => <div data-testid="terminals" />,
+vi.mock("@/features/workspace-ide/WorkspaceTerminal", () => ({
+  WorkspaceTerminal: ({ workspacePath }: { workspacePath: string }) => (
+    <div data-testid="terminal" data-path={workspacePath} />
+  ),
 }));
 
 const WORKSPACE: WorkspaceSummary = { id: "w-1", name: "Project", root: "/projects/thing" };
@@ -219,4 +221,18 @@ it("surfaces a stream failure instead of sitting blank", async () => {
   const transport = await mounted();
   act(() => transport.fail("/api/workspace/w-1/stream", "the stream went away"));
   expect(await screen.findByText("the stream went away")).toBeInTheDocument();
+});
+
+it("opens the lower pane on the workspace itself, not on a wall of tmux sessions", async () => {
+  await mounted();
+  // Off until asked for: the pane costs a shell, and a reader who wants one says so.
+  expect(screen.queryByTestId("terminal")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Toggle terminal" }));
+
+  // The workspace ROOT, which is what makes this the IDE's terminal rather than a shell that
+  // happens to be nearby. jsdom runs no xterm, so the mock stands in for the screen and this pins
+  // the wiring: which directory the pane was pointed at.
+  const terminal = await screen.findByTestId("terminal");
+  expect(terminal.getAttribute("data-path")).toBe(WORKSPACE.root);
 });

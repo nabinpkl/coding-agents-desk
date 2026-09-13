@@ -12,8 +12,10 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 
 // The terminal pane is a whole other surface with an xterm inside it; this file is about the editor.
-vi.mock("@/features/terminal/TerminalsSurface", () => ({
-  TerminalsSurface: () => <div data-testid="terminals" />,
+vi.mock("@/features/workspace-ide/WorkspaceTerminal", () => ({
+  WorkspaceTerminal: ({ workspacePath }: { workspacePath: string }) => (
+    <div data-testid="terminal" data-path={workspacePath} />
+  ),
 }));
 
 const WORKSPACE: WorkspaceSummary = { id: "w-1", name: "Project", root: "/projects/thing" };

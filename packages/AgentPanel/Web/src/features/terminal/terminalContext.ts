@@ -10,6 +10,7 @@ import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 export function terminalContextKey(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return `tmux:${context.session}`;
   if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
+  if (context.kind === "workspace") return `workspace:${context.workspacePath}`;
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
@@ -23,6 +24,9 @@ export function terminalContextKey(context: AgentTerminalContext): string {
  */
 export function terminalContextLabel(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return context.session;
+  // The directory, because that is the only thing this terminal is: a shell somewhere. The IDE
+  // labels its own pane with the workspace's name, which this has no way to know.
+  if (context.kind === "workspace") return context.workspacePath.split("/").pop() || "Workspace";
   const provider = context.source === "claude" ? "Claude" : "Codex";
   return context.kind === "session-tmux" ? `${provider} session` : provider;
 }

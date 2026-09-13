@@ -1,6 +1,6 @@
 // What a terminal is pointed at, resolved once before anything is launched or joined.
 //
-// Three kinds of target arrive from the panel and they answer the same shape, which is what
+// Four kinds of target arrive from the panel and they answer the same shape, which is what
 // lets `open` stop caring which one it got. Everything that decides where a terminal lands --
 // which pane, which directory, which command, whether a new one may be started at all -- is
 // here; the service is what acts on the answer.
@@ -9,6 +9,7 @@
 // collaborators and writes nothing: what it needs is stated in the signature instead of being
 // reachable through the whole service.
 
+import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type {
@@ -16,6 +17,7 @@ import type {
   AgentTerminalContext,
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
+  WorkspaceTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
 import { findTmuxSessionByIdentity } from "@/terminal/tmux/tmuxSessions";
@@ -95,6 +97,7 @@ export async function identifyTerminal(
 ): Promise<TerminalIdentity> {
   if (context.kind === "tmux") return identifyTmux(deps, context);
   if (context.kind === "session-tmux") return identifySessionTmux(deps, context);
+  if (context.kind === "workspace") return identifyWorkspace(deps, context);
   return identifyAgentSession(deps, context);
 }
 
@@ -124,6 +127,51 @@ function identifyTmux(deps: TerminalIdentityDeps, context: TmuxTerminalContext):
     createTmux: null,
     stampSession: null,
   };
+}
+
+/**
+ * A shell in a workspace root, which is the one target with no agent behind it.
+ *
+ * Everything that stands between this and an arbitrary directory is `projectDirectory`, the same
+ * check the agent-session kind goes through: absolute, existing, a directory, inside the home. The
+ * IDE only ever sends a root it has registered, but the sidecar does not take the panel's word for
+ * that -- the panel is a browser tab, and the check is what makes the request safe rather than the
+ * caller being well behaved.
+ */
+async function identifyWorkspace(
+  deps: TerminalIdentityDeps,
+  context: WorkspaceTerminalContext,
+): Promise<TerminalIdentity> {
+  const root = await projectDirectory(deps, context.workspacePath);
+  return {
+    ptySessionName: workspaceSessionName(root),
+    tmuxSession: null,
+    cwd: root,
+    // Empty is the login shell itself; `connectPtyTerminal` is what turns that into `zsh -l`.
+    command: [],
+    // A workspace shell is meant to be opened from more than one tab, and starting it is the
+    // whole point of opening one, so there is nothing to refuse.
+    refuseNew: null,
+    createTmux: null,
+    stampSession: null,
+  };
+}
+
+/**
+ * One PTY session name per workspace root, so the second tab to open a workspace joins the shell
+ * the first one started rather than opening a second in the same directory.
+ *
+ * The last path component carries the name because that is what a reader recognises in the
+ * descriptor, and the digest carries the identity: folding a path to name characters is not
+ * injective -- `~/work/agent-desk` and `~/work-agent/desk` land on the same slug -- and two
+ * workspaces sharing one shell would put a reader in the wrong directory with nothing on screen
+ * to say so. The path is already canonical here, so two registrations of one directory through
+ * different symlinks correctly share a shell.
+ */
+function workspaceSessionName(root: string): string {
+  const leaf = (root.split("/").pop() || "root").replace(/[^A-Za-z0-9_.-]+/g, "-");
+  const digest = createHash("sha256").update(root).digest("hex").slice(0, 8);
+  return `agent-workspace-${leaf}-${digest}`;
 }
 
 async function identifyAgentSession(

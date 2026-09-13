@@ -181,6 +181,7 @@ export type {
   OpenAgentTerminalRequest,
   TmuxSessionSummary,
   TmuxTerminalContext,
+  WorkspaceTerminalContext,
 } from "./terminal.ts";
 
 export type {
