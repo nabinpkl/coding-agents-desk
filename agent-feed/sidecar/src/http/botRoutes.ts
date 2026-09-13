@@ -2,6 +2,7 @@ import type {
   AddBotCommand,
   AddBotSessionsCommand,
   DetachBotSessionsCommand,
+  RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
 import {
   BotConflictError,
@@ -63,6 +64,12 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     if (request.method === "POST" && detachMatch) {
       return detachBotSessions(request, detachMatch[1]!, registry);
     }
+    // Retiring is detaching plus everything the launch created, so it sits beside it and for the
+    // same reason: a POST rather than a DELETE, because the relay above admits two verbs.
+    const retireMatch = /^\/api\/bots\/([^/]+)\/sessions\/retire$/.exec(url.pathname);
+    if (request.method === "POST" && retireMatch) {
+      return retireBotSessions(request, retireMatch[1]!, registry);
+    }
     return undefined;
   };
 }
@@ -105,6 +112,23 @@ async function detachBotSessions(
     if (body instanceof Response) return body;
     return jsonResponse(
       await registry.detachSessions(decodedBotId, body as unknown as DetachBotSessionsCommand, { kind: "user" }),
+    );
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function retireBotSessions(
+  request: Request,
+  botId: string,
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    const decodedBotId = decodeBotId(botId);
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    return jsonResponse(
+      await registry.retireSessions(decodedBotId, body as unknown as RetireBotSessionsCommand, { kind: "user" }),
     );
   } catch (error) {
     return routeError(error);

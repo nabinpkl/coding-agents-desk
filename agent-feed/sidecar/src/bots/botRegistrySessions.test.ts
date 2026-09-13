@@ -2,13 +2,10 @@
 // which session gets a label, and what forking one of its own sessions carries over.
 
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { BotConflictError, BotNotFoundError } from "@/bots/botRegistry";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, fixture, projects, recordingLauncher, sessions, summary, temporaryDirectories } = botRegistryHarness();
+const { addBot, addSessions, checkoutWithWorktree, fixture, projects, recordingLauncher, sessions, summary } = botRegistryHarness();
 
 test("attaches a session working in a git worktree of the Bot's directory", async () => {
   // A worktree is the same project by every meaning a reader has, and refusing it made isolation
@@ -207,24 +204,3 @@ test("creates a Bot whose first session is a fork of one already in its director
   }, { kind: "user" })).rejects.toThrow(BotConflictError);
   expect(launched).toEqual([]);
 });
-
-async function git(command: string[], cwd: string): Promise<void> {
-  const process = Bun.spawn(["git", ...command], { cwd, stdout: "ignore", stderr: "ignore" });
-  const code = await process.exited;
-  if (code !== 0) throw new Error(`git ${command.join(" ")} exited ${code}`);
-}
-
-/** A Bot's directory as a real repository, with one linked worktree beside it. */
-async function checkoutWithWorktree(): Promise<{ checkout: string; worktree: string }> {
-  const created = await mkdtemp(join(tmpdir(), "agentdesk-bots-worktree-"));
-  temporaryDirectories.push(created);
-  const root = await realpath(created);
-  const checkout = join(root, "checkout");
-  await git(["init", "-q", "-b", "main", checkout], root);
-  await writeFile(join(checkout, "README"), "x\n");
-  await git(["add", "README"], checkout);
-  await git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"], checkout);
-  const worktree = join(root, "side");
-  await git(["worktree", "add", "-q", worktree, "-b", "side"], checkout);
-  return { checkout, worktree };
-}

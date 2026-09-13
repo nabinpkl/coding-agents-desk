@@ -157,3 +157,46 @@ test("leaves a DELETE on the sessions path unmatched rather than answering it", 
 
   expect(await route(request, new URL(request.url), server)).toBeUndefined();
 });
+
+test("routes a retire to its own path and hands the disposals through untouched", async () => {
+  const calls: unknown[] = [];
+  const registry = {
+    async retireSessions(botId: string, command: unknown, actor: unknown) {
+      calls.push({ botId, command, actor });
+      return { bot, retired: [{ source: "claude", sessionId: "c-1", endedPane: "agentdesk-c-1", failed: [] }] };
+    },
+    async detachSessions() {
+      throw new Error("retire must not reach the detach path");
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry);
+  // `/sessions`, `/sessions/detach` and `/sessions/retire` are three POSTs under one prefix, so the
+  // thing worth asserting is that the deepest one does not fall into either of the others.
+  const request = new Request("http://localhost/api/bots/bot%201/sessions/retire", {
+    method: "POST",
+    body: JSON.stringify({
+      requestId: "retire-1",
+      sessionRefs: [{ source: "claude", sessionId: "c-1" }],
+      worktree: "remove",
+      branch: "delete",
+    }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual({
+    bot,
+    retired: [{ source: "claude", sessionId: "c-1", endedPane: "agentdesk-c-1", failed: [] }],
+  });
+  expect(calls).toEqual([{
+    botId: "bot 1",
+    command: {
+      requestId: "retire-1",
+      sessionRefs: [{ source: "claude", sessionId: "c-1" }],
+      worktree: "remove",
+      branch: "delete",
+    },
+    actor: { kind: "user" },
+  }]);
+});
