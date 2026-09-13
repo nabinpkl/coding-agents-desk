@@ -202,10 +202,11 @@ export function BotCanvasCard({
       style={{
         ...botSurfaceStyle(hue),
         // Inline because Tailwind's `border` sets all four widths from the utility layer, which
-        // beats the component layer the rail's colour lives in whatever the source order. Four
-        // against a session's three: the Bot is the container, and a container's edge reading
-        // heavier than the edges inside it is what says which way the nesting goes.
-        ...(hue === undefined ? null : { borderLeftWidth: 4 }),
+        // beats the component layer the rail's colour lives in whatever the source order. Six
+        // against a session's four: the Bot is the container, and a container's edge reading
+        // heavier than the edges inside it is what says which way the nesting goes. The ratio is
+        // what carries that, not either number, so move them together.
+        ...(hue === undefined ? null : { borderLeftWidth: 6 }),
         // No size of its own, at any panel width. A Bot card is exactly as big as the sessions
         // standing in it, in both directions: it once held a width and a height, and both turned
         // into empty space the moment the sessions carried their own. A narrow panel is not an
@@ -313,7 +314,19 @@ export function BotCanvasCard({
           <ul
             role="list"
             aria-label={`${bot.name} sessions`}
-            className="flex items-start gap-2 p-2"
+            // The leading inset is the half that matters, and it is larger than the other three
+            // on purpose. A session's rail sitting 8px inside the Bot's read as one thick striped
+            // edge rather than as a bar inside a card -- two rails of the same colour that close
+            // together are one rail, and the nesting they exist to show is the thing that goes
+            // missing. Twenty here, on top of the Bot's own six-pixel rail, leaves 26px of plain
+            // Bot surface before the first session's edge, which is enough for the emptiness
+            // itself to say one contains the other. The other three sides stay at sixteen because
+            // no rail runs along them and they have nothing to separate.
+            //
+            // The gap between sessions moves with it rather than staying where it was: a roster
+            // packed more tightly than its own inset reads as one block of cards that happens to
+            // start late, instead of as several cards standing in a container.
+            className="flex items-start gap-4 p-4 pl-5"
           >
             {shown.map((session) => (
               <BotSessionCard

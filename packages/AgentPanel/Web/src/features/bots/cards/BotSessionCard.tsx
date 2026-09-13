@@ -129,11 +129,27 @@ export function BotSessionCard({
         //
         // `border-border` goes when the shade arrives, the same way the Bot card drops it: a
         // utility beats a component-layer class, so leaving it on would grey out the one edge that
-        // says which session this is. `border-primary` still wins over the shade while the card is
-        // open, and that is the right order -- open is about right now, the shade is about which.
+        // says which session this is.
+        //
+        // Which is exactly what `border-primary` was doing, which is why a shaded card no longer
+        // takes it at all. It sets all four colours from the utility layer, so an open card drew
+        // itself `oklch(0.922 0 0)` on every edge -- a near-white neutral over the top of the Bot's
+        // colour, measured on the live canvas -- and open is the state a card spends the most time
+        // in and takes the most room in. The biggest thing on the canvas was the one thing on it
+        // saying nothing about whose it was.
+        //
+        // Nothing is lost by dropping it, because the border was never what said "open". A card
+        // that is open is several hundred pixels tall with a live transcript in it, its titlebar
+        // is `session-view-header` where a closed one has no bar at all, and its chevron is
+        // upside down. An unshaded card still takes primary, because there it has no hue to fall
+        // back to and a plain `border-border` box would be the only open card that looked shut.
         className={`relative flex overflow-hidden rounded-lg border ${
-          shaded ? "bot-session-edge bot-session-fill bot-rail" : ""
-        } ${open ? "border-primary" : shaded ? "" : "border-border"}`}
+          shaded
+            ? "bot-session-edge bot-session-fill bot-rail"
+            : open
+              ? "border-primary"
+              : "border-border"
+        }`}
         style={{
           ...shaded,
           ...(open ? { height: resize.height } : null),
@@ -143,9 +159,9 @@ export function BotSessionCard({
           // saying which session among several -- the question the fill and the other three borders
           // were already answering. It now carries the BOT's rail, the same colour and the same
           // solidity as the bar down the card around it, so the leading edge answers whose session
-          // this is and the rest of the card answers which. Three pixels against the Bot card's
-          // four, which is what puts the container's edge above the ones nested inside it.
-          ...(shaded ? { borderLeftWidth: 3 } : null),
+          // this is and the rest of the card answers which. Four pixels against the Bot card's six,
+          // which is what puts the container's edge above the ones nested inside it.
+          ...(shaded ? { borderLeftWidth: 4 } : null),
         }}
         // The WHOLE card takes the file, titlebar included, and a closed one takes it too. The
         // session's own view is only the body and only while the card is open, so a handler down

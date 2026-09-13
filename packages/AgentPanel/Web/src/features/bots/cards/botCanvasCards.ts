@@ -18,13 +18,14 @@ export const STRIP_GAP = 12;
  * which is not what you meant. Wide enough for a truncated title beside its chevron, and narrow
  * enough that a Bot with several reads as a rank of spines rather than a stack of slabs.
  *
- * 292 rather than the 260 it was, which is 260 plus exactly what the session's avatar costs: a
- * 24px mark and the 8px gap after it. The spine has no slack in it -- at 260 with a mark in front,
- * the meta line under the title lost enough room that "03:39 AM" broke across two lines and the
- * closed card grew a row instead of a column. Add a fixed-width thing to this row and this number
- * moves with it.
+ * 293 rather than the 260 it was: 260, plus exactly what the session's avatar costs (a 24px mark
+ * and the 8px gap after it), plus the pixel the Bot's rail took when it went from three to four.
+ * Boxes here are border-box, so a wider leading edge comes straight out of the content beside it.
+ * The spine has no slack in it -- at 260 with a mark in front, the meta line under the title lost
+ * enough room that "03:39 AM" broke across two lines and the closed card grew a row instead of a
+ * column. Add a fixed-width thing to this row, or widen one already on it, and this number moves.
  */
-export const CLOSED_SESSION_WIDTH = 292;
+export const CLOSED_SESSION_WIDTH = 293;
 
 /**
  * A failed Bot command, and which session it was about.
