@@ -58,7 +58,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R24 | D | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
 | R25 | D | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
 | R26 | D | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
-| R27 | R | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
+| R27 | D | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
 | R28 | R | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
 | R29 | R | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
 | R30 | R | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
@@ -400,6 +400,16 @@ Split into `webrtcTileWire.ts`, `webrtcTileCapture.ts`, `webrtcReceiverStats.ts`
 `tileStreamSession.ts`. 1275 to 373. The mutable slots one attempt writes for the next --
 the retired peer, the attempt id a page teardown reports, the resolved display -- are handed to
 `runTileSession` by reference as `TileSessionRuntime`, because they outlive an attempt on purpose.
+
+### R27 `activity-feed/ActivityEventRows.tsx` (765)
+
+- The chip at the head of an event: which role, whether collapsed, and the cache badge beside it.
+- Which rows exist: user, segment event, live tail, cluster, compaction, and the shell they share.
+- One block of an event, rendered, of every kind an adapter can emit.
+
+Split into `ActivityEventHeading.tsx` and `ActivityBlockViews.tsx`. 765 to 374.
+`app/typeRendering.test.ts` pins the prose leading by reading this file; it now reads both, because
+the three text wrappers it counts moved with the blocks. The rule is unchanged, its subject grew.
 
 ## Decisions
 
