@@ -34,6 +34,10 @@ export const HARNESS_USER_PATTERNS: readonly RegExp[] = [
   // person typing when read as prose, which is how a compaction notice became a "turn".
   /^<command-name>/i,
   /^<local-command-stdout>/i,
+  // Claude: where a pasted image came from, written as its own user line right after the prompt
+  // that carries it. Counted as a turn, it became the newest thing the reader "said", and the
+  // pinned bar showed a file path in place of the words beside the image.
+  /^\[Image: source:/i,
   /^<task-notification>/i,
   /^<system-reminder>/i,
   // Codex: the project's instructions, injected ahead of the first real prompt.
