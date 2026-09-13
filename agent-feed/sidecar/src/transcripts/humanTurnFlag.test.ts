@@ -41,6 +41,21 @@ test('claude does not mark a harness envelope', () => {
   expect(r?.event?.humanTurn).toBeUndefined();
 });
 
+test('claude does not mark a line it flags as its own, whatever the text says', () => {
+  // The note Claude adds when a tool reads an image. No envelope pattern knows it, and it reads as
+  // prose; `isMeta` is what says a person did not write it.
+  const r = claudeAdapter.processLine(JSON.stringify({
+    type: 'user',
+    isMeta: true,
+    timestamp: '2026-09-09T05:00:02.500Z',
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text: '[Image: original 3200x1826, displayed at 2000x1141. Multiply coordinates by 1.60 to map to original image.]' }],
+    },
+  }));
+  expect(r?.event?.humanTurn).toBeUndefined();
+});
+
 test('claude does not mark what the model said', () => {
   const r = claudeAdapter.processLine(JSON.stringify({
     type: 'assistant',

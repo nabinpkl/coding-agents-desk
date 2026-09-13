@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 import { resolveTurnWindow, type PageReader } from "@/summary/turnWindow";
 
+/** A `user` event here is a person speaking, flagged the way the adapter flags one. */
 function event(index: number, type: ActivityEvent["type"], text = "x"): ActivityEvent {
   return {
     id: `e${index}`,
@@ -11,7 +12,13 @@ function event(index: number, type: ActivityEvent["type"], text = "x"): Activity
     ts: 1_750_000_000_000 + index,
     type,
     blocks: [{ kind: "text", text }],
+    ...(type === "user" ? { humanTurn: true as const } : {}),
   };
+}
+
+/** A line recorded as the user that the adapter did not flag: a tool result, an envelope. */
+function harness(index: number, blocks: ActivityEvent["blocks"]): ActivityEvent {
+  return { ...event(index, "assistant"), type: "user", blocks };
 }
 
 /** Serves a fixed list, honouring offset/limit the way the real readers do. */
@@ -39,10 +46,7 @@ test("a tool result does not start a turn, however the harness typed it", async 
   // The bug this rule exists for. Both harnesses record tool results as user lines, so looking
   // back for `type === "user"` found the tail of a tool loop: the window became the two events
   // after it, and the digest described a tool result as the person speaking.
-  const toolResult: ActivityEvent = {
-    ...event(4, "user"),
-    blocks: [{ kind: "tool_result", text: "File created successfully at: /tmp/a.ts" }],
-  };
+  const toolResult = harness(4, [{ kind: "tool_result", text: "File created successfully at: /tmp/a.ts" }]);
   const events = [
     event(0, "assistant"),
     { ...event(1, "user"), blocks: [{ kind: "text" as const, text: "fix the parser" }] },
@@ -64,8 +68,8 @@ test("a slash command's own output does not start a turn", async () => {
   const events = [
     { ...event(0, "user"), blocks: [{ kind: "text" as const, text: "commit both suitably" }] },
     event(1, "assistant"),
-    { ...event(2, "user"), blocks: [{ kind: "text" as const, text: "<command-name>/compact</command-name>" }] },
-    { ...event(3, "user"), blocks: [{ kind: "text" as const, text: "<local-command-stdout>Compacted </local-command-stdout>" }] },
+    harness(2, [{ kind: "text", text: "<command-name>/compact</command-name>" }]),
+    harness(3, [{ kind: "text", text: "<local-command-stdout>Compacted </local-command-stdout>" }]),
     event(4, "assistant"),
   ];
 

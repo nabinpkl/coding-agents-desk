@@ -241,8 +241,12 @@ export function normalizedRecord(
     ...(rawMessageId ? { messageId: rawMessageId } : {}),
   };
   // Asked once, here, because this is where the blocks exist and the panel has no way to ask it
-  // later: every envelope the harness writes arrives as `type: "user"` too.
-  if (isHumanTurnStart(event)) event.humanTurn = true;
+  // later: every envelope the harness writes arrives as `type: "user"` too. A line Claude marks
+  // `isMeta` is its own whatever it says -- the caveat before a slash command, the size note on an
+  // image a tool read, a Stop hook's feedback, a skill's preamble. Matched by text alone, the image
+  // note `[Image: original 3200x1826, ...]` passed as prose and the pinned bar named it as the
+  // reader's last message.
+  if (ev.isMeta !== true && isHumanTurnStart(event)) event.humanTurn = true;
   const result: LineResult = { turnClosed, event };
   if (usage) result.usage = usage;
   if (t === 'assistant') {

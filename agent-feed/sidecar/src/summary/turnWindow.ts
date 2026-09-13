@@ -11,7 +11,6 @@
 // which is the whole reason the model-facing half is a separate file.
 
 import type { SummaryCoverage, SummaryFileChange } from "@agentdesk/agent-feed-wire";
-import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import type { ActivityEvent, EventMode } from "@/transcripts/transcriptTypes";
 import { renderEvent } from "@/summary/summaryPrompt";
 import { filesTouchedIn } from "@/summary/toolCalls";
@@ -118,10 +117,14 @@ export async function resolveTurnWindow(options: TurnWindowOptions): Promise<Tur
  * Not the last `user` event, which is what this asked for originally and is almost never the
  * same thing: both harnesses record tool results as user lines, so the answer was reliably the
  * tail of a tool loop and the window was the two or three events after it. See `humanTurns.ts`.
+ *
+ * Reads the `humanTurn` flag the adapter set rather than asking the text again: only the adapter
+ * still holds the raw line, and some of what marks a line as the harness's -- Claude's `isMeta` --
+ * is not in the text at all.
  */
 function lastHumanIndex(events: readonly ActivityEvent[]): number {
   for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (isHumanTurnStart(events[i]!)) return i;
+    if (events[i]!.humanTurn === true) return i;
   }
   return -1;
 }

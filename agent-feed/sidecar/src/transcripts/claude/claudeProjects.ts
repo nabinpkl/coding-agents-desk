@@ -52,6 +52,9 @@ export function userText(message: unknown): string | undefined {
 export function promptText(ev: Record<string, unknown>): string | undefined {
   if (ev.type === 'user') {
     if (ev.isCompactSummary === true) return undefined;
+    // A line Claude marks `isMeta` it wrote itself, whatever the text: an image's size note, a Stop
+    // hook's feedback, a skill's preamble.
+    if (ev.isMeta === true) return undefined;
     const text = userText(ev.message);
     // The harness writes interrupts, caveats, slash-command echoes and task notifications as
     // user messages. None is prose a person chose, so none is more useful as a title than the id.

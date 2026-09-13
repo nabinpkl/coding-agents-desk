@@ -67,7 +67,8 @@ export interface ParsedLine {
    *
    * It rides the wire rather than being re-derived in the panel because the list of envelopes is
    * long, source-specific and grows with the harnesses; a second copy of it would be wrong the
-   * first time either CLI added one. `transcripts/humanTurns.ts` is the one that decides.
+   * first time either CLI added one. `transcripts/humanTurns.ts` is the one that decides, and the
+   * adapter adds what only the raw line carries: a Claude line marked `isMeta` is never flagged.
    */
   humanTurn?: true;
   /**
