@@ -1,85 +1,45 @@
 // The mark on a file row.
 //
-// The IDE this replaces embedded a generated copy of the material-icon-theme: 1212 lines of SVG
-// paths for one tree's decoration. The panel already has an icon vocabulary in `lucide-react`, and
-// two icon systems in one panel is the duplication the conventions here exist to stop, so this is
-// a small map onto that vocabulary instead.
+// The icons are the material-icon-theme set, subsetted to 91 families and committed as data
+// (`fileIcons.json`, MIT, see `LICENSE.material-icon-theme`). They carry their own colours, which
+// is the whole point of having them: a tree of one grey page repeated says nothing about what is
+// in it, and colour is what makes a language findable by eye before the name is read.
 //
-// A whole filename beats an extension (`package.json` is a config, not generic JSON) and a longer
-// extension beats a shorter one, which is the precedence VS Code resolves icon themes with.
+// Data rather than a dependency, and JSON rather than TypeScript. The table is generated output
+// with no logic in it, so `.json` keeps it out of the 500-line cap that governs source, where a
+// 1200-line `.ts` of SVG paths would fail check 5 for being long without being complex.
 
-import {
-  Braces,
-  FileArchive,
-  FileCode,
-  FileImage,
-  FileText,
-  FileType,
-  Image,
-  Settings,
-  Sheet,
-  Terminal,
-  type LucideIcon,
-} from "lucide-react";
+import iconTable from "@/features/workspace-ide/sidebar/fileIcons.json";
 
-const BY_FILENAME: Record<string, LucideIcon> = {
-  "package.json": Settings,
-  "tsconfig.json": Settings,
-  "justfile": Terminal,
-  "dockerfile": Settings,
-  "makefile": Terminal,
-  ".gitignore": Settings,
-  "readme.md": FileText,
-};
+interface IconShape {
+  viewBox: string;
+  body: string;
+}
 
-const BY_EXTENSION: Record<string, LucideIcon> = {
-  ts: FileCode,
-  tsx: FileCode,
-  js: FileCode,
-  jsx: FileCode,
-  mjs: FileCode,
-  swift: FileCode,
-  rs: FileCode,
-  py: FileCode,
-  go: FileCode,
-  rb: FileCode,
-  sh: Terminal,
-  zsh: Terminal,
-  json: Braces,
-  jsonc: Braces,
-  yml: Settings,
-  yaml: Settings,
-  toml: Settings,
-  ini: Settings,
-  env: Settings,
-  md: FileText,
-  markdown: FileText,
-  txt: FileText,
-  html: FileCode,
-  htm: FileCode,
-  css: FileType,
-  scss: FileType,
-  svg: Image,
-  png: FileImage,
-  jpg: FileImage,
-  jpeg: FileImage,
-  gif: FileImage,
-  webp: FileImage,
-  ipynb: Sheet,
-  docx: FileType,
-  csv: Sheet,
-  zip: FileArchive,
-  tar: FileArchive,
-  gz: FileArchive,
+const SHAPES = iconTable.shapes as Record<string, IconShape | undefined>;
+const BY_EXTENSION = iconTable.byExtension as Record<string, string | undefined>;
+const BY_FILENAME = iconTable.byFilename as Record<string, string | undefined>;
+
+/**
+ * The generic outline drawn for a file no icon covers.
+ *
+ * Deliberately uncoloured: a grey page reads as "just a file", where a borrowed logo would assert
+ * a language the file is not. Every other shape carries `fill` on its own paths, so `fill-current`
+ * below reaches this one alone -- which is exactly the one that should take the row's muted tone.
+ */
+const UNKNOWN: IconShape = {
+  viewBox: "0 0 16 16",
+  body: '<path d="M3 1.5h6.2l3.8 3.8v9.2H3v-13Zm6 1.4v2.6h2.6L9 2.9Z"/>',
 };
 
 /**
  * Which icon a name draws.
  *
- * A plain document for anything unrecognised, deliberately: a borrowed logo asserts a language the
- * file is not, where a grey page reads as "just a file".
+ * A whole filename beats an extension (`package.json` is the npm mark, not the generic JSON one)
+ * and a longer extension beats a shorter one (`docker-compose.yml` before `yml`) -- the precedence
+ * VS Code resolves icon themes with, so a file looks the way people expect it to.
  */
-export function iconForFilename(name: string): LucideIcon {
+export function iconNameFor(name: string): string | null {
   const lower = name.toLowerCase();
   const named = BY_FILENAME[lower];
   if (named) return named;
@@ -88,10 +48,25 @@ export function iconForFilename(name: string): LucideIcon {
     const icon = BY_EXTENSION[segments.slice(start).join(".")];
     if (icon) return icon;
   }
-  return FileText;
+  return null;
+}
+
+export function shapeFor(name: string): IconShape {
+  const icon = iconNameFor(name);
+  return (icon ? SHAPES[icon] : null) ?? UNKNOWN;
 }
 
 export function FileIcon({ name }: { name: string }) {
-  const Icon = iconForFilename(name);
-  return <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />;
+  const shape = shapeFor(name);
+  return (
+    <svg
+      aria-hidden
+      focusable="false"
+      viewBox={shape.viewBox}
+      className="size-4 shrink-0 fill-current text-muted-foreground"
+      // A build-time constant from the generated table, never a filename or any other runtime
+      // value, so this carries no injection surface.
+      dangerouslySetInnerHTML={{ __html: shape.body }}
+    />
+  );
 }
