@@ -62,7 +62,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R28 | D | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
 | R29 | D | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
 | R30 | D | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
-| R31 | R | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
+| R31 | D | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
 | R32 | R | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
 | R33 | R | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
 | R34 | R | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
@@ -459,6 +459,23 @@ Split into `tileViewportConstants.ts`, `tileViewportRuntime.ts`, `tileViewportGe
 `tileViewportPointerHandlers.ts`, `tileViewportPuck.ts`, `tileViewportFrame.ts`,
 `TileViewportOverlays.tsx`. 1312 to 449.
 
+### R31 `session-view/SessionView.tsx` (2216)
+
+- What the view knows about the terminal band beneath it.
+- The view itself: the column, the feed, the summary, the terminal's height.
+- The composer band: which surface owns composition for this session.
+- What the field is in whichever band is showing, and what the caption under it says.
+- Sending, and the action row that offers it.
+- The band as it is drawn, once every question about which band it is has been answered.
+- Mirroring a window's own composer, and mirroring Claude's AskUserQuestion panel.
+- The terminal's affordances in the band, and an extension's prompt.
+- A textarea that grows with its content.
+
+Split into `sessionTerminalTypes.ts`, `SessionComposer.tsx`, `sessionComposerModel.ts`,
+`sessionComposerEditor.ts`, `sessionComposerActions.tsx`, `SessionComposerBand.tsx`,
+`useWindowComposer.ts`, `AskUserQuestionMirror.tsx`, `SessionExtensionUI.tsx`,
+`SessionTerminalControls.tsx`, `useAutoGrowingTextArea.ts`. 2216 to 449 and 423.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -547,6 +564,14 @@ Five files came out of one, which the plan would normally answer with a director
 concept. `features/usage/` already IS that directory, and its six existing files are flat siblings.
 A `features/usage/modal/` would have put the modal's parts one level deeper than `UsageCalendar.tsx`
 and `usageGrid.ts`, which they sit beside and call. Flat changes less.
+
+### Decision: a string-literal audit runs after every mechanical prefixing pass
+
+The identifier-prefixing scripts these splits use guard comments and quote-adjacent tokens, but not
+identifiers INSIDE a string. Three user-visible strings were rewritten that way in R31 -- "Send to
+the terminal m.session", twice more -- and they typecheck cleanly, so nothing but reading catches
+them. Every generated file is now swept for `m.`/`ctx.`/`deps.`/`live.` inside string literals
+before the commit; the sweep is clean across all 36 generated files.
 
 ## Deferred
 
