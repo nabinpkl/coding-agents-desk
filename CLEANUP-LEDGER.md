@@ -38,7 +38,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R4 | D | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
 | R5 | D | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
 | R6 | D | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
-| R7 | R | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
+| R7 | D | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
 | R8 | R | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
 | R9 | R | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
 | R10 | R | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
@@ -169,6 +169,20 @@ observed and what each session last resolved to.
 Split into `activityEventText.ts` and `activityFeedLayout.ts`; the first two concepts stay in
 `activityDisplayItems.ts`. `projectIncrementalReasoning` moved with `buildFeedLayout`, its only
 caller.
+
+### R7 `bots/botRegistry.test.ts` (676)
+
+- The world a test runs in: a catalog of known projects and sessions, a temporary Bot directory,
+  and a launcher that records rather than reaching for tmux.
+- Adding a Bot, and attaching or detaching sessions it already has.
+- Starting a session for a Bot: what the launcher is asked, what a replay answers, what a failure
+  leaves behind.
+- Adding sessions to a Bot that already has some: worktrees, labels, and forks.
+
+Split into `botRegistryHarness.ts`, `botRegistryLaunch.test.ts` and
+`botRegistrySessions.test.ts`. The harness is a function, not module state, so each file gets its
+own catalog and its own `afterEach` -- the isolation one file had by being one file. The git
+worktree helpers moved to the file whose tests use them. 898 sidecar tests, unchanged.
 
 ## Decisions
 
