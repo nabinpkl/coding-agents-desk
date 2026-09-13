@@ -1,4 +1,3 @@
-import { Keyboard as KeyboardIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DELETE_REPEAT_DELAY_MS,
@@ -19,59 +18,18 @@ import {
   type KeyboardDeckState,
 } from "./keyboardDeckModel";
 import {
-  CHARACTER_PREVIEW,
   characterPreviewLayout,
-  characterPreviewPath,
   keyExitSlop,
   type CharacterPreviewLayout,
   type KeyboardDeckMetrics,
 } from "./keyboardDeckMetrics";
+import { DeckKeycap, DeckKeyPreview } from "./KeyboardDeckKeycap";
 import {
   cellAtPoint,
   deckHitCells,
   pointHoldsCell,
   type DeckCell,
 } from "./keyboardDeckHitTest";
-
-/**
- * Resting and pressed fills, from `KeyboardKeyAppearance.swift`. The pairs invert by theme: a
- * light key darkens under the finger, a dark key lightens. Getting that backwards is the single
- * most visible way to look almost-but-not-like the iPhone keyboard.
- */
-const REGULAR_FILL = "bg-white data-[pressed=true]:bg-[#d1d1d1] "
-  + "dark:bg-[#737373] dark:data-[pressed=true]:bg-[#949494]";
-const SPECIAL_FILL = "bg-[#bababa] data-[pressed=true]:bg-[#9e9e9e] "
-  + "dark:bg-[#474747] dark:data-[pressed=true]:bg-[#666666]";
-/** Pressed shadows are the resting ones at 0.35 opacity, shallower and tighter. */
-const REGULAR_SHADOW = "shadow-[0_1.5px_0.75px_rgba(0,0,0,0.28)] "
-  + "data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.098)] "
-  + "dark:shadow-[0_1.5px_0.75px_rgba(0,0,0,0.62)] "
-  + "dark:data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.217)]";
-/**
- * An armed or locked shift washes the keycap in the tint colour rather than taking either special
- * fill, which is `isActiveSpecial` in `KeyboardKeyButton.applyVisualState`. The alpha is the whole
- * effect: the deck shows through, so the key reads as lit rather than as a different key.
- */
-const ACTIVE_FILL = "bg-[rgba(0,122,255,0.42)] data-[pressed=true]:bg-[rgba(0,122,255,0.62)]";
-const SPECIAL_SHADOW = "shadow-[0_1.5px_0.75px_rgba(0,0,0,0.30)] "
-  + "data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.105)] "
-  + "dark:shadow-[0_1.5px_0.75px_rgba(0,0,0,0.68)] "
-  + "dark:data-[pressed=true]:shadow-[0_0.5px_0.25px_rgba(0,0,0,0.238)]";
-
-function titleSize(key: DeckKey): number {
-  switch (key.kind) {
-    case "return":
-      return 24;
-    case "page":
-      return 18;
-    case "native":
-      return 20;
-    case "space":
-      return 16;
-    default:
-      return 22;
-  }
-}
 
 interface ActivePress {
   pointerId: number;
@@ -425,90 +383,25 @@ export function KeyboardDeck({
               className={`flex ${centred ? "justify-center" : ""}`}
               style={{ height: metrics.keycapHeight, gap: metrics.horizontalKeyGap }}
             >
-              {keys.map((key, keyIndex) => {
-                const special = isSpecialKey(key);
-                const lit = key.kind === "shift" && state.shift !== "off";
-                const widened = widensOuterGaps
-                  && (keyIndex === 1 || keyIndex === keys.length - 1);
-                const id = deckKeyId(key);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    data-testid={`deck-key-${id}`}
-                    data-pressed={pressedKeyIds.includes(id)}
-                    aria-label={deckKeyName(key)}
-                    // Tri-state, matching the accessibility value iOS sets: armed for one letter
-                    // reads as partial, caps lock as fully on.
-                    aria-pressed={key.kind === "shift"
-                      ? (state.shift === "locked" ? true : state.shift === "on" ? "mixed" : false)
-                      : undefined}
-                    data-shift={key.kind === "shift" ? state.shift : undefined}
-                    // Presentational: the deck resolves touches to tiled cells, so the keycap is
-                    // where the key is drawn, not where it is hit. Left focusable and labelled for
-                    // assistive technology, which still drives the element rather than a point.
-                    tabIndex={-1}
-                    style={{
-                      fontSize: titleSize(key),
-                      marginLeft: widened ? outerGap : undefined,
-                      ...(centred
-                        ? { width: "var(--kbd-key-w)", flex: "none" }
-                        : { flexGrow: keyWidthWeight(key), flexBasis: 0, minWidth: 0 }),
-                    }}
-                    // `touch-action` does not inherit, so the deck's own value does not reach the
-                    // keys: without this a press that drifts scrolls the page instead of typing.
-                    // `pointer-events-none` keeps every touch on the deck, where the cells decide.
-                    className={`pointer-events-none touch-none rounded-lg leading-none text-black transition-none dark:text-white
-                      data-[pressed=true]:translate-y-px
-                      focus-visible:outline-2 focus-visible:outline-ring
-                      ${lit ? ACTIVE_FILL : special ? SPECIAL_FILL : REGULAR_FILL}
-                      ${special ? SPECIAL_SHADOW : REGULAR_SHADOW}`}
-                  >
-                    {key.kind === "native"
-                      ? <KeyboardIcon aria-hidden size={22} className="mx-auto" />
-                      : deckKeyLabel(key, state)}
-                  </button>
-                );
-              })}
+              {keys.map((key, keyIndex) => (
+                <DeckKeycap
+                  key={deckKeyId(key)}
+                  deckKey={key}
+                  state={state}
+                  pressed={pressedKeyIds.includes(deckKeyId(key))}
+                  centred={centred}
+                  widened={widensOuterGaps
+                    && (keyIndex === 1 || keyIndex === keys.length - 1)}
+                  outerGap={outerGap}
+                />
+              ))}
             </div>
           );
         })}
       </div>
 
       {preview ? (
-        <div
-          aria-hidden
-          data-testid="deck-key-preview"
-          className="pointer-events-none absolute"
-          style={{
-            left: preview.layout.left,
-            top: preview.layout.top,
-            width: preview.layout.width,
-            height: preview.layout.height,
-          }}
-        >
-          <svg
-            width={preview.layout.width}
-            height={preview.layout.height}
-            viewBox={`0 0 ${preview.layout.width} ${preview.layout.height}`}
-            className="absolute inset-0 drop-shadow-[0_2px_2px_rgba(0,0,0,0.30)] dark:drop-shadow-[0_2px_2px_rgba(0,0,0,0.72)]"
-          >
-            <path
-              d={characterPreviewPath(preview.layout.width, preview.layout.height, preview.layout.tipX)}
-              className="fill-white dark:fill-[#8c8c8c]"
-            />
-          </svg>
-          <span
-            className="absolute inset-x-0 text-center text-black dark:text-white"
-            style={{
-              top: 2,
-              fontSize: 34,
-              lineHeight: `${CHARACTER_PREVIEW.bubbleHeight - 4}px`,
-            }}
-          >
-            {preview.character}
-          </span>
-        </div>
+        <DeckKeyPreview layout={preview.layout} character={preview.character} />
       ) : null}
     </div>
   );

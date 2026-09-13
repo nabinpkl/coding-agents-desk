@@ -42,7 +42,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R8 | D | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
 | R9 | D | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
 | R10 | D | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
-| R11 | R | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
+| R11 | D | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
 | R12 | R | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
 | R13 | R | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
 | R14 | R | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
@@ -218,6 +218,18 @@ a resource that cannot be held twice, and every comment in it is a measurement. 
 Split into `useDesktopKeyboardHarness.tsx`, `useDesktopKeyboardText.test.tsx`,
 `useDesktopKeyboardViewport.test.tsx`. 24 `it` blocks moved whole; 939 panel tests, unchanged, now
 across 77 files.
+
+### R11 `desktop-viewer/KeyboardDeck.tsx` (515)
+
+- What a keycap looks like: the resting and pressed fills ported from the Swift, the shadows, the
+  tint an armed shift wears, and the title size per key kind.
+- What a press in flight is: which cell it owns, where the finger landed, whether it panned.
+- Resolving a touch to a tiled cell, and what a commit does.
+- The deck's own layout: rows, gaps, and the indent under Q and P.
+
+Split into `KeyboardDeckKeycap.tsx`, holding `DeckKeycap` and the character balloon. The keycap was
+already presentational -- the deck resolves touches to cells, not to elements -- so nothing about
+hit testing moved with it. 515 to 408.
 
 ## Decisions
 
