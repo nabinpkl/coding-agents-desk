@@ -125,6 +125,25 @@ export interface WorkspaceFileConflict {
 }
 
 /**
+ * One folder the reader could choose as a workspace root.
+ *
+ * Named apart from `WorkspaceDirectoryEntry` above, which is a different thing with a different
+ * shape: that one lists what is INSIDE a registered workspace, files included, with paths relative
+ * to its root. This one lists candidate roots, directories only, by absolute path.
+ */
+export interface WorkspaceBrowseEntry {
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceBrowseListing {
+  path: string;
+  /** Null at the confinement root, so the panel knows whether to offer a way up. */
+  parent: string | null;
+  entries: WorkspaceBrowseEntry[];
+}
+
+/**
  * Why an operation was refused.
  *
  * Ported one-for-one from `WorkspaceFileServiceFailure`, including the distinction the Swift kept:

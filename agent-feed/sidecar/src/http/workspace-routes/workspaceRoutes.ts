@@ -14,6 +14,7 @@ import {
   workspaceErrorResponse,
   workspaceRoute,
 } from "@/http/workspace-routes/workspaceResponses";
+import { browseDirectories } from "@/workspace/workspaceBrowse";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
 const LIST = "/api/workspace/list";
@@ -21,6 +22,7 @@ const ADD = "/api/workspace/add";
 const REMOVE = "/api/workspace/remove";
 const RENAME = "/api/workspace/rename";
 const REORDER = "/api/workspace/reorder";
+const BROWSE = "/api/workspace/browse";
 
 /**
  * Validate an operation from the wire before it reaches the state store.
@@ -73,6 +75,7 @@ export function createWorkspaceRoutes(service: WorkspaceService): RouteHandler {
     if (pathname === REMOVE && request.method === "POST") return remove(service, request);
     if (pathname === RENAME && request.method === "POST") return rename(service, request);
     if (pathname === REORDER && request.method === "POST") return reorder(service, request);
+    if (pathname === BROWSE && request.method === "GET") return browse(request);
 
     const route = workspaceRoute(pathname);
     if (!route) return undefined;
@@ -125,6 +128,21 @@ async function rename(service: WorkspaceService, request: Request): Promise<Resp
     const body = await readJsonBody(request);
     await service.store.rename(requiredString(body, "id"), requiredString(body, "name"));
     return new Response(null, { status: 204 });
+  } catch (error) {
+    return refusalResponse(error);
+  }
+}
+
+/**
+ * List the directories inside one directory, for the panel's folder picker.
+ *
+ * Takes no workspace: this is how a workspace gets chosen in the first place. Confined to the home
+ * directory by `browseDirectories`, which is where the reasoning for that lives.
+ */
+async function browse(request: Request): Promise<Response> {
+  try {
+    const asked = new URL(request.url).searchParams.get("path");
+    return jsonResponse(await browseDirectories(asked));
   } catch (error) {
     return refusalResponse(error);
   }

@@ -204,6 +204,8 @@ export {
 } from "./railKeys.ts";
 
 export type {
+  WorkspaceBrowseEntry,
+  WorkspaceBrowseListing,
   WorkspaceDirectoryEntry,
   WorkspaceError,
   WorkspaceErrorCode,

@@ -12,6 +12,7 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
 import { EditorPane } from "@/features/workspace-ide/editor/EditorPane";
 import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
+import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
 import { useWorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import {
@@ -30,6 +31,7 @@ export function WorkspaceIdeSurface({
   const ide = useWorkspaceIde(transport);
   const frame = useRef<HTMLDivElement | null>(null);
   const [adding, setAdding] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   // Fractions rather than pixels, because a fraction is what survives the window being resized,
   // and this panel is read on a phone and on an 8K desk within the same hour.
@@ -63,18 +65,23 @@ export function WorkspaceIdeSurface({
     [ide],
   );
 
-  const addWorkspace = useCallback(() => {
-    // A prompt rather than a directory picker: the browser cannot hand a page an absolute path,
-    // and the sidecar needs one. It refuses anything that is not an existing, non-symlinked
-    // directory, so a typo is answered rather than registered.
-    const root = window.prompt("Absolute path of the project to add");
-    if (!root) return;
-    setAdding(true);
-    void ide.client.addWorkspace(root.trim())
-      .then(({ workspace }) => ide.selectWorkspace(workspace.id))
-      .catch(report("Could not add that workspace"))
-      .finally(() => setAdding(false));
-  }, [ide, report]);
+  /**
+   * Register the folder the picker was looking at.
+   *
+   * The name comes from the last path component rather than being asked for: it is right nearly
+   * always, and the roster can rename it in two clicks when it is not.
+   */
+  const chooseWorkspace = useCallback(
+    (root: string) => {
+      setPicking(false);
+      setAdding(true);
+      void ide.client.addWorkspace(root, root.split("/").pop() || root)
+        .then(({ workspace }) => ide.selectWorkspace(workspace.id))
+        .catch(report("Could not add that workspace"))
+        .finally(() => setAdding(false));
+    },
+    [ide, report],
+  );
 
   const renameWorkspace = useCallback(
     (id: string, name: string) => {
@@ -121,7 +128,7 @@ export function WorkspaceIdeSurface({
           <button
             type="button"
             disabled={adding}
-            onClick={addWorkspace}
+            onClick={() => setPicking(true)}
             className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground outline-none
               transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary
               focus-visible:ring-offset-2 disabled:opacity-60"
@@ -130,6 +137,15 @@ export function WorkspaceIdeSurface({
           </button>
           {ide.error ? <p className="m-0 text-sm text-destructive">{ide.error}</p> : null}
         </div>
+        {picking
+          ? (
+            <WorkspacePicker
+              browse={ide.client.browse.bind(ide.client)}
+              onChoose={chooseWorkspace}
+              onCancel={() => setPicking(false)}
+            />
+          )
+          : null}
       </div>
     );
   }
@@ -167,7 +183,7 @@ export function WorkspaceIdeSurface({
                   activePath={ide.activePath}
                   onSelectWorkspace={ide.selectWorkspace}
                   onSelectSection={(section) => ide.update({ section })}
-                  onAddWorkspace={addWorkspace}
+                  onAddWorkspace={() => setPicking(true)}
                   onRenameWorkspace={renameWorkspace}
                   onRemoveWorkspace={removeWorkspace}
                   onReorderWorkspaces={reorderWorkspaces}
@@ -202,6 +218,15 @@ export function WorkspaceIdeSurface({
             : null}
         </div>
       </div>
+      {picking
+        ? (
+          <WorkspacePicker
+            browse={ide.client.browse.bind(ide.client)}
+            onChoose={chooseWorkspace}
+            onCancel={() => setPicking(false)}
+          />
+        )
+        : null}
     </div>
   );
 }

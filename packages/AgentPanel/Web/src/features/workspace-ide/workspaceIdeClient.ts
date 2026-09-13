@@ -12,6 +12,7 @@ import type {
   WorkspaceOperation,
   WorkspaceSharedState,
   WorkspaceStreamEvent,
+  WorkspaceBrowseListing,
   WorkspaceSummary,
   WorkspaceTreeNode,
 } from "@agentdesk/agent-feed-wire";
@@ -54,6 +55,17 @@ export class WorkspaceIdeClient {
 
   listWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
     return this.call("GET", "/api/workspace/list");
+  }
+
+  /**
+   * The directories inside one directory, for choosing a workspace root.
+   *
+   * A null path means "start where the sidecar starts", which is the home directory. The browser
+   * cannot know that, and hard-coding it here would be a second place holding the answer.
+   */
+  browse(path: string | null): Promise<WorkspaceBrowseListing> {
+    const query = path === null ? "" : `?path=${encodeURIComponent(path)}`;
+    return this.call("GET", `/api/workspace/browse${query}`);
   }
 
   addWorkspace(root: string, name?: string): Promise<{ workspace: WorkspaceSummary }> {

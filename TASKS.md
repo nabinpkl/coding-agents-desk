@@ -160,6 +160,31 @@ toolbar carried `-` and `+`; zoom now lives at the panel window level (`PanelWin
 Command-plus / Command-minus / Command-zero), which is better on the Mac and leaves a phone with
 nothing.
 
+### The roster the port left behind, 2026-09-10
+
+Two things the move off the compile path dropped on the floor, found by opening the IDE and seeing
+one project in a roster that had fifteen.
+
+**The existing workspaces were never carried across.** The host's registry
+(`~/Library/Application Support/<bundle id>/workspaces.json`) still held all fifteen, intact; the
+sidecar's roster held whatever had been added since. `tools/import-host-workspaces.mjs` moves them,
+idempotent by root, and is a TOOL rather than code in the sidecar on purpose: migration scaffolding
+inside the product has to be read and maintained by everyone who follows, for a job that happens
+once per machine. The sidecar still decodes only its own shape and has no idea the host's file
+exists.
+
+**Adding one was a `window.prompt` for an absolute path.** On a phone that asks a touch keyboard to
+type `/Users/...` correctly; on either surface it makes the reader hold the filesystem in their
+head. It is a folder picker now, which needs a served listing because nothing in the web platform
+hands a page an absolute directory path -- `<input webkitdirectory>` included.
+
+`/api/workspace/browse` is **confined to the home directory, and that is a security boundary rather
+than a convenience.** The sidecar has no authentication; what stands in for it is the bind address
+plus WireGuard. Registered roots already expose their file contents, but enumeration is different in
+kind: unconfined, anyone who could reach the sidecar could walk the whole disk reading directory
+names. Symlinks are excluded for a second reason -- `workspaceStore.add` refuses a symlinked root,
+so offering one would be offering a choice the next step declines.
+
 ## Not in this arc
 
 - **Desktop assignment from the IDE sidebar.** ADR-0115 records why it leaves rather than moves.
