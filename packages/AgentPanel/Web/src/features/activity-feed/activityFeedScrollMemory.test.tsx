@@ -15,7 +15,7 @@ vi.mock("./markdown/Markdown", () => ({
 vi.mock("./DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const VIEWPORT = 800;
-/** What an unmeasured expanded row estimates to, and what these rows are held at. */
+/** What an expanded row estimates to, and what every row here stays at: nothing re-measures. */
 const ROW = 88;
 /** Taller than anything these threads reach, so "at the end" is a place you have to scroll to. */
 const CONTENT = 10000;
@@ -68,7 +68,11 @@ function durable(index: number): ActivityEvent {
   };
 }
 
-function mountFeed(events = Array.from({ length: 30 }, (_, index) => durable(index)), windowStart = 0) {
+function mountFeed(
+  events = Array.from({ length: 30 }, (_, index) => durable(index)),
+  windowStart = 0,
+  mode: "nice" | "raw" = "nice",
+) {
   const transport = new FakeHttpTransport();
   // Paging older answers with an empty page. A feed that opens partway through a thread asks for
   // the page before it as soon as it lands near the top, and the fake's own default body has no
@@ -82,7 +86,7 @@ function mountFeed(events = Array.from({ length: 30 }, (_, index) => durable(ind
       <ActivityFeed
         source="claude"
         sessionId={SESSION}
-        mode="nice"
+        mode={mode}
         onToggleMode={() => {}}
         showCacheHits={false}
         onToggleCacheHits={() => {}}
@@ -96,7 +100,7 @@ function mountFeed(events = Array.from({ length: 30 }, (_, index) => durable(ind
       envelope: {
         kind: "snapshot",
         sequence: 1,
-        mode: "nice",
+        mode,
         events,
         windowStart,
         total: windowStart + events.length,
@@ -123,6 +127,15 @@ function scrollTo(scroller: HTMLElement, top: number): void {
   fireEvent.scroll(scroller);
 }
 
+/**
+ * What these cannot cover, so nobody reads a green run as more than it is.
+ *
+ * jsdom measures nothing: a row reports a height only when its element mounts, and the inert
+ * ResizeObserver means one already on screen never reports again. So the layout here is settled
+ * from the first commit, and the failure that shipped -- a restore landing on estimates and then
+ * being left behind as the real heights arrive -- cannot happen in this file. The check for that
+ * is `chrome-test/panel-scroll-memory-verify.mjs`, against the running panel.
+ */
 describe("where a session was left being read", () => {
   it("opens a session at the tail when it has never been read away from it", async () => {
     const { scroller, view } = mountFeed();

@@ -1057,6 +1057,21 @@ dom-mirror-cdp-verify:
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/cdp-verify.mjs'
 
+# Checks that the panel comes back to where it was being read, in a browser that lays pages out.
+# NOT in `just check`: it needs a live panel (`just host-run`) and the sessions on this machine.
+# Loopback rather than the tailnet name, because nothing here is about transport and the tailnet
+# leg has its own check (`agent-webview-dev-status`); a DNS wobble on it is not this test failing.
+# Override with PANEL_ORIGIN to point at the tailnet origin or another machine's.
+# The unit tests cannot see what this does -- jsdom measures no rows, so a transcript's layout is
+# settled from the first commit there and a restore can never be left behind by it.
+panel-scroll-memory-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      PANEL_PROJECT='{{justfile_directory()}}' \
+      node '{{justfile_directory()}}/chrome-test/panel-scroll-memory-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay
