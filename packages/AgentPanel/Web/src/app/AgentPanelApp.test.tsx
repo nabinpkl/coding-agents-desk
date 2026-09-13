@@ -1095,6 +1095,63 @@ describe("App shell", () => {
     second.unmount();
   });
 
+  it("forgets an open card whose session no Bot holds, and keeps one the sidecar merely cannot read", () => {
+    // An open key is an address nothing resolved, so one pointing at a session that has left its
+    // Bot opened nothing, was invisible for exactly that reason, and stayed in the store for good.
+    localStorage.setItem(
+      "agent-panel.bot-canvas.open-session",
+      JSON.stringify(["claude:sid-claude-01", "codex:sid-codex-01", "claude:sid-gone"]),
+    );
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          ...BOT_WITH_ONE_SESSION,
+          sessionRefs: [
+            { source: "claude", sessionId: "sid-claude-01" },
+            // Held by the Bot, but not resolving right now, so its card is not on the canvas.
+            { source: "codex", sessionId: "sid-codex-01" },
+          ],
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [{ source: "codex", sessionId: "sid-codex-01" }],
+        }],
+      });
+    });
+
+    // The reference the Bot no longer holds is gone; the one it holds but cannot read is kept, so
+    // a session the sidecar recovers comes back open rather than collapsed.
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.open-session")!).sort()).toEqual([
+      "claude:sid-claude-01",
+      "codex:sid-codex-01",
+    ]);
+    unmount();
+  });
+
+  it("keeps every open card when no roster has arrived, because an empty list is not an answer", () => {
+    // Two ways to have no Bots to check against, and neither may throw the canvas away: `loading`
+    // goes false on a stream FAILURE as well as on a snapshot, and a snapshot itself arrives before
+    // the Bots are in it. Either one pruned would forget the whole canvas when the sidecar blinked.
+    localStorage.setItem(
+      "agent-panel.bot-canvas.open-session",
+      JSON.stringify(["claude:sid-claude-01"]),
+    );
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.fail("/api/bots/stream", "sidecar is restarting");
+    });
+
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.open-session")!)).toEqual([
+      "claude:sid-claude-01",
+    ]);
+    unmount();
+  });
+
   it("opens a session picked in the canvas roster on the canvas, and scrolls its card to it", () => {
     const scrolled: Element[] = [];
     const scrollIntoView = vi

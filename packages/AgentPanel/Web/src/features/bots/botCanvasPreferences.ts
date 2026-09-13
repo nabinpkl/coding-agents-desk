@@ -164,10 +164,16 @@ const OPEN_SESSIONS_KEY = "agent-panel.bot-canvas.open-session";
  * argue for one at a time was a stream budget that was measured and found to be about thirty cards,
  * against a machine that holds six sessions.
  *
- * Identity only, and deliberately unresolved. A key may name a session that has since ended or a
- * Bot that no longer holds it, in which case no card opens and the canvas is the one it would have
- * been anyway -- there is nothing to repair, so nothing checks. What is on the canvas at all is
- * stored beside this, and the note on the detached sets below says what changed to earn that.
+ * Identity only: a key is an address, and nothing here resolves it. What DOES resolve it is the app,
+ * against a roster it has and that holds something -- a key no Bot holds a reference to any more is
+ * dropped there (`AgentPanelApp.tsx`), because it opens nothing, is invisible for exactly that
+ * reason, and would otherwise sit in the store for good. It is the emptiness that has to be ruled
+ * out rather than the arrival: a snapshot lands before the Bots are in it, and that one is
+ * indistinguishable from a reader with no Bots except that pruning against it costs a whole canvas. A key whose Bot still holds it but whose transcript
+ * the sidecar cannot read this minute is kept, so a session that comes back comes back open.
+ *
+ * What is on the canvas at all is stored beside this, and the note on the detached sets below says
+ * what changed to earn that.
  */
 export function loadCanvasOpenKeys(): ReadonlySet<string> {
   if (typeof window === "undefined") return new Set();
@@ -279,11 +285,12 @@ export function moveInOrder(order: string[], from: number, to: number): string[]
  * things off is how a busy canvas is made readable, and this panel is edited while it is read, so
  * a set that forgets is one the reader re-enters many times a day.
  *
- * Identity only and deliberately unresolved, like the open keys: an id naming a Bot that no longer
- * exists, or a key naming a session its Bot no longer holds, hides nothing that exists. Nothing
- * prunes either against the live roster, and deliberately not -- the Bots arrive over a stream, so
- * a prune on write would run once against an empty roster on every reload and throw the whole set
- * away. They grow only by an explicit removal and shrink on restore, which is bound enough.
+ * Identity only, and unlike the open keys these are NOT pruned against the roster. The difference is
+ * which way a stale entry fails. A stale open key is silent: it opens nothing and nobody can tell it
+ * is there. A stale entry here hides something, and hiding is the thing the roster announces -- the
+ * row is listed, dimmed, with the control that puts it back -- so it is visible rather than lost,
+ * and a session its Bot takes back is one the reader can see is off the canvas. They grow only by an
+ * explicit removal and shrink on restore, which is bound enough.
  */
 const DETACHED_BOTS_KEY = "agent-panel.bot-canvas.off-canvas-bots";
 const DETACHED_SESSIONS_KEY = "agent-panel.bot-canvas.off-canvas-sessions";

@@ -196,6 +196,32 @@ export function App({ feed, host, fill = false }: Props) {
   // one, a Bot leaving the canvas -- rather than a call beside each of them, which is how one of
   // them ends up forgotten.
   useEffect(() => storeCanvasOpenKeys(canvasOpenKeys), [canvasOpenKeys]);
+  // And one prune, because an open key is an address that nothing resolved: a key naming a session
+  // no Bot holds any more opened nothing, went unnoticed for exactly that reason, and stayed in the
+  // store for good. Dropped against the roster rather than on write, and only once the roster is
+  // genuinely KNOWN -- `loading` goes false on a stream failure too, and pruning against the empty
+  // list that leaves would forget every open card because the sidecar restarted.
+  //
+  // A Bot's whole reference list, not the sessions that currently resolve: a transcript the sidecar
+  // cannot read this minute is still a session the reader left open, and dropping its key would
+  // make a temporary absence permanent.
+  //
+  // An EMPTY roster prunes nothing either, and that guard is the one that was measured rather than
+  // reasoned: the stream delivers a snapshot before the Bots are in it, and pruning against that
+  // one wiped the store on every mount. A canvas with no Bots has nothing to open, so there is
+  // nothing to win by dropping keys there and a whole canvas to lose.
+  useEffect(() => {
+    if (botsState.loading || botsState.error !== null || botsState.bots.length === 0) return;
+    const held = new Set(
+      botsState.bots.flatMap((bot) => bot.sessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`)),
+    );
+    setCanvasOpenKeys((current) => {
+      const kept = new Set([...current].filter((key) => held.has(key)));
+      // Identity when nothing goes, so this neither re-renders nor rewrites the store on every
+      // snapshot the stream sends.
+      return kept.size === current.size ? current : kept;
+    });
+  }, [botsState.bots, botsState.loading, botsState.error]);
   // The same one-write rule, and these two need it more than the open keys do: each set shrinks
   // from the sidebar roster and from a real detach as well as growing from a menu, so a call beside
   // each of those is how one of them ends up forgotten.
