@@ -2,9 +2,9 @@ import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
 import { useEffect, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
-import { KeyRailButton as KeyboardButton } from "../keyboard/KeyRailButton";
-import { KeyboardDeck } from "./KeyboardDeck";
-import { deckMetricsForViewportHeight } from "./keyboardDeckMetrics";
+import { KeyRailButton as KeyboardButton } from "../../keyboard/KeyRailButton";
+import { KeyboardDeck } from "../keyboard-deck/KeyboardDeck";
+import { deckMetricsForViewportHeight } from "../keyboard-deck/keyboardDeckMetrics";
 
 const ARROWS: Array<{ label: string; code: RemoteKeyCode; position: string }> = [
   { label: "↑", code: "up", position: "col-start-2 row-start-1" },

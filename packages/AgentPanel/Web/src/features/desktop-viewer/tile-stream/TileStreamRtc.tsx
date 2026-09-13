@@ -7,9 +7,9 @@ import type {
   WebrtcTileAnswer,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
-import type { DesktopStreamState } from "./DesktopStreamState";
-import type { CapturePlan } from "./tileCapturePlan";
+import type { AgentHttpTransport } from "../../activity-feed/transport/AgentHttpTransport";
+import type { DesktopStreamState } from "../DesktopStreamState";
+import type { CapturePlan } from "../zoom/tileCapturePlan";
 import {
   runTileSession,
   RETIRE_TIMEOUT_MS,

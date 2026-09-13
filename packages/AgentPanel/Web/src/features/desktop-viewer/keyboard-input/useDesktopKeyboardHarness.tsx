@@ -7,7 +7,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "../tile-stream/TileStreamRtc";
 import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "./useDesktopKeyboard";
 
 export 

@@ -5,7 +5,7 @@
 // a watchdog that notices a gap and keeps reporting until it closes.
 
 import { postTileTelemetry } from "./webrtcTileWire";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
+import type { AgentHttpTransport } from "../../activity-feed/transport/AgentHttpTransport";
 
 const VIDEO_PRESENTATION_INTERVAL_MS = 5_000;
 const PRESENTATION_WATCHDOG_INTERVAL_MS = 250;

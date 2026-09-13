@@ -4,8 +4,8 @@
 // a pointer drag, a scroll, a view pan and a pinch, and only one thing knows which is
 // running.
 
-import type { ViewportGestureKind, ViewportGestureOutcome } from "./TileViewport";
-import type { ViewportRuntime } from "./tileViewportRuntime";
+import type { ViewportGestureKind, ViewportGestureOutcome } from "../tile-viewport/TileViewport";
+import type { ViewportRuntime } from "../tile-viewport/tileViewportRuntime";
 
 export function createGestureTelemetry(ctx: ViewportRuntime) {
   return {

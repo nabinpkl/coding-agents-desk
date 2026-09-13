@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopNavigationEvent, type DesktopControlEvent, type DesktopControlInput } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "../tile-stream/TileStreamRtc";
 import { initialNavigationModel, navigationReducer, navigationStep, NAVIGATION_TUNING,
   selectedNavigationDisplay, type NavigationAction } from "./desktopNavigationModel";
 

@@ -8,18 +8,18 @@ import {
   scrollAccelerationGain,
   type ViewportPoint,
 } from "./tileViewportMath";
-import { createZoomView, type SettleOutcome, type ViewLayers } from "./zoomModels";
-import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "./captureCrop";
-import { useZoomMode } from "./zoomMode";
-import { useOverviewLayer } from "./overviewLayer";
+import { createZoomView, type SettleOutcome, type ViewLayers } from "../zoom/zoomModels";
+import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "../zoom/captureCrop";
+import { useZoomMode } from "../zoom/zoomMode";
+import { useOverviewLayer } from "../zoom/overviewLayer";
 import { CursorImageCache } from "./cursorImageCache";
 import { createCursorMirror } from "./tileViewportCursorMirror";
 import { createDragVisuals } from "./tileViewportDragVisuals";
-import { createGestureTelemetry } from "./tileViewportGestureTelemetry";
-import { createPointerHandlers } from "./tileViewportPointerHandlers";
-import { createPuckHandlers } from "./tileViewportPuck";
+import { createGestureTelemetry } from "../tile-gestures/tileViewportGestureTelemetry";
+import { createPointerHandlers } from "../tile-gestures/tileViewportPointerHandlers";
+import { createPuckHandlers } from "../tile-gestures/tileViewportPuck";
 import type { ViewportRuntime } from "./tileViewportRuntime";
-import { createScrolling } from "./tileViewportScrolling";
+import { createScrolling } from "../tile-gestures/tileViewportScrolling";
 import { CursorOverlay, PointerScrollPuck } from "./TileViewportOverlays";
 import { createFrameGeometry } from "./tileViewportFrame";
 

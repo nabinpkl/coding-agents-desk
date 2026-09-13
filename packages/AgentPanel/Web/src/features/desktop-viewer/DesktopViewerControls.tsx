@@ -5,8 +5,8 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "./TileStreamRtc";
-import { getCaptureScale, setCaptureScale } from "./captureScale";
+import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "./tile-stream/TileStreamRtc";
+import { getCaptureScale, setCaptureScale } from "./zoom/captureScale";
 
 /**
  * How long the resolution knob has to sit still before the stream is asked to change.

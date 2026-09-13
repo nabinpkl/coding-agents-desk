@@ -14,7 +14,7 @@ import {
   type ReceiverVideoStats,
 } from "./webrtcReceiverStats";
 import type { createVideoPresentationWatch } from "./tileVideoPresentation";
-import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
+import type { AgentHttpTransport } from "../../activity-feed/transport/AgentHttpTransport";
 import type { WebrtcTileAnswer } from "@agentdesk/agent-feed-wire";
 
 export function createReceiverStatsSampler({

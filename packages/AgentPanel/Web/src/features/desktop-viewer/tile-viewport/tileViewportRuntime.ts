@@ -7,7 +7,7 @@
 
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
 import type { ViewportPoint } from "./tileViewportMath";
-import type { createZoomView, ViewLayers } from "./zoomModels";
+import type { createZoomView, ViewLayers } from "../zoom/zoomModels";
 import type { CursorImageCache } from "./cursorImageCache";
 import type {
   ViewportGestureKind,

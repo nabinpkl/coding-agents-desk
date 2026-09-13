@@ -16,7 +16,7 @@ import type {
   RemoteKeyEvent,
   RemoteModifier,
 } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "../tile-stream/TileStreamRtc";
 import {
   INITIAL_KEYBOARD_PRESENTATION,
   KEYBOARD_VIEWPORT_SHRINK_PX,
@@ -25,7 +25,7 @@ import {
   type KeyboardPresentationState,
   type ModifierState,
 } from "./desktopKeyboardModel";
-import { drawsOwnKeyboard } from "./keyboardDeckModel";
+import { drawsOwnKeyboard } from "../keyboard-deck/keyboardDeckModel";
 import * as capture from "./desktopKeyboardCapture";
 import * as control from "./desktopKeyboardControl";
 import * as send from "./desktopKeyboardSend";

@@ -12,7 +12,7 @@ import type {
   RemoteKeyEvent,
   RemoteModifier,
 } from "@agentdesk/agent-feed-wire";
-import type { DesktopControlTransport } from "./TileStreamRtc";
+import type { DesktopControlTransport } from "../tile-stream/TileStreamRtc";
 import type {
   KeyboardPresentationState,
   ModifierState,

@@ -237,4 +237,4 @@ export function handleShiftTap(
 
 // One definition, in `features/keyboard`: the terminal's key rail asks the same question, and a
 // second copy of this media query is exactly the kind of thing that drifts by one clause.
-export { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
+export { drawsOwnKeyboard } from "../../keyboard/softwareKeyboard";

@@ -26,7 +26,7 @@ import {
   zoomAt,
   type ViewportPoint,
   type ViewportTransform,
-} from "./tileViewportMath";
+} from "../tile-viewport/tileViewportMath";
 import {
   centreVisible,
   clampVisible,

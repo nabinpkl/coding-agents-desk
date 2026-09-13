@@ -16,8 +16,8 @@ import {
   postTileTelemetry,
   TileStreamRtc,
   type DesktopControlTransport,
-} from "./TileStreamRtc";
-import { useCaptureScale } from "./captureScale";
+} from "./tile-stream/TileStreamRtc";
+import { useCaptureScale } from "./zoom/captureScale";
 import { ModeButton, ResolutionSlider } from "./DesktopViewerControls";
 import { DesktopStream, DetailStream, OverviewStream } from "./DesktopViewerStreams";
 import {
@@ -26,15 +26,15 @@ import {
   markOverviewReady,
   setCaptureCrop,
   useCaptureCrop,
-} from "./captureCrop";
-import { setZoomMode, useZoomMode } from "./zoomMode";
-import { setOverviewLayer, useOverviewLayer } from "./overviewLayer";
+} from "./zoom/captureCrop";
+import { setZoomMode, useZoomMode } from "./zoom/zoomMode";
+import { setOverviewLayer, useOverviewLayer } from "./zoom/overviewLayer";
 
 /** The coarse stream only has to fill gaps and be panned over; it is not what is read. */
 const OVERVIEW_FPS = 8;
-import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
-import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
-import { useDesktopKeyboard } from "./useDesktopKeyboard";
+import { TileViewport, type ViewportGestureTelemetry } from "./tile-viewport/TileViewport";
+import { DesktopKeyboardChrome } from "./keyboard-input/DesktopKeyboardChrome";
+import { useDesktopKeyboard } from "./keyboard-input/useDesktopKeyboard";
 
 const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 /**

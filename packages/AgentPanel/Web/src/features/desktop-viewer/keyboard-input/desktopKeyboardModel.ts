@@ -17,8 +17,8 @@ export type KeyboardPresentation = "unavailable" | "hidden" | "pending" | "shown
 // One definition, in `features/keyboard`, because the terminal's key rail latches its modifiers
 // the same way this one does. Re-exported rather than moved out of this module's surface: every
 // caller here already reads its keyboard vocabulary from this file.
-import type { ModifierState } from "../keyboard/modifierLatch";
-export { cycleModifier, type ModifierState } from "../keyboard/modifierLatch";
+import type { ModifierState } from "../../keyboard/modifierLatch";
+export { cycleModifier, type ModifierState } from "../../keyboard/modifierLatch";
 
 export interface KeyboardPresentationState {
   presentation: KeyboardPresentation;
