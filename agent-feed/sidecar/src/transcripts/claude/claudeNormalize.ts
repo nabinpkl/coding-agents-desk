@@ -20,6 +20,7 @@ import {
   assistantModel,
   extractClaudeCacheHit,
   extractClaudeUsage,
+  extractCompactionUsage,
   normalizeBlocks,
   timestampMs,
   truncate,
@@ -152,8 +153,16 @@ export function normalizedRecord(
   if (typeof t === 'string' && t !== 'user' && t !== 'assistant') {
     if (t === 'system' && ev.subtype === 'compact_boundary') {
       const rawBlocks = appendCommon([{ block: { kind: 'compaction' }, raw: null }]);
+      // The one record in a Claude transcript that reports occupancy without being a turn. It is
+      // read here rather than left to the next assistant line because the whole point of the
+      // reading is that the next assistant line may be hours away.
+      const usage = extractCompactionUsage(ev, ts);
       return {
-        result: { event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) }, ...(cwd ? { cwd } : {}) },
+        result: {
+          event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) },
+          ...(usage ? { usage } : {}),
+          ...(cwd ? { cwd } : {}),
+        },
         rawBlocks,
       };
     }

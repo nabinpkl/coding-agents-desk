@@ -405,8 +405,8 @@ export function ClusterRow({
 /**
  * Horizontal milestone banner that marks where the harness compacted the
  * model's context. Sits between turn clusters so the viewer can see the reset
- * point; the actual context-size drop is already visible in the header token
- * meter.
+ * point; the size the context dropped TO rides the same event as an occupancy
+ * report, so the token meter moves on this row rather than on the next turn.
  */
 export function CompactionRow({
   ev,

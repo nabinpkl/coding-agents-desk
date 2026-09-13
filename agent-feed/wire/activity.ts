@@ -105,8 +105,12 @@ export interface ActivityEvent extends ParsedLine {
 // number of tokens in the most recent prompt the model actually processed
 // (Claude: assistant.message.usage input + cache_creation + cache_read +
 // output; Codex: event_msg.token_count info.last_token_usage.total_tokens).
-// Compaction is implicit: post-compaction turns report a smaller `current`
-// automatically.
+// A compaction is reported the moment it happens, not inferred from the next
+// turn. Claude's `compact_boundary` record carries what the context dropped to
+// and the adapter publishes it as an occupancy report of its own; Codex writes
+// a `token_count` on the line after its own boundary. Both matter because the
+// next turn can be hours away, and until one arrives the meter would otherwise
+// still be showing a context that no longer exists.
 //
 // `limit` arrives RESOLVED. Codex publishes `model_context_window` in the
 // transcript; Claude does not, so the adapter resolves it from the config table

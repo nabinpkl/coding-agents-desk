@@ -247,8 +247,10 @@ export function assistantModel(message: Record<string, unknown>): string | undef
 // Pull total token occupancy off an assistant line. Sum of input +
 // cache_creation + cache_read + output gives "what the model held in
 // context at the end of this turn", which is what the Agent Panel meter
-// shows. Post-compaction turns report a much smaller sum automatically,
-// so no compaction-specific math is needed.
+// shows. The first turn after a compaction reports a much smaller sum on its
+// own, so there is no compaction-specific math here -- but there IS a
+// compaction-specific reading, because that turn may be hours away:
+// `extractCompactionUsage` above.
 //
 // Claude does not publish the context window in the transcript, so the limit is
 // resolved HERE from the config table rather than left null for the panel to
@@ -273,6 +275,38 @@ export function extractClaudeUsage(
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
   };
+}
+
+/**
+ * What the harness says the context holds AFTER it compacted, from the boundary record itself.
+ *
+ * The meter is otherwise fed only by assistant records, so nothing moves it until the next turn
+ * runs. Measured over the 22 compactions in this project's largest session: the meter held the
+ * pre-compaction number for a median of 356 seconds, and once for 8.4 hours, while the line two
+ * records away already said what it had dropped to.
+ *
+ * Names no model, deliberately. The boundary record names none, and `mergeUsage` inherits the
+ * limit and model from the last line that did -- the same path Codex `token_count` records and
+ * Claude's `<synthetic>` lines take. A compaction before this session's first assistant line
+ * (a resumed transcript opens that way) therefore shows a bare count until a turn names a model,
+ * which is the existing rule for an occupancy report with no window rather than a new one.
+ *
+ * `postTokens` is NOT measured the same way as `preTokens`, and that is visible to the reader.
+ * `preTokens` matched the meter's own last reading exactly at 16 of the 21 boundaries that had
+ * one, and within 1000 at the rest -- so it counts the whole prompt. `postTokens` counts the
+ * conversation only: after the newest compaction here it read 27,741 while the next prompt the
+ * model actually processed was 109,079, the difference being the system prompt, the tool
+ * definitions and the project instructions that the harness re-adds on the first turn. So the
+ * meter drops to the conversation and climbs back once that overhead is re-sent. That is what
+ * the number means rather than an error in it, and it is still the honest reading of the moment:
+ * the alternative on offer is a number that is wrong by an entire compaction for six minutes.
+ */
+export function extractCompactionUsage(record: Record<string, unknown>, ts: number): TokenUsage | null {
+  const metadata = record.compactMetadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const post = (metadata as Record<string, unknown>).postTokens;
+  if (typeof post !== 'number' || !Number.isFinite(post) || post <= 0) return null;
+  return { current: post, limit: null, updatedAt: ts || Date.now() };
 }
 
 // Per-turn prompt-cache summary for the cache-hit badge. A "cache hit" for

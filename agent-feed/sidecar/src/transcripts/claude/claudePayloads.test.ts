@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { mergeUsage } from "@/transcripts/usageState";
 
 function userLine(content: unknown): string {
   return JSON.stringify({
@@ -62,4 +63,47 @@ test('a tool result carrying text is untouched', () => {
     preview: 'ok',
     callId: 'toolu_text',
   });
+});
+
+/** The boundary record as the CLI writes it, trimmed to the fields the adapter reads. */
+function compactBoundary(metadata: Record<string, unknown> | null): string {
+  return JSON.stringify({
+    type: 'system',
+    subtype: 'compact_boundary',
+    content: 'Conversation compacted',
+    timestamp: '2026-09-14T00:55:43.983Z',
+    ...(metadata ? { compactMetadata: metadata } : {}),
+  });
+}
+
+test('a compaction reports the context it dropped to, without waiting for the next turn', () => {
+  // Measured on this project's largest session: the meter otherwise held the pre-compaction
+  // number for a median of 356 seconds after the boundary, and once for 8.4 hours.
+  const result = claudeAdapter.processLine(compactBoundary({
+    trigger: 'manual',
+    preTokens: 361_046,
+    postTokens: 27_741,
+    cumulativeDroppedTokens: 14_954_537,
+  }));
+  expect(result?.usage).toEqual({
+    current: 27_741,
+    limit: null,
+    updatedAt: Date.parse('2026-09-14T00:55:43.983Z'),
+  });
+});
+
+test('a compaction names no model, so the session keeps the window it already knew', () => {
+  // Same path a Codex `token_count` and a Claude `<synthetic>` line take: `mergeUsage` inherits
+  // the limit and model from the last line that named one, rather than blanking the meter.
+  const result = claudeAdapter.processLine(compactBoundary({ postTokens: 20_864 }));
+  expect(result?.usage?.model).toBeUndefined();
+  expect(mergeUsage({ current: 299_522, limit: 1_000_000, updatedAt: 1, model: 'claude-opus-5' }, result!.usage!))
+    .toEqual({ current: 20_864, limit: 1_000_000, updatedAt: expect.any(Number), model: 'claude-opus-5' });
+});
+
+test('a boundary carrying no metadata leaves the meter where it was', () => {
+  // An older CLI, or a record shape that moves. Reporting zero would read as an emptied context.
+  expect(claudeAdapter.processLine(compactBoundary(null))?.usage).toBeUndefined();
+  expect(claudeAdapter.processLine(compactBoundary({ trigger: 'auto' }))?.usage).toBeUndefined();
+  expect(claudeAdapter.processLine(compactBoundary({ postTokens: 0 }))?.usage).toBeUndefined();
 });
