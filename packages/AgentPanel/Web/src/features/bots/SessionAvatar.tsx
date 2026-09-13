@@ -19,10 +19,16 @@ import { sessionInitials } from "@/features/bots/botSurface";
  * uppercase, monospaced -- was the only shaped thing in the row, so the eye went to the label
  * about the session before the session.
  *
- * So the session gets a face of its own, in its Bot's colour, one size under the Bot's: the same
- * containment the card already draws, said in the one place a reader's eye starts. `size-6`
- * against the Bot's `size-9` on a card and `size-10` in the sidebar, which is small enough to
- * read as belonging to the header above it rather than competing with it.
+ * So the session gets a face of its own, one size under the Bot's: the same containment the card
+ * already draws, said in the one place a reader's eye starts. `size-6` against the Bot's `size-9`
+ * on a card and `size-10` in the sidebar, which is small enough to read as belonging to the header
+ * above it rather than competing with it.
+ *
+ * **On its own step of its Bot's colour, not on the Bot's.** The Bot's hue is what says whose
+ * session this is; the step is what says which one, and without it a Bot with five sessions had
+ * five identical discs and only the letters to go on. The ladder and its measurement live in
+ * `styles.css`; the step itself comes from `botSessionShades`, ranked over the Bot's durable
+ * roster so a session keeps its colour when its neighbours come and go.
  *
  * **Activity is a ring rather than a corner badge.** A badge would have to be ringed in whatever
  * is behind it to read as sitting ON the disc, and what is behind it here changes: a session's
@@ -40,12 +46,14 @@ export function SessionAvatar({
   title: string;
   activity: Bin;
   /**
-   * Whether a Bot hue is in scope on an ancestor, which is what `bot-accent` resolves against.
+   * Whether a Bot hue AND this session's step on that Bot's ladder are both in scope on an
+   * ancestor, which is what `bot-session-accent` resolves against.
    *
-   * Not a nicety: `oklch(l c var(--bot-hue))` with no `--bot-hue` set is invalid at computed-value
-   * time, so the declaration drops and the disc comes back TRANSPARENT with nothing said about it.
-   * The neutral disc is the honest answer wherever there is no hue -- an unranked Bot, the session
-   * picker's preview -- and it is the same fallback `BotAvatar` takes for the same reason.
+   * One boolean for the pair because they are one fact: `botSessionStyle` publishes both or
+   * neither, for the reason it gives. Not a nicety either way -- a `calc()` over a custom property
+   * nothing set is invalid at computed-value time, so the declaration drops and the disc comes
+   * back TRANSPARENT with nothing said about it. The neutral disc is the honest answer wherever
+   * there is no hue to be a shade of, and it is the same fallback `BotAvatar` takes.
    */
   shaded: boolean;
   className?: string;
@@ -57,7 +65,9 @@ export function SessionAvatar({
       // hear the session announced three times.
       aria-hidden
       className={`flex size-6 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold ${
-        shaded ? "bot-accent text-foreground" : "border border-border bg-muted text-muted-foreground"
+        shaded
+          ? "bot-session-accent text-foreground"
+          : "border border-border bg-muted text-muted-foreground"
       } ${activity === "live" ? "ring-2 ring-green-500" : ""} ${className}`}
     >
       {sessionInitials(title)}

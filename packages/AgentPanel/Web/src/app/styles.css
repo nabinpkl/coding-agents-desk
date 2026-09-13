@@ -196,6 +196,20 @@
   --bot-session-surface-dc: 0;
   --bot-session-border-dl: -0.038;
   --bot-session-border-dc: 0.006;
+  /* A session's own FACE steps in light where its card surface cannot, and the difference is what
+     bounds each. The surface is bounded by `--muted-foreground` over a large area, which the block
+     above records as having 0.05 of headroom here; a 24px disc is bounded by `--foreground` on
+     eleven pixels of text, which has far more. So light says which session on the border AND on
+     the mark, and only the card between them stays flat.
+
+     Descending, away from dark text, which is why light's step is the larger of the two. Measured
+     over 72 hues and six steps against the sRGB a display paints: `--foreground` holds 5.58:1 at
+     the worst step and hue, and adjacent steps stay 0.044 dEok apart after clipping -- wider than
+     the border ladder directly above. One step further, at -0.050, still clears AA at 4.94:1 and
+     was not taken: a disc that dark stops reading as the Bot's colour and starts reading as a
+     different Bot. */
+  --bot-session-accent-dl: -0.044;
+  --bot-session-accent-dc: 0.006;
   /* An OPEN session's interior: the two surfaces `SessionView` paints, which cover the card's own
      fill entirely and so have to carry the colour themselves. Light gets the Bot's surface flat,
      with no ladder on it, and both zeros are the same measurement the surface deltas above are.
@@ -244,6 +258,13 @@
     --bot-session-surface-dc: 0.003;
     --bot-session-border-dl: 0.038;
     --bot-session-border-dc: 0.004;
+    /* The disc ladder, and dark is the tighter of the two themes rather than the looser one it is
+       everywhere else. Everything here climbs AWAY from the page, and the disc climbing carries it
+       TOWARD the near-white text sitting on it: at 0.034 a step, `--foreground` falls to 4.44:1 at
+       hue 275 and fails AA. 0.028 holds 5.05:1 over 72 hues and six steps, with adjacent steps
+       0.028 dEok apart after clipping, which is still wider than the border ladder's 0.020. */
+    --bot-session-accent-dl: 0.028;
+    --bot-session-accent-dc: 0.004;
     /* Dark carries the ladder into the interior too, but at 0.012 a step rather than the card's
        0.020, and the gap is a measurement rather than restraint: the interior is where the panel's
        densest text lives, and it is a large area, where less tint reads as more. At 0.012 the
@@ -298,6 +319,22 @@
      almost-invisible circle an edge. */
   .bot-accent {
     background-color: oklch(var(--bot-accent-l) var(--bot-accent-c) var(--bot-hue));
+  }
+
+  /* One of a Bot's sessions wearing its own step of that Bot's accent, which is what makes two
+     sessions of one Bot tell apart at the mark rather than only at the letters in it. Same split
+     as every ladder here: `botSurface.ts` decides WHICH step, how far a step moves lives in the
+     theme blocks above, and the numbers there carry their own measurement.
+
+     Requires BOTH `--bot-hue` and `--bot-session-step`, which is why `SessionAvatar` takes one
+     boolean for the pair rather than asking about them separately. Either one missing makes this
+     declaration invalid at computed-value time and the disc comes back transparent. */
+  .bot-session-accent {
+    background-color: oklch(
+      calc(var(--bot-accent-l) + var(--bot-session-step) * var(--bot-session-accent-dl))
+      calc(var(--bot-accent-c) + var(--bot-session-step) * var(--bot-session-accent-dc))
+      var(--bot-hue)
+    );
   }
 
   /* One of a Bot's sessions, on its own step of that Bot's colour. `botSurface.ts` decides WHICH
