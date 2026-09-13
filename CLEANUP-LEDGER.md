@@ -54,7 +54,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R20 | D | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
 | R21 | D | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
 | R22 | D | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
-| R23 | R | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
+| R23 | D | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
 | R24 | R | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
 | R25 | R | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
 | R26 | R | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
@@ -344,6 +344,18 @@ Split into `fixtureData.ts` and `fixtureRoutes.ts`. 568 to 82.
 Split into `desktopKeyboardPreferences.ts`, `desktopKeyboardContext.ts`,
 `desktopKeyboardSession.ts`, `desktopKeyboardSend.ts`, `desktopKeyboardCapture.ts`,
 `desktopKeyboardControl.ts`. 906 to 292.
+
+### R23 `desktop-viewer/TileViewport.test.tsx` (862)
+
+- The rendered surface and the browser pieces jsdom lacks: animation frames, a ResizeObserver,
+  and MouseEvents standing in for PointerEvents.
+- One finger on the tile: where the pointer goes, when a hold becomes a held button, what ends one.
+- The scroll clutch and the puck: what stays local, what reaches the Mac as a wheel.
+- The cursor the viewer sees, and correcting a prediction from the newest applied move.
+- Zoom, pan, and the strip the keyboard leaves.
+
+Split into `tileViewportHarness.tsx`, `tileViewportScroll.test.tsx`, `tileViewportCursor.test.tsx`,
+`tileViewportZoom.test.tsx`. 29 `it` blocks moved whole; 939 panel tests, unchanged.
 
 ## Decisions
 
