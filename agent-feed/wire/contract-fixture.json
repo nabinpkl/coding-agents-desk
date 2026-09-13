@@ -85,6 +85,7 @@
       ],
       "windowStart": 0,
       "total": 2,
+      "stableIndices": false,
       "runState": "idle",
       "queue": {
         "steer": 0,

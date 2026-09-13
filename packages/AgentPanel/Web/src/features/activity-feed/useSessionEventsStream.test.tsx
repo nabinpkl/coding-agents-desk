@@ -151,6 +151,109 @@ describe("useSessionEventsStream", () => {
     expect(view.result.current.sequence).toBe(1);
   });
 
+  it("keeps paged-in history when a reconnect snapshot has stable indices", async () => {
+    const all = Array.from({ length: 250 }, (_, index) =>
+      event(index, `row-${index}`, "assistant"),
+    );
+    let handlers: SessionEventsHandlers | undefined;
+    const source: AgentDataSource = stubDataSource({
+      fetchEventsPage: async (_session, offset, limit) => ({
+        events: all.filter(
+          (value) => value.index >= offset && value.index < offset + limit,
+        ),
+        total: all.length,
+        usage: null,
+      }),
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("claude", "thread", "nice"),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(view.result.current.windowStart).toBe(150);
+
+    // The reader scrolls up, so a window of older rows is paged in below the
+    // opening one.
+    await act(async () => { await view.result.current.loadOlder(); });
+    expect(view.result.current.windowStart).toBe(50);
+    expect(view.result.current.events).toHaveLength(200);
+
+    // The stream blips and EventSource reopens it. The sidecar answers every
+    // open with the same opening window: the tail, and nothing below it.
+    act(() => handlers?.onSnapshot?.({
+      events: all.slice(150),
+      total: all.length,
+      windowStart: 150,
+      stableIndices: true,
+      usage: null,
+      state: { sequence: 2, runState: "idle", queue: { steer: 0, followUp: 0 } },
+    }));
+
+    // The rows the reader paged in survive it, and the window still reaches
+    // down to them so scrolling further up still has somewhere to go.
+    expect(view.result.current.events).toHaveLength(200);
+    expect(view.result.current.events[0]?.id).toBe("row-50");
+    expect(view.result.current.windowStart).toBe(50);
+    expect(view.result.current.total).toBe(250);
+    expect(view.result.current.sequence).toBe(2);
+  });
+
+  it("still replaces the window when a snapshot does not claim stable indices", async () => {
+    // The same session and the same reconnect, with the flag absent. This is
+    // the runtime-backed contract, asserted here so the branch cannot be
+    // simplified into an unconditional merge.
+    const all = Array.from({ length: 250 }, (_, index) =>
+      event(index, `row-${index}`, "assistant"),
+    );
+    let handlers: SessionEventsHandlers | undefined;
+    const source: AgentDataSource = stubDataSource({
+      fetchEventsPage: async (_session, offset, limit) => ({
+        events: all.filter(
+          (value) => value.index >= offset && value.index < offset + limit,
+        ),
+        total: all.length,
+        usage: null,
+      }),
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("claude", "thread", "nice"),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    await act(async () => { await view.result.current.loadOlder(); });
+    expect(view.result.current.events).toHaveLength(200);
+
+    act(() => handlers?.onSnapshot?.({
+      events: all.slice(150),
+      total: all.length,
+      windowStart: 150,
+      usage: null,
+      state: { sequence: 2, runState: "idle", queue: { steer: 0, followUp: 0 } },
+    }));
+
+    expect(view.result.current.events).toHaveLength(100);
+    expect(view.result.current.events[0]?.id).toBe("row-150");
+    expect(view.result.current.windowStart).toBe(150);
+  });
+
   it("does not let an in-flight initial page overwrite a reconnect snapshot", async () => {
     let handlers: SessionEventsHandlers | undefined;
     let resolveProbe: ((page: EventsPage) => void) | undefined;

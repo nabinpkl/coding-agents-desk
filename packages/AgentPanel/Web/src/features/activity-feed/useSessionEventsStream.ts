@@ -192,10 +192,33 @@ onEvent: (event) => {
               ? null
               : current.liveTail
             : null;
+          // The snapshot always owns the window it covers. What it does NOT own is
+          // what the reader paged in BELOW that window: on a transcript-backed
+          // session those rows are still about the same lines, because the file only
+          // ever grew. On a runtime-backed one the projection has renumbered and they
+          // are arithmetic about a session that no longer exists, so they go.
+          //
+          // The sidecar re-sends its opening window on every open, and EventSource
+          // reopens on its own after any drop, so without this a reader who had
+          // scrolled up watched the transcript collapse back to its last hundred rows
+          // for no reason they could see.
+          const retained = snapshot.stableIndices
+            ? Array.from(current.events.values()).filter(
+                (event) => event.index < snapshot.windowStart,
+              )
+            : [];
+          const events = new Map(retained.map((event) => [event.index, event]));
+          for (const event of snapshot.events) events.set(event.index, event);
           return {
-            events: new Map(snapshot.events.map((event) => [event.index, event])),
+            events,
             total: snapshot.total,
-            windowStart: snapshot.windowStart,
+            // Only a window that actually kept something reaches below the snapshot's
+            // start. On a first open there is nothing held and `current.windowStart`
+            // is still 0, which would otherwise claim the whole session was loaded.
+            windowStart:
+              retained.length > 0
+                ? Math.min(current.windowStart, snapshot.windowStart)
+                : snapshot.windowStart,
             // The snapshot's structured occupancy, or -- when the runtime did
             // not deliver it -- the transcript's own last reading, which the
             // events already carry. Live readings still win later: `updatedAt`

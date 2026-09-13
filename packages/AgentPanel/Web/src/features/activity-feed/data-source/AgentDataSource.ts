@@ -31,15 +31,20 @@ export interface EventsPage {
 }
 
 export interface SessionEventsSnapshot extends EventsPage {
-  /** First event index present in this authoritative replacement window. */
+  /** First event index present in this window. */
   windowStart: number;
+  /** Whether this session's indices mean the same line on every open, so rows the
+   *  reader paged in below `windowStart` are still about this transcript. Absent
+   *  means they are not: the window replaces whatever was held. */
+  stableIndices?: boolean;
   state: AgentSessionState;
 }
 
 export interface SessionEventsHandlers {
   onEvent: (ev: ActivityEvent) => void;
-  /** Replaces the visible session window after a reconnect. Runtime-local
-   *  indexes and revisions cannot be merged across this boundary. */
+  /** Re-states the visible session window after a reconnect. Runtime-local
+   *  indexes and revisions cannot be merged across this boundary, which is what
+   *  `stableIndices` on the snapshot reports. */
   onSnapshot: (snapshot: SessionEventsSnapshot) => void;
   onState?: (state: AgentSessionState) => void;
   /** Fired whenever a chunk carries occupancy. Separate from `onEvent` because
