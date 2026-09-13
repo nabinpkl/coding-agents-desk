@@ -10,6 +10,47 @@ Read the current `AGENTS.md` runtime section and D277/R278/D279 in
 `tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md` (the retired root
 ledger) before deployment.
 
+Staleness audit, 2026-09-09. Four things below are no longer true, measured rather than
+assumed. **The arc is finished and this file is now a record of it**, so nothing here was
+rewritten; read it with these four corrections in hand.
+
+- **Every path under "What exists now" moved on 2026-09-09**, when both live TypeScript trees were
+  brought under a twelve-source-file-per-directory ceiling. Nothing but import lines changed, so
+  each file still holds what it says it holds; only where to find it moved.
+  `webrtcTileRoutes.ts` is in `sidecar/src/http/tile-peer/`, `h264Packetizer.ts` in
+  `http/tile-codec/`, `encoderFrames.ts` in `http/tile-encoder/` beside the encoder pool that
+  `webrtcTileRoutes.ts` no longer owns; `TileStreamRtc.tsx` is in
+  `features/desktop-viewer/tile-stream/`, `TileViewport.tsx` and `tileViewportMath.ts` in
+  `features/desktop-viewer/tile-viewport/`. `DesktopParkModal.tsx` is where it was and has no
+  transport toggle any more, that having gone with the MSE path. The rule and both records are in
+  `AGENTS.md` and `tasks/archive/2026-09-09-*`.
+- **Known open issue 1 is fixed.** The jsdom `localStorage` accessor failure that made
+  `agent-panel-web-check` red is gone: measured 2026-09-09, `just agent-panel-web-check` is
+  **98 files / 948 tests passing, exit 0**. So `just check` reaches Swift again and the advice to
+  verify Swift changes with a direct `xcodebuild` is no longer needed. Note what `just check` does
+  now instead: it scopes to your diff, and on a clean tree it prints `nothing changed ... Nothing
+  to check` and exits 0, which reads exactly like a pass.
+- **"Next arc, already scoped" shipped.** Remote control on the tile exists as a data channel
+  rather than as `POST /api/park/input`: `http/tile-control/` holds who owns input across peers,
+  what a viewer may send, and what is sent back, and ADR-0112 records driving desktop navigation
+  through it. The one bullet still worth reading is the last: input never rides the video.
+- **The diag log moved out of `/tmp`.** It is
+  `/Users/Shared/agentdesk/logs/<user>-webrtc-diag.log`, resolved by `tools/runtime-paths.mjs` and
+  named per user. Both mentions below are corrected in place, because a `tail` of the old path
+  reports an absence rather than an error.
+
+What is NOT stale, and is the reason to keep reading: every trap under "Traps that cost real time"
+was measured against a shape that has not changed, known open issues 2 through 5 are all still
+open, and **issue 5 in particular has aged into the sharper version of itself** -- there is still
+no ADR for transport-only WebRTC, three weeks after it stopped being one of two delivery paths and
+became the only one. The "Still open from the previous handover" section is untouched by any of
+this.
+
+The one thing waiting on a human, `just client-install`, is moot rather than done: the iPhone
+surface is the same browser panel as the desktop one since 2026-09-07, so the `WKWebView` inline
+playback flag it was going to test is not on the path any more. `docs/dormant-native.md` has that
+arc if it reopens.
+
 Read `AGENTS.md` first for how to work in this repo. This file covers only the
 arc that just happened and what it left behind. Previous handovers are preserved
 in this file's git history; the one before this is `55155019` (2026-08-01,
@@ -84,7 +125,7 @@ VideoToolbox hardware encode out. Makes no policy decisions.
   window id or the literal `display`. Owns offer/answer, negotiated-codec
   selection, the shared per-target encoder pool, PLI and REMB relay to the
   encoder's stdin. Writes connection diagnostics to
-  `/tmp/agentdesk-webrtc-diag.log`.
+  `/Users/Shared/agentdesk/logs/<user>-webrtc-diag.log`.
 - `h264Packetizer.ts` — RFC 6184 mode 1. Pure reframing, tested. Exists only
   because werift ships the depacketizer and not the packetizer.
 - `encoderFrames.ts` — the stdout de-framer, all that survives of the MSE path's
@@ -222,7 +263,7 @@ panel and sidecar edits live on the Mac and the phone with no rebuild:
 tools/park-panel-dev.sh host
 ```
 
-Triage in ten seconds when a tile misbehaves: `tail /tmp/agentdesk-webrtc-diag.log`
+Triage in ten seconds when a tile misbehaves: `tail /Users/Shared/agentdesk/logs/<user>-webrtc-diag.log`
 separates transport from capture (candidates, ICE state, chosen codec), and
 `ps -o pid,etime,%cpu -p $(pgrep -f grid-encoder | tr '\n' ',' | sed 's/,$//')`
 says whether the encoder is producing. A connected peer with a 0% CPU encoder is
