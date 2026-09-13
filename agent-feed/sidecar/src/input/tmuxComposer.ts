@@ -97,6 +97,20 @@ const PASTE_END = "\u001b[201~";
  */
 export const MAXIMUM_COMPOSER_BYTES = 16 * 1024;
 
+/**
+ * How long a send is given to reach the screen, and how often the screen is asked.
+ *
+ * Measured 2026-09-07 against a live pane, ten trials: the pasted text appeared in `capture-pane`
+ * between 21ms and 46ms after `send-keys` returned, against a whole request that took about
+ * 110ms. The limit is an order of magnitude past the worst of those because it is not a deadline
+ * anything depends on -- it is where waiting stops being worth it and the next reader takes its
+ * chances, which is the behaviour this module had everywhere before.
+ *
+ * The interval is smaller than a capture costs, so what actually paces the loop is tmux.
+ */
+const REDRAW_LIMIT_MS = 400;
+const REDRAW_POLL_MS = 5;
+
 /** What the box is showing: what is in it, and what Claude is offering to put there. */
 export interface ComposerBox {
   /**
@@ -313,6 +327,85 @@ export function composerPanes(): TmuxComposerPanes {
       held.delete(sessionId);
     },
   };
+}
+
+/**
+ * The turn in progress on each session's box, so a second one waits rather than interleaving.
+ *
+ * Every function here that touches a composer READS the screen and then WRITES to it, and those
+ * two halves are not atomic. Two of them overlapping is not a rare race: the panel debounces at
+ * 90ms and a push over a slow link takes longer than that, so a reader typing normally has a
+ * second push starting before the first has landed. Both read the same box, both compute their
+ * keystrokes from it, and both paste their whole text.
+ *
+ * Measured 2026-09-07, two pushes fired together at an empty box, "hello wor" and "hello world
+ * now": the box ended up holding `hello world nowhello wor`, and each request answered 200 with
+ * its own text, so nothing anywhere reported a problem. That is the shape the reader sees -- every
+ * draft they typed, concatenated in the order the sends happened to land.
+ *
+ * Process-wide rather than per-runtime, because the thing being serialised is the pane, and the
+ * two live surfaces (a phone and a Mac, both real, both able to drive one session) reach it
+ * through different requests.
+ */
+const TURNS = new Map<string, Promise<void>>();
+
+/**
+ * Runs `work` after whatever is already in flight for this session, and reports its own result.
+ *
+ * The chain the next caller waits on is one that never rejects, so a failed turn holds nothing up
+ * and cannot re-throw into an unrelated caller. The map entry is dropped when the chain drains,
+ * which keeps this from being a per-session leak in a sidecar that sees thousands of them.
+ */
+function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+  const result = (TURNS.get(sessionId) ?? Promise.resolve()).then(work);
+  const drained = result.then(() => {}, () => {});
+  TURNS.set(sessionId, drained);
+  void drained.then(() => {
+    if (TURNS.get(sessionId) === drained) TURNS.delete(sessionId);
+  });
+  return result;
+}
+
+/**
+ * Waits for the pane to redraw from a send, so the next turn reads the box and not its past.
+ *
+ * Serialising the turns is only half of it. The second turn still starts by reading the screen,
+ * and the screen does not carry what was just sent for another few tens of milliseconds -- so
+ * without this it reads the box as it was BEFORE the previous turn, computes a diff against text
+ * that is already gone, and corrupts the pane exactly as two concurrent turns would.
+ *
+ * What it waits for is the reading being DIFFERENT, not the reading being right. A composer whose
+ * text wraps cannot be reconstructed exactly (see the header), so waiting for it to equal what was
+ * asked for would spin out the full limit on every wrapped push. Difference is observable in every
+ * case and is the actual question: has this send reached the screen yet.
+ *
+ * A box that reads as nothing at all is a pane mid-redraw, which is not an answer either way, so
+ * it keeps waiting. Passing `null` says there is nothing to wait for and returns at once.
+ *
+ * It swallows its own failures, which is the one place in this module that is right. The send has
+ * already happened by the time this runs, so a tmux that stops answering DURING the wait says
+ * nothing about whether the push landed -- and letting that throw would report a push that reached
+ * the box as a session with no tmux, clearing the held pane on the way out. Waiting simply stops;
+ * the next turn reads the pane and reports what it finds.
+ */
+async function settle(
+  pane: string,
+  before: string | null,
+  runtime: TmuxComposerRuntime,
+): Promise<void> {
+  if (before === null) return;
+  const deadline = Date.now() + REDRAW_LIMIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((wake) => setTimeout(wake, REDRAW_POLL_MS));
+    let screen: string;
+    try {
+      screen = await runtime.screen(pane);
+    } catch {
+      return;
+    }
+    const box = composerBox(screen);
+    if (box && composerText(box.rows) !== before) return;
+  }
 }
 
 /** Everything the live functions need from tmux, injected so the suite needs no tmux server. */
@@ -538,20 +631,25 @@ export async function syncTmuxComposer(
   desired: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  try {
-    const pane = await paneFor(sessionId, runtime);
-    if (!pane) return unavailable("no-pane");
-    const box = composerBox(await runtime.screen(pane));
-    if (!box) return unavailable("no-composer");
-    const keys = keystrokesFor(box.rows, desired);
-    if (keys.length > 0) await runtime.send(pane, new TextEncoder().encode(keys));
-    // No hint: whatever Claude was offering, the box now holds what was asked for instead. An
-    // empty push is the one case where a suggestion comes back, and the watcher reports it a
-    // moment later.
-    return { text: desired, hint: null, reason: null, wrapped: false };
-  } catch (error) {
-    return failed(sessionId, error, runtime);
-  }
+  return inTurn(sessionId, async () => {
+    try {
+      const pane = await paneFor(sessionId, runtime);
+      if (!pane) return unavailable("no-pane");
+      const box = composerBox(await runtime.screen(pane));
+      if (!box) return unavailable("no-composer");
+      const keys = keystrokesFor(box.rows, desired);
+      if (keys.length > 0) {
+        await runtime.send(pane, new TextEncoder().encode(keys));
+        await settle(pane, composerText(box.rows), runtime);
+      }
+      // No hint: whatever Claude was offering, the box now holds what was asked for instead. An
+      // empty push is the one case where a suggestion comes back, and the watcher reports it a
+      // moment later.
+      return { text: desired, hint: null, reason: null, wrapped: false };
+    } catch (error) {
+      return failed(sessionId, error, runtime);
+    }
+  });
 }
 
 /**
@@ -575,17 +673,23 @@ export async function dropTmuxComposerImage(
   path: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  try {
-    const pane = await paneFor(sessionId, runtime);
-    if (!pane) return unavailable("no-pane");
-    const box = composerBox(await runtime.screen(pane));
-    if (!box) return unavailable("no-composer");
-    const keys = separator(box) + paste(path);
-    await runtime.send(pane, new TextEncoder().encode(keys));
-    return { text: null, hint: null, reason: null, wrapped: false };
-  } catch (error) {
-    return failed(sessionId, error, runtime);
-  }
+  return inTurn(sessionId, async () => {
+    try {
+      const pane = await paneFor(sessionId, runtime);
+      if (!pane) return unavailable("no-pane");
+      const box = composerBox(await runtime.screen(pane));
+      if (!box) return unavailable("no-composer");
+      const keys = separator(box) + paste(path);
+      await runtime.send(pane, new TextEncoder().encode(keys));
+      // Claude swaps the path for its own `[Image #N]`, so the box always ends up reading
+      // differently. Waiting for that is what stops the next push diffing against a box that
+      // still shows the moment before the drop.
+      await settle(pane, composerText(box.rows), runtime);
+      return { text: null, hint: null, reason: null, wrapped: false };
+    } catch (error) {
+      return failed(sessionId, error, runtime);
+    }
+  });
 }
 
 /**
@@ -635,22 +739,24 @@ export async function renameTmuxSession(
   title: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<SessionRenameOutcome> {
-  try {
-    const pane = await paneFor(sessionId, runtime);
-    if (!pane) return { renamed: false, reason: "no-pane" };
-    const box = composerBox(await runtime.screen(pane));
-    if (!box) return { renamed: false, reason: "no-composer" };
-    if (composerText(box.rows).length > 0) return { renamed: false, reason: "composer-busy" };
-    const encoder = new TextEncoder();
-    // One send, not two: the command and the Return travel together so nothing can be typed
-    // between them into the box this just checked was empty.
-    const keys = keystrokesFor(box.rows, `/rename ${title}`);
-    await runtime.send(pane, encoder.encode(keys + CARRIAGE_RETURN));
-    return { renamed: true };
-  } catch (error) {
-    const state = failed(sessionId, error, runtime);
-    return { renamed: false, reason: state.reason };
-  }
+  return inTurn(sessionId, async () => {
+    try {
+      const pane = await paneFor(sessionId, runtime);
+      if (!pane) return { renamed: false, reason: "no-pane" };
+      const box = composerBox(await runtime.screen(pane));
+      if (!box) return { renamed: false, reason: "no-composer" };
+      if (composerText(box.rows).length > 0) return { renamed: false, reason: "composer-busy" };
+      const encoder = new TextEncoder();
+      // One send, not two: the command and the Return travel together so nothing can be typed
+      // between them into the box this just checked was empty.
+      const keys = keystrokesFor(box.rows, `/rename ${title}`);
+      await runtime.send(pane, encoder.encode(keys + CARRIAGE_RETURN));
+      return { renamed: true };
+    } catch (error) {
+      const state = failed(sessionId, error, runtime);
+      return { renamed: false, reason: state.reason };
+    }
+  });
 }
 
 /** Presses Return in the pane, which is what makes Claude take the turn. */
@@ -677,21 +783,36 @@ export async function acceptTmuxComposerHint(
   return press(sessionId, TAB, { text: null, hint: null, reason: null, wrapped: false }, runtime);
 }
 
-/** One key into the session's pane, with the state to report when it lands. */
+/**
+ * One key into the session's pane, with the state to report when it lands.
+ *
+ * Queued behind whatever else is driving this box, but deliberately WITHOUT the redraw wait the
+ * pushes do, because it would cost a screen read and this path is the one that must work when the
+ * screen cannot be read at all -- a pane mid-redraw draws no composer, and a reader who has
+ * pressed Return should not be told the session has no composer because of when they pressed it.
+ *
+ * What it gives up by not waiting is small enough to name. A push arriving before Return's redraw
+ * reads the box as it was and computes backspaces for text that has already gone, and a backspace
+ * on an empty composer does nothing -- so the retype lands correctly anyway. Tab is the one with a
+ * real gap: the suggestion it takes is not on screen yet, so a push in that window can append to
+ * it. The panel does not push there, it waits for the watcher to say what the box now holds.
+ */
 async function press(
   sessionId: string,
   key: string,
   landed: TmuxComposerState,
   runtime: TmuxComposerRuntime,
 ): Promise<TmuxComposerState> {
-  try {
-    const pane = await paneFor(sessionId, runtime);
-    if (!pane) return unavailable("no-pane");
-    await runtime.send(pane, new TextEncoder().encode(key));
-    return landed;
-  } catch (error) {
-    return failed(sessionId, error, runtime);
-  }
+  return inTurn(sessionId, async () => {
+    try {
+      const pane = await paneFor(sessionId, runtime);
+      if (!pane) return unavailable("no-pane");
+      await runtime.send(pane, new TextEncoder().encode(key));
+      return landed;
+    } catch (error) {
+      return failed(sessionId, error, runtime);
+    }
+  });
 }
 
 /**

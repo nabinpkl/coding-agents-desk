@@ -174,6 +174,49 @@ describe("tmux composer", () => {
     expect(feed.box).toBe("make");
   });
 
+  it("keeps one push in the air at a time, and sends the newest text when it lands", async () => {
+    // The reader's bug. The debounce decides when to push, not how many may be in flight, and over
+    // a slow link a request outlives its own 90ms window. Two pushes then read the same box in the
+    // sidecar and both paste their whole text, and even serialised there they can arrive in the
+    // order the network chose rather than the order they were sent -- leaving the box holding an
+    // older draft than the reader has typed.
+    const feed = pane("");
+    let release: (() => void) | null = null;
+    const slow = feed.syncTmuxComposer;
+    feed.syncTmuxComposer = async (session, text) => {
+      const held = new Promise<void>((wake) => { release = wake; });
+      await held;
+      return slow(session, text);
+    };
+
+    render(<Probe feed={feed} />);
+    await settle();
+    await type("a");
+    await settle(200);
+    expect(feed.pushes).toEqual([]);
+    expect(release).not.toBeNull();
+
+    // More typing while that request is still out. It must not start a second one.
+    await type("ab");
+    await settle(200);
+    await type("abc");
+    await settle(200);
+    expect(feed.pushes).toEqual([]);
+
+    // The first lands, and what follows is ONE more push carrying the newest text rather than one
+    // per keystroke that went by.
+    const first = release!;
+    release = null;
+    await act(async () => { first(); });
+    await settle(200);
+    expect(feed.pushes).toEqual(["a"]);
+    expect(release).not.toBeNull();
+    await act(async () => { release!(); });
+    await settle(200);
+    expect(feed.pushes).toEqual(["a", "abc"]);
+    expect(feed.box).toBe("abc");
+  });
+
   it("does not let a message from the pane overwrite an edit that has not reached it yet", async () => {
     const feed = pane("");
     render(<Probe feed={feed} />);

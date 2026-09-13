@@ -212,17 +212,50 @@ export function useTmuxComposer(
     forget.clear();
   }, [forget]);
 
+  /**
+   * One push at a time, with whatever was typed during it folded into the next one.
+   *
+   * The debounce below decides WHEN to push, not how many may be in the air at once, and those
+   * are different questions the moment a request takes longer than the 90ms window: a reader
+   * typing steadily over a slow link has a second push starting while the first is still out.
+   * Two things then go wrong, and the sidecar can only fix one of them. It serialises the turns
+   * it receives, but it cannot put back an order the network already lost -- two requests sent in
+   * order can arrive out of it, and the box is left holding the older draft.
+   *
+   * So the field pushes once, and a keystroke that lands mid-request sets a flag rather than
+   * starting a second one. The loop then repeats with whatever the draft has become, which is one
+   * request rather than one per keystroke, and always the newest text.
+   */
+  const pushing = useRef(false);
+  const pushAgain = useRef(false);
+
   const push = useCallback(async () => {
-    const wanted = draftRef.current;
+    if (pushing.current) {
+      pushAgain.current = true;
+      return;
+    }
+    pushing.current = true;
     try {
-      const next = await feed.syncTmuxComposer(sessionRef.current, wanted);
-      setState(next);
-      setError(null);
-      // Only clear the guard when the draft has not moved on underneath the request. Clearing it
-      // regardless would let the next message adopt a reading taken before the last keystroke.
-      if (next.reason === null && draftRef.current === wanted) edited.current = false;
-    } catch (failure) {
-      setError(String((failure as Error).message ?? failure));
+      let sent: string;
+      do {
+        pushAgain.current = false;
+        sent = draftRef.current;
+        try {
+          const next = await feed.syncTmuxComposer(sessionRef.current, sent);
+          setState(next);
+          setError(null);
+          // Only clear the guard when the draft has not moved on underneath the request. Clearing
+          // it regardless would let the next message adopt a reading taken before the last
+          // keystroke.
+          if (next.reason === null && draftRef.current === sent) edited.current = false;
+        } catch (failure) {
+          setError(String((failure as Error).message ?? failure));
+        }
+        // Only when the draft actually moved. A flag set by a keystroke that produced the same
+        // text -- an edit and an undo inside one request -- has nothing left to send.
+      } while (pushAgain.current && draftRef.current !== sent);
+    } finally {
+      pushing.current = false;
     }
   }, [feed]);
 
@@ -248,6 +281,7 @@ export function useTmuxComposer(
     setState(null);
     setError(null);
     edited.current = false;
+    pushAgain.current = false;
     setMirrored(false);
     setBoth("");
   }, [key, setBoth]);
