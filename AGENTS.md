@@ -88,9 +88,17 @@ Minimum pass:
 
 ## Scroll and slide direction
 
-The iPhone client uses the **opposite of Mac native** for any horizontal slide or scroll that moves between desktops, by default. Concretely: sliding the finger from left to right moves the active desktop right-to-left, i.e. brings the left-neighbour desktop into focus. The Mac-native mapping (finger right = right-neighbour) is the opt-in mode, exposed as a toggle in settings. This default is load-bearing for the rest-state metaphor "the strip is a scrollbar of desktops": dragging the strip right pulls the previous desktop into the indicator, the same way dragging a scrollbar right pulls earlier content into view.
+**Not implemented on any live surface today** -- it was the native client's, and the browser panel's
+desktop navigation does not commit a direction from a finger yet. Recorded because it is a product
+decision rather than an implementation detail, and whoever builds it next should not have to
+re-derive it.
 
-When in doubt about which direction a code path should produce, the test is: finger left should commit "next" (right-neighbour), finger right should commit "previous" (left-neighbour), under the default toggle.
+Horizontal slides that move between desktops use the **opposite of Mac native** by default: sliding
+the finger left-to-right brings the LEFT-neighbour desktop into focus. The Mac-native mapping is the
+opt-in toggle. The default is load-bearing for the rest-state metaphor "the strip is a scrollbar of
+desktops" -- dragging the strip right pulls the previous desktop into the indicator, the way dragging
+a scrollbar right pulls earlier content into view. The test for a code path is: finger left commits
+"next" (right-neighbour), finger right commits "previous" (left-neighbour).
 
 ## Two input paths, and they can both be live
 
@@ -175,93 +183,110 @@ transient state, and each of those comes back as a bug rather than as a convenie
 
 ## Code
 
-- Cross-platform divider callbacks expose semantic pane growth, never raw platform coordinates: positive grows the leading sidebar or lower terminal. Normalize AppKit's upward-positive and UIKit's downward-positive vertical deltas inside each divider, keep sign flips out of consumers, and test the same physical drag on both platforms.
+- Divider callbacks expose semantic pane growth, never raw platform coordinates: positive grows the leading sidebar or lower terminal. Keep sign flips inside the divider, out of consumers.
 - No hardcoded configs. URLs, credentials, tokens, and `~/`-rooted paths go through a central config module, never inline in random files.
 - Standalone `＋ IDE`, `＋ Agents`, and `＋ Terminal` windows are independent UUID-backed instances. Persist each open instance's frame and Desktop assignment, remove only a user-closed instance, preserve all open descriptors during host termination, and restore them without activation or any move-to-active-Space fallback. Exact Space movement, display-local ordinal repair, capture, and verification belong to the shared Desktop window-placement authority (ADR-0092), not per-feature copies.
 - `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
 - Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.
-- Tests exxists for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** .`SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions.
+- `SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. Run it when a macOS update lands.
 - `just pty-handover-cross-version [base-ref]` is the canary for PTY runtime wire drift, and the only handover test that is not talking to itself. Every in-process handover test builds both peers from one tree, so it agrees with itself no matter what the wire does; this one builds the runtime from an older commit and asserts the current binaries can still take its live session over (ADR-0080). **Run it after any change to `terminal/pty-manager/proto/` or the handover code**, passing the commit before the change as the base. It is not in `just check` because it cold-builds an older tree. 
-- Treat each new feature/debugging arc as scoped by the user's current words, not by the previous arc's implementation surface. Before editing, make the active surface explicit: is the behavior universal across input paths, or limited to a named surface such as video, trackpad, scroll strip, keyboard chrome, or settings? If the user asks for universal behavior, start at the shared model/path and only add narrow recognizer hooks as adapters. For example, "tap/click opens keyboard" is input-model behavior (`GestureTranslator` / `sendInput` / host focus push), not automatically `handleVideoTouchTap`, even if the previous conversation was about video touch.
+- Treat each new feature/debugging arc as scoped by the user's current words, not by the previous arc's implementation surface. Before editing, make the active surface explicit: is the behavior universal across input paths, or limited to a named surface such as the video tile, the scroll strip, the terminal, or settings? If the user asks for universal behavior, start at the shared model and add narrow hooks only as adapters. A fix that branches under `pointerType === "mouse"` does nothing on the phone; see "Two input paths" above.
 
-## Versioning
+## Bringing the current path up
 
-The two iOS/macOS version fields are independent by design; do not conflate them.
+`just host-run` is the whole setup, and it is a **stop-and-wait checkpoint**: prepare it, state it,
+then wait for the user to say run it. It builds and launches the Mac host, which is not itself the
+loop -- it is what supervises the two pieces that are: the panel's Vite dev server and the
+agent-feed sidecar. Both are live by default, so an edit to either reaches every attached surface
+with no rebuild, no reinstall, and no re-pair.
 
-- **Marketing version** (`CFBundleShortVersionString`, `x.x.x`) is the user-facing **semver** label. Bump it **per release, not per build**: MAJOR for an incompatible change, MINOR for a new feature, PATCH for a bug fix. The recurring mistake is leaving it pinned across several distinct shipped changes, so the rule is: **before any TestFlight upload that ships a change, bump the marketing version** (fix -> patch, feature -> minor). It lives in one place (`client_marketing_version` in the `Justfile`); edit that, do not hardcode versions in Info.plist.
-- **Build number** (`CFBundleVersion`) is an independent incrementing integer with no relationship to the marketing version. It is the git commit count (`git rev-list --count HEAD`), which auto-increments per upload and maps to a commit. App Store requires it to be numeric and strictly increasing, so a hex sha cannot live here.
-- **Exact build identity** is the short git sha, embedded via the `AgentDeskGitSHA` Info.plist key (injected as a build setting) and shown in-app (host popover footer, client unpaired screen). A build reads as `v1.2.0 (380) f0c24cf`: semver version, build number, commit.
-- **Host and client version independently.** They are separate apps on separate release cadences (the Mac host is local, the iOS client ships via TestFlight); a host change does not require a client bump or vice versa. The compatibility contract between them is the **wire protocol, not the app version**: a breaking wire change is governed by an explicit protocol version negotiated at the handshake (advertise supported versions, agree on one or fail with a clear "update required"), bumped only on breaking changes. Matching marketing versions across host and client is not a compatibility signal and must not be relied on as one.
-- History: `1.1.0` = Mac-initiated pairing (ADR-0019); `1.2.0` = live tailnet device discovery (R55).
-- **The Chrome extension versions independently too** (third component, ADR-0038/0042/0043). Its **marketing version is `manifest.json`'s `version`** (semver, and the single source of truth: `manifest.json` is the only place it lives, no Justfile mirror). Bump it **per release, before reloading a build you intend to judge** -- feature -> minor, fix -> patch, same rule as host/client. `version_name` carries an optional human label shown in `chrome://extensions`. Its **exact build identity is the short git sha**, written to a **gitignored `chrome-extension/build-info.json`** by `just ext-stamp` (the extension parallel of the host/client `AgentDeskGitSHA`): an unpacked extension runs whatever is on disk at reload time, so the manifest version alone can't tell you whether you reloaded after an edit -- the sha can. The **toolbar popup footer** shows it as `v0.2.0 (718) 4ba5e8a` (marketing version, commit count, sha), with a yellow **`dirty`** marker when there were uncommitted edits under `chrome-extension/` at stamp time. `ext-stamp` runs automatically inside `dom-bridge-install`, `dom-mirror-record-verify`, and `dom-mirror-e2e`; for a **manual real-Chrome load, run `just ext-stamp` then reload the extension** so the popup and your felt read match the code. Like host/client, the extension's **compatibility with the host is the wire protocol, not its version** (the `dom-batch` envelope + protocol negotiation), so its version is free to move independently. History: `0.2.0` = isolated-world recorder (ADR-0042) + compressed transport (ADR-0043); `0.3.0` = tiered fidelity (ADR-0044): isolated adopted-stylesheet enrichment + opt-in CDP keyframe; `0.7.0` = multi-window projection (ADR-0063); `0.8.0` = visible ordinary page content with password-only source masking (ADR-0041).
+- **`panel` (`live` default | `bundled`)** starts the panel's Vite server if it is not up, waits for
+  it to answer, and points the launch at it. The launch FAILS if that server cannot come up, because
+  the dev origin is not a fallback. Pass `bundled` to judge the panel as it actually ships.
+- **`sidecar` (`live` default | `bundled`)** spawns `bun --watch` over `agent-feed/sidecar/src/server.ts`
+  instead of the compiled binary. Measured: an edit was visible through `/api/config` about 4s later
+  **with the pid unchanged** -- `--watch` re-reads in process and rebinds the port, so the host's
+  supervisor never sees an exit. (`--hot` is deliberately not used: hot replacement would leave the
+  catalog, the file watchers and the live observers half-swapped.) The cost is accepted rather than
+  hidden: this arm executes the **working tree**, so a half-saved file is what runs.
+- `just` arguments are POSITIONAL: `just host-run stable live bundled`, not `sidecar=bundled`, which
+  would land in `variant`.
+- Two hosts can run concurrently, stable and `.dev`, on tier-derived ports so they never collide:
+  sidecar 7682/7782, signaling 41888/41988, offer 41890/41990. Each is env-overridable. Identity is
+  the bundle id, not a flag: logs, keychain, launchd registration and Application Support directory
+  all derive from it, and the kill-before-relaunch step matches the variant's exact installed
+  executable rather than a bare `pkill -f AgentDeskHost`, which would kill both.
 
-## Client build variants
+### The dev origin is HTTPS over the tailnet, and that is load-bearing
 
-Two client apps can coexist on one iPhone: the **stable** daily-driver (`com.example.agentdesk.AgentDeskClient`) and an **experimental** "dev" build under test (`com.example.agentdesk.AgentDeskClient.dev`, "AgentDesk Dev" name, DEV-ribbon icon). iOS keeps both because they have different bundle ids. This lets risky graphics work be tested on the phone without losing the working app, which protects the 7-day daily-driver acceptance test.
+The origin is `https://<this-mac>.<tailnet>.ts.net:5173`, derived per machine by
+`tools/tailnet-dns-name.sh` and never written down. One origin serves every surface because TLS is a
+property of the port. `just agent-webview-dev` is the same server in the foreground for watching its
+log; `agent-webview-dev-cert` issues or renews the certificate; `agent-webview-dev-stop` frees the
+port; `agent-webview-dev-status` is the only check that exercises the browser leg, and it checks the
+**protocol**, not just the status code.
 
-- One target, one scheme. The variant is a build-time override axis, not a duplicated target: the dev build overrides `PRODUCT_BUNDLE_IDENTIFIER`, `ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev`, and `BUNDLE_DISPLAY_NAME` inline, and builds into a separate derived-data dir (`{{derived_data}}-dev`).
-- The runtime self-namespaces by bundle id: `Config.logSubsystem` and `Config.keychainService` derive from `Bundle.main.bundleIdentifier`, so each variant's os_log lines and keychain are separate.
-- The leaf client recipes take a `variant` arg (`stable` default | `dev`): `client-install`, `client-reinstall`, `iphone-console-run`, `pair-iphone`, `iphone-log-collect`, `client-archive-release`, `testflight-upload`. `client-install` builds and installs or updates the matching bundle in place, preserving its app container. The historical `client-reinstall` name delegates to that same update-in-place path and never uninstalls. Pass `dev` for the side-by-side AgentDesk Dev build, e.g. `just testflight-upload dev`. The dev bundle id is env-overridable via `AGENTDESK_CLIENT_DEV_BUNDLE_ID`.
-- The physical-device feel-run composites are explicit recipes, not arg-driven, because the launch mode matters: `fresh-install` (no console, returns) and `fresh-release-diagnostic-run` (console attached, blocks). `-install` (no console) vs `-run` (attached console) marks the launch mode. Each has a `-dev` suffixed twin (`fresh-install-dev`, `fresh-diagnostic-run-dev`) that drives the Dev build. All rebuild the host and update the client in place without deleting saved app data; the stable pair builds `-configuration Release` (it is the build whose behaviour you are judging), while the `-dev` twins stay Debug for fast, breakpoint-friendly iteration on risky changes. `host-run` / `host-run-dev` now build the REAL bundled artifacts themselves before the host build — the compiled Bun agent sidecar and the Vite agent webview, plus the gesture/voice webview and the voice-server source — so every launch's phone agent surface serves real projects/threads, not a placeholder, and the composites no longer pre-build them. (The sim counterparts `agent-feed-sim[-pair]` are the Debug-stack sim bring-ups; `sim-fresh-install` is the Release one — both bundle real artifacts now and also preserve the simulator app container.) There is deliberately no detached-console composite: a backgrounded console grows the log file unbounded with no teardown. For bounded background capture use `motion-verify` (fixed window, then it tears the stream down).
-- **Both surfaces serve the Agent Panel live by default, from one origin, and the HOST decides for both.** `host-run` and `host-run-dev` take `panel` (`live` default | `bundled`); on `live` they start the panel's Vite dev server if it is not already up, wait for it to answer, and point the launch at it, so a TSX edit changes the running Mac host AND every attached phone client with no rebuild, no reinstall, and no re-pair (ADR-0095, ADR-0096). The launch FAILS if that server cannot come up, because the dev origin is not a fallback for the Mac. **The phone legs have no `panel` argument**: the host states its origin over the agent lane on every attach (`agent-panel-origin`), so the phone gets it whether it was launched by `pair-iphone`, from the home screen, or from a TestFlight install, and gets it again after a close and reopen with nothing persisted on the device. A phone attached to a `panel=bundled` host is told exactly that and loads its own bundled build; the client refuses any origin that is not `https`. Pass `panel=bundled` to `host-run` to judge the webview as it actually ships on both surfaces.
-- **The dev origin is `https://<this-mac>.<tailnet>.ts.net:5173`, and the https is load-bearing.** iOS refuses cleartext to a tailnet address (`NSAllowsLocalNetworking` does not cover 100.64/10), so the phone leg exists only because `tailscale cert` issues a publicly trusted certificate for the MagicDNS name — **there is no ATS exception in the client and there must never be one**; the stable client is a TestFlight daily driver. The name is derived per machine by `tools/tailnet-dns-name.sh`, never written down. One origin serves both surfaces because TLS is a property of the port: a certificate loaded for the phone ends http on it for the Mac. Where the page's code comes from does not change where its data comes from — the panel picks its transport by whether a native message handler is present, so both surfaces still reach the sidecar through their own host's relay. The phone's origin arrives over the wire, not from its launch environment: a TestFlight install has no environment, and it is one of the installs that has to work. `just agent-webview-dev` is the same server in the foreground, for watching its log; `just agent-webview-dev-cert` issues or renews the certificate on its own; `just agent-webview-dev-stop` frees the port.
-- **A plain browser tab at the dev origin works too, and it needs no credential to.** The sidecar API has no authentication of any kind: it reads no `Authorization` header and has no 401 path, so a request with no header and a request with a bogus bearer both answer 200. What stands in for auth is the bind address — `AGENT_FEED_HOST` defaults to `127.0.0.1`, and a sidecar reached over the tailnet is authenticated and encrypted at the device level by WireGuard, which is the guarantee loopback was a proxy for. **Do not reintroduce a token without also making the sidecar check one**; the previous scheme minted one per dev-server start, wrote it 0600 under the runtime root, had the host adopt it and send it as a bearer on every request, and was validated by nobody, so it was removed rather than left looking like protection. The runtime root is resolved by `tools/runtime-paths.mjs`. During an approved host launch, `agent-webview-dev-ensure` reuses a healthy server with intact TLS or stops the configured port's listener before recreating it; a failed stop or readiness check aborts the launch. One server still means one `/api` target, so a browser tab follows whichever host tier started the server. `just agent-webview-dev-status` is the only check that exercises the browser leg.
-- Both variants register the `agentdesk://` scheme. Dev pairing injects the URL via `devicectl --environment-variables` into a specific bundle id (read in `SceneDelegate`), bypassing system URL routing, so the shared scheme does not affect pairing.
+**A plain browser tab at that origin needs no credential, and that is deliberate.** The sidecar API
+has no authentication of any kind: it reads no `Authorization` header and has no 401 path, so a
+request with no header and one with a bogus bearer both answer 200. What stands in for auth is the
+bind address -- `AGENT_FEED_HOST` defaults to `127.0.0.1`, and a sidecar reached over the tailnet is
+authenticated and encrypted at the device level by WireGuard, which is the guarantee loopback was a
+proxy for. **Do not reintroduce a token without also making the sidecar check one.** The previous
+scheme minted one per dev-server start, wrote it 0600 under the runtime root, had the host send it
+as a bearer on every request, and was validated by nobody, so it was removed rather than left
+looking like protection.
 
-### TypeScript-first WebView glue and logging
+One server means one `/api` target, so a browser tab follows whichever host tier started it.
 
-- First-party WebView interaction glue, iteration policy, and surface-authored diagnostics live in TypeScript and the live sidecar by default. Swift remains the thin platform shell for lifecycle, authenticated relay, security boundaries, and OS capabilities that JavaScript cannot own. The target for WebView behavior and logging work is **zero app recompilation, zero reinstall, and zero app relaunch**.
-- Reuse the existing `AgentHttpTransport` telemetry path before adding a native log bridge. The desktop viewer posts bounded events to `/api/park/tile/:windowID/webrtc/telemetry`; the sidecar validates an explicit phase allowlist and appends them to `/tmp/agentdesk-webrtc-diag.log`. This works from the already-running first-party WebView and updates live with the TypeScript/sidecar working tree.
-- A proposed Swift change for WebView glue or diagnostics must name the native capability that TypeScript cannot provide. If there is no such capability, keep the change in TypeScript/sidecar so verification does not acquire a device-build checkpoint.
+## TypeScript-first glue and logging
 
-## Host build variants
+- First-party interaction glue, iteration policy, and surface-authored diagnostics live in
+  TypeScript and the live sidecar by default. Swift remains the thin platform shell for lifecycle,
+  the authenticated relay, security boundaries, and OS capabilities that JavaScript cannot own. The
+  target is **zero recompilation, zero reinstall, zero relaunch**.
+- Reuse the existing `AgentHttpTransport` telemetry path before adding a native log bridge. The
+  desktop viewer posts bounded events to `/api/park/tile/:windowID/webrtc/telemetry`; the sidecar
+  validates an explicit phase allowlist and appends them to `/tmp/agentdesk-webrtc-diag.log`. This
+  works from an already-running surface and updates live with the working tree.
+- A proposed Swift change for glue or diagnostics must name the native capability TypeScript cannot
+  provide. If there is none, keep it in TypeScript so verification does not acquire a build
+  checkpoint.
 
-The Mac host has the same dev/stable split as the client, and the two hosts run **concurrently** on one Mac (ADR-0037). The stable daily-driver is `com.example.agentdesk.AgentDeskHost`; the experimental host is `com.example.agentdesk.AgentDeskHost.dev` (DEV-badged icon, separate derived-data dir `{{derived_data}}-host-dev`).
+## Durable runtime and disposable builds
 
-- Identity is the bundle id, not a flag. `host/AgentDeskHost/Config.swift` derives `logSubsystem`, `launchAgentLabel`, `dispatchQueuePrefix`, `keychainService`, and the Application Support directory (now `~/Library/Application Support/<bundle-id>/`) from `Bundle.main.bundleIdentifier`. Each variant's logs, keychain, launchd registration, and on-disk state are separate.
-- Ports are tier-derived (`Config.tier` from the `.dev` suffix) so the two stacks never collide: signaling 41888/41988, offer 41890/41990, ATC sidecar 7682/7782 (stable/dev). Each is still env-overridable. The client does not hardcode the host's signaling port; the host advertises its bound port in the pairing offer (`PairingPayload.signalingPort`) and the client dials the advertised value.
-- **`host-run` is Release** (the primary daily-driver launch, `-configuration Release`); **`host-run-dev` is its Debug (`-Onone`) twin** for fast, breakpoint-friendly iteration. **Release does NOT mean a slow build.** `host-run` sets `SWIFT_COMPILATION_MODE=singlefile`, which keeps `-O` while making the unit of compilation the file rather than the module: measured on one tree with the same one-file edit, the wholemodule default took ~300s and singlefile took 26s (Debug, for reference, 18s). Reach for `host-run-dev` when you want a debugger, not when you want speed — and if you ever need the old behaviour, `AGENTDESK_HOST_SWIFT_COMPILATION_MODE=wholemodule` restores it. The historical reason Release was treated as expensive — a Debug `-Onone` host pegging a core in the crisp tile codec — no longer applies: that path is off by default (`crispTextOverlayEnabled` defaults to false) and `OwnedTileCodec.extractTileWithHash` has a single caller behind that switch. Both, plus `swift-check`, take a `variant` arg (`stable` default | `dev`) — an INDEPENDENT axis from Debug/Release, selecting the `.dev` bundle — e.g. `just host-run-dev dev` (Debug + dev bundle), `just swift-check dev`. `just check` no longer takes one: it stopped building the host when the Swift legs moved to `swift-check`, and a variant with no host build to select would be a lie. The dev variant overrides `PRODUCT_BUNDLE_IDENTIFIER` and `ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev` inline (no separate target/scheme). The dev bundle id is env-overridable via `AGENTDESK_HOST_DEV_BUNDLE_ID`.
-- **`host-run` and `host-run-dev` also take `sidecar` (`live` default | `bundled`), the agent-feed sidecar's own live-or-frozen axis.** The sidecar ships as a `bun build --compile` standalone binary inside the app, so changing one line of it normally costs a host rebuild, a relaunch, and a re-attach of every surface — the same cost the panel's Vite origin was introduced to remove, for the half of the panel that is not the panel. `sidecar=live` spawns `bun --watch` over `agent-feed/sidecar/src/server.ts` instead. Measured: an edit to a sidecar constant was visible through `/api/config` about 4s later, **with the pid unchanged** — `--watch` re-reads in process and rebinds the port, so the host's supervisor never sees an exit and readiness holds across the reload. (`--hot` is deliberately not used: hot replacement would leave the catalog, the file watchers, and the live observers half-swapped.) It is **`live` by default**, the same as `panel`, so both halves of the panel surface behave alike — an edit anywhere in it is live without a relaunch. The cost is accepted rather than hidden: this arm executes the **working tree**, so a half-saved file is what runs. A run that must judge the artifact as it ships has to ask, and `just` arguments are POSITIONAL — that is `just host-run stable live bundled`, not `sidecar=bundled`, which would land in `variant`. The Justfile resolves `bun` to an absolute path and passes it with the entry (`AGENTDESK_BUN_PATH`, `AGENTDESK_AGENT_FEED_SIDECAR_ENTRY`), because the host's child environment is deliberately stripped of the PATH that would find a Homebrew install. Every fallback — no `bun`, unreadable entry, non-executable `bun` — serves the bundled binary and **logs why**, since silently serving the frozen one is indistinguishable from an edit that did nothing. The `fresh-*` composites do not pass it either, so they inherit `live` too — a feel run judges the working tree unless it is told otherwise.
-- The kill-before-relaunch step matches the variant's exact installed executable, not DerivedData or a bare `pkill -f AgentDeskHost` (which would kill both hosts). Relaunching one variant never kills the other.
+- `.build` is compilation output, not the home of a deployed host, helper, or live panel
+  credentials. `tools/runtime-paths.mjs` resolves the durable root, defaulting to
+  `~/Library/Application Support/AgentDeskRuntime` with an absolute `AGENTDESK_RUNTIME_ROOT`
+  override. Host apps live at `hosts/<bundle-id>/AgentDeskHost.app`, the standalone capture helper
+  at `bin/grid-encoder`, and the panel's TLS files under `agent-panel/`.
+- For a helper update use `just grid-encoder-install`. It builds and atomically installs without
+  rebuilding, reinstalling, or relaunching either app. **The agent session's helper is not in that
+  account's runtime root.** Its sidecar sets `AGENT_FEED_GRID_ENCODER_PATH` to a shared location,
+  because `~/Library` is 0700 and the console user cannot otherwise reach it, so update it with
+  `just grid-encoder-install /Users/Shared/grid-encoder` and check `ps` for the path the resident
+  helper actually runs from before believing an install took. Installing to the account's own root
+  instead succeeds, reports a path, and leaves the running helper untouched. `sh
+  tools/build-grid-encoder.sh` and `just check` only compile candidates. A missing helper reports
+  the install command and has no build-directory fallback.
+- Do not run cache deletion while builds or tests are active. Moving the runtime does not authorize
+  deleting caches, resetting TCC, replacing credentials for a running server, or relaunching a
+  daily-driver app. See ADR-0113 for the deployment boundary.
 
-- `fresh-install-dev` / `fresh-diagnostic-run-dev` drive `host-run-dev dev` (Debug), so a `-dev` run is a fully separate stack (dev host + dev client on the dev ports), leaving the stable host running.
-- Landing cost, once, when this first ships to an existing install: the stable host's Application Support directory moved from `AgentDesk` to the bundle id, so it re-creates its paired-devices store and regenerates its TLS cert on first launch; **re-pair the daily driver once**. The signing key survives (it is in the keychain, whose service string is unchanged for the stable bundle id). The dev host is a new bundle id, so it needs its **own** one-time Screen Recording and Accessibility approval in System Settings (TCC is keyed per bundle id).
+## The native client, host builds, and the simulator are dormant
 
-### Durable runtime and disposable builds
+The iPhone app, its TestFlight release machinery, the iOS/macOS marketing-version and build-number
+rules, the on-device QUIC diagnostics pulls, the Maestro simulator drives, and the Chrome extension's
+own versioning all had their operating detail here. **Removed 2026-09-07**: the mobile surface is now
+the same browser panel as the desktop one, so none of it is on the path a change travels.
 
-- Plain `just host-run` is the complete stable Release setup: live Agent Panel, live agent-feed sidecar, PTY runtime preparation, standalone desktop-helper installation, voice source/wheelhouse staging, and signed host installation/launch. No separate panel stop/start or helper install is required. Voice starts automatically from its provisioned environment; it is not a watched live-source sidecar. Its models live in installed Application Support assets, not disposable build staging. This command does not install or launch the iPhone app and remains a host-run approval checkpoint.
-- `.build` is compilation/test/archive output, not the home of a deployed host, desktop helper, or live panel credentials. `tools/runtime-paths.mjs` resolves the durable root, defaulting to `~/Library/Application Support/AgentDeskRuntime` with an absolute `AGENTDESK_RUNTIME_ROOT` override. Host apps live at `hosts/<bundle-id>/AgentDeskHost.app`, the standalone helper at `bin/grid-encoder`, and the panel's TLS files under `agent-panel/`. Pairing state, user data and PTY sockets keep their existing locations.
-- `host-run` and `host-run-dev` build a candidate, copy/verify the complete signed app, and launch the installed copy. Keep process discovery on that same exact executable. Never replace a copy with a symlink into build output; never rebuild in place over the live app. Host deployment remains an explicit run checkpoint.
-- For a standalone helper update use `just grid-encoder-install`. It builds and atomically installs the helper without rebuilding, reinstalling, or relaunching either app. **The agent session's helper is not in that account's runtime root.** Its sidecar sets `AGENT_FEED_GRID_ENCODER_PATH` to a shared location, because `~/Library` is 0700 and the console user cannot otherwise reach it, so update it with `just grid-encoder-install /Users/Shared/grid-encoder` and check `ps` for the path the resident helper actually runs from before believing an install took. Installing to the account's own root instead succeeds, reports a path, and leaves the running helper untouched. That account can also run the install itself now: `tools/install-node.sh` puts a pinned, checksum-verified node in its `~/.local`, which is what `install-grid-encoder.sh` needs and what the agent account was missing. `sh tools/build-grid-encoder.sh` and `just check` only compile candidates and do not update the installed helper. Only changed installed content advances the helper reuse generation. A missing helper reports the install command and has no build-directory fallback.
-- Do not run cache deletion while builds/tests are active. Moving the runtime does not authorize deleting caches, resetting TCC, replacing credentials for a running server, or relaunching either daily-driver app. See ADR-0113 for the deployment boundary.
+The detail is not lost -- `git log -p AGENTS.md` has it, and `FEATURE-MAP.md` says which directories
+those arcs live in. Do not re-derive it from the tree and do not extend it in passing: if one of
+those arcs genuinely reopens, restore the section it needs in the same commit that reopens it.
 
-## Agent-run device sessions
-
-- **Stop and wait for an explicit go-ahead before any device install, update, launch, or rebuild.** Recipes that put a build on a device or relaunch the host or client (`host-run`, `host-run-dev`, `iphone-console-run`, the `fresh-install` / `fresh-release-diagnostic-run` family and their `-dev` twins, `client-install`, `client-reinstall`, `pair-iphone`, etc.) are a checkpoint: the agent builds, runs `just check`, prepares the run, states the exact command, and then STOPS and waits for the user to say a phrase like "run it". The agent runs the command itself, but only after that go-ahead. Plain building (`xcodebuild`/`just check`) needs no checkpoint; installing, updating, launching, or relaunching the host or client does. This protects the daily-driver device and keeps the human in control of what lands on hardware.
-
-- When an agent launches the physical iPhone for exploratory media, transport, scroll, decode, or gesture feel work, use a console launch by default: `just iphone-console-run` (client leg only, host already up), or `just fresh-release-diagnostic-run` for a full Release host rebuild + in-place client update + attached console. For a bounded capture that returns to your prompt, use `just motion-verify` (it records to durable /tmp files for a fixed window, then tears the stream down).
-- `just fresh-install` and `just pair-iphone` are the non-console launches; do not use them for exploratory feel runs unless the user explicitly asks for a plain, non-attached launch.
-- The attached console path is load-bearing because it writes iPhone-side owned-media diagnostics to `/tmp/agentdesk-client-console.log`, including packet repair, stale skips, decoder recovery, render gaps, and frame age.
-- For physical-device media regressions, preserve host logs and attached client logs in the same run. Host-only logs are not enough to judge motion behavior.
-- **Client-side evidence comes from the authenticated on-demand QUIC pull, not from the Mac's unified log.** When asked for "the QUIC logs", "the on-demand logs", "the client logs", or client-side evidence of any kind, that is `just client-diagnostics` (append `dev` for the dev stack). The host serves the request over the **active QUIC session input lane**, and falls back to an authenticated frame to the client's tailnet IPv4 on the offer port when the client is paired but not currently connected. Neither path needs USB, `sudo`, `devicectl`, or the phone and the Mac sharing a LAN, so **it works on mobile data** -- which is the point of it existing. It does need the host process running (`just host-run` first), and the fallback needs the client in the **foreground**, because the client stops its offer listener on background.
-  - Mechanics, so a failure is diagnosable rather than mysterious: the recipe writes a JSON request file, sends `SIGUSR2` to the host pid, and polls for the host's result file for up to 40s. `host did not write diagnostics result` means the host never answered the signal. A result whose `status` is not `ok` means the host answered but could not reach the client -- check that a session is up, or that the app is foregrounded for the fallback.
-  - Output is a private `/tmp/agentdesk-client-diagnostics-<timestamp>/` holding one gzipped NDJSON file per run id plus `summary.json`. `includePreviousRuns` is on, so a run that crashed or was memory-killed is in there too: after a crash, reopen the app and then pull.
-  - Siblings on the same authenticated channel: `just client-screenshot` (foreground app screenshot; the iOS "Allow paired Mac screenshots" setting must be on), `just client-debug-bundle` (screenshot plus diagnostics under one request id), and `just voice-phone-logs-pull` (diagnostics plus the voice stage-log summary). `just host-client-telemetry` is host-only and never contacts the phone.
-  - `just iphone-log-collect` is a different and heavier thing (device-attached, elevated access) and is **not** the answer to "pull the client logs".
-- The host's own unified log is the HOST's view, and the two are not interchangeable. It carries `owned media link telemetry`, whose `client[iface=... radio=... linkQuality=...]` block is the client's self-report relayed over the live session -- second-hand, and it stops the instant the session does. Use it to answer what the host did or what the link looked like while connected; use the on-demand pull to answer what the client did, especially across a disconnect, a background, or a crash.
-- When collecting host unified logs from an agent shell, invoke `/usr/bin/log` explicitly. Do not run bare `log`, because zsh can resolve that as the shell builtin and fail with `too many arguments`.
-- Verify the running build is current before trusting any physical-device run, same rule and same `AgentDeskGitSHA` mechanism as under "Simulator automation": `pair-iphone` (like `pair-sim`) re-pairs and relaunches the already-installed client and does not pick up code changes, so judging a feel run after a relaunch can be judging a stale binary. Confirm the host popover and the client both show the current `git rev-parse --short HEAD` before reading results; if a needed surface cannot show its sha, add the readout first.
-
-## Simulator automation (Maestro)
-
-- An end-to-end simulator path validates the owned-media graphics pipeline without a physical phone: bring up the Mac host, install and pair the iPhone simulator client, then drive it with Maestro. Recipes split along two axes, **install-vs-launch** and **blocking-vs-non-blocking**:
-  - **Full bring-up (build + install host AND client, then pair):** `just sim-fresh-install` (consoled, blocks; tees client traces to `/tmp/agentdesk-sim-console.log`). For the agent feed specifically use `just agent-feed-sim` (consoled, blocks) or `just agent-feed-sim-pair` (non-blocking, for Maestro driving); these run the Debug stack (host-run-dev), where `sim-fresh-install` runs Release (host-run); both bundle the real sidecar + webviews now, since host-run / host-run-dev build them.
-  - **Relaunch only (NO build, NO install):** `just pair-sim` re-pairs and `simctl launch`es whatever client binary is already installed. It does not pick up code changes. The non-blocking leaf sequence to test a code change is `host-run-dev` + `client-sim-install` + `pair-sim` (Debug fast path; use `host-run` + `client-sim-install-release` for Release), then `just ui-flow <flow>`.
-  - Then `just ui-flow <flow>` runs a Maestro YAML from `client/maestro/`; screenshots land in `client/maestro/screenshots/`. A non-blocking paired launch plus a flow that does not `launchApp` lets you screenshot and drive gestures while the app stays paired.
-- **Verify the running build before driving a flow or trusting a screenshot.** A Maestro drive, a screenshot, or a felt-quality read is only meaningful against the latest code, and the install-vs-launch trap is real: an agent that edits code and then runs `pair-sim` (or a bare relaunch) silently exercises the STALE installed binary and draws wrong conclusions. Before driving, confirm BOTH the host and the client are running the current code: check the in-app build sha (`AgentDeskGitSHA`, shown in the host popover footer and the client unpaired screen) against `git rev-parse --short HEAD`. If a surface you need to trust cannot show its build sha (e.g. the connected client, where the unpaired screen is gone), first add a build-sha readout to that surface, then rebuild+install the update, then drive. When the running build is not verifiable, treat the run as inconclusive: make the code output its build, check, and only then run the flow. When in doubt, prefer a full bring-up (`sim-fresh-install` / `agent-feed-sim[-pair]`, physical: `fresh-install` / `fresh-release-diagnostic-run`) over a relaunch.
-- `client/maestro/scroll-strip-test.yaml` positively exercises the copyRect scroll path. It moves the Mac cursor over a maximized scrollable window, then drives the client right-edge scroll strip. Two preconditions are load-bearing: the scroll must be client-originated (the host scroll hint is fed only by client input, `scrollActivityHints.record(input)`), and the Mac screen must be otherwise calm so the scrolled window is an isolatable damage band. Scrolling the Mac directly does not trigger copyRect, and a busy multi-region screen collapses to full-frame tiles.
-- Reading the host log (subsystem `com.example.agentdesk.AgentDeskHost`, category `owned-media`): `acceptedBy=damage` with `commands=2` and a small payload is a copyRect scroll frame (copyRect plus exposed strip); `acceptedBy=damage-tiles` is a small non-scroll change; `acceptedBy=damage-fullframe-tiles` is a whole-surface resend (multi-MB) and is the bandwidth signal to watch.
-- Policy: run the simulator drive and the physical-device run ONLY when the user explicitly asks. Do not fire a manual simulator drive or a physical launch for every small change. Default to `just check` for correctness, plus `just swift-check` when the change is native. Reach for the simulator or physical feel runs only on explicit request, or for a media, scroll, decode, or gesture regression that unit tests cannot judge.
+What survives from all of it is one rule, because it applies to `host-run` too: **stop and wait for
+an explicit go-ahead before any install, update, launch, or rebuild that lands on hardware.** Plain
+building (`just check`, `just swift-check`) needs no checkpoint; putting a build somewhere it runs
+does.
 
 ## Browser testing
 
@@ -532,6 +557,43 @@ What this actually breaks, observed rather than imagined:
 The failure mode this prevents is not a merge conflict, which is loud. It is acting confidently on a
 stale premise: editing around code that changed, reporting a gate result that measured someone
 else's work, or reverting a file that was never yours.
+
+## An argv flattened into a shell string must be quoted per argument
+
+This repo hands commands to shells constantly -- tmux runs its pane command through `/bin/sh -c`,
+the PTY manager launches through a login shell, and the helper types lines into a terminal. Every
+one of those is the same conversion: a list of arguments becomes ONE string, and the shell then
+splits it back into arguments. That split is not the inverse of the join unless each argument was
+quoted on the way in.
+
+Measured 2026-09-07, and the failure is worth knowing by shape because it does not look like a
+quoting bug. `newSessionArgs` built its script with `command.join(" ")` and quoted only the finished
+script. That was correct for as long as every argument was a bare token -- `claude`, `--resume`, a
+uuid. The first argument with a space in it was a session title passed to `-n`, and the pane printed
+`zsh:1: invalid mode specification` twice and then sat at a shell prompt with no agent running.
+Nothing in that message says "quoting": zsh had read the `(fork 1)` in `Session (fork 1)` as a
+**glob qualifier**, `f` being the file-mode one, so `ork 1` was an invalid mode. A fork that looked
+started and was not.
+
+So:
+
+- **Quote every argument, not the assembled string.** `command.map(shellQuote).join(" ")`. Quoting a
+  bare token costs nothing, and is what stops the first non-bare one being a bug.
+- **Get the single-quote escape right, and check it in the language you wrote it in.** A
+  single-quoted shell string cannot contain a single quote, so each one leaves the quoting, adds an
+  escaped quote, and re-enters. Writing that in a JavaScript string needs the backslash escaped;
+  it was written with one backslash, which JavaScript reads as three plain single quotes, so the
+  helper emitted a string that left the shell inside an unterminated quote. It had never fired
+  because nothing user-supplied had gone through it.
+- **Test the property, not the spelling.** These strings are read by two shells in turn, so
+  asserting how they are quoted asserts nothing about whether the argument arrives. Run the
+  hazardous cases through the real shells and check the argv the command receives -- a value with
+  parentheses, an apostrophe, a `$`, a backtick, a `;`. That is the test that catches both of the
+  above; the exact-string assertion that existed did not, because it was written against the
+  arguments that already worked.
+- **Prefer not to build a string at all.** Where the interface takes an argv (`Bun.spawn`, the PTY
+  manager's `arguments`), pass the argv. The quoting question exists only where something insists
+  on one string, which here is tmux and the shells it runs.
 
 ## Running commands in the agent session
 
