@@ -1,0 +1,95 @@
+# TypeScript cleanup ledger
+
+One job, two trees, and nothing else:
+
+- `packages/AgentPanel/Web/src/**`
+- `agent-feed/sidecar/src/**`
+
+Two outcomes: no `.ts`/`.tsx` file in either tree over 500 lines, and files clustered by
+concept so a reader finds a thing where its idea lives. Behaviour does not change. This is a
+move, not a rewrite: no route path, wire field, localStorage key, tmux pane name, CSS class,
+exported prop or user-visible string moves with it. `agent-feed/wire/` is the contract both
+ends compile against and is not reshaped here.
+
+Baseline, taken on `367a32f6` before the first edit: `just check-legs` green, sidecar
+**898 pass / 0 fail**, panel **75 files / 939 tests**.
+
+Order is least-churned first. `main` moves under this branch constantly, so the hottest files
+are split last, with the freshest rebase behind them. Re-derive the order with:
+
+```
+for f in $(find packages/AgentPanel/Web/src agent-feed/sidecar/src \( -name '*.ts' -o -name '*.tsx' \) | xargs wc -l | sort -rn | awk '$1>500 && $2!="total"{print $2}'); do echo "$(git log --since='6 weeks ago' --oneline -- "$f" | wc -l)	$(wc -l < "$f")	$f"; done | sort -n
+```
+
+Per file: rebase on `origin/main`, read it whole, write its concepts here BEFORE splitting,
+split, `just check` (before committing, while the tree is still dirty -- on a clean tree it
+prints `nothing changed ... Nothing to check` and exits 0, which is not a pass), commit by
+pathspec with the ledger flip in the same commit, push to `origin/chore/ts-cleanup`.
+
+## Tasks
+
+Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
+
+| ID | Status | churn/lines | File |
+|---|---|---|---|
+| R1 | R | 3/542 | `packages/AgentPanel/Web/src/features/usage/UsageModal.tsx` |
+| R2 | R | 3/726 | `agent-feed/sidecar/src/live/claudeLiveBackend.ts` |
+| R3 | R | 3/816 | `agent-feed/sidecar/src/live/codexLiveBackend.ts` |
+| R4 | R | 4/536 | `agent-feed/sidecar/src/http/webrtcTileRoutes.test.ts` |
+| R5 | R | 4/928 | `agent-feed/sidecar/src/desktop/composerCoordinator.ts` |
+| R6 | R | 5/515 | `packages/AgentPanel/Web/src/features/activity-feed/activityDisplayItems.ts` |
+| R7 | R | 5/676 | `agent-feed/sidecar/src/bots/botRegistry.test.ts` |
+| R8 | R | 6/861 | `agent-feed/sidecar/src/bots/botRegistry.ts` |
+| R9 | R | 8/501 | `agent-feed/sidecar/src/terminal/tmuxAttachment.ts` |
+| R10 | R | 8/514 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.test.tsx` |
+| R11 | R | 8/515 | `packages/AgentPanel/Web/src/features/desktop-viewer/KeyboardDeck.tsx` |
+| R12 | R | 8/646 | `agent-feed/sidecar/src/transcripts/eventIndex.ts` |
+| R13 | R | 9/507 | `packages/AgentPanel/Web/src/features/desktop-park/DesktopParkModal.tsx` |
+| R14 | R | 9/508 | `agent-feed/sidecar/src/tasks/processProbe.test.ts` |
+| R15 | R | 9/556 | `agent-feed/sidecar/src/tasks/processProbe.ts` |
+| R16 | R | 9/593 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeedBlocks.test.tsx` |
+| R17 | R | 9/629 | `agent-feed/sidecar/src/transcripts/sources/codexTranscript.ts` |
+| R18 | R | 9/764 | `agent-feed/sidecar/src/transcripts/sources/claudeTranscript.ts` |
+| R19 | R | 10/713 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.test.tsx` |
+| R20 | R | 11/586 | `packages/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts` |
+| R21 | R | 12/568 | `packages/AgentPanel/Web/src/app/fixture.ts` |
+| R22 | R | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
+| R23 | R | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
+| R24 | R | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
+| R25 | R | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
+| R26 | R | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
+| R27 | R | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
+| R28 | R | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
+| R29 | R | 19/1125 | `agent-feed/sidecar/src/input/tmuxComposer.test.ts` |
+| R30 | R | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
+| R31 | R | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
+| R32 | R | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
+| R33 | R | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
+| R34 | R | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
+| R35 | R | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
+| R36 | R | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
+| R37 | R | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
+| R38 | R | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
+| R39 | R | 26/585 | `agent-feed/sidecar/src/config.ts` |
+| R40 | R | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
+| R41 | R | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
+| R42 | R | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
+| R43 | R | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
+| R44 | R | - | Sweep: re-run the churn command, split whatever the splits pushed over 500. |
+| R45 | R | - | Add the 500-line cap to `tools/agent-feed-fitness.sh`, then write the summary at the top of this file. |
+
+## Concepts found, per file
+
+Written before each split, one line per concept.
+
+## Decisions
+
+Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
+
+- **Branch is local `ts-cleanup`, pushes go to `origin/chore/ts-cleanup`.** The remote branch does
+  not exist yet, so the first push creates it. Not renaming the local branch: renaming changes more
+  than pushing to an explicit refspec does.
+
+## Deferred
+
+Improvements noticed in passing and deliberately not made. This is not a bug-fixing arc.
