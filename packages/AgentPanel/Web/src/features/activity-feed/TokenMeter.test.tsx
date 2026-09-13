@@ -132,3 +132,48 @@ describe("newerUsage cache lifetime", () => {
     expect(newerUsage(warm, short)).toBe(short);
   });
 });
+
+describe("cost threshold", () => {
+  it("warns on a context big enough that compacting pays, long before the window is full", () => {
+    // 300k of a 1M window is 30% full and grey by every fraction rule, and it is also the range
+    // where one more turn of work costs several times what compacting it would.
+    render(
+      <TokenMeter usage={{ current: 300_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5" }} />,
+    );
+
+    const bar = screen.getByRole("progressbar");
+    expect(bar.getAttribute("aria-label")).toContain("compacting now pays for itself");
+    // The count carries it and the track does not: a 30% bar painted amber would be claiming the
+    // window is nearly gone, which is a different and false thing.
+    expect(screen.getByText("300k").className).toContain("text-amber-500");
+    expect((bar.firstElementChild as HTMLElement).className).toContain("bg-muted-foreground/60");
+  });
+
+  it("leaves a context below the line alone", () => {
+    render(<TokenMeter usage={{ current: 150_000, limit: 1_000_000, updatedAt: 1 }} />);
+
+    const bar = screen.getByRole("progressbar");
+    expect(bar.getAttribute("aria-label")).not.toContain("compacting");
+    expect((bar.firstElementChild as HTMLElement).className).toContain("bg-muted-foreground/60");
+  });
+
+  it("keeps running out louder than costing money", () => {
+    // Both are true at 950k of 1M. The red is the one that cannot be put off, so it wins the
+    // colour, and the tooltip still carries the cost.
+    render(<TokenMeter usage={{ current: 950_000, limit: 1_000_000, updatedAt: 1 }} />);
+
+    const bar = screen.getByRole("progressbar");
+    expect((bar.firstElementChild as HTMLElement).className).toContain("bg-destructive");
+    expect(screen.getByTitle(/compacting now pays for itself/)).toBeTruthy();
+  });
+
+  it("warns with no window at all, because the saving does not depend on one", () => {
+    // Codex publishes windows that arrive late or not at all. What compacting saves is a property
+    // of the context's size, so a bare count still has an answer.
+    render(<TokenMeter usage={{ current: 300_000, limit: null, updatedAt: 1 }} />);
+
+    const count = screen.getByLabelText("Context: 300,000 tokens");
+    expect(count.className).toContain("text-amber-500");
+    expect(screen.getByTitle(/compacting now pays for itself/)).toBeTruthy();
+  });
+});

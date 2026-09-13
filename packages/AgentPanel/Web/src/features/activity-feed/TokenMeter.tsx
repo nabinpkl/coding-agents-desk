@@ -5,6 +5,36 @@ import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream
 const WARN_FRACTION = 0.75;
 /** Fill fraction above which compaction is imminent enough to say so loudly. */
 const CRITICAL_FRACTION = 0.9;
+/**
+ * Occupancy above which compacting has paid for itself inside one more user turn.
+ *
+ * A second reason to warn, because the fractions above answer a different question. They are about
+ * running OUT -- the window ending, and compaction happening whether or not anyone chose it -- and
+ * on a 1M window that leaves the meter grey from 150k to 750k, which is the entire range where
+ * compacting is the cheaper move. The two share a colour because they share an action.
+ *
+ * Measured on this project's own transcripts, in base-input-token units at $5.00/MTok (cache read
+ * 0.1x, 1h cache write 2.0x, output 5.0x):
+ *
+ * - Compacting costs about 144,800 units, roughly $0.72, and that figure is FLAT in context size.
+ *   The summariser reads the whole context too, so its `0.1 x C` term cancels against continuing;
+ *   what is left is the summary's output and the next turn's rewrite of a fresh prefix.
+ * - Every later request then saves `0.1 x (C - 83k)`, 83k being the measured size a compacted
+ *   context comes back at. The gap never closes: both branches grow at the same rate.
+ * - So break-even is `debt / saving` requests, and this session runs 11.7 API requests per user
+ *   turn. At 200k that is 12.4 requests, which is one turn. At 500k it is under four.
+ *
+ * A model with a 200k window can never reach this, and does not need to: its fractions fire first.
+ */
+const COMPACTION_PAYS_ABOVE = 200_000;
+/**
+ * What the amber means once the count has passed that line, on the tooltip and on the bar's
+ * accessible name.
+ *
+ * Both, rather than the tooltip alone: colour is the only other thing carrying this, and a reader
+ * who cannot see the colour would otherwise have no way to the state at all.
+ */
+const COSTLY_NOTE = " \u00b7 compacting now pays for itself within a turn";
 /** Minutes of cache left below which the countdown stops being a fact and starts
  *  being a warning. Ten because the thing it is warning about takes a minute or
  *  two to act on: compacting while warm is what makes the next message cheap. */
@@ -81,14 +111,21 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
   if (!usage) return null;
 
   const compact = formatTokens(usage.current);
+  // Nothing here divides by the window, which is why the cost warning survives a session with no
+  // window at all: what compacting saves is a property of the context's SIZE, not of how much room
+  // is left beside it.
+  const costly = usage.current >= COMPACTION_PAYS_ABOVE;
   if (usage.limit === null) {
     return (
       <span className="flex shrink-0 items-baseline gap-1 px-1">
         <CacheCountdown usage={usage} />
         <span
-          title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}`}
+          title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
           aria-label={`Context: ${usage.current.toLocaleString()} tokens`}
-          className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums text-muted-foreground"
+          className={
+            "font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums "
+            + (costly ? "text-amber-500" : "text-muted-foreground")
+          }
         >
           {compact}
         </span>
@@ -101,9 +138,12 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
   const tone =
     fraction >= CRITICAL_FRACTION
       ? "text-destructive"
-      : fraction >= WARN_FRACTION
+      : fraction >= WARN_FRACTION || costly
         ? "text-amber-500"
         : "text-muted-foreground";
+  // Deliberately not `costly`, unlike the count above it. The track is how FULL the window is, and
+  // an amber track on a bar drawn at 30% says the window is nearly gone, which is not what the
+  // cost line means. The count is the size, and the size is what compacting is about.
   const fill =
     fraction >= CRITICAL_FRACTION
       ? "bg-destructive"
@@ -113,7 +153,7 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
 
   return (
     <span
-      title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}`}
+      title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
       className="flex shrink-0 flex-col items-end gap-[2px] px-1"
     >
       {/* Countdown first so the count keeps the right edge, directly over the
@@ -137,7 +177,7 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
           a live thread is every few seconds. */}
       <span
         role="progressbar"
-        aria-label={`Context: ${percent}% of ${usage.limit.toLocaleString()} tokens`}
+        aria-label={`Context: ${percent}% of ${usage.limit.toLocaleString()} tokens${costly ? COSTLY_NOTE : ""}`}
         aria-valuenow={percent}
         aria-valuemin={0}
         aria-valuemax={100}
