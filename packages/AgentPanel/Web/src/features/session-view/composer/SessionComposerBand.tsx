@@ -12,6 +12,7 @@ import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
+import type { TerminalComposerMode } from "@/features/terminal/terminalComposerPreference";
 import { submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import type { useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
 import { List, Paperclip } from "lucide-react";
@@ -23,6 +24,27 @@ import { AskUserQuestionMirror } from "@/features/session-view/composer/AskUserQ
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
+
+/**
+ * What the terminal control says it will do NEXT, since a press walks rather than toggles.
+ *
+ * Named for the destination rather than the current state: a control the reader is about to press
+ * is answering "what do I get", and "Hide the terminal" on a button that shows a peek was the
+ * reading that made the two-state label wrong once it stopped being two.
+ */
+const TERMINAL_BUTTON_LABEL: Record<TerminalComposerMode, string> = {
+  field: "Show the terminal beside the composer",
+  echo: "Show the terminal instead of the composer",
+  terminal: "Hide the terminal",
+};
+
+const TERMINAL_BUTTON_TITLE: Record<TerminalComposerMode, string> = {
+  field:
+    "Show this session's terminal under the composer, so text typed here can be watched arriving"
+    + " in the agent's own composer line. Resumes it in tmux if nothing is running it.",
+  echo: "Give the whole band to the terminal and type directly into it.",
+  terminal: "Hide this session's terminal and type in the composer instead.",
+};
 
 export function SessionComposerBand({
   actions,
@@ -45,6 +67,7 @@ export function SessionComposerBand({
   terminalComposer,
   terminalHeightBasis,
   terminalInput,
+  terminalPane,
   tmuxBand,
   tmuxComposer,
   usage,
@@ -68,15 +91,20 @@ export function SessionComposerBand({
   softwareKeyboard: boolean;
   terminalComposer: {
     context: SessionTmuxTerminalContext;
-    shown: boolean;
-    toggle: () => void;
+    mode: TerminalComposerMode;
+    cycle: () => void;
+  } | null;
+  terminalPane: {
+    context: SessionTmuxTerminalContext;
+    layout: "band" | "echo";
   } | null;
   terminalHeightBasis: HTMLElement | null;
-  terminalInput: {
-    context: SessionTmuxTerminalContext;
-    shown: boolean;
-    toggle: () => void;
-  } | null;
+  /**
+   * Whether the pane has the band to itself, which is the only arrangement that takes the field
+   * away. A flag rather than the context it used to be: what is DRAWN comes from `terminalPane`
+   * now, and this is the one question the field and the action row ask.
+   */
+  terminalInput: boolean;
   tmuxBand: boolean;
   tmuxComposer: ComposerModel["tmuxComposer"];
   usage: TokenUsage | null;
@@ -102,7 +130,7 @@ export function SessionComposerBand({
           onDismiss={questionPanel.dismiss}
         />
       ) : null}
-      {/* The session's own terminal, INSTEAD of the field rather than above it.
+      {/* The session's own terminal: beside the field, or instead of it.
 
           Both are ways of typing at the same session -- the field sends a turn through the harness,
           the terminal types into the process -- and which one you want changes between asking it
@@ -115,7 +143,7 @@ export function SessionComposerBand({
           live one, and scrolling rather than resizing, because the terminal renders at the pane's
           own geometry -- imposing a size here would reflow the session in whatever terminal its
           owner has it open in. */}
-      {terminalInput ? (
+      {terminalPane ? (
         // `AgentTerminalPane` rather than a tile: it is the same hook underneath and it already
         // owns the resize handle, the header and the footer. It takes a tmux context as readily as
         // an agent-session one, so the composer needed no second copy of any of that.
@@ -126,11 +154,11 @@ export function SessionComposerBand({
         // of the viewport, because the session is not always the page.
         <div className="mb-2">
           <AgentTerminalPane
-            key={terminalContextKey(terminalInput.context)}
+            key={terminalContextKey(terminalPane.context)}
             feed={feed}
-            context={terminalInput.context}
+            context={terminalPane.context}
             onState={noteTerminalState}
-            layout="band"
+            layout={terminalPane.layout}
             heightBasis={terminalHeightBasis}
           />
         </div>
@@ -235,14 +263,14 @@ export function SessionComposerBand({
         {terminalComposer ? (
           <button
             type="button"
-            onClick={terminalComposer.toggle}
-            aria-pressed={terminalComposer.shown}
-            aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
-            title={terminalComposer.shown
-              ? "Hide this session's terminal and type in the composer instead."
-              : "Type in this session's terminal instead, resuming it in tmux if nothing is running it."}
+            onClick={terminalComposer.cycle}
+            // Pressed for both arrangements that show the pane: what the control reports is
+            // whether the terminal is up, and the label carries which of the two it is.
+            aria-pressed={terminalComposer.mode !== "field"}
+            aria-label={TERMINAL_BUTTON_LABEL[terminalComposer.mode]}
+            title={TERMINAL_BUTTON_TITLE[terminalComposer.mode]}
             className={`flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted ${
-              terminalComposer.shown
+              terminalComposer.mode !== "field"
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             }`}

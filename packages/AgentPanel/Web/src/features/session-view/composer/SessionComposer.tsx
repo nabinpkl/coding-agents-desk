@@ -68,10 +68,8 @@ import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
-import {
-  toggleTerminalComposer,
-  useTerminalComposerShown,
-} from "@/features/terminal/terminalComposerPreference";
+import type { TerminalComposerMode } from "@/features/terminal/terminalComposerPreference";
+import { terminalArrangement } from "@/features/session-view/composer/terminalArrangement";
 import { AskUserQuestionMirror, useClaudeWindowQuestion } from "@/features/session-view/composer/AskUserQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
@@ -155,8 +153,8 @@ export function SessionComposer({
    */
   terminalComposer: {
     context: SessionTmuxTerminalContext;
-    shown: boolean;
-    toggle: () => void;
+    mode: TerminalComposerMode;
+    cycle: () => void;
   } | null;
   /**
    * What this band's terminal takes its height as a share of, and whether it renders at all: the
@@ -340,9 +338,16 @@ export function SessionComposer({
   const [composerFocused, setComposerFocused] = useState(false);
   const [softwareKeyboard] = useState(drawsOwnKeyboard);
 
-  // The terminal when it is the band's input surface, null when the field is. One name rather than
-  // the condition written twice, because the whole point is that they are never both on screen.
-  const terminalInput = terminalComposer?.shown && terminalHeightBasis ? terminalComposer : null;
+  // What the band puts up, from the arrangement this session remembers. `terminalArrangement`
+  // owns the decision so the three readers of it -- the pane, the field, and the action row --
+  // cannot drift apart the way they did while it was a boolean read in three places.
+  const arrangement = terminalArrangement(
+    terminalComposer?.mode ?? "field",
+    Boolean(terminalHeightBasis),
+  );
+  const terminalPane = terminalComposer && arrangement.pane
+    ? { context: terminalComposer.context, layout: arrangement.pane }
+    : null;
 
   const [deliveryPending, setDeliveryPending] = useState(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
@@ -414,7 +419,8 @@ export function SessionComposer({
       softwareKeyboard={softwareKeyboard}
       terminalComposer={terminalComposer}
       terminalHeightBasis={terminalHeightBasis}
-      terminalInput={terminalInput}
+      terminalInput={!arrangement.field}
+      terminalPane={terminalPane}
       tmuxBand={tmuxBand}
       tmuxComposer={tmuxComposer}
       usage={usage}

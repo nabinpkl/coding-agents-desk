@@ -55,8 +55,14 @@ interface Props {
    * leaves whatever the pane does not fill blank -- so it opens at a share of the surface holding
    * the band, and takes its ceiling from there too. Growing it makes the band taller, which moves
    * the band's top edge up: the direction a handle along the pane's top edge implies.
+   *
+   * `echo` is a band that is a PEEK rather than a place to work: it opens at the minimum height
+   * instead of at the height its screen wants, and keeps the BOTTOM of that screen in view. It
+   * exists so a reader can watch their own typing arrive in the agent's composer line while still
+   * having the field to type it in, and the line they are watching is the last one on the screen.
+   * Still draggable: a peek that turns out to be worth more room is one drag from having it.
    */
-  layout?: "column" | "band";
+  layout?: "column" | "band" | "echo";
   /**
    * What a `band` pane's height is a share OF. The viewport when this is absent.
    *
@@ -88,11 +94,18 @@ export function AgentTerminalPane(
   const removeResizeListenersRef = useRef<() => void>(() => {});
   // Whether the viewer has sized this pane themselves, which outranks anything the grid prefers.
   const sized = useRef(false);
-  const band = layout === "band";
+  // An echo is a band for every purpose that involves height coming from outside the pane. What it
+  // is not is a band that opens at the size of its screen.
+  const echo = layout === "echo";
+  const band = layout === "band" || echo;
   const shape = paneShapeForLayout(layout, paneShape);
   const measureBasis = (): number => heightBasis?.clientHeight ?? viewportHeight();
   const [height, setHeight] = useState<number | null>(
-    band ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE)) : null,
+    echo
+      ? MINIMUM_TERMINAL_HEIGHT
+      : band
+        ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE))
+        : null,
   );
   // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
   const [basis, setBasis] = useState(measureBasis);
@@ -176,7 +189,7 @@ export function AgentTerminalPane(
    * checkpoint must not take it back.
    */
   useEffect(() => {
-    if (!band || contentHeight === null || !(contentHeight > 0) || sized.current) return;
+    if (!band || echo || contentHeight === null || !(contentHeight > 0) || sized.current) return;
     const pane = paneRef.current;
     const mount = mountRef.current;
     if (!pane || !mount) return;
@@ -189,6 +202,26 @@ export function AgentTerminalPane(
     // the drag rather than follow the grid.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [band, contentHeight]);
+
+  /**
+   * Keeps the bottom of an echo's screen in view.
+   *
+   * An echo is shorter than the screen it shows, so the screen overflows and the mount scrolls --
+   * and the mount centres what it holds (`m-auto`), which puts a too-tall screen's MIDDLE on
+   * screen. The line an echo exists to show is the last one, so it is scrolled to rather than
+   * hoped for.
+   *
+   * Re-run on the screen's height rather than on every write: a reflow is what moves the bottom,
+   * and a checkpoint that repaints the same grid leaves the scroll where it already is. `height`
+   * too, because a reader dragging the peek taller changes how much of the screen is off the
+   * bottom, and the answer should still be none of it.
+   */
+  useEffect(() => {
+    if (!echo) return;
+    const mount = mountRef.current;
+    if (!mount) return;
+    mount.scrollTop = mount.scrollHeight;
+  }, [echo, contentHeight, height, mountRef]);
 
   const resizeTo = (requestedHeight: number): void => {
     if (!paneRef.current) return;
@@ -341,10 +374,12 @@ export function AgentTerminalPane(
  * The override exists for the surface that is neither, of which there is none today.
  */
 export function paneShapeForLayout(
-  layout: "column" | "band",
+  layout: "column" | "band" | "echo",
   override?: "adopt" | "follow",
 ): "adopt" | "follow" {
-  return override ?? (layout === "band" ? "follow" : "adopt");
+  // An echo follows for the same reason a band does, and harder: it is shorter than a band, so a
+  // claim from one would pin the session smaller than the shape that made this rule.
+  return override ?? (layout === "column" ? "adopt" : "follow");
 }
 
 /**

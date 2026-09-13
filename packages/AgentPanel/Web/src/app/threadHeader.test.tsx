@@ -173,7 +173,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("swaps the composer's field for the thread's own terminal, one or the other", () => {
+  it("walks the band from the field, to both surfaces, to the terminal alone", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
 
@@ -181,7 +181,7 @@ describe("App shell", () => {
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Claude session terminal" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal beside the composer" }));
 
     // The session id, not a pane name. Which tmux pane that is -- the one a live process runs in,
     // or one started to resume the id -- is the sidecar's to answer, and it is the only side that
@@ -192,9 +192,17 @@ describe("App shell", () => {
       source: "claude",
       sessionId: "sid-claude-01",
     });
+    // BOTH, which is the arrangement the other two cannot show: a reader typing in the field
+    // watching their own text arrive in the agent's composer line. Affordable because the pane is
+    // a peek rather than a second full-height input surface.
     expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
-    // Instead of the field, not above it: two ways of typing at one session, and the band spends
-    // its height on whichever is in use rather than on both.
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal instead of the composer" }));
+
+    // And here the field does go: the band spends its whole height on the terminal, which is what
+    // it meant when this was two states. Giving the field up is the deliberate second press.
+    expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
@@ -210,17 +218,22 @@ describe("App shell", () => {
   it("shows a terminal on the session it was asked for, and leaves the others on their field", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
-    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal beside the composer" }));
+    expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
 
+    // The other session is untouched: its own field, and a control still offering the first step.
     fireEvent.click(screen.getByText("Session Codex 01"));
     expect(screen.getByLabelText("Codex composer text")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show the terminal" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Codex session terminal" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show the terminal beside the composer" }))
+      .toBeInTheDocument();
 
-    // And coming back finds the terminal still standing, which is what remembering it is for.
+    // And coming back finds the arrangement still standing, which is what remembering it is for --
+    // including WHICH arrangement, not merely that there was one.
     fireEvent.click(screen.getByText("Session Claude 01"));
-    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
+    expect(screen.getByRole("region", { name: "Claude session terminal" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show the terminal instead of the composer" }))
+      .toBeInTheDocument();
     unmount();
   });
 

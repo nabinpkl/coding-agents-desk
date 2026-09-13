@@ -87,13 +87,14 @@ describe("App shell", () => {
 
     // Swapping the row's field for its terminal hands that pane the session's column to be a share
     // of. Left to ask the viewport it would open taller than the card holding it.
-    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal beside the composer" }));
     expect(terminalPaneMock.composerContext).toEqual({
       kind: "session-tmux",
       source: "claude",
       sessionId: "sid-claude-01",
     });
     expect(terminalPaneMock.composerHasBasis).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal instead of the composer" }));
     expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
 

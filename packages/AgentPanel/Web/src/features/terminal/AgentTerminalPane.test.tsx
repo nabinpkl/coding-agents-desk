@@ -200,6 +200,9 @@ it("never lets a band reshape the session, whichever band it is", () => {
   // Asserted here rather than through a rendered pane because a viewport report needs a measured
   // box, and jsdom measures every box at zero.
   expect(paneShapeForLayout("band")).toBe("follow");
+  // An echo harder than a band: it is the shortest pane there is, so a claim from one would pin
+  // the session smaller than the strip that made this rule in the first place.
+  expect(paneShapeForLayout("echo")).toBe("follow");
   expect(paneShapeForLayout("column")).toBe("adopt");
   // A surface that is neither can still say so, and saying so wins.
   expect(paneShapeForLayout("band", "adopt")).toBe("adopt");
