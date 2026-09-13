@@ -14,12 +14,27 @@
 # sidecar has no auth of its own, and WireGuard's device authentication is what loopback used to
 # stand in for.
 #
-# Verbs: setup (once per peer), ship, run, stop, status. `run` implies `ship`, so an edit reaches
-# the peer with one command.
+# Verbs: setup (once per peer), ship, watch, run, stop, status. `run` implies `ship`, so an edit
+# reaches the peer with one command.
+#
+# `watch` is the half that was missing. The peer's sidecar already runs under `bun --watch`, so it
+# re-reads its own sources about four seconds after they change -- but they only change when
+# somebody runs `ship`, and nobody remembers to. Measured 2026-09-13 on the oracle peer: the
+# process had been up two days and four hours, and the newest file in its shipped tree was two days
+# old, so every sidecar change made in between was invisible there while the panel showed a healthy
+# peer answering `/api/config`. That is the same failure this repo already paid for on the Mac,
+# where a host started by launchd ran the frozen bundled sidecar and reported 404s from a build
+# that predated the routes: a stale runtime is indistinguishable from a working one until a feature
+# is missing.
+#
+# So `watch` closes the loop: it polls the shipped closure HERE with `find`, which costs nothing
+# and touches no network while nothing is changing, and ships only when a file actually moved.
+# `bun --watch` on the peer does the rest. An edit reaches the peer the way an edit reaches the
+# Mac's own sidecar -- by saving it.
 
 set -euo pipefail
 
-usage="usage: remote-sidecar.sh <setup|ship|run|stop|status> <ssh-host> [port]"
+usage="usage: remote-sidecar.sh <setup|ship|watch|run|stop|status> <ssh-host> [port]"
 verb="${1:?${usage}}"
 peer="${2:?${usage}}"
 port="${3:-7682}"
@@ -49,6 +64,50 @@ peer_tailnet_address() {
     on_peer 'tailscale ip -4 2>/dev/null | head -1'
 }
 
+# Only the closure the sidecar imports: its own sources, the wire package its tsconfig path points
+# at, the runtime-paths helper, and the pty proto the terminal client parses.
+#
+# An ALLOW-list, not a deny-list, and that is the whole lesson: a deny-list of `node_modules`/`dist`
+# shipped 422M of stale `.*.bun-build` compile artifacts sitting in the source directory, over a
+# relayed link, because nothing had thought to name them. A deny-list loses to every new kind of
+# junk that appears; an allow-list ships 1.8M and cannot.
+sidecar_sources=(
+    "${repo}/agent-feed/sidecar/src"
+    "${repo}/agent-feed/sidecar/patches"
+    "${repo}/agent-feed/sidecar/package.json"
+    "${repo}/agent-feed/sidecar/bun.lock"
+    "${repo}/agent-feed/sidecar/tsconfig.json"
+)
+wire_source="${repo}/agent-feed/wire"
+runtime_paths_source="${repo}/tools/runtime-paths.mjs"
+pty_proto_source="${repo}/terminal/pty-manager/proto/pty.proto"
+
+# What `watch` polls, built from the same variables the rsyncs below use rather than written out a
+# second time. A path added to the closure and forgotten here would be a file that reaches the peer
+# only when somebody ships by hand, which is the exact failure `watch` exists to end.
+closure=("${sidecar_sources[@]}" "${wire_source}" "${runtime_paths_source}" "${pty_proto_source}")
+# The two files whose change means the peer has to resolve dependencies again. Everything else in
+# the closure is source the peer's `bun --watch` re-reads by itself.
+manifest=("${repo}/agent-feed/sidecar/package.json" "${repo}/agent-feed/sidecar/bun.lock")
+
+ship_sources() {
+    on_peer "mkdir -p '${remote_repo}/agent-feed/sidecar' '${remote_repo}/tools' '${remote_repo}/terminal/pty-manager/proto'"
+    rsync -a --delete "${sidecar_sources[@]}" "${peer}:${remote_repo}/agent-feed/sidecar/"
+    rsync -a --delete "${wire_source}" "${peer}:${remote_repo}/agent-feed/"
+    rsync -a "${runtime_paths_source}" "${peer}:${remote_repo}/tools/"
+    rsync -a "${pty_proto_source}" "${peer}:${remote_repo}/terminal/pty-manager/proto/"
+}
+
+ship_dependencies() {
+    on_peer "cd '${remote_repo}/agent-feed/sidecar' && '${bun}' install --frozen-lockfile"
+}
+
+# Anything under the watched closure saved since `${1}` was stamped. Stops at the first hit, so the
+# common answer -- nothing -- costs one local directory walk and no network.
+changed_since() {
+    find "${@:2}" -newer "${1}" -type f -print -quit 2>/dev/null
+}
+
 case "${verb}" in
 setup)
     # tmux is what the Terminals tab attaches to; bun is what runs the sidecar. Neither is assumed
@@ -60,27 +119,44 @@ setup)
         printf "tmux %s\nbun  %s\n" "$(tmux -V)" "$("$HOME/.bun/bin/bun" --version)"'
     ;;
 ship)
-    # Only the closure the sidecar imports: its own sources, the wire package its tsconfig path
-    # points at, the runtime-paths helper, and the pty proto the terminal client parses.
-    #
-    # An ALLOW-list, not a deny-list, and that is the whole lesson: a deny-list of
-    # `node_modules`/`dist` shipped 422M of stale `.*.bun-build` compile artifacts sitting in the
-    # source directory, over a relayed link, because nothing had thought to name them. A deny-list
-    # loses to every new kind of junk that appears; an allow-list ships 1.8M and cannot.
-    on_peer "mkdir -p '${remote_repo}/agent-feed/sidecar' '${remote_repo}/tools' '${remote_repo}/terminal/pty-manager/proto'"
-    rsync -a --delete \
-        "${repo}/agent-feed/sidecar/src" "${repo}/agent-feed/sidecar/patches" \
-        "${repo}/agent-feed/sidecar/package.json" "${repo}/agent-feed/sidecar/bun.lock" \
-        "${repo}/agent-feed/sidecar/tsconfig.json" \
-        "${peer}:${remote_repo}/agent-feed/sidecar/"
-    rsync -a --delete "${repo}/agent-feed/wire" "${peer}:${remote_repo}/agent-feed/"
-    rsync -a "${repo}/tools/runtime-paths.mjs" "${peer}:${remote_repo}/tools/"
-    rsync -a "${repo}/terminal/pty-manager/proto/pty.proto" \
-        "${peer}:${remote_repo}/terminal/pty-manager/proto/"
-    on_peer "cd '${remote_repo}/agent-feed/sidecar' && '${bun}' install --frozen-lockfile"
+    ship_sources
+    ship_dependencies
+    ;;
+watch)
+    # The peer is already running `bun --watch`, so this only has to keep its files current.
+    # Nothing is restarted and nothing is installed unless the lockfile moved: a reload is the
+    # peer re-reading in process, with the port still bound and the pid unchanged.
+    address="$(peer_tailnet_address)"
+    [ -n "${address}" ] || { echo "peer ${peer} has no tailnet address" >&2; exit 1; }
+    stamp="$(mktemp)"
+    trap 'rm -f "${stamp}"' EXIT
+    ship_sources
+    ship_dependencies
+    echo "watching ${#closure[@]} paths for ${peer}; an edit ships on save. ctrl-c to stop."
+    while :; do
+        sleep 1
+        [ -n "$(changed_since "${stamp}" "${closure[@]}")" ] || continue
+        # Asked before the stamp moves, because the stamp is what it is measured against.
+        install_needed="$(changed_since "${stamp}" "${manifest[@]}")"
+        # Stamped BEFORE the ship, so an edit saved DURING one is newer than the stamp and lands on
+        # the next pass instead of being swallowed by this one.
+        touch "${stamp}"
+        ship_sources
+        [ -z "${install_needed}" ] || ship_dependencies
+        printf '%s  shipped to %s\n' "$(date +%H:%M:%S)" "${peer}"
+        # One request per edit, not per poll, and only after the peer has had time to re-read.
+        # `bun --watch` reloads in process and rebinds the port, so a reload that THREW leaves a
+        # live process with nothing listening -- which from here is indistinguishable from a peer
+        # that is fine, right up until something asks it for data. See the same trap on the Mac,
+        # where the host now probes the port rather than the process.
+        sleep 5
+        curl -sf --max-time 5 "http://${address}:${port}/api/config" >/dev/null \
+            || echo "  ${peer} did not answer after that ship -- ssh ${peer} tail ${log}"
+    done
     ;;
 run)
-    "$0" ship "${peer}" "${port}"
+    ship_sources
+    ship_dependencies
     address="$(peer_tailnet_address)"
     [ -n "${address}" ] || { echo "peer ${peer} has no tailnet address" >&2; exit 1; }
     "$0" stop "${peer}" "${port}" >/dev/null 2>&1 || true
@@ -101,6 +177,8 @@ run)
     echo "sidecar starting on ${peer} at http://${address}:${port} (log: ${log})"
     echo "declare it for the panel with:"
     echo "  AGENTDESK_PANEL_REMOTE_SIDECARS=${peer}=${address}:${port}"
+    echo "keep it current with:"
+    echo "  just remote-sidecar-watch ${peer}"
     ;;
 stop)
     on_peer "if [ -f '${pidfile}' ]; then kill \$(cat '${pidfile}') 2>/dev/null || true; rm -f '${pidfile}'; fi"
@@ -120,7 +198,7 @@ status)
     fi
     ;;
 *)
-    echo "usage: remote-sidecar.sh <setup|ship|run|stop|status> <ssh-host> [port]" >&2
+    echo "${usage}" >&2
     exit 2
     ;;
 esac
