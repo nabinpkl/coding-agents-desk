@@ -7,7 +7,8 @@ import type {
   TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
 import { state } from "@/transcripts/transcriptState";
-import { createTimelineRoutes, TIMELINE_WINDOW } from "@/http/session-routes/timelineRoutes";
+import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
+import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
 
 const server = { timeout() {} } as never;
 

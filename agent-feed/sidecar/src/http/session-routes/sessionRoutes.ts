@@ -11,7 +11,6 @@ import {
   releaseIndex,
   subscribeEvents,
   syncIndex,
-  type ActivityEvent,
   type EventNotice,
 } from "@/transcripts/event-index/eventIndex";
 import {
@@ -27,6 +26,7 @@ import type {
   TranscriptSourceId,
 } from "@/transcripts/transcriptTypes";
 import type { EventsPage, ForkSessionCommand, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
+import { createTimelineFollower } from "@/http/session-routes/timelineCheckpoint";
 import {
   renameClaudeSession,
   SessionRenameInvalidError,
@@ -208,6 +208,11 @@ async function rawEvent(
  * the plain `/stream` route and the composite `/timeline` endpoint follow a
  * transcript through the same code rather than through two copies of the watcher,
  * the backfill arithmetic, and the mode-skipping rule.
+ *
+ * What it hands over is decided by `createTimelineFollower`, not here: rows while this
+ * reader is keeping up, and a checkpoint when it is not. Both the backfill below and
+ * the file growing later go through it, because being a window behind at the moment of
+ * opening and falling a window behind afterwards are the same thing to a reader.
  */
 export function subscribeTranscriptTimeline(
   source: TranscriptSourceId,
@@ -226,33 +231,28 @@ export function subscribeTranscriptTimeline(
   const fail = (error: unknown): void => {
     handlers.onError(error instanceof Error ? error.message : String(error));
   };
-  // Occupancy rides every event message instead of getting a message type of
-  // its own: the thread stream already pushes once per event, so the panel's
-  // meter goes live with no extra plumbing and the host decodes one optional
-  // field. Read per write rather than captured, so it is never stale.
-  const writeEvent = (event: ActivityEvent): void => {
-    handlers.onEnvelope({
-      kind: "upsert",
-      sequence: event.index + 1,
-      mode,
-      events: [event],
-      windowStart: event.index,
-      total: event.index + 1,
-      runState: "idle",
-      queue: { steer: 0, followUp: 0 },
-      usage: getSessionUsage(source, sessionId),
-    });
-  };
+  // Occupancy rides every envelope instead of getting a message type of its own: the
+  // thread stream already writes whenever the record moves, so the panel's meter goes
+  // live with no extra plumbing and the host decodes one optional field. Read per
+  // write rather than captured, so it is never stale.
+  const follower = createTimelineFollower({
+    mode,
+    // A transcript is only ever appended to, so an index means the same line before and after a
+    // checkpoint and a reader keeps whatever they had paged in below it.
+    stableIndices: true,
+    usage: () => getSessionUsage(source, sessionId),
+    emit: handlers.onEnvelope,
+  });
   // A stream is opened for ONE mode, so a machinery line is not an event this
   // subscriber has: it is skipped rather than renumbered, and the nice indices
   // stay contiguous exactly as the index assigned them.
   const onNotice = ({ event, niceIndex }: EventNotice): void => {
     if (mode === "raw") {
-      writeEvent({ ...event, otherModeIndex: niceIndex });
+      follower.offer({ ...event, otherModeIndex: niceIndex });
       return;
     }
     if (niceIndex === null) return;
-    writeEvent({ ...event, index: niceIndex, otherModeIndex: event.index });
+    follower.offer({ ...event, index: niceIndex, otherModeIndex: event.index });
   };
   // The watch and the index reference are one thing here: the index is what this
   // reads and the watch is what keeps it current, and both are shared with every
@@ -278,7 +278,7 @@ export function subscribeTranscriptTimeline(
         discardIndexIfUnused(source, sessionId);
         return;
       }
-      for (const event of backfill) writeEvent(event);
+      for (const event of backfill) follower.offer(event);
     }
     unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
     await syncIndex(source, sessionId, session.transcriptPath);
@@ -292,6 +292,9 @@ export function subscribeTranscriptTimeline(
   });
   return () => {
     cancelled = true;
+    // Before the unsubscribe, so a flush already queued for this microtask cannot write
+    // to a subscriber that has left.
+    follower.close();
     unsubscribeEvents?.();
     unfollow();
   };

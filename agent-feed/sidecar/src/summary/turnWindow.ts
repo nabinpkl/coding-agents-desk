@@ -19,9 +19,10 @@ import { filesTouchedIn } from "@/summary/toolCalls";
 /**
  * How many events one page of the backwards walk reads.
  *
- * Deliberately not `TIMELINE_WINDOW`. That constant sizes what a viewer sees when a thread opens;
- * this one sizes an internal scan, and tying them would make a change to the panel's opening
- * window silently change how far back the summarizer looks for a turn boundary.
+ * Deliberately not `TIMELINE_WINDOW`. That constant is about what a READER is shown -- the window a
+ * thread opens on, and the bound past which they are handed that window instead of the rows that
+ * got there. This one sizes an internal scan, and tying them would make a change to either of
+ * those silently change how far back the summarizer looks for a turn boundary.
  */
 const SCAN_PAGE = 100;
 

@@ -26,18 +26,11 @@ import type {
 import type { EventsPage, TimelineMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
 import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
+import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
 import type { RouteHandler } from "@/http/route";
 
 const TIMELINE_ROUTE =
   /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/timeline$/;
-
-/**
- * How many of a session's most recent events the opening snapshot carries.
- *
- * A thread opens at its end, so the window is the tail of the transcript and
- * everything before it is paged in on demand.
- */
-export const TIMELINE_WINDOW = 100;
 
 /** A live backend additionally publishes session occupancy; most do not. */
 type UsageReportingBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
