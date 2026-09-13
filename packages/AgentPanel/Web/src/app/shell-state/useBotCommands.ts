@@ -20,6 +20,19 @@ import type {
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { BotCommandError } from "@/features/bots/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
+import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
+
+/**
+ * The Bot a whole-session fork attaches to.
+ *
+ * Thrown rather than defaulted, because there is no sensible Bot to guess: a fork with neither a
+ * message to start from nor a Bot to land on is a request that was built wrong, and sending
+ * `undefined` in the path would ask the sidecar about a Bot called "undefined" instead.
+ */
+function requireBot(request: ForkRequest): string {
+  if (request.botId) return request.botId;
+  throw new Error("a fork of a whole session must name the Bot to attach it to");
+}
 
 export function useBotCommands(
   feed: SidecarDataSource,
@@ -59,6 +72,8 @@ export function useBotCommands(
       tmuxSession: string;
       /** What it was forked FROM, which is the one thing the empty view has to say. */
       sourceTitle: string;
+      /** Why it could not be moved back to the message it was asked to start from, if it was. */
+      rewindFailed?: string;
     } | null
   >(null);
   /**
@@ -82,9 +97,7 @@ export function useBotCommands(
   const [newSessions, setNewSessions] = useState<readonly NewBotSession[]>([]);
 
   /** The session whose fork is being named, if any. Nothing is started until it is confirmed. */
-  const [forkRequest, setForkRequest] = useState<
-    { session: SessionSummary; botId: string; projectPath: string } | null
-  >(null);
+  const [forkRequest, setForkRequest] = useState<ForkRequest | null>(null);
 
   // Asks for a name rather than forking. Nothing is started here: the pane, the tmux session and
   // the `claude --fork-session` behind it all wait on the dialog being confirmed, because `-n` is
@@ -97,9 +110,29 @@ export function useBotCommands(
       projectPath: bot.environment.path,
     });
   }, []);
+
+  /**
+   * The same dialog, opened from a message rather than from a roster row.
+   *
+   * No Bot, and that is the point: a reader decides to branch while READING, and the transcript
+   * view has no Bot to hang the request on. The fork goes through the session endpoint instead and
+   * lands in the catalog on its own, the way a session started anywhere else does.
+   */
+  const forkFromMessage = useCallback((request: {
+    session: SessionSummary;
+    projectPath: string;
+    message: { eventId: string; text: string };
+  }) => {
+    if (request.session.source !== "claude") return;
+    setForkRequest({
+      session: request.session,
+      projectPath: request.projectPath,
+      from: request.message,
+    });
+  }, []);
   const startFork = useCallback(
     async (
-      request: { session: SessionSummary; botId: string; projectPath: string },
+      request: ForkRequest,
       forkTitle: string,
       brief: string,
       worktree: boolean,
@@ -107,20 +140,35 @@ export function useBotCommands(
       setForkRequest(null);
       setBotCommandError(null);
       try {
-        const added = await feed.addBotSessions(request.botId, {
-          launch: {
+        // Two endpoints, because they answer two different questions. A fork asked for from a Bot
+        // row is a session FOR that Bot and has to arrive attached to it; a fork asked for from a
+        // message belongs to nobody but the reader, and only the session endpoint takes the
+        // message to start before.
+        const started = request.from
+          ? await feed.forkSession(request.session.sessionId, {
             title: forkTitle,
-            from: { source: "claude", sessionId: request.session.sessionId },
+            from: { eventId: request.from.eventId },
             ...(brief.trim() ? { prompt: brief } : {}),
             ...(worktree ? { worktree: {} } : {}),
-          },
-        });
-        if (!added.started) return;
+          })
+          : (await feed.addBotSessions(requireBot(request), {
+            launch: {
+              title: forkTitle,
+              from: { source: "claude", sessionId: request.session.sessionId },
+              ...(brief.trim() ? { prompt: brief } : {}),
+              ...(worktree ? { worktree: {} } : {}),
+            },
+          })).started;
+        if (!started) return;
         setForkedSession({
-          sessionId: added.started.sessionId,
-          title: added.started.title,
-          tmuxSession: added.started.tmuxSession,
+          sessionId: started.sessionId,
+          title: started.title,
+          tmuxSession: started.tmuxSession,
           sourceTitle: request.session.title || request.session.sessionId,
+          // Carried rather than swallowed. The fork EXISTS and is running -- it just holds the
+          // whole conversation instead of the slice that was asked for -- and a reader told
+          // nothing would believe they had branched from their message when they had not.
+          ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
         });
       } catch (error) {
         // Named rather than attributed to a session: the fork does not exist, so there is no card
@@ -264,6 +312,7 @@ export function useBotCommands(
     renamingSession,
     setRenamingSession,
     forkSession,
+    forkFromMessage,
     startFork,
     startNewSession,
     closeNewSession,

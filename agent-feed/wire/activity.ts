@@ -58,6 +58,19 @@ export interface ParsedLine {
    */
   messageId?: string;
   /**
+   * A person wrote this line, as opposed to the harness writing it as them.
+   *
+   * Set only where true, so a reader can test the field. `type: "user"` is not the same question
+   * and cannot answer it: a tool result, a slash command's echo, a `<system-reminder>` and a
+   * compaction notice are all recorded as the user, and a summarizer that tested the type alone
+   * once reported a tool result as the person speaking.
+   *
+   * It rides the wire rather than being re-derived in the panel because the list of envelopes is
+   * long, source-specific and grows with the harnesses; a second copy of it would be wrong the
+   * first time either CLI added one. `transcripts/humanTurns.ts` is the one that decides.
+   */
+  humanTurn?: true;
+  /**
    * Per-turn prompt cache summary, attached to the turn's last visible row so the
    * panel can render a cache-hit badge next to the output it belongs to.
    * `cached` is the input tokens served from the prompt cache and `input` is the

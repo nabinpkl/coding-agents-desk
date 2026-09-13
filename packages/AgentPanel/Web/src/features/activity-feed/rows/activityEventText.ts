@@ -43,6 +43,27 @@ export function stripInlineMarkdown(line: string): string {
  * two independent copies of this scan, which is exactly the drift this repo's
  * one-authoritative-home rule exists to stop.
  */
+/**
+ * The prose of a message, whole.
+ *
+ * `eventPreview` below answers a different question -- what fits on a folded row -- so it takes one
+ * line and stops at 200 characters. This is for the places that need what the person actually
+ * wrote: the fork dialog, which offers it back to be edited.
+ *
+ * First text block and no more, which is the same rule `transcripts/messageAnchor.ts` counts by on
+ * the other side. They have to agree: the sidecar proves the rewind landed on the right row by
+ * matching that text against the picker, and a panel showing a different slice of the same message
+ * would be describing a fork it is not about to make.
+ */
+export function messageText(ev: ActivityEvent): string {
+  for (const block of ev.blocks) {
+    if (block.kind !== "text") continue;
+    const text = block.text?.trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 export function eventPreview(ev: ActivityEvent): string {
   let preview = "";
   for (const block of ev.blocks) {

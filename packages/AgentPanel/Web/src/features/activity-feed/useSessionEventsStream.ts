@@ -45,6 +45,11 @@ export interface ActivityEvent {
   /** Stable Anthropic message id (`msg_...`), shared between the durable
    *  transcript and the live mirror so a streaming tail can hand off. */
   messageId?: string;
+  /** A person wrote this line, as opposed to the harness writing it as them: a
+   *  tool result, a slash command's echo and a `<system-reminder>` are all
+   *  recorded as the user. Decided by the sidecar, which owns the list of
+   *  envelopes; set only where true. */
+  humanTurn?: true;
   /** Per-turn prompt-cache summary, attached to the turn's last visible row so
    *  a cache-hit badge can render next to the output it belongs to. Absent
    *  means the harness reported no cache data for that turn. */

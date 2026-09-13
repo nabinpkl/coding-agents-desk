@@ -6,6 +6,7 @@
 
 import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
+import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import {
   metadataBlock,
   metadataText,
@@ -218,15 +219,16 @@ export function normalizedRecord(
   // `message_start`, so the viewer can hand a streaming live tail off to the
   // durable transcript once it contains this same id.
   const rawMessageId = typeof message.id === 'string' ? (message.id as string).trim() : '';
-  const result: LineResult = {
-    turnClosed,
-    event: {
-      ts,
-      type: semanticType,
-      blocks: rawBlocks.map(({ block }) => block),
-      ...(rawMessageId ? { messageId: rawMessageId } : {}),
-    },
+  const event: ParsedLine = {
+    ts,
+    type: semanticType,
+    blocks: rawBlocks.map(({ block }) => block),
+    ...(rawMessageId ? { messageId: rawMessageId } : {}),
   };
+  // Asked once, here, because this is where the blocks exist and the panel has no way to ask it
+  // later: every envelope the harness writes arrives as `type: "user"` too.
+  if (isHumanTurnStart(event)) event.humanTurn = true;
+  const result: LineResult = { turnClosed, event };
   if (usage) result.usage = usage;
   if (t === 'assistant') {
     const cacheHit = extractClaudeCacheHit(message.usage);

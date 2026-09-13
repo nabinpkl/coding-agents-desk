@@ -7,6 +7,30 @@ import { nextForkTitle } from "@/features/bots/dialogs/sessionTitles";
 const MAXIMUM_BRIEF = 32_768;
 
 /**
+ * What is being forked, and from where.
+ *
+ * `botId` and `from` are the two ways this dialog is reached, and they are mutually exclusive in
+ * practice rather than by type: a Bot row forks the whole session onto that Bot, a message row
+ * forks a session nobody owns and starts it just before that message. Both spend the same name,
+ * the same brief and the same worktree question, which is why there is one dialog.
+ */
+export interface ForkRequest {
+  session: SessionSummary;
+  /** The directory the source runs in, which is what the proposed name is numbered against. */
+  projectPath: string;
+  /** The Bot to attach the fork to. Absent when the fork was asked for from a message. */
+  botId?: string;
+  /**
+   * The message the fork starts just BEFORE, and what it says.
+   *
+   * The text travels with the id because it is what the fork is described by here and what the
+   * sidecar proves the rewind by there: it drives Claude's own rewind picker and matches the row
+   * it lands on against this string rather than trusting a count.
+   */
+  from?: { eventId: string; text: string };
+}
+
+/**
  * Naming a fork before it is started.
  *
  * The name has to be chosen HERE rather than corrected afterwards, and that is a property of what
@@ -29,17 +53,12 @@ export function ForkSessionDialog({
   onClose,
   onFork,
 }: {
-  /** The session being forked and the Bot it belongs to, or null when the dialog is closed. */
-  request: { session: SessionSummary; botId: string; projectPath: string } | null;
+  /** What is being forked, or null when the dialog is closed. */
+  request: ForkRequest | null;
   /** Every title already in the source's project, which is how the proposal picks its number. */
   takenTitles: readonly string[];
   onClose: () => void;
-  onFork: (
-    request: { session: SessionSummary; botId: string; projectPath: string },
-    title: string,
-    brief: string,
-    worktree: boolean,
-  ) => void;
+  onFork: (request: ForkRequest, title: string, brief: string, worktree: boolean) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
@@ -54,7 +73,11 @@ export function ForkSessionDialog({
     if (!request) return;
     const seed = nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
     setTitle(seed);
-    setBrief("");
+    // Seeded with what that message said, because the thing a reader wants from forking at a
+    // message is almost always to send it again differently -- which is what Claude's own rewind
+    // does when it puts the rewound-to message back in the composer to be edited. Offering it here
+    // means the editing happens before the fork exists rather than in its pane afterwards.
+    setBrief(request.from?.text ?? "");
     setWorktree(false);
     setError(null);
     wantsSelected.current = seed;
@@ -145,6 +168,16 @@ export function ForkSessionDialog({
           Branches <span className="font-medium text-foreground">{source}</span> into a new session
           in its own pane. The original is untouched.
         </p>
+        {/* Which message, quoted, because a count is not something a reader can check. This is the
+            same text the sidecar matches the rewind picker against, so what is shown here is what
+            the fork will be asked to land on. */}
+        {request.from ? (
+          <p className="max-h-24 overflow-y-auto rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            It starts just before this message, which is yours to edit below:
+            {" "}
+            <span className="text-foreground">&ldquo;{request.from.text}&rdquo;</span>
+          </p>
+        ) : null}
         <label className="block text-sm font-medium">
           Name
           {/* Capped where the catalog truncates, so a stored title is always the one shown. */}
@@ -183,6 +216,8 @@ export function ForkSessionDialog({
           <p className="mt-1 text-xs text-muted-foreground">
             {brief.trim()
               ? `${brief.length.toLocaleString()} characters, after a note telling the fork to leave the parent's work alone`
+              : request.from
+              ? "Left empty, the fork stops before that message with it still in its composer, for you to edit there."
               : "Left empty, the fork opens holding the parent's context and waits for you to type."}
           </p>
         </div>

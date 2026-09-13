@@ -7,6 +7,7 @@
 
 import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
+import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import {
   metadataBlock,
   metadataText,
@@ -95,18 +96,16 @@ export function normalizedRecord(
     messageId?: string,
   ): NormalizedCodexLine => {
     const rawBlocks = [...blocks, { block: rawBlock(), raw: line }];
-    return {
-      result: {
-        ...stateUpdates,
-        event: {
-          ts,
-          type,
-          blocks: rawBlocks.map(({ block }) => block),
-          ...(messageId ? { messageId } : {}),
-        },
-      },
-      rawBlocks,
+    const event: ParsedLine = {
+      ts,
+      type,
+      blocks: rawBlocks.map(({ block }) => block),
+      ...(messageId ? { messageId } : {}),
     };
+    // Codex has its own envelopes -- the injected `AGENTS.md instructions` ahead of the first real
+    // prompt is one -- so the same question is asked here for the same reason.
+    if (isHumanTurnStart(event)) event.humanTurn = true;
+    return { result: { ...stateUpdates, event }, rawBlocks };
   };
 
   const plain = (): NormalizedCodexLine => finish('system', [{ block: plainBlock(ev), raw: stringifyForDisplay(ev) }]);

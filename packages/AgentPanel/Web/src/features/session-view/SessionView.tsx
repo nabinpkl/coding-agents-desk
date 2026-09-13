@@ -121,6 +121,7 @@ export function SessionView({
   compact,
   tasksHost,
   onAcceptFiles,
+  onForkFromMessage,
   externalError = null,
 }: SessionViewContext & {
   /** The directory this session runs in, which is how its terminal names the process to open. */
@@ -157,6 +158,21 @@ export function SessionView({
   externalError?: string | null;
 }) {
   const { source, sessionId, capabilities } = session;
+  /**
+   * The message fork, bound to this session, or undefined when it cannot be offered.
+   *
+   * Claude only, decided here rather than in the row: `--fork-session` is a Claude CLI flag, and
+   * Codex's `resume` has no fork, so a Codex source would be silently resumed into the transcript
+   * it was supposed to branch away from. The row's own test is a different one -- whether a person
+   * wrote that line -- and neither can stand in for the other.
+   */
+  const forkFromMessage = useMemo(
+    () => (onForkFromMessage === undefined || source !== "claude"
+      ? undefined
+      : (message: { eventId: string; text: string }) =>
+        onForkFromMessage({ session, projectPath, message })),
+    [onForkFromMessage, projectPath, session, source],
+  );
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
   const [commandPending, setCommandPending] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
@@ -377,6 +393,7 @@ export function SessionView({
           onSessionState={setSessionState}
           onUsage={setSessionUsage}
           onOpenQuestion={setOpenQuestion}
+          {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
         />
       </div>
       {capabilities.supportsExtensionUi ? (

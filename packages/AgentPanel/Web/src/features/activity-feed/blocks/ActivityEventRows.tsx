@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, GitBranch } from "lucide-react";
 import { DiffBlock } from "@/features/activity-feed/blocks/DiffBlock";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
@@ -13,9 +13,11 @@ import {
 import {
   eventPreview,
   isFlowBlock,
+  messageText,
   shellCommand,
   toolIntent,
 } from "@/features/activity-feed/rows/activityEventText";
+import { RowMenu } from "@/features/bots/menus/RowMenu";
 import {
   type PairedToolResult,
   partitionEventBlocks,
@@ -52,6 +54,14 @@ export interface EventRowContext {
   pairedToolResults: ReadonlyMap<string, PairedToolResult>;
   /** Whether per-turn prompt-cache badges are rendered. */
   showCacheHits: boolean;
+  /**
+   * Branches this session from one of its messages, or absent where that cannot be offered.
+   *
+   * Absent rather than disabled on a surface that has nowhere to put a fork, and on sources that
+   * cannot be forked at all: `--fork-session` is a Claude flag, and Codex would silently resume
+   * into the original transcript instead of branching from it.
+   */
+  onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }
 
 /**
@@ -162,6 +172,13 @@ export function UserRow({
   onToggle: () => void;
   isHighlighted: boolean;
 }) {
+  // Only where a person actually wrote the row. `displayRole` calls a tool result, a slash
+  // command's echo and a `<system-reminder>` "user" as well, and offering to fork from one of
+  // those would be offering a point the rewind picker does not have.
+  const eventId = ev.id;
+  const forkable = ctx.onForkFromMessage !== undefined
+    && ev.humanTurn === true
+    && eventId !== undefined;
   return (
     // Right-aligned, which is the one thing that separates what you said from what the session
     // said without reading either. The card shrinks to its text and stops at 85% of the row, so
@@ -169,9 +186,28 @@ export function UserRow({
     // every other row. Everything inside stays left-aligned -- prose, code and diffs are read
     // from a left margin whichever side of the feed they sit on.
     <div
-      className={`${FEED_ROW_GUTTER_CLASS} flex justify-end py-[0.4em]`}
+      className={`${FEED_ROW_GUTTER_CLASS} flex items-start justify-end gap-1 py-[0.4em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
+      {/* Outside the card, on its left. The card is the one thing in this feed that is not
+          full-width, so there is always room there -- and a menu inside it would either sit on top
+          of the prose or push the card wider than what was said. */}
+      {forkable ? (
+        <RowMenu
+          // Short on purpose: this becomes "Actions for ..." on a button that repeats down the
+          // whole transcript, and a screen reader reading two hundred characters of prose to name
+          // one of them is worse than no name at all.
+          label={eventPreview(ev).slice(0, 60) || "this message"}
+          items={[{
+            label: "Fork from here",
+            icon: GitBranch,
+            onSelect: () => {
+              if (eventId === undefined) return;
+              ctx.onForkFromMessage?.({ eventId, text: messageText(ev) });
+            },
+          }]}
+        />
+      ) : null}
       <div
         className={
           // `min-w-0` so a wide child (a pasted diff, a long unbroken path) scrolls inside the

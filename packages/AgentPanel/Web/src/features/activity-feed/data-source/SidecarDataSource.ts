@@ -27,6 +27,7 @@ import type {
   BotSnapshot,
   BotView,
   DetachBotSessionsCommand,
+  ForkSessionCommand,
   ParkPlanResponse,
   ParkReport,
   ParkRestoreReport,
@@ -34,6 +35,7 @@ import type {
   ProjectSummary,
   SessionSummary,
   SidecarConfig,
+  StartedSession,
   SummaryStreamMessage,
   TokenUsage,
   UsageStreamMessage,
@@ -202,6 +204,32 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
     );
     if (typeof answer.title !== "string") throw new Error("Rename returned no title");
     return answer.title;
+  }
+
+  /**
+   * Branches one Claude session into a new one, and answers with the session that now exists.
+   *
+   * Addressed by the session rather than by a Bot, which is what lets a reader fork from the
+   * transcript they are reading: the transcript view has no Bot to hang the request on, and a
+   * session nobody had curated onto one could not be forked at all.
+   *
+   * `command.from` names a message to start just BEFORE, by the event id the panel already holds
+   * for that row. The sidecar resolves it against the transcript and drives Claude's own rewind in
+   * the fork's pane, because nothing else can move a conversation's point and the transcript has
+   * exactly one writer.
+   *
+   * A rewind that did not happen comes back on `rewindFailed` rather than as an error. The fork
+   * EXISTS in that case, holding the whole conversation instead of the slice that was asked for,
+   * and a caller told only "it failed" would not know there was a session to deal with.
+   */
+  async forkSession(sessionId: string, command: ForkSessionCommand): Promise<StartedSession> {
+    return parse<StartedSession>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/claude/${encodeURIComponent(sessionId)}/fork`,
+        { body: command },
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------

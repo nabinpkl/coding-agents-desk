@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { GitFork, PanelLeft } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 import type {
   AddBotCommand,
   BotSessionRef,
@@ -39,6 +39,7 @@ import { useBots } from "@/features/bots/useBots";
 import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
 import { botCanvasHues } from "@/features/bots/botSurface";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
+import { ForkedSessionView } from "@/app/ForkedSessionView";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
@@ -239,6 +240,7 @@ export function App({ feed, host, fill = false }: Props) {
     windowComposers,
     compact: chrome.compact,
     tasksHost,
+    onForkFromMessage: commands.forkFromMessage,
   };
 
   // One subscription for all three sidebar mounts. Owned here rather than inside the sidebar so
@@ -372,6 +374,7 @@ export function App({ feed, host, fill = false }: Props) {
             {commands.forkedSession ? (
               <ForkedSessionView
                 title={commands.forkedSession.sourceTitle}
+                rewindFailed={commands.forkedSession.rewindFailed}
                 onClose={() => commands.setForkedSession(null)}
               />
             ) : displayedThread ? (
@@ -456,32 +459,3 @@ export function App({ feed, host, fill = false }: Props) {
     </DataSourceProvider>
   );
 }
-
-/**
- * What a fork shows before it has said anything.
- *
- * Empty on purpose, and not a loading state: a forked session has no transcript to read because
- * the CLI writes none until its first turn. Measured -- resuming a fork loaded 255k tokens of
- * context and created no file at all; the file appeared only after one message. So the terminal
- * below is the whole session until then, and this says so rather than spinning on a transcript
- * that is not coming.
- */
-function ForkedSessionView({ title, onClose }: { title: string; onClose: () => void }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
-      <GitFork className="size-5" aria-hidden />
-      <p className="max-w-prose">
-        Forked from <span className="font-medium text-foreground">{title}</span>. Its transcript
-        appears here once you send the first message in the terminal below.
-      </p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="min-h-9 cursor-pointer rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
-      >
-        Close fork
-      </button>
-    </div>
-  );
-}
-

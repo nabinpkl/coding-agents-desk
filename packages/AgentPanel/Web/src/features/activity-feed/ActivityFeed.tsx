@@ -63,6 +63,7 @@ export function ActivityFeed({
   onSessionState,
   onUsage,
   onOpenQuestion,
+  onForkFromMessage,
 }: {
   source: AgentSource;
   sessionId: string;
@@ -102,6 +103,14 @@ export function ActivityFeed({
    * the event stream the question is derived from. `null` while no question is open.
    */
   onOpenQuestion?: (question: OpenAskUserQuestion | null) => void;
+  /**
+   * Branches this session from one of its messages, or absent where that cannot be offered.
+   *
+   * Passed straight through to the rows rather than acted on here: the feed renders a transcript
+   * and owns no session commands, and the surface that mounts it is the one with somewhere to put
+   * a fork.
+   */
+  onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const { events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTail } =
     useSessionEventsStream(source, sessionId, mode);
@@ -184,8 +193,18 @@ export function ActivityFeed({
       onToggleTool: toggleTool,
       pairedToolResults,
       showCacheHits,
+      ...(onForkFromMessage === undefined ? {} : { onForkFromMessage }),
     }),
-    [source, sessionId, mode, expandedTools, toggleTool, pairedToolResults, showCacheHits],
+    [
+      source,
+      sessionId,
+      mode,
+      expandedTools,
+      toggleTool,
+      pairedToolResults,
+      showCacheHits,
+      onForkFromMessage,
+    ],
   );
 
   const rowVirtualizer = useVirtualizer({

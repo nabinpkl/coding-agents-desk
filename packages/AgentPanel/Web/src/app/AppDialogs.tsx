@@ -14,7 +14,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { BotCreatorDialog } from "@/features/bots/dialogs/BotCreatorDialog";
 import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog";
-import { ForkSessionDialog } from "@/features/bots/dialogs/ForkSessionDialog";
+import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 export function AppDialogs({
@@ -43,7 +43,7 @@ export function AppDialogs({
   bots: BotView[];
   botSessionPicker: BotView | null;
   createBot: (command: Omit<AddBotCommand, "requestId">) => Promise<void>;
-  forkRequest: { session: SessionSummary; botId: string; projectPath: string } | null;
+  forkRequest: ForkRequest | null;
   forkTitlesInProject: string[];
   inventoryLoading: boolean;
   projects: ProjectSummary[];
@@ -53,12 +53,10 @@ export function AppDialogs({
   sessionTitlesInBot: string[];
   setBotCreatorOpen: (open: boolean) => void;
   setBotSessionPickerId: (botId: string | null) => void;
-  setForkRequest: (
-    request: { session: SessionSummary; botId: string; projectPath: string } | null,
-  ) => void;
+  setForkRequest: (request: ForkRequest | null) => void;
   setRenamingSession: (session: SessionSummary | null) => void;
   startFork: (
-    request: { session: SessionSummary; botId: string; projectPath: string },
+    request: ForkRequest,
     forkTitle: string,
     brief: string,
     worktree: boolean,

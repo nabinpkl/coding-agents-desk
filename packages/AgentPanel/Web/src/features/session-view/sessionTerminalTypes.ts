@@ -6,6 +6,7 @@
 import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
+  SessionSummary,
   SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
@@ -60,4 +61,17 @@ export interface SessionViewContext {
    * know what it is layered over.
    */
   tasksHost: HTMLElement | null;
+  /**
+   * Branches a session from one of its messages, or absent on a surface with nowhere to put a fork.
+   *
+   * Carries the session and its directory as well as the message, because the surface that acts on
+   * it holds none of the three: a canvas has several sessions open at once, the row that asked is
+   * inside whichever one the reader was reading, and the fork's proposed name is numbered against
+   * the titles already in that directory.
+   */
+  onForkFromMessage?: (request: {
+    session: SessionSummary;
+    projectPath: string;
+    message: { eventId: string; text: string };
+  }) => void;
 }
