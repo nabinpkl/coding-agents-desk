@@ -189,6 +189,51 @@ a dependency) with `partialize`, `version` and `migrate`, and carries the migrat
 friction, so it has to be enforced here. A store that writes everything it holds resurrects
 transient state, and each of those comes back as a bug rather than as a convenience.
 
+## How long a file gets, and how flat a directory gets
+
+Two caps that pull against each other on purpose, because satisfying one alone produces the other's
+failure.
+
+**500 lines per file**, for `.ts` and `.tsx` under `packages/AgentPanel/Web/src` and
+`agent-feed/sidecar/src`. A file past that has stopped being one idea, and the reader who needs one
+of its ideas pays for all of them. Enforced twice: check 5 in `tools/agent-feed-fitness.sh` answers
+"is the tree under the cap", and `tools/git-hooks/pre-commit` (installed by `just
+git-hooks-install`) asks at the moment the author still has the concepts in their head, which is
+the only moment the split is nearly free. The gate is the authority; if the two ever disagree the
+hook is the bug.
+
+**12 source files per directory.** A test rides with its source and is not counted separately:
+`foo.ts` and `foo.test.ts` are one thing. Past twelve, the directory has stopped being a place and
+clusters into sibling subdirectories.
+
+The second cap exists because the first one produces its violation. Measured 2026-09-09, on the day
+both trees were brought under the 500-line cap: `features/desktop-viewer/` held **53** source files
+flat with no subdirectory, `sidecar/src/http/` **36**, `features/activity-feed/` **26**, `app/`
+**24**. Every file was readable and the directory was not. A flat list of fifty hides exactly what a
+two-thousand-line file hid, which is where one thing ends and the next begins.
+
+Three numbers, and none of them is a taste call:
+
+- **Twelve is the ceiling**, because this tree's own distribution has a gap there. Its directories
+  sit at 53, 36, 26, 24, 20, 17, 16, 15, 13, 13, 12, 12, and then 10 and below. Twelve is where a
+  place stops and a pile starts here.
+- **Three is the floor.** A subdirectory holding one or two files is a worse index than no
+  subdirectory at all. Two files that belong together stay flat and get named for the fact that
+  they belong.
+- **One clustering level below a feature**, and a second needs its reason written beside it.
+  `features/activity-feed/data-source/` is the shape. `features/activity-feed/data-source/transport/http/`
+  is the failure this bounds: nesting moves the reader's cost from scanning to navigating, and
+  navigating is the worse of the two while you still do not know what you are looking for.
+
+**Only fan-out promotes a cluster.** Do not create a directory because a concept feels like it
+deserves one. Create it because the flat list went past twelve and three or more of its files are
+about the same thing. Concepts do not earn directories, counts do, and that is what keeps the
+layout from tracking whoever last had an opinion about it.
+
+Not gated yet, deliberately. Ten directories are over the ceiling as of 2026-09-09, and a gate that
+fails the day it lands teaches everyone to route around it. The 500-line cap went in last, after
+its tree satisfied it; this one goes in the same way.
+
 ## Code
 
 - Divider callbacks expose semantic pane growth, never raw platform coordinates: positive grows the leading sidebar or lower terminal. Keep sign flips inside the divider, out of consumers.
