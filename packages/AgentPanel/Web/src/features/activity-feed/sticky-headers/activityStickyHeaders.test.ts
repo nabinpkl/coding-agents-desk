@@ -10,8 +10,22 @@ import {
 
 const STICKY_H = 51;
 
+/**
+ * `user` is a row a person wrote; `harness` is a user row the harness wrote as them (a slash
+ * command's stdout, a system reminder), which the sidecar leaves unflagged. `command` is a person
+ * typing a slash command, which the sidecar does flag.
+ */
 function rows(...kinds: string[]): StickyRow[] {
-  return kinds.map((kind) => ({ kind }));
+  return kinds.map((kind) => {
+    if (kind === "user") return { kind, ev: { humanTurn: true } };
+    if (kind === "harness") return { kind: "user", ev: {} };
+    if (kind === "command") return { kind: "user", ev: { humanTurn: true, blocks: [{ kind: "text", text: "/compact" }] } };
+    return { kind };
+  });
+}
+
+function said(text: string): StickyRow {
+  return { kind: "user", ev: { humanTurn: true, blocks: [{ kind: "text", text }] } };
 }
 
 /** Stacked rows of the given heights, laid out from 0. */
@@ -65,6 +79,23 @@ describe("sticky user bar", () => {
     for (let scrollTop = HEADER_OBSCURED_PX; scrollTop < 400; scrollTop += 1) {
       expect(selectStickyUserIndex(list, layout, scrollTop, STICKY_H)).not.toBeNull();
     }
+  });
+
+  it("keeps naming the last person's message past a harness-written user row", () => {
+    // After `/compact` the newest user row was its `<local-command-stdout>`, and the bar named it.
+    const layout = stack(100, 100, 100, 100);
+    const list = rows("user", "segment_event", "harness", "segment_event");
+    expect(selectStickyUserIndex(list, layout, 360, STICKY_H)).toBe(0);
+    expect(selectStickyUserIndex(rows("harness", "segment_event"), stack(100, 100), 150, STICKY_H)).toBeNull();
+  });
+
+  it("passes over a slash command a person typed, but not prose that starts with a path", () => {
+    const layout = stack(100, 100, 100, 100);
+    expect(selectStickyUserIndex(rows("user", "segment_event", "command", "segment_event"), layout, 360, STICKY_H)).toBe(0);
+    const pathFirst = [said("hi"), { kind: "segment_event" }, said("/Users/dev/x is wrong"), { kind: "segment_event" }];
+    expect(selectStickyUserIndex(pathFirst, layout, 360, STICKY_H)).toBe(2);
+    const renamed = [said("hi"), { kind: "segment_event" }, said("/rename New title"), { kind: "segment_event" }];
+    expect(selectStickyUserIndex(renamed, layout, 360, STICKY_H)).toBe(0);
   });
 
   it("returns null when the thread holds no user row", () => {

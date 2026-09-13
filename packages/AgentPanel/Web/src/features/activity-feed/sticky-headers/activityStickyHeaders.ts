@@ -16,6 +16,30 @@ export interface StickyMeasurement {
 /** The subset of a DisplayItem these rules need. */
 export interface StickyRow {
   kind: string;
+  ev?: { humanTurn?: true; blocks?: readonly { kind: string; text?: string }[] };
+}
+
+/**
+ * A prompt that is only a slash command: `/compact`, `/rename Title`. A path such as
+ * `/Users/dev/x` is prose, since the token after the slash runs into another slash.
+ */
+const SLASH_COMMAND = /^\/[A-Za-z][\w:-]*(\s|$)/;
+
+/**
+ * Whether the user bar may stand for this row.
+ *
+ * A `user` row is not always a person: a slash command's echo and its stdout, a task notification
+ * and a system reminder are all user rows. Pinning one of those after `/compact` put
+ * `<local-command-stdout>` in the bar where the last thing the reader said belonged. The sidecar
+ * decides which lines a person wrote (`humanTurn`), and this reads that rather than asking again.
+ *
+ * A person typing `/compact` is flagged as a turn too, and it is still a command rather than
+ * something they said, so the bar passes over it to the message before.
+ */
+function isPersonRow(row: StickyRow): boolean {
+  if (row.kind !== "user" || row.ev?.humanTurn !== true) return false;
+  const text = row.ev.blocks?.find((block) => block.kind === "text" && block.text?.trim())?.text;
+  return !SLASH_COMMAND.test(text?.trim() ?? "");
 }
 
 /**
@@ -26,7 +50,7 @@ export interface StickyRow {
  */
 export const HEADER_OBSCURED_PX = 24;
 
-/** Last user row whose heading has passed above `edge`, or null. */
+/** Last row a person wrote whose heading has passed above `edge`, or null. */
 function lastUserAbove(
   rows: readonly StickyRow[],
   measurements: readonly StickyMeasurement[],
@@ -37,7 +61,7 @@ function lastUserAbove(
   for (let index = 0; index < limit; index++) {
     const measurement = measurements[index]!;
     if (measurement.start + HEADER_OBSCURED_PX > edge) break;
-    if (rows[index]!.kind === "user") best = index;
+    if (isPersonRow(rows[index]!)) best = index;
   }
   return best;
 }
