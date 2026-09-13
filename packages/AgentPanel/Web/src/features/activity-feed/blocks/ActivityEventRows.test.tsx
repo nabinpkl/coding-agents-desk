@@ -164,7 +164,7 @@ describe("event heading", () => {
     expect(toolCard?.parentElement?.className).toContain("py-[0.1em]");
   });
 
-  it("uses a 24px horizontal gutter around Nice feed cards", () => {
+  it("gives Nice feed cards one gutter, published so a narrow column can shrink it", () => {
     const view = renderRow(
       <>
         <UserRow
@@ -188,7 +188,11 @@ describe("event heading", () => {
 
     expect(view.container.children).toHaveLength(2);
     for (const row of view.container.children) {
-      expect(row.className).toContain("px-6");
+      // Every row takes the same one, and it carries 24px as its fallback so the thread view --
+      // which publishes nothing -- is the 24px gutter it has always been. A Bot card's open
+      // session publishes a smaller number, because 48px of nothing is a tenth of a card that
+      // wide.
+      expect(row.className).toContain("px-[var(--feed-row-gutter,1.5rem)]");
       expect(row.className).not.toContain("px-[0.55em]");
     }
   });

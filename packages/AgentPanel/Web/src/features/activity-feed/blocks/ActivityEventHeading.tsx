@@ -75,7 +75,22 @@ export function showEventRoleLabel(
 // and is where to look first if the chip's leading or padding ever changes.
 export const CHIP_CLASS =
   "rounded-sm px-[0.4em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase leading-none tracking-wider ";
-export const FEED_ROW_GUTTER_CLASS = "px-6";
+/**
+ * The space either side of every transcript row, and the only thing in the feed that has to know
+ * how wide the column it is in happens to be.
+ *
+ * Twenty-four is right for the thread view, which is the whole page. It is not right on a Bot
+ * card: an open session there is around 450 pixels wide, so the pair of them was spending 48 on
+ * nothing, and it reads as space held back for a scrollbar. Nothing is held back -- this panel
+ * gets overlay scrollbars, and the scroller was measured taking zero layout width on both the real
+ * panel and a headless Chrome, so the thumb floats over this gutter rather than being given it.
+ *
+ * So the number is published rather than fixed: `.bot-session-fill` sets `--feed-row-gutter` and
+ * everywhere else resolves the fallback and is untouched. Written with the fallback spelled out
+ * because a bare `var()` over an unset property is invalid at computed-value time and the padding
+ * would drop to zero with nothing said about it.
+ */
+export const FEED_ROW_GUTTER_CLASS = "px-[var(--feed-row-gutter,1.5rem)]";
 
 /**
  * An event's role chip and collapse toggle, floated so the first line of the

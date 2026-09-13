@@ -91,7 +91,7 @@ export function SessionComposerBand({
     ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
     : null;
   return (
-    <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-6 py-3">
+    <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-[var(--feed-row-gutter,1.5rem)] py-3">
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 

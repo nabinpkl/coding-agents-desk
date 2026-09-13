@@ -171,7 +171,11 @@ describe("Claude window composer field", () => {
     deliverStatus(transport, { tx: "" });
 
     const field = screen.getByLabelText("Claude composer text");
-    expect(screen.getByLabelText("Claude window composer").className).toContain("px-6");
+    // The band's gutter is published rather than fixed, so an open session on a Bot card can
+    // narrow it and have the composer keep step with the transcript above it. 24px everywhere
+    // else, this window included, which is what the fallback says.
+    expect(screen.getByLabelText("Claude window composer").className)
+      .toContain("px-[var(--feed-row-gutter,1.5rem)]");
     // The resting height and padding are the load-bearing part of the redesign: a multi-line draft
     // must have room to breathe before it even begins to grow. `min-h-12` (a two-line resting field)
     // and the `px-4 py-3` gutter are the contract; the auto-grow cap stops the field from chasing a
