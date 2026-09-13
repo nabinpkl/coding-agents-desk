@@ -54,6 +54,15 @@
 //   the same string; `#{cursor_x}` reported 6 against 5 for exactly that pair. So the reading is
 //   only complete where the cursor is, and `ComposerBox.exact` says whether it was.
 //
+//   A row that holds NOTHING is still one of the box's rows. Text ending exactly at a wrap
+//   boundary draws an empty row and parks the caret on it, so the box is one row taller than the
+//   rows with text in them -- measured 2026-09-09 at 60 columns, four drawn against three read.
+//   The closing rule is what says where the box ends; the indent cannot, because tmux pads that
+//   row to the pane width and it comes back trimmed to nothing.
+//
+//   The one bracketed edit that must NOT travel with the text it is replacing is the CLEAR. See
+//   `sendEdit`, which carries the measurement.
+//
 //   An EMPTY box is not always empty-looking. Claude draws a suggestion in it, and the only thing
 //   separating that from typed words is that it is FAINT. So the screen is read with its colour
 //   on, which is the one place an escape sequence here is content rather than noise. The hint
@@ -297,20 +306,21 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
     };
   }
   const rows = [lines[head]!.slice(PROMPT.length).replace(GAP, "")];
-  let below = lines.length;
-  for (let index = head + 1; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    // The closing rule, and with it the first row the menu could be on.
-    if (RULE.test(line)) {
-      below = index + 1;
-      break;
-    }
-    // Anything not indented into the box has left it. The status line under the bottom rule is
-    // indented too, so the rule is what usually stops this; a redraw that dropped the rule would
-    // otherwise swallow the whole footer into the composer.
-    if (!line.startsWith(INDENT)) break;
-    rows.push(line.slice(INDENT.length));
-  }
+  const closing = closingRule(lines, head);
+  // Where the box's rows stop. The closing rule is the authority when there is one, because a row
+  // holding NOTHING is still one of the box's rows: a composer whose text ends exactly at a wrap
+  // boundary draws an empty row and parks the caret on it, and tmux pads that row out to the pane
+  // width, so `plainText` trims it to "" and it is indistinguishable from blank screen by looking
+  // at it. Reading it as the end of the box under-counted the rows by one, which is the count the
+  // clear is sized from -- and it put the cursor a row below the last one the reading knew about,
+  // so the reading was called inexact when it was merely short.
+  //
+  // Without a rule there is no authority, so the scan stops at the first row that has left the
+  // box, EMPTY INCLUDED. That is the conservative half of the same question: the status lines are
+  // indented too, and a redraw that dropped the rule would otherwise swallow the whole footer.
+  const end = closing === -1 ? unclosedEnd(lines, head) : closing;
+  const below = closing === -1 ? lines.length : closing + 1;
+  for (let index = head + 1; index < end; index += 1) rows.push(lines[index]!.slice(INDENT.length));
   const last = rows.length - 1;
   const column = view.cursor.column - BOX_COLUMN;
   // Only when the cursor is at or past the end of the LAST row does the reading account for
@@ -331,6 +341,28 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
       Math.ceil([...composerText(rows)].length / NARROWEST_PANE),
     ),
   };
+}
+
+/**
+ * The rule that closes the box, or -1 when this screen is not showing one.
+ *
+ * Scans only over rows that could still belong to the box -- indented, or empty -- so a screen
+ * whose box is unclosed does not find some later rule further down and claim everything between.
+ */
+function closingRule(lines: readonly string[], head: number): number {
+  for (let index = head + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (RULE.test(line)) return index;
+    if (line.length > 0 && !line.startsWith(INDENT)) return -1;
+  }
+  return -1;
+}
+
+/** Where a box with no closing rule stops: the first row that is not indented into it. */
+function unclosedEnd(lines: readonly string[], head: number): number {
+  let index = head + 1;
+  while (index < lines.length && lines[index]!.startsWith(INDENT)) index += 1;
+  return index;
 }
 
 /**
@@ -539,9 +571,14 @@ export function keystrokesFor(box: ComposerBox, desired: string): string {
  * whole draft onto a box it failed to empty, so a reader gets every prefix of their sentence
  * back, joined end to end.
  *
- * Only a DESTRUCTIVE prefix is split off and waited for. `END` alone changes nothing the paste
- * depends on, and gating it would put a screen read in front of every keystroke a reader types --
- * which is the append path, and the common one.
+ * Only a CLEAR is split off, and the narrowness is measured rather than cautious. `END` alone
+ * changes nothing the paste depends on, and gating it would put a screen read in front of every
+ * keystroke a reader types, which is the append path and the common one. The backspace branch was
+ * the real question, since it also edits before pasting -- so it was pushed to the largest chunk a
+ * single row can produce, 191 backspaces and a 191-character paste in one write, and it landed
+ * correctly there and at every smaller size tried. That is a bigger chunk than the nine kills and
+ * 167 characters that fail, so the hazard is not chunk size on its own: it is Ctrl+U, which
+ * changes the box's ROW COUNT and so the layout the paste is applied against.
  */
 async function sendEdit(
   pane: string,
@@ -551,17 +588,16 @@ async function sendEdit(
   const encoder = new TextEncoder();
   const at = keys.indexOf(PASTE_START);
   const edit = at === -1 ? keys : keys.slice(0, at);
-  if (at === -1 || !(edit.includes(KILL_ROW) || edit.includes(BACKSPACE))) {
+  if (at === -1 || !edit.includes(KILL_ROW)) {
     await runtime.send(pane, encoder.encode(keys));
     return;
   }
   await runtime.send(pane, encoder.encode(edit));
-  // A clear is done when the box reads empty; a backspace run, when it reads anything other than
-  // what it read before. Waiting on the SCREEN rather than on a sleep is the same discipline
-  // `settle` already uses, and it is what keeps this correct on a pane that is busy rather than
-  // correct on the one it was measured against.
-  const cleared = edit.includes(KILL_ROW);
-  await waitFor(pane, runtime, (text) => (cleared ? text.length === 0 : true));
+  // Waiting on the SCREEN rather than on a sleep, which is the discipline `settle` already uses:
+  // it is what keeps this right on a pane that is busy rather than right on the one it was
+  // measured against. A clear is done when the box reads empty, and that is a fact this can
+  // check, which is the other reason the split is drawn here rather than around every edit.
+  await waitFor(pane, runtime, (text) => text.length === 0);
   await runtime.send(pane, encoder.encode(keys.slice(at)));
 }
 

@@ -117,6 +117,48 @@ test("keeps every wrapped row, because the row count is what clearing costs", ()
   );
 });
 
+test("counts a row that holds nothing, because the box still drew it", () => {
+  // A composer whose text ends exactly at a wrap boundary draws an EMPTY row and parks the caret
+  // on it. Measured on a live pane at 60 columns: the screen showed the marker, two continuation
+  // rows, an empty fourth and then the closing rule, with the cursor on that fourth row.
+  //
+  // tmux pads the row out to the pane width and `plainText` trims it back to "", so it cannot be
+  // told from blank screen by looking at it -- and reading it as the end of the box cost two
+  // things at once. The row count was one short, and that count is what the clear is sized from;
+  // and the cursor sat a row below the last row the reading knew about, so `exact` came back
+  // false for a reading that was merely short.
+  const screen = [
+    RULE,
+    "❯ alpha bravo",
+    "  charlie delta",
+    "  ",
+    RULE,
+    "  probe  Opus 5 (1M context)                      0 tokens",
+  ].join("\n");
+  const box = composerBox({ screen, cursor: { row: 3, column: BOX_COLUMN } })!;
+  expect(box.rows).toEqual(["alpha bravo", "charlie delta", ""]);
+  // The trailing space the wrap consumed comes back with it, which is the reading this could not
+  // reach before: the caret is at the end of a row that exists, so the whole box is accounted for.
+  expect(composerText(box.rows)).toBe("alpha bravo charlie delta ");
+  expect(box.exact).toBe(true);
+  expect(box.clearPresses).toBeGreaterThanOrEqual(3);
+});
+
+test("stops at the first row outside an unclosed box, empty rows included", () => {
+  // The conservative half of the same question. With no closing rule there is nothing to say
+  // where the box ends, and the status lines under it are indented too -- so a scan that took
+  // empty rows on trust would swallow the whole footer into somebody's composer.
+  const screen = [
+    RULE,
+    "❯ alpha bravo",
+    "  charlie delta",
+    "",
+    "  probe  Opus 5 (1M context)                      0 tokens",
+  ].join("\n");
+  const box = composerBox({ screen, cursor: { row: 2, column: BOX_COLUMN + 13 } })!;
+  expect(box.rows).toEqual(["alpha bravo", "charlie delta"]);
+});
+
 test("reads Claude's own hint as an empty box holding a suggestion", () => {
   // Verbatim from a live pane after a turn. Strip the escapes and this is indistinguishable from
   // a reader having typed those words, and the mirror would have filled their field with it and
