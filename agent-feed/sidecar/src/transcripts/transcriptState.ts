@@ -1,6 +1,6 @@
 import type { FSWatcher } from "chokidar";
 import type { EventSubscriber } from "@/transcripts/event-index/eventIndex";
-import type { Session, TokenUsage } from "@/transcripts/transcriptTypes";
+import type { DeclaredModel, Session, TokenUsage } from "@/transcripts/transcriptTypes";
 
 export type WatcherState = "idle" | "reconciling" | "live";
 
@@ -77,6 +77,12 @@ export interface TranscriptState {
   // because the indexing pass is the one place that already reads every line;
   // its lifetime is the index's, and it is dropped with it.
   sessionUsage: Map<string, TokenUsage>;
+  // The model each indexed session declared, tier included, from the record that names it rather
+  // than from the usage reports that do not. Beside `sessionUsage` and dropped with it, because
+  // it exists to answer one question about those reports: which context window they are a
+  // fraction of. Kept separately rather than folded in, because a declaration carries no tokens
+  // and a session can declare its model long before it reports any.
+  sessionModels: Map<string, DeclaredModel>;
   eventSubscribers: Map<string, Set<EventSubscriber>>;
   openStreams: Set<OpenStream>;
   shuttingDown: boolean;
@@ -99,6 +105,7 @@ export const state: TranscriptState = {
   transcriptWatcher: null,
   transcriptWatchedPaths: new Map(),
   sessionUsage: new Map(),
+  sessionModels: new Map(),
   eventSubscribers: new Map(),
   openStreams: new Set(),
   shuttingDown: false,

@@ -20,6 +20,17 @@ const DEFAULT_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   haiku: 200_000,
 };
 
+// The long-context tier is part of the model's ID, not a property of the model, and it is spelled
+// as a suffix so no prefix key can express it. `claude-opus-5[1m]` and `claude-opus-5` are the
+// same model with different windows, and the harness picks between them by the brackets alone:
+// Claude Code 2.1.270 resolves the window with `/\[1m\]/i.test(id) ? 1_000_000 : 200_000` before
+// consulting anything else, and its own unknown-model notice tells the reader to "append [1m] to
+// the model name for 1M". Mirrored here rather than inferred, because the alternative is a table
+// whose longest match for `claude-opus-5[1m]` is the `claude-opus` row -- the right answer for a
+// different run of the same model, five times too small for this one.
+const LONG_CONTEXT_SUFFIX = /\[1m\]/i;
+const LONG_CONTEXT_TOKENS = 1_000_000;
+
 // `AGENT_FEED_CONTEXT_WINDOWS="claude-opus-5=1000000,claude-sonnet=200000"`
 // describes a model this build has never seen, or a long-context beta run,
 // without a code change. Entries merge over the defaults rather than replacing
@@ -56,13 +67,18 @@ export function contextWindowIn(
 ): number | null {
   if (!model) return null;
   const id = model.toLowerCase();
-  let best: { length: number; tokens: number } | null = null;
+  let best: { prefix: string; tokens: number } | null = null;
   for (const [prefix, tokens] of Object.entries(table)) {
     const candidate = prefix.toLowerCase();
     if (!id.startsWith(candidate)) continue;
-    if (!best || candidate.length > best.length) {
-      best = { length: candidate.length, tokens };
+    if (!best || candidate.length > best.prefix.length) {
+      best = { prefix: candidate, tokens };
     }
   }
+  // A row that names the tier itself outranks the suffix rule, so the environment override stays
+  // the escape hatch it is for -- `claude-opus-5[1m]=500000` still means 500,000. A row that does
+  // not name it was written about the ordinary model and cannot answer for this one.
+  if (best && LONG_CONTEXT_SUFFIX.test(best.prefix)) return best.tokens;
+  if (LONG_CONTEXT_SUFFIX.test(id)) return LONG_CONTEXT_TOKENS;
   return best?.tokens ?? null;
 }

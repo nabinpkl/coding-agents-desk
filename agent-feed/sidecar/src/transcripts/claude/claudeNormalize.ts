@@ -21,6 +21,7 @@ import {
   extractClaudeCacheHit,
   extractClaudeUsage,
   extractCompactionUsage,
+  declaredModelIn,
   normalizeBlocks,
   timestampMs,
   truncate,
@@ -168,6 +169,10 @@ export function normalizedRecord(
     }
     const label = t === 'attachment' ? attachmentLabel(ev) : CLAUDE_METADATA_LABELS[t];
     if (label) {
+      // The model attachment renders as the metadata row it always did; what is new is that its
+      // identity is read on the way past, because it is the only record that keeps the context
+      // tier the run was given.
+      const declaredModel = t === 'attachment' ? declaredModelIn(ev) : null;
       const titleCandidate = t === 'custom-title'
         ? [ev.customTitle, ev.title, ev.value].find((value) => typeof value === 'string' && value.trim()) as string | undefined
         : undefined;
@@ -177,6 +182,7 @@ export function normalizedRecord(
         result: {
           event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) },
           ...(titleCandidate ? { title: titleCandidate.trim() } : {}),
+          ...(declaredModel ? { declaredModel } : {}),
           ...(cwd ? { cwd } : {}),
         },
         rawBlocks,

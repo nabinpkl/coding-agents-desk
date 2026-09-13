@@ -107,3 +107,37 @@ test('a boundary carrying no metadata leaves the meter where it was', () => {
   expect(claudeAdapter.processLine(compactBoundary({ trigger: 'auto' }))?.usage).toBeUndefined();
   expect(claudeAdapter.processLine(compactBoundary({ postTokens: 0 }))?.usage).toBeUndefined();
 });
+
+test('the model attachment declares this session\'s model, tier and all', () => {
+  // Written near the top of a session and again after every compaction, which are the two moments
+  // a context window has to be resolved. `message.model` never carries the tier.
+  const result = claudeAdapter.processLine(JSON.stringify({
+    type: 'attachment',
+    timestamp: '2026-09-14T00:55:59.000Z',
+    attachment: {
+      type: 'model',
+      identity: {
+        modelId: 'claude-opus-5[1m]',
+        marketingName: 'Opus 5 (1M context)',
+        knowledgeCutoff: 'May 2026',
+      },
+    },
+  }));
+  expect(result?.declaredModel).toEqual({ model: 'claude-opus-5[1m]', limit: 1_000_000 });
+  // Still the metadata row it always rendered as; the identity is read on the way past.
+  expect(result?.event?.blocks[0]).toMatchObject({ kind: 'metadata' });
+});
+
+test('an attachment that is not a model declaration declares nothing', () => {
+  const other = claudeAdapter.processLine(JSON.stringify({
+    type: 'attachment',
+    attachment: { type: 'file', path: '/tmp/x.ts' },
+  }));
+  expect(other?.declaredModel).toBeUndefined();
+  // And a model attachment from a build that shapes it differently is not half-read.
+  const shapeless = claudeAdapter.processLine(JSON.stringify({
+    type: 'attachment',
+    attachment: { type: 'model', identity: { marketingName: 'Opus 5' } },
+  }));
+  expect(shapeless?.declaredModel).toBeUndefined();
+});

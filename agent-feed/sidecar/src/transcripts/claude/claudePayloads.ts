@@ -3,7 +3,7 @@
 // usage record says about tokens and the prompt cache.
 
 import { contextWindowFor } from "@/config";
-import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
+import type { ActivityBlock, DeclaredModel, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import { basename } from 'node:path';
 import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
 
@@ -275,6 +275,37 @@ export function extractClaudeUsage(
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
   };
+}
+
+/**
+ * The model this session is running, read off the harness's own declaration of it.
+ *
+ * The record is `{"type":"attachment","attachment":{"type":"model","identity":{"modelId":
+ * "claude-opus-5[1m]","marketingName":"Opus 5 (1M context)",...}}}`, and where it lands is why
+ * this is worth reading rather than guessing. Measured over this project's transcripts: a session
+ * carries one near its top (line 11 to 29) AND one after every compaction -- 22 boundaries in the
+ * largest file and 22 declarations, each arriving 13 to 16 lines after its boundary. Those are
+ * exactly the two moments a context window has to be resolved.
+ *
+ * Present from CLI 2.1.265 onwards, and the cut is clean rather than patchy: of 346 transcripts
+ * here, all 11 written by 2.1.265 or later carry one and none of the 335 older ones do. An older
+ * session simply keeps resolving its window from `message.model`, which is what it did before.
+ *
+ * `cost-state.modelUsage` is keyed by the same full id and is NOT used, because it is written at
+ * the last line of the file in 8 of the 10 largest sessions here: a correct answer that arrives
+ * when the session is over.
+ */
+export function declaredModelIn(record: Record<string, unknown>): DeclaredModel | null {
+  const attachment = record.attachment;
+  if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) return null;
+  const inner = attachment as Record<string, unknown>;
+  if (inner.type !== 'model') return null;
+  const identity = inner.identity;
+  if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return null;
+  const model = (identity as Record<string, unknown>).modelId;
+  if (typeof model !== 'string' || !model.trim()) return null;
+  const id = model.trim();
+  return { model: id, limit: contextWindowFor(id) };
 }
 
 /**

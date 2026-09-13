@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { state } from "@/transcripts/transcriptState";
 import { adapterFor } from "@/transcripts/sourceAdapters";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
-import { mergeUsage } from "@/transcripts/usageState";
+import { mergeUsage, withDeclaredModel } from "@/transcripts/usageState";
 import type {
   ActivityEvent,
   LineClass,
@@ -124,6 +124,10 @@ async function scanFrom(
       if (index > lineStart) {
         const line = decoder.decode(combined.subarray(lineStart, index));
         const result = adapter.processLine(line);
+        // Ahead of the usage fold, because a session declares its model near the top of its
+        // transcript and again after every compaction, and the first report that follows one of
+        // those is the one whose window would otherwise be resolved from an id missing its tier.
+        if (result?.declaredModel) state.sessionModels.set(key, result.declaredModel);
         // Folded BEFORE the event is emitted, so a live subscriber reading the
         // session's occupancy while handling this event sees the value this very
         // line reported rather than the previous one. Replaying an already
@@ -132,7 +136,10 @@ async function scanFrom(
         if (result?.usage) {
           state.sessionUsage.set(
             key,
-            mergeUsage(state.sessionUsage.get(key), result.usage),
+            mergeUsage(
+              state.sessionUsage.get(key),
+              withDeclaredModel(result.usage, state.sessionModels.get(key)),
+            ),
           );
         }
         if (result?.event) {

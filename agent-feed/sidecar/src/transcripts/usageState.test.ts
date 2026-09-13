@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mergeUsage } from "@/transcripts/usageState";
+import { mergeUsage, withDeclaredModel } from "@/transcripts/usageState";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
@@ -193,4 +193,35 @@ test('codex token_count without cache fields reports no badge', () => {
 
   expect(result?.usage?.current).toBe(5_500);
   expect(result?.cacheHit).toBeUndefined();
+});
+
+test('a report is restated in the tiered id the session declared', () => {
+  // Claude's usage records name the API's model and drop the tier; the harness's own declaration
+  // keeps it. Without this the meter reads a 1M run against a 200k window.
+  const declared = { model: 'claude-opus-5[1m]', limit: 1_000_000 };
+  expect(withDeclaredModel({ current: 515_000, limit: 200_000, updatedAt: 1, model: 'claude-opus-5' }, declared))
+    .toEqual({ current: 515_000, limit: 1_000_000, updatedAt: 1, model: 'claude-opus-5[1m]' });
+});
+
+test('a declaration for a different model is not applied to this one', () => {
+  // Sessions switch model mid-way, and the declaration is only about the run that made it. A 1M
+  // window on a 200k run reads as a quarter full when it is nearly out.
+  const declared = { model: 'claude-opus-5[1m]', limit: 1_000_000 };
+  const sonnet = { current: 180_000, limit: 200_000, updatedAt: 2, model: 'claude-sonnet-5' };
+  expect(withDeclaredModel(sonnet, declared)).toEqual(sonnet);
+});
+
+test('a report that names no model keeps the sticky rule instead', () => {
+  // `mergeUsage` inherits the last named model and its limit, which by then is the declared one.
+  // Claiming the declaration here would assert something the line does not say.
+  const declared = { model: 'claude-opus-5[1m]', limit: 1_000_000 };
+  const unnamed = { current: 400, limit: null, updatedAt: 3 };
+  expect(withDeclaredModel(unnamed, declared)).toEqual(unnamed);
+  expect(mergeUsage({ current: 1, limit: 1_000_000, updatedAt: 1, model: 'claude-opus-5[1m]' }, unnamed))
+    .toEqual({ current: 400, limit: 1_000_000, updatedAt: 3, model: 'claude-opus-5[1m]' });
+});
+
+test('an undeclared session is left exactly as it was', () => {
+  const usage = { current: 10, limit: 200_000, updatedAt: 1, model: 'claude-opus-5' };
+  expect(withDeclaredModel(usage, undefined)).toBe(usage);
 });

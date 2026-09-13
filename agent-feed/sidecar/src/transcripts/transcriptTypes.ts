@@ -89,11 +89,39 @@ export type LineClass = 'content' | 'machinery';
 //               Absent on lines that say nothing about turn state.
 //   title:      session-title update parsed from a transcript line (Claude
 //               emits ai-title lines mid-session).
+/**
+ * What the harness says this session's model IS, from a record that declares it rather than one
+ * that reports having used it.
+ *
+ * The two differ, and the difference is a whole context window. Claude's `message.model` carries
+ * the API's name for the model and nothing else: 94,417 records in this project say
+ * `claude-opus-5`, not one of them says which window that run was given. The harness's own id
+ * keeps it -- `claude-opus-5[1m]` -- and the CLI resolves the window from exactly that suffix, by
+ * a regex on the name (2.1.270: `/\[1m\]/i` -> 1,000,000, everything else -> a hardcoded
+ * 200,000). So the tier is part of the model's identity and the usage record is where it is lost.
+ *
+ * The `limit` is resolved by the adapter, which is the layer that owns the window table, and rides
+ * along rather than being looked up again later.
+ */
+export interface DeclaredModel {
+  /** The harness's own id, tier included. */
+  model: string;
+  limit: number | null;
+}
+
 export interface LineResult {
   event?: ParsedLine;
   turnClosed?: boolean;
   title?: string;
   usage?: TokenUsage;
+  /**
+   * A line that names this session's model without reporting occupancy.
+   *
+   * Kept apart from `usage` because a declaration is not a reading: folding one in as an
+   * occupancy report with no tokens in it would put a meter reading of zero on a session that
+   * has a full context and simply has not spoken since it was resumed.
+   */
+  declaredModel?: DeclaredModel;
   // Per-turn prompt cache summary. On a content line (Claude assistant usage) it
   // rides the event emitted for that line; on a machinery line (Codex
   // `token_count`) the read path re-stamps it onto the previous content event.

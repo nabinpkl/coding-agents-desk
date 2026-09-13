@@ -45,6 +45,7 @@ export function dropIndexState(key: string, options: { keepBuild?: boolean } = {
   state.indexedSizes.delete(key);
   state.indexed.delete(key);
   state.sessionUsage.delete(key);
+  state.sessionModels.delete(key);
   if (!options.keepBuild) {
     state.indexBuilds.delete(key);
     // Paired with the build entry, not with the index data: it is a request made OF
