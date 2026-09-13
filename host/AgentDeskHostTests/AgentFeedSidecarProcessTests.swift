@@ -18,6 +18,19 @@ import Testing
 @Suite(.serialized)
 struct AgentFeedSidecarProcessTests {
 
+    /// Points every sidecar in this suite at a scratch log, before any of them spawns.
+    ///
+    /// Swift Testing builds a fresh instance per test, so this runs first every time. Without it
+    /// each stub spawn appends to `/Users/Shared/agentdesk/logs/<user>-agent-feed-sidecar.log`,
+    /// the file a live host is writing -- and it did: one run left 31 `host spawned sidecar` lines
+    /// on ephemeral test ports in the middle of the real transcript. That is the whole reason the
+    /// path is overridable, and making it overridable is not the same as using it.
+    init() {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-sidecar-tests-\(UUID().uuidString).log")
+        setenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG", scratch.path, 1)
+    }
+
     /// A sidecar running a stub binary: the bundled shape, which is what these tests exercise.
     /// The source-tree shape has no process to spawn here and is covered by
     /// `AgentFeedSidecarLaunchTests`, which tests the selection rather than the supervision.
