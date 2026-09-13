@@ -71,7 +71,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R37 | D | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
 | R38 | D | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
 | R39 | D | 26/585 | `agent-feed/sidecar/src/config.ts` |
-| R40 | R | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
+| R40 | D | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
 | R41 | R | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
 | R42 | R | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
 | R43 | R | 78/4342 | `packages/AgentPanel/Web/src/app/AgentPanelApp.test.tsx` |
@@ -587,6 +587,25 @@ and doc comment moved verbatim and no call site changed. `sidecarTerminalStream.
 exception and is composed rather than inherited, because it is the only part with state of its
 own to keep.
 
+### R40 `sidecar/http/webrtcTileRoutes.ts` (1834)
+
+- The diagnostics log, and the sender-side counters written to it.
+- The pool of running grid-encoder children, one per capture stream.
+- Which running encoder a request belongs to, and what to do about the one already there.
+- What the viewer says about a connection, and what the sidecar knows about the same one.
+- What an offer body is allowed to say, and the clamp that decides.
+- Who owns input on this Mac, and what a viewer may send while it does.
+- Building one peer for one capture: the offer in, the answer out.
+- Who is watching and what is capturing, and the two ways either ends.
+- The route table.
+
+Split into `webrtcDiagnosticsLog.ts`, `webrtcEncoderPool.ts`, `webrtcEncoderIdentity.ts`,
+`webrtcConnectionDiagnostics.ts`, `webrtcTileOffer.ts`, `webrtcTileControl.ts`,
+`webrtcTileAnswer.ts`, `webrtcSessions.ts`, `webrtcConnectionState.ts`. 1834 to 128, and every
+new file is under 470. `answer` is still one long function because it is a sequence whose every
+step depends on the one before; what came out of it is the control channel, which is a closure
+over five things that have to agree and had no reason to be inside it.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -713,6 +732,15 @@ before the commit; the sweep is clean across all 36 generated files.
   in, rather than letting the file headers stand in for them. Two files hold more than one
   section, so the banners still divide something; `SidecarTerminals.ts` folded its banner's words
   into the file header instead.
+
+- R40 named its parts as `webrtc*` siblings in `http/` rather than a `http/webrtc/` directory,
+  though nine files came out of one. Nine `webrtc*` modules were already sitting beside it
+  (`webrtcDisplayTarget`, `webrtcTileCodec`, `webrtcDesktopControl*`, the two packetizers), so a
+  directory would have split one naming convention across two places. The alternative was moving
+  those neighbours in as well, which is a change to files this task never opened.
+- R40 gave `isTerminalWebrtcConnectionState` and `ATTEMPT_PATTERN` files of their own concept
+  rather than leaving them in the route table that three of the new modules would then import
+  from. A leaf importing the entry point back is the cycle that makes a split unreadable.
 
 ## Deferred
 
