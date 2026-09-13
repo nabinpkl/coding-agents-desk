@@ -138,15 +138,22 @@ export interface DisplayItemOptions {
   hideSystem?: boolean;
   /** Show only what each cumulative Codex reasoning snapshot added. */
   incrementalReasoning?: boolean;
-  /** Lead event indices of clusters the viewer opened. */
-  expandedClusters?: ReadonlySet<number>;
+  /**
+   * Lead event indices of runs the viewer folded. A run is open, one row per call, until it is
+   * folded: the calls are what a reader of a live session is watching, and a line saying
+   * `Bash ×3` hid exactly that.
+   */
+  foldedClusters?: ReadonlySet<number>;
 }
 
 export function buildActivityDisplayItems(
   events: ActivityEvent[],
   options: DisplayItemOptions = {},
-): DisplayItem[] {
+): { items: DisplayItem[]; runLeads: number[] } {
   const items: DisplayItem[] = [];
+  // Every clusterable run's lead, open or folded. An open run leaves no cluster row to find it
+  // by, and fold-all has to reach it anyway.
+  const runLeads: number[] = [];
   let segmentEvents: ActivityEvent[] = [];
 
   const flush = () => {
@@ -158,15 +165,16 @@ export function buildActivityDisplayItems(
         while (end < segmentEvents.length && isClusterable(segmentEvents[end]!)) end++;
         const run = segmentEvents.slice(index, end);
         if (run.length >= MIN_CLUSTER_EVENTS) {
+          runLeads.push(run[0]!.index);
           // The cursor advances past the WHOLE run either way. Advancing by one and
-          // letting the loop re-examine the rest re-clustered an expanded run's tail,
-          // because only its first event's index is the one the viewer opened.
-          if (options.expandedClusters?.has(run[0]!.index)) {
+          // letting the loop re-examine the rest re-clustered an open run's tail,
+          // because only its first event's index is the one the run is keyed by.
+          if (options.foldedClusters?.has(run[0]!.index)) {
+            emitted.push({ kind: "cluster", events: run });
+          } else {
             for (const member of run) {
               emitted.push({ kind: "segment_event", ev: member, isFirst: false, isLast: false });
             }
-          } else {
-            emitted.push({ kind: "cluster", events: run });
           }
           index = end;
           continue;
@@ -205,5 +213,5 @@ export function buildActivityDisplayItems(
     }
   }
   flush();
-  return items;
+  return { items, runLeads };
 }

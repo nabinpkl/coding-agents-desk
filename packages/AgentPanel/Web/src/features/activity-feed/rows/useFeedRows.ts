@@ -3,7 +3,7 @@
 // Which rows the transcript has, and which of them are open.
 //
 // One hook because the two questions are the same question: clustering depends on which
-// clusters the reader expanded, and the row list is what "collapse all" is all of. Every
+// runs the reader folded, and the row list is what "collapse all" is all of. Every
 // setter pauses the tail-follower first, since a restructure the reader asked for must not
 // be answered by snapping back to the bottom.
 
@@ -82,13 +82,18 @@ export function useFeedRows({
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
   }, []);
 
-  // Membership means EXPANDED, the opposite of `collapsed`, because a cluster's
-  // default is folded and a row's default is open. One set cannot carry both
-  // defaults without every read having to know which kind of row it is looking at.
-  const [expandedClusters, setExpandedClusters] = useState<Set<number>>(new Set());
+  // Runs of tool work start open and fold only when the reader folds them. Not the
+  // `collapsed` set, though both default to open: a run is keyed by its first event's
+  // index, which is also that event's own row, and collapsing the row must not fold
+  // the run.
+  const [foldedClusters, setFoldedClusters] = useState<Set<number>>(new Set());
   const expandCluster = useCallback((leadIndex: number) => {
     pause();
-    setExpandedClusters((previous) => new Set(previous).add(leadIndex));
+    setFoldedClusters((previous) => {
+      const next = new Set(previous);
+      next.delete(leadIndex);
+      return next;
+    });
   }, [pause]);
 
   const { items, allEventIds, clusterLeadIds, pairedToolResults } = useMemo(
@@ -98,9 +103,9 @@ export function useFeedRows({
       cluster: mode === "nice",
       hideSystem: mode === "nice",
       incrementalReasoning: mode === "nice" && source === "codex",
-      expandedClusters,
+      foldedClusters,
     }),
-    [events, mode, source, expandedClusters],
+    [events, mode, source, foldedClusters],
   );
 
   // The part of the turn the transcript has not reached yet, appended after the
@@ -119,7 +124,7 @@ export function useFeedRows({
   const allCollapsed =
     allEventIds.length > 0 &&
     allEventIds.every((id) => collapsed.has(id)) &&
-    expandedClusters.size === 0;
+    clusterLeadIds.every((lead) => foldedClusters.has(lead));
 
   const toggleEvent = useCallback((eventIdx: number) => {
     pause();
@@ -156,13 +161,13 @@ export function useFeedRows({
   const collapseAll = useCallback(() => {
     pause();
     setCollapsed(new Set(allEventIds));
-    setExpandedClusters(new Set());
-  }, [allEventIds, pause]);
+    setFoldedClusters(new Set(clusterLeadIds));
+  }, [allEventIds, clusterLeadIds, pause]);
   const expandAll = useCallback(() => {
     pause();
     setCollapsed(new Set());
-    setExpandedClusters(new Set(clusterLeadIds));
-  }, [clusterLeadIds, pause]);
+    setFoldedClusters(new Set());
+  }, [pause]);
 
   return {
     allCollapsed,

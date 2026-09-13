@@ -37,6 +37,12 @@ function orphanResult(preview: string): ActivityEvent {
 
 const NICE = { cluster: true, hideSystem: true, incrementalReasoning: true } as const;
 
+/** Nice with every run folded, which is the state the fold-all control puts a feed in. */
+function foldedLayout(events: ActivityEvent[]) {
+  const leads = buildFeedLayout(events, NICE).clusterLeadIds;
+  return buildFeedLayout(events, { ...NICE, foldedClusters: new Set(leads) });
+}
+
 describe("nice-mode clustering", () => {
   it("renders only the suffix added by cumulative Codex reasoning snapshots", () => {
     nextIndex = 0;
@@ -83,7 +89,7 @@ describe("nice-mode clustering", () => {
       .toEqual(["system", "assistant"]);
   });
 
-  it("folds a run of tool work and leaves prose and reasoning alone", () => {
+  it("shows a run of tool work as its own rows until the reader folds it", () => {
     nextIndex = 0;
     const events = [
       prose("Starting."),
@@ -94,11 +100,15 @@ describe("nice-mode clustering", () => {
       prose("Done."),
     ];
 
-    const layout = buildFeedLayout(events, NICE);
+    // Open by default: a line saying `Read ×2, Edit` hid the calls a reader was watching.
+    const open = buildFeedLayout(events, NICE);
+    expect(open.items.map((item) => item.kind)).toEqual(Array(6).fill("segment_event"));
+    expect(open.clusterLeadIds).toEqual([events[1]!.index]);
 
-    // Tool work is 54 of every 100 rows in this project's largest Codex session and
-    // almost none of it is what a viewer scrolling back is looking for. One row for
-    // the run is what puts the prose either side of it within a screen.
+    const layout = foldedLayout(events);
+
+    // Folded, the run is one row, which is what puts the prose either side of it
+    // within a screen.
     expect(layout.items.map((item) => item.kind)).toEqual([
       "segment_event",
       "cluster",
@@ -129,7 +139,7 @@ describe("nice-mode clustering", () => {
       call("Read", "Read c.ts"),
     ];
 
-    const layout = buildFeedLayout(events, NICE);
+    const layout = foldedLayout(events);
 
     // A skill activation changes what the agent is doing. Folding it into "3 steps"
     // would hide the one line that explains the next twenty.
@@ -155,10 +165,7 @@ describe("nice-mode clustering", () => {
 
   it("clusters unpaired results alongside calls, and never prose", () => {
     nextIndex = 0;
-    const layout = buildFeedLayout(
-      [call("Bash", "ls"), orphanResult("output"), prose("Done.")],
-      NICE,
-    );
+    const layout = foldedLayout([call("Bash", "ls"), orphanResult("output"), prose("Done.")]);
 
     expect(layout.items.map((item) => item.kind)).toEqual(["cluster", "segment_event"]);
   });
@@ -176,30 +183,23 @@ describe("nice-mode clustering", () => {
     ]);
   });
 
-  it("expands a cluster back into its rows when the viewer opens it", () => {
+  it("lists an open run's lead, so fold-all can fold a run that has no cluster row", () => {
     nextIndex = 0;
     const events = [call("Read", "a"), call("Read", "b"), call("Edit", "c")];
-    const folded = buildFeedLayout(events, NICE);
-    const lead = leadEvent(folded.items[0]!).index;
-
-    const opened = buildFeedLayout(events, {
-      cluster: true,
-      expandedClusters: new Set([lead]),
-    });
+    const opened = buildFeedLayout(events, NICE);
 
     expect(opened.items.map((item) => item.kind)).toEqual([
       "segment_event",
       "segment_event",
       "segment_event",
     ]);
-    // The fold-all control has to be able to close what was just opened, so an open
-    // cluster's lead stays listed even though no cluster row exists for it.
-    expect(opened.clusterLeadIds).toContain(lead);
+    expect(opened.clusterLeadIds).toEqual([events[0]!.index]);
+    expect(foldedLayout(events).clusterLeadIds).toEqual([events[0]!.index]);
   });
 
   it("keeps a folded run out of the per-row collapse list", () => {
     nextIndex = 0;
-    const layout = buildFeedLayout([call("Read"), call("Read"), prose("Done.")], NICE);
+    const layout = foldedLayout([call("Read"), call("Read"), prose("Done.")]);
 
     // A member of a folded run has no row, so it cannot own a collapse toggle.
     expect(layout.allEventIds).toEqual([leadEvent(layout.items[1]!).index]);
@@ -209,7 +209,7 @@ describe("nice-mode clustering", () => {
   it("keys a cluster by both ends so a neighbour opening does not re-measure it", () => {
     nextIndex = 0;
     const events = [call("Read"), call("Read"), call("Edit")];
-    const layout = buildFeedLayout(events, NICE);
+    const layout = foldedLayout(events);
 
     expect(itemKey(layout.items[0]!)).toBe("cluster-0-2");
   });

@@ -148,24 +148,16 @@ export function buildFeedLayout(
   const displayEvents = visibleEvents.filter(
     (event) => !pairedResultEventIds.has(event.index),
   );
-  const items = buildActivityDisplayItems(displayEvents, options);
-  // Derived from the items rather than the events, so a member of a folded cluster
-  // does not appear to own a collapse toggle it has no row to carry. Cluster leads
-  // are listed separately because their toggle means the opposite thing: membership
-  // in `expandedClusters` OPENS a cluster, where membership in `collapsed` closes a
-  // row, and one set cannot express both defaults.
+  const { items, runLeads } = buildActivityDisplayItems(displayEvents, options);
+  // Derived from the items rather than the events, so a member of a folded run does
+  // not appear to own a collapse toggle it has no row to carry. Run leads are a list of
+  // their own because `foldedClusters` folds a run where `collapsed` closes a row, and a
+  // run's lead index is also its first row's index.
   const allEventIds: number[] = [];
-  const clusterLeadIds: number[] = [];
   for (const item of items) {
-    if (item.kind === "cluster") clusterLeadIds.push(item.events[0]!.index);
-    else allEventIds.push(item.ev.index);
+    if (item.kind !== "cluster") allEventIds.push(item.ev.index);
   }
-  // An OPEN cluster contributes its lead too, or the fold-all control could not
-  // close what the viewer just opened.
-  for (const lead of options.expandedClusters ?? []) {
-    if (allEventIds.includes(lead)) clusterLeadIds.push(lead);
-  }
-  return { items, allEventIds, clusterLeadIds, pairedToolResults };
+  return { items, allEventIds, clusterLeadIds: runLeads, pairedToolResults };
 }
 
 /** How one event's blocks split between its visible body and its Raw drawer. */
