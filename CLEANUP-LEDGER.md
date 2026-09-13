@@ -64,7 +64,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R30 | D | 19/1312 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.tsx` |
 | R31 | D | 19/2216 | `packages/AgentPanel/Web/src/features/session-view/SessionView.tsx` |
 | R32 | D | 19/571 | `packages/AgentPanel/Web/src/features/sidebar/AgentSidebar.tsx` |
-| R33 | R | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
+| R33 | D | 19/596 | `agent-feed/sidecar/src/terminal/agentTerminalService.test.ts` |
 | R34 | R | 20/1302 | `agent-feed/sidecar/src/input/tmuxComposer.ts` |
 | R35 | R | 22/518 | `packages/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx` |
 | R36 | R | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
@@ -484,6 +484,17 @@ Split into `sessionTerminalTypes.ts`, `SessionComposer.tsx`, `sessionComposerMod
 
 Split into `ProjectSidebarItem.tsx` and `SidebarStatusRows.tsx`. The batch sizes moved with the row
 they describe, since how many sessions a project opens on is a fact about that row. 571 to 382.
+
+### R33 `terminal/agentTerminalService.test.ts` (596)
+
+- The fakes a test runs against: a recording PTY client, a recording tmux attachment, and the two
+  ways a session resolves to a pane.
+- Opening a terminal by resuming a CLI.
+- Attaching a viewer to a tmux pane instead, and what a second viewer of that pane is owed.
+- Which pane an agent session is running in: the stamp, the registry, and no tmux at all.
+
+Split into `agentTerminalHarness.ts`, `agentTerminalTmux.test.ts`,
+`agentTerminalSessionPane.test.ts`. 898 sidecar tests, unchanged.
 
 ## Decisions
 
