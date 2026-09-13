@@ -30,6 +30,7 @@ infer backwards from the shape of the tree:
 - `PRD.md` product intent.
 - `SPEC.md` technical shape for v0.
 - `FEATURE-MAP.md` what is live, dormant, or superseded, and the parallel approaches that must not be conflated. Dated; re-derive it rather than trusting an old date (it carries the commands).
+- `docs/dormant-native.md` operating detail for the arcs that are no longer the path -- the iPhone app, host app build variants, on-device diagnostics, the simulator drives. A record to restore from, not a section to extend.
 - `README.md` external-facing one-pager. Points at `PRD.md`.
 - `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
 - `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
@@ -202,13 +203,19 @@ with no rebuild, no reinstall, and no re-pair.
 
 - **`panel` (`live` default | `bundled`)** starts the panel's Vite server if it is not up, waits for
   it to answer, and points the launch at it. The launch FAILS if that server cannot come up, because
-  the dev origin is not a fallback. Pass `bundled` to judge the panel as it actually ships.
+  the dev origin is not a fallback. Pass `bundled` to judge the panel as it actually ships
+  (ADR-0095, ADR-0096).
 - **`sidecar` (`live` default | `bundled`)** spawns `bun --watch` over `agent-feed/sidecar/src/server.ts`
   instead of the compiled binary. Measured: an edit was visible through `/api/config` about 4s later
   **with the pid unchanged** -- `--watch` re-reads in process and rebinds the port, so the host's
   supervisor never sees an exit. (`--hot` is deliberately not used: hot replacement would leave the
   catalog, the file watchers and the live observers half-swapped.) The cost is accepted rather than
-  hidden: this arm executes the **working tree**, so a half-saved file is what runs.
+  hidden: this arm executes the **working tree**, so a half-saved file is what runs. The Justfile
+  resolves `bun` to an absolute path and passes it with the entry (`AGENTDESK_BUN_PATH`,
+  `AGENTDESK_AGENT_FEED_SIDECAR_ENTRY`), because the host's child environment is deliberately
+  stripped of the PATH that would find a Homebrew install. Every fallback -- no `bun`, unreadable
+  entry, non-executable `bun` -- serves the bundled binary and **logs why**, since silently serving
+  the frozen one is indistinguishable from an edit that did nothing.
 - `just` arguments are POSITIONAL: `just host-run stable live bundled`, not `sidecar=bundled`, which
   would land in `variant`.
 - Two hosts can run concurrently, stable and `.dev`, on tier-derived ports so they never collide:
@@ -236,7 +243,10 @@ scheme minted one per dev-server start, wrote it 0600 under the runtime root, ha
 as a bearer on every request, and was validated by nobody, so it was removed rather than left
 looking like protection.
 
-One server means one `/api` target, so a browser tab follows whichever host tier started it.
+During an approved host launch, `agent-webview-dev-ensure` reuses a healthy server with intact TLS
+or stops the configured port's listener before recreating it; a failed stop or readiness check
+aborts the launch. One server means one `/api` target, so a browser tab follows whichever host tier
+started it.
 
 ## TypeScript-first glue and logging
 
@@ -265,8 +275,10 @@ One server means one `/api` target, so a browser tab follows whichever host tier
   because `~/Library` is 0700 and the console user cannot otherwise reach it, so update it with
   `just grid-encoder-install /Users/Shared/grid-encoder` and check `ps` for the path the resident
   helper actually runs from before believing an install took. Installing to the account's own root
-  instead succeeds, reports a path, and leaves the running helper untouched. `sh
-  tools/build-grid-encoder.sh` and `just check` only compile candidates. A missing helper reports
+  instead succeeds, reports a path, and leaves the running helper untouched. That account can run
+  the install itself: `tools/install-node.sh` puts a pinned, checksum-verified node in its
+  `~/.local`, which is what `install-grid-encoder.sh` needs and what the agent account was missing.
+  `sh tools/build-grid-encoder.sh` and `just check` only compile candidates. A missing helper reports
   the install command and has no build-directory fallback.
 - Do not run cache deletion while builds or tests are active. Moving the runtime does not authorize
   deleting caches, resetting TCC, replacing credentials for a running server, or relaunching a
@@ -279,9 +291,11 @@ rules, the on-device QUIC diagnostics pulls, the Maestro simulator drives, and t
 own versioning all had their operating detail here. **Removed 2026-09-07**: the mobile surface is now
 the same browser panel as the desktop one, so none of it is on the path a change travels.
 
-The detail is not lost -- `git log -p AGENTS.md` has it, and `FEATURE-MAP.md` says which directories
-those arcs live in. Do not re-derive it from the tree and do not extend it in passing: if one of
-those arcs genuinely reopens, restore the section it needs in the same commit that reopens it.
+The detail is kept, not dropped: `docs/dormant-native.md` holds those sections verbatim, and
+`FEATURE-MAP.md` says which directories the arcs live in. Do not re-derive any of it from the tree
+and do not extend that file in passing -- it is a record, not a live section. If one of those arcs
+genuinely reopens, move the part you need back into this file in the same commit that reopens it,
+and re-measure anything you rely on rather than trusting numbers taken months ago.
 
 What survives from all of it is one rule, because it applies to `host-run` too: **stop and wait for
 an explicit go-ahead before any install, update, launch, or rebuild that lands on hardware.** Plain
