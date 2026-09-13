@@ -6,7 +6,7 @@ import {
   sessionSummaries,
   subscribeCatalog,
   type AgentSessionDescriptorResolver,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import type { Session } from "@/transcripts/sources/transcriptTypes";
 import {
   encodeServerSentEvent,

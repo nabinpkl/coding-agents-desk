@@ -19,8 +19,8 @@ import {
   scheduleBroadcast,
   sessionKey,
   SUMMARY_TITLE_CHARACTERS,
-} from "@/transcripts/catalogState";
-import { canonicalDirectory, makeSession } from "@/transcripts/catalogRecords";
+} from "@/transcripts/catalog/catalogState";
+import { canonicalDirectory, makeSession } from "@/transcripts/catalog/catalogRecords";
 
 let codexReconcileTimer: ReturnType<typeof setTimeout> | null = null;
 let codexReconcileSettledAt = 0;

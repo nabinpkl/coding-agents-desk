@@ -38,7 +38,7 @@ import {
   registerPiSession,
   resolvePiSession,
   notifyPiSessionChanged,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import { AgentBackendRegistry } from "@/agents/agentBackend";
 import { PiAgentBackend } from "@/agents/piAgentBackend";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";

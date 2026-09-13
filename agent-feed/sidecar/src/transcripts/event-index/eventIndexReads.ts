@@ -5,15 +5,15 @@
 import { stat } from "node:fs/promises";
 import { state } from "@/transcripts/transcriptState";
 import { adapterFor } from "@/transcripts/sources/sourceAdapters";
-import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import type {
   ActivityEvent,
   EventMode,
   TranscriptSourceId,
   TokenUsage,
 } from "@/transcripts/sources/transcriptTypes";
-import { MAX_RAW_EVENT_BYTES, niceInsertionPoint, RawEventTooLargeError } from "@/transcripts/eventIndexState";
-import { ensureIndexed } from "@/transcripts/eventIndexBuild";
+import { MAX_RAW_EVENT_BYTES, niceInsertionPoint, RawEventTooLargeError } from "@/transcripts/event-index/eventIndexState";
+import { ensureIndexed } from "@/transcripts/event-index/eventIndexBuild";
 
 export function getEventCount(
   source: TranscriptSourceId,

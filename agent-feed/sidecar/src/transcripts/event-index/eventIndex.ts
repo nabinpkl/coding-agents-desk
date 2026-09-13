@@ -7,7 +7,7 @@
 
 import chokidar from "chokidar";
 import { state, type TranscriptFollow } from "@/transcripts/transcriptState";
-import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import type { TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   dropIndexState,
@@ -16,8 +16,8 @@ import {
   niceInsertionPoint,
   type EventNotice,
   type EventSubscriber,
-} from "@/transcripts/eventIndexState";
-import { syncIndex } from "@/transcripts/eventIndexBuild";
+} from "@/transcripts/event-index/eventIndexState";
+import { syncIndex } from "@/transcripts/event-index/eventIndexBuild";
 
 export type {
   ActivityEvent,
@@ -34,7 +34,7 @@ export {
   type EventNotice,
   type EventSubscriber,
 };
-export { ensureIndexed, syncIndex } from "@/transcripts/eventIndexBuild";
+export { ensureIndexed, syncIndex } from "@/transcripts/event-index/eventIndexBuild";
 export {
   getEventCount,
   getSessionUsage,
@@ -42,7 +42,7 @@ export {
   readEventRaw,
   readEvents,
   translateEventIndex,
-} from "@/transcripts/eventIndexReads";
+} from "@/transcripts/event-index/eventIndexReads";
 
 export function acquireIndex(source: TranscriptSourceId, sessionId: string): void {
   const key = sessionKey(source, sessionId);

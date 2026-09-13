@@ -16,7 +16,7 @@ import {
   getWatcherState,
   sessionCapabilities,
   type AgentSessionDescriptorResolver,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import type {
   EventMode,
   SourceId,

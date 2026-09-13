@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
 import { state } from "@/transcripts/transcriptState";
-import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 
 const FIXTURE_PATH = resolve(import.meta.dir, "fixtures/codexDesktopLiveFixture.jsonl");
 const SESSION_ID = "019fe292-5466-7393-b931-8bf0c2cece82";

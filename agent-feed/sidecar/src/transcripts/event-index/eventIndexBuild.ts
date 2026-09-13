@@ -7,7 +7,7 @@
 import { stat } from "node:fs/promises";
 import { state } from "@/transcripts/transcriptState";
 import { adapterFor } from "@/transcripts/sources/sourceAdapters";
-import { sessionKey } from "@/transcripts/transcriptCatalog";
+import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { mergeUsage } from "@/transcripts/usageState";
 import type {
   ActivityEvent,
@@ -17,7 +17,7 @@ import type {
   TranscriptSourceId,
   TokenUsage,
 } from "@/transcripts/sources/transcriptTypes";
-import { dropIndexState, niceInsertionPoint, INDEX_READ_BYTES } from "@/transcripts/eventIndexState";
+import { dropIndexState, niceInsertionPoint, INDEX_READ_BYTES } from "@/transcripts/event-index/eventIndexState";
 
 // Re-deliver a previously emitted event to the session's subscribers without
 // touching the index. Used to upsert the cache-hit badge onto a turn's last

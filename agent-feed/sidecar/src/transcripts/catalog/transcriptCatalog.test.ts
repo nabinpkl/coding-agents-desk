@@ -13,7 +13,7 @@ import {
   sessionKey,
   subscribeCatalog,
   stopCatalog,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import type { Session } from "@/transcripts/sources/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";

@@ -31,7 +31,7 @@ import {
   getWatcherState,
   summarizeSession,
   type AgentSessionDescriptorResolver,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import type { SourceId, TranscriptSourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   encodeServerSentEvent,

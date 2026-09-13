@@ -1,6 +1,6 @@
 import type { AgentBackend, AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
-import { canonicalProjectPath, getSnapshot } from "@/transcripts/transcriptCatalog";
+import { canonicalProjectPath, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/sources/transcriptTypes";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";

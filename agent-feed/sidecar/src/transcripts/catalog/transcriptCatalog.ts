@@ -6,7 +6,7 @@
 // the watchers and starts and stops the whole thing.
 
 import chokidar from "chokidar";
-import { watchTree, watchTreeEntries } from "@/transcripts/watchTree";
+import { watchTree, watchTreeEntries } from "@/transcripts/catalog/watchTree";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { config } from "@/config";
@@ -17,21 +17,21 @@ import {
   resetCatalogBroadcast,
   ROLLOUT_PATTERN,
   scheduleBroadcast,
-} from "@/transcripts/catalogState";
-import { projectSummaries } from "@/transcripts/catalogViews";
+} from "@/transcripts/catalog/catalogState";
+import { projectSummaries } from "@/transcripts/catalog/catalogViews";
 import { resolveStateDbPath } from "@/transcripts/sources/codexTranscript";
 
 // The Pi watcher debounces here rather than in `piCatalog.ts`, because the debounce
 // belongs to the watcher and the watcher is attached below.
 let piReconcileTimer: ReturnType<typeof setTimeout> | null = null;
-import { reconcileClaude, refreshClaudeSession } from "@/transcripts/claudeCatalog";
+import { reconcileClaude, refreshClaudeSession } from "@/transcripts/catalog/claudeCatalog";
 import {
   reconcileCodex,
   refreshCodexRollout,
   scheduleCodexReconcile,
   stopCodexReconcile,
-} from "@/transcripts/codexCatalog";
-import { reconcilePi } from "@/transcripts/piCatalog";
+} from "@/transcripts/catalog/codexCatalog";
+import { reconcilePi } from "@/transcripts/catalog/piCatalog";
 
 // Re-exported because the catalog is one subsystem with one address: nineteen callers
 // already import it, and the parts below are how it is built rather than what it offers.
@@ -44,17 +44,17 @@ export {
   subscribeCatalog,
   SUMMARY_TITLE_CHARACTERS,
   type AgentSessionDescriptorResolver,
-} from "@/transcripts/catalogState";
-export { canonicalProjectPath, isClaudeSessionCandidate } from "@/transcripts/catalogRecords";
-export { refreshClaudeSession, resolveClaudeProject } from "@/transcripts/claudeCatalog";
-export { readCodexThreadRows, refreshCodexRollout } from "@/transcripts/codexCatalog";
-export { notifyPiSessionChanged, registerPiSession, resolvePiSession } from "@/transcripts/piCatalog";
+} from "@/transcripts/catalog/catalogState";
+export { canonicalProjectPath, isClaudeSessionCandidate } from "@/transcripts/catalog/catalogRecords";
+export { refreshClaudeSession, resolveClaudeProject } from "@/transcripts/catalog/claudeCatalog";
+export { readCodexThreadRows, refreshCodexRollout } from "@/transcripts/catalog/codexCatalog";
+export { notifyPiSessionChanged, registerPiSession, resolvePiSession } from "@/transcripts/catalog/piCatalog";
 export {
   projectSummaries,
   sessionCapabilities,
   sessionSummaries,
   summarizeSession,
-} from "@/transcripts/catalogViews";
+} from "@/transcripts/catalog/catalogViews";
 
 function attachSourceWatchers(): void {
   // One tree watch rather than one per transcript. All three of appearing, growing and being

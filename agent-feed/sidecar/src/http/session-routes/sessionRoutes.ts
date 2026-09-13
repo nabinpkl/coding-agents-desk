@@ -13,7 +13,7 @@ import {
   syncIndex,
   type ActivityEvent,
   type EventNotice,
-} from "@/transcripts/eventIndex";
+} from "@/transcripts/event-index/eventIndex";
 import {
   canonicalProjectPath,
   findSession,
@@ -21,7 +21,7 @@ import {
   getWatcherState,
   sessionSummaries,
   type AgentSessionDescriptorResolver,
-} from "@/transcripts/transcriptCatalog";
+} from "@/transcripts/catalog/transcriptCatalog";
 import type {
   EventMode,
   TranscriptSourceId,

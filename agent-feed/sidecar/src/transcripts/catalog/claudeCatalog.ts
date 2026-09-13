@@ -17,14 +17,14 @@ import {
   scheduleBroadcast,
   sessionKey,
   SUMMARY_TITLE_CHARACTERS,
-} from "@/transcripts/catalogState";
+} from "@/transcripts/catalog/catalogState";
 import {
   canonicalDirectory,
   canonicalProjectPath,
   compactTitle,
   isClaudeSessionCandidate,
   makeSession,
-} from "@/transcripts/catalogRecords";
+} from "@/transcripts/catalog/catalogRecords";
 
 async function enumerateClaudeCandidates(): Promise<string[]> {
   let slugNames: string[];

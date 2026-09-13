@@ -28,7 +28,7 @@ Measured on `79f79128`, `source files (all files) path`, worst first. That is th
 | R2 | `packages/AgentPanel/Web/src/features/activity-feed` | 26 (44) -> 7 (13) | D |
 | R3 | `packages/AgentPanel/Web/src/app` | 24 (50) -> 10 (32) | D |
 | R4 | `packages/AgentPanel/Web/src/features/bots` | 20 (23) -> 7 (9) | D |
-| R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) | R |
+| R5 | `agent-feed/sidecar/src/transcripts` | 17 (23) -> 5 (7) | D |
 | R6 | `agent-feed/sidecar/src/terminal` | 16 (24) | R |
 | R7 | `agent-feed/sidecar/src/transcripts/sources` | 15 (21) | R |
 | R8 | `packages/AgentPanel/Web/src/features/terminal` | 13 (18) | R |
@@ -169,6 +169,28 @@ The alternative was a `gestures/` directory holding it with `useMoveAlongStrip` 
 `useRememberedCanvasScroll`, which is a real concept and the wrong one -- those two are gestures
 over the CANVAS and are imported by `BotCanvas`, while this one is a grip on a card. Splitting them
 that way would have put a file with a directory it shares a word with rather than a caller.
+
+### R5 `agent-feed/sidecar/src/transcripts`, 17 source files
+
+The import graph decides both groups outright; neither needed a judgement call.
+
+- `catalog/` (8) the catalog of every session this machine can show, and the watchers that keep it
+  true. `claudeCatalog`, `codexCatalog` and `piCatalog` are each imported by `transcriptCatalog` and
+  by nothing else in either tree; `catalogRecords` and `catalogState` are imported by those three
+  plus `transcriptCatalog` and `catalogViews`, and by nothing else; `watchTree`'s only caller is
+  `transcriptCatalog`, whose own first line already names the watchers as part of the catalog.
+- `event-index/` (4) who is reading a transcript, for how long, and what they are told as it grows:
+  the reader-facing half, the build that turns a file into an index, the reads that answer out of
+  one, and the bookkeeping the other three share -- which `eventIndexState` says of itself.
+  `eventIndex`, `eventIndexBuild`, `eventIndexReads`, `eventIndexState`.
+
+`transcripts/` keeps 5: which events a person wrote, the rename, what counts as a title, the state
+every layer holds, and the usage fold.
+
+The three vendor catalog files stay with the catalog rather than joining their vendor's parsing in
+R7. That is the callers rule and it is also the layer the code is built on: `transcriptCatalog`
+dispatches by vendor to find sessions, `sources/sourceAdapters` dispatches by vendor to read their
+lines, and those two dispatches are separate on purpose.
 
 ## Decisions
 

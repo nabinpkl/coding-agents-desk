@@ -11,7 +11,7 @@ import {
   CLAUDE_SESSION_PATTERN,
   PROMPT_TITLE_CHARACTERS,
   SUMMARY_TITLE_CHARACTERS,
-} from "@/transcripts/catalogState";
+} from "@/transcripts/catalog/catalogState";
 
 export async function canonicalDirectory(path: string): Promise<string | null> {
   try {

@@ -14,7 +14,7 @@ import type {
 } from "@/agents/agentBackend";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import { state } from "@/transcripts/transcriptState";
-import { compactTitle } from "@/transcripts/catalogRecords";
+import { compactTitle } from "@/transcripts/catalog/catalogRecords";
 import type { Bin, Session, SourceId } from "@/transcripts/sources/transcriptTypes";
 import {
   memoizedProjectSummaries,
@@ -23,8 +23,8 @@ import {
   SUMMARY_TITLE_CHARACTERS,
   TRANSCRIPT_CAPABILITIES,
   type AgentSessionDescriptorResolver,
-} from "@/transcripts/catalogState";
-import { getSnapshot } from "@/transcripts/catalogState";
+} from "@/transcripts/catalog/catalogState";
+import { getSnapshot } from "@/transcripts/catalog/catalogState";
 
 /**
  * The project list for the current catalog.
