@@ -15,7 +15,7 @@
  * no fallback to writing the record. A half rename that silently leaves the address behind is the
  * outcome this exists to avoid, so it is refused with a reason instead.
  */
-import { renameTmuxSession } from "../input/tmuxComposer.ts";
+import { renameTmuxSession } from "../input/composer/composerDrive.ts";
 import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
 import { uniqueTmuxSessionName } from "../terminal/tmuxSessionNames.ts";
 import { listTmuxSessions, renameTmuxSessionTo } from "../terminal/tmuxSessions.ts";

@@ -1,28 +1,59 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createSessionRoutes } from "./sessionRoutes.ts";
+import {
+  SessionRenameNotFoundError,
+  SessionRenameUnavailableError,
+} from "../transcripts/renameSession.ts";
+import { forkClaudeSession } from "../transcripts/forkSession.ts";
+import { sessionTitleRefusal } from "../transcripts/sessionTitle.ts";
+import { SessionRenameInvalidError } from "../transcripts/renameSession.ts";
 import { sessionKey } from "../transcripts/transcriptCatalog.ts";
 import { state } from "../transcripts/transcriptState.ts";
 
 const server = { timeout() {} } as never;
-const route = createSessionRoutes();
 const roots: string[] = [];
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
+const FORK_ID = "22222222-2222-4222-8222-222222222222";
+
+/**
+ * Both routes are given their action rather than reaching for it, and nothing here replaces a
+ * module.
+ *
+ * `mock.module` is global for a whole `bun test` run, so standing in for the composer here would
+ * answer the composer's OWN tests too -- measured, nineteen of them, passing for the wrong reason.
+ * Injection is what every other seam in this sidecar does.
+ */
 
 /**
  * The rename asks the session's own CLI to run `/rename`, so what a test can observe is what was
- * asked of tmux -- there is deliberately no file write to look for.
+ * asked of it -- there is deliberately no file write to look for.
  */
 const renamed: { sessionId: string; title: string }[] = [];
 let outcome: { renamed: true } | { renamed: false; reason: string } = { renamed: true };
-mock.module("../input/tmuxComposer.ts", () => ({
-  renameTmuxSession: async (sessionId: string, title: string) => {
-    renamed.push({ sessionId, title });
-    return outcome;
-  },
-}));
+
+async function renameAction(sessionId: string, requestedTitle: string): Promise<string> {
+  // The real refusals, because the route's job is turning each one into a status code.
+  const title = requestedTitle.trim();
+  const invalid = sessionTitleRefusal(title);
+  if (invalid) throw new SessionRenameInvalidError(invalid);
+  if (!state.sessions.has(sessionKey("claude", sessionId))) {
+    throw new SessionRenameNotFoundError("session not found");
+  }
+  renamed.push({ sessionId, title });
+  if (outcome.renamed) return title;
+  throw new SessionRenameUnavailableError(
+    outcome.reason === "composer-busy"
+      ? "this session has unsent text in its composer; send or clear it and rename again"
+      : "this session is not running, and only a running session can rename itself",
+  );
+}
+
+/** What the fork's pane work was asked to do, and what it should answer. */
+const rewound: { sessionId: string; fromEnd: number; text: string }[] = [];
+let rewindOutcome: { done: true } | { done: false; reason: string } = { done: true };
 
 /**
  * The fork asks the launch path to start a session, so what a test can observe is the argv-shaped
@@ -30,16 +61,29 @@ mock.module("../input/tmuxComposer.ts", () => ({
  */
 const forked: { cwd: string; sessionId: string; forkId: string; title: string; brief?: string }[] = [];
 let forkFailure: Error | null = null;
-mock.module("../terminal/claudeSessionLaunch.ts", () => ({
-  startClaudeSession: async () => {
-    throw new Error("a fork must never start a session with no history");
+
+/** The real fork, with only the two things that would touch a machine stood in for. */
+const forkAction: typeof forkClaudeSession = (sessionId, command) => forkClaudeSession(
+  sessionId,
+  command,
+  {
+    start: async () => {
+      throw new Error("a fork must never start a session with no history");
+    },
+    fork: async (options) => {
+      forked.push(options);
+      if (forkFailure) throw forkFailure;
+      return { tmuxSession: `fork-pane-${options.forkId}` };
+    },
   },
-  startForkedClaudeSession: async (options: (typeof forked)[number]) => {
-    forked.push(options);
-    if (forkFailure) throw forkFailure;
-    return { sessionId: options.forkId, title: options.title, tmuxSession: `fork-pane-${options.forkId}` };
+  () => FORK_ID,
+  async ({ sessionId: forkId, anchor }) => {
+    rewound.push({ sessionId: forkId, ...anchor });
+    return rewindOutcome;
   },
-}));
+);
+
+const route = createSessionRoutes(undefined, { rename: renameAction, fork: forkAction });
 
 afterEach(async () => {
   state.sessions.clear();
@@ -48,15 +92,29 @@ afterEach(async () => {
   outcome = { renamed: true };
   forked.length = 0;
   forkFailure = null;
+  rewound.length = 0;
+  rewindOutcome = { done: true };
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-/** A transcript the catalog knows about, which is all the rename needs from it. */
+/**
+ * A transcript the catalog knows about, holding two things a person said.
+ *
+ * The rename needs only the catalog row; forking from a message needs the file to have messages
+ * in it, because the anchor is resolved by reading them.
+ */
 async function sessionTranscript(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "agent-feed-rename-"));
   roots.push(root);
   const transcript = join(root, `${SESSION_ID}.jsonl`);
-  await writeFile(transcript, `${JSON.stringify({ type: "user", cwd: root })}\n`);
+  const said = (text: string) => JSON.stringify({
+    type: "user",
+    message: { role: "user", content: text },
+    cwd: root,
+    timestamp: "2026-09-09T05:00:00.000Z",
+    uuid: crypto.randomUUID(),
+  });
+  await writeFile(transcript, `${[said("ALPHA one"), said("BRAVO two")].join("\n")}\n`);
   state.sessions.set(sessionKey("claude", SESSION_ID), {
     source: "claude",
     sessionId: SESSION_ID,
@@ -234,4 +292,55 @@ test("declines a Codex fork rather than resuming the transcript it cannot branch
     { method: "POST", body: JSON.stringify({ title: "Anything" }) },
   );
   expect(route(request, new URL(request.url), server)).toBeUndefined();
+});
+
+test("forking from a message asks the driver to walk back to it", async () => {
+  state.watcherState = "live";
+  await sessionTranscript();
+
+  const response = await fork(SESSION_ID, {
+    title: "From ALPHA",
+    from: { eventId: `claude:${SESSION_ID}:line:0` },
+  });
+
+  expect(response.status).toBe(201);
+  const started = await response.json() as { sessionId: string; rewindFailed?: string };
+  expect(started.rewindFailed).toBeUndefined();
+  // One back from the end is BRAVO, so ALPHA is two, and the text travels with the count because
+  // the count alone is not evidence the picker landed anywhere in particular.
+  expect(rewound).toEqual([{ sessionId: started.sessionId, fromEnd: 2, text: "ALPHA one" }]);
+  // The brief is withheld from the command line when there is a rewind coming.
+  expect(forked[0]?.brief).toBeUndefined();
+});
+
+test("answers 201 with a reason when the fork started but could not be moved", async () => {
+  // Not an error status: the session exists, and a caller told only "failed" would not know there
+  // was now one running that holds more than it asked for.
+  state.watcherState = "live";
+  await sessionTranscript();
+  rewindOutcome = { done: false, reason: "rewind refused: wrong-message" };
+
+  const response = await fork(SESSION_ID, {
+    title: "Adrift",
+    from: { eventId: `claude:${SESSION_ID}:line:0` },
+  });
+
+  expect(response.status).toBe(201);
+  const started = await response.json() as { sessionId: string; rewindFailed?: string };
+  expect(started.sessionId).toBeTruthy();
+  expect(started.rewindFailed).toMatch(/wrong-message/);
+});
+
+test("refuses a row that is not something a person said, before starting anything", async () => {
+  state.watcherState = "live";
+  await sessionTranscript();
+
+  const response = await fork(SESSION_ID, {
+    title: "No",
+    from: { eventId: `claude:${SESSION_ID}:line:9` },
+  });
+
+  expect(response.status).toBe(400);
+  expect(forked).toEqual([]);
+  expect(rewound).toEqual([]);
 });

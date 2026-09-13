@@ -17,6 +17,7 @@ import {
   MAX_LAUNCH_PROMPT,
   SessionForkInvalidError,
   SessionForkNotFoundError,
+  type ForkRewinder,
   type SessionLauncher,
 } from "./forkSession.ts";
 import { sessionKey } from "./transcriptCatalog.ts";
@@ -87,6 +88,45 @@ function knownSession(project: string, sessionId = SESSION_ID): void {
     lastEventAt: 1_000,
   });
 }
+
+/** That session's transcript on disk: two messages, with an assistant reply between them. */
+async function withTranscript(project: string, sessionId = SESSION_ID): Promise<void> {
+  const said = (text: string) => JSON.stringify({
+    type: "user",
+    message: { role: "user", content: text },
+    cwd: project,
+    timestamp: "2026-09-09T05:00:00.000Z",
+    uuid: crypto.randomUUID(),
+  });
+  const replied = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "OK" }] },
+    cwd: project,
+    timestamp: "2026-09-09T05:00:02.000Z",
+    uuid: crypto.randomUUID(),
+  });
+  await writeFile(
+    join(project, `${sessionId}.jsonl`),
+    `${[said("ALPHA one"), replied, said("BRAVO two"), replied].join("\n")}\n`,
+  );
+}
+
+/** A rewinder that records what it was asked for and answers however the test says. */
+function rewinderThat(
+  answer: { done: true } | { done: false; reason: string },
+): ForkRewinder & { asked: { sessionId: string; anchor: unknown; prompt?: string }[] } {
+  const asked: { sessionId: string; anchor: unknown; prompt?: string }[] = [];
+  const rewinder: ForkRewinder = async (options) => {
+    asked.push(options);
+    return answer;
+  };
+  return Object.assign(rewinder, { asked });
+}
+
+/** A rewinder no test expects to run. */
+const neverRewinds: ForkRewinder = async () => {
+  throw new Error("nothing named a message, so nothing should have been rewound");
+};
 
 test("a launch with no source starts an empty session in the checkout", async () => {
   const checkout = await directory();
@@ -268,4 +308,119 @@ test("does not need the source to be running", async () => {
 
   await expect(forkClaudeSession(SESSION_ID, { title: "Cold source" }, launcher, newForkId))
     .resolves.toMatchObject({ sessionId: FORK_ID });
+});
+
+test("starts the fork at a named message, and holds the brief back for after the rewind", async () => {
+  // The CLI takes a positional prompt as the session's first turn, which would run it against the
+  // whole inherited context -- the exact thing the rewind exists to avoid.
+  const project = await directory();
+  knownSession(project);
+  await withTranscript(project);
+  const rewinder = rewinderThat({ done: true });
+
+  const started = await forkClaudeSession(
+    SESSION_ID,
+    { title: "From BRAVO", prompt: "the sibling task", from: { eventId: `claude:${SESSION_ID}:line:2` } },
+    launcher,
+    newForkId,
+    rewinder,
+  );
+
+  expect(started.rewindFailed).toBeUndefined();
+  expect(asked[0]).toMatchObject({ kind: "fork", brief: undefined });
+  expect(rewinder.asked).toEqual([{
+    sessionId: FORK_ID,
+    anchor: { fromEnd: 1, text: "BRAVO two" },
+    prompt: "the sibling task",
+  }]);
+});
+
+test("counts the message back from the newest, not from the top of the file", async () => {
+  const project = await directory();
+  knownSession(project);
+  await withTranscript(project);
+  const rewinder = rewinderThat({ done: true });
+
+  await forkClaudeSession(
+    SESSION_ID,
+    { title: "From ALPHA", from: { eventId: `claude:${SESSION_ID}:line:0` } },
+    launcher,
+    newForkId,
+    rewinder,
+  );
+
+  expect(rewinder.asked[0]?.anchor).toEqual({ fromEnd: 2, text: "ALPHA one" });
+});
+
+test("says when the fork could not be moved, and hands back the fork anyway", async () => {
+  // The session exists either way. A caller told only that the request failed would not know
+  // there was now one running that holds more than it asked for.
+  const project = await directory();
+  knownSession(project);
+  await withTranscript(project);
+
+  const started = await forkClaudeSession(
+    SESSION_ID,
+    { title: "Doomed", from: { eventId: `claude:${SESSION_ID}:line:2` } },
+    launcher,
+    newForkId,
+    rewinderThat({ done: false, reason: "rewind refused: no-picker" }),
+  );
+
+  expect(started).toMatchObject({
+    sessionId: FORK_ID,
+    tmuxSession: `fork-pane-${FORK_ID}`,
+    rewindFailed: "rewind refused: no-picker",
+  });
+});
+
+test("a fork that named no message is not rewound, and its brief rides the launch", async () => {
+  const project = await directory();
+  knownSession(project);
+
+  await forkClaudeSession(
+    SESSION_ID,
+    { title: "Whole thing", prompt: "carry on" },
+    launcher,
+    newForkId,
+    neverRewinds,
+  );
+
+  expect(asked[0]).toMatchObject({ kind: "fork", brief: "carry on" });
+});
+
+test("refuses a row that is not a message before anything is started", async () => {
+  // Resolved ahead of the launch on purpose: the alternative is answering a bad anchor with a
+  // running fork that holds the whole conversation.
+  const project = await directory();
+  knownSession(project);
+  await withTranscript(project);
+
+  for (const line of [1, 99]) {
+    await expect(forkClaudeSession(
+      SESSION_ID,
+      { title: "No", from: { eventId: `claude:${SESSION_ID}:line:${line}` } },
+      launcher,
+      newForkId,
+      neverRewinds,
+    )).rejects.toBeInstanceOf(SessionForkInvalidError);
+  }
+  expect(asked).toEqual([]);
+});
+
+test("refuses an event that belongs to another session", async () => {
+  const project = await directory();
+  knownSession(project);
+  await withTranscript(project);
+
+  const refused = forkClaudeSession(
+    SESSION_ID,
+    { title: "No", from: { eventId: "claude:11111111-1111-4111-8111-111111111111:line:0" } },
+    launcher,
+    newForkId,
+    neverRewinds,
+  );
+
+  await expect(refused).rejects.toBeInstanceOf(SessionForkInvalidError);
+  expect(asked).toEqual([]);
 });

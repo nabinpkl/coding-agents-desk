@@ -71,6 +71,15 @@ export interface StartedSession {
   projectPath: string;
   /** The tmux session it runs in, which `TmuxTerminalContext` attaches to. */
   tmuxSession: string;
+  /**
+   * Why the fork could not be moved back to the message it was asked to start from.
+   *
+   * Absent when it was, and when none was asked for. The session EXISTS either way, which is the
+   * reason this is a field rather than an error: the fork is running, holding its source's whole
+   * context instead of the slice that was wanted, and a caller told only "it failed" would have no
+   * idea there was now a session to deal with.
+   */
+  rewindFailed?: string;
 }
 
 /**
@@ -104,4 +113,17 @@ export interface ForkSessionCommand {
    * take one: a path arriving over HTTP is a path this sidecar would then create a checkout at.
    */
   worktree?: { branch?: string };
+  /**
+   * Start the fork just BEFORE one of the source's messages, rather than holding all of it.
+   *
+   * `eventId` is the id the event index gave that transcript row (`claude:<id>:line:<n>`), and it
+   * has to name a message a person wrote -- the picker this drives lists nothing else.
+   *
+   * Best effort by construction, and the response says so. The session is started first and then
+   * asked to rewind itself, because there is no flag that starts one part-way through: `/rewind`
+   * takes no argument and has no non-interactive mode, so it is driven in the fork's own pane
+   * after it is up. A fork whose rewind did not happen is still a fork, and `rewindFailed` is how
+   * the caller finds out it holds more than it asked for.
+   */
+  from?: { eventId: string };
 }

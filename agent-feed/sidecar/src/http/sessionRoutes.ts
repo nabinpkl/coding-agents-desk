@@ -301,7 +301,11 @@ export function subscribeTranscriptTimeline(
  * A POST rather than a PUT because the host relay admits GET and POST only, the same reason the
  * Bot detach endpoint is a POST.
  */
-async function renameSession(sessionId: string, request: Request): Promise<Response> {
+async function renameSession(
+  sessionId: string,
+  request: Request,
+  rename: SessionRouteActions["rename"],
+): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -313,7 +317,7 @@ async function renameSession(sessionId: string, request: Request): Promise<Respo
     return errorResponse("invalid-title", "a session title must be a string", 400);
   }
   try {
-    return jsonResponse({ sessionId, title: await renameClaudeSession(sessionId, title) });
+    return jsonResponse({ sessionId, title: await rename(sessionId, title) });
   } catch (error) {
     if (error instanceof SessionRenameInvalidError) {
       return errorResponse("invalid-title", error.message, 400);
@@ -337,7 +341,11 @@ async function renameSession(sessionId: string, request: Request): Promise<Respo
  * endpoint: forking is something you do to a session, and a reader deciding to branch is looking
  * at a transcript rather than at a roster.
  */
-async function forkSession(sessionId: string, request: Request): Promise<Response> {
+async function forkSession(
+  sessionId: string,
+  request: Request,
+  fork: SessionRouteActions["fork"],
+): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -348,7 +356,7 @@ async function forkSession(sessionId: string, request: Request): Promise<Respons
     return errorResponse("invalid-request", "request body must be an object", 400);
   }
   try {
-    return jsonResponse(await forkClaudeSession(sessionId, body as ForkSessionCommand), 201);
+    return jsonResponse(await fork(sessionId, body as ForkSessionCommand), 201);
   } catch (error) {
     if (error instanceof SessionForkInvalidError) {
       return errorResponse("invalid-fork", error.message, 400);
@@ -372,8 +380,21 @@ async function forkSession(sessionId: string, request: Request): Promise<Respons
   }
 }
 
+/**
+ * What the two POST routes delegate to, injected so a test never has to replace a module.
+ *
+ * Module replacement is global for a whole `bun test` run, so a route test that stood in for the
+ * composer answered the composer's OWN tests too -- and they passed for the wrong reason. Every
+ * other seam in this sidecar is a parameter for exactly that reason; these two were the holdouts.
+ */
+export interface SessionRouteActions {
+  rename: typeof renameClaudeSession;
+  fork: typeof forkClaudeSession;
+}
+
 export function createSessionRoutes(
   resolveAgentSession?: AgentSessionDescriptorResolver,
+  actions: SessionRouteActions = { rename: renameClaudeSession, fork: forkClaudeSession },
 ): RouteHandler {
   return (request, url) => {
     if (request.method === "POST") {
@@ -387,8 +408,8 @@ export function createSessionRoutes(
         // is still starting would answer "no such session" about one that is plainly there.
         return errorResponse("inventory-not-ready", "the session catalog is still starting", 503);
       }
-      if (titleMatch) return renameSession(titleMatch[1]!.toLowerCase(), request);
-      return forkSession(forkMatch![1]!.toLowerCase(), request);
+      if (titleMatch) return renameSession(titleMatch[1]!.toLowerCase(), request, actions.rename);
+      return forkSession(forkMatch![1]!.toLowerCase(), request, actions.fork);
     }
     if (request.method !== "GET") return undefined;
     if (getWatcherState() !== "live") {

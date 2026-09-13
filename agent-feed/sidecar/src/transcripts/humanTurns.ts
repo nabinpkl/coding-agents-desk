@@ -15,7 +15,7 @@
 // The rule is therefore about CONTENT, not about the `type` field alone: a person's message is a
 // user event carrying prose that is not one of the harness's envelopes.
 
-import type { ActivityEvent } from "./sources/transcriptTypes.ts";
+import type { ParsedLine } from "./sources/transcriptTypes.ts";
 
 /**
  * Text that arrives as a user message and is not from a person.
@@ -50,8 +50,12 @@ export function isHarnessUserText(text: string): boolean {
  *
  * Prose is the test. A tool result carries `tool_result` blocks and no text, so it fails on the
  * first clause; an envelope carries text and fails on the second.
+ *
+ * Takes a `ParsedLine` rather than a whole `ActivityEvent` because those two fields are all it
+ * reads, and the second caller has only a parsed line: resolving which human turn a transcript
+ * line is happens before anything has been given an index or a revision.
  */
-export function isHumanTurnStart(event: ActivityEvent): boolean {
+export function isHumanTurnStart(event: ParsedLine): boolean {
   if (event.type !== "user") return false;
   for (const block of event.blocks) {
     if (block.kind !== "text") continue;

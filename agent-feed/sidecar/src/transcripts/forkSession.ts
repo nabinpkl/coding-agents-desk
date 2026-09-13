@@ -22,6 +22,13 @@ import {
   startClaudeSession,
   startForkedClaudeSession,
 } from "../terminal/claudeSessionLaunch.ts";
+import { LIVE_FORK_REWINDER } from "./forkRewind.ts";
+import {
+  anchorAtLine,
+  lineFromEventId,
+  MessageAnchorError,
+  type MessageAnchor,
+} from "./messageAnchor.ts";
 import { sessionTitleRefusal } from "./sessionTitle.ts";
 import { findSession } from "./transcriptCatalog.ts";
 
@@ -41,6 +48,20 @@ const MAX_BRANCH_NAME = 64;
 export class SessionForkInvalidError extends Error {}
 /** There is no such session to fork. */
 export class SessionForkNotFoundError extends Error {}
+
+/**
+ * Moving a just-started fork back to the message it was asked to start from, and giving it its
+ * first turn once it is there.
+ *
+ * One seam rather than three, because the three steps are only ever done together and the tests
+ * that care about them are the picker's own. What a fork's own tests need from here is whether
+ * this was attempted and what it answered.
+ */
+export type ForkRewinder = (options: {
+  sessionId: string;
+  anchor: MessageAnchor;
+  prompt?: string;
+}) => Promise<{ done: true } | { done: false; reason: string }>;
 
 /**
  * How a session actually gets started, injectable so the decisions above can be tested without
@@ -81,6 +102,7 @@ export const LIVE_SESSION_LAUNCHER: SessionLauncher = {
   start: (options) => startClaudeSession(options),
   fork: (options) => startForkedClaudeSession(options),
 };
+
 
 export interface SessionLaunchPlan {
   /**
@@ -153,6 +175,7 @@ export async function forkClaudeSession(
   command: ForkSessionCommand,
   launcher: SessionLauncher = LIVE_SESSION_LAUNCHER,
   newSessionId: () => string = () => crypto.randomUUID(),
+  rewinder: ForkRewinder = LIVE_FORK_REWINDER,
 ): Promise<StartedSession> {
   const title = compact(command.title);
   const refusal = sessionTitleRefusal(title);
@@ -167,25 +190,61 @@ export async function forkClaudeSession(
       throw new SessionForkInvalidError(`prompt cannot exceed ${MAX_LAUNCH_PROMPT} characters`);
     }
   }
+  // Trimmed at the ends only, never reshaped: the prompt is the fork's first turn and its line
+  // breaks are the reader's.
+  const brief = prompt?.trim() ? prompt.trim() : undefined;
   const worktree = normalizeWorktree(command.worktree);
 
   const source = findSession("claude", sessionId);
   if (!source) throw new SessionForkNotFoundError(`session claude:${sessionId} is not in the catalog`);
 
-  return launchSession(
+  // Resolved BEFORE anything is started, so a request naming a row that is not a message is
+  // refused rather than answered with a running fork holding the whole conversation.
+  const anchor = await resolveAnchor(command.from, sessionId, source.transcriptPath);
+
+  const started = await launchSession(
     {
       checkout: (await worktreeOf(source.project))?.mainCheckout ?? source.project,
       sourcePath: source.project,
       from: sessionId,
       title,
-      // Trimmed at the ends only, never reshaped: the prompt is the fork's first turn and its
-      // line breaks are the reader's.
-      ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
+      // Withheld from the command line when there is a rewind coming: the CLI takes a positional
+      // prompt as the first turn, and that turn would run against the whole inherited context
+      // before anything had moved. It is typed into the box after the rewind instead.
+      ...(brief === undefined || anchor ? {} : { prompt: brief }),
       ...(worktree === undefined ? {} : { worktree }),
     },
     launcher,
     newSessionId,
   );
+  if (!anchor) return started;
+
+  const moved = await rewinder({
+    sessionId: started.sessionId,
+    anchor,
+    ...(brief === undefined ? {} : { prompt: brief }),
+  });
+  // Reported, never thrown. The fork is running either way, and a caller told only that the
+  // request failed would not know there was now a session holding more than it asked for.
+  return moved.done ? started : { ...started, rewindFailed: moved.reason };
+}
+
+/** Where in the source's conversation to start, when the caller named a message. */
+async function resolveAnchor(
+  from: ForkSessionCommand["from"],
+  sessionId: string,
+  transcriptPath: string,
+): Promise<MessageAnchor | undefined> {
+  if (from === undefined) return undefined;
+  if (!from || typeof from !== "object" || typeof from.eventId !== "string") {
+    throw new SessionForkInvalidError("from.eventId must be a string");
+  }
+  try {
+    return await anchorAtLine(transcriptPath, lineFromEventId(from.eventId, sessionId));
+  } catch (error) {
+    if (error instanceof MessageAnchorError) throw new SessionForkInvalidError(`from: ${error.message}`);
+    throw error;
+  }
 }
 
 /**

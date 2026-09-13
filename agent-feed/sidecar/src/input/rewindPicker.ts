@@ -56,13 +56,9 @@ import {
   type TmuxPaneView,
 } from "../terminal/tmuxSessions.ts";
 import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
-import {
-  composerBox,
-  composerText,
-  inTurn,
-  keystrokesFor,
-  plainText,
-} from "./tmuxComposer.ts";
+import { keystrokesFor } from "./composer/composerKeys.ts";
+import { inTurn } from "./composer/composerRuntime.ts";
+import { composerBox, composerText, plainText } from "./composer/composerScreen.ts";
 
 /** The glyph Claude puts on the selected row of a list. */
 const MARKER = "\u276f";
