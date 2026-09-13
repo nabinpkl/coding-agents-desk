@@ -10,7 +10,7 @@ import type { SidecarDataSource } from "../activity-feed/data-source/SidecarData
 import { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
 import { terminalContextLabel } from "./terminalContext";
 import { TerminalKeyRail } from "./TerminalKeyRail";
-import { useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
+import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "./useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
@@ -95,13 +95,32 @@ export function AgentTerminalPane(
   );
   // Only a band pane renders from this: a column pane measures its parent at the moment of a drag.
   const [basis, setBasis] = useState(measureBasis);
-  const { mountRef, labels, contentHeight, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
-    feed,
-    context,
-    sizing: { kind: "fit" },
-    paneShape,
-    onState,
-  });
+  /**
+   * The size this reader has asked for, or null while the pane is sizing itself.
+   *
+   * Not remembered across a reload, deliberately: it costs one press to set again, and a size
+   * stored per pane would come back on a card of a different width where it means something else.
+   */
+  const [zoom, setZoom] = useState<number | null>(null);
+  const { mountRef, labels, contentHeight, fontSize, focused, modifiers, toggleModifier, pressKey } =
+    useAgentTerminal({
+      feed,
+      context,
+      sizing: { kind: "fit" },
+      paneShape,
+      zoom,
+      onState,
+    });
+  // Steps from whatever is on screen, so the first press moves from what the reader is looking at
+  // rather than from a default they never chose.
+  const stepZoom = (by: number): void =>
+    setZoom((chosen) => {
+      const from = chosen ?? fontSize ?? TERMINAL_ZOOM.minimum;
+      return Math.min(
+        TERMINAL_ZOOM.maximum,
+        Math.max(TERMINAL_ZOOM.minimum, Math.round(from) + by),
+      );
+    });
   // Read once per pane rather than at import: a browser does not grow a software keyboard part way
   // through a session, but a test has to be able to say which kind of browser it is.
   const [softwareKeyboard] = useState(drawsOwnKeyboard);
@@ -268,8 +287,67 @@ export function AgentTerminalPane(
         {labels.ownership ? <span>{labels.ownership}</span> : null}
         {labels.source ? <span>{labels.source}</span> : null}
         {labels.view ? <span>{labels.view}</span> : null}
+        {/* Pushed to the end and last in the tab order: the labels are what a reader comes here to
+            read, and the type size is what they come here to change. */}
+        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+          <TerminalZoomButton
+            label="Smaller type"
+            onPress={() => stepZoom(-TERMINAL_ZOOM.step)}
+            disabled={(zoom ?? fontSize ?? 0) <= TERMINAL_ZOOM.minimum}
+          >
+            −
+          </TerminalZoomButton>
+          {/* The size in force, and the way back to letting the pane choose it. Shown as a number
+              rather than a percentage because the fit has no 100% to be a percentage OF: the
+              screen's size is whatever its grid and this box work out to. */}
+          <button
+            type="button"
+            onClick={() => setZoom(null)}
+            disabled={zoom === null}
+            aria-label={zoom === null ? "Type is sized to the pane" : "Size the type to the pane"}
+            title={zoom === null ? "Sized to the pane" : "Size to the pane"}
+            className="min-w-8 cursor-pointer rounded px-1 text-center tabular-nums outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+          >
+            {fontSize === null ? "--" : `${Math.round(fontSize)}pt`}
+          </button>
+          <TerminalZoomButton
+            label="Larger type"
+            onPress={() => stepZoom(TERMINAL_ZOOM.step)}
+            disabled={(zoom ?? fontSize ?? 0) >= TERMINAL_ZOOM.maximum}
+          >
+            +
+          </TerminalZoomButton>
+        </span>
       </footer>
     </section>
   );
 }
 
+/**
+ * One press of the zoom control.
+ *
+ * A real button rather than an icon: at this size a glyph is a smudge, and `−`/`+` read at ten
+ * pixels where an outline does not. The touch target is larger than the text it holds, because the
+ * footer is the shortest strip on the pane and a thumb still has to land on it.
+ */
+function TerminalZoomButton(
+  { label, onPress, disabled, children }: {
+    label: string;
+    onPress: () => void;
+    disabled: boolean;
+    children: React.ReactNode;
+  },
+) {
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex size-5 cursor-pointer items-center justify-center rounded text-xs leading-none outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+    >
+      {children}
+    </button>
+  );
+}

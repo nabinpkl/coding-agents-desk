@@ -49,6 +49,8 @@ export interface AgentTerminal {
    * whoever takes it -- this is what the screen wants, not what the surface can afford.
    */
   contentHeight: number | null;
+  /** The type size on screen right now, whether the fit chose it or the reader did. */
+  fontSize: number | null;
   /** Whether this terminal is what the keyboard is typing into. */
   focused: boolean;
   modifiers: Record<RailModifier, ModifierState>;
@@ -131,6 +133,14 @@ const MAXIMUM_FONT_SIZE = 28;
  * `fittedFontSize`'s own note on why overflow scrolls here rather than clipping.
  */
 const MINIMUM_FONT_SIZE = 11;
+/**
+ * The range a reader may zoom through, and the step a press moves.
+ *
+ * Wider at the bottom than the automatic floor: the floor is what the pane settles at when nobody
+ * has said otherwise, and somebody deliberately asking for more of a wide screen on one line is
+ * a different request from the pane quietly shrinking under them.
+ */
+export const TERMINAL_ZOOM = { minimum: 6, maximum: MAXIMUM_FONT_SIZE, step: 1 };
 
 /**
  * One xterm bound to one sidecar terminal: the stream, the input, the size negotiation, the theme.
@@ -139,7 +149,8 @@ const MINIMUM_FONT_SIZE = 11;
  * same chrome. The alternative was a second copy of the checkpoint/output/viewport switch, which is
  * the part where a divergence would be invisible until a screen failed to paint.
  */
-export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", onState }: {
+export function useAgentTerminal(
+  { feed, context, sizing, paneShape = "adopt", zoom = null, onState }: {
   feed: SidecarDataSource;
   context: AgentTerminalContext;
   sizing: TerminalSizing;
@@ -154,6 +165,14 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
    * Ignored where there is no pane to reshape: an owned PTY is sized by whoever opened it.
    */
   paneShape?: "adopt" | "follow";
+  /**
+   * The size the reader has chosen, or null to size the type to the box.
+   *
+   * A choice outranks the fit entirely: the screen is drawn at this size and overflows where it
+   * does not fit, which is the point of choosing one larger than the box. Held in a ref inside, so
+   * changing it re-fits rather than tearing the terminal down and re-attaching to the pane.
+   */
+  zoom?: number | null;
   /** Optional: a pane with nothing to learn from the state passes nothing. */
   onState?: (context: AgentTerminalContext, state: AgentTerminalState) => void;
 }): AgentTerminal {
@@ -164,6 +183,8 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
   const [viewLabel, setViewLabel] = useState("");
   // How tall this terminal's screen wants to be, or null while nothing is attached or measurable.
   const [contentHeight, setContentHeight] = useState<number | null>(null);
+  /** The size actually in force, so the chrome can label what a zoom is moving. */
+  const [fontSize, setFontSize] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
   const [modifiers, setModifiers] = useState<Record<RailModifier, ModifierState>>(RAIL_MODIFIERS_OFF);
   // The effect's `onData` reads the latch as it stands at the keystroke, not as it stood when the
@@ -171,6 +192,13 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
   // would tear down the session to answer a Ctrl tap.
   const modifiersRef = useRef(modifiers);
   modifiersRef.current = modifiers;
+  // Same shape as the modifier latch above and for the same reason: the fit reads the choice as it
+  // stands, and the effect must not re-run on a zoom press -- that would tear down the attachment
+  // and re-import the whole scrollback to answer a button.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  /** The live `fitType`, so a zoom can re-run it without owning any of what it closes over. */
+  const refitRef = useRef<(() => void) | null>(null);
   // Set once the terminal is open. Chrome outside the terminal -- the key rail -- types through it.
   const sendRef = useRef<((data: string) => void) | null>(null);
 
@@ -486,17 +514,30 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
         // because that is what the pane holding it can act on. NOT the height at the base size:
         // asking for that is asking to stay at the base size forever, since the fit below would
         // then find the height exactly binding every time.
-        const wanted = preferredScreenHeight({
-          baseFontSize: BASE_FONT_SIZE,
-          cell: baseCell,
-          grid,
-          availableWidth: available.width,
-          maximum: MAXIMUM_FONT_SIZE,
-          minimum: MINIMUM_FONT_SIZE,
-        });
+        const chosen = zoomRef.current;
+        // The height the screen wants, at whichever size is going to be in force. Asked for even
+        // when the reader has chosen one, so the pane grows to hold their choice and only the
+        // width is left to scroll.
+        const wanted = chosen !== null
+          ? Math.round(baseCell.height * grid.rows * (chosen / BASE_FONT_SIZE))
+          : preferredScreenHeight({
+            baseFontSize: BASE_FONT_SIZE,
+            cell: baseCell,
+            grid,
+            availableWidth: available.width,
+            maximum: MAXIMUM_FONT_SIZE,
+            minimum: MINIMUM_FONT_SIZE,
+          });
         if (wanted !== null) {
           setContentHeight(wanted + padding.height + framePadding.height);
         }
+        // A reader who has said what size they want has answered the question this fit exists to
+        // ask, so it stops asking. The screen overflows and scrolls where the choice does not fit,
+        // which is what choosing one bigger than the box means.
+        if (chosen !== null) {
+          if (terminal.options.fontSize !== chosen) terminal.options.fontSize = chosen;
+          setFontSize(chosen);
+        } else {
         const fitted = fittedFontSize({
           baseFontSize: BASE_FONT_SIZE,
           cell: baseCell,
@@ -544,6 +585,8 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
           if (next >= size) break;
           terminal.options.fontSize = next;
         }
+        setFontSize(terminal.options.fontSize ?? null);
+        }
         const settled = terminal.dimensions?.css.cell;
         if (frame && settled) {
           const inset = surfaceInset({
@@ -561,6 +604,7 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
       // readable throughout, and the pane is asked to take the new shape on the debounce behind
       // it. The fit is what covers the case where the pane refuses -- a session somebody else is
       // attached to still gets a box-sized picture, just by scaling rather than by reshaping.
+      refitRef.current = fitType;
       const observer = paneAuthoritative
         ? new ResizeObserver(() => { fitType(); scheduleViewport(); })
         : sizing.kind === "fit"
@@ -653,11 +697,19 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
 
     return () => {
       disposed = true;
+      refitRef.current = null;
       teardown();
     };
     // Keyed by what the terminal points at rather than by the context object, which is rebuilt on
     // every render and would restart the session each time.
   }, [terminalContextKey(context), sizingKey(sizing), paneShape, feed, onState]);
+
+  // A zoom press changes nothing the effect above owns, so it re-fits in place rather than being a
+  // dependency of it: as a dependency it would dispose the terminal, re-open the pane and re-import
+  // the whole scrollback to answer a button.
+  useEffect(() => {
+    refitRef.current?.();
+  }, [zoom]);
 
   return {
     mountRef,
@@ -668,6 +720,7 @@ export function useAgentTerminal({ feed, context, sizing, paneShape = "adopt", o
       view: viewLabel,
     },
     contentHeight,
+    fontSize,
     focused,
     modifiers,
     toggleModifier: (modifier) =>

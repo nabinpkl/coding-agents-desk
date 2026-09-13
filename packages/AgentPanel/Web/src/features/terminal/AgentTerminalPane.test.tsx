@@ -194,6 +194,63 @@ it("sizes a band pane from its own height, with the viewport as its ceiling", as
   expect(pane).toHaveStyle({ height: "720px" });
 });
 
+it("zooms the type per pane, without re-attaching to the session", async () => {
+  const feed = {
+    terminalHistory: vi.fn(async () => ""),
+    openTerminal: vi.fn(async () => ({
+      terminalId: "terminal-1",
+      ptySessionName: "composerprobe",
+      pid: 42,
+      columns: 80,
+      rows: 24,
+    })),
+    subscribeTerminal: vi.fn(() => vi.fn()),
+    sendTerminalInput: vi.fn(async () => {}),
+    updateTerminalViewport: vi.fn(async () => {}),
+    closeTerminal: vi.fn(async () => {}),
+  } as unknown as SidecarDataSource;
+  const context = { kind: "tmux" as const, session: "composerprobe" };
+
+  render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />);
+  await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
+
+  // Sized to the pane until somebody says otherwise, so there is nothing to reset to yet.
+  const reset = screen.getByRole("button", { name: "Type is sized to the pane" });
+  expect(reset).toBeDisabled();
+
+  // Relative rather than absolute: jsdom measures every box at zero, so the pane never resolves a
+  // size of its own to step away from. What matters is that a press moves the type by a step and
+  // that the label says which size is in force -- the arithmetic itself is
+  // `terminalTypeFit.test.ts`.
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Larger type" }));
+  });
+  const first = terminal.options.fontSize as number;
+  expect(screen.getByRole("button", { name: "Size the type to the pane" }))
+    .toHaveTextContent(`${first}pt`);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Larger type" }));
+  });
+  expect(terminal.options.fontSize).toBe(first + 1);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Smaller type" }));
+  });
+  expect(terminal.options.fontSize).toBe(first);
+
+  // The whole point of holding the choice in a ref: a press must not be a reason to dispose the
+  // terminal, re-open the pane and import its scrollback again.
+  expect(feed.openTerminal).toHaveBeenCalledTimes(1);
+  expect(feed.terminalHistory).toHaveBeenCalledTimes(1);
+
+  // And handing it back leaves the pane sizing itself again.
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Size the type to the pane" }));
+  });
+  expect(screen.getByRole("button", { name: "Type is sized to the pane" })).toBeDisabled();
+});
+
 /** A touch event jsdom will carry: only the two lists the tap handler reads have to be real. */
 function touch(type: string, x: number, y: number): Event {
   const event = new Event(type, { bubbles: true });
