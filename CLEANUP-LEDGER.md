@@ -70,7 +70,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R36 | D | 22/864 | `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts` |
 | R37 | D | 23/814 | `agent-feed/sidecar/src/terminal/agentTerminalService.ts` |
 | R38 | R | 26/1087 | `packages/AgentPanel/Web/src/features/activity-feed/data-source/SidecarDataSource.ts` |
-| R39 | R | 26/585 | `agent-feed/sidecar/src/config.ts` |
+| R39 | D | 26/585 | `agent-feed/sidecar/src/config.ts` |
 | R40 | R | 31/1834 | `agent-feed/sidecar/src/http/webrtcTileRoutes.ts` |
 | R41 | R | 38/1157 | `packages/AgentPanel/Web/src/features/bots/BotCanvas.tsx` |
 | R42 | R | 77/1211 | `packages/AgentPanel/Web/src/app/AgentPanelApp.tsx` |
@@ -555,6 +555,22 @@ module took out -- so `open`'s two branches went out as well, in a second commit
 is what the service is actually for: the map of live terminals, the one stream every viewer
 shares, and everything after "there is a connection".
 
+### R39 `sidecar/config.ts` (585)
+
+One concept that is merely long: a flat settings object nothing can be cut in half without
+breaking a `config.x` somewhere. It split by layer instead.
+
+- Reading one environment variable, and refusing the value rather than working around it.
+- How many tokens a model's context holds, and how a model id finds its row.
+- Where a binary this machine may not have actually is.
+- The settings themselves, which is what is left.
+
+Split into `configEnvironment.ts`, `contextWindows.ts`, `configBinaries.ts`. 585 to 459. The
+object stays whole and stays in `config.ts`, so no reader of `config.something` moves.
+`contextWindowFor` also stays, now one line over `contextWindowIn`: the prefix-matching rule
+belongs beside the table it matches against, but the exported name reads `config.contextWindows`
+and would have taken the file's own import back the other way.
+
 ## Decisions
 
 Forks taken, with the alternative not taken and why. At a fork, the option that changes less wins.
@@ -661,6 +677,14 @@ before the commit; the sweep is clean across all 36 generated files.
   the identity module took only `claudeSessionPaneName`, which is what it uses. Not a fix: rewriting
   the import list is part of the move, and carrying a name nothing reads into a new file would have
   been the larger change.
+
+- R39 was taken before R38 and R40-R43. The churn recompute after R37 put `config.ts` lowest
+  (21 commits in 30 days against `SidecarDataSource.ts`'s 26), where the original snapshot had
+  it fourth. The brief's ordering rule is the recompute, not the snapshot.
+- R39 left `contextWindowFor` in `config.ts` rather than moving it with its table. Moving it
+  would have made `contextWindows.ts` import `config.ts` while `config.ts` imports it back for
+  the environment override. The alternative -- passing the table at all four call sites -- was
+  not taken because it changes three files that only want an answer for a model id.
 
 ## Deferred
 
