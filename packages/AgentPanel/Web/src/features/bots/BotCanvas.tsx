@@ -1,5 +1,5 @@
 import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "../session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "../session-view/fileDropTarget";
@@ -10,13 +10,16 @@ import {
   DEFAULT_CARD_SIZE,
   botCanvasOrderOf,
   loadBotCanvasOrder,
+  loadCanvasScroll,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
+  storeCanvasScroll,
   storeSessionCardSizes,
   type BotCardSize,
   type BotCardSizes,
+  type CanvasScroll,
 } from "./botCanvasPreferences";
 import { botSurfaceStyle } from "./botSurface";
 import { BotCardMenu } from "./BotCardMenu";
@@ -346,8 +349,13 @@ function BotCanvasList({
     && !detachedSessionKeys.has(botError.session)
     && standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
   const orphanedError = botError !== null && !carried ? botError.message : null;
+  const rememberScroll = useRememberedCanvasScroll(canvas, standing);
   return (
-    <div ref={canvas} className="h-full overflow-auto overscroll-contain">
+    <div
+      ref={canvas}
+      onScroll={rememberScroll}
+      className="h-full overflow-auto overscroll-contain"
+    >
       {orphanedError ? (
         <div
           role="alert"
@@ -399,6 +407,77 @@ function BotCanvasList({
       </ul>
     </div>
   );
+}
+
+/**
+ * The most often the canvas offset is written, and how long after the last scroll it is written
+ * again.
+ *
+ * A scroll is hundreds of events, and a store write per event is a store write per frame. This
+ * throttles them: the first event of a burst schedules the write, the rest only update what it
+ * will say, and because the last event always leaves a timer pending, where the reader stopped is
+ * always the last thing written.
+ */
+const SCROLL_SETTLE_MS = 200;
+
+/**
+ * Opens the canvas where it was left, and keeps saying where that is.
+ *
+ * The restore waits for the strip to have somewhere to scroll TO. The Bots arrive on a stream, so
+ * the first layout is an empty canvas, and an offset written there is silently clamped to zero by
+ * the browser -- indistinguishable, from the reader's side, from having forgotten. `content` is
+ * whatever changing means the strip may have grown; the effect re-checks on it until it lands.
+ */
+function useRememberedCanvasScroll(
+  scroller: React.RefObject<HTMLDivElement | null>,
+  content: unknown,
+): () => void {
+  const restored = useRef(false);
+  const wanted = useRef<CanvasScroll | null>(null);
+  const latest = useRef<CanvasScroll | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useLayoutEffect(() => {
+    if (restored.current) return;
+    const el = scroller.current;
+    if (!el) return;
+    // Read once and held, because this effect runs again on every render until it lands, and what
+    // it is looking for cannot change underneath it -- nothing writes the offset until it has.
+    wanted.current ??= loadCanvasScroll();
+    const { left, top } = wanted.current;
+    // Nothing to put back, so the canvas is already where it belongs and every scroll from here is
+    // the reader's. Marked restored rather than left pending, or the first one would be ignored.
+    if (left === 0 && top === 0) {
+      restored.current = true;
+      return;
+    }
+    if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) return;
+    restored.current = true;
+    el.scrollLeft = left;
+    el.scrollTop = top;
+  }, [scroller, content]);
+
+  // Written from one place, on a timer, rather than beside each of the things that scroll the
+  // canvas -- the reader, a card coming into view, a drag creeping at the edge. They all end up
+  // here because they all end up as a scroll event.
+  const remember = useCallback(() => {
+    const el = scroller.current;
+    if (!el || !restored.current) return;
+    latest.current = { left: el.scrollLeft, top: el.scrollTop };
+    if (timer.current !== null) return;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      if (latest.current) storeCanvasScroll(latest.current);
+    }, SCROLL_SETTLE_MS);
+  }, [scroller]);
+
+  // Leaving the canvas is the one scroll that never settles, because the component goes with it.
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    if (latest.current) storeCanvasScroll(latest.current);
+  }, []);
+
+  return remember;
 }
 
 /** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
@@ -878,14 +957,22 @@ function BotCanvasCard({
   }${hidden > 0 ? `, ${hidden} off the canvas` : ""}`;
   // Whether an open session is one of THIS card's, which is what the scroll below acts on.
   const holdsOpen = shown.some((session) => openKeys.has(sessionKey(session)));
-  // Brings this card into view when it becomes an open one, because the row that opened it may
+  // Brings this card into view when it BECOMES an open one, because the row that opened it may
   // have been in the sidebar rather than on the canvas, and the card can be anywhere in a tiled
   // roster of thirty. `nearest` rather than `start`: it does nothing at all when the card is
   // already fully visible, which is the common case of clicking a row on the canvas itself, and a
   // card taller than the scroller aligns to its top under the same rule.
+  //
+  // The transition and not the state, which is the difference between this and what it replaced. A
+  // card already open when it mounts is one the canvas is coming BACK to -- restored open keys, a
+  // tab switched away from and returned to -- and scrolling to it there drags the strip off the
+  // offset the reader left it at, with the last card to mount deciding where they land.
   const card = useRef<HTMLLIElement | null>(null);
+  const wasOpen = useRef(holdsOpen);
   useEffect(() => {
-    if (!holdsOpen) return;
+    const opened = holdsOpen && !wasOpen.current;
+    wasOpen.current = holdsOpen;
+    if (!opened) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }, [holdsOpen]);
   // `bot-surface` sets the background and the border together, because a tinted card inside a

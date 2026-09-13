@@ -11,16 +11,19 @@ import {
   clampCardWidth,
   loadBotCanvasOrder,
   loadCanvasOpenKeys,
+  loadCanvasScroll,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
   storeCanvasOpenKeys,
+  storeCanvasScroll,
   storeSessionCardSizes,
 } from "./botCanvasPreferences";
 
 const STORAGE_KEY = "agent-panel.bot-canvas.session-sizes";
 const OPEN_SESSIONS_STORAGE_KEY = "agent-panel.bot-canvas.open-session";
+const SCROLL_STORAGE_KEY = "agent-panel.bot-canvas.scroll";
 
 describe("session card sizes", () => {
   beforeEach(() => localStorage.clear());
@@ -183,5 +186,39 @@ describe("which sessions the canvas has open", () => {
     // the first write replaces it.
     localStorage.setItem(OPEN_SESSIONS_STORAGE_KEY, "claude:a");
     expect(loadCanvasOpenKeys()).toEqual(new Set());
+  });
+});
+
+describe("how far the canvas is scrolled", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("opens at the left edge before the canvas has been scrolled", () => {
+    expect(loadCanvasScroll()).toEqual({ left: 0, top: 0 });
+  });
+
+  it("remembers both axes, because a tall card scrolls the canvas down as well as along", () => {
+    storeCanvasScroll({ left: 1840, top: 96 });
+    expect(loadCanvasScroll()).toEqual({ left: 1840, top: 96 });
+  });
+
+  it("forgets the left edge rather than storing the number that means the default", () => {
+    storeCanvasScroll({ left: 1840, top: 96 });
+    storeCanvasScroll({ left: 0, top: 0 });
+    expect(localStorage.getItem(SCROLL_STORAGE_KEY)).toBeNull();
+  });
+
+  it("judges each axis on its own, so one bad number does not throw away the other", () => {
+    localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({ left: 1840, top: "down a bit" }));
+    expect(loadCanvasScroll()).toEqual({ left: 1840, top: 0 });
+  });
+
+  it("refuses an offset behind the start, which no scroller can be at", () => {
+    localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({ left: -400, top: 40 }));
+    expect(loadCanvasScroll()).toEqual({ left: 0, top: 40 });
+  });
+
+  it("opens at the left edge rather than trusting a value it cannot read", () => {
+    localStorage.setItem(SCROLL_STORAGE_KEY, "{not json");
+    expect(loadCanvasScroll()).toEqual({ left: 0, top: 0 });
   });
 });

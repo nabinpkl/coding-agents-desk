@@ -25,6 +25,11 @@ import {
   selectStickyUserIndex,
 } from "./activityStickyHeaders";
 import {
+  forgetTranscriptAnchor,
+  loadTranscriptAnchor,
+  rememberTranscriptAnchor,
+} from "./transcriptScrollStore";
+import {
   ClusterRow,
   CompactionRow,
   LiveTailRow,
@@ -41,6 +46,15 @@ import { openAskUserQuestion, type OpenAskUserQuestion } from "../../app/askUser
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;
+
+/**
+ * How long the transcript has to sit still before where it is being read is written down.
+ *
+ * A scroll is hundreds of events and a restore is a handful of corrections; both settle inside
+ * this, so each becomes one storage write of a finished position rather than a stream of writes of
+ * half-arrived ones.
+ */
+const SCROLL_SETTLE_MS = 200;
 
 export function ActivityFeed({
   source,
@@ -356,6 +370,84 @@ export function ActivityFeed({
   }, [scrollTop, virtualItems, items, stickyUser, stickyUserIndex]);
   const stickyCurrent: DisplayItem | null =
     stickyCurrentIndex === null ? null : items[stickyCurrentIndex] ?? null;
+
+  // The transcript line at the top of the viewport: the first row still on screen.
+  //
+  // This is what gets remembered, and it is deliberately a transcript event rather than the
+  // offset it sits at. An offset means nothing on the next visit -- rows carry estimated heights
+  // until they are measured, the feed opens on a window of the newest events rather than the whole
+  // thread, and a live session has grown in the meantime -- where the event is the one thing every
+  // one of those preserves.
+  const topEvent = useMemo<number | null>(() => {
+    for (const row of virtualItems) {
+      if (row.end <= scrollTop) continue;
+      const item = rowItems[row.index];
+      // The live tail counts rows in the sidecar's projection rather than lines in the transcript,
+      // so it is not an anchor -- and a reader sitting on it is at the end, which needs none.
+      return !item || item.kind === "tail" ? null : leadEvent(item).index;
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollTop, virtualItems, rowItems]);
+
+  // Puts the reader back where they were reading, once, as soon as there are rows to land on.
+  //
+  // Only for a session that was left away from the tail: following it is the default, so a session
+  // with nothing stored is restored by doing nothing, which is also what a reload of a live thread
+  // should do. `pause()` first, or the tail-follower's own ResizeObserver snaps the scroll back to
+  // the bottom the moment the next row is measured.
+  //
+  // An anchor older than the loaded window resolves to the window's first row, which is the
+  // nearest place to it that exists -- and landing there is what asks for the page before it.
+  const restoredFor = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const key = `${source}:${sessionId}`;
+    if (restoredFor.current === key || rowItems.length === 0) return;
+    const anchor = loadTranscriptAnchor({ source, sessionId });
+    const rowIndex = anchor === null ? -1 : rowItems.findIndex(
+      (item) => item.kind !== "tail" && leadEvent(item).index >= anchor,
+    );
+    // Nothing to put back, or nothing left to put it back on. Either way this session is answered,
+    // and every scroll from here is the reader's.
+    if (rowIndex < 0) {
+      restoredFor.current = key;
+      return;
+    }
+    const measurement = rowVirtualizer.measurementsCache[rowIndex];
+    const el = parentRef.current;
+    // The rows exist before the virtualiser has measured any of them, and a restore that gave up
+    // there would give up for good. Left unanswered so the next commit tries again.
+    if (!measurement || !el) return;
+    restoredFor.current = key;
+    pause();
+    // The same one synchronous write `jumpTo` makes, rather than the virtualiser's own
+    // `scrollToIndex`, which reaches the scroller through `Element.scrollTo`: rows above this one
+    // are still on their estimated heights, and what corrects for that as they measure is
+    // virtual-core's scroll anchoring, which watches the offset rather than being told it.
+    el.scrollTop = jumpScrollTop(measurement, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, sessionId, rowItems, virtualItems, rowVirtualizer, pause]);
+
+  /**
+   * Records where the session is being read, once the scrolling stops.
+   *
+   * On a delay because a restore is itself several scrolls -- the jump, then the virtualiser
+   * correcting it as rows measure -- and each of those passes through here with the position
+   * half-arrived. Every one of them restarts this timer, so what lands in storage is where the
+   * reading ENDED, which is what stops a reload writing the top of the window over the place it
+   * just put the reader back on. It also costs one write per flick rather than one per frame.
+   */
+  useEffect(() => {
+    if (restoredFor.current !== `${source}:${sessionId}`) return;
+    const timer = setTimeout(() => {
+      const session = { source, sessionId };
+      // Back at the end is not a place worth keeping: it is where a session opens anyway, and an
+      // entry saying so would outlive the reading it came from.
+      if (following || topEvent === null) forgetTranscriptAnchor(session);
+      else rememberTranscriptAnchor(session, topEvent);
+    }, SCROLL_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [source, sessionId, following, topEvent]);
 
   // One synchronous scroll write per jump. The earlier two-step (jump to the
   // row top, then rAF-correct for the bar) showed the row under the bar before

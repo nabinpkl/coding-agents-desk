@@ -503,6 +503,83 @@ describe("App shell", () => {
    */
   const canvas = () => within(screen.getByRole("list", { name: "Bot canvas" }));
 
+  it("comes back to the part of the canvas the reader was on, and lets an open card stay put", () => {
+    // Both halves of one complaint. The strip is wider than the panel, so a reader scrolls along it
+    // to whichever Bots they are watching; a reload used to open at the left edge, and then the
+    // cards restored open scrolled themselves into view, so where a reader landed was decided by
+    // whichever of them mounted last.
+    localStorage.setItem("agent-panel.bot-canvas.scroll", JSON.stringify({ left: 640, top: 0 }));
+    localStorage.setItem(
+      "agent-panel.bot-canvas.open-session",
+      JSON.stringify(["claude:sid-claude-01"]),
+    );
+    // jsdom lays nothing out, so the strip has no width to scroll along and the restore would
+    // rightly decline to write an offset into a scroller with no overflow.
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, value: 4000 });
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    try {
+      const { transport, unmount } = setup();
+      deliverProjects(transport);
+      deliverSessions(transport);
+      fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+      act(() => {
+        transport.deliver("/api/bots/stream", {
+          version: 2,
+          revision: 1,
+          bots: [BOT_WITH_ONE_SESSION],
+        });
+      });
+
+      const scroller = screen.getByRole("list", { name: "Bot canvas" }).parentElement!;
+      expect(scroller.scrollLeft).toBe(640);
+      // The card holding the restored session is open, and did not drag the strip to itself.
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      // Opening one from the sidebar still brings its card forward: that is a card BECOMING open,
+      // which is the case the scroll was written for.
+      fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
+      fireEvent.click(
+        within(screen.getByRole("list", { name: "Bots" }))
+          .getByRole("button", { name: /^Session Claude 01/ }),
+      );
+      expect(scrollIntoView).toHaveBeenCalled();
+      unmount();
+    } finally {
+      scrollIntoView.mockRestore();
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollWidth");
+    }
+  });
+
+  it("writes down where the canvas was left once the scrolling stops", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, value: 4000 });
+    try {
+      const { transport, unmount } = setup();
+      deliverProjects(transport);
+      fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+      act(() => {
+        transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+      });
+
+      const scroller = screen.getByRole("list", { name: "Bot canvas" }).parentElement!;
+      scroller.scrollLeft = 320;
+      fireEvent.scroll(scroller);
+      // On a delay, so a flick is one storage write rather than one per frame.
+      expect(localStorage.getItem("agent-panel.bot-canvas.scroll")).toBeNull();
+      await waitFor(
+        () => expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.scroll") ?? "null"))
+          .toEqual({ left: 320, top: 0 }),
+        { timeout: 2000 },
+      );
+      unmount();
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollWidth");
+    }
+  });
+
   it("shows every Bot at once on the canvas, and opens their sessions inline beside each other", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

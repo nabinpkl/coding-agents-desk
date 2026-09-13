@@ -198,6 +198,61 @@ export function storeCanvasOpenKeys(keys: ReadonlySet<string>): void {
 }
 
 /**
+ * How far the canvas is scrolled, in pixels, remembered across reloads.
+ *
+ * Pixels rather than an identity, which is the exception the rest of this module argues against,
+ * and it is right here because the canvas is the one surface whose content is already pinned down
+ * by what sits beside this: the strip is the arranged ORDER of the Bots, laid out at the WIDTHS
+ * stored per session, so an offset into it names the same place on the next visit rather than
+ * meaning whatever the stream happened to send first. A transcript is the opposite case, which is
+ * why that one anchors to an event instead.
+ *
+ * Both axes, because a card is as tall as its own roster and a tall one scrolls the canvas down as
+ * well as along.
+ *
+ * Clamped by the browser on the way in: assigning past the end of a scroller lands at the end, so a
+ * remembered offset for a canvas that has since lost half its cards degrades to its last card
+ * rather than to nothing.
+ */
+const SCROLL_KEY = "agent-panel.bot-canvas.scroll";
+
+export interface CanvasScroll {
+  left: number;
+  top: number;
+}
+
+function offset(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+export function loadCanvasScroll(): CanvasScroll {
+  if (typeof window === "undefined") return { left: 0, top: 0 };
+  try {
+    const raw = localStorage.getItem(SCROLL_KEY);
+    if (!raw) return { left: 0, top: 0 };
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return { left: 0, top: 0 };
+    const { left, top } = parsed as Partial<CanvasScroll>;
+    // Each axis judged on its own, so one unreadable number does not throw away the other.
+    return { left: offset(left), top: offset(top) };
+  } catch {
+    return { left: 0, top: 0 };
+  }
+}
+
+export function storeCanvasScroll(scroll: CanvasScroll): void {
+  try {
+    if (scroll.left === 0 && scroll.top === 0) localStorage.removeItem(SCROLL_KEY);
+    else localStorage.setItem(SCROLL_KEY, JSON.stringify({
+      left: Math.round(offset(scroll.left)),
+      top: Math.round(offset(scroll.top)),
+    }));
+  } catch {
+    // The canvas still scrolls; it just opens at the left edge next time.
+  }
+}
+
+/**
  * The order the Bots stand in on the canvas, left to right, as a list of their ids.
  *
  * Remembered because it is arranged rather than derived: the roster arrives in whatever order the
