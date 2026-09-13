@@ -28,6 +28,7 @@ export function useStickyIndices({
   rowVirtualizer,
   scrollTop,
   stickyHeaderRef,
+  unloadedUserBar,
   virtualItems,
 }: {
   items: DisplayItem[];
@@ -37,6 +38,8 @@ export function useStickyIndices({
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   scrollTop: number;
   stickyHeaderRef: RefObject<HTMLButtonElement | null>;
+  /** The user bar is up for a message the feed has not loaded, so the current bar sits below it. */
+  unloadedUserBar: boolean;
   virtualItems: { index: number; end: number }[];
 }) {
   // Most recent USER event whose own heading has scrolled out of view.
@@ -71,11 +74,11 @@ export function useStickyIndices({
       items,
       rowVirtualizer.measurementsCache,
       scrollTop,
-      stickyUser ? (stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE) : 0,
+      stickyUser || unloadedUserBar ? (stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE) : 0,
       stickyUserIndex,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollTop, virtualItems, items, stickyUser, stickyUserIndex]);
+  }, [scrollTop, virtualItems, items, stickyUser, stickyUserIndex, unloadedUserBar]);
   const stickyCurrent: DisplayItem | null =
     stickyCurrentIndex === null ? null : items[stickyCurrentIndex] ?? null;
 

@@ -2,6 +2,7 @@ import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSess
 import type {
   BackgroundTaskSnapshot,
   EventMode,
+  LastSessionMessage,
   SubagentTranscriptMessage,
   TaskOutputMessage,
 } from "@agentdesk/agent-feed-wire";
@@ -142,4 +143,11 @@ export interface AgentDataSource {
       onError?: (reason: string) => void;
     },
   ): () => void;
+
+  /**
+   * The newest message a person wrote in a Claude session, found across the whole transcript.
+   *
+   * Rejects when there is none. The user bar reads it for a message the feed has not paged back to.
+   */
+  lastMessage(sessionId: string): Promise<LastSessionMessage>;
 }

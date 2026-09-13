@@ -46,7 +46,12 @@ import type { AgentSessionControlState } from "@/features/activity-feed/data-sou
 import { openAskUserQuestion, type OpenAskUserQuestion } from "@/app/askUserQuestion";
 
 import { ActivityFeedControls } from "@/features/activity-feed/ActivityFeedControls";
-import { StickyEventHeader, StickyUserHeader } from "@/features/activity-feed/sticky-headers/ActivityFeedStickyHeaders";
+import {
+  StickyEventHeader,
+  StickyUserHeader,
+  userMessageText,
+} from "@/features/activity-feed/sticky-headers/ActivityFeedStickyHeaders";
+import { useUnloadedLastMessage } from "@/features/activity-feed/sticky-headers/useUnloadedLastMessage";
 import { ActivityFeedRow } from "@/features/activity-feed/ActivityFeedRow";
 import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
 import { useStickyIndices } from "@/features/activity-feed/sticky-headers/useStickyIndices";
@@ -241,6 +246,17 @@ export function ActivityFeed({
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
 
+  const unloaded = useUnloadedLastMessage({
+    flashHighlight,
+    items,
+    loadOlder,
+    pause,
+    rowVirtualizer,
+    sessionId,
+    source,
+    windowStart,
+  });
+
   const {
     stickyCurrent,
     stickyCurrentIndex,
@@ -254,6 +270,7 @@ export function ActivityFeed({
     rowVirtualizer,
     scrollTop,
     stickyHeaderRef,
+    unloadedUserBar: unloaded.message !== null,
     virtualItems,
   });
 
@@ -391,15 +408,24 @@ export function ActivityFeed({
           })}
         </div>
       </div>
-      {(stickyUser || stickyCurrent) ? (
+      {(stickyUser || unloaded.message || stickyCurrent) ? (
         <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
           {stickyUser && stickyUserIndex !== null ? (
             <StickyUserHeader
-              ev={stickyUser}
+              index={stickyUser.index}
+              text={userMessageText(stickyUser)}
               buttonRef={stickyHeaderRef}
               // Jumping to a user row disengages its own bar, so no space is
               // reserved: the row lands flush with the top of the viewport.
               onClick={() => jumpTo(stickyUserIndex, 0)}
+            />
+          ) : unloaded.message ? (
+            <StickyUserHeader
+              index={null}
+              text={unloaded.message.text}
+              buttonRef={stickyHeaderRef}
+              // Not loaded yet, so this pages back to the message before landing on it.
+              onClick={unloaded.jump}
             />
           ) : null}
           {stickyCurrent && stickyCurrentIndex !== null ? (
@@ -411,7 +437,7 @@ export function ActivityFeed({
               onClick={() =>
                 jumpTo(
                   stickyCurrentIndex,
-                  stickyUser ? (stickyHeaderRef.current?.offsetHeight ?? 0) : 0,
+                  stickyUser || unloaded.message ? (stickyHeaderRef.current?.offsetHeight ?? 0) : 0,
                 )
               }
             />

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   HEADER_OBSCURED_PX,
+  hasPersonRow,
+  isSaidText,
   jumpScrollTop,
   selectStickyCurrentIndex,
   selectStickyUserIndex,
@@ -96,6 +98,15 @@ describe("sticky user bar", () => {
     expect(selectStickyUserIndex(pathFirst, layout, 360, STICKY_H)).toBe(2);
     const renamed = [said("hi"), { kind: "segment_event" }, said("/rename New title"), { kind: "segment_event" }];
     expect(selectStickyUserIndex(renamed, layout, 360, STICKY_H)).toBe(0);
+  });
+
+  it("knows when no loaded row can stand for the reader's message", () => {
+    // What sends the bar to the sidecar: a turn longer than the first page leaves only harness
+    // rows and slash commands loaded.
+    expect(hasPersonRow(rows("segment_event", "harness", "command"))).toBe(false);
+    expect(hasPersonRow([{ kind: "segment_event" }, said("fix the parser")])).toBe(true);
+    expect(isSaidText("/compact")).toBe(false);
+    expect(isSaidText("/Users/dev/x is wrong")).toBe(true);
   });
 
   it("returns null when the thread holds no user row", () => {

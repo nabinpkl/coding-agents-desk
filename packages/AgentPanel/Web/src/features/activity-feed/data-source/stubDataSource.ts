@@ -18,6 +18,9 @@ export function stubDataSource(overrides: Partial<AgentDataSource> = {}): AgentD
     subscribeBackgroundTasks: () => () => {},
     subscribeTaskOutput: () => () => {},
     subscribeSubagentTranscript: () => () => {},
+    lastMessage: async () => {
+      throw new Error("no message");
+    },
     ...overrides,
   };
 }

@@ -39,7 +39,23 @@ const SLASH_COMMAND = /^\/[A-Za-z][\w:-]*(\s|$)/;
 function isPersonRow(row: StickyRow): boolean {
   if (row.kind !== "user" || row.ev?.humanTurn !== true) return false;
   const text = row.ev.blocks?.find((block) => block.kind === "text" && block.text?.trim())?.text;
-  return !SLASH_COMMAND.test(text?.trim() ?? "");
+  return isSaidText(text ?? "");
+}
+
+/** Whether a person's message says something, rather than only running a slash command. */
+export function isSaidText(text: string): boolean {
+  return !SLASH_COMMAND.test(text.trim());
+}
+
+/**
+ * Whether any loaded row is a message the user bar could stand for.
+ *
+ * When none is, every loaded row came after the reader's newest message, which the feed has not
+ * paged back to: a long unattended turn outruns the first page. That message is then the one the
+ * bar belongs to, and it has to be asked for rather than found.
+ */
+export function hasPersonRow(rows: readonly StickyRow[]): boolean {
+  return rows.some(isPersonRow);
 }
 
 /**

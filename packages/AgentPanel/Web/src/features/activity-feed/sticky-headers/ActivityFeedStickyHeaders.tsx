@@ -12,23 +12,32 @@ import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "@/fe
 import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
+/** The prose of a person's message, which is what the user bar shows of it. */
+export function userMessageText(ev: ActivityEvent): string {
+  // Deliberately not `eventPreview`: this bar stands for a person's message, so
+  // it reaches past any leading tool_result for the prose they actually typed.
+  // `eventPreview` takes whichever content block comes first, which is right for
+  // an agent row and wrong here.
+  return ev.blocks.find((b) => b.kind === "text")?.text ?? "";
+}
+
 // Compact pinned header for the most recent USER event the viewer scrolled
 // past. Full-width opaque strip flush with the top of the scroll area, so
 // rows scroll cleanly under it without the canvas pattern bleeding through.
 // Click to jump back to the original message (and break sticky-bottom so the
 // jump actually holds instead of snapping to the live tail).
 export function StickyUserHeader({
-  ev, onClick, buttonRef,
+  index, text, onClick, buttonRef,
 }: {
-  ev: ActivityEvent;
+  /**
+   * The message's row number in this view, or null for one the feed has not loaded. That one is
+   * named by the sidecar by transcript line, and a line is not a row number in the nice view.
+   */
+  index: number | null;
+  text: string;
   onClick: () => void;
   buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
-  // Deliberately not `eventPreview`: this bar stands for a person's message, so
-  // it reaches past any leading tool_result for the prose they actually typed.
-  // `eventPreview` takes whichever content block comes first, which is right for
-  // an agent row and wrong here.
-  const text = ev.blocks.find((b) => b.kind === "text")?.text ?? "";
   const preview = text.split("\n")[0]!.trim().slice(0, 200);
   return (
     <button
@@ -40,7 +49,7 @@ export function StickyUserHeader({
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <span className="shrink-0 rounded-md bg-primary/30 px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-semibold uppercase tracking-wider text-primary">
-        user #{ev.index}
+        {index === null ? "user" : `user #${index}`}
       </span>
       <span className="min-w-0 flex-1 truncate leading-snug text-foreground">
         {preview || "(no text)"}
