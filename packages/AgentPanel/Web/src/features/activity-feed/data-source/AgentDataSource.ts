@@ -1,5 +1,10 @@
 import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
-import type { BackgroundTaskSnapshot, EventMode, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
+import type {
+  BackgroundTaskSnapshot,
+  EventMode,
+  SubagentTranscriptMessage,
+  TaskOutputMessage,
+} from "@agentdesk/agent-feed-wire";
 
 export type AgentSource = string;
 
@@ -115,6 +120,25 @@ export interface AgentDataSource {
     taskId: string,
     handlers: {
       onMessage: (message: TaskOutputMessage) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void;
+
+  /**
+   * Follows one subagent's transcript. Opened on expand, closed on collapse, like task output.
+   *
+   * Separate from `subscribeTaskOutput` because a subagent has no output in that sense. What it
+   * produces is a transcript of events, not bytes in a file, and the two cannot share a stream
+   * without one of them pretending to be the other.
+   *
+   * `agentId` is also the task id of the row this is opened from -- the harness uses the same
+   * string for both -- so a caller never has to correlate them.
+   */
+  subscribeSubagentTranscript(
+    session: SessionReference,
+    agentId: string,
+    handlers: {
+      onMessage: (message: SubagentTranscriptMessage) => void;
       onError?: (reason: string) => void;
     },
   ): () => void;

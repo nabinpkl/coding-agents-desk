@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  AgentRunDetail,
   BackgroundTask,
   BackgroundTaskSnapshot,
   BackgroundTaskState,
@@ -13,6 +14,7 @@ import type { AgentDataSource, SessionReference } from "@/features/activity-feed
 // with it, which is the thing you actually want to do with a command you are looking at.
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { useElapsedNow } from "@/features/background-tasks/useBackgroundTasks";
+import { SubagentTranscript } from "@/features/background-tasks/SubagentTranscript";
 import { useTaskOutputStream } from "@/features/background-tasks/useTaskOutputStream";
 
 function formatDuration(ms: number): string {
@@ -65,9 +67,31 @@ function Activity({ activity }: { activity: TaskActivity }) {
 function runningMeta(task: RunningBackgroundTask, elapsedMs: number): string {
   const parts = [formatDuration(elapsedMs)];
   if (task.kind === "monitor") parts.push("watching");
+  // A subagent reports no output because its trace is a transcript rather than a file, so the
+  // byte count means nothing here and "output redirected" would state a redirect that never
+  // happened -- the same mistake the Monitor case exists to avoid. What a reader wants instead is
+  // which kind of agent it is and what model is answering.
+  else if (task.kind === "agent") parts.push(...agentMeta(task.agent));
   else if (!task.hasOutput) parts.push("output redirected");
   if (!task.corroborated) parts.push("shell");
   return parts.join(" · ");
+}
+
+/**
+ * What a run is, in the two words a row has space for.
+ *
+ * `resolvedModel` and not `model`: the first is what actually answered, the second only what was
+ * asked for, and they differ often enough that showing the request as the outcome would be wrong.
+ * The id suffix is dropped -- "claude-opus-5[1m]" is a build, "opus-5" is what a reader is
+ * checking for.
+ */
+function agentMeta(detail: AgentRunDetail | undefined): string[] {
+  if (!detail) return [];
+  const parts: string[] = [];
+  if (detail.subagentType) parts.push(detail.subagentType);
+  const model = detail.resolvedModel ?? detail.model;
+  if (model) parts.push(model.replace(/^claude-/, "").replace(/\[.*\]$/, ""));
+  return parts;
 }
 
 function describeState(state: BackgroundTaskState): string {
@@ -226,7 +250,11 @@ function TaskRow({
           {/* Above the output, not below it: when the output pane is empty -- which is exactly
               when this matters -- a line under a blank box reads as a footnote to nothing. */}
           {activity ? <Activity activity={activity} /> : null}
-          <TaskOutput source={source} session={session} taskId={task.taskId} />
+          {/* The agent id and the task id are the same string, which is what lets one row open
+              either view without correlating anything. */}
+          {task.kind === "agent"
+            ? <SubagentTranscript source={source} session={session} agentId={task.taskId} />
+            : <TaskOutput source={source} session={session} taskId={task.taskId} />}
         </div>
       ) : null}
     </li>

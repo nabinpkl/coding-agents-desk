@@ -11,6 +11,7 @@ import type {
   AgentUiEvent,
   BackgroundTaskSnapshot,
   EventsPage as WireEventsPage,
+  SubagentTranscriptMessage,
   TaskOutputMessage,
   TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
@@ -32,6 +33,13 @@ function tasksPath(session: SessionReference): string {
 
 function taskOutputPath(session: SessionReference, taskId: string): string {
   return `${tasksPath(session)}/${encodeURIComponent(taskId)}/output`;
+}
+
+// Under the session rather than beside it, because a subagent belongs to the session that
+// launched it: its transcript is only addressable through that pair, never by agent id alone.
+function subagentTranscriptPath(session: SessionReference, agentId: string): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/` +
+    `${encodeURIComponent(session.sessionId)}/agents/${encodeURIComponent(agentId)}/transcript`;
 }
 
 function eventsPath(session: SessionReference, offset: number, limit: number): string {
@@ -110,6 +118,21 @@ export class SidecarTranscript extends SidecarRoutes {
   ): () => void {
     return this.transport.subscribe(taskOutputPath(session, taskId), {
       onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as TaskOutputMessage),
+      onError: (reason) => handlers.onError?.(reason),
+    });
+  }
+
+  /** Follows one subagent's transcript. Opened on expand, closed on collapse. */
+  subscribeSubagentTranscript(
+    session: SessionReference,
+    agentId: string,
+    handlers: {
+      onMessage: (message: SubagentTranscriptMessage) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void {
+    return this.transport.subscribe(subagentTranscriptPath(session, agentId), {
+      onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as SubagentTranscriptMessage),
       onError: (reason) => handlers.onError?.(reason),
     });
   }
