@@ -150,6 +150,7 @@ agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp
 # this machine, for any process, so os_log here would be a record that cannot be read back.
 dev_login_log := env_var_or_default("AGENTDESK_DEV_LOGIN_LOG", "/tmp/agentdesk-dev-login.log")
 panel_dev_login_log := env_var_or_default("AGENTDESK_PANEL_DEV_LOGIN_LOG", "/tmp/agentdesk-panel-dev-login.log")
+remote_sidecar_login_log := env_var_or_default("AGENTDESK_REMOTE_SIDECAR_LOGIN_LOG", "/tmp/agentdesk-remote-sidecar-login.log")
 # The dev server's TLS material belongs to its durable runtime, outside the checkout.
 # Deleting build caches must not erase the certificate/key of the running server.
 agent_panel_dev_tls_dir := shell('node tools/runtime-paths.mjs panel-tls')
@@ -1650,11 +1651,66 @@ remote-sidecar-run peer port="7682":
     bash tools/remote-sidecar.sh run '{{peer}}' '{{port}}'
 
 # The peer's sidecar runs under `bun --watch`, so it reloads about four seconds after its files
-# change -- but they only change when somebody ships. This is what ships, on every save, for as
-# long as it runs. Leave it running beside the panel's dev server; it is the peer's half of the
-# same no-rebuild loop.
+# change -- but they only change when somebody ships. This ships on every save, and relaunches the
+# peer's sidecar whenever it stops answering, for as long as it runs. One peer, in the foreground;
+# `watch-all` is the one that runs at login.
 remote-sidecar-watch peer port="7682":
     bash tools/remote-sidecar.sh watch '{{peer}}' '{{port}}'
+
+# Every peer declared in .env, watched at once.
+#
+# The peer list is read from AGENTDESK_PANEL_REMOTE_SIDECARS rather than written down again here,
+# because that is the string the panel itself resolves peers from (`parseDeclaredPeers`). Declaring
+# a peer twice is how one of the two ends up pointing somewhere the other does not.
+#
+# Exits as soon as any watcher does, so the LaunchAgent's KeepAlive brings all of them back
+# together. A partial set is the state nobody would notice: the peer whose watcher died goes on
+# serving, and goes on serving whatever it had.
+remote-sidecar-watch-all:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # Idling rather than exiting, in both of the nothing-to-do cases below. This runs under
+    # KeepAlive, so a job that exits is a job launchd respawns every ten seconds forever, and the
+    # log fills with the same line for as long as no peer is declared. Adding the first peer to
+    # .env takes effect at the next login, or now with:
+    #   launchctl kickstart -k "gui/$(id -u)/{{host_bundle_id}}.remotesidecars"
+    idle() {
+        echo "remote-sidecar-watch-all: $1; idling"
+        while :; do sleep 3600; done
+    }
+    SPEC="${AGENTDESK_PANEL_REMOTE_SIDECARS:-}"
+    [ -n "$SPEC" ] || idle "no AGENTDESK_PANEL_REMOTE_SIDECARS in .env"
+    PIDS=""
+    # `id=host:port`, comma separated, exactly as the panel parses it. The host is deliberately
+    # ignored: the watcher asks the peer for its own tailnet address, which is the one thing that
+    # can have changed since this line was written.
+    IFS=, read -ra ENTRIES <<< "$SPEC"
+    for ENTRY in "${ENTRIES[@]}"; do
+        ENTRY="$(echo "$ENTRY" | tr -d '[:space:]')"
+        [ -n "$ENTRY" ] || continue
+        PEER="${ENTRY%%=*}"
+        ADDRESS="${ENTRY#*=}"
+        PORT="${ADDRESS##*:}"
+        if [ -z "$PEER" ] || [ "$PEER" = "$ENTRY" ] || [ -z "$PORT" ] || [ "$PORT" = "$ADDRESS" ]; then
+            echo "remote-sidecar-watch-all: skipping malformed peer '$ENTRY'"
+            continue
+        fi
+        echo "remote-sidecar-watch-all: watching $PEER on port $PORT"
+        bash tools/remote-sidecar.sh watch "$PEER" "$PORT" 2>&1 | sed "s/^/[$PEER] /" &
+        PIDS="$PIDS $!"
+    done
+    [ -n "$PIDS" ] || idle "no usable peers in AGENTDESK_PANEL_REMOTE_SIDECARS"
+    trap 'kill $PIDS 2>/dev/null || true' EXIT INT TERM
+    # `wait -n` is bash 4; this Mac's /bin/bash is 3.2, and the shebang above may resolve to it.
+    # Polling the pids costs one signal-0 per peer every five seconds and works on both.
+    while :; do
+        sleep 5
+        for PID in $PIDS; do
+            kill -0 "$PID" 2>/dev/null && continue
+            echo "remote-sidecar-watch-all: a watcher exited; stopping so the job restarts all of them"
+            exit 1
+        done
+    done
 
 remote-sidecar-stop peer port="7682":
     bash tools/remote-sidecar.sh stop '{{peer}}' '{{port}}'
@@ -2174,6 +2230,10 @@ host-login:
 
 # Make the dev loop what this Mac comes back to after a restart.
 #
+# Three jobs: the host, the panel's dev server, and a watcher per declared peer. What they have in
+# common is that each is a piece of the no-rebuild loop that somebody would otherwise have to
+# remember to start, and forgetting any of them leaves a machine that looks like it is working.
+#
 # Two LaunchAgents cannot both own the login launch, so this takes ownership from the app's own.
 # `LaunchAgentInstaller` writes `{{host_bundle_id}}` with `RunAtLoad` and NO environment, which is
 # right for a daily driver and is precisely the frozen configuration on a machine being developed
@@ -2188,6 +2248,7 @@ dev-login-install:
     AGENTS="$HOME/Library/LaunchAgents"
     LABEL='{{host_bundle_id}}.devlogin'
     PANEL_LABEL='{{host_bundle_id}}.paneldev'
+    PEERS_LABEL='{{host_bundle_id}}.remotesidecars'
     mkdir -p "$AGENTS"
     # The toolchain is located HERE, from a shell that has a working PATH, rather than guessed by
     # the script launchd runs. Every one of these lives somewhere a login job cannot find: `just`
@@ -2243,15 +2304,26 @@ dev-login-install:
     # not outlive it. KeepAlive on this one alone: it is the only piece that is a long-running
     # server in its own right, and the panel cannot load at all without it.
     write_agent "$PANEL_LABEL" panel-dev-login.sh true '{{panel_dev_login_log}}'
-    echo "dev-login-install: $LABEL and $PANEL_LABEL own this Mac's login launch"
-    echo "  host log:  {{dev_login_log}}"
-    echo "  panel log: {{panel_dev_login_log}}"
+    # And a third, for the same two reasons. Every peer declared in .env gets its sidecar kept
+    # running and kept current from here, because the alternative is remembering to ship after
+    # every edit and after every reboot -- which is not a thing anyone remembers. A peer that is
+    # merely answering tells you nothing about WHICH code it is answering from, so "it looks fine"
+    # is not the check that would have caught it.
+    #
+    # Harmless with no peers declared: `watch-all` says so and exits 0, and KeepAlive is what makes
+    # that a quiet loop rather than a failure. Declaring the first peer in .env is what starts it,
+    # after a `launchctl kickstart -k` or the next login.
+    write_agent "$PEERS_LABEL" remote-sidecar-login.sh true '{{remote_sidecar_login_log}}'
+    echo "dev-login-install: $LABEL, $PANEL_LABEL and $PEERS_LABEL own this Mac's login launch"
+    echo "  host log:   {{dev_login_log}}"
+    echo "  panel log:  {{panel_dev_login_log}}"
+    echo "  peers log:  {{remote_sidecar_login_log}}"
 
 # Give the login launch back to the app's own agent.
 dev-login-uninstall:
     #!/usr/bin/env bash
     set -euo pipefail
-    for LABEL in '{{host_bundle_id}}.devlogin' '{{host_bundle_id}}.paneldev'; do
+    for LABEL in '{{host_bundle_id}}.devlogin' '{{host_bundle_id}}.paneldev' '{{host_bundle_id}}.remotesidecars'; do
         launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
         rm -f "$HOME/Library/LaunchAgents/$LABEL.plist"
         echo "dev-login-uninstall: removed $LABEL"

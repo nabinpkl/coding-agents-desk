@@ -335,6 +335,18 @@ and reversed with `just dev-login-uninstall`:
   group when the job exits**: measured, `agent-webview-dev-ensure` reported "serving at" from
   inside the login job and the port was empty seconds later. A server that must outlive its starter
   has to BE a job -- which is also how it earns a restart when Vite dies at 3am.
+- **`com.example.agentdesk.AgentDeskHost.remotesidecars`** runs `tools/remote-sidecar-login.sh` -> `just
+  remote-sidecar-watch-all`, `KeepAlive`, a separate job for the same reason the panel's is. It
+  reads the peers from `AGENTDESK_PANEL_REMOTE_SIDECARS` in `.env` -- the same string the panel
+  resolves peers from -- and for each one keeps its sidecar RUNNING and its sources CURRENT.
+  Neither half is worth anything alone: shipping into a dead sidecar and supervising a two-day-old
+  tree are the same failure. This is the remote instance of the frozen-runtime bug above. A peer's
+  sidecar already runs under `bun --watch`, so it re-reads its sources about four seconds after
+  they change -- but they only changed when somebody ran `ship`, and nobody did. Measured
+  2026-09-13 on the oracle peer: up two days and four hours, newest shipped file two days old,
+  answering `/api/config` the whole time. **A peer that answers tells you nothing about which code
+  it is answering from**, which is why `remote-sidecar-status` now says so out loud. With no peers
+  declared the job says so and idles, so installing it before there is a peer is harmless.
 - The app's own agent is booted out and deleted by the install, because two `RunAtLoad` jobs have no
   defined order and the loser is whichever host `open` then merely activates. It stays gone: every
   launch this path makes carries `AGENTDESK_DEV_ITERATION_RUN`, which is the flag

@@ -41,6 +41,14 @@ port="${3:-7682}"
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 
+# How often `watch` asks whether the peer is still serving, in seconds.
+#
+# Slow because it is the recovery path and not the delivery one: an edit is health-checked the
+# moment it ships, so this only has to catch a peer that broke while nobody was editing -- a reboot,
+# an OOM kill, a tailnet drop. One request a minute is invisible next to what the panel's own
+# streams already hold open.
+HEALTH_INTERVAL="${AGENTDESK_REMOTE_SIDECAR_HEALTH_SECONDS:-60}"
+
 on_peer() {
     # BatchMode so a missing key fails loudly instead of hanging on a password prompt.
     ssh -o BatchMode=yes "${peer}" "$@"
@@ -108,6 +116,65 @@ changed_since() {
     find "${@:2}" -newer "${1}" -type f -print -quit 2>/dev/null
 }
 
+stop_sidecar() {
+    on_peer "if [ -f '${pidfile}' ]; then kill \$(cat '${pidfile}') 2>/dev/null || true; rm -f '${pidfile}'; fi"
+}
+
+# Starts the peer's sidecar under `bun --watch`, bound to the address it is reachable at.
+#
+# The overrides are not cosmetic. `runtimePaths()` has no platform branch: its runtime root is
+# ~/Library/Application Support and its rendezvous board is /Users/Shared, and `announceSidecar`
+# runs at module scope, so on Linux the board mkdir throws EACCES and the sidecar dies at boot. The
+# board is unread on the peer -- this panel declares the peer rather than discovering it -- so it
+# only has to be somewhere writable.
+#
+# The transcript roots are deliberately absent: they already default to $HOME/.claude/... , so the
+# peer's own home is picked up with nothing said about it.
+launch_sidecar() {
+    on_peer "cd '${remote_repo}/agent-feed/sidecar' && \
+        AGENTDESK_RUNTIME_ROOT='${remote_root}/runtime' \
+        AGENTDESK_SIDECAR_REGISTRY='${remote_root}/sidecars' \
+        AGENT_FEED_HOST='${1}' \
+        AGENT_FEED_PORT='${port}' \
+        nohup '${bun}' --watch src/server.ts > '${log}' 2>&1 & echo \$! > '${pidfile}'"
+}
+
+# Reachable FROM THIS MAC, which is the property that matters. A sidecar bound to loopback on the
+# peer is running and fails this.
+sidecar_answers() {
+    [ -n "${1}" ] && curl -sf --max-time 5 "http://${1}:${port}/api/config" >/dev/null 2>&1
+}
+
+# The peer is serving, whatever it takes.
+#
+# Re-resolves the address first, because the reason it stopped answering may be that the peer
+# rebooted, and a rebooted peer is exactly the case where an address captured earlier is the thing
+# that is wrong. Prints when it acts; a supervisor that heals silently is one you cannot tell from
+# a peer that never broke.
+ensure_running() {
+    if sidecar_answers "${address}"; then return 0; fi
+    resolved="$(peer_tailnet_address || true)"
+    if [ -z "${resolved}" ]; then
+        echo "  ${peer} has no tailnet address -- not relaunching"
+        return 1
+    fi
+    if [ "${resolved}" != "${address}" ]; then
+        echo "  ${peer} moved to ${resolved}; the panel still declares ${address}"
+        address="${resolved}"
+    fi
+    if sidecar_answers "${address}"; then return 0; fi
+    echo "  ${peer} is not serving -- relaunching its sidecar"
+    stop_sidecar || true
+    launch_sidecar "${address}"
+    sleep 3
+    if sidecar_answers "${address}"; then
+        echo "  ${peer} is back on http://${address}:${port}"
+        return 0
+    fi
+    echo "  ${peer} still not answering -- ssh ${peer} tail ${log}"
+    return 1
+}
+
 case "${verb}" in
 setup)
     # tmux is what the Terminals tab attaches to; bun is what runs the sidecar. Neither is assumed
@@ -123,18 +190,28 @@ ship)
     ship_dependencies
     ;;
 watch)
-    # The peer is already running `bun --watch`, so this only has to keep its files current.
-    # Nothing is restarted and nothing is installed unless the lockfile moved: a reload is the
-    # peer re-reading in process, with the port still bound and the pid unchanged.
-    address="$(peer_tailnet_address)"
-    [ -n "${address}" ] || { echo "peer ${peer} has no tailnet address" >&2; exit 1; }
+    # The peer's half of the no-rebuild loop, and the thing that is supposed to be running whenever
+    # this Mac is. It does two jobs, and they are one job: keep the peer's files current, and keep
+    # the peer serving. Neither is worth anything alone -- shipping into a dead sidecar and
+    # supervising a two-day-old tree are the same failure wearing different clothes.
+    address="$(peer_tailnet_address || true)"
     stamp="$(mktemp)"
     trap 'rm -f "${stamp}"' EXIT
+    ensure_running || true
     ship_sources
     ship_dependencies
-    echo "watching ${#closure[@]} paths for ${peer}; an edit ships on save. ctrl-c to stop."
+    echo "watching ${#closure[@]} paths for ${peer} at ${address:-<unreachable>}:${port}. ctrl-c to stop."
+    # When the peer was last asked whether it is serving. Seconds, from the same clock as `date`,
+    # so a machine that sleeps and wakes asks again immediately rather than on a counter that
+    # stopped with it.
+    checked=0
     while :; do
         sleep 1
+        now="$(date +%s)"
+        if [ "$((now - checked))" -ge "${HEALTH_INTERVAL}" ]; then
+            checked="${now}"
+            ensure_running || true
+        fi
         [ -n "$(changed_since "${stamp}" "${closure[@]}")" ] || continue
         # Asked before the stamp moves, because the stamp is what it is measured against.
         install_needed="$(changed_since "${stamp}" "${manifest[@]}")"
@@ -144,14 +221,14 @@ watch)
         ship_sources
         [ -z "${install_needed}" ] || ship_dependencies
         printf '%s  shipped to %s\n' "$(date +%H:%M:%S)" "${peer}"
-        # One request per edit, not per poll, and only after the peer has had time to re-read.
-        # `bun --watch` reloads in process and rebinds the port, so a reload that THREW leaves a
-        # live process with nothing listening -- which from here is indistinguishable from a peer
-        # that is fine, right up until something asks it for data. See the same trap on the Mac,
-        # where the host now probes the port rather than the process.
+        # Checked after every edit rather than only on the interval, because an edit is the most
+        # likely thing to have broken it. `bun --watch` reloads in process and rebinds the port, so
+        # a reload that THREW leaves a live process with nothing listening -- indistinguishable
+        # from a healthy peer until something asks it for data. Same trap as on the Mac, where the
+        # host now probes the port rather than the process.
         sleep 5
-        curl -sf --max-time 5 "http://${address}:${port}/api/config" >/dev/null \
-            || echo "  ${peer} did not answer after that ship -- ssh ${peer} tail ${log}"
+        checked="$(date +%s)"
+        ensure_running || true
     done
     ;;
 run)
@@ -159,38 +236,46 @@ run)
     ship_dependencies
     address="$(peer_tailnet_address)"
     [ -n "${address}" ] || { echo "peer ${peer} has no tailnet address" >&2; exit 1; }
-    "$0" stop "${peer}" "${port}" >/dev/null 2>&1 || true
-    # The overrides are not cosmetic. `runtimePaths()` has no platform branch: its runtime root is
-    # ~/Library/Application Support and its rendezvous board is /Users/Shared, and `announceSidecar`
-    # runs at module scope, so on Linux the board mkdir throws EACCES and the sidecar dies at boot.
-    # The board is unread on the peer -- this panel declares the peer rather than discovering it --
-    # so it only has to be somewhere writable.
-    #
-    # The transcript roots are deliberately absent: they already default to $HOME/.claude/... , so
-    # the peer's own home is picked up with nothing said about it.
-    on_peer "cd '${remote_repo}/agent-feed/sidecar' && \
-        AGENTDESK_RUNTIME_ROOT='${remote_root}/runtime' \
-        AGENTDESK_SIDECAR_REGISTRY='${remote_root}/sidecars' \
-        AGENT_FEED_HOST='${address}' \
-        AGENT_FEED_PORT='${port}' \
-        nohup '${bun}' --watch src/server.ts > '${log}' 2>&1 & echo \$! > '${pidfile}'"
+    stop_sidecar >/dev/null 2>&1 || true
+    launch_sidecar "${address}"
     echo "sidecar starting on ${peer} at http://${address}:${port} (log: ${log})"
     echo "declare it for the panel with:"
     echo "  AGENTDESK_PANEL_REMOTE_SIDECARS=${peer}=${address}:${port}"
-    echo "keep it current with:"
-    echo "  just remote-sidecar-watch ${peer}"
+    echo "keep it current, and running, with:"
+    echo "  just dev-login-install     (every login, every peer in .env)"
+    echo "  just remote-sidecar-watch ${peer}   (this one, in the foreground)"
     ;;
 stop)
-    on_peer "if [ -f '${pidfile}' ]; then kill \$(cat '${pidfile}') 2>/dev/null || true; rm -f '${pidfile}'; fi"
+    stop_sidecar
     ;;
 status)
     address="$(peer_tailnet_address)"
     echo "peer          ${peer}"
     echo "tailnet       ${address:-<none>}"
     on_peer "if [ -f '${pidfile}' ] && kill -0 \$(cat '${pidfile}') 2>/dev/null; then echo 'process       running (pid '\$(cat '${pidfile}')')'; else echo 'process       not running'; fi"
+    # WHICH code it is serving, which is the question every other line here fails to answer. A
+    # sidecar under `bun --watch` keeps its port across a reload, so a tree two days stale answers
+    # /api/config exactly as a current one does -- and that is how the oracle peer spent two days
+    # serving code nobody had shipped. Compared against this repo, not against the clock, because
+    # "up to date" means "the same as here".
+    newest_here="$(find "${closure[@]}" -type f -exec stat -f '%m' {} + 2>/dev/null | sort -rn | head -1)"
+    newest_there="$(on_peer "find '${remote_repo}/agent-feed/sidecar/src' '${remote_repo}/agent-feed/wire' -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1" || true)"
+    if [ -z "${newest_there}" ]; then
+        echo "shipped       nothing shipped yet"
+    elif [ -z "${newest_here}" ]; then
+        echo "shipped       $(date -r "${newest_there}" '+%Y-%m-%d %H:%M')"
+    else
+        behind="$(( newest_here - newest_there ))"
+        if [ "${behind}" -le 2 ]; then
+            echo "shipped       current with this repo"
+        else
+            echo "shipped       $(date -r "${newest_there}" '+%Y-%m-%d %H:%M'), $(( behind / 3600 ))h behind this repo"
+            echo "              start the watcher: just remote-sidecar-watch ${peer}"
+        fi
+    fi
     # Asked from HERE, because reachable-from-the-Mac is the property that matters, not
     # listening-on-the-peer. A sidecar bound to loopback on the peer passes the second and fails this.
-    if [ -n "${address}" ] && curl -sf --max-time 5 "http://${address}:${port}/api/config" >/dev/null; then
+    if sidecar_answers "${address}"; then
         echo "from this Mac  answering on http://${address}:${port}/api/config"
     else
         echo "from this Mac  NOT answering on http://${address:-?}:${port}/api/config"
