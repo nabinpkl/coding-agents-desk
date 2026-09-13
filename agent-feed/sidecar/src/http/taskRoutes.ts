@@ -10,14 +10,21 @@
 import { basename } from "node:path";
 import type { BackgroundTaskSnapshot, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
-import { backgroundTaskSnapshot, readTerminalMarker } from "../tasks/backgroundTasks.ts";
+import { backgroundTasks } from "../tasks/backgroundTaskCoordinator.ts";
+import { readTerminalMarker } from "../tasks/backgroundTasks.ts";
 import {
   lastLines,
   OutputProgress,
   snapshotOffset,
   trimPartialFirstLine,
 } from "../tasks/outputFollower.ts";
-import { currentProcessTable, isInsideTaskRoot, outputTargetsOf, runCommand, taskShellsOf } from "../tasks/processProbe.ts";
+import {
+  currentProcessTable,
+  isInsideTaskRoot,
+  outputTargetsOf,
+  runCommand,
+  taskShellsByOwner,
+} from "../tasks/processProbe.ts";
 import { sessionOwner } from "../tasks/sessionRegistry.ts";
 import { claudeTranscriptPath, scanSessionTasks } from "../tasks/taskIdentity.ts";
 import { encodeServerSentEvent, startServerSentEventStream } from "./httpResponses.ts";
@@ -66,8 +73,8 @@ async function resolveOutputTarget(sessionId: string, taskId: string): Promise<O
   const table = await currentProcessTable(runCommand);
   const owner = await sessionOwner(sessionId, table);
   if (owner) {
-    const shell = (await taskShellsOf(runCommand, owner.pid, table))
-      .find((entry) => entry.taskId === taskId);
+    const byOwner = await taskShellsByOwner(runCommand, [owner.pid], table);
+    const shell = (byOwner.get(owner.pid) ?? []).find((entry) => entry.taskId === taskId);
     if (shell) {
       const targets = await outputTargetsOf(runCommand, shell);
       // Prefer where the work is really going; fall back to the capture, which is the right
@@ -191,46 +198,20 @@ export function createTaskRoutes(): RouteHandler {
     const sessionId = match[2]!;
 
     return startServerSentEventStream(request, server, (write) => {
-      let stopped = false;
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      // Only send when something changed. A session sitting on one long task would otherwise
-      // repaint the panel every couple of seconds for no new information -- and this stream runs
-      // to a phone over a tailnet, where that is not free.
-      let lastSent = "";
-
-      const tick = async (): Promise<void> => {
-        if (stopped) return;
-        let snapshot: BackgroundTaskSnapshot;
-        try {
-          snapshot = source === "claude" ? await backgroundTaskSnapshot(sessionId) : EMPTY;
-        } catch (error) {
-          // A probe that throws is a bug in the probe, not a reason to drop the subscriber. Report
-          // it and keep the stream alive so a fixed probe recovers on the next tick.
-          console.error("agent feed background task probe failed", error);
-          snapshot = EMPTY;
-        }
-        if (stopped) return;
-        // Elapsed time changes every tick by construction, so it cannot take part in the
-        // comparison or nothing would ever be suppressed. The client re-derives it from
-        // `startedAt`, which is why that field travels.
-        const fingerprint = JSON.stringify({
-          ownerAlive: snapshot.ownerAlive,
-          running: snapshot.running.map((task) => [task.taskId, task.hasOutput]),
-          finished: snapshot.finished.map((task) => [task.taskId, task.state]),
-        });
-        if (fingerprint !== lastSent) {
-          lastSent = fingerprint;
-          write(encodeServerSentEvent(snapshot));
-        }
-        if (!stopped) timer = setTimeout(() => void tick(), config.backgroundTaskPollMs);
-      };
-
-      void tick();
-
-      return () => {
-        stopped = true;
-        if (timer !== null) clearTimeout(timer);
-      };
+      // Only Claude sessions run background tasks, and only they have a registry record naming the
+      // process that would. A Codex row is answered once and then costs nothing at all -- it used
+      // to hold a 2-second timer for the life of the stream to keep saying the same empty thing.
+      if (source !== "claude") {
+        write(encodeServerSentEvent(EMPTY));
+        return () => {};
+      }
+      // The poll lives in the coordinator, not here. Every watched session shares one process
+      // table, one registry pass and one `lsof` per tick, so a wall of open sessions costs about
+      // what one costs; suppression of unchanged snapshots moved there with it, because only
+      // something that sees every subscriber can hand a late joiner the current one.
+      return backgroundTasks.subscribe(sessionId, (snapshot) => {
+        write(encodeServerSentEvent(snapshot));
+      });
     });
   };
 }

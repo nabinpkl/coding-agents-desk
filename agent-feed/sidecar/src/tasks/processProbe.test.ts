@@ -13,8 +13,8 @@ import {
   type ProcessRow,
   shellDetailFrom,
   resetProcessTableCache,
+  taskShellsByOwner,
   taskShellsFromDescriptors,
-  taskShellsOf,
   unwrapShellCommand,
 } from "./processProbe.ts";
 
@@ -23,6 +23,8 @@ beforeEach(resetProcessTableCache);
 const ROOT = config.claudeTaskRoot;
 const SESSION = "895eadd3-2049-4e2f-9989-d30d0a90eb46";
 const CAPTURE = `${ROOT}/-private-tmp/${SESSION}/tasks/bukxtjy7e.output`;
+const OTHER_SESSION = "0b1d4f6c-8a2e-4c19-9f77-2b6d3e5a1c04";
+const OTHER_CAPTURE = `${ROOT}/-private-tmp/${OTHER_SESSION}/tasks/bother999.output`;
 const REAL_LOG = `${ROOT}/-private-tmp/${SESSION}/scratchpad/stream_test3.log`;
 
 /** Answers canned stdout per command, so no test forks anything. */
@@ -121,36 +123,51 @@ describe("taskShellsFromDescriptors", () => {
   });
 });
 
-describe("taskShellsOf", () => {
-  /** The children of `ppid`, as rows of the shared table rather than as a `pgrep` answer. */
+describe("taskShellsByOwner", () => {
+  /** Rows of the shared table: the children of `ppid`, as `ps -eo` would report them. */
   const childrenOf = (ppid: number, pids: readonly number[]): ProcessRow[] =>
     pids.map((pid) => ({ pid, ppid, startedAt: 0, cpuMs: 0, command: "zsh" }));
 
-  test("finds the running task among a session's other children", () => {
+  test("finds the running task among a session's other children", async () => {
     // A real session's children are mostly MCP servers and a language server.
     const run = fakeRunner({
       "/usr/sbin/lsof -p 61794,61796,63854 -F pfan":
         `p61794\nf1\naw\nn/dev/null\np63854\nf1\naw\nn${CAPTURE}\nf2\naw\nn${CAPTURE}\n`,
     });
-    const table = childrenOf(61308, [61794, 61796, 63854]);
-    return taskShellsOf(run, 61308, table).then((shells) => {
-      expect(shells).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
-    });
+    const shells = await taskShellsByOwner(run, [61308], childrenOf(61308, [61794, 61796, 63854]));
+    expect(shells.get(61308)).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
   });
 
-  test("takes only the session's own children, not every process in the table", async () => {
-    // The table is the whole machine. A shell holding an identical capture under some other
-    // parent belongs to that parent's session, and attributing it here would report another
-    // session's task as this one's.
-    const run = fakeRunner({
-      "/usr/sbin/lsof -p 63854 -F pfan": `p63854\nf1\naw\nn${CAPTURE}\n`,
-    });
-    const table = [
-      ...childrenOf(61308, [63854]),
-      ...childrenOf(99999, [63855]),
-    ];
-    expect(await taskShellsOf(run, 61308, table))
-      .toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
+  test("several sessions are answered by ONE lsof, each keeping its own shells", async () => {
+    // The point of the batch. A wall of open sessions used to fork lsof once per session per tick,
+    // and it is the most expensive probe in this module.
+    let forks = 0;
+    let asked: readonly string[] = [];
+    const run: CommandRunner = async (argv) => {
+      forks += 1;
+      asked = argv;
+      return `p63854\nf1\naw\nn${CAPTURE}\np71001\nf1\naw\nn${OTHER_CAPTURE}\n`;
+    };
+    const table = [...childrenOf(61308, [63854]), ...childrenOf(70000, [71001])];
+    const shells = await taskShellsByOwner(run, [61308, 70000], table);
+    expect(forks).toBe(1);
+    expect(asked).toEqual(["/usr/sbin/lsof", "-p", "63854,71001", "-F", "pfan"]);
+    expect(shells.get(61308)).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
+    expect(shells.get(70000)).toEqual([{ taskId: "bother999", pid: 71001, capturePath: OTHER_CAPTURE }]);
+  });
+
+  test("takes only the asked-for owners' children, not every process in the table", async () => {
+    // The table is the whole machine. A shell under some other parent belongs to that parent's
+    // session, and widening the call must not widen who a task is attributed to.
+    let asked: readonly string[] = [];
+    const run: CommandRunner = async (argv) => {
+      asked = argv;
+      return `p63854\nf1\naw\nn${CAPTURE}\n`;
+    };
+    const table = [...childrenOf(61308, [63854]), ...childrenOf(99999, [63855])];
+    const shells = await taskShellsByOwner(run, [61308], table);
+    expect(asked).toEqual(["/usr/sbin/lsof", "-p", "63854", "-F", "pfan"]);
+    expect([...shells.keys()]).toEqual([61308]);
   });
 
   test("asks for every descriptor, not a range", async () => {
@@ -161,19 +178,27 @@ describe("taskShellsOf", () => {
       asked = argv;
       return `p63854\nf12\naw\nn${CAPTURE}\n`;
     };
-    const shells = await taskShellsOf(run, 61308, childrenOf(61308, [63854]));
+    const shells = await taskShellsByOwner(run, [61308], childrenOf(61308, [63854]));
     expect(asked).toEqual(["/usr/sbin/lsof", "-p", "63854", "-F", "pfan"]);
-    expect(shells).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
+    expect(shells.get(61308)).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
   });
 
-  test("a session with no children runs no tasks and spawns nothing at all", async () => {
+  test("owners with no children run no tasks and spawn nothing at all", async () => {
     let calls = 0;
     const run: CommandRunner = async () => {
       calls += 1;
       return "";
     };
-    expect(await taskShellsOf(run, 999, childrenOf(61308, [63854]))).toEqual([]);
+    expect(await taskShellsByOwner(run, [999], childrenOf(61308, [63854]))).toEqual(new Map());
     expect(calls).toBe(0);
+  });
+
+  test("a descriptor for a pid nobody asked about is dropped, not attributed", async () => {
+    // lsof was given an explicit list, so this should not happen -- and if it does, reporting one
+    // session's task as another's is worse than reporting nothing.
+    const run: CommandRunner = async () => `p55555\nf1\naw\nn${CAPTURE}\n`;
+    const shells = await taskShellsByOwner(run, [61308], childrenOf(61308, [63854]));
+    expect(shells.size).toBe(0);
   });
 });
 

@@ -18,15 +18,11 @@ import type {
 import { config } from "../config.ts";
 import {
   busiestDescendant,
-  type CommandRunner,
-  currentProcessTable,
   isInsideTaskRoot,
   matchShellsByCommand,
   type ProcessRow,
-  runCommand,
   shellDetailFrom,
   type TaskShell,
-  taskShellsOf,
 } from "./processProbe.ts";
 import {
   claudeTranscriptPath,
@@ -34,7 +30,7 @@ import {
   scanSessionTasks,
   type TaskIdentity,
 } from "./taskIdentity.ts";
-import { sessionOwner } from "./sessionRegistry.ts";
+import type { ClaudeSessionProcess } from "./sessionRegistry.ts";
 import { parseTerminalMarker, resolveTaskState, type TaskNotification } from "./taskState.ts";
 
 /** Enough to hold the marker, which is the last thing in the file. */
@@ -266,26 +262,29 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
 }
 
 /**
- * The live snapshot for one Claude session.
+ * The live snapshot for one Claude session, given what the kernel already said about it.
  *
- * Returns an empty, `ownerAlive: false` snapshot when no live process is serving the session --
- * without one there is nothing to run a background task, so the probe is skipped entirely rather
- * than run against a pid that means something else now.
+ * The kernel facts arrive as arguments rather than being fetched here, because they are the part
+ * every subscribed session shares: one process table and one `lsof` answer for the whole tick,
+ * gathered by `backgroundTaskCoordinator`. What is left below is genuinely per-session -- this
+ * session's transcript, this session's capture files -- and none of it forks.
+ *
+ * A null `owner` is an empty, `ownerAlive: false` snapshot: without a live process there is
+ * nothing to run a background task, so the files are not read at all rather than read against a
+ * pid that means something else now.
  */
 export async function backgroundTaskSnapshot(
   sessionId: string,
-  run: CommandRunner = runCommand,
+  kernel: {
+    owner: ClaudeSessionProcess | null;
+    shells: readonly TaskShell[];
+    table: readonly ProcessRow[];
+  },
   now: number = Date.now(),
 ): Promise<BackgroundTaskSnapshot> {
-  // One table for the whole probe, and shared with every other session probing in the same tick.
-  // Owner liveness, the session's children, and the descendant walk below all used to reach the
-  // kernel separately; they are three readings of one snapshot, and taking them from one is also
-  // what makes them consistent with each other.
-  const table = await currentProcessTable(run);
-  const owner = await sessionOwner(sessionId, table);
+  const { owner, shells, table } = kernel;
   if (!owner) return { running: [], finished: [], ownerAlive: false };
 
-  const shells = await taskShellsOf(run, owner.pid, table);
   const transcriptPath = await claudeTranscriptPath(sessionId);
   const scan = transcriptPath
     ? await scanSessionTasks(sessionId, transcriptPath, new Set(shells.map((shell) => shell.taskId)))

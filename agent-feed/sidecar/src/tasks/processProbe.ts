@@ -173,28 +173,48 @@ export function isInsideTaskRoot(path: string): boolean {
 }
 
 /**
- * The background tasks a session's process is running right now.
+ * The background tasks each of several sessions is running right now, keyed by owner pid.
+ *
+ * MANY owners in one call, because the fork is the expensive part and `lsof` takes a pid list. A
+ * wall of open sessions used to spend one `lsof` per session per tick -- the single most expensive
+ * probe here at 60-80 ms -- where the answers all came out of the same kernel at the same moment.
+ * Sessions absent from the result simply have no task shells; the caller reads a missing key as an
+ * empty list rather than as a failure.
  *
  * The children come from the shared table rather than from a `pgrep -P` of their own: `ppid` is
- * already in every row, so the fork bought a column the caller was holding anyway.
+ * already in every row, so the fork bought a column the caller was holding anyway. That same column
+ * is what attributes each shell back to its session afterwards, so widening the call does not blur
+ * whose task is whose.
  */
-export async function taskShellsOf(
+export async function taskShellsByOwner(
   run: CommandRunner,
-  claudePid: number,
+  ownerPids: readonly number[],
   table: readonly ProcessRow[],
-): Promise<TaskShell[]> {
-  const children = table.filter((row) => row.ppid === claudePid).map((row) => row.pid);
-  if (children.length === 0) return [];
-  // One lsof for every child rather than one per child: the fork is the expensive part, and the
-  // session's MCP servers and language servers are in this list too.
-  //
+): Promise<Map<number, TaskShell[]>> {
+  const owners = new Set(ownerPids);
+  const ownerByChild = new Map<number, number>();
+  for (const row of table) {
+    if (owners.has(row.ppid)) ownerByChild.set(row.pid, row.ppid);
+  }
+  const shellsByOwner = new Map<number, TaskShell[]>();
+  if (ownerByChild.size === 0) return shellsByOwner;
   // Every descriptor, not a range. `-d 0-3` was the original filter and it is exactly what hid a
   // redirected task, whose capture sat on fd 12. Any range is a guess at where zsh parks a saved
   // descriptor, and guessing wrong fails silently as "nothing is running"; the name filter in
   // `taskShellsFromDescriptors` is the real discriminator. Measured on a live session with four
   // children including three MCP servers: 244 lines, 19 ms.
-  const text = await run([LSOF_BINARY, "-p", children.join(","), "-F", "pfan"]);
-  return taskShellsFromDescriptors(parseLsofDescriptors(text));
+  const text = await run([LSOF_BINARY, "-p", [...ownerByChild.keys()].join(","), "-F", "pfan"]);
+  for (const shell of taskShellsFromDescriptors(parseLsofDescriptors(text))) {
+    const owner = ownerByChild.get(shell.pid);
+    // A descriptor for a pid nobody asked about. `lsof` was given an explicit list so this should
+    // not happen, but attributing it to an arbitrary session would report one session's task as
+    // another's, which is worse than dropping it.
+    if (owner === undefined) continue;
+    const bucket = shellsByOwner.get(owner);
+    if (bucket) bucket.push(shell);
+    else shellsByOwner.set(owner, [shell]);
+  }
+  return shellsByOwner;
 }
 
 /** One row of the process table: enough to rebuild the tree and say what each node is doing. */
