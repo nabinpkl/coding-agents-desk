@@ -29,7 +29,13 @@
 // guess therefore costs a retype and can never corrupt the pane, which is the property worth
 // having -- the pane belongs to whoever is sitting in front of it.
 
-import type { TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import {
+  bytesForRailKey,
+  NO_MODIFIERS,
+  type RailKey,
+  type RailModifiers,
+  type TmuxComposerState,
+} from "@agentdesk/agent-feed-wire";
 import { liveTmuxSession } from "../terminal/agentTerminalService.ts";
 import { captureTmuxScreen, hexSend, TmuxUnavailable } from "../terminal/tmuxSessions.ts";
 
@@ -86,6 +92,22 @@ const BACKSPACE = "\u007f";
 const CARRIAGE_RETURN = "\r";
 /** What accepts Claude's suggestion. Measured: the row comes back with no faint run at all. */
 const TAB = "\t";
+/**
+ * End, which puts the cursor after the last character of the box.
+ *
+ * Every edit this module computes assumes the text ENDS at the cursor: a backspace bites to the
+ * left of it and a paste lands at it. Nothing made that true, and a reader on a phone breaks it by
+ * tapping in the middle of their own sentence to fix a typo -- after which the corrections eat the
+ * wrong characters and the new text is inserted in the wrong place. Measured on a live pane: a box
+ * reading `abXcdef` with the cursor after the X, pushed `abcdef`, came back `cdefcdef`. The reader
+ * sees their words twice, which is the same symptom two overlapping pushes used to produce and has
+ * nothing to do with them.
+ *
+ * So the assumption is now made true rather than assumed, by going to the end first. Measured the
+ * same day: `Ctrl+E` does NOT do this in Claude's box -- it is bound to something else -- while
+ * both spellings of End (`ESC [ F` and `ESC O F`) do.
+ */
+const END = "\u001b[F";
 const PASTE_START = "\u001b[200~";
 const PASTE_END = "\u001b[201~";
 
@@ -220,17 +242,19 @@ export function composerText(rows: readonly string[]): string {
 export function keystrokesFor(rows: readonly string[], desired: string): string {
   const current = composerText(rows);
   if (current === desired) return "";
+  // Every branch below is written as though the text ends at the cursor. Going to the end is what
+  // makes that so, and it is free when the cursor is already there.
   if (current.length > 0 && desired.startsWith(current)) {
-    return paste(desired.slice(current.length));
+    return END + paste(desired.slice(current.length));
   }
   // A single row is known exactly, so a correction rubs out only what diverged -- which keeps a
   // backspace in the panel costing a backspace in the pane rather than a whole retype.
   if (rows.length === 1) {
     const shared = sharedPrefix(current, desired);
     const removed = backspacesFor(current.slice(shared));
-    return BACKSPACE.repeat(removed) + paste(desired.slice(shared));
+    return END + BACKSPACE.repeat(removed) + paste(desired.slice(shared));
   }
-  return KILL_ROW.repeat(rows.length) + paste(desired);
+  return END + KILL_ROW.repeat(rows.length) + paste(desired);
 }
 
 /** Nothing to insert sends nothing: an empty bracketed paste still makes Claude redraw the box. */
@@ -793,6 +817,35 @@ export async function acceptTmuxComposerHint(
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
   return press(sessionId, TAB, { text: null, hint: null, reason: null, wrapped: false }, runtime);
+}
+
+/**
+ * One key rail press into the session's pane.
+ *
+ * The composer band grew this for the same reason the terminal has a rail: a phone keyboard has no
+ * Esc, no Tab, no Ctrl and no arrows, and those are most of how Claude's own prompt box is driven.
+ * Reading a suggestion and pressing Tab already had a route of its own; everything else did not.
+ *
+ * The key arrives NAMED rather than as bytes. A route that took bytes would be a second way to
+ * write anything at all into somebody's pane, and it would put the mapping from key to sequence in
+ * whichever caller happened to send it -- so `bytesForRailKey` lives on the wire and both sides
+ * read the same one.
+ *
+ * What the box then holds is not guessed at. An arrow moves a cursor and Escape may clear the
+ * whole thing, neither of which this can predict, so the watcher reads the pane and says.
+ */
+export async function pressTmuxComposerKey(
+  sessionId: string,
+  key: RailKey,
+  held: RailModifiers = NO_MODIFIERS,
+  runtime: TmuxComposerRuntime = LIVE,
+): Promise<TmuxComposerState> {
+  return press(
+    sessionId,
+    bytesForRailKey(key, held),
+    { text: null, hint: null, reason: null, wrapped: false },
+    runtime,
+  );
 }
 
 /**

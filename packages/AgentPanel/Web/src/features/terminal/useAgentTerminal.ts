@@ -7,7 +7,13 @@ import type {
   AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
-import { cycleModifier, releaseArmed, type ModifierState } from "../keyboard/modifierLatch";
+import {
+  cycleModifier,
+  heldModifiers,
+  RAIL_MODIFIERS_OFF,
+  releaseArmed,
+  type ModifierState,
+} from "../keyboard/modifierLatch";
 import { isTmuxAttach, terminalContextKey } from "./terminalContext";
 import {
   FONT_SIZE_STEP,
@@ -22,7 +28,7 @@ import {
   type RailKey,
   type RailModifier,
   type RailModifiers,
-} from "./terminalKeyBytes";
+} from "@agentdesk/agent-feed-wire";
 
 /**
  * A live terminal, and the chrome-facing handles for driving it from outside the grid.
@@ -592,21 +598,6 @@ export function useAgentTerminal({ feed, context, sizing, onState }: {
       sendRef.current?.(bytesForRailKey(key, held));
       setModifiers(releaseArmed);
     },
-  };
-}
-
-const RAIL_MODIFIERS_OFF: Record<RailModifier, ModifierState> = {
-  ctrl: "off",
-  alt: "off",
-  shift: "off",
-};
-
-/** Armed and locked both mean held; the difference is only what happens after the key. */
-function heldModifiers(states: Record<RailModifier, ModifierState>): RailModifiers {
-  return {
-    ctrl: states.ctrl !== "off",
-    alt: states.alt !== "off",
-    shift: states.shift !== "off",
   };
 }
 

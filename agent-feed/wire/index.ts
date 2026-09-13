@@ -19,6 +19,7 @@ export type {
 
 export type {
   ComposerImageDrop,
+  ComposerKeyPress,
   ComposerImageMediaType,
   TmuxComposerState,
   TmuxComposerUnavailableReason,
@@ -178,3 +179,12 @@ export type {
   WireStreamError,
 } from "./http.ts";
 export * from "./desktopNavigation.ts";
+
+export type { RailKey, RailModifier, RailModifiers } from "./railKeys.ts";
+export {
+  applyModifiers,
+  bytesForRailKey,
+  controlByte,
+  modifierParameter,
+  NO_MODIFIERS,
+} from "./railKeys.ts";

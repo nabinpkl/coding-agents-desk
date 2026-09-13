@@ -6,7 +6,7 @@ import {
   modifierParameter,
   NO_MODIFIERS,
   type RailModifiers,
-} from "./terminalKeyBytes";
+} from "@agentdesk/agent-feed-wire";
 
 const held = (overrides: Partial<RailModifiers>): RailModifiers => ({
   ...NO_MODIFIERS,

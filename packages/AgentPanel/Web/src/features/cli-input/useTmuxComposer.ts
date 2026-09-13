@@ -3,9 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
+  type RailKey,
+  type RailModifier,
   type TmuxComposerState,
   type TmuxComposerUnavailableReason,
 } from "@agentdesk/agent-feed-wire";
+import {
+  cycleModifier,
+  heldModifiers,
+  RAIL_MODIFIERS_OFF,
+  releaseArmed,
+  type ModifierState,
+} from "../keyboard/modifierLatch";
 import type {
   SessionAddress,
   SidecarDataSource,
@@ -86,6 +95,15 @@ export interface TmuxComposerHandle {
    * ordinary push carries it, so there is no second way into the pane.
    */
   remove: (id: number) => void;
+  /**
+   * The key rail's latched modifiers, and the two ways to drive it.
+   *
+   * Here rather than in the band because the latch is state: a modifier armed by one tap has to
+   * still be armed when the next key is pressed, and it is spent by that press.
+   */
+  modifiers: Record<RailModifier, ModifierState>;
+  toggleModifier: (modifier: RailModifier) => void;
+  pressKey: (key: RailKey) => void;
   pending: boolean;
   error: string | null;
   /**
@@ -128,6 +146,7 @@ export function useTmuxComposer(
     | "submitTmuxComposer"
     | "acceptTmuxComposerHint"
     | "dropTmuxComposerImage"
+    | "pressTmuxComposerKey"
   >,
   session: SessionAddress,
   active: boolean,
@@ -424,6 +443,37 @@ export function useTmuxComposer(
     if (edited.current) void push();
   }, [push]);
 
+  /**
+   * The key rail, for a phone whose keyboard has no Esc, Tab, Ctrl or arrows.
+   *
+   * Those are most of how Claude's prompt box is driven -- Escape clears it or interrupts, the
+   * arrows walk history and move a cursor, Ctrl+C stops a turn -- and none of them are on a touch
+   * keyboard. Without this a phone can write prose into a session and then not be able to take it
+   * back.
+   *
+   * A press does NOT flush the draft first, and that is deliberate: these keys are how a reader
+   * corrects the box, so making them wait for a debounced push would send the text they are about
+   * to undo. The pane answers on the stream, and the field adopts whatever it says.
+   */
+  const [modifiers, setModifiers] = useState(RAIL_MODIFIERS_OFF);
+  const modifiersRef = useRef(modifiers);
+  modifiersRef.current = modifiers;
+
+  const pressKey = useCallback((key: RailKey) => {
+    const held = heldModifiers(modifiersRef.current);
+    setModifiers(releaseArmed);
+    // The pane is about to change under the field, and what it becomes is not predictable from
+    // here, so the reading that comes back is the truth rather than the draft in hand.
+    edited.current = false;
+    void feed.pressTmuxComposerKey(sessionRef.current, key, held)
+      .then((next) => setState(next))
+      .catch((failure) => setError(String((failure as Error).message ?? failure)));
+  }, [feed]);
+
+  const toggleModifier = useCallback((modifier: RailModifier) => {
+    setModifiers((current) => ({ ...current, [modifier]: cycleModifier(current[modifier]) }));
+  }, []);
+
   return {
     // Latched, so the band survives the session it mirrors exiting. `state` still carries the
     // live answer, which is what `reason` reports.
@@ -439,6 +489,9 @@ export function useTmuxComposer(
     drop,
     images,
     remove,
+    modifiers,
+    toggleModifier,
+    pressKey,
     pending,
     error,
     onBlur,

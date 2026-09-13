@@ -12,6 +12,8 @@
 //
 // Claude-only, like the inbox, and for the same reason: the box this reads is the Claude TUI's.
 
+import type { RailKey, RailModifiers } from "./railKeys.ts";
+
 /** Why a session's tmux composer cannot be mirrored. */
 export type TmuxComposerUnavailableReason =
   /** No live process for this session is running inside a tmux pane. */
@@ -105,4 +107,17 @@ export const MAXIMUM_COMPOSER_IMAGE_BYTES = 10 * 1024 * 1024;
  */
 export interface ComposerImageDrop {
   data: string;
+}
+
+/**
+ * One key rail press, on its way to a session's prompt box.
+ *
+ * The key is NAMED, and the sidecar turns it into bytes with `bytesForRailKey`. A shape carrying
+ * the bytes themselves would let any caller write any sequence into somebody's pane, and would put
+ * the mapping in whichever surface happened to send it.
+ */
+export interface ComposerKeyPress {
+  key: RailKey;
+  /** What the rail is holding, the way a phone keyboard holds shift for one letter. */
+  modifiers: RailModifiers;
 }

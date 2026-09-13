@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import type { RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
 import {
   createTmuxComposerRoutes,
   type TmuxComposerDependencies,
@@ -16,6 +16,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const watched: string[] = [];
   const accepted: string[] = [];
   const dropped: { bytes: number; mediaType: string }[] = [];
+  const pressed: { key: string; modifiers: RailModifiers }[] = [];
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
@@ -38,6 +39,10 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
       dropped.push({ bytes: image.length, mediaType });
       return { text: null, hint: null, reason: null, wrapped: false };
     },
+    key: async (_sessionId, key, modifiers) => {
+      pressed.push({ key, modifiers });
+      return { text: null, hint: null, reason: null, wrapped: false };
+    },
     ...overrides,
   };
   return {
@@ -47,6 +52,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
     watched,
     accepted,
     dropped,
+    pressed,
   };
 }
 
@@ -212,4 +218,49 @@ test("dropping only takes a POST, and codex has no composer to drop into", async
     .toBeUndefined();
   expect(await call(route, "POST", `/api/sessions/codex/${SESSION}/composer/image`, { data: "x" }))
     .toBeUndefined();
+});
+
+test("presses a named rail key, with only the modifiers that were actually held", async () => {
+  const feed = routeWith();
+  const response = await call(feed.route, "POST", `/api/sessions/claude/${SESSION}/composer/key`, {
+    key: "left",
+    modifiers: { ctrl: true, alt: false },
+  });
+  expect(response!.status).toBe(200);
+  // The absent one is not held rather than undefined: a caller may send only what it is holding.
+  expect(feed.pressed).toEqual([{ key: "left", modifiers: { ctrl: true, alt: false, shift: false } }]);
+});
+
+test("takes a key press with no modifiers at all", async () => {
+  const feed = routeWith();
+  await call(feed.route, "POST", `/api/sessions/claude/${SESSION}/composer/key`, { key: "escape" });
+  expect(feed.pressed).toEqual([
+    { key: "escape", modifiers: { ctrl: false, alt: false, shift: false } },
+  ]);
+});
+
+test("refuses a key it does not know rather than sending an escape that means something else", async () => {
+  const feed = routeWith();
+  const response = await call(feed.route, "POST", `/api/sessions/claude/${SESSION}/composer/key`, {
+    key: "f13",
+  });
+  expect(response!.status).toBe(400);
+  expect(await response!.json()).toMatchObject({ error: { code: "key-unknown" } });
+  expect(feed.pressed).toEqual([]);
+});
+
+test("a modifiers field that is not an object holds nothing, rather than throwing", async () => {
+  const feed = routeWith();
+  await call(feed.route, "POST", `/api/sessions/claude/${SESSION}/composer/key`, {
+    key: "up",
+    modifiers: "ctrl",
+  });
+  expect(feed.pressed).toEqual([{ key: "up", modifiers: { ctrl: false, alt: false, shift: false } }]);
+});
+
+test("every key the route accepts maps to bytes, so the two sets cannot drift apart", async () => {
+  const { bytesForRailKey, NO_MODIFIERS } = await import("@agentdesk/agent-feed-wire");
+  for (const key of ["escape", "tab", "up", "down", "left", "right"] as const) {
+    expect(bytesForRailKey(key, NO_MODIFIERS).length).toBeGreaterThan(0);
+  }
 });

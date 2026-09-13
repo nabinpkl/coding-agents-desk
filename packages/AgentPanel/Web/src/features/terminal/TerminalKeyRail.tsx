@@ -1,6 +1,6 @@
 import { KeyRailButton } from "../keyboard/KeyRailButton";
 import type { ModifierState } from "../keyboard/modifierLatch";
-import type { RailKey, RailModifier } from "./terminalKeyBytes";
+import type { RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
 
 const ARROWS: Array<{ label: string; key: RailKey; position: string }> = [
   { label: "↑", key: "up", position: "col-start-2 row-start-1" },

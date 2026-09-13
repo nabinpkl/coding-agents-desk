@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import type { RailKey, RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "../activity-feed/data-source/SidecarDataSource";
 import { useTmuxComposer } from "./useTmuxComposer";
 
@@ -67,6 +67,16 @@ function pane(initial = "", opening?: TmuxComposerState) {
       feed.accepts += 1;
       return { text: null, hint: null, reason: null, wrapped: false };
     },
+    /** Every rail press, so a test can ask what reached the pane and what was held when it did. */
+    keys: [] as { key: RailKey; modifiers: RailModifiers }[],
+    pressTmuxComposerKey: async (
+      _session: SessionAddress,
+      key: RailKey,
+      modifiers: RailModifiers,
+    ): Promise<TmuxComposerState> => {
+      feed.keys.push({ key, modifiers });
+      return { text: null, hint: null, reason: null, wrapped: false };
+    },
     dropTmuxComposerImage: async (
       _session: SessionAddress,
       image: Blob,
@@ -97,6 +107,12 @@ function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; active?
         placeholder={composer.hint ?? "Type into Claude's terminal…"}
       />
       <button type="button" onClick={() => void composer.accept()}>accept</button>
+      <span data-testid="modifiers">
+        {(["ctrl", "alt", "shift"] as const).map((m) => `${m}:${composer.modifiers[m]}`).join(" ")}
+      </span>
+      <button type="button" onClick={() => composer.toggleModifier("ctrl")}>ctrl</button>
+      <button type="button" onClick={() => composer.pressKey("escape")}>escape</button>
+      <button type="button" onClick={() => composer.pressKey("left")}>left</button>
       <button type="button" onClick={() => composer.remove(7)}>remove</button>
       <button
         type="button"
@@ -494,5 +510,57 @@ describe("the images a composer is holding", () => {
     await act(async () => { feed.emit(holding("[Image #9]")); });
     // A picture sent after the turn went, not one the turn took away.
     expect(submitted).not.toContain(shown()["9"]);
+  });
+
+  it("sends a rail key straight through, without flushing the draft first", async () => {
+    // These keys are how a reader corrects the box. Pushing the draft ahead of one would send the
+    // very text they are about to take back.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await type("a mistake");
+    await act(async () => { fireEvent.click(screen.getByText("escape")); });
+    expect(feed.keys).toEqual([{ key: "escape", modifiers: { ctrl: false, alt: false, shift: false } }]);
+    expect(feed.pushes).toEqual([]);
+  });
+
+  it("arms a modifier for one key and spends it there", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => { fireEvent.click(screen.getByText("ctrl")); });
+    expect(screen.getByTestId("modifiers").textContent).toContain("ctrl:armed");
+    await act(async () => { fireEvent.click(screen.getByText("left")); });
+    expect(feed.keys.at(-1)).toEqual({ key: "left", modifiers: { ctrl: true, alt: false, shift: false } });
+    // Spent: the next key goes unmodified.
+    expect(screen.getByTestId("modifiers").textContent).toContain("ctrl:off");
+    await act(async () => { fireEvent.click(screen.getByText("left")); });
+    expect(feed.keys.at(-1)!.modifiers.ctrl).toBe(false);
+  });
+
+  it("holds a locked modifier across keys until it is tapped off", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    // Off, armed, locked: the order a phone's shift key taught everyone.
+    await act(async () => { fireEvent.click(screen.getByText("ctrl")); });
+    await act(async () => { fireEvent.click(screen.getByText("ctrl")); });
+    expect(screen.getByTestId("modifiers").textContent).toContain("ctrl:locked");
+    await act(async () => { fireEvent.click(screen.getByText("left")); });
+    await act(async () => { fireEvent.click(screen.getByText("left")); });
+    expect(feed.keys.every((press) => press.modifiers.ctrl)).toBe(true);
+    expect(screen.getByTestId("modifiers").textContent).toContain("ctrl:locked");
+  });
+
+  it("lets the pane say what a rail key did, rather than guessing", async () => {
+    // An arrow moves a cursor and Escape may clear the box: neither is predictable from here, so
+    // the reading that follows is adopted instead of being held off by an unsent edit.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await type("half a thought");
+    await act(async () => { fireEvent.click(screen.getByText("escape")); });
+    await act(async () => { feed.emit(holding("")); });
+    expect(draft()).toBe("");
   });
 });

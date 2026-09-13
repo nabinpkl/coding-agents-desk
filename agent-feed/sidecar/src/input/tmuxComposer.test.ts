@@ -34,6 +34,19 @@ function screenWith(rows: string[]): string {
 }
 
 const KILL = "\u0015";
+/** End, which every computed edit now leads with so the text really does end at the cursor. */
+const END = "\u001b[F";
+
+/**
+ * What a pane would actually show, given the bytes sent to it.
+ *
+ * The paste brackets and the End are instructions, not characters: a real composer moves its
+ * cursor and takes the text between the brackets. A fake that appended them verbatim would show
+ * the escape sequences in the box and fail for the wrong reason.
+ */
+function typed(keys: string): string {
+  return keys.replaceAll(END, "").replaceAll(OPEN, "").replaceAll(CLOSE, "");
+}
 const BACKSPACE = "\u007f";
 const OPEN = "\u001b[200~";
 const CLOSE = "\u001b[201~";
@@ -109,43 +122,43 @@ test("sends nothing when the box already reads that way", () => {
 
 test("appends what was typed, so one keystroke costs one keystroke", () => {
   expect(keystrokesFor(["make the hover ring"], "make the hover rings"))
-    .toBe(`${OPEN}s${CLOSE}`);
+    .toBe(`${END}${OPEN}s${CLOSE}`);
   // Including from empty, where there is no prefix to match on.
-  expect(keystrokesFor([""], "m")).toBe(`${OPEN}m${CLOSE}`);
+  expect(keystrokesFor([""], "m")).toBe(`${END}${OPEN}m${CLOSE}`);
   // A trailing space is not in the reading -- `capture-pane` strips it -- so the next letter
   // carries it back in. That is why the append is a slice of the DRAFT rather than the character
   // that was typed: sending only "r" here would have closed up a gap the reader had put there.
   expect(keystrokesFor(["make the hover"], "make the hover r"))
-    .toBe(`${OPEN} r${CLOSE}`);
+    .toBe(`${END}${OPEN} r${CLOSE}`);
 });
 
 test("appends onto a wrapped composer when the reconstruction holds", () => {
   // The hypothesis was right, so a long prompt keeps costing one keystroke per keystroke instead
   // of being retyped from scratch on every letter.
   expect(keystrokesFor(["alpha bravo", "charlie"], "alpha bravo charlie delta"))
-    .toBe(`${OPEN} delta${CLOSE}`);
+    .toBe(`${END}${OPEN} delta${CLOSE}`);
 });
 
 test("rubs out only what diverged on a row it knows exactly", () => {
   expect(keystrokesFor(["hello world"], "hello there"))
-    .toBe(`${BACKSPACE.repeat(5)}${OPEN}there${CLOSE}`);
+    .toBe(`${END}${BACKSPACE.repeat(5)}${OPEN}there${CLOSE}`);
   // A pure deletion sends no paste at all.
-  expect(keystrokesFor(["hello world"], "hello")).toBe(BACKSPACE.repeat(6));
+  expect(keystrokesFor(["hello world"], "hello")).toBe(END + BACKSPACE.repeat(6));
 });
 
 test("counts a backspace per code point, not per UTF-16 unit", () => {
-  expect(keystrokesFor(["hi 🐈"], "hi ")).toBe(BACKSPACE);
+  expect(keystrokesFor(["hi 🐈"], "hi ")).toBe(END + BACKSPACE);
 });
 
 test("clears by row count and retypes when the reconstruction was wrong", () => {
   // Two rows, and what is wanted does not start with the guess -- so the guess is abandoned rather
   // than trusted. Three kills would be wrong; two is what the screen said.
   expect(keystrokesFor(["alpha bravo", "charlie"], "something else entirely"))
-    .toBe(`${KILL.repeat(2)}${OPEN}something else entirely${CLOSE}`);
+    .toBe(`${END}${KILL.repeat(2)}${OPEN}something else entirely${CLOSE}`);
 });
 
 test("renders an escape visibly so a draft cannot smuggle a control sequence into the pane", () => {
-  expect(keystrokesFor([""], "\u001b[31mred")).toBe(`${OPEN}\u241b[31mred${CLOSE}`);
+  expect(keystrokesFor([""], "\u001b[31mred")).toBe(`${END}${OPEN}\u241b[31mred${CLOSE}`);
 });
 
 function runtime(overrides: Partial<TmuxComposerRuntime> = {}): TmuxComposerRuntime & {
@@ -196,13 +209,13 @@ test("re-reads the screen before every push, rather than trusting the caller's v
     send: async (_pane, bytes) => {
       const keys = new TextDecoder().decode(bytes);
       tmux.sent.push(keys);
-      held += keys.replaceAll(OPEN, "").replaceAll(CLOSE, "");
+      held += typed(keys);
     },
   });
   await syncTmuxComposer("session", "hello", tmux);
   // The pane had "hel" at that instant, so only "lo" is typed -- even though the panel's own last
   // observation would have said otherwise.
-  expect(tmux.sent).toEqual([`${OPEN}lo${CLOSE}`]);
+  expect(tmux.sent).toEqual([`${END}${OPEN}lo${CLOSE}`]);
   await syncTmuxComposer("session", "hello", tmux);
   // Second time the pane already agrees, so nothing is sent at all.
   expect(tmux.sent).toHaveLength(1);
@@ -398,7 +411,7 @@ test("a push takes the pane the watch is already on, instead of going to find it
   await syncTmuxComposer("session", "hello", tmux);
   await submitTmuxComposer("session", tmux);
   expect(state.resolved).toBe(1);
-  expect(state.sent).toEqual([`${OPEN}lo${CLOSE}`, "\r"]);
+  expect(state.sent).toEqual([`${END}${OPEN}lo${CLOSE}`, "\r"]);
   stop();
 });
 
@@ -408,7 +421,7 @@ test("a push with nobody watching goes and finds the pane for itself", async () 
   const tmux = runtime({ screen: async () => screenWith([""]) });
   await syncTmuxComposer("session", "hello", tmux);
   expect(tmux.resolved).toBe(1);
-  expect(tmux.sent).toEqual([`${OPEN}hello${CLOSE}`]);
+  expect(tmux.sent).toEqual([`${END}${OPEN}hello${CLOSE}`]);
 });
 
 test("a watch that let go stops lending its pane", async () => {
@@ -491,7 +504,7 @@ test("renames by pasting Claude's own command into an empty composer, with the R
   const tmux = runtime({ screen: async () => screenWith([""]) });
 
   expect(await renameTmuxSession("s1", "What I called it", tmux)).toEqual({ renamed: true });
-  expect(tmux.sent).toEqual([`${OPEN}/rename What I called it${CLOSE}\r`]);
+  expect(tmux.sent).toEqual([`${END}${OPEN}/rename What I called it${CLOSE}\r`]);
 });
 
 test("refuses to rename over text somebody is in the middle of writing", async () => {
@@ -527,10 +540,10 @@ test("rubs out an attachment token with ONE backspace, because that is what the 
   // character at a time and the seventh took the whole token. Counting its characters instead
   // would have sent eleven presses and deleted four characters of whatever sat to its left.
   expect(keystrokesFor(["alpha [Image #2] omega"], "alpha "))
-    .toBe(BACKSPACE.repeat(7));
+    .toBe(END + BACKSPACE.repeat(7));
   // Twenty-six characters, one press, same as the image.
   expect(keystrokesFor(["[Pasted text #3 +38 lines] tail"], ""))
-    .toBe(BACKSPACE.repeat(6));
+    .toBe(END + BACKSPACE.repeat(6));
 });
 
 test("never splits a token, since half of one cannot be deleted", () => {
@@ -539,13 +552,13 @@ test("never splits a token, since half of one cannot be deleted", () => {
   // Backed up to the token's start, so it is six presses for " after" and one for the token,
   // then the whole tail is retyped.
   expect(keystrokesFor(["before [Image #12] after"], "before [Image #1] after"))
-    .toBe(`${BACKSPACE.repeat(7)}${OPEN}[Image #1] after${CLOSE}`);
+    .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}[Image #1] after${CLOSE}`);
 });
 
 test("takes a token out of the middle without touching what sits either side", () => {
   // What removing an image from the panel's strip comes to: the token goes and the text does not.
   expect(keystrokesFor(["alpha [Image #2] omega"], "alpha omega"))
-    .toBe(`${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`);
+    .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`);
 });
 
 test("two pushes at one session do not read the same box and both paste their whole text", async () => {
@@ -564,7 +577,7 @@ test("two pushes at one session do not read the same box and both paste their wh
       const keys = new TextDecoder().decode(bytes);
       tmux.sent.push(keys);
       await new Promise((wake) => setTimeout(wake, 5));
-      held += keys.replaceAll(OPEN, "").replaceAll(CLOSE, "");
+      held += typed(keys);
     },
   });
 
@@ -576,7 +589,7 @@ test("two pushes at one session do not read the same box and both paste their wh
   // Whichever ran second appended only what it was missing, because it read a box the first had
   // already finished writing to.
   expect(held).toBe("hello world now");
-  expect(tmux.sent).toEqual([`${OPEN}hello wor${CLOSE}`, `${OPEN}ld now${CLOSE}`]);
+  expect(tmux.sent).toEqual([`${END}${OPEN}hello wor${CLOSE}`, `${END}${OPEN}ld now${CLOSE}`]);
 });
 
 test("a push waits for its send to reach the screen, so the next one reads the box and not its past", async () => {
@@ -593,7 +606,7 @@ test("a push waits for its send to reach the screen, so the next one reads the b
       const keys = new TextDecoder().decode(bytes);
       tmux.sent.push(keys);
       // Late, the way a pane is: the send returns before the screen carries it.
-      setTimeout(() => { held += keys.replaceAll(OPEN, "").replaceAll(CLOSE, ""); }, 20);
+      setTimeout(() => { held += typed(keys); }, 20);
     },
   });
 
@@ -651,7 +664,7 @@ test("a push that landed is not reported as failed because the pane stopped answ
   });
   expect(await syncTmuxComposer("session", "alpha", tmux))
     .toEqual({ text: "alpha", hint: null, reason: null, wrapped: false });
-  expect(tmux.sent).toEqual([`${OPEN}alpha${CLOSE}`]);
+  expect(tmux.sent).toEqual([`${END}${OPEN}alpha${CLOSE}`]);
 });
 
 test("the turn a session is taking outlives a reload of this module", async () => {
@@ -667,4 +680,26 @@ test("the turn a session is taking outlives a reload of this module", async () =
   const tmux = runtime({ screen: async () => screenWith([""]) });
   await reloaded.syncTmuxComposer("reload-probe", "alpha", tmux);
   expect((globalThis as Record<symbol, unknown>)[store]).toBe(held);
+});
+
+test("goes to the end before editing, because a backspace bites wherever the cursor is", () => {
+  // The assumption every branch here is written on is that the text ends at the cursor. Nothing
+  // made that true. A reader on a phone breaks it by tapping in the middle of their own sentence,
+  // and the arrows on the key rail break it deliberately.
+  //
+  // Measured on a live pane: a box reading `abXcdef` with the cursor after the X, pushed `abcdef`,
+  // answered 200 and left `cdefcdef` -- five backspaces ate `abX` and stopped at the start, and
+  // the paste landed at position zero instead of after `ab`. The reader sees their words twice.
+  //
+  // Also measured: Ctrl+E does not move the cursor in Claude's box, and End does.
+  for (const [rows, desired] of [
+    [[""], "typed from nothing"],
+    [["hello"], "hello world"],
+    [["hello world"], "hello there"],
+    [["one", "two"], "something else"],
+  ] as const) {
+    expect(keystrokesFor(rows, desired).startsWith(END)).toBe(true);
+  }
+  // Nothing to do stays nothing to do: a box that already agrees is not worth a cursor move.
+  expect(keystrokesFor(["settled"], "settled")).toBe("");
 });

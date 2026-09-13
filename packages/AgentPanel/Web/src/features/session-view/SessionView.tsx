@@ -55,6 +55,10 @@ import {
   type ComposerImage,
 } from "../cli-input/useTmuxComposer";
 import { ComposerImageStrip } from "../cli-input/ComposerImageStrip";
+import { TerminalKeyRail } from "../terminal/TerminalKeyRail";
+import { drawsOwnKeyboard } from "../keyboard/softwareKeyboard";
+import type { ModifierState } from "../keyboard/modifierLatch";
+import type { RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
 import type { OpenAskUserQuestion } from "../../app/askUserQuestion";
 import { AgentTerminalPane } from "../terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "../terminal/useAgentTerminal";
@@ -645,6 +649,19 @@ function SessionComposer({
       ? tmuxComposer.draft
       : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
+  /**
+   * Whether the key rail is standing under the field.
+   *
+   * Focus rather than "there is a draft", because the rail is how a phone reaches Escape -- and
+   * the moment it is most wanted is a box the reader wants to clear, which is a box they have just
+   * typed into and may have emptied again.
+   *
+   * Read once per band rather than at import, the same way the terminal's rail does it: a browser
+   * does not grow a software keyboard part way through a session, and a test has to be able to say
+   * which kind of browser it is.
+   */
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [softwareKeyboard] = useState(drawsOwnKeyboard);
 
   // The terminal when it is the band's input surface, null when the field is. One name rather than
   // the condition written twice, because the whole point is that they are never both on screen.
@@ -695,6 +712,17 @@ function SessionComposer({
     images?: readonly ComposerImage[];
     /** Takes one of them back out, which is deleting its token from the text. */
     onRemoveImage?: (id: number) => void;
+    /**
+     * The keys this field's far end needs and a touch keyboard does not have.
+     *
+     * Only the mirrored terminal band: the other two send a message and are done, where this one
+     * is driving a TUI, and Escape, Tab, Ctrl and the arrows are most of how one is driven.
+     */
+    rail?: {
+      modifiers: Record<RailModifier, ModifierState>;
+      onModifier: (modifier: RailModifier) => void;
+      onKey: (key: RailKey) => void;
+    };
   } = windowBand
     ? {
         value: windowComposer.draft,
@@ -748,6 +776,11 @@ function SessionComposer({
         onFiles: (files) => void tmuxComposer.drop(files),
         images: tmuxComposer.images,
         onRemoveImage: tmuxComposer.remove,
+        rail: {
+          modifiers: tmuxComposer.modifiers,
+          onModifier: tmuxComposer.toggleModifier,
+          onKey: tmuxComposer.pressKey,
+        },
       }
     : inboxBand
     ? {
@@ -1102,8 +1135,14 @@ function SessionComposer({
           ref={autoGrow}
           value={editor.value}
           onChange={(event) => editor.onChange(event.target.value)}
-          onFocus={editor.onFocus}
-          onBlur={editor.onBlur}
+          onFocus={() => {
+            setComposerFocused(true);
+            editor.onFocus?.();
+          }}
+          onBlur={() => {
+            setComposerFocused(false);
+            editor.onBlur?.();
+          }}
           // A pasted image is the same arrival as a dropped one, and on a phone it is the only
           // one: there is no drag there. Text pastes fall through untouched, because a clipboard
           // carrying files is a different clipboard from one carrying words.
@@ -1180,6 +1219,17 @@ function SessionComposer({
           </button>
         ))}
       </div>
+      {/* Under the whole row rather than inside the field's box, because it is not part of the
+          text: it stands between the composer and the keyboard, which is where a thumb coming off
+          the keys reaches first. Only where the keyboard is actually missing these keys -- a
+          desktop browser has Esc and Ctrl already, and a rail there would spend a row saying so. */}
+      {editor.rail && composerFocused && softwareKeyboard ? (
+        <TerminalKeyRail
+          modifiers={editor.rail.modifiers}
+          onModifier={editor.rail.onModifier}
+          onKey={editor.rail.onKey}
+        />
+      ) : null}
       {/* The context meter sits below the action row, right-aligned under the
           buttons in the window band, not in the header. */}
       {usage ? (

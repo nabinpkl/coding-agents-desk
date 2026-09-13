@@ -18,6 +18,9 @@
 import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
   type ComposerImageMediaType,
+  type RailKey,
+  type RailModifier,
+  type RailModifiers,
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
 import { imageMediaType, writeComposerImage } from "../input/composerImages.ts";
@@ -27,6 +30,7 @@ import {
   MAXIMUM_COMPOSER_BYTES,
   liveTmuxComposerRuntime,
   observeTmuxComposer,
+  pressTmuxComposerKey,
   submitTmuxComposer,
   syncTmuxComposer,
   type TmuxComposerListener,
@@ -42,8 +46,24 @@ import type { RouteHandler } from "./route.ts";
 
 const RETRY = new TextEncoder().encode("retry: 20000\n\n");
 
+/**
+ * The keys the rail can send, spelled out rather than derived from the type.
+ *
+ * `RailKey` is erased at run time, so something has to hold the set at run time too. Written here
+ * next to the route that checks it, and kept in step by the test that asserts every member maps to
+ * bytes.
+ */
+const RAIL_KEYS = new Set<string>(
+  ["escape", "tab", "up", "down", "left", "right"] satisfies RailKey[],
+);
+
+/** Whether what arrived names a rail key, and narrows it to one when it does. */
+function isRailKey(value: unknown): value is RailKey {
+  return typeof value === "string" && RAIL_KEYS.has(value);
+}
+
 const COMPOSER_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/stream)?$/i;
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/key|\/stream)?$/i;
 
 /** The composer, injected, so the route's address shape can be pinned without a tmux server. */
 export interface TmuxComposerDependencies {
@@ -63,6 +83,17 @@ export interface TmuxComposerDependencies {
     sessionId: string,
     image: Uint8Array,
     mediaType: ComposerImageMediaType,
+  ) => Promise<TmuxComposerState>;
+  /**
+   * Presses one key rail key, for a phone whose keyboard does not have it.
+   *
+   * Named rather than sent as bytes: this is not a second way to write anything into a pane, and
+   * the mapping from key to escape sequence has one home on the wire.
+   */
+  key: (
+    sessionId: string,
+    key: RailKey,
+    held: RailModifiers,
   ) => Promise<TmuxComposerState>;
 }
 
@@ -84,6 +115,7 @@ export function liveTmuxComposerDependencies(
     accept: (sessionId) => acceptTmuxComposerHint(sessionId, runtime),
     drop: async (sessionId, image, mediaType) =>
       dropTmuxComposerImage(sessionId, await writeComposerImage(image, mediaType), runtime),
+    key: (sessionId, key, held) => pressTmuxComposerKey(sessionId, key, held, runtime),
   };
 }
 
@@ -101,6 +133,10 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
     if (action === "/image") {
       if (request.method !== "POST") return undefined;
       return drop(composer, request, sessionId);
+    }
+    if (action === "/key") {
+      if (request.method !== "POST") return undefined;
+      return pressKey(composer, request, sessionId);
     }
     if (action === "/stream") {
       if (request.method !== "GET") return undefined;
@@ -120,6 +156,48 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
     if (request.method === "POST") return sync(composer, request, sessionId);
     return undefined;
   };
+}
+
+/**
+ * Presses one key rail key into the session's prompt box.
+ *
+ * The key is checked against the set the rail can actually produce rather than passed through. It
+ * names a byte sequence that goes straight into somebody's pane, so an unrecognised name is a 400
+ * and not a best effort: a rail that grows a key the sidecar has not learned should fail where a
+ * reader can see it, not send an escape that means something else.
+ */
+async function pressKey(
+  composer: TmuxComposerDependencies,
+  request: Request,
+  sessionId: string,
+): Promise<Response> {
+  let body: { key?: unknown; modifiers?: unknown };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return errorResponse("body-unreadable", "a key press must carry a JSON body", 400);
+  }
+  if (!isRailKey(body.key)) {
+    return errorResponse(
+      "key-unknown",
+      `a key press must name one of ${[...RAIL_KEYS].join(", ")}`,
+      400,
+    );
+  }
+  const held = body.modifiers;
+  const modifiers: RailModifiers = {
+    // Absent means not held, so a caller that sends only the key gets the unmodified sequence.
+    ctrl: heldFlag(held, "ctrl"),
+    alt: heldFlag(held, "alt"),
+    shift: heldFlag(held, "shift"),
+  };
+  return jsonResponse(await composer.key(sessionId, body.key, modifiers));
+}
+
+/** One modifier out of whatever arrived, true only when it is actually the boolean true. */
+function heldFlag(held: unknown, modifier: RailModifier): boolean {
+  if (typeof held !== "object" || held === null) return false;
+  return (held as Record<string, unknown>)[modifier] === true;
 }
 
 async function sync(

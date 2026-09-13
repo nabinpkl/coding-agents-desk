@@ -5,6 +5,12 @@
  * driven by -- so the rail supplies them, and this module says what they are on the wire. Pure, and
  * tested as such: these bytes are the contract with every program on the far end, and getting one
  * wrong shows up as a shell that beeps rather than as anything a type checker would catch.
+ *
+ * Shared ground rather than the terminal feature that first needed it, because there are now two
+ * callers and they are on opposite sides of the wire: the terminal writes these bytes straight
+ * into a PTY it holds open, and the composer band names a key over HTTP for a sidecar to write
+ * into a tmux pane that has no terminal attached at all. One home, so a key cannot come to mean
+ * two things depending on which surface pressed it.
  */
 
 const ESCAPE = "\u001b";

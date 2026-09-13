@@ -16,6 +16,9 @@ import type {
   AttachBotSessionsCommand,
   ActivityEvent,
   ComposerImageDrop,
+  ComposerKeyPress,
+  RailKey,
+  RailModifiers,
   AgentCommandReceipt,
   AgentSessionDescriptor,
   AgentTerminalContext,
@@ -120,7 +123,7 @@ function cliInputPath(session: SessionAddress): string {
  */
 function tmuxComposerPath(
   session: SessionAddress,
-  action: "" | "/submit" | "/accept" | "/image" | "/stream" = "",
+  action: "" | "/submit" | "/accept" | "/image" | "/key" | "/stream" = "",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
 }
@@ -889,6 +892,28 @@ export class SidecarDataSource implements AgentDataSource {
   async acceptTmuxComposerHint(session: SessionAddress): Promise<TmuxComposerState> {
     return parse<TmuxComposerState>(
       await this.transport.request("POST", tmuxComposerPath(session, "/accept")),
+    );
+  }
+
+  /**
+   * Presses one key rail key in the session's prompt box.
+   *
+   * The key goes over NAMED, not as the bytes it means. The sidecar owns the mapping because it is
+   * the side writing into the pane, and both sides read it from the same module on the wire, so a
+   * key cannot come to mean one thing here and another there.
+   *
+   * Nothing comes back but the reason: an arrow moves a cursor and Escape may clear the box, and
+   * what the composer holds after either arrives on the stream like every other change.
+   */
+  async pressTmuxComposerKey(
+    session: SessionAddress,
+    key: RailKey,
+    modifiers: RailModifiers,
+  ): Promise<TmuxComposerState> {
+    return parse<TmuxComposerState>(
+      await this.transport.request("POST", tmuxComposerPath(session, "/key"), {
+        body: { key, modifiers } satisfies ComposerKeyPress,
+      }),
     );
   }
 
