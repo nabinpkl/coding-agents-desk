@@ -416,6 +416,10 @@ Five traps, each of which cost real time:
     one of the three that works on a session with no running process, and the Agent Panel
     deliberately does NOT use it: a rename that moves the title and leaves the address behind reads
     as having worked while every other agent still finds the old name.
+- **A renamed session stays findable by its old name.** `/rename` appends to the registry's
+  `formerNames` with an `until` stamp, and `ListAgents` prints it: after renaming a live peer, its
+  row read `Composer session [cfd12b] - says it was Windows canvas until 28s ago`. So renaming a
+  session other agents are mid-conversation with does not strand them.
 - **The panel renames by running `/rename` in the session's pane, and three measurements make that
   work.** A bracketed paste of `/rename <title>` IS dispatched as a command -- Claude reads pastes
   literally enough to skip the menu a typed `/` opens, but still runs the command, so the rename
