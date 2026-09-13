@@ -56,7 +56,7 @@ Status: R = open, D = done. `churn / lines` as measured 2026-09-09.
 | R22 | D | 12/906 | `packages/AgentPanel/Web/src/features/desktop-viewer/useDesktopKeyboard.ts` |
 | R23 | D | 13/862 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileViewport.test.tsx` |
 | R24 | D | 14/701 | `agent-feed/sidecar/src/terminal/tmuxSessions.ts` |
-| R25 | R | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
+| R25 | D | 15/938 | `agent-feed/sidecar/src/transcripts/transcriptCatalog.ts` |
 | R26 | R | 16/1275 | `packages/AgentPanel/Web/src/features/desktop-viewer/TileStreamRtc.tsx` |
 | R27 | R | 16/761 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityEventRows.tsx` |
 | R28 | R | 17/792 | `packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx` |
@@ -367,6 +367,22 @@ Split into `tileViewportHarness.tsx`, `tileViewportScroll.test.tsx`, `tileViewpo
 Split into `tmuxCommand.ts`, `tmuxCapture.ts`, `tmuxSessionList.ts`. 701 to 242.
 `restoreTmuxMouse`'s doc comment, which had drifted a hundred lines above the function, moved back
 onto it -- that is a comment travelling with the code it describes, not a rewrite of either.
+
+### R25 `transcripts/transcriptCatalog.ts` (938)
+
+- What the catalog holds, who is listening, and the coalesced broadcast that tells them.
+- Turning a file on disk into a record, shared by all three sources.
+- Finding Claude's sessions, which live in mangled per-project directories.
+- Finding Codex's, which live in a SQLite database with rollout files beside it.
+- Pi's, which this process started rather than discovered.
+- The fold a reader is handed: project list, session summary, activity bin.
+- The watchers, and starting and stopping the whole thing.
+
+Split into `catalogState.ts`, `catalogRecords.ts`, `claudeCatalog.ts`, `codexCatalog.ts`,
+`piCatalog.ts`, `catalogViews.ts`. 938 to 207. Each module-level timer moved to the concept that
+sets it, and `stopCatalog` now asks each of them to stop rather than reaching into their variables:
+`resetCatalogBroadcast` and `stopCodexReconcile` are that ask, and are the only declarations this
+split added.
 
 ## Decisions
 
