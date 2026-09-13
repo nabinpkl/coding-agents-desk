@@ -225,6 +225,20 @@ Three numbers, and none of them is a taste call:
   is the failure this bounds: nesting moves the reader's cost from scanning to navigating, and
   navigating is the worse of the two while you still do not know what you are looking for.
 
+**No relative imports, in either tree.** `@/x` is the project's own src and `@repo/x` is the
+repository. Both say where a module lives; `../../..` says how far away the reader happens to be
+sitting, and the difference is what a file move costs. A relative import breaks when EITHER end
+moves, so clustering one directory rewrites every file inside it and every importer of it, and the
+move disappears under path arithmetic. Enforced by check 6 of `tools/agent-feed-fitness.sh` and by
+`tools/git-hooks/pre-commit`, sharing one expression.
+
+Two details that are easy to get wrong. In Vite the alias keys carry their trailing slash, because
+a bare `@` also matches `@agentdesk/agent-feed-wire` and would swallow the wire contract. In
+tsconfig, `paths` resolve against the tsconfig's own directory: TypeScript 7 removed `baseUrl`, and
+this repo already wrote them without it. Aliased imports carry no extension. Before this landed the
+two trees disagreed and nothing could catch it -- the sidecar wrote `.ts` on 652 of 660 relative
+imports, the panel on 0 of 770, and both typecheck either way.
+
 **Only fan-out promotes a cluster.** Do not create a directory because a concept feels like it
 deserves one. Create it because the flat list went past twelve and three or more of its files are
 about the same thing. Concepts do not earn directories, counts do, and that is what keeps the
