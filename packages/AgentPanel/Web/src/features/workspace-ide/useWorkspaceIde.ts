@@ -19,6 +19,11 @@ import type { AgentHttpTransport } from "@/features/activity-feed/transport/Agen
 import { WorkspaceIdeClient, WorkspaceRequestError } from "@/features/workspace-ide/workspaceIdeClient";
 import { useWorkspaceIdeWriting } from "@/features/workspace-ide/useWorkspaceIdeWriting";
 import {
+  loadDraft,
+  reconcileDraft,
+  removeDraft,
+} from "@/features/workspace-ide/workspaceIdeDrafts";
+import {
   DEFAULT_WORKSPACE_IDE_PREFERENCES,
   loadWorkspaceIdePreferences,
   storeWorkspaceIdePreferences,
@@ -218,14 +223,23 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     try {
       const { file } = await client.readFile(workspaceId, path);
       if (generation !== generationRef.current) return;
+      const disk = file.text ?? "";
+      // Text this tab had typed and not written down comes back with the file, along with whether
+      // the file moved underneath it while it was gone.
+      const kept = reconcileDraft(loadDraft(workspaceId, path), disk, file.revision);
+      if (kept.state === "identical") removeDraft(workspaceId, path);
       setOpenFiles((current) => ({
         ...current,
         [path]: {
           path,
           kind: file.kind,
-          text: file.text ?? "",
+          text: kept.state === "unsaved" || kept.state === "conflict" ? kept.text : disk,
           revision: file.revision,
-          saveState: "clean",
+          saveState: kept.state === "unsaved"
+            ? "dirty"
+            : kept.state === "conflict"
+              ? "conflict"
+              : "clean",
         },
       }));
     } catch (cause) {

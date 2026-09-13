@@ -22,7 +22,7 @@ Gates: `just check` for every task, `just swift-check` additionally for R7-R9.
 | R9 | D | The `＋ IDE` window becomes one `AgentPanelWebViewController` with an entry user script. Dividers, region webviews and the PTY terminal pane go. |
 | R10 | D | Delete the IDE's half of `packages/WorkspaceIDE`, its committed resource tree, and the iOS client's `.ide` surface, which the same lane fed. |
 | R12 | R | Delete the QUIC workspace lane (`WorkspaceLaneServer`, `WorkspaceLaneSession`) and the host services left with no consumer. |
-| R13 | R | Persist the text of a file autosave will not rescue -- conflicted, or last-write-failed -- with the revision it was typed against. |
+| R13 | D | Persist the text of a file autosave will not rescue -- conflicted, or last-write-failed -- with the revision it was typed against. |
 
 ### What R10 turned out to be
 
@@ -54,54 +54,47 @@ this reader still had unsaved text in it. Two more that had survived intact and 
 wrongly: the read-only kinds, and the directory collation, which matches `localizedStandardCompare`
 name for name on every case tried.
 
-What remains is R13, and it is smaller than "persist drafts" makes it sound, because autosave
-already covers the ordinary case: an edit rests 900ms and is written, and closing a tab now waits
-for that write rather than racing it.
+### R13, and where a draft lives
 
-Autosave has exactly two holes, and both are unbounded in time rather than 900ms wide:
+Autosave covers the ordinary case: an edit rests 900ms and is written, and closing a tab waits for
+that write rather than racing it. It has exactly two holes, and both are unbounded in time rather
+than 900ms wide:
 
 - **A conflicted file never autosaves.** `edit` declines to schedule one, correctly -- the write
-  would clobber the other side. So between the conflict appearing and the reader resolving it, that
-  text is in React state and nowhere else.
-- **A failed write is not retried.** It returns to `dirty` and waits for the next keystroke. The
-  Swift did the same, so this is faithful rather than a port bug, but it has the same shape.
+  would clobber whoever moved first. So between the conflict appearing and the reader resolving it,
+  that text is in React state and nowhere else.
+- **A failed write is not retried** until the next keystroke. The Swift did the same, so it is
+  faithful rather than a port bug, but it has the same shape.
 
 The Swift's `WorkspaceIDEFileDraftStore` also did something autosave cannot: each draft carried the
 revision it was typed against, so reopening compared that to disk and restored the file *already
 marked conflicted* if it had moved. Without that, a restart loses not just the text but the fact
-that there was a divergence at all -- the reader is shown the file on disk with no sign their
-version existed.
+that there was a divergence -- the reader is shown the file on disk with no sign their version
+existed. `reconcileDraft` is that comparison, and its four answers are the whole lifecycle: none,
+identical (stale, dropped), unsaved, conflict.
 
-So the scope is a file whose text autosave will not rescue, which is usually none and occasionally
-one, not every open tab.
+**`sessionStorage`, not `localStorage`, and not the sidecar.** A half-typed edit is private to the
+tab that typed it, so two tabs on one file keep their own rather than overwriting each other
+silently, and nothing is shared between the phone and the Mac that the reader did not share. The
+sidecar was rejected for the same reason it first looked right: it has no quota, but it would make
+drafts shared state, and shared state is the thing a draft is not.
 
-**It does not belong in `localStorage`, and the count is not what decides that -- one draft can be
-too big on its own.** Measured 2026-09-10 at the panel's dev origin in Chrome for Testing: a single
-key holds 4MB and throws `QuotaExceededError` at 5MB. The text cap is 4MB, so one draft of a file
-at the limit consumes the whole origin quota. The write itself is cheap (6ms for 4MB, so this is
-not a jank argument), but every other thing the panel persists -- sidebar state, selection, the bot
-canvas, usage, the IDE's own preferences -- shares that quota, and each of them wraps its write in
-`try`/`catch` by house rule. They would not fail loudly. They would silently stop persisting, and
-the reader's whole panel would quietly forget its arrangement because one large file was open.
+The quota question that sent it there is answered by the choice. Measured 2026-09-10 at the dev
+origin in Chrome for Testing: one `localStorage` key holds 4MB and throws `QuotaExceededError` at
+5MB, and the text cap is 4MB -- so one draft of a file at the limit would take the whole of it,
+while every other thing the panel remembers shares that quota and swallows its own write failures
+by house rule. They would not fail loudly; the reader's panel would quietly stop remembering its
+arrangement because one large file was open. `sessionStorage` has an **independent** quota: 4MB
+stored there with `localStorage` already holding 4MB, and an ordinary preference write still
+succeeding alongside both. It also survives a reload, which is the threat, and dies with the tab,
+which is the cleanup -- so there is no long tail of stale drafts to evict.
 
-The sidecar is the home, which is also where the Swift had it: `WorkspaceIDEFileDraftStore` wrote a
-file per draft under Application Support, not into the webview. No quota, the atomic-write and
-versioned-store patterns are already there in `workspaceStore.ts`, and a draft then follows the
-reader between the phone and the Mac the way `orderedOpenPaths` does rather than resurrecting on
-one surface only.
-
-The open question that carries, and it is a decision rather than a detail: a sidecar draft is
-**shared**, so two surfaces editing one path race for it. That is consistent with the open-tab and
-expanded-directory state already being shared, and inconsistent with a draft being one reader's
-private working copy. Settle it before writing the store, not after.
+What is left is bounded rather than open: a quota failure evicts the oldest draft and retries, and
+if it still cannot keep the text it says so, because that is the one case where a reader is relying
+on something that is not there.
 
 Worth knowing while sizing any of this: a 4MB file is not usable in the editor today regardless.
 R11 records that `CodeEditor.tsx` is a textarea with no virtualisation, so it lays out every line.
-
-One deliberate difference, recorded so it is not read as an oversight: the document cap is 32MB
-where the Swift's was 100MB. The Swift's number was the QUIC frame budget, which no longer applies
-over HTTP; 32MB is a fresh choice rather than the old one, and `AGENT_FEED_WORKSPACE_MAX_DOCUMENT_BYTES`
-moves it.
 
 ## Open, and blocked on the environment rather than the design
 

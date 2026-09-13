@@ -19,6 +19,16 @@ import type { WorkspaceOperation } from "@agentdesk/agent-feed-wire";
 import type { OpenFile } from "@/features/workspace-ide/useWorkspaceIde";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
 import { WorkspaceRequestError } from "@/features/workspace-ide/workspaceIdeClient";
+import { removeDraft, storeDraft } from "@/features/workspace-ide/workspaceIdeDrafts";
+
+/**
+ * How long unsaved text rests before it is also kept in this tab's storage.
+ *
+ * Shorter than the autosave delay, because this is the thing that catches an edit the autosave has
+ * not got to yet -- and a `sessionStorage` write is synchronous, so it is not free enough to do on
+ * every keystroke of a large file.
+ */
+const DRAFT_DELAY_MS = 300;
 
 /** How long an edit rests before it is written. Ported from the Swift's autosave delay. */
 const AUTOSAVE_DELAY_MS = 900;
@@ -62,6 +72,43 @@ export function useWorkspaceIdeWriting({
    */
   const writingRef = useRef(new Set<string>());
   const pendingCloseRef = useRef(new Set<string>());
+  const draftTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  /** Stop a pending draft write, and drop whatever is stored. The text is on disk or discarded. */
+  const forgetDraft = useCallback((path: string) => {
+    const timer = draftTimers.current.get(path);
+    if (timer) clearTimeout(timer);
+    draftTimers.current.delete(path);
+    if (workspaceId) removeDraft(workspaceId, path);
+  }, [workspaceId]);
+
+  /** Keep this tab's unsaved text, after a rest, against the revision it was typed from. */
+  const keepDraft = useCallback((path: string) => {
+    if (!workspaceId) return;
+    const existing = draftTimers.current.get(path);
+    if (existing) clearTimeout(existing);
+    draftTimers.current.set(path, setTimeout(() => {
+      draftTimers.current.delete(path);
+      const file = openFilesRef.current[path];
+      if (!file || file.saveState === "clean") return;
+      const kept = storeDraft(workspaceId, path, {
+        text: file.text,
+        baselineRevision: file.revision,
+        updatedAt: Date.now(),
+      });
+      // The one storage failure worth saying out loud: the reader is relying on text being held
+      // somewhere, and it is not.
+      if (!kept) setError("This tab could not keep a copy of your unsaved changes.");
+    }, DRAFT_DELAY_MS));
+  }, [openFilesRef, setError, workspaceId]);
+
+  useEffect(() => {
+    const pending = draftTimers.current;
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer);
+      pending.clear();
+    };
+  }, []);
 
   // Neither set outlives the workspace they were taken against.
   useEffect(() => {
@@ -138,14 +185,22 @@ export function useWorkspaceIdeWriting({
           },
         };
       });
-      if (outcome.status === "conflict") return;
+      // A conflict is one of the two states autosave will never rescue, so the text is kept
+      // against the revision it was typed from rather than the one that beat it.
+      if (outcome.status === "conflict") {
+        keepDraft(path);
+        return;
+      }
       // Keystrokes landed while the write was in flight, so the file is dirty again against the
       // revision this write just produced. Without this it would sit dirty and unscheduled until
       // the reader typed once more.
       if (moved) {
+        keepDraft(path);
         scheduleSave(path);
         return;
       }
+      // On disk and identical, so there is nothing left for a draft to preserve.
+      forgetDraft(path);
       if (pendingCloseRef.current.delete(path)) {
         setOpenFiles((current) => {
           const next = { ...current };
@@ -161,11 +216,14 @@ export function useWorkspaceIdeWriting({
         return held ? { ...current, [path]: { ...held, saveState: "dirty" } } : current;
       });
       pendingCloseRef.current.delete(path);
+      // The other state autosave does not come back to: a failed write waits for the next
+      // keystroke, so without this the text would have nothing behind it until then.
+      keepDraft(path);
       setError(describe(cause, "The file could not be saved."));
     } finally {
       writingRef.current.delete(path);
     }
-  }, [applyOperation, client, scheduleSave, workspaceId]);
+  }, [applyOperation, client, forgetDraft, keepDraft, openFilesRef, scheduleSave, setError, setOpenFiles, generationRef, writingRef, pendingCloseRef, workspaceId]);
 
   writeNowRef.current = (path, revision, text) => void writeNow(path, revision, text);
 
@@ -181,15 +239,19 @@ export function useWorkspaceIdeWriting({
         : current;
       return { ...current, [path]: { ...file, text, saveState: "dirty" } };
     });
+    keepDraft(path);
     if (openFilesRef.current[path]?.saveState === "conflict") return;
     scheduleSave(path);
-  }, [scheduleSave]);
+  }, [keepDraft, openFilesRef, scheduleSave]);
 
   const useHostVersion = useCallback((path: string) => {
     cancelTimer(path);
     pendingCloseRef.current.delete(path);
+    // Dropped before the read, not after: the reader asked for the file on disk, and a draft left
+    // in place would be restored over it by the very reload that is meant to discard it.
+    forgetDraft(path);
     void reload(path);
-  }, [cancelTimer, reload]);
+  }, [cancelTimer, forgetDraft, reload]);
 
   /**
    * Keep the local text, re-based on whatever is on disk now.
@@ -233,6 +295,7 @@ export function useWorkspaceIdeWriting({
     const file = openFilesRef.current[path];
     if (!file || file.saveState === "clean") {
       cancelTimer(path);
+      forgetDraft(path);
       setOpenFiles((current) => {
         const next = { ...current };
         delete next[path];
@@ -248,7 +311,7 @@ export function useWorkspaceIdeWriting({
     cancelTimer(path);
     pendingCloseRef.current.add(path);
     if (file.saveState === "dirty") writeNowRef.current(path, file.revision, file.text);
-  }, [applyOperation, cancelTimer]);
+  }, [applyOperation, cancelTimer, forgetDraft, openFilesRef, setError]);
 
 
   return {

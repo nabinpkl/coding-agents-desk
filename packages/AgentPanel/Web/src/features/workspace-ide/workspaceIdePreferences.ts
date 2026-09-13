@@ -5,9 +5,10 @@
 // Which files are open and which directories are expanded fail that test twice over: the sidecar
 // owns them, and it shares them between readers on purpose. What is here is the rest.
 //
-// Deliberately absent: drafts. An unsaved edit is autosaved to the file within a second, so
-// storing a second copy of it here would be a second source of truth for the one piece of state
-// where a divergence loses a reader's words.
+// Drafts are not here, and the file they are in says why: they are private to one tab and their
+// quota has to be its own, so they live in `sessionStorage` (`workspaceIdeDrafts.ts`). Keeping them
+// beside these would mean one 4MB file quietly costing the reader everything else this module
+// remembers.
 
 export interface WorkspaceIdePreferences {
   /** Which workspace this reader was last in, re-resolved against the roster on load. */

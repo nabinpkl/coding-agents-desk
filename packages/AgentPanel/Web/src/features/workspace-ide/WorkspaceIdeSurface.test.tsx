@@ -68,7 +68,12 @@ function transportWith(workspaces: WorkspaceSummary[]): FakeHttpTransport {
 async function mounted(): Promise<FakeHttpTransport> {
   const transport = transportWith([WORKSPACE]);
   render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
-  await waitFor(() => expect(transport.subscriptions.length).toBeGreaterThan(0));
+  await waitFor(
+    () => expect(transport.subscriptions.length).toBeGreaterThan(0),
+    // Generous on purpose: this gates every test in the file, and the default second is not enough
+    // when the whole suite is running. What it waits for is a promise chain, not a duration.
+    { timeout: 10_000 },
+  );
   act(() => {
     transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: CLEAN_STATE });
     transport.deliver("/api/workspace/w-1/stream", { type: "tree", workspaceId: "w-1", tree: TREE });
