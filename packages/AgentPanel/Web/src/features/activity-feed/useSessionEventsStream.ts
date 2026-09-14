@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { seedRange, olderRange } from "@/features/activity-feed/data-source/eventPaging";
-import { lastUsageFromEvents } from "@/features/activity-feed/usageFromEvents";
+import { useTimelineGapFill, withNewer } from "@/features/activity-feed/useTimelineGapFill";
+import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageFromEvents";
 import { splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 
@@ -103,6 +104,9 @@ interface State {
    *  what tells an unmirrored transcript row apart from one the preview produced,
    *  which is the whole of `visibleTails`' second rule. */
   mirroredMessages: Set<string>;
+  /** How many snapshots this subscription has applied. What re-arms the gap fill below after a
+   *  snapshot overtakes one of its pages and leaves the same hole behind. */
+  snapshotCount: number;
 }
 
 /** A live row's key: the mirror's own row id, stable across the revisions that
@@ -171,25 +175,6 @@ export function visibleTails(
   return visible.sort((left, right) => left.index - right.index);
 }
 
-/** Whichever occupancy report is more recent, by the timestamp on the line that
- *  produced it. Both are already-resolved snapshots, so this picks rather than
- *  merges -- with one exception: the cache lifetime is carried over when the
- *  winner names none. A request that wrote nothing to the cache reports no
- *  lifetime, which says the request was a pure hit, not that the cache stopped
- *  having one, and picking it wholesale would drop the countdown on the rows
- *  that arrive most often. */
-export function newerUsage(
-  left: TokenUsage | null,
-  right: TokenUsage | null,
-): TokenUsage | null {
-  if (!left) return right;
-  if (!right) return left;
-  const [older, newer] =
-    right.updatedAt >= left.updatedAt ? [left, right] : [right, left];
-  if (newer.cacheTtlMs !== undefined || older.cacheTtlMs === undefined) return newer;
-  return { ...newer, cacheTtlMs: older.cacheTtlMs };
-}
-
 export function useSessionEventsStream(
   source: AgentSource,
   sessionId: string,
@@ -213,6 +198,7 @@ export function useSessionEventsStream(
     queue: { steer: 0, followUp: 0 },
     liveRows: new Map(),
     mirroredMessages: new Set(),
+    snapshotCount: 0,
   });
   const [connected, setConnected] = useState(false);
   const loadingOlderRef = useRef(false);
@@ -299,7 +285,8 @@ onEvent: (event) => {
           // The sidecar re-sends its opening window on every open, and EventSource
           // reopens on its own after any drop, so without this a reader who had
           // scrolled up watched the transcript collapse back to its last hundred rows
-          // for no reason they could see.
+          // for no reason they could see. A stall longer than a window leaves a hole
+          // between what is kept and the snapshot; the gap fill below fetches it.
           const retained = snapshot.stableIndices
             ? Array.from(current.events.values()).filter(
                 (event) => event.index < snapshot.windowStart,
@@ -331,6 +318,7 @@ onEvent: (event) => {
             queue: snapshot.state.queue,
             liveRows,
             mirroredMessages: current.mirroredMessages,
+            snapshotCount: current.snapshotCount + 1,
           };
         });
       },
@@ -411,6 +399,7 @@ onEvent: (event) => {
           queue: current.queue,
           liveRows: current.liveRows,
           mirroredMessages: current.mirroredMessages,
+          snapshotCount: current.snapshotCount,
         }));
       } catch (e) {
         if (!cancelled && !replacedBySnapshot) {
@@ -454,6 +443,21 @@ onEvent: (event) => {
     arr.sort((a, b) => a.index - b.index);
     return arr;
   }, [state.events]);
+
+  const fetchGapPage = useCallback(
+    (offset: number, limit: number) => ds.fetchEventsPage(session, offset, limit),
+    [session, ds],
+  );
+  const mergeGapPage = useCallback((page: readonly ActivityEvent[]) => {
+    setState((current) => ({ ...current, events: withNewer(current.events, page) }));
+  }, []);
+  useTimelineGapFill({
+    events,
+    fetchPage: fetchGapPage,
+    epochRef: timelineEpochRef,
+    snapshotCount: state.snapshotCount,
+    onPage: mergeGapPage,
+  });
 
   // Derived rather than cleared on arrival, so the rule holds whatever order the two
   // sources land in. The clear inside `onEvent` still runs, to let a finished message

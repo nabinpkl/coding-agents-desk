@@ -25,3 +25,28 @@ export function olderRange(
   const limit = currentStart - targetStart;
   return { targetStart, limit };
 }
+
+/**
+ * The page of missing rows nearest the newest end of what is held, or null when what is held has
+ * no hole in it.
+ *
+ * Indices in a mode have no gaps -- measured on a live session in both modes -- so a hole is rows
+ * the reader was never sent, not rows that do not exist. What makes one is a reconnect after a
+ * stall longer than a window: the snapshot's window starts past the newest row held from before.
+ *
+ * Newest first, because that is the end the reader is most often at, and each page then lands
+ * joined to the rows already on screen rather than as an island in the middle of the hole.
+ */
+export function newestGap(
+  sortedIndices: readonly number[],
+  pageSize = PAGE_SIZE,
+): { offset: number; limit: number } | null {
+  for (let position = sortedIndices.length - 1; position > 0; position -= 1) {
+    const above = sortedIndices[position]!;
+    const below = sortedIndices[position - 1]!;
+    if (above - below <= 1) continue;
+    const offset = Math.max(below + 1, above - pageSize);
+    return { offset, limit: above - offset };
+  }
+  return null;
+}
