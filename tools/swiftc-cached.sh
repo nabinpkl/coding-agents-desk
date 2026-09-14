@@ -32,6 +32,9 @@ swiftc_cached() {
   # Staged and moved so an interrupted compile never leaves a truncated binary
   # that the next run would happily consider fresh.
   _sc_staging="$(mktemp -d "$(dirname "$_sc_out")/.swiftc.XXXXXX")"
+  # Sourced into callers that may not run under `set -e`, so a failed `mktemp` would otherwise
+  # leave this empty and hand an empty path to `rm -rf` below. Checked here rather than trusted.
+  : "${_sc_staging:?swiftc_cached: could not create a staging directory}"
   if swiftc -O "$@" -o "$_sc_staging/out"; then
     mv "$_sc_staging/out" "$_sc_out"
     rmdir "$_sc_staging"

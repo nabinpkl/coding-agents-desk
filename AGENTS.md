@@ -431,6 +431,37 @@ started it.
   deleting caches, resetting TCC, replacing credentials for a running server, or relaunching a
   daily-driver app. See ADR-0113 for the deployment boundary.
 
+### A delete names an absolute path, and preferably one this run created
+
+Every `rm -rf`, `rmSync`, `rmdir` and `shutil.rmtree` in this repo takes an ABSOLUTE path, built
+from a root the script resolved for itself. This is preventive rather than a scar: nothing here has
+destroyed a home directory. It is written down because it is the one class of bug with no undo, a
+script only gets one chance at it, and every ingredient is already present -- these tools run from
+`just` recipes, from launchd, from a sourced shell function, and over ssh, so four different
+processes with four different working directories run the same lines.
+
+- **Absolute, because a relative path is interpreted against whatever the cwd happens to be.** `rm
+  -rf build` means one thing in the repo and another in `$HOME`, and the `cd` that was supposed to
+  make it safe is exactly the command that can fail. `tools/runtime-paths.mjs` already holds the
+  read-side of this rule -- `absoluteEnvironmentPath` throws when an override is not absolute --
+  and a delete deserves at least what a write gets.
+- **Guard the variable, not just the command.** `rm -rf "$ROOT/$NAME"` with `ROOT` empty deletes
+  `/$NAME`, and with both empty deletes `/`. `set -u` does NOT catch this: an unset variable is an
+  error, an EMPTY one is not, and a `$(mktemp -d)` that failed assigns exactly that empty string.
+  One line covers it, before the path is used or trapped: `: "${ROOT:?}" "${NAME:?}"`. Quote every
+  expansion, for the reason the argv-quoting section below gives at length.
+- **Delete what you created, by the name you were given.** Keep the value `mktemp -d` or
+  `mkdtempSync` returned and remove exactly that. Never a glob, never its parent, never a path
+  reassembled from pieces. A `trap` installed before the variable is assigned fires with an empty
+  one, so assign first and trap second.
+- **Anything else gets a confinement check first.** A path from configuration, from a wire request,
+  or from a caller is checked to be under the root you expect before it is removed, the way
+  `workspace/workspaceBrowse.ts` and `bots/botDirectory.ts` do for listing and binding. A path that
+  fails the check is a bug to report, never a path to delete anyway.
+
+Deleting anything you did NOT create is a destructive act under the universal rules and wants a
+human's go-ahead, whatever this section says about how to spell it.
+
 ## The native client, host builds, and the simulator are dormant
 
 The iPhone app, its TestFlight release machinery, the iOS/macOS marketing-version and build-number
