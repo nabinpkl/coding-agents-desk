@@ -5,6 +5,7 @@ import { expect, test } from 'bun:test';
 import {
   extractSessionId,
   extractToolResults,
+  isConversationTurn,
   isSubagentRequest,
 } from "@/live/claudeRequestBody";
 
@@ -120,4 +121,52 @@ test("isSubagentRequest is false for an ordinary turn", () => {
   expect(isSubagentRequest(JSON.stringify({ model: "claude" }))).toBe(false);
   expect(isSubagentRequest("not json")).toBe(false);
   expect(isSubagentRequest("")).toBe(false);
+});
+
+/** The harness's billing line, as measured on the wire, with whatever tail the case needs. */
+function billed(tail: string): string {
+  return JSON.stringify({
+    system: [
+      { type: "text", text: `x-anthropic-billing-header: cc_version=2.1.270.119; cc_entrypoint=cli; cch=53b3d;${tail}` },
+      { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." },
+    ],
+    user_id: JSON.stringify({ session_id: "sess-one" }),
+  });
+}
+
+test("isConversationTurn reads the prompt id the harness stamps on a real turn", () => {
+  expect(isConversationTurn(billed(" cc_prompt_id=711e45f5-7a05-4be5-a922-cd31437e1707;"))).toBe(true);
+});
+
+test("isConversationTurn rejects the harness's own errands, which name no prompt", () => {
+  // Measured 2026-09-14 on a throwaway session compacted twice: the compaction summariser and the
+  // composer's suggestion call both carry the session's own id and neither is a subagent, so
+  // nothing else stops them streaming into the thread. The summariser is the one that shows,
+  // because it lands on the compaction banner and buries it under half a summary nobody wrote.
+  expect(isConversationTurn(billed(" cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;"))).toBe(false);
+  // `cc_prev_req` rides on ordinary turns too, so it is the prompt id that decides and not this.
+  expect(isConversationTurn(
+    billed(" cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6; cc_prompt_id=711e45f5-7a05-4be5-a922-cd31437e1707;"),
+  )).toBe(true);
+});
+
+test("isConversationTurn reads a body with no billing header at all as a turn", () => {
+  // The only absence-driven rule in this file, so it fails towards the behaviour of the day before
+  // it landed. A harness that stops sending the header loses the summariser filter; one that is
+  // trusted to have sent it loses every session's live mirror at once.
+  expect(isConversationTurn(JSON.stringify({ model: "claude", messages: [] }))).toBe(true);
+  expect(isConversationTurn("not json")).toBe(true);
+});
+
+test("isConversationTurn ignores a prompt id that is only in the conversation", () => {
+  // Same trap as the subagent token: a session reading this file quotes `cc_prompt_id=` in its own
+  // next request, and a whole-body search would then call every summariser it runs a turn.
+  const body = JSON.stringify({
+    system: [{ type: "text", text: "x-anthropic-billing-header: cc_version=2.1.270.119; cc_prev_req=req_01;" }],
+    messages: [{
+      role: "user",
+      content: [{ type: "tool_result", content: "the rule matches cc_prompt_id=abc in the body" }],
+    }],
+  });
+  expect(isConversationTurn(body)).toBe(false);
 });

@@ -276,7 +276,7 @@ export class ClaudeLiveBackend implements AgentBackend {
       return;
     }
     void fetchRequestMetadata(this.endpoint, reference)
-      .then(({ sessionId, toolResults, subagent }) => {
+      .then(({ sessionId, toolResults, subagent, conversationTurn }) => {
         if (this.disposed || !this.flowContexts.has(flowId)) return;
         // A subagent's request carries its PARENT's session id, so binding it would mirror the
         // subagent's whole answer into the parent's live view -- text the parent never said,
@@ -285,9 +285,14 @@ export class ClaudeLiveBackend implements AgentBackend {
         // to, and its lines still reach the panel the durable way, through the transcript the
         // harness writes at `<session>/subagents/agent-<id>.jsonl` and the route that serves it.
         //
+        // The harness's own errands go the same way and for the same reason. A compaction
+        // summariser and a composer suggestion are not the session speaking, and the summariser is
+        // the expensive one to get wrong: minutes of streamed summary landing on the compaction
+        // banner, so the row that says the context was reset is buried under prose nobody wrote.
+        //
         // Dropped by the same path as a body with no identity at all, which is the honest
-        // comparison: in both cases this flow is not something this mirror can place.
-        if (!sessionId || subagent) {
+        // comparison: in every case this flow is not something this mirror can place.
+        if (!sessionId || subagent || !conversationTurn) {
           this.scheduleFlowDrop(flowId);
           return;
         }

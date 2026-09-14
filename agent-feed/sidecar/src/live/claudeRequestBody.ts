@@ -35,6 +35,11 @@ export interface RequestMetadata {
   toolResults: ToolResultItem[];
   /** This request belongs to a SUBAGENT of that session rather than to the session itself. */
   subagent: boolean;
+  /**
+   * This request is the session SPEAKING -- serving a prompt somebody typed -- rather than one of
+   * the harness's own errands run under the session's identity.
+   */
+  conversationTurn: boolean;
 }
 
 export interface ToolResultItem {
@@ -51,12 +56,15 @@ export async function fetchRequestMetadata(
   const response = await fetch(new URL(`/v1/bodies/${bodyReference}`, endpoint), {
     headers: { accept: "application/octet-stream" },
   });
-  if (!response.ok) return { sessionId: null, toolResults: [], subagent: false };
+  if (!response.ok) {
+    return { sessionId: null, toolResults: [], subagent: false, conversationTurn: true };
+  }
   const text = await response.text();
   return {
     sessionId: extractSessionId(text),
     toolResults: extractToolResults(text),
     subagent: isSubagentRequest(text),
+    conversationTurn: isConversationTurn(text),
   };
 }
 
@@ -94,28 +102,66 @@ export async function fetchRequestMetadata(
  * round: the failure is the merging bug coming back, not a session that can no longer be watched.
  */
 export function isSubagentRequest(requestBody: string): boolean {
+  return /cc_is_subagent\s*=\s*true/i.test(systemPromptText(requestBody));
+}
+
+/**
+ * Whether a captured `/v1/messages` request is the session SPEAKING, rather than one of the
+ * harness's own errands run under the session's identity.
+ *
+ * The same failure as the subagent case above, found the same way, and fixed the same way. The
+ * harness makes calls that are not turns: the compaction summariser, which reads the whole context
+ * and writes the summary that replaces it, and the composer's suggestion call, which guesses what
+ * the reader is about to type. Both carry the session's own `session_id` and neither is a subagent,
+ * so both bind to its live projection and stream into the thread as if the assistant had said them.
+ *
+ * The summariser is the one that gets noticed, because of where it lands. It runs for minutes and
+ * writes thousands of words, and it arrives at exactly the moment the feed should be saying the
+ * context was reset -- so the compaction banner ends up buried under half a summary nobody wrote.
+ * That is the report this rule came from.
+ *
+ * What tells them apart is `cc_prompt_id` in the harness's billing header: a request serving a
+ * prompt somebody typed carries that prompt's id, and an errand has no prompt to name. Measured
+ * across 14 captured flows on 2026-09-14, with a throwaway session compacted twice to produce the
+ * positive case -- 10 ordinary turns carried it, both summariser calls and the one suggestion call
+ * did not. Nothing else separates them: `cc_prev_req` is on almost everything, and the bodies'
+ * `thread` and `diagnostics` keys were on some ordinary turns and absent from others.
+ *
+ * Read out of the SYSTEM blocks for the reason written above: the conversation lives in `messages`,
+ * and a session discussing this rule would otherwise match its own prose.
+ *
+ * A body with no billing header at all reads as a turn, and that direction is deliberate. This is
+ * the only absence-driven rule here, so a harness that stops sending the header has to degrade to
+ * the behaviour of the day before this landed rather than take every session's live mirror down
+ * with it.
+ */
+export function isConversationTurn(requestBody: string): boolean {
+  const system = systemPromptText(requestBody);
+  if (!/x-anthropic-billing-header\s*:/i.test(system)) return true;
+  return /cc_prompt_id\s*=/i.test(system);
+}
+
+/** The system prompt as one string, in whichever of the two shapes the harness sent it. */
+function systemPromptText(requestBody: string): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(requestBody);
   } catch {
-    return false;
+    return "";
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
   const system = (parsed as Record<string, unknown>).system;
   // A string in the simple form and an array of blocks in every flow measured; both are accepted
   // because which one the harness sends is its business and neither changes the answer.
-  const text = typeof system === "string"
-    ? system
-    : Array.isArray(system)
-      ? system
-        .map((block) => {
-          if (!block || typeof block !== "object") return "";
-          const value = (block as Record<string, unknown>).text;
-          return typeof value === "string" ? value : "";
-        })
-        .join("\n")
-      : "";
-  return /cc_is_subagent\s*=\s*true/i.test(text);
+  if (typeof system === "string") return system;
+  if (!Array.isArray(system)) return "";
+  return system
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const value = (block as Record<string, unknown>).text;
+      return typeof value === "string" ? value : "";
+    })
+    .join("\n");
 }
 
 

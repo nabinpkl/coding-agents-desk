@@ -24,6 +24,18 @@ function startFixture(): FixtureServer {
         user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
       });
     }
+    if (reference === "summariser1") {
+      // A compaction summariser: the session's OWN identity, no subagent token, and a billing
+      // header with no `cc_prompt_id` because there is no prompt behind it. Measured on the wire.
+      return JSON.stringify({
+        system: [{
+          type: "text",
+          text: "x-anthropic-billing-header: cc_version=2.1.270.d34; cc_entrypoint=cli;"
+            + " cch=014d3; cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;",
+        }],
+        user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
+      });
+    }
     if (reference === "tool1") {
       return JSON.stringify({
         user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-tool1" }),
@@ -210,6 +222,31 @@ describe("ClaudeLiveBackend ingest", () => {
     const after = await backend.page(sessionId, 0, 10, "nice");
     expect(after.total).toBe(before.total);
     expect(JSON.stringify(after.events)).not.toContain("from the subagent");
+  });
+
+  test("a compaction summary stays out of the session it compacted", async () => {
+    // The report this came from: a session compacted, and the feed's tail showed half the summary
+    // instead of the compaction banner. The summariser runs under the session's own id and is not
+    // a subagent, so nothing else was stopping it -- and it streams for minutes, right over the one
+    // row that says the context was reset.
+    const before = await backend.page(sessionId, 0, 10, "nice");
+    backend.acceptObserverEvent(flowEvent("sum1", "/v1/messages", "api.anthropic.com", "summariser1"));
+    backend.acceptObserverEvent(delta("sum1", {
+      type: "message_start",
+      message: { id: "msg_sum", model: "claude-haiku-4-5", usage: { input_tokens: 9, output_tokens: 0 } },
+    }));
+    backend.acceptObserverEvent(delta("sum1", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    backend.acceptObserverEvent(delta("sum1", {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "This session is being continued from a previous conversation" },
+    }));
+    backend.acceptObserverEvent(delta("sum1", { type: "message_stop" }));
+    backend.acceptObserverEvent(ended("sum1"));
+    await flush(160);
+    const after = await backend.page(sessionId, 0, 10, "nice");
+    expect(after.total).toBe(before.total);
+    expect(JSON.stringify(after.events)).not.toContain("continued from a previous conversation");
   });
 
   test("unknown source session 404s on page", async () => {
