@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, watch } from "node:fs";
 import { request as httpRequest, type ServerResponse } from "node:http";
 import { connect } from "node:net";
@@ -57,6 +58,32 @@ const agentFeedWire = fileURLToPath(
   new URL("../../../agent-feed/wire/index.ts", import.meta.url),
 );
 const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
+
+/**
+ * What the panel puts beside Profile, so a tab can say which code it is running.
+ *
+ * Computed once, here, because that is the only moment Vite substitutes it. In a bundled build
+ * that makes it exact. Under the dev server it names where the server STARTED and nothing more --
+ * edits after that reach a connected tab over HMR without moving this string -- which is why
+ * `panelBuild.ts` lets the connection state carry freshness and this string carry only identity.
+ *
+ * A git that cannot answer yields `unknown`, which is shown on the row rather than hidden: a build
+ * that cannot name itself is the same problem this is here to make visible.
+ */
+const panelBuildId = (() => {
+  const git = (args: string[]) =>
+    execFileSync("git", args, { cwd: repositoryRoot, stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  try {
+    const head = git(["rev-parse", "--short=7", "HEAD"]);
+    // Several sessions share this worktree, so the mark says "this tree was not any one commit",
+    // not "you have uncommitted work".
+    return git(["status", "--porcelain"]) === "" ? head : `${head}+`;
+  } catch {
+    return "unknown";
+  }
+})();
 
 /**
  * The default session's sidecar, split for the middleware proxy below.
@@ -317,6 +344,9 @@ function vncBridge(port = 5900, host = "127.0.0.1"): Plugin {
 export default defineConfig({
   plugins: [react(), tailwindcss(), panelSessions(), vncBridge()],
   base: "./",
+  define: {
+    __PANEL_BUILD__: JSON.stringify(panelBuildId),
+  },
   // noVNC uses top-level await, which the default target (es2020) refuses. Raising the target is
   // the smaller change than patching the dependency, and costs nothing here: every browser this
   // panel runs in -- the Mac webview, iOS Safari, a desktop tab -- has supported it for years.

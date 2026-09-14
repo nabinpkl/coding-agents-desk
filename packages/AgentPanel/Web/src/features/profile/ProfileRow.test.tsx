@@ -421,3 +421,13 @@ describe("the usage modal", () => {
     expect(screen.getByText("No Codex records on this machine.")).toBeInTheDocument();
   });
 });
+
+describe("build identity", () => {
+  it("names the code this tab is running, on the row itself", () => {
+    // The failure it exists for: a tab sitting on a bundle older than the tree answers questions
+    // about code that has already been replaced, and nothing on screen says so.
+    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+
+    expect(screen.getByLabelText(/^Panel build /).textContent).toBe("unknown");
+  });
+});
