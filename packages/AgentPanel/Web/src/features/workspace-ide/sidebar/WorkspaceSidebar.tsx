@@ -1,18 +1,17 @@
 // The sidebar: which workspace, which section, and the section itself.
+//
+// The branch name used to ride the section nav and is on the IDE's status bar now. It says which
+// repository every pane is showing, so it should not go away with the pane it was sitting in.
 
 import { FolderTree, GitBranch } from "lucide-react";
 import type { WorkspaceGitStatus, WorkspaceSummary, WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import { SourceControl } from "@/features/workspace-ide/sidebar/SourceControl";
-import { changedFileCount } from "@/features/workspace-ide/sidebar/gitTones";
+import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 import { WorkspaceRoster } from "@/features/workspace-ide/sidebar/WorkspaceRoster";
 import { WorkspaceTree } from "@/features/workspace-ide/sidebar/WorkspaceTree";
 import type { WorkspaceIdePreferences } from "@/features/workspace-ide/workspaceIdePreferences";
 
 type Section = WorkspaceIdePreferences["section"];
-
-function changedLabel(count: number): string {
-  return `${count} changed ${count === 1 ? "file" : "files"}`;
-}
 
 const SECTIONS: { id: Section; label: string; Icon: typeof FolderTree }[] = [
   { id: "explorer", label: "Explorer", Icon: FolderTree },
@@ -106,15 +105,6 @@ export function WorkspaceSidebar({
             </button>
           );
         })}
-        {git?.branch
-          ? (
-            <span className="ml-auto min-w-0 overflow-hidden text-ellipsis whitespace-nowrap
-              px-1 text-[11px] text-muted-foreground"
-            >
-              {git.branch}
-            </span>
-          )
-          : null}
       </nav>
 
       <section className="min-h-0 flex-1 overflow-auto px-1 pb-4 pt-1">

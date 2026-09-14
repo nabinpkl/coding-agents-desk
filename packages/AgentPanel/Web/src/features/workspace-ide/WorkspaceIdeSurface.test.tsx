@@ -192,9 +192,30 @@ it("shows the source-control section when it is chosen, grouped by how it resolv
   expect(screen.queryByRole("tree")).not.toBeInTheDocument();
 });
 
-it("shows the branch the stream reported", async () => {
+it("keeps the branch on the status bar, where hiding the sidebar cannot take it away", async () => {
   await mounted();
-  expect(await screen.findByText("main")).toBeInTheDocument();
+  const status = await screen.findByLabelText("Workspace status");
+  // The count rides the name because the pill drawing it is invisible to a screen reader.
+  expect(within(status).getByRole("button", { name: "main, 1 changed file. Show Source Control" }))
+    .toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+
+  await waitFor(() => expect(screen.queryByRole("tree")).not.toBeInTheDocument());
+  expect(within(status).getByText("main")).toBeInTheDocument();
+});
+
+it("takes the branch's click to the changes it is counting, sidebar and all", async () => {
+  await mounted();
+  const status = await screen.findByLabelText("Workspace status");
+  fireEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+  await waitFor(() => expect(screen.queryByRole("tree")).not.toBeInTheDocument());
+
+  fireEvent.click(within(status).getByRole("button", { name: /Show Source Control$/ }));
+
+  // Selecting the section alone would leave the reader clicking a control with no visible effect,
+  // since the section it selects lives in the pane they just hid.
+  expect(await screen.findByRole("button", { name: "Open src/main.ts" })).toBeInTheDocument();
 });
 
 it("counts the changed files on the source-control tab, readable from the explorer", async () => {

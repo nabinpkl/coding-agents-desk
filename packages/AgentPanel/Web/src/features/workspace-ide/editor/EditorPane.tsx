@@ -1,6 +1,10 @@
 // The editor half: tabs, a breadcrumb, the conflict bar, and whatever the active file is.
+//
+// The toolbar's controls are the ones that act on THIS pane or its neighbour to the left. The
+// terminal toggle used to be here too and is now on the IDE's status bar, at the edge of the pane
+// it opens rather than three controls away and above it.
 
-import { Eye, PanelLeft, PanelBottom, Pencil } from "lucide-react";
+import { Eye, PanelLeft, Pencil } from "lucide-react";
 import type { WorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import { CodeEditor } from "@/features/workspace-ide/editor/CodeEditor";
 import { EditorTabs } from "@/features/workspace-ide/editor/EditorTabs";
@@ -64,15 +68,6 @@ export function EditorPane({ ide }: { ide: WorkspaceIde }) {
             </button>
           )
           : null}
-        <button
-          type="button"
-          aria-label="Toggle terminal"
-          aria-pressed={preferences.terminalVisible}
-          onClick={() => ide.update({ terminalVisible: !preferences.terminalVisible })}
-          className={CONTROL}
-        >
-          <PanelBottom className="size-4" />
-        </button>
       </div>
 
       {file?.saveState === "conflict" && activePath

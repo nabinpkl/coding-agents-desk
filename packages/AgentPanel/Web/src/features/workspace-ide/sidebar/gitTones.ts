@@ -135,3 +135,14 @@ export function changedFileCount(entries: readonly WorkspaceGitEntry[]): number 
   }
   return paths.size;
 }
+
+/**
+ * The count as a sentence, for the labels that carry a badge's meaning to a screen reader.
+ *
+ * Here rather than beside either caller because two of them now say it -- the sidebar's section
+ * tab and the status bar's branch -- and a count that reads "1 changed files" in one place and
+ * not the other is exactly the drift a second copy produces.
+ */
+export function changedLabel(count: number): string {
+  return `${count} changed ${count === 1 ? "file" : "files"}`;
+}

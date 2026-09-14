@@ -13,6 +13,7 @@ import { EditorPane } from "@/features/workspace-ide/editor/EditorPane";
 import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
 import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
+import { WorkspaceIdeStatusBar } from "@/features/workspace-ide/WorkspaceIdeStatusBar";
 import { WorkspaceTerminal } from "@/features/workspace-ide/WorkspaceTerminal";
 import { useWorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import {
@@ -56,6 +57,18 @@ export function WorkspaceIdeSurface({
         TERMINAL_FRACTION_RANGE,
       ),
     });
+  }, [ide]);
+
+  /**
+   * The status bar's branch, taking the reader to the changes it is counting.
+   *
+   * It reveals the sidebar as well as selecting the section, because the commonest time to ask
+   * what changed is while the sidebar is hidden -- that is when the bar's count is the only
+   * number on screen, and a click that selected a section inside a pane nobody can see would
+   * read as a dead control.
+   */
+  const showSourceControl = useCallback(() => {
+    ide.update({ section: "sourceControl", sidebarVisible: true });
   }, [ide]);
 
   /** Every roster call fails the same way: into the banner, named by what was attempted. */
@@ -234,6 +247,16 @@ export function WorkspaceIdeSurface({
             : null}
         </div>
       </div>
+
+      {/* Full width, under the sidebar as well as the editor: it reports on the workspace rather
+          than on either pane, and it is the strip that survives both of them being hidden. */}
+      <WorkspaceIdeStatusBar
+        git={ide.git}
+        terminalVisible={preferences.terminalVisible}
+        onShowSourceControl={showSourceControl}
+        onToggleTerminal={() => ide.update({ terminalVisible: !preferences.terminalVisible })}
+      />
+
       {picking
         ? (
           <WorkspacePicker
