@@ -3,6 +3,7 @@ import {
   SseTextParser,
   decodeDeltaData,
   mapAnthropicStreamEvent,
+  requestsLongContext,
 } from "@/live/claudeNetworkSource";
 
 test("SseTextParser splits data frames and tolerates split chunk boundaries", () => {
@@ -59,4 +60,21 @@ test("mapAnthropicStreamEvent normalizes the stream shapes", () => {
     .toEqual({ kind: "message_delta", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 50 } });
   expect(mapAnthropicStreamEvent({ type: "ping" })).toEqual({ kind: "ping" });
   expect(mapAnthropicStreamEvent({ type: "made_up" })).toBeNull();
+});
+
+test("requestsLongContext matches the beta by name, not by substring", () => {
+  const list = (value: string) => [{ name: "anthropic-beta", value }];
+
+  // The real header carries a dozen entries, including `context-management-2025-06-27`, so a
+  // substring test for "context-" would call every session long-context.
+  expect(requestsLongContext(list("claude-code-20250219,context-1m-2025-08-07,effort-2025-11-24"))).toBe(true);
+  expect(requestsLongContext(list("claude-code-20250219,context-management-2025-06-27"))).toBe(false);
+  expect(requestsLongContext(list("Anthropic-Beta-Like,x-context-1m-2025-08-07"))).toBe(false);
+});
+
+test("requestsLongContext reads the header name case-insensitively, and survives junk", () => {
+  expect(requestsLongContext([{ name: "Anthropic-Beta", value: " context-1m-2025-08-07 " }])).toBe(true);
+  expect(requestsLongContext([{ name: "authorization", value: "context-1m-2025-08-07" }])).toBe(false);
+  expect(requestsLongContext(undefined)).toBe(false);
+  expect(requestsLongContext([null, 7, { name: "anthropic-beta" }])).toBe(false);
 });

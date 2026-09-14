@@ -56,6 +56,18 @@ export function contextWindowEnvironment(name: string): Record<string, number> {
 }
 
 /**
+ * The same model id in its long-context tier.
+ *
+ * For a caller that learned the tier somewhere other than the id: the live mirror reads it off the
+ * request's own `anthropic-beta` list, because a captured request names the model without it.
+ * Returned as an ID rather than as a number so it goes back through the table above, which is what
+ * keeps `AGENT_FEED_CONTEXT_WINDOWS="claude-opus-5[1m]=500000"` meaning what it says.
+ */
+export function longContextModelId(model: string): string {
+  return LONG_CONTEXT_SUFFIX.test(model) ? model : `${model}[1m]`;
+}
+
+/**
  * The model's context window in tokens, or null when this build has no entry.
  *
  * Null is a real answer, not a failure: the panel then shows the occupancy count

@@ -6,6 +6,7 @@
 // projection a reader is subscribed to.
 
 import { contextWindowFor } from "@/config";
+import { longContextModelId } from "@/contextWindows";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -27,7 +28,26 @@ export interface LiveMessage {
   cacheHit?: EventCacheHit;
 }
 
-export function usageFor(model: string | undefined, usage: unknown, ts: number): TokenUsage | null {
+/**
+ * One usage record as an occupancy report, with the window resolved for the tier the request asked
+ * for.
+ *
+ * `longContext` exists because a captured request cannot name its own tier: the model field carries
+ * the API id, `claude-opus-5`, whichever window the harness is running, so resolving from it alone
+ * reported 200,000 for every 1M session the moment it started streaming. The panel takes whichever
+ * of the live and durable snapshots is newer, so that reading won, and a session with a million
+ * tokens of room showed a meter five times too full for exactly as long as it was being watched.
+ * The caller reads the tier off the request's `anthropic-beta` list; see `requestsLongContext`.
+ *
+ * The model is reported unchanged and only the window moves, because the id is what the API said
+ * and the tier is not part of it.
+ */
+export function usageFor(
+  model: string | undefined,
+  usage: unknown,
+  ts: number,
+  longContext = false,
+): TokenUsage | null {
   if (!usage || typeof usage !== "object") return null;
   const u = usage as Record<string, unknown>;
   const input = typeof u.input_tokens === "number" ? u.input_tokens : 0;
@@ -43,7 +63,7 @@ export function usageFor(model: string | undefined, usage: unknown, ts: number):
   const cacheTtlMs = cacheTtlFromUsage(u);
   return {
     current,
-    limit: contextWindowFor(model),
+    limit: contextWindowFor(longContext && model ? longContextModelId(model) : model),
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
     ...(cacheTtlMs ? { cacheTtlMs } : {}),
@@ -111,6 +131,8 @@ export function applyStreamEvent(
   context: { message: LiveMessage | null },
   event: AnthropicStreamEvent,
   ts: number,
+  /** Whether this session's requests ask for the million-token context. */
+  longContext = false,
 ): void {
   switch (event.kind) {
     case "message_start": {
@@ -126,7 +148,7 @@ export function applyStreamEvent(
         toolRaw: new Map(),
       };
       const model = typeof event.message.model === "string" ? event.message.model : undefined;
-      const started = usageFor(model, event.message.usage, ts);
+      const started = usageFor(model, event.message.usage, ts, longContext);
       if (started) usage.set(sessionId, started);
       projection.setState("running");
       publishMessage(projection, context.message);
@@ -189,7 +211,7 @@ export function applyStreamEvent(
       const message = context.message;
       if (!message) break;
       const model = usage.get(sessionId)?.model;
-      const delivered = usageFor(model, event.usage, ts);
+      const delivered = usageFor(model, event.usage, ts, longContext);
       if (delivered) usage.set(sessionId, delivered);
       const cacheHit = extractClaudeCacheHit(event.usage);
       if (cacheHit) message.cacheHit = cacheHit;

@@ -56,7 +56,13 @@ function startFixture(): FixtureServer {
   };
 }
 
-function flowEvent(flowId: string, path: string, authority: string, bodyRef?: string): ObserverEvent {
+function flowEvent(
+  flowId: string,
+  path: string,
+  authority: string,
+  bodyRef?: string,
+  requestHeaders?: { name: string; value: string }[],
+): ObserverEvent {
   return {
     observedAt: new Date().toISOString(),
     flowUpserted: {
@@ -66,10 +72,21 @@ function flowEvent(flowId: string, path: string, authority: string, bodyRef?: st
         path,
         authority,
         ...(bodyRef ? { requestBody: { value: bodyRef } } : {}),
+        ...(requestHeaders ? { requestHeaders } : {}),
       },
     },
   };
 }
+
+/** The beta list a 1M run actually sends, trimmed; the real one carries a dozen more entries. */
+const LONG_CONTEXT_BETAS = {
+  name: "anthropic-beta",
+  value: "claude-code-20250219,oauth-2025-04-20,context-1m-2025-08-07,interleaved-thinking-2025-05-14",
+};
+const ORDINARY_BETAS = {
+  name: "anthropic-beta",
+  value: "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
+};
 
 function delta(flowId: string, payload: unknown): ObserverEvent {
   return {
@@ -283,6 +300,64 @@ describe("ClaudeLiveBackend ingest", () => {
     expect(last?.text).toBe("ab");
     expect(last?.phase).toBe("complete");
     expect(last?.revision).toBeGreaterThanOrEqual(2);
+    await local.dispose();
+  });
+});
+
+describe("the context tier a live request asked for", () => {
+  const fixture = startFixture();
+  afterAll(() => fixture.stop());
+
+  const usageOf = async (flowId: string, bodyRef: string, headers: { name: string; value: string }[]) => {
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent(flowId, "/v1/messages", "api.anthropic.com", bodyRef, headers));
+    await flush(80);
+    local.acceptObserverEvent(delta(flowId, {
+      type: "message_start",
+      message: { id: `msg_${flowId}`, model: "claude-opus-5", usage: { input_tokens: 500_000 } },
+    }));
+    local.acceptObserverEvent(delta(flowId, { type: "message_stop" }));
+    await flush(40);
+    const usage = local.sessionUsage(`sess-${bodyRef}`);
+    await local.dispose();
+    return usage;
+  };
+
+  test("reads the million-token window off the request's own beta list", async () => {
+    // A captured request cannot name its tier: the model field says `claude-opus-5` whichever
+    // window the harness is running. Resolving from it alone reported 200,000 for every 1M
+    // session the moment it started streaming, and the panel takes the newer of the live and
+    // durable snapshots, so that reading won while the session was being watched.
+    const usage = await usageOf("ftier1", "tier1", [LONG_CONTEXT_BETAS]);
+
+    expect(usage?.limit).toBe(1_000_000);
+    // The model is what the API said, unchanged: the tier is not part of the id it returns.
+    expect(usage?.model).toBe("claude-opus-5");
+  });
+
+  test("leaves an ordinary run on its own window", async () => {
+    // Measured: `claude -p --model claude-opus-5` sends this list, with no `context-1m-` in it.
+    const usage = await usageOf("ftier2", "tier2", [ORDINARY_BETAS]);
+
+    expect(usage?.limit).toBe(200_000);
+  });
+
+  test("a flow whose headers never arrived does not shrink a session already known to be 1M", async () => {
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("ftier3", "/v1/messages", "api.anthropic.com", "tier3", [LONG_CONTEXT_BETAS]));
+    await flush(80);
+    local.acceptObserverEvent(flowEvent("ftier4", "/v1/messages", "api.anthropic.com", "tier3"));
+    await flush(80);
+    local.acceptObserverEvent(delta("ftier4", {
+      type: "message_start",
+      message: { id: "msg_tier4", model: "claude-opus-5", usage: { input_tokens: 500_000 } },
+    }));
+    local.acceptObserverEvent(delta("ftier4", { type: "message_stop" }));
+    await flush(40);
+
+    // Every request of a session carries the same beta list, so a flow that named none is one this
+    // mirror failed to read rather than a session that changed tier.
+    expect(local.sessionUsage("sess-tier3")?.limit).toBe(1_000_000);
     await local.dispose();
   });
 });

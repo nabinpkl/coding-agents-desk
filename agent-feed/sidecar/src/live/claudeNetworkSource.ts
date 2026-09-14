@@ -25,6 +25,33 @@ export interface ObserverFlow {
   requestHeaders?: unknown;
 }
 
+/**
+ * Whether this request asked for the million-token context, read off its own `anthropic-beta` list.
+ *
+ * The authority for a live turn, and better than anything in the body: the model field carries the
+ * API's id (`claude-opus-5`), which is the same string whichever tier the harness picked, while the
+ * tier itself is spelled `[1m]` only in the CLI's own model id and only in the transcript.
+ *
+ * Measured 2026-09-14 against the running proxy observer: `claude -p --model claude-opus-5` sent
+ * six flows with no `context-1m-` beta, `--model 'claude-opus-5[1m]'` sent six with it, and every
+ * other session observed in the same window was internally consistent across all of its flows.
+ * The beta list also carries a dozen unrelated entries, so this matches the one name rather than
+ * testing for a substring of the whole header.
+ */
+export function requestsLongContext(headers: unknown): boolean {
+  if (!Array.isArray(headers)) return false;
+  for (const header of headers) {
+    if (!header || typeof header !== "object") continue;
+    const { name, value } = header as { name?: unknown; value?: unknown };
+    if (typeof name !== "string" || name.toLowerCase() !== "anthropic-beta") continue;
+    if (typeof value !== "string") continue;
+    if (value.split(",").some((beta) => beta.trim().toLowerCase().startsWith("context-1m-"))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export interface ObserverFlowUpserted {
   flow?: ObserverFlow;
 }

@@ -33,6 +33,7 @@ import {
   claudeLiveReconnectDelay,
   decodeDeltaData,
   mapAnthropicStreamEvent,
+  requestsLongContext,
   subscribeToObserver,
   type AnthropicStreamEvent,
   type ObserverEvent,
@@ -63,6 +64,13 @@ export class ClaudeLiveBackend implements AgentBackend {
 
   private readonly sessions: LiveSessionRegistry;
   private readonly binds = new Map<string, string>();
+  // Sessions whose requests ask for the million-token context, learned from the request's own
+  // `anthropic-beta` list. Per session and only ever added to, for the same reason the declared
+  // model's tier is sticky: every request of a session carries the same beta list, so a flow that
+  // did not name it is a flow this mirror failed to read rather than a session that changed tier.
+  // A reader who genuinely moves from 1M down to 200k mid-session keeps the larger window here,
+  // which is the cheaper error -- the other way round shows a meter five times too full.
+  private readonly longContextSessions = new Set<string>();
   private readonly flowContexts = new Map<string, FlowContext>();
   private subscription: ObserverSubscription | null = null;
   private abortController: AbortController | null = null;
@@ -225,6 +233,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     this.subscription = null;
     this.sessions.clear();
     this.binds.clear();
+    this.longContextSessions.clear();
     this.flowContexts.clear();
   }
 
@@ -250,11 +259,15 @@ export class ClaudeLiveBackend implements AgentBackend {
     path?: unknown;
     protocol?: unknown;
     requestBody?: { value?: unknown };
+    requestHeaders?: unknown;
   }, ts: number): void {
     const flowId = flow.flowId;
     if (typeof flowId !== "string" || !flowId) return;
     if (this.binds.has(flowId) || this.flowContexts.has(flowId)) return;
     if (!isMessageStream(flow)) return;
+    // Read now rather than at bind time: the session id arrives from an async body fetch, and the
+    // headers are on the flow in hand.
+    const longContext = requestsLongContext(flow.requestHeaders);
     const context: FlowContext = { sessionId: null, message: null, pending: [], ended: false };
     this.flowContexts.set(flowId, context);
     const reference = flow.requestBody?.value;
@@ -278,6 +291,7 @@ export class ClaudeLiveBackend implements AgentBackend {
           this.scheduleFlowDrop(flowId);
           return;
         }
+        if (longContext) this.longContextSessions.add(sessionId);
         this.bindFlow(flowId, sessionId, toolResults, ts);
       })
       .catch((error) => {
@@ -390,6 +404,7 @@ export class ClaudeLiveBackend implements AgentBackend {
       context,
       event,
       ts,
+      this.longContextSessions.has(sessionId),
     );
   }
 
