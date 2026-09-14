@@ -6,6 +6,7 @@ import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useS
 import {
   buildActivityDisplayItems,
   displayRole,
+  isCompactionEvent,
   isSkillActivation,
   type DisplayItem,
   type DisplayItemOptions,
@@ -87,6 +88,39 @@ function projectIncrementalReasoning(events: ActivityEvent[]): ActivityEvent[] {
   return projected;
 }
 
+/**
+ * The Nice projection's scaffolding filter: system lines go, except a compaction.
+ *
+ * Dropping every `system` event is what the filter used to be, and it silently took the
+ * compaction banner with it -- a compaction is not a turn, so the adapters emit it as a system
+ * line. The banner therefore only ever appeared in Raw, which is the one view nobody reads a
+ * thread in, and a reader of a compacted session saw the transcript simply continue at a
+ * different size. `CompactionRow` and the sticky-header rules were both already written for it.
+ *
+ * One banner per compaction, not two. A Claude compaction is TWO records -- the harness's
+ * `compact_boundary`, which carries what the context dropped to, and the synthetic user message
+ * holding the summary that replaced it -- and both normalize to a compaction block. The first is
+ * kept because it is the one with the metadata on it. Raw still draws a row per line, which is
+ * the fidelity guarantee Nice leans on.
+ */
+function contentOnly(events: ActivityEvent[]): ActivityEvent[] {
+  const kept: ActivityEvent[] = [];
+  let afterCompaction = false;
+  for (const event of events) {
+    if (isCompactionEvent(event)) {
+      if (!afterCompaction) kept.push(event);
+      afterCompaction = true;
+      continue;
+    }
+    // A system line between the pair is dropped rather than rendered, so the two banners would
+    // still land next to each other: it does not break the run.
+    if (event.type === "system") continue;
+    afterCompaction = false;
+    kept.push(event);
+  }
+  return kept;
+}
+
 // Pair result-only events with their matching tool calls, so a call and its
 // output read as one row. Mixed events stay independent: user prose or an
 // unmatched result must never be hidden inside someone else's row.
@@ -94,9 +128,7 @@ export function buildFeedLayout(
   events: ActivityEvent[],
   options: DisplayItemOptions = {},
 ): FeedLayout {
-  const contentEvents = options.hideSystem
-    ? events.filter((event) => event.type !== "system")
-    : events;
+  const contentEvents = options.hideSystem ? contentOnly(events) : events;
   const visibleEvents = options.incrementalReasoning
     ? projectIncrementalReasoning(contentEvents)
     : contentEvents;

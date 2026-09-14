@@ -52,7 +52,10 @@ export type DisplayRole =
 // Working Directory block to nearly every Claude line, so demanding blocks be
 // *only* compaction plus raw meant no Claude compaction ever rendered as a
 // banner. Same trap as isResultOnly in ActivityFeed.
-function isCompactionEvent(ev: ActivityEvent): boolean {
+//
+// Exported because Nice's scaffolding filter has to ask the same question. A compaction is a
+// `system` event, so dropping every system event dropped the banner with them.
+export function isCompactionEvent(ev: ActivityEvent): boolean {
   return ev.blocks.some((block) => block.kind === "compaction") &&
     ev.blocks.every(
       (block) =>

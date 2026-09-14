@@ -7,6 +7,9 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 // which is what defeated both "is this event only X?" predicates below.
 const CWD = { kind: "metadata", label: "Working Directory", text: "/repo" } as const;
 
+/** What the feed passes in Nice mode, which is the view a thread is read in. */
+const NICE = { cluster: true, hideSystem: true } as const;
+
 describe("feed layout", () => {
   it("pairs a result into its call even when the line carries metadata", () => {
     const events: ActivityEvent[] = [
@@ -118,6 +121,54 @@ describe("feed layout", () => {
     ]);
 
     expect(layout.items.map((item) => item.kind)).toEqual(["compaction"]);
+  });
+
+  it("keeps the compaction banner in the view people actually read the thread in", () => {
+    // The bug this pins: Nice drops transcript scaffolding by event type, and a compaction is a
+    // `system` line because it is not a turn. So the banner rendered only in Raw, and a session
+    // that had just been compacted looked like one that simply carried on.
+    const layout = buildFeedLayout(
+      [
+        {
+          index: 50,
+          ts: 1,
+          type: "system",
+          blocks: [{ kind: "metadata", label: "Mode", text: "default" }, { kind: "raw" }],
+        },
+        { index: 51, ts: 2, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
+      ],
+      NICE,
+    );
+
+    expect(layout.items.map((item) => item.kind)).toEqual(["compaction"]);
+    expect(leadEvent(layout.items[0]!).index).toBe(51);
+  });
+
+  it("draws one banner for the two records a compaction is written as", () => {
+    // Claude writes the `compact_boundary` and then a synthetic user message holding the summary
+    // that replaced the context. Both normalize to a compaction block, and two banners in a row
+    // would read as two compactions. The boundary is kept because it is the one carrying the
+    // metadata and the occupancy the meter moves on.
+    const layout = buildFeedLayout(
+      [
+        { index: 60, ts: 2, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
+        { index: 61, ts: 1, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
+        { index: 62, ts: 3, type: "assistant", blocks: [{ kind: "text", text: "after" }] },
+      ],
+      NICE,
+    );
+
+    expect(layout.items.map((item) => item.kind)).toEqual(["compaction", "segment_event"]);
+    expect(leadEvent(layout.items[0]!).index).toBe(60);
+  });
+
+  it("keeps a row per line in Raw, where fidelity is the point", () => {
+    const layout = buildFeedLayout([
+      { index: 70, ts: 2, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
+      { index: 71, ts: 1, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
+    ]);
+
+    expect(layout.items.map((item) => item.kind)).toEqual(["compaction", "compaction"]);
   });
 });
 
