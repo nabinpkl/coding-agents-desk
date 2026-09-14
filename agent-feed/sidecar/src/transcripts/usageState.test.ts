@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mergeUsage, withDeclaredModel } from "@/transcripts/usageState";
+import { mergeDeclaredModel, mergeUsage, withDeclaredModel } from "@/transcripts/usageState";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
@@ -266,4 +266,35 @@ test("mergeUsage: a newer lifetime replaces the old one", () => {
 
 test("mergeUsage: no lifetime anywhere stays absent rather than becoming zero", () => {
   expect(mergeUsage(undefined, { current: 10, limit: null, updatedAt: 1 }).cacheTtlMs).toBeUndefined();
+});
+
+test("mergeDeclaredModel: a bare restatement does not cut the declared window", () => {
+  // Measured on session 0c322ad9: it opened `claude-opus-5[1m]` and then declared the bare id five
+  // more times. Taking the newest left it reading 84% of a 200k window it did not have, at 167,829
+  // tokens, while its own status line said 16%.
+  const tiered = { model: "claude-opus-5[1m]", limit: 1_000_000 };
+  const bare = { model: "claude-opus-5", limit: 200_000 };
+
+  expect(mergeDeclaredModel(tiered, bare)).toEqual(tiered);
+  expect(mergeDeclaredModel(tiered, bare).limit).toBe(1_000_000);
+});
+
+test("mergeDeclaredModel: a different model still replaces it, tier or no tier", () => {
+  const tiered = { model: "claude-opus-5[1m]", limit: 1_000_000 };
+  const other = { model: "claude-sonnet-5", limit: 200_000 };
+
+  // 13 of 129 sessions in this project switch model mid-way, and a switch is the one case where
+  // the newest declaration is the true one.
+  expect(mergeDeclaredModel(tiered, other)).toEqual(other);
+  expect(mergeDeclaredModel(other, tiered)).toEqual(tiered);
+});
+
+test("mergeDeclaredModel: the first declaration is taken as it stands", () => {
+  const bare = { model: "claude-opus-5", limit: 200_000 };
+  expect(mergeDeclaredModel(undefined, bare)).toEqual(bare);
+});
+
+test("mergeDeclaredModel: a repeat of the same tiered id is not treated as a change", () => {
+  const tiered = { model: "claude-opus-5[1m]", limit: 1_000_000 };
+  expect(mergeDeclaredModel(tiered, { ...tiered })).toEqual(tiered);
 });

@@ -42,6 +42,34 @@ export function mergeUsage(
 }
 
 /**
+ * Fold one model declaration into the one the session is running under.
+ *
+ * Newest wins, with one exception: a declaration that names the same model MINUS its tier does not
+ * replace a tiered one. The tier is the whole content of the window answer -- `claude-opus-5[1m]`
+ * holds a million tokens and `claude-opus-5` holds two hundred thousand -- and the harness restates
+ * the bare id often enough that taking the newest would quietly cut a session's window by five.
+ *
+ * Measured across the 58 transcripts here that carry declarations: four open with a tiered id and
+ * then emit bare ones, on three different CLI versions, so this is a recurring shape rather than
+ * one release's regression. One of the four goes tiered, bare, then tiered again with nobody
+ * having touched the model, which is what rules out reading a bare declaration as a switch to the
+ * smaller tier. The one that prompted this sat at 167,829 tokens reading 84% full of a window it
+ * did not have, while its own status line said 16%.
+ *
+ * A genuinely different model still replaces it, tier or no tier. What cannot be distinguished
+ * from here is a reader deliberately moving from the 1M tier to the 200k one mid-session, which
+ * this keeps on the larger window. That is the cheaper error: the alternative is the meter
+ * demanding a compaction at a sixth of the occupancy it claims.
+ */
+export function mergeDeclaredModel(
+  previous: DeclaredModel | undefined,
+  next: DeclaredModel,
+): DeclaredModel {
+  if (!previous) return next;
+  return previous.model.startsWith(`${next.model}[`) ? previous : next;
+}
+
+/**
  * Restate an occupancy report in terms of the model the session DECLARED it was running.
  *
  * Only where the two are the same model. Claude's usage records name the API's id
