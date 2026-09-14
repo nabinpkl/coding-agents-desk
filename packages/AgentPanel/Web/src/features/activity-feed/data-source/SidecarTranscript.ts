@@ -6,14 +6,15 @@
 // file of its own because those events ride that same stream -- a prompt belongs to the session
 // that asked it, and `deliver` is what hands it on.
 
-import type {
-  ActivityEvent,
-  AgentUiEvent,
-  BackgroundTaskSnapshot,
-  EventsPage as WireEventsPage,
-  SubagentTranscriptMessage,
-  TaskOutputMessage,
-  TimelineMessage,
+import {
+  TIMELINE_HEARTBEAT_MS,
+  type ActivityEvent,
+  type AgentUiEvent,
+  type BackgroundTaskSnapshot,
+  type EventsPage as WireEventsPage,
+  type SubagentTranscriptMessage,
+  type TaskOutputMessage,
+  type TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
 import type {
   AgentSessionState,
@@ -22,6 +23,9 @@ import type {
   SessionReference,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import { parse, SidecarError, SidecarRoutes } from "@/features/activity-feed/data-source/sidecarRoutes";
+
+/** Three missed heartbeats: one late beat is jitter, three is a connection that stopped. */
+const TIMELINE_STALL_MS = TIMELINE_HEARTBEAT_MS * 3;
 
 function timelinePath(session: SessionReference): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/timeline?mode=${session.mode}`;
@@ -75,16 +79,46 @@ export class SidecarTranscript extends SidecarRoutes {
     _after: number,
     handlers: SessionEventsHandlers,
   ): () => void {
-    return this.transport.subscribe(timelinePath(session), {
-      onOpen: () => handlers.onOpen?.(),
-      onMessage: (payload) => {
-        const message = JSON.parse(payload) as TimelineMessage;
-        this.deliver(message, handlers);
-      },
-      // An error before the stream ever opened and one after it was running are the same thing to
-      // the viewer: the thread is not live and it should say so.
-      onError: () => handlers.onError?.(),
-    });
+    const path = timelinePath(session);
+    let heardAt = Date.now();
+    const open = (): (() => void) =>
+      this.transport.subscribe(path, {
+        onOpen: () => {
+          heardAt = Date.now();
+          handlers.onOpen?.();
+        },
+        onMessage: (payload) => {
+          heardAt = Date.now();
+          const message = JSON.parse(payload) as TimelineMessage;
+          this.deliver(message, handlers);
+        },
+        // An error before the stream ever opened and one after it was running are the same thing
+        // to the viewer: the thread is not live and it should say so.
+        onError: () => handlers.onError?.(),
+      });
+    let close = open();
+    // A connection that stops delivering without closing raises nothing: `EventSource` reconnects
+    // only on an error or an end, and a stalled proxy or a path that changed under a sleeping
+    // laptop produces neither. The thread then sat still while its agent kept working, until a
+    // reload. The sidecar sends a heartbeat, so silence past a few beats is the stall itself, and
+    // reopening is the repair: the new stream opens with a snapshot of the newest window, which
+    // carries what the dead one held back as long as that is under a window's worth.
+    //
+    // Checked on the beat rather than armed per message, so a busy stream costs a timestamp write
+    // and nothing else. A throttled background tab checks late, which only delays the repair.
+    const watchdog = setInterval(() => {
+      const silentFor = Date.now() - heardAt;
+      if (silentFor < TIMELINE_STALL_MS) return;
+      console.warn(`[timeline] ${path} silent for ${Math.round(silentFor / 1000)}s, reopening`);
+      close();
+      handlers.onError?.();
+      heardAt = Date.now();
+      close = open();
+    }, TIMELINE_HEARTBEAT_MS);
+    return () => {
+      clearInterval(watchdog);
+      close();
+    };
   }
 
   /**
@@ -172,6 +206,9 @@ export class SidecarTranscript extends SidecarRoutes {
         return;
       case "error":
         handlers.onError?.();
+        return;
+      case "heartbeat":
+        // Already counted: arriving at all is what it is for.
         return;
     }
   }

@@ -8,6 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TIMELINE_HEARTBEAT_MS } from "@agentdesk/agent-feed-wire";
 import { SidecarDataSource, SidecarError } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import type { SessionEventsHandlers } from "@/features/activity-feed/data-source/AgentDataSource";
@@ -135,6 +136,67 @@ describe("SidecarDataSource", () => {
     transport.deliver("timeline", { type: "tail", event: null });
 
     expect(sink.tails).toEqual([event(2), null]);
+  });
+
+  describe("a thread stream that stops delivering without closing", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("is reopened once it has been silent for three heartbeats", () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const sink = handlers();
+      source.subscribeSessionEvents(SESSION, 0, sink);
+      const first = transport.subscriptions[0];
+
+      vi.advanceTimersByTime(TIMELINE_HEARTBEAT_MS * 3);
+
+      // The stalled one is closed, not left beside its replacement: two open streams on one
+      // thread would each deliver the next snapshot.
+      expect(transport.subscriptions).toHaveLength(1);
+      expect(transport.subscriptions[0]).not.toBe(first);
+      expect(transport.subscriptions[0]?.path).toBe("/api/sessions/claude/sid-1/timeline?mode=nice");
+      // Said out loud, both to the viewer (not live) and to whoever reads the console.
+      expect(sink.errors).toEqual(["failed"]);
+      expect(warn).toHaveBeenCalledOnce();
+      warn.mockRestore();
+    });
+
+    it("is left alone while heartbeats keep arriving on a quiet session", () => {
+      vi.useFakeTimers();
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const sink = handlers();
+      source.subscribeSessionEvents(SESSION, 0, sink);
+      const first = transport.subscriptions[0];
+
+      for (let beat = 0; beat < 10; beat += 1) {
+        vi.advanceTimersByTime(TIMELINE_HEARTBEAT_MS);
+        transport.deliver("timeline", { type: "heartbeat" });
+      }
+
+      expect(transport.subscriptions).toEqual([first]);
+      // A heartbeat is not a row, a tail, or a failure.
+      expect(sink.events).toEqual([]);
+      expect(sink.tails).toEqual([]);
+      expect(sink.errors).toEqual([]);
+    });
+
+    it("stops watching when the reader leaves", () => {
+      vi.useFakeTimers();
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const unsubscribe = source.subscribeSessionEvents(SESSION, 0, handlers());
+
+      unsubscribe();
+      vi.advanceTimersByTime(TIMELINE_HEARTBEAT_MS * 10);
+
+      // A watchdog outliving its thread would reopen a stream nobody is reading.
+      expect(transport.subscriptions).toEqual([]);
+    });
   });
 
   it("delivers extension UI from the thread's own stream", () => {

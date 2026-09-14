@@ -50,8 +50,22 @@ export function installFixture(): void {
         deliver({ t: "agent-http-chunk", rid, seq, data: message.payload, complete: true });
       }, message.delay);
     }
-    if (answered.keepOpen) return;
     const last = answered.messages.at(-1)?.delay ?? 10;
+    if (answered.heartbeat) {
+      const { payload, intervalMs } = answered.heartbeat;
+      // Started after the script so a beat never takes a sequence number ahead of a scripted
+      // message still waiting on its delay: the relay fails a transfer on any gap.
+      setTimeout(() => {
+        const beat = setInterval(() => {
+          if (!open.has(rid)) {
+            clearInterval(beat);
+            return;
+          }
+          deliver({ t: "agent-http-chunk", rid, seq: sequence++, data: payload, complete: true });
+        }, intervalMs);
+      }, last + 5);
+    }
+    if (answered.keepOpen) return;
     setTimeout(() => {
       if (!open.delete(rid)) return;
       deliver({ t: "agent-http-end", rid });

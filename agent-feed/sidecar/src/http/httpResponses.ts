@@ -14,6 +14,7 @@ const SSE_HEADERS: ResponseInit["headers"] = {
 
 const SSE_HEARTBEAT_MS = 20_000;
 const encoder = new TextEncoder();
+const PING_BYTES = encoder.encode(": ping\n\n");
 
 export const BYE_BYTES = encoder.encode('event: bye\ndata: "shutdown"\n\n');
 
@@ -56,7 +57,16 @@ export function startServerSentEventStream(
     write: (bytes: Uint8Array) => void,
     close: () => void,
   ) => (() => void) | void,
-  options: { lagLimit?: number } = {},
+  options: {
+    lagLimit?: number;
+    /**
+     * What a beat writes, and how often. Defaults to an SSE comment, which keeps proxies from
+     * idling the connection out and is all most streams need. A stream whose reader must tell a
+     * stalled connection from a quiet session passes a message instead: `EventSource` never
+     * surfaces a comment, so a reader cannot time one.
+     */
+    heartbeat?: { bytes: Uint8Array; intervalMs: number };
+  } = {},
 ): Response {
   server.timeout(request, 0);
 
@@ -91,10 +101,8 @@ export function startServerSentEventStream(
         }
       };
       const stopConsumer = onStart(write, () => teardown()) ?? (() => {});
-      const heartbeat = setInterval(
-        () => write(encoder.encode(": ping\n\n")),
-        SSE_HEARTBEAT_MS,
-      );
+      const beat = options.heartbeat ?? { bytes: PING_BYTES, intervalMs: SSE_HEARTBEAT_MS };
+      const heartbeat = setInterval(() => write(beat.bytes), beat.intervalMs);
       let closed = false;
       const teardown = (): void => {
         if (closed) return;

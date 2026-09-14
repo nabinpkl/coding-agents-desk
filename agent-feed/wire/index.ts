@@ -199,6 +199,7 @@ export type {
   WireErrorPayload,
   WireStreamError,
 } from "./http.ts";
+export { TIMELINE_HEARTBEAT_MS } from "./http.ts";
 export * from "./desktopNavigation.ts";
 
 export type { RailKey, RailModifier, RailModifiers } from "./railKeys.ts";

@@ -99,13 +99,25 @@ export interface TimelineEnvelope {
  * `timeline` carries the opening window and every later revision of it, discriminated
  * by the envelope's own `kind`. `tail` is the live in-flight message, with `null`
  * meaning the tail is over. `ui` is an extension-UI prompt. `error` is non-fatal
- * unless the stream also ends.
+ * unless the stream also ends. `heartbeat` carries nothing and is sent every
+ * `TIMELINE_HEARTBEAT_MS`.
  */
 export type TimelineMessage =
   | { type: "timeline"; envelope: TimelineEnvelope }
   | { type: "tail"; event: ActivityEvent | null }
   | { type: "ui"; event: AgentUiEvent }
-  | { type: "error"; error: WireErrorPayload["error"] };
+  | { type: "error"; error: WireErrorPayload["error"] }
+  | { type: "heartbeat" };
+
+/**
+ * How often the timeline stream says it is still there.
+ *
+ * A message rather than an SSE comment, because this is the reader's only way to tell a stalled
+ * connection from a quiet session: a stream that stops delivering without closing raises no error
+ * in `EventSource`, which surfaces neither the stall nor a comment. A thread reader that has heard
+ * nothing for several beats reopens the stream, and gets the newest window back as its snapshot.
+ */
+export const TIMELINE_HEARTBEAT_MS = 15_000;
 
 /**
  * `POST /api/agent-sessions` (201) -- the created session's descriptor.

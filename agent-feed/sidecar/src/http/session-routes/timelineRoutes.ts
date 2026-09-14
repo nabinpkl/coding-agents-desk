@@ -23,7 +23,7 @@ import type {
   TokenUsage,
   TranscriptSourceId,
 } from "@/transcripts/transcriptTypes";
-import type { EventsPage, TimelineMessage } from "@agentdesk/agent-feed-wire";
+import { TIMELINE_HEARTBEAT_MS, type EventsPage, type TimelineMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
 import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
 import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
@@ -307,8 +307,10 @@ function timelineStream(options: {
       for (const stop of teardowns) stop();
       teardowns.length = 0;
     };
-  });
+  }, { heartbeat: { bytes: HEARTBEAT_BYTES, intervalMs: TIMELINE_HEARTBEAT_MS } });
 }
+
+const HEARTBEAT_BYTES = encodeServerSentEvent({ type: "heartbeat" } satisfies TimelineMessage);
 
 /**
  * The last `TIMELINE_WINDOW` events of a session, and where in the session they

@@ -1,11 +1,12 @@
 // The fake sidecar's routing table: which request path answers with what, and the
 // live turn it dribbles out one frame at a time.
 
-import type {
-  ActivityEvent,
-  EventMode,
-  SourceId,
-  TimelineMessage,
+import {
+  TIMELINE_HEARTBEAT_MS,
+  type ActivityEvent,
+  type EventMode,
+  type SourceId,
+  type TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
 import {
   FIXTURE_PROJECTS,
@@ -22,6 +23,12 @@ export interface FixtureRoute {
   messages: Array<{ delay: number; payload: string }>;
   /** Streams stay open after their scripted messages; one-shot requests end. */
   keepOpen?: boolean;
+  /**
+   * Repeated after the script for as long as the stream stays open, as the sidecar's own is. The
+   * panel reopens a thread stream that has been silent for three beats, so a fixture thread
+   * without one would replay its whole script every 45 seconds.
+   */
+  heartbeat?: { payload: string; intervalMs: number };
 }
 
 function timeline(mode: EventMode): FixtureRoute {
@@ -73,6 +80,10 @@ function timeline(mode: EventMode): FixtureRoute {
   return {
     status: 200,
     keepOpen: true,
+    heartbeat: {
+      payload: JSON.stringify({ type: "heartbeat" } satisfies TimelineMessage),
+      intervalMs: TIMELINE_HEARTBEAT_MS,
+    },
     messages: [
       { delay: 40, payload: JSON.stringify(snapshot) },
       { delay: 120, payload: JSON.stringify(appended) },
