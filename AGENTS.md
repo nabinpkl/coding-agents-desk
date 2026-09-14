@@ -451,11 +451,49 @@ does.
 
 ## Browser testing
 
-- **Test the panel in the owner's real Chrome, never the in-app browser.** Use the Chrome
-  extension tools (`mcp__claude-in-chrome__*`); the in-app preview browser does not reproduce what
-  the owner sees. The panel is a tailnet HTTPS origin holding a WebRTC session with logged-in
-  state, and a second isolated browser both fails to load it the same way and disturbs the
-  owner's own stream by making the sidecar cycle encoders underneath it.
+- **Verify your own work in Chrome for Testing, not in the owner's Chrome.** Playwright's Chrome
+  for Testing is what this repo already drives autonomously (`chrome-test/*.mjs`, `just
+  dom-mirror-cdp-verify` and its siblings), and it is the default for every question about a change
+  you just made: does the surface render it, does the control do what it says, did the number move.
+  It gives an independent CDP session, a throwaway profile, console and network from page load
+  rather than from whenever a tool attached, and it can be reloaded and killed freely. The panel
+  needs no credential to load -- the tailnet is the auth boundary, `AGENT_FEED_HOST` and WireGuard,
+  not a login -- so a fresh profile at the dev origin is the real panel with the real sessions in
+  it, not a degraded copy.
+
+  **The owner's Chrome answers one question: what is on the owner's screen right now.** Reach for
+  the extension tools (`mcp__claude-in-chrome__*`) when that IS the question -- a surface the owner
+  says looks wrong, a stream only their tab is holding -- and not to confirm work you can confirm
+  yourself. Never the in-app preview browser, which reproduces neither. Two standing costs make
+  this the narrow case rather than the default: a tab the owner is not looking at is throttled and
+  lies to you in both directions (the two bullets below), and opening the Desktop surfaces from a
+  second client makes the sidecar cycle encoders underneath the owner's own stream. A tab you open
+  in their Chrome is yours to close when you are done with it.
+
+- **Several agents share this machine, so a Chrome for Testing profile belongs to the RUN, not to
+  the script.** Chrome keeps a `SingletonLock` in its user-data-dir: a second instance pointed at
+  the same path either attaches to the first browser or refuses to start, so two agents running one
+  verifier at the same time is not a slow test, it is a test that reports on someone else's
+  browser. The same is true of anything else a harness pins by name -- a port, a socket, a fixture
+  file.
+
+  The shape most of `chrome-test/` already uses is the one to copy: `mkdtempSync(join(tmpdir(),
+  '<harness>-'))` for the whole working directory, the profile inside it, `listen(0)` for every
+  fixture server so the kernel picks the port, and a `teardown` that closes the context and does
+  `rmSync(work, { recursive: true, force: true })`, wired to a watchdog timer so a hung run still
+  cleans up before exiting non-zero. `input-verify.mjs`, `scroll-verify.mjs`, `record-verify.mjs`,
+  `e2e-chrome.mjs` and `browser-projection-e2e.mjs` all do exactly this.
+
+  **Clean up, and do not leave the mess in the repo.** A profile is tens of megabytes and a killed
+  run leaves the whole directory behind, so `/tmp` fills with them silently. Never put one under
+  the working tree: `cdp-verify.mjs` pinned `.cdp-verify-profile/` at the repo root until
+  2026-09-14, which is why that path is still in `.gitignore` -- one fixed name that both collided
+  between two agents and left a profile inside the checkout every time a run was killed.
+
+  One constraint pulls the other way and is easy to trip over while making paths unique: a Unix
+  socket path has a hard length limit (`SUN_LEN`, 104 bytes on macOS), and a long unique directory
+  under `$TMPDIR` blows through it. The failure is a daemon that dies at startup with an empty log.
+  Keep sockets short and rooted at `/tmp` even when the profile lives in a long unique path.
 
 - **When the page stops responding, verify in a DEBUG Chrome, not the owner's.** The extension's
   tools run inside the tab they are inspecting: `javascript_tool` is a CDP `Runtime.evaluate`, so a
@@ -464,12 +502,10 @@ does.
   started. All three are then reporting on the probe rather than the page, and reading them harder
   tells you nothing.
 
-  The answer is a browser this repo already drives autonomously: Playwright's **Chrome for Testing**,
-  as in `chrome-test/*.mjs` (`just dom-mirror-cdp-verify` and its siblings). It gives an independent
-  CDP session, a throwaway profile, console and network from page load rather than from whenever a
-  tool first attached, and it can be reloaded and killed freely -- none of which is true of the tab
-  the owner is looking at. Point it at the panel's dev origin the way those harnesses point it at
-  their fixtures.
+  So the answer is the same Chrome for Testing this section opens with, pointed at the panel's dev
+  origin the way those harnesses point it at their fixtures. What matters here is the specific
+  reason: its console and network start at page load rather than whenever a tool attached, and
+  nothing it reports is coming from inside the renderer you are asking about.
 
   Do NOT reach for `mcp__computer-use__app_screenshot` on the owner's Chrome for this. Browsers are
   granted at computer-use's `read` tier, so it can only show what is already on screen, and it
@@ -507,14 +543,14 @@ does.
   was `true`, so neither one warns you. The result reads as a broken control, which is what it
   looked like for the twenty minutes spent on it.
 
-  So split the two jobs rather than the tools. **Reading** the owner's panel -- is the surface
-  there, what does it say, is the right half driving it -- is what the extension is for, and the
-  owner's Chrome is the only place the real session, the real stream and the real logged-in state
-  exist. **Driving** it -- typing, submitting, anything whose whole point is that an input event
-  arrived -- goes to Chrome for Testing, visible and foregrounded, where the page is not throttled
-  and nothing is competing for the tab. Running the same flow in both is not duplicated work: they
-  answer different questions, and only the second one can tell a control that is broken from a tab
-  that is asleep.
+  This is the sharpest reason the default runs the other way. **Driving** anything -- typing,
+  submitting, anything whose whole point is that an input event arrived -- needs a visible,
+  foregrounded browser that nothing is competing for, and that is Chrome for Testing. The owner's
+  Chrome cannot be it: the tab you want is behind whatever they are actually reading, and a
+  backgrounded tab takes your clicks while silently dropping your typing. Where the owner's tab is
+  genuinely the subject -- a stream only it is holding, a state only it is in -- read it there and
+  drive the reproduction elsewhere, and do not read a null result from a throttled tab as an answer
+  about the page.
 
   The general rule under it is the absent-result one two sections down, with a twist worth naming:
   here the probe produced an ABSENCE OF EFFECT rather than an absence of data, and an effect that

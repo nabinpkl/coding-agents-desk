@@ -12,9 +12,16 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+// Per RUN, not per script, and outside the checkout. Chrome holds a SingletonLock in its
+// user-data-dir, so a fixed path means a second agent running this at the same time either drives
+// this browser or fails to start one; a fixed path inside the repo also leaves a profile in the
+// working tree whenever a run is killed before teardown.
+const work = mkdtempSync(join(tmpdir(), 'dom-mirror-cdp-verify-'));
 const { reconstructProjectionHtml, CDP_STYLE_PROPS } = require(join(__dirname, '..', 'chrome-extension', 'cdp-reconstruct.js'));
 
 const PW_ROOT = process.env.AGENTDESK_PLAYWRIGHT_ROOT
@@ -68,7 +75,7 @@ async function main() {
   checkNameInjection(); // hermetic; runs before any browser work
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-  ctx = await chromium.launchPersistentContext(join(__dirname, '..', '.cdp-verify-profile'), {
+  ctx = await chromium.launchPersistentContext(join(work, 'chrome-profile'), {
     headless: false,
     args: ['--no-first-run', '--no-default-browser-check'],
   });
@@ -94,7 +101,7 @@ async function main() {
 async function teardown() {
   try { if (ctx) await ctx.close(); } catch {}
   try { server.close(); } catch {}
-  try { const { rmSync } = await import('node:fs'); rmSync(join(__dirname, '..', '.cdp-verify-profile'), { recursive: true, force: true }); } catch {}
+  try { rmSync(work, { recursive: true, force: true }); } catch {}
 }
 
 const watchdog = setTimeout(() => { console.error('dom-mirror-cdp-verify: TIMEOUT'); teardown().finally(() => process.exit(2)); }, 60000);
