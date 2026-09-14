@@ -19,6 +19,7 @@ import {
   type LiveSidecar,
 } from "./src/app/sidecarBoard";
 import { proxyToSidecar } from "./src/app/sidecarProxy";
+import { PANEL_BUILD_ROUTE } from "./src/features/profile/panelBuildRoute";
 
 /**
  * Where this session's own sidecar is listening. Per-machine and tier-derived (stable/dev), so it
@@ -60,17 +61,19 @@ const agentFeedWire = fileURLToPath(
 const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
 
 /**
- * What the panel puts beside Profile, so a tab can say which code it is running.
+ * The build id of the tree as it is RIGHT NOW: short commit, `+` when the tree is not exactly it.
  *
- * Computed once, here, because that is the only moment Vite substitutes it. In a bundled build
- * that makes it exact. Under the dev server it names where the server STARTED and nothing more --
- * edits after that reach a connected tab over HMR without moving this string -- which is why
- * `panelBuild.ts` lets the connection state carry freshness and this string carry only identity.
+ * A function rather than a constant because the answer changes. `define` below substitutes one
+ * reading at config load, which is exact for a bundled build and is only the last server restart
+ * under `vite dev` -- measured 2026-09-14, the panel showed `f2dffa6+` while HEAD was `7373cec`
+ * and the tree was clean. The route serves this per request so a live tab reads the tree instead
+ * of the restart, and `panelBuild.ts` carries which of the two each surface is looking at.
  *
- * A git that cannot answer yields `unknown`, which is shown on the row rather than hidden: a build
- * that cannot name itself is the same problem this is here to make visible.
+ * Both commands together cost about 75ms here, and they run on page load and on each applied
+ * update, so there is nothing to cache. A git that cannot answer yields `unknown`, which the row
+ * shows: a build that cannot name itself is the same problem this exists to make visible.
  */
-const panelBuildId = (() => {
+function panelBuildId(): string {
   const git = (args: string[]) =>
     execFileSync("git", args, { cwd: repositoryRoot, stdio: ["ignore", "pipe", "ignore"] })
       .toString()
@@ -83,7 +86,7 @@ const panelBuildId = (() => {
   } catch {
     return "unknown";
   }
-})();
+}
 
 /**
  * The default session's sidecar, split for the middleware proxy below.
@@ -243,6 +246,16 @@ function panelSessions(): Plugin {
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
         const path = url.split("?")[0] ?? "";
+        // What tree this server is serving, asked by the Profile row on load and on every applied
+        // update. Only the dev server answers it: a bundled build has no server to ask and its
+        // compile-time id is already exact.
+        if (path === PANEL_BUILD_ROUTE) {
+          response.statusCode = 200;
+          response.setHeader("content-type", "application/json; charset=utf-8");
+          response.setHeader("cache-control", "no-store");
+          response.end(JSON.stringify({ build: panelBuildId() }));
+          return;
+        }
         // The default session -- the one this server runs beside -- answers on `/api` directly.
         // Handled here rather than by `server.proxy` because that option costs the whole origin
         // its HTTP/2 (see `defaultSidecar`), and this plugin already proxies the other sessions.
@@ -345,7 +358,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), panelSessions(), vncBridge()],
   base: "./",
   define: {
-    __PANEL_BUILD__: JSON.stringify(panelBuildId),
+    __PANEL_BUILD__: JSON.stringify(panelBuildId()),
   },
   // noVNC uses top-level await, which the default target (es2020) refuses. Raising the target is
   // the smaller change than patching the dependency, and costs nothing here: every browser this

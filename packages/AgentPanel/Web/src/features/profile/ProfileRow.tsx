@@ -12,7 +12,7 @@ import {
   detectMediaCapabilities,
   summarizeMediaCapabilities,
 } from "@/features/profile/mediaCapabilities";
-import { PANEL_BUILD_ID, usePanelConnected } from "@/features/profile/panelBuild";
+import { usePanelBuild } from "@/features/profile/panelBuild";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -62,7 +62,7 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
   // cannot change while the page is alive, and re-probing on every menu open
   // would be pretending otherwise.
   const media = useMemo(() => detectMediaCapabilities(), []);
-  const connected = usePanelConnected();
+  const build = usePanelBuild();
 
   return (
     <div className="relative shrink-0 border-t border-border pb-[env(safe-area-inset-bottom)]">
@@ -195,26 +195,26 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
             thing on screen in every surface, and it has to be readable from a screenshot: the
             question it answers is usually asked by someone looking at one. Quiet by default and
             amber once the page has stopped hearing from the dev server, which is the state where
-            the id beside it has gone out of date without the page changing at all. */}
+            the id stops being re-read and the page carries on looking exactly the same. */}
         <span
           title={
-            connected
-              ? `Panel build ${PANEL_BUILD_ID}, the commit this build started from. Edits since`
-                + " then reach this tab as they are saved."
-              : `Panel build ${PANEL_BUILD_ID}. This tab has lost the dev server, so it may be`
+            build.connected
+              ? `Panel build ${build.id}, re-read from the dev server. Edits reach this tab as`
+                + " they are saved."
+              : `Panel build ${build.id}. This tab has lost the dev server, so it may be`
                 + " running older code than the tree. Reload it."
           }
           aria-label={
-            connected
-              ? `Panel build ${PANEL_BUILD_ID}`
-              : `Panel build ${PANEL_BUILD_ID}, disconnected from the dev server`
+            build.connected
+              ? `Panel build ${build.id}`
+              : `Panel build ${build.id}, disconnected from the dev server`
           }
           className={
             "shrink-0 font-mono text-[10px] leading-none "
-            + (connected ? "text-muted-foreground/60" : "text-amber-500")
+            + (build.connected ? "text-muted-foreground/60" : "text-amber-500")
           }
         >
-          {PANEL_BUILD_ID}
+          {build.id}
         </span>
         {quota ? (
           <span className="shrink-0 font-mono text-xs text-muted-foreground">
