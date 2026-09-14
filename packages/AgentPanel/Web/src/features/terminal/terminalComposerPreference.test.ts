@@ -108,23 +108,52 @@ test("a session nobody dragged keeps the bare key, not a null height", () => {
   expect(remembered()).toEqual(["claude:one"]);
 });
 
-test("hiding the pane forgets its height", () => {
-  // Stated in the module and worth pinning: the height belongs to a pane that is up, so closing
-  // one is closing the arrangement. What this survives is a reload, not a decision to hide it.
+// A reader hides the screen to get the transcript back for a moment and shows it again expecting
+// the size they chose. A toggle that reset it undid the drag every time it was pressed.
+test("hiding the pane and showing it again keeps its height", () => {
   toggleTerminalComposer(one);
   setTerminalComposerHeight(one, 240);
   toggleTerminalComposer(one);
+  expect(terminalComposerHeight(one)).toBe(240);
+  expect(remembered()).toEqual([["claude:one", 240, "hidden"]]);
   toggleTerminalComposer(one);
+  expect(terminalComposerHeight(one)).toBe(240);
+  expect(remembered()).toEqual([["claude:one", 240]]);
+});
+
+test("a hidden pane's height survives a reload, and the pane stays hidden", async () => {
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 317);
+  toggleTerminalComposer(one);
+
+  vi.resetModules();
+  const reloaded = await import("@/features/terminal/terminalComposerPreference");
+  expect(reloaded.terminalComposerHeight(one)).toBe(317);
+  reloaded.toggleTerminalComposer(one);
+  expect(remembered()).toEqual([["claude:one", 317]]);
+});
+
+test("a hidden pane with a height still counts toward the cap", () => {
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 240);
+  toggleTerminalComposer(one);
+  for (let index = 0; index < 64; index += 1) {
+    toggleTerminalComposer({ source: "claude", sessionId: `s${index}` });
+  }
+  expect(remembered()).toHaveLength(64);
   expect(terminalComposerHeight(one)).toBeNull();
-  expect(remembered()).toEqual(["claude:one"]);
 });
 
 test("refuses a height for a pane that is not up", () => {
-  // Nothing could ever read it back: the entry that would carry it does not exist, and writing one
-  // would make a hidden session look shown.
+  // Only a pane that is up can be dragged, so a write for one that is not has lost track of it.
   setTerminalComposerHeight(one, 240);
   expect(remembered()).toEqual([]);
   expect(terminalComposerHeight(one)).toBeNull();
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 240);
+  toggleTerminalComposer(one);
+  setTerminalComposerHeight(one, 500);
+  expect(terminalComposerHeight(one)).toBe(240);
 });
 
 test("refuses a height that is not one", () => {

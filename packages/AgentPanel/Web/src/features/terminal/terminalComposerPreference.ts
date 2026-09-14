@@ -12,18 +12,20 @@
  *
  * ON means the pane is viewable above the field. OFF means it is hidden. The field is there either
  * way: it is the surface every session has, and the control is about what stands ABOVE it rather
- * than about which of two surfaces gets the band. That is the whole of the state -- it was briefly
- * three, with a second "on" that took the field away, and one control answering two questions is
- * one too many for a button whose whole job is "is the screen up".
+ * than about which of two surfaces gets the band. That is the whole of the toggle -- it was briefly
+ * three states, with a second "on" that took the field away, and one control answering two
+ * questions is one too many for a button whose whole job is "is the screen up".
  *
- * OFF by default, so only the sessions turned on are stored: a session never touched has nothing
- * to remember. Capped so a store of every session ever opened cannot accumulate; the oldest choice
- * is the one dropped.
+ * A pane also remembers the height its reader dragged it to, and keeps it while hidden. That is the
+ * same kind of fact as the toggle and belongs beside it rather than in a store of its own: both
+ * answer "how did this reader arrange this session's pane". It used to be dropped on hide, on the
+ * theory that closing a pane closes the arrangement -- and in use a reader hides the screen to get
+ * the transcript back for a moment and shows it again expecting the size they chose, so a toggle
+ * that reset it undid a drag every time it was pressed.
  *
- * A shown pane also remembers the height its reader dragged it to. That is the same kind of fact
- * as the toggle and belongs beside it rather than in a store of its own: both answer "how did this
- * reader arrange this session's pane", and splitting them would mean two records that can disagree
- * about whether the pane exists.
+ * OFF by default with no height, so a session never touched has nothing to remember. Capped so a
+ * store of every session ever opened cannot accumulate; the pane toggled longest ago is the one
+ * dropped.
  */
 import { useSyncExternalStore } from "react";
 
@@ -32,6 +34,9 @@ const STORAGE_KEY = "agent-panel.terminal-composer";
 /** How many sessions keep a remembered pane. Oldest out first, so recent arrangement survives. */
 const REMEMBERED_SESSIONS = 64;
 
+/** Marks a stored entry whose pane is hidden. Absent means shown, which every older entry is. */
+const HIDDEN = "hidden";
+
 export interface TerminalComposerSession {
   source: string;
   sessionId: string;
@@ -39,20 +44,18 @@ export interface TerminalComposerSession {
 
 const listeners = new Set<() => void>();
 
-interface Remembered {
-  /** Insertion-ordered: the tail is the most recent choice, so the head is what a cap evicts. */
-  shown: Set<string>;
-  /**
-   * The height each shown pane was last dragged to, for the sessions whose reader dragged one.
-   *
-   * Only ever holds keys that `shown` holds. A height belongs to a pane that is up: kept for a
-   * hidden one it would be a record of nothing, and it would cost the cap its meaning, since the
-   * cap counts arrangements rather than sessions ever seen. The consequence, stated because it is
-   * a real one: hiding a pane forgets its size, and showing it again opens at the size its screen
-   * wants. A reload is what this survives.
-   */
-  heights: Map<string, number>;
+interface Arrangement {
+  shown: boolean;
+  /** The height the pane was last dragged to, or null for one nobody has dragged. */
+  height: number | null;
 }
+
+/**
+ * Insertion-ordered: the tail is the pane toggled most recently, so the head is what a cap
+ * evicts. Never holds a hidden pane with no height -- that is the default, and a record of the
+ * default would spend the cap on nothing.
+ */
+type Remembered = Map<string, Arrangement>;
 
 let remembered = load();
 
@@ -63,45 +66,44 @@ function sessionKey(session: TerminalComposerSession): string {
 /**
  * Reads the store, taking every shape it has had with it.
  *
- * Two have been written. A bare key, which meant the terminal was up; and a `[key, mode]` pair from
- * the brief three-state spell, whose two modes were both ways of having the pane up. Every one of
- * them resolves to ON, because that is what each of them meant -- a reader who arranged something
- * finds it still arranged rather than silently back at the default.
+ * A bare key is a shown pane nobody dragged. A `[key, height]` pair is a shown pane with a height,
+ * and `[key, height, "hidden"]` a hidden one that keeps it. The same pair's second slot carried a
+ * mode during the brief three-state spell, and both of those modes were ways of having the pane up,
+ * so a slot that is not a height reads as a shown pane nobody dragged.
  *
  * Anything else remembers nothing. A hand-edited or half-written store must fall back to the
  * default, not become a lookup that answers for a session it cannot name.
  */
 function load(): Remembered {
-  const empty: Remembered = { shown: new Set(), heights: new Map() };
-  if (typeof window === "undefined") return empty;
+  const read: Remembered = new Map();
+  if (typeof window === "undefined") return read;
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
-    if (!Array.isArray(stored)) return empty;
-    const read: Remembered = { shown: new Set(), heights: new Map() };
+    if (!Array.isArray(stored)) return read;
     for (const entry of stored) {
       if (typeof entry === "string") {
-        read.shown.add(entry);
+        read.set(entry, { shown: true, height: null });
         continue;
       }
       if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
-      read.shown.add(entry[0]);
-      // The second slot carried a mode before it carried a height, so it is read as a height only
-      // when it IS one. Everything else is a pane that is up and has never been dragged.
-      if (typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0) {
-        read.heights.set(entry[0], entry[1]);
-      }
+      const height = typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0
+        ? entry[1]
+        : null;
+      const shown = entry[2] !== HIDDEN;
+      if (!shown && height === null) continue;
+      read.set(entry[0], { shown, height });
     }
     return read;
   } catch {
-    return empty;
+    return new Map();
   }
 }
 
 function store(state: Remembered): void {
   try {
-    const entries = [...state.shown].map((key) => {
-      const height = state.heights.get(key);
-      return height === undefined ? key : [key, height];
+    const entries = [...state].map(([key, { shown, height }]) => {
+      if (!shown) return [key, height, HIDDEN];
+      return height === null ? key : [key, height];
     });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch {
@@ -109,30 +111,31 @@ function store(state: Remembered): void {
   }
 }
 
+/** Puts a session's arrangement at the tail, as the most recent, and evicts past the cap. */
+function arrange(state: Remembered, key: string, arrangement: Arrangement): void {
+  state.delete(key);
+  if (!arrangement.shown && arrangement.height === null) return;
+  state.set(key, arrangement);
+  // Deleting from the front of an insertion-ordered Map is how it stays bounded, and it drops the
+  // arrangement made longest ago rather than the one just made.
+  while (state.size > REMEMBERED_SESSIONS) {
+    state.delete(state.keys().next().value as string);
+  }
+}
+
 /**
- * Shows this session's pane, or hides it.
+ * Shows this session's pane, or hides it. Either way its remembered height stays.
  *
- * Re-reads the store first, and the in-memory set is a cache for rendering rather than the record.
+ * Re-reads the store first, and the in-memory map is a cache for rendering rather than the record.
  * Two tabs on this origin are ordinary here -- the panel is read while it is being edited -- and a
- * press that wrote its own set back wholesale would erase every session the OTHER tab had
+ * press that wrote its own map back wholesale would erase every session the OTHER tab had
  * arranged, silently, on a press about something else.
  */
 export function toggleTerminalComposer(session: TerminalComposerSession): void {
   const key = sessionKey(session);
   const next = load();
-  if (next.shown.has(key)) {
-    next.shown.delete(key);
-    next.heights.delete(key);
-  } else {
-    next.shown.add(key);
-    // Deleting from the front of an insertion-ordered Set is how it stays bounded, and it drops
-    // the choice made longest ago rather than the one just made.
-    while (next.shown.size > REMEMBERED_SESSIONS) {
-      const oldest = next.shown.values().next().value as string;
-      next.shown.delete(oldest);
-      next.heights.delete(oldest);
-    }
-  }
+  const current = next.get(key);
+  arrange(next, key, { shown: !current?.shown, height: current?.height ?? null });
   remembered = next;
   store(next);
   for (const listener of listeners) listener();
@@ -140,7 +143,7 @@ export function toggleTerminalComposer(session: TerminalComposerSession): void {
 
 /** The height this session's pane was last dragged to, or null for one nobody has dragged. */
 export function terminalComposerHeight(session: TerminalComposerSession): number | null {
-  return remembered.heights.get(sessionKey(session)) ?? null;
+  return remembered.get(sessionKey(session))?.height ?? null;
 }
 
 /**
@@ -162,24 +165,26 @@ export function setTerminalComposerHeight(
   if (!Number.isFinite(height) || height <= 0) return;
   const key = sessionKey(session);
   const next = load();
-  // Presence in `shown` is what showing means here, so a height for a pane that is not up would
-  // be a row nothing can ever read back.
-  if (!next.shown.has(key)) return;
-  next.heights.set(key, Math.round(height));
+  // Only a pane that is up can be dragged, so a height for one that is not is a write from
+  // somewhere that has lost track of it.
+  if (!next.get(key)?.shown) return;
+  // In place rather than through `arrange`: a Map keeps a key's position when its value is
+  // replaced, and the press that showed the pane is what recency counts, not every pointer move.
+  next.set(key, { shown: true, height: Math.round(height) });
   remembered = next;
   store(next);
 }
 
 export function useTerminalComposerShown(session: TerminalComposerSession): boolean {
   // Read through the key so the snapshot is a boolean: `useSyncExternalStore` compares snapshots by
-  // identity, and handing it the Set would re-render every session's band on any session's press.
+  // identity, and handing it the Map would re-render every session's band on any session's press.
   const key = sessionKey(session);
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => remembered.shown.has(key),
+    () => remembered.get(key)?.shown === true,
     () => false,
   );
 }
