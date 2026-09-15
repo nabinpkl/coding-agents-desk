@@ -17,7 +17,6 @@
 // Vite's overlay. The gate covers the live update path, which is the one that interrupts somebody.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { statSync } from "node:fs";
 import { basename } from "node:path";
 import type { HotUpdateOptions, Plugin, ViteDevServer } from "vite";
 
@@ -32,8 +31,13 @@ export interface PublishReport {
 
 /** Everything the gate does to the world, so its decisions can be tested without a dev server. */
 export interface PublishGateIO {
-  /** When the file was last written, for deciding whether the typechecker has judged it yet. */
-  modifiedAt(file: string): number;
+  /**
+   * Run something after a delay, cancellable.
+   *
+   * The gate acts on a verdict a moment late on purpose: see `GRACE_MS`. Injected rather than
+   * reached for, because a race is not a thing you can test by waiting.
+   */
+  defer(run: () => void, ms: number): () => void;
   /** Hand one held file to the page. */
   release(file: string): void;
   /** Tell every open page what the gate is doing. */
@@ -57,6 +61,22 @@ const TYPECHECK_DONE = /Found (\d+) error/;
 const TYPECHECK_STARTED = /(Starting compilation in watch mode|File change detected)/;
 
 /**
+ * How long a green verdict waits before the held work is handed over.
+ *
+ * A verdict is about the tree as the run BEGAN, so a save landing mid-run is unjudged by it and
+ * publishing on that verdict would be the original bug one race late. tsc starts another run for
+ * that save within its own debounce, and the start of a run takes the pending handover back.
+ *
+ * This replaced a comparison of each file's mtime against the run's start, which looked equivalent
+ * and had a state the tree could get stuck in: restore a file to its previous contents and tsc sees
+ * no change at all, so it never runs again, so the newer mtime never gets a later verdict to clear
+ * it. Measured -- the file sat held with nothing blocking it until the next unrelated edit. Waiting
+ * on the NEXT RUN rather than on a timestamp has no such state: the wait is always either superseded
+ * or spent.
+ */
+const GRACE_MS = 400;
+
+/**
  * What is held, what is blocking it, and when it goes.
  *
  * Separated from the plugin because every interesting decision here is a race with something: a
@@ -70,9 +90,10 @@ export function createPublishGate(io: PublishGateIO) {
   /** Files being handed over right now: one-shot permission for the update that follows. */
   const released = new Set<string>();
   let checking = false;
-  let checkStartedAt = 0;
   let blocked: string | null = null;
   let unfiltered = false;
+  /** Cancels a handover this gate has decided on but not yet performed. */
+  let cancelPending: (() => void) | undefined;
 
   const report = (): PublishReport => ({
     build: io.buildId(),
@@ -84,18 +105,19 @@ export function createPublishGate(io: PublishGateIO) {
 
   const broadcast = () => io.broadcast(report());
 
+  const abort = () => {
+    cancelPending?.();
+    cancelPending = undefined;
+  };
+
   /**
    * Hands held files over by replaying the change that was suppressed, so the update takes the
    * whole ordinary path -- react-refresh boundaries included, which is what keeps a component edit
    * from reloading the page and losing what the reader was looking at.
-   *
-   * A file saved again AFTER the typechecker began the run that went green was never judged, so it
-   * stays held; the save that produced it starts another run, and that run judges it. `force` is
-   * the caller who has decided for themselves and does not want that guarantee.
    */
-  const flush = (force: boolean) => {
+  const flush = () => {
+    abort();
     for (const file of [...held]) {
-      if (!force && io.modifiedAt(file) > checkStartedAt) continue;
       held.delete(file);
       released.add(file);
       io.release(file);
@@ -121,8 +143,9 @@ export function createPublishGate(io: PublishGateIO) {
     readTypecheckLine(line: string): void {
       if (unfiltered) return;
       if (TYPECHECK_STARTED.test(line)) {
+        // Whatever handover was pending was decided about a tree that has already moved.
+        abort();
         checking = true;
-        checkStartedAt = Date.now();
         blocked = null;
         broadcast();
         return;
@@ -139,7 +162,8 @@ export function createPublishGate(io: PublishGateIO) {
       checking = false;
       if (done[1] === "0") {
         blocked = null;
-        flush(false);
+        broadcast();
+        if (held.size > 0) cancelPending = io.defer(flush, GRACE_MS);
         return;
       }
       // Kept from the error lines above, unless the count arrived without one this could parse, in
@@ -150,7 +174,7 @@ export function createPublishGate(io: PublishGateIO) {
 
     /** Hand over what is held now, whatever the typechecker thinks of it. */
     publish(): void {
-      flush(true);
+      flush();
     },
 
     /**
@@ -167,13 +191,12 @@ export function createPublishGate(io: PublishGateIO) {
       checking = false;
       blocked = null;
       io.warn(`${why}; updates are going through unfiltered`);
-      flush(true);
+      flush();
     },
 
     /** The typechecker is up and has begun its first run. */
     begin(): void {
       checking = true;
-      checkStartedAt = Date.now();
       broadcast();
     },
   };
@@ -201,7 +224,10 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
   let checker: ChildProcess | undefined;
 
   const gate = createPublishGate({
-    modifiedAt,
+    defer: (run, ms) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    },
     // Replayed through the watcher rather than sent directly, so the suppressed change runs the
     // same path it would have run had the gate never been there.
     release: (file) => server?.watcher.emit("change", file),
@@ -283,13 +309,4 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
       });
     },
   };
-}
-
-/** Zero for a file that is gone, which reads as "judged already" rather than holding it forever. */
-function modifiedAt(file: string): number {
-  try {
-    return statSync(file).mtimeMs;
-  } catch {
-    return 0;
-  }
 }
