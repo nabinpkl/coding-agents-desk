@@ -1075,11 +1075,14 @@ enum Config {
         }
         return AgentFeedSidecarLaunch(
             executable: URL(fileURLWithPath: bun),
-            // `--watch`, not `--hot`. Measured on this sidecar: watch reloads IN PROCESS and
-            // rebinds the port, so the pid never changes and the host's supervisor never sees an
-            // exit to restart. Hot module replacement would leave the catalog, the file watchers,
-            // and the live observers half-swapped, which is a worse failure than a clean re-read.
-            arguments: ["--watch", entry],
+            // The entry is a SUPERVISOR (`agent-feed/sidecar/src/supervisor.ts`), not the server,
+            // and it is run plainly rather than under `bun --watch`. Watch mode re-read the source
+            // on every write, and a write is a moment inside an edit rather than an edit: a
+            // half-saved file threw during the reload and left the process alive with its port
+            // free, so every stream the panel holds died at once and nothing noticed for a minute.
+            // The supervisor owns the server as a child and replaces it only when the tree
+            // typechecks, which is the same judgement the panel's dev server now makes.
+            arguments: [entry],
             reloadsOnEdit: true
         )
     }

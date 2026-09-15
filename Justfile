@@ -1845,10 +1845,12 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     fi
     # The sidecar, same live-or-frozen axis as the panel and for the same reason. `bundled` runs
     # the compiled binary the app ships with, so a one-line change to the sidecar costs a rebuild,
-    # a relaunch, and a re-attach of every surface; `live` runs `bun --watch` over the source, which
-    # reloads in process and rebinds the port, so an edit is live in about a second with the host
-    # and every attached phone left alone. Measured on this tree: an edit to a sidecar constant was
-    # visible through /api/config ~4s later, with the pid unchanged.
+    # a relaunch, and a re-attach of every surface; `live` runs the supervisor over the source
+    # (agent-feed/sidecar/src/supervisor.ts), which owns the server as a child and replaces it when
+    # the tree typechecks, so an edit is live seconds later with the host and every attached phone
+    # left alone. It replaced `bun --watch`, which re-read on every write: a file saved halfway
+    # through an edit threw during the reload and left the process alive with its port free, so
+    # every stream the panel holds died at once and nothing noticed for a minute.
     #
     # `live` is the default, the same as the panel, so the two halves of the panel surface behave
     # alike: an edit anywhere in it is live without a relaunch. The cost is real and is accepted --
@@ -1868,7 +1870,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
             exit 1
         fi
         export AGENTDESK_BUN_PATH="$BUN_PATH"
-        export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='{{agent_feed_sidecar_dir}}/src/server.ts'
+        export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='{{agent_feed_sidecar_dir}}/src/supervisor.ts'
         # Its dependencies are resolved from the source tree now, not baked into a binary, so the
         # tree has to have them. Without this the host spawns bun, bun cannot resolve an import,
         # and the failure arrives as a sidecar that never answers readiness.
@@ -2040,10 +2042,12 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     fi
     # The sidecar, same live-or-frozen axis as the panel and for the same reason. `bundled` runs
     # the compiled binary the app ships with, so a one-line change to the sidecar costs a rebuild,
-    # a relaunch, and a re-attach of every surface; `live` runs `bun --watch` over the source, which
-    # reloads in process and rebinds the port, so an edit is live in about a second with the host
-    # and every attached phone left alone. Measured on this tree: an edit to a sidecar constant was
-    # visible through /api/config ~4s later, with the pid unchanged.
+    # a relaunch, and a re-attach of every surface; `live` runs the supervisor over the source
+    # (agent-feed/sidecar/src/supervisor.ts), which owns the server as a child and replaces it when
+    # the tree typechecks, so an edit is live seconds later with the host and every attached phone
+    # left alone. It replaced `bun --watch`, which re-read on every write: a file saved halfway
+    # through an edit threw during the reload and left the process alive with its port free, so
+    # every stream the panel holds died at once and nothing noticed for a minute.
     #
     # `live` is the default, the same as the panel, so the two halves of the panel surface behave
     # alike: an edit anywhere in it is live without a relaunch. The cost is real and is accepted --
@@ -2063,7 +2067,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
             exit 1
         fi
         export AGENTDESK_BUN_PATH="$BUN_PATH"
-        export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='{{agent_feed_sidecar_dir}}/src/server.ts'
+        export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='{{agent_feed_sidecar_dir}}/src/supervisor.ts'
         # Its dependencies are resolved from the source tree now, not baked into a binary, so the
         # tree has to have them. Without this the host spawns bun, bun cannot resolve an import,
         # and the failure arrives as a sidecar that never answers readiness.
@@ -2242,7 +2246,7 @@ host-login:
       --env "AGENTDESK_DEV_ITERATION_RUN=1" \
       --env "AGENTDESK_AGENT_PANEL_ORIGIN=$PANEL_ORIGIN" \
       --env "AGENTDESK_BUN_PATH=$BUN_PATH" \
-      --env 'AGENTDESK_AGENT_FEED_SIDECAR_ENTRY={{agent_feed_sidecar_dir}}/src/server.ts' \
+      --env 'AGENTDESK_AGENT_FEED_SIDECAR_ENTRY={{agent_feed_sidecar_dir}}/src/supervisor.ts' \
       --env 'AGENTDESK_RUNTIME_ROOT={{runtime_root}}' \
       --env 'AGENT_FEED_GRID_ENCODER_PATH={{grid_encoder}}' \
       --env 'AGENT_FEED_PTY_MANAGER_SOCKET={{host_pty_manager_socket_path}}' \

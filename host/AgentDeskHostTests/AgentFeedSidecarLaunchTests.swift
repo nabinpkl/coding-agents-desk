@@ -33,7 +33,7 @@ struct AgentFeedSidecarLaunchTests {
         #expect(launch?.reloadsOnEdit == false)
     }
 
-    @Test func anEntryAndABunRunTheSourceUnderWatch() throws {
+    @Test func anEntryAndABunRunTheSourceUnderItsSupervisor() throws {
         let entry = try temporaryFile(executable: false)
         let bun = try temporaryFile(executable: true)
         defer {
@@ -49,9 +49,10 @@ struct AgentFeedSidecarLaunchTests {
             bundled: bundled
         )
         #expect(launch?.executable.path == bun.path)
-        // `--watch` and not `--hot`: watch re-reads the source in process and rebinds the port,
-        // where hot replacement would leave the catalog and the live observers half-swapped.
-        #expect(launch?.arguments == ["--watch", entry.path])
+        // The entry alone, with no `--watch`: it names a supervisor that owns the server itself and
+        // replaces it only when the tree typechecks. Watch mode re-read on every write, and a
+        // half-saved file threw during the reload and left the process alive with its port free.
+        #expect(launch?.arguments == [entry.path])
         #expect(launch?.reloadsOnEdit == true)
     }
 
