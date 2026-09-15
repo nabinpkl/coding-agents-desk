@@ -784,28 +784,6 @@ agent-webview-dev-status port=agent_panel_dev_port:
             ;;
     esac
 
-# Hand the panel's held edits to every open tab now, without waiting for the typechecker.
-#
-# The dev server holds a `.ts` change until the tree typechecks, so a reader is never handed a file
-# that was saved halfway through an edit (packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts).
-# This is the override for whoever already knows the code is good: an agent that has run its own
-# checks, or a deliberate intermediate state the typechecker will never bless. It prints what the
-# server was holding and what is left.
-panel-publish port=agent_panel_dev_port:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    NAME="$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh')"
-    ORIGIN="https://$NAME:{{port}}"
-    # `-k` because the certificate is for the tailnet name and this may be called from a shell that
-    # resolves it differently; nothing here is secret and the request carries no payload.
-    ANSWER="$(curl -sk -X POST --max-time 5 "$ORIGIN/@panel-build/publish" || true)"
-    if [ -z "$ANSWER" ]; then
-        echo "no dev server answering at $ORIGIN. Start one with a host launch," >&2
-        echo "  or 'just agent-webview-dev' to watch it." >&2
-        exit 1
-    fi
-    echo "$ANSWER"
-
 agent-panel-web-check:
     #!/usr/bin/env bash
     set -euo pipefail

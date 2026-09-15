@@ -1,96 +1,93 @@
 // When the sidecar is worth restarting, and when a change should be sat on.
 //
 // The live sidecar arm runs the WORKING TREE, so a file saved halfway through an edit is the file
-// that runs. Under `bun --watch` it re-read on every save, and a save mid-edit threw during the
+// that runs. Under `bun --watch` it re-read on every write, and a save mid-edit threw during the
 // reload: measured on this repo, that leaves the process alive with its port free, so every stream
 // the panel holds dies at once and nothing notices until the host's port probe gives up a minute
 // later. The panel keeps rendering the whole time with no data behind it.
 //
-// So a change no longer restarts anything by itself. A typechecker running in watch mode is both
-// the watcher and the judge -- one opinion about the tree rather than two racing ones -- and the
-// sidecar is replaced only when that opinion is clean. Same idea as the panel's publish gate
-// (`packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts`) and deliberately a separate copy:
-// the two trees share only the wire contract, which is types.
+// So a write no longer restarts anything by itself. The changed files are PARSED first, and the
+// sidecar is replaced only once every one of them is a whole file. Same idea as the panel's publish
+// gate (`packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts`) and deliberately a separate
+// copy: the two trees share only the wire contract, which is types.
+//
+// Parsed rather than typechecked. The first version of this ran `tsc --noEmit --watch` as the
+// watcher and the judge, which cost 844MB at its peak here, measured with `footprint`. It was also
+// the wrong instrument: bun strips types and never checks them, so a type error cannot break a
+// running sidecar and was never what broke one. Half a file is. `just check` still catches types.
 
-/** `src/server.ts(12,3): error TS2304: Cannot find name 'foo'.` under `--pretty false`. */
-const TYPECHECK_ERROR = /^(\S.*?\(\d+,\d+\)): (error TS\d+: .*)$/;
-
-/** tsc's own end-of-run line, whatever timestamp prefix it carries. */
-const TYPECHECK_DONE = /Found (\d+) error/;
-
-/** tsc says one of these on the first run and at the start of every incremental one. */
-const TYPECHECK_STARTED = /(Starting compilation in watch mode|File change detected)/;
+/** What a changed file is, once somebody has tried to parse it. */
+export interface ParsedChange {
+  /** Absolute path, as the watcher reported it. */
+  path: string;
+  /** Why it will not parse, or null for a whole file. */
+  failure: string | null;
+}
 
 export interface SupervisorGateIO {
-  /**
-   * Replace the running sidecar with one reading the tree as it is now.
-   *
-   * The caller waits a moment before acting on this, because a green verdict is about the tree as
-   * the run began and a save can land mid-run. `abortRestart` is what a later change uses to take
-   * it back.
-   */
+  /** Replace the running sidecar with one reading the tree as it is now. */
   restart(reason: string): void;
-  /** A change arrived; whatever restart was pending was decided about an older tree. */
-  abortRestart(): void;
   /** Anything a reader going backwards through the log needs: this is the only record. */
   log(message: string): void;
+  /** Publish the state for the panel to show, so a held sidecar is visible and not just logged. */
+  publish(state: SupervisorState): void;
 }
 
 export interface SupervisorState {
   /** True when the tree has moved since the running sidecar was started. */
-  dirty: boolean;
-  /** True while the typechecker is deciding. */
-  checking: boolean;
-  /** The first thing the typechecker objected to, or null when it has none. */
+  held: boolean;
+  /** Which file will not parse, and why. Null when nothing is in the way. */
   blocked: string | null;
 }
 
 export function createSupervisorGate(io: SupervisorGateIO) {
+  /** Files that have changed since the running sidecar started, and will not parse. */
+  const broken = new Map<string, string>();
+  /** True once anything has changed at all, so an unchanged tree is never restarted into. */
   let dirty = false;
-  let checking = false;
-  let blocked: string | null = null;
+
+  const state = (): SupervisorState => {
+    const first = [...broken.entries()][0];
+    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : null };
+  };
+
+  const publish = () => io.publish(state());
 
   return {
-    state: (): SupervisorState => ({ dirty, checking, blocked }),
+    state,
 
-    /** One line of the typechecker's watch output, which is the only input this has. */
-    readTypecheckLine(line: string): void {
-      if (TYPECHECK_STARTED.test(line)) {
-        // The first run is a compilation of a tree nobody has edited, so it is not a change. Every
-        // later one is: tsc only starts again because a file was written.
-        if (!/Starting compilation in watch mode/.test(line)) dirty = true;
-        checking = true;
-        blocked = null;
-        io.abortRestart();
-        return;
+    /** One debounced batch of writes, each already parsed. */
+    changed(changes: ParsedChange[]): void {
+      if (changes.length === 0) return;
+      dirty = true;
+      for (const { path, failure } of changes) {
+        if (failure === null) broken.delete(path);
+        else broken.set(path, failure);
       }
-      const failure = TYPECHECK_ERROR.exec(line);
-      // The first error of the run: a later one is usually the same mistake seen from another file.
-      if (failure && blocked === null) {
-        blocked = `${failure[1] ?? ""}: ${failure[2] ?? ""}`;
-        return;
-      }
-      const done = TYPECHECK_DONE.exec(line);
-      if (!done) return;
-      checking = false;
-      if (done[1] !== "0") {
-        blocked ??= `${done[1]} typecheck errors`;
-        // Said every round rather than once, because whoever reads this log is looking backwards
+      if (broken.size > 0) {
+        // Said every batch rather than once, because whoever reads this log is looking backwards
         // from a sidecar that stopped changing, and needs to see it was refusing the whole time.
-        io.log(`holding the tree back: ${blocked}`);
+        io.log(`holding the tree back: ${state().blocked}`);
+        publish();
         return;
       }
-      blocked = null;
-      if (!dirty) return;
       dirty = false;
-      io.restart("the tree typechecks");
+      publish();
+      const n = changes.length;
+      io.restart(n === 1 ? "1 changed file parses" : `${n} changed files parse`);
     },
 
-    /** Restart now, whatever the typechecker thinks. */
+    /** Restart now, whatever is broken. */
     force(reason: string): void {
+      broken.clear();
       dirty = false;
-      blocked = null;
+      publish();
       io.restart(reason);
     },
   };
+}
+
+/** The file's own name: the log line and the panel row both have one line to spend. */
+function base(path: string): string {
+  return path.split("/").pop() || path;
 }

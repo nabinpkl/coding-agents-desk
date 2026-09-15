@@ -28,63 +28,69 @@ Object.defineProperty(globalThis, "ResizeObserver", {
   },
 });
 
-// jsdom implements no scrolling at all, so `scrollIntoView` is simply absent and a component that
-// brings its own element into view throws rather than doing nothing. A no-op keeps that call
-// harmless everywhere; a test that cares which element was scrolled spies on this.
-Object.defineProperty(Element.prototype, "scrollIntoView", {
-  configurable: true,
-  writable: true,
-  value: function scrollIntoView() {},
-});
-
-// `scrollTo` is absent for the same reason, and unlike `scrollIntoView` its absence is not
-// harmless: the virtualiser reaches its scroller through it, so `scrollToIndex` silently does
-// nothing and a component that scrolls itself looks broken only in the browser. jsdom does keep an
-// assigned `scrollTop`, so writing the offset through is the behaviour a browser has, minus the
-// scroll event a real one dispatches -- a test that needs the listeners to hear it still fires
-// that itself.
-Object.defineProperty(Element.prototype, "scrollTo", {
-  configurable: true,
-  writable: true,
-  value: function scrollTo(this: Element, options?: number | ScrollToOptions, y?: number) {
-    if (typeof options === "number") {
-      this.scrollLeft = options;
-      if (typeof y === "number") this.scrollTop = y;
-      return;
-    }
-    if (typeof options?.left === "number") this.scrollLeft = options.left;
-    if (typeof options?.top === "number") this.scrollTop = options.top;
-  },
-});
-
-// jsdom implements no PointerEvent, and Testing Library's fallback drops the coordinates with it,
-// so a pointer-driven component reads `clientX` as undefined and every drag assertion passes or
-// fails for the wrong reason. MouseEvent already carries the coordinate contract these components
-// use; this adds only the pointer identity on top.
-if (typeof (globalThis as { PointerEvent?: unknown }).PointerEvent === "undefined") {
-  class JsdomPointerEvent extends MouseEvent {
-    readonly pointerId: number;
-    readonly pointerType: string;
-    readonly isPrimary: boolean;
-
-    constructor(type: string, init: PointerEventInit = {}) {
-      super(type, init);
-      this.pointerId = init.pointerId ?? 0;
-      this.pointerType = init.pointerType ?? "mouse";
-      this.isPrimary = init.isPrimary ?? true;
-    }
-  }
-  Object.defineProperty(globalThis, "PointerEvent", {
+// Everything below patches the browser a suite is running IN, and a few suites deliberately run
+// under `node` instead: the dev-server modules never touch a DOM, and one of them loads esbuild,
+// which refuses to start under jsdom's `TextEncoder`. Without this guard those suites fail while
+// collecting, on a line about `scrollIntoView`, which says nothing about the real mismatch.
+if (typeof Element !== "undefined") {
+  // jsdom implements no scrolling at all, so `scrollIntoView` is simply absent and a component that
+  // brings its own element into view throws rather than doing nothing. A no-op keeps that call
+  // harmless everywhere; a test that cares which element was scrolled spies on this.
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
     configurable: true,
-    value: JsdomPointerEvent,
+    writable: true,
+    value: function scrollIntoView() {},
   });
-}
 
-// jsdom implements no object URLs, so a component that previews a file the user just handed it
-// throws on `URL.createObjectURL` rather than showing nothing. A counter keeps each one distinct,
-// which is what a test asserting "this preview is not that preview" needs.
-if (typeof URL.createObjectURL !== "function") {
-  let issued = 0;
-  URL.createObjectURL = () => `blob:agent-panel/${(issued += 1)}`;
-  URL.revokeObjectURL = () => {};
+  // `scrollTo` is absent for the same reason, and unlike `scrollIntoView` its absence is not
+  // harmless: the virtualiser reaches its scroller through it, so `scrollToIndex` silently does
+  // nothing and a component that scrolls itself looks broken only in the browser. jsdom does keep an
+  // assigned `scrollTop`, so writing the offset through is the behaviour a browser has, minus the
+  // scroll event a real one dispatches -- a test that needs the listeners to hear it still fires
+  // that itself.
+  Object.defineProperty(Element.prototype, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value: function scrollTo(this: Element, options?: number | ScrollToOptions, y?: number) {
+      if (typeof options === "number") {
+        this.scrollLeft = options;
+        if (typeof y === "number") this.scrollTop = y;
+        return;
+      }
+      if (typeof options?.left === "number") this.scrollLeft = options.left;
+      if (typeof options?.top === "number") this.scrollTop = options.top;
+    },
+  });
+
+  // jsdom implements no PointerEvent, and Testing Library's fallback drops the coordinates with it,
+  // so a pointer-driven component reads `clientX` as undefined and every drag assertion passes or
+  // fails for the wrong reason. MouseEvent already carries the coordinate contract these components
+  // use; this adds only the pointer identity on top.
+  if (typeof (globalThis as { PointerEvent?: unknown }).PointerEvent === "undefined") {
+    class JsdomPointerEvent extends MouseEvent {
+      readonly pointerId: number;
+      readonly pointerType: string;
+      readonly isPrimary: boolean;
+
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 0;
+        this.pointerType = init.pointerType ?? "mouse";
+        this.isPrimary = init.isPrimary ?? true;
+      }
+    }
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: JsdomPointerEvent,
+    });
+  }
+
+  // jsdom implements no object URLs, so a component that previews a file the user just handed it
+  // throws on `URL.createObjectURL` rather than showing nothing. A counter keeps each one distinct,
+  // which is what a test asserting "this preview is not that preview" needs.
+  if (typeof URL.createObjectURL !== "function") {
+    let issued = 0;
+    URL.createObjectURL = () => `blob:agent-panel/${(issued += 1)}`;
+    URL.revokeObjectURL = () => {};
+  }
 }

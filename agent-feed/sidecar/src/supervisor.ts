@@ -6,32 +6,37 @@
 // PORT FREE. Every stream the panel holds died at once, the panel kept rendering with nothing
 // behind it, and the host's own port probe only gave up on it a minute later.
 //
-// So this owns the sidecar as a child process and hands it a tree only when a typechecker running
-// in watch mode says the tree compiles. The typechecker is the watcher too: one opinion about the
-// tree rather than two racing ones. `supervisorGate.ts` holds the decisions; this holds the
-// processes.
+// So this owns the sidecar as a child process, watches the tree itself, and replaces the child only
+// once every file that changed is a whole file. `supervisorGate.ts` holds the decisions; this holds
+// the processes, the watcher and the parser.
 //
 // Everything it says goes to stdout, which the host writes to the sidecar's own log file, because
 // `log show` answers nothing in this session and a supervisor whose reasoning is unreadable after
-// the fact is indistinguishable from one that is not running.
+// the fact is indistinguishable from one that is not running. It also heartbeats its state onto the
+// same rendezvous board the sidecar announces itself on, so the panel can show a held sidecar
+// instead of the reader seeing a feed that has merely gone quiet.
 
-import { createSupervisorGate } from "@/supervisorGate";
+import { rmSync, renameSync, writeFileSync } from "node:fs";
+import { userInfo } from "node:os";
+import { dirname, join } from "node:path";
+import chokidar from "chokidar";
+import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
+import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
+import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
 
-/** This package, for the typechecker's working directory and its `node_modules`. */
-const PACKAGE = new URL("../", import.meta.url).pathname;
+/** The tree this watches, which is everything the sidecar can import. */
+const SOURCE = dirname(SERVER);
 
 /**
- * How long a green verdict waits before it is acted on.
+ * How long writes are collected before anything is decided about them.
  *
- * A verdict is about the tree as the run BEGAN, so a write landing mid-run is unjudged by it. tsc
- * starts another run for that write within its own debounce; this window is long enough to hear
- * that start and take the restart back, and short enough that nobody reads it as the reload being
- * broken.
+ * An editor writing a file produces more than one event, and a tool rewriting several files
+ * produces one burst; restarting per event would restart into each intermediate tree in turn.
  */
-const RESTART_GRACE_MS = 400;
+const SETTLE_MS = 200;
 
 /** After a child that died on its own, so a crash loop does not spin the machine. */
 const BACKOFF_MS = [500, 1_000, 2_000, 5_000, 10_000];
@@ -39,15 +44,41 @@ const BACKOFF_MS = [500, 1_000, 2_000, 5_000, 10_000];
 /** Long enough to count as "it ran", which is what resets the backoff. */
 const SETTLED_MS = 10_000;
 
+/** Matches the sidecar board's own heartbeat, and the panel ages this out at three misses. */
+const HEARTBEAT_MS = 5_000;
+
 function say(message: string): void {
   console.log(`[sidecar-supervisor] ${message}`);
 }
+
+// ---------------------------------------------------------------------------
+// The board file the panel reads
+
+const board = join(runtimePaths().sidecarRegistry, `${userInfo().username}.supervisor.json`);
+let published: SupervisorState = { held: false, blocked: null };
+
+function publish(state: SupervisorState = published): void {
+  published = state;
+  try {
+    ensureCrossSessionDirectory(dirname(board));
+    const temporary = `${board}.${process.pid}.tmp`;
+    // Temp-then-rename, so a reader never catches a half-written file, and a heartbeat so a
+    // supervisor that died reads as absent rather than as its last words.
+    writeFileSync(temporary, JSON.stringify({ ...state, pid: process.pid, heartbeat: Date.now() }));
+    renameSync(temporary, board);
+  } catch (error) {
+    // The panel loses one row of detail; the dev loop is unaffected, so this is not worth dying for.
+    say(`could not publish state: ${String(error)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The sidecar process
 
 let child: ReturnType<typeof Bun.spawn> | undefined;
 /** Set while a restart is deliberate, so the exit it causes is not read as a crash. */
 let replacing = false;
 let crashes = 0;
-let pendingRestart: ReturnType<typeof setTimeout> | undefined;
 let stopping = false;
 
 function startSidecar(): void {
@@ -96,66 +127,75 @@ function replaceSidecar(reason: string): void {
 }
 
 const gate = createSupervisorGate({
-  restart: (reason) => {
-    clearTimeout(pendingRestart);
-    pendingRestart = setTimeout(() => replaceSidecar(reason), RESTART_GRACE_MS);
-  },
-  abortRestart: () => clearTimeout(pendingRestart),
+  restart: replaceSidecar,
   log: say,
+  publish,
 });
 
-let typechecker: ReturnType<typeof Bun.spawn> | undefined;
+// ---------------------------------------------------------------------------
+// Watching, and reading whether a file is whole
 
-function startTypechecker(attempt = 0): void {
-  const checker = Bun.spawn({
-    cmd: [
-      `${PACKAGE}node_modules/.bin/tsc`,
-      "--noEmit",
-      "--watch",
-      "--pretty",
-      "false",
-      // Without this tsc clears the screen every run, which in a log file is a screenful of escape
-      // codes between every pair of useful lines.
-      "--preserveWatchOutput",
-    ],
-    cwd: PACKAGE,
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  typechecker = checker;
+/**
+ * Bun's own transpiler, which is the thing that will actually read these files a moment later.
+ *
+ * In process and about a millisecond per file, so the gate costs no resident memory at all. A
+ * `.tsx` loader parses plain `.ts` too, so one instance covers the tree.
+ */
+const transpiler = new Bun.Transpiler({ loader: "tsx" });
 
-  void (async () => {
-    const decoder = new TextDecoder();
-    let buffered = "";
-    for await (const chunk of checker.stdout) {
-      buffered += decoder.decode(chunk, { stream: true });
-      const lines = buffered.split("\n");
-      // The last piece may be half a line; tsc writes its errors and its verdict on separate ones.
-      buffered = lines.pop() ?? "";
-      for (const line of lines) gate.readTypecheckLine(line.trim());
-    }
-    if (stopping) return;
-    // Losing the typechecker is losing the reload loop entirely, since it is also the watcher. So
-    // it comes back rather than being worked around, and says so each time: a supervisor silently
-    // running without one looks exactly like a tree nobody is editing.
-    const wait = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)] ?? 10_000;
-    say(`the typechecker exited; starting it again in ${wait}ms`);
-    setTimeout(() => {
-      if (!stopping) startTypechecker(attempt + 1);
-    }, wait);
-  })();
-
-  return;
+async function parsed(path: string): Promise<ParsedChange> {
+  const file = Bun.file(path);
+  // A file that is gone is a change, not a broken file: there is nothing left to parse, and holding
+  // the tree on it would mean a deletion could never be picked up at all.
+  if (!(await file.exists())) return { path, failure: null };
+  try {
+    transpiler.transformSync(await file.text());
+    return { path, failure: null };
+  } catch (error) {
+    return { path, failure: String((error as Error).message).split("\n")[0] ?? "will not parse" };
+  }
 }
+
+/** Collected between decisions, so one burst of writes is judged as one change. */
+const pending = new Set<string>();
+let settle: ReturnType<typeof setTimeout> | undefined;
+
+function noteChange(path: string): void {
+  if (!/\.tsx?$/.test(path) || path.endsWith(".test.ts") || path.endsWith(".test.tsx")) return;
+  pending.add(path);
+  clearTimeout(settle);
+  settle = setTimeout(() => {
+    const batch = [...pending];
+    pending.clear();
+    void Promise.all(batch.map(parsed)).then((changes) => gate.changed(changes));
+  }, SETTLE_MS);
+}
+
+function startWatching(): void {
+  // One watcher for the process, created once and never closed. Under Bun every SECOND `fs.watch`
+  // on a path is inert (measured on 1.3.13: six open/close cycles delivered 3, 0, 3, 0, 3, 0
+  // events), so a watcher that comes and goes silently stops working the second time.
+  const watcher = chokidar.watch(SOURCE, { ignoreInitial: true });
+  watcher.on("add", noteChange);
+  watcher.on("change", noteChange);
+  watcher.on("unlink", noteChange);
+  watcher.on("error", (error) => say(`watcher error: ${String(error)}`));
+  say(`watching ${SOURCE}`);
+}
+
+// ---------------------------------------------------------------------------
 
 function stop(signal: NodeJS.Signals): void {
   if (stopping) return;
   stopping = true;
-  clearTimeout(pendingRestart);
+  clearTimeout(settle);
   say(`${signal}; stopping the sidecar`);
   child?.kill();
-  // Killed by name rather than left to the runtime: a typechecker outliving its supervisor watches
-  // a tree nobody is acting on, and one per launch accumulates silently.
-  typechecker?.kill();
+  try {
+    rmSync(board, { force: true });
+  } catch {
+    // aged out by the reader instead
+  }
   // The child holds the port, so leaving before it is gone hands the next launch a bound port. It
   // gets a moment, and the process leaves either way rather than hanging on a child that will not
   // go. A supervisor killed with SIGKILL cannot do even this, which is why `host-login` reclaims
@@ -169,5 +209,8 @@ process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGHUP", () => stop("SIGHUP"));
 
 say(`supervising ${SERVER}`);
+publish();
+const heartbeat = setInterval(() => publish(), HEARTBEAT_MS);
+heartbeat.unref?.();
 startSidecar();
-startTypechecker();
+startWatching();

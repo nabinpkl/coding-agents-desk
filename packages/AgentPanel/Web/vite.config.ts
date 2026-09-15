@@ -23,7 +23,6 @@ import { panelPublish } from "./src/app/dev-server/panelPublish";
 import {
   PANEL_BUILD_ROUTE,
   PANEL_PUBLISH_EVENT,
-  PANEL_PUBLISH_ROUTE,
 } from "./src/features/profile/panelBuildRoute";
 
 /**
@@ -354,20 +353,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
     // Before `panelSessions`, because middleware runs in the order it was added and this one owns
-    // the two `/@panel-build` routes the other used to answer half of.
+    // the `/@panel-build` route the other used to answer.
     panelPublish({
       buildRoute: PANEL_BUILD_ROUTE,
-      publishRoute: PANEL_PUBLISH_ROUTE,
       event: PANEL_PUBLISH_EVENT,
       buildId: panelBuildId,
-      // This package's own TypeScript, not a global one: the gate has to be the same judgement
-      // `just check` makes, or a green gate would mean nothing. `--pretty false` keeps the output
-      // parseable and `--preserveWatchOutput` stops it clearing the terminal the server logs to.
-      typecheck: {
-        command: fileURLToPath(new URL("./node_modules/.bin/tsc", import.meta.url)),
-        args: ["--noEmit", "--watch", "--pretty", "false", "--preserveWatchOutput"],
-        cwd: fileURLToPath(new URL(".", import.meta.url)),
-      },
+      // Beside the descriptor each sidecar announces itself with, and named for this login session
+      // the same way: the supervisor behind this panel is the one running as this user.
+      supervisorBoard: join(runtimePaths().sidecarRegistry, `${userInfo().username}.supervisor.json`),
     }),
     panelSessions(),
     vncBridge(),

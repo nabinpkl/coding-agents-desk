@@ -1,203 +1,120 @@
 /**
+ * @vitest-environment node
+ *
+ * Node rather than this project's jsdom default, because the parser under test is esbuild and
+ * jsdom's `TextEncoder` is not the one esbuild requires: it refuses to load at all under it, which
+ * reads as the whole suite failing to collect rather than as an environment mismatch. This module
+ * runs in the dev server and never touches a DOM, so there was nothing to gain from jsdom anyway.
+ *
  * When the dev server hands a change to the page, and when it sits on it.
  *
- * Every decision here is a race with something -- a save that lands mid-typecheck, a green verdict
- * about a tree that has already moved on, a typechecker that dies -- and none of them is reachable
- * by starting a real dev server and editing a file. What they decide is whether a reader's panel
- * goes blank, so they are driven directly.
+ * The rule: a file that parses goes through at once, and a file that does not is held until a later
+ * save completes it. What that decides is whether a reader's panel survives somebody else's
+ * half-finished edit, so the parser is exercised against the real shapes an interrupted write makes
+ * rather than assumed.
  */
 
 import { describe, expect, it } from "vitest";
-import { createPublishGate, type PublishReport } from "@/app/dev-server/panelPublish";
+import {
+  createPublishGate,
+  parseFailure,
+  type PublishReport,
+  type SupervisorReport,
+} from "@/app/dev-server/panelPublish";
 
 const PANEL = "/repo/packages/AgentPanel/Web/src";
+const MAIN = `${PANEL}/app/main.tsx`;
 
-function gateWith() {
-  const released: string[] = [];
+function gateWith(sidecar: SupervisorReport | null = null) {
   const reports: PublishReport[] = [];
-  const warnings: string[] = [];
-  /** The handover the gate has decided on but not performed. Fired by hand, so a race is testable. */
-  let deferred: (() => void) | null = null;
   const gate = createPublishGate({
-    defer: (run) => {
-      deferred = run;
-      return () => {
-        deferred = null;
-      };
-    },
-    release: (file) => released.push(file),
     broadcast: (report) => reports.push(report),
-    warn: (message) => warnings.push(message),
     buildId: () => "abc1234+",
+    sidecar: () => sidecar,
   });
-  return {
-    gate,
-    released,
-    reports,
-    warnings,
-    pending: () => deferred !== null,
-    settle: () => {
-      const run = deferred;
-      deferred = null;
-      run?.();
-    },
-  };
+  return { gate, reports };
 }
 
-/** What tsc writes under `--watch --pretty false`, which is what the gate reads. */
-const STARTED = "[3:26:41 AM] File change detected. Starting incremental compilation...";
-const GREEN = "[3:26:43 AM] Found 0 errors. Watching for file changes.";
-const RED = "[3:26:43 AM] Found 1 error. Watching for file changes.";
-const ERROR_LINE = `${PANEL}/app/main.tsx(12,3): error TS2304: Cannot find name 'Foo'.`;
-
 describe("the publish gate", () => {
-  it("holds source and lets a stylesheet through", () => {
+  it("holds a file that will not parse and lets a whole one through", () => {
     const { gate } = gateWith();
-    expect(gate.hold(`${PANEL}/app/main.tsx`)).toBe(true);
-    expect(gate.hold(`${PANEL}/app/styles.css`)).toBe(false);
+    expect(gate.hold(MAIN, "Unexpected end of file")).toBe(true);
     expect(gate.report().held).toEqual(["main.tsx"]);
-  });
+    expect(gate.report().blocked).toBe("main.tsx: Unexpected end of file");
 
-  it("hands over what it is holding once the tree typechecks", () => {
-    const { gate, released, settle } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.hold(`${PANEL}/app/main.tsx`);
-    gate.hold(`${PANEL}/features/profile/panelBuild.ts`);
-    expect(released).toEqual([]);
-
-    gate.readTypecheckLine(GREEN);
-    settle();
-    expect(released).toEqual([`${PANEL}/app/main.tsx`, `${PANEL}/features/profile/panelBuild.ts`]);
+    expect(gate.hold(MAIN, null)).toBe(false);
     expect(gate.report().held).toEqual([]);
     expect(gate.report().blocked).toBeNull();
   });
 
-  it("waits for nothing when it is holding nothing", () => {
-    const { gate, pending } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.readTypecheckLine(GREEN);
-    expect(pending()).toBe(false);
-  });
-
-  it("keeps holding while the tree does not compile, and says what is in the way", () => {
-    const { gate, released } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.hold(`${PANEL}/app/main.tsx`);
-    gate.readTypecheckLine(ERROR_LINE);
-    gate.readTypecheckLine(RED);
-
-    expect(released).toEqual([]);
-    const report = gate.report();
-    expect(report.held).toEqual(["main.tsx"]);
-    expect(report.checking).toBe(false);
-    // The file's own name, not the absolute path: the row is one line wide.
-    expect(report.blocked).toBe("main.tsx(12,3): error TS2304: Cannot find name 'Foo'.");
-  });
-
-  // The window this closes: a save lands while the typechecker is mid-run, so the green verdict it
-  // then reports was never about that file. Publishing it there is the original bug, one race late.
-  // The next run's START is what takes the handover back, rather than any judgement about the file.
-  it("takes back a handover when the tree moves again before it happens", () => {
-    const { gate, released, pending, settle } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.hold(`${PANEL}/app/main.tsx`);
-    gate.readTypecheckLine(GREEN);
-    expect(pending()).toBe(true);
-
-    gate.readTypecheckLine(STARTED);
-    expect(pending()).toBe(false);
-    expect(released).toEqual([]);
-    expect(gate.report().held).toEqual(["main.tsx"]);
-
-    // The run that supersedes it is what decides, and it hands over both rounds' work.
-    gate.readTypecheckLine(GREEN);
-    settle();
-    expect(released).toEqual([`${PANEL}/app/main.tsx`]);
-    expect(gate.report().held).toEqual([]);
-  });
-
-  // The state the mtime comparison this replaced could get stuck in, reached from both sides: a file
-  // written back to what it already was is seen by Vite, which watches writes, and not by tsc, which
-  // watches text. So there is no later verdict, and a hold that waits for one waits for ever.
-  it("hands over a write the typechecker never had anything to say about", () => {
-    const file = `${PANEL}/app/main.tsx`;
-    const { gate, released, settle, pending } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.readTypecheckLine(GREEN);
-
-    // Held after the last verdict, with nothing following it at all.
-    gate.hold(file);
-    expect(pending()).toBe(true);
-    settle();
-    expect(released).toEqual([file]);
-    expect(gate.report().held).toEqual([]);
-  });
-
-  it("waits for the verdict instead when the typechecker did wake up", () => {
-    const file = `${PANEL}/app/main.tsx`;
-    const { gate, released, pending } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.readTypecheckLine(GREEN);
-    gate.hold(file);
-    // tsc noticed after all, so the standing verdict no longer covers the tree.
-    gate.readTypecheckLine(STARTED);
-    expect(pending()).toBe(false);
-    expect(released).toEqual([]);
-    expect(gate.report().held).toEqual(["main.tsx"]);
-  });
-
-  it("does not hand anything over while the tree is refused", () => {
-    const { gate, pending } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.readTypecheckLine(ERROR_LINE);
-    gate.readTypecheckLine(RED);
-    gate.hold(`${PANEL}/app/main.tsx`);
-    expect(pending()).toBe(false);
-  });
-
-  it("hands everything over when a caller says so, unjudged files included", () => {
-    const late = `${PANEL}/app/main.tsx`;
-    const { gate, released } = gateWith();
-    gate.readTypecheckLine(STARTED);
-    gate.hold(late);
-    gate.readTypecheckLine(RED);
-    expect(released).toEqual([]);
-
-    gate.publish();
-    expect(released).toEqual([late]);
-    expect(gate.report().held).toEqual([]);
-  });
-
-  // The replay is a change event the gate asked for. Holding it again would deadlock the file.
-  it("lets a released file through once, and holds its next change", () => {
-    const file = `${PANEL}/app/main.tsx`;
-    const { gate } = gateWith();
-    gate.hold(file);
-    gate.publish();
-    expect(gate.hold(file)).toBe(false);
-    expect(gate.hold(file)).toBe(true);
-  });
-
-  it("stops gating rather than stopping the dev loop when the typechecker dies", () => {
-    const file = `${PANEL}/app/main.tsx`;
-    const { gate, released, warnings } = gateWith();
-    gate.hold(file);
-    gate.giveUp("the typechecker exited with 1");
-
-    expect(released).toEqual([file]);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("unfiltered");
-    expect(gate.report().unfiltered).toBe(true);
-    // And from here nothing is held back, because there is no longer anything that could clear it.
-    expect(gate.hold(file)).toBe(false);
-    gate.giveUp("again");
-    expect(warnings).toHaveLength(1);
-  });
-
-  it("tells every page each time it starts holding something", () => {
+  // The save that completes a half-written file IS the update the reader is waiting for, so there
+  // is nothing left to replay once it lands. That is the whole reason this shape has no timers.
+  it("needs no second event to catch up once a file is whole again", () => {
     const { gate, reports } = gateWith();
-    gate.hold(`${PANEL}/app/main.tsx`);
-    expect(reports.at(-1)?.held).toEqual(["main.tsx"]);
-    expect(reports.at(-1)?.build).toBe("abc1234+");
+    gate.hold(MAIN, "Expected identifier but found end of file");
+    const before = reports.length;
+    expect(gate.hold(MAIN, null)).toBe(false);
+    expect(reports.length).toBe(before + 1);
+    expect(reports.at(-1)?.held).toEqual([]);
+  });
+
+  it("says nothing new while a file stays broken the same way", () => {
+    const { gate, reports } = gateWith();
+    gate.hold(MAIN, "Unexpected end of file");
+    const after = reports.length;
+    // An editor writing the same broken text again should not push a report per keystroke.
+    expect(gate.hold(MAIN, "Unexpected end of file")).toBe(true);
+    expect(reports.length).toBe(after);
+  });
+
+  it("never holds a stylesheet, which cannot take a render down", () => {
+    const { gate } = gateWith();
+    expect(gate.hold(`${PANEL}/app/styles.css`, "nonsense")).toBe(false);
+    expect(gate.report().held).toEqual([]);
+  });
+
+  it("names the first file still held, since the row has one line for it", () => {
+    const { gate } = gateWith();
+    gate.hold(MAIN, "Unexpected end of file");
+    gate.hold(`${PANEL}/app/AppDialogs.tsx`, "Syntax Error");
+    expect(gate.report().held).toEqual(["main.tsx", "AppDialogs.tsx"]);
+    expect(gate.report().blocked).toBe("main.tsx: Unexpected end of file");
+  });
+
+  // The other process's gate, carried on the same report: the sidecar runs the working tree too, and
+  // a reader looking at a feed with no new rows cannot otherwise tell it apart from a quiet session.
+  it("carries what the sidecar's own supervisor is holding", () => {
+    const { gate } = gateWith({ held: true, blocked: "sessionRoutes.ts: Unexpected end of file" });
+    expect(gate.report().sidecar).toEqual({
+      held: true,
+      blocked: "sessionRoutes.ts: Unexpected end of file",
+    });
+  });
+
+  it("says nothing about a sidecar that has no supervisor behind it", () => {
+    const { gate } = gateWith();
+    expect(gate.report().sidecar).toBeNull();
+  });
+});
+
+// The instrument itself. A gate that misreads what a half-saved file looks like is a gate that
+// holds working code or forwards broken code, and both are worse than no gate.
+describe("reading whether a file is whole", () => {
+  it("refuses the shapes an interrupted write actually leaves behind", async () => {
+    expect(await parseFailure("a.tsx", "export const x = {\n")).toBeTruthy();
+    expect(await parseFailure("a.ts", "export function a() {\n  const b = 1;\n")).toBeTruthy();
+    expect(await parseFailure("a.tsx", "export const A = () => <div>hi;\n")).toBeTruthy();
+  });
+
+  it("says where it gave up, so the row points at a line", async () => {
+    const failure = await parseFailure("a.ts", "export function a() {\n  const b = 1;\n");
+    expect(failure).toMatch(/line \d+/);
+  });
+
+  // Deliberately not caught: neither tree typechecks at runtime, so a type error cannot take a page
+  // down, and holding one would mean paying a resident typechecker to prevent nothing.
+  it("passes a whole file that happens to have a type error", async () => {
+    expect(await parseFailure("a.ts", "export const n: number = 'not a number';\n")).toBeNull();
+    expect(await parseFailure("a.tsx", "export const A = () => <div>hi</div>;\n")).toBeNull();
   });
 });

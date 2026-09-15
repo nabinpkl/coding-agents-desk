@@ -8,7 +8,6 @@ import {
 import {
   PANEL_BUILD_ROUTE,
   PANEL_PUBLISH_EVENT,
-  PANEL_PUBLISH_ROUTE,
   type PanelBuildReport,
 } from "@/features/profile/panelBuildRoute";
 
@@ -166,23 +165,21 @@ describe("dev server connection", () => {
   });
 });
 
-// The gate deliberately keeps a page behind the tree until it typechecks, so "not updating" now has
-// two meanings that look the same from the outside. These are what tells them apart.
+// The gate deliberately keeps a page behind the tree while a file does not parse, so "not updating"
+// now has two meanings that look the same from the outside. These are what tells them apart.
 describe("work the dev server is holding", () => {
   it("reads what is held and why from the same route as the build", async () => {
     const server = devServer();
     serveReport({
       build: "7373cec+",
       held: ["ActivityBlockViews.tsx", "panelBuild.ts"],
-      blocked: "panelBuild.ts(91,5): error TS2322: Type 'null' is not assignable.",
-      checking: false,
-      unfiltered: false,
+      blocked: "ActivityBlockViews.tsx: Unexpected end of file (line 412)",
+      sidecar: null,
     });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 
     await waitFor(() => expect(result.current.held).toHaveLength(2));
-    expect(result.current.blocked).toContain("error TS2322");
-    expect(result.current.checking).toBe(false);
+    expect(result.current.blocked).toContain("Unexpected end of file");
   });
 
   it("takes a pushed report without asking again", async () => {
@@ -195,37 +192,44 @@ describe("work the dev server is holding", () => {
       server.emit(PANEL_PUBLISH_EVENT, {
         build: "7373cec+",
         held: ["main.tsx"],
-        blocked: null,
-        checking: true,
-        unfiltered: false,
+        blocked: "main.tsx: Syntax Error",
+        sidecar: null,
       }),
     );
     expect(result.current.held).toEqual(["main.tsx"]);
-    expect(result.current.checking).toBe(true);
     // One read on mount, and nothing since: the push carries the whole report.
     expect(asked).toHaveLength(1);
   });
 
-  it("asks the server to hand the work over, and takes the answer", async () => {
+  // The other process's gate, carried on the same report rather than fetched separately: the panel
+  // has a bounded number of connections to spend and this is not worth one.
+  it("carries what the sidecar's own supervisor is holding", async () => {
     const server = devServer();
-    serveReport({ build: "7373cec", held: ["main.tsx"], blocked: "main.tsx(1,1): error TS1005: ';'" });
+    serveReport({
+      build: "7373cec",
+      sidecar: { held: true, blocked: "sessionRoutes.ts: Syntax Error" },
+    });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.held).toEqual(["main.tsx"]));
 
-    const { asked } = serveReport({ build: "7373cec", held: [], blocked: null });
-    act(() => result.current.publish());
-    await waitFor(() => expect(result.current.held).toEqual([]));
-    expect(asked).toEqual([{ url: PANEL_PUBLISH_ROUTE, method: "POST" }]);
-    expect(result.current.blocked).toBeNull();
+    await waitFor(() => expect(result.current.sidecar?.held).toBe(true));
+    expect(result.current.sidecar?.blocked).toContain("sessionRoutes.ts");
   });
 
-  it("has nothing to publish in a build with no dev server behind it", () => {
+  it("reads a sidecar report that is not the contract as no supervisor at all", async () => {
+    const server = devServer();
+    serveReport({ build: "7373cec", sidecar: "not an object" as never });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    expect(result.current.sidecar).toBeNull();
+  });
+
+  it("holds nothing in a build with no dev server behind it", () => {
     const { asked } = serveReport({ build: "should-not-be-asked" });
     const { result } = renderHook(() => usePanelBuild(null));
 
-    act(() => result.current.publish());
     expect(asked).toEqual([]);
     expect(result.current.held).toEqual([]);
-    expect(result.current.unfiltered).toBe(false);
+    expect(result.current.sidecar).toBeNull();
   });
 });

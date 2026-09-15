@@ -24,18 +24,18 @@
 // still in a position to know.
 //
 // There is now a third fact, and it is the one a reader most needs: the dev server DELIBERATELY
-// holds a change back until the tree typechecks (`app/dev-server/panelPublish.ts`), so a connected
-// page can be behind the tree on purpose. `held` is what it is sitting on, `blocked` is why, and
-// `publish` is the override for whoever is confident the code is good before the typechecker says
-// so. Without those the gate would be indistinguishable from the panel quietly not updating, which
-// is the failure this module exists to prevent.
+// holds a change back when the file does not parse (`app/dev-server/panelPublish.ts`), so a
+// connected page can be behind the tree on purpose. `held` is what it is sitting on and `blocked`
+// is why. Without them the gate would be indistinguishable from the panel quietly not updating,
+// which is the failure this module exists to prevent. `sidecar` is the same fact about the other
+// process, which gates its own restarts the same way.
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   PANEL_BUILD_ROUTE,
   PANEL_PUBLISH_EVENT,
-  PANEL_PUBLISH_ROUTE,
   type PanelBuildReport,
+  type SidecarSupervisorReport,
 } from "@/features/profile/panelBuildRoute";
 
 /**
@@ -78,14 +78,10 @@ export interface PanelBuild {
   connected: boolean;
   /** File names the server is holding back from this page. Empty means the page is current. */
   held: string[];
-  /** What the typechecker objects to, and so why the held files are still held. */
+  /** Which held file will not parse, and why. */
   blocked: string | null;
-  /** True while the typechecker is deciding: the held files are on their way, not stuck. */
-  checking: boolean;
-  /** True when nothing is gating updates, so what arrives is whatever was on disk. */
-  unfiltered: boolean;
-  /** Hand over what is held now, whatever the typechecker thinks of it. */
-  publish: () => void;
+  /** What the sidecar's own supervisor is holding, or null when there is no live one. */
+  sidecar: SidecarSupervisorReport | null;
 }
 
 /** What a page with no dev server behind it reports: a frozen bundle holds nothing back. */
@@ -94,19 +90,26 @@ const NOT_SERVED = {
   connected: true,
   held: [],
   blocked: null,
-  checking: false,
-  unfiltered: false,
-} satisfies Omit<PanelBuild, "publish">;
+  sidecar: null,
+} satisfies PanelBuild;
 
 /** A report is read off the wire, so each field is checked rather than cast. */
-function readReport(report: PanelBuildReport): Omit<PanelBuild, "connected" | "publish"> {
+function readReport(report: PanelBuildReport): Omit<PanelBuild, "connected"> {
   if (typeof report.build !== "string" || report.build === "") throw new Error("no build");
   return {
     id: report.build,
     held: Array.isArray(report.held) ? report.held.filter((name) => typeof name === "string") : [],
     blocked: typeof report.blocked === "string" ? report.blocked : null,
-    checking: report.checking === true,
-    unfiltered: report.unfiltered === true,
+    sidecar: readSidecar(report.sidecar),
+  };
+}
+
+/** The other process's gate, checked the same way: a shape that is not the contract is not a gate. */
+function readSidecar(report: PanelBuildReport["sidecar"]): SidecarSupervisorReport | null {
+  if (!report || typeof report !== "object") return null;
+  return {
+    held: report.held === true,
+    blocked: typeof report.blocked === "string" ? report.blocked : null,
   };
 }
 
@@ -122,17 +125,7 @@ function readReport(report: PanelBuildReport): Omit<PanelBuild, "connected" | "p
  * exists, so it is the one that most needs a test.
  */
 export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild {
-  const [build, setBuild] = useState<Omit<PanelBuild, "publish">>(NOT_SERVED);
-
-  const publish = useCallback(() => {
-    if (!devServerHooks(devServer)) return;
-    void fetch(PANEL_PUBLISH_ROUTE, { method: "POST" })
-      .then((answer) => (answer.ok ? answer.json() : Promise.reject(new Error(String(answer.status)))))
-      .then((report: PanelBuildReport) => {
-        setBuild((current) => ({ ...current, ...readReport(report) }));
-      })
-      .catch(() => setBuild((current) => ({ ...current, id: "unknown" })));
-  }, [devServer]);
+  const [build, setBuild] = useState<PanelBuild>(NOT_SERVED);
 
   useEffect(() => {
     const hot = devServerHooks(devServer);
@@ -186,5 +179,5 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
     };
   }, [devServer]);
 
-  return { ...build, publish };
+  return build;
 }
