@@ -254,13 +254,35 @@ export function subscribeTranscriptTimeline(
     if (niceIndex === null) return;
     follower.offer({ ...event, index: niceIndex, otherModeIndex: event.index });
   };
-  // The watch and the index reference are one thing here: the index is what this
-  // reads and the watch is what keeps it current, and both are shared with every
+  // The follow and the index reference are one thing here: the index is what this
+  // reads and the follow is what keeps it current, and both are shared with every
   // other reader of the same transcript.
   const unfollow = followTranscript(source, sessionId, session.transcriptPath, fail);
   void (async () => {
     await ensureIndexed(source, sessionId, session.transcriptPath);
     if (cancelled) {
+      discardIndexIfUnused(source, sessionId);
+      return;
+    }
+    // Subscribed BEFORE the backfill is measured and read, not after, which is what the
+    // subagent stream has always done. Reading a page is real file IO, and the index fans a
+    // line out to its subscribers the moment it parses it -- so a line written during that
+    // read used to land above the `total` the backfill was sized from and below a
+    // subscription that did not exist yet, reaching this stream through neither, with the
+    // closing `syncIndex` finding those bytes already indexed and re-emitting nothing. The
+    // row then appeared only when a later one exposed the hole and the panel paged it in.
+    //
+    // The seam can now deliver a row twice instead, once live and once in the backfill, and
+    // that is the safer half of the trade. The follower holds pending rows in a map keyed by
+    // index, so the two collapse when they land in one flush; when they do not, the second is
+    // an upsert carrying the same index and the same revision, which is what every consumer
+    // of this stream already does nothing with.
+    unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
+    if (cancelled) {
+      // Left during the index build. The teardown has already run and found nothing to
+      // unsubscribe, so this subscription is ours to take back off.
+      unsubscribeEvents();
+      unsubscribeEvents = null;
       discardIndexIfUnused(source, sessionId);
       return;
     }
@@ -280,7 +302,6 @@ export function subscribeTranscriptTimeline(
       }
       for (const event of backfill) follower.offer(event);
     }
-    unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
     await syncIndex(source, sessionId, session.transcriptPath);
     if (cancelled) discardIndexIfUnused(source, sessionId);
   })().catch((error) => {
