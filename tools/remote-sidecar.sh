@@ -298,7 +298,7 @@ status)
     # `find` rather than a glob: the peer's login shell may be zsh, which fails a glob that matches
     # nothing loudly enough to land in this output as an error about a file nobody asked for.
     on_peer "find '${remote_root}/sidecars' -name '*.supervisor.json' -exec cat {} + 2>/dev/null" \
-        | while IFS= read -r line; do
+        | while IFS= read -r line || [ -n "${line}" ]; do
         case "${line}" in
             *'"held":true'*)
                 echo "supervisor    holding the shipped tree back"
