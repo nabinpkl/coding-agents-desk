@@ -243,6 +243,18 @@ export class SidecarTranscript extends SidecarRoutes {
     ) ?? null;
   }
 
+  /** The same address for a file the call handed over, named by its place in that call's list. */
+  eventFileUrl(
+    session: SessionReference,
+    eventIndex: number,
+    blockIndex: number,
+    fileIndex: number,
+  ): string | null {
+    return this.transport.resourceUrl?.(
+      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/files/${fileIndex}?mode=${session.mode}`,
+    ) ?? null;
+  }
+
   // ---------------------------------------------------------------------
   // Extension UI
   // ---------------------------------------------------------------------

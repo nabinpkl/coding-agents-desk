@@ -1,34 +1,61 @@
 "use client";
 
+import { EventFileImage } from "@/features/activity-feed/blocks/EventImageBlock";
+import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
+
 /**
- * What a call handed to the reader: the sentence it sent them with, and the files by name.
+ * What a call handed to the reader: the sentence it sent them with, and the files themselves.
  *
- * `SendUserFile` is the call, and both halves of it were unreadable in the feed. Its result
- * enumerates every absolute path a second time beside a `file_uuid`, which is the delivery
- * system's handle and nothing a reader can act on -- three files filled a screen with temp
- * directories, and the sentence saying what they were sat above all of it in the call's `caption`,
- * a key nothing rendered.
+ * `SendUserFile` is the call, and every part of it was unreadable in the feed. Its result
+ * enumerates each absolute path a second time beside a `file_uuid`, which is the delivery
+ * system's handle and nothing a reader can act on; the sentence saying what the files were sat in
+ * the call's `caption`, a key nothing rendered; and the pictures -- usually the whole point of the
+ * message -- were a list of names in a temp directory.
  *
  * The names come from the CALL rather than from its result, because the call is what asked; a
  * result that failed still shows its own text under this.
  */
-export function SentFilesBlock({ files, caption }: { files: string[]; caption?: string }) {
+export function SentFilesBlock({
+  files,
+  caption,
+  ctx,
+  eventIndex,
+  blockIndex,
+}: {
+  files: string[];
+  caption?: string;
+  ctx: EventRowContext;
+  eventIndex: number;
+  blockIndex: number;
+}) {
   return (
     <div
-      className="space-y-1 rounded-sm border border-border/50 bg-muted/30 px-2 py-1.5"
+      className="space-y-1.5 rounded-sm border border-border/50 bg-muted/30 px-2 py-1.5"
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       {caption ? (
         <p className="leading-(--agent-panel-prose-leading) text-foreground">{caption}</p>
       ) : null}
-      <ul className="space-y-0.5">
-        {files.map((path) => (
-          // The whole path in `title`, since it is the one thing a reader might want and the one
-          // thing that cannot be read at a glance.
-          <li key={path} className="truncate font-mono text-foreground/70" title={path}>
-            {path.split("/").pop() || path}
-          </li>
-        ))}
+      <ul className="flex flex-wrap gap-2">
+        {files.map((path, fileIndex) => {
+          const name = fileName(path);
+          return (
+            // The whole path in `title`, since it is the one thing a reader might want and the one
+            // thing that cannot be read at a glance.
+            <li key={`${fileIndex}-${path}`} className="min-w-0 space-y-0.5" title={path}>
+              {isPicture(path) ? (
+                <EventFileImage
+                  ctx={ctx}
+                  eventIndex={eventIndex}
+                  blockIndex={blockIndex}
+                  fileIndex={fileIndex}
+                  name={name}
+                />
+              ) : null}
+              <div className="truncate font-mono text-foreground/70">{name}</div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -40,6 +67,21 @@ export function sentFiles(input: Record<string, unknown> | undefined): string[] 
   if (!Array.isArray(files)) return null;
   const paths = files.filter((file): file is string => typeof file === "string" && file.trim() !== "");
   return paths.length ? paths : null;
+}
+
+export function fileName(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+/**
+ * Whether to ask for this file as a picture.
+ *
+ * By NAME here and by the bytes at the sidecar, which is the same split the composer uses: the
+ * panel is deciding whether to put an `<img>` on the row at all, and the four names are Claude's
+ * own list. A file that lies about itself is refused where the bytes are, not here.
+ */
+export function isPicture(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp)$/i.test(path);
 }
 
 /**

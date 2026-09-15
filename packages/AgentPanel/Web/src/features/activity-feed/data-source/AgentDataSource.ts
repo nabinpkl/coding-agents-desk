@@ -110,6 +110,20 @@ export interface AgentDataSource {
   ): string | null;
 
   /**
+   * Where the page can load a picture a tool call HANDED to the reader, by its place in that
+   * call's own list of files, or null where this transport has no address a browser can load.
+   *
+   * Addressed by position rather than by path on purpose: the request never carries a filename,
+   * so the panel can only ask for what the session already said it was sending.
+   */
+  eventFileUrl(
+    session: SessionReference,
+    eventIndex: number,
+    blockIndex: number,
+    fileIndex: number,
+  ): string | null;
+
+  /**
    * Follows the session's background tasks. Returns unsubscribe.
    *
    * Its own stream rather than a field on the session events, because the events stream remounts

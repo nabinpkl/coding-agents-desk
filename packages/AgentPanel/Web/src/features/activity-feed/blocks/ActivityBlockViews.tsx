@@ -11,9 +11,11 @@ import { DiffBlock } from "@/features/activity-feed/blocks/DiffBlock";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
-import { EventImageBlock } from "@/features/activity-feed/blocks/EventImageBlock";
+import { EventFileImage, EventImageBlock } from "@/features/activity-feed/blocks/EventImageBlock";
 import {
   SentFilesBlock,
+  fileName,
+  isPicture,
   sentFiles,
   withoutFileHandles,
 } from "@/features/activity-feed/blocks/SentFilesBlock";
@@ -22,6 +24,9 @@ import type { PairedToolResult } from "@/features/activity-feed/rows/activityFee
 import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/blocks/streamingText";
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
+
+/** How many of a call's pictures ride its folded header before the rest wait for it to open. */
+const HEADER_THUMBNAILS = 3;
 
 // `.md` / `.mdx` file detection for tool calls whose body should render as
 // formatted Markdown rather than raw source.
@@ -222,6 +227,14 @@ export function Block({
     // A call that returned a picture shows it while folded, since that picture is usually why the
     // call was made. Open, the result draws it full size, so the header's copy steps aside.
     const headerImages = !isExpanded && pairedResult ? pairedResult.images : [];
+    // The same for a call that HANDED pictures over, which is the other way one reaches a row.
+    // Capped, because these come in sets and each one is `shrink-0`: past a few, the thumbnails
+    // would take the width the call's own name is truncating in.
+    const headerFiles = !isExpanded && handedOver
+      ? handedOver.map((path, fileIndex) => ({ path, fileIndex }))
+        .filter(({ path }) => isPicture(path))
+        .slice(0, HEADER_THUMBNAILS)
+      : [];
     return (
       <div className="space-y-1.5">
         <div
@@ -269,6 +282,17 @@ export function Block({
                 />
               ))
             : null}
+          {headerFiles.map(({ path, fileIndex }) => (
+            <EventFileImage
+              key={fileIndex}
+              ctx={ctx}
+              eventIndex={eventIndex}
+              blockIndex={blockIndex}
+              fileIndex={fileIndex}
+              name={fileName(path)}
+              compact
+            />
+          ))}
         </div>
         {isExpanded ? (
           <>
@@ -286,7 +310,13 @@ export function Block({
               <Markdown content={b.input!.content as string} />
             ) : null}
             {handedOver ? (
-              <SentFilesBlock files={handedOver} caption={caption || undefined} />
+              <SentFilesBlock
+                files={handedOver}
+                caption={caption || undefined}
+                ctx={ctx}
+                eventIndex={eventIndex}
+                blockIndex={blockIndex}
+              />
             ) : null}
             {pairedResult ? (
               <ToolResultContent

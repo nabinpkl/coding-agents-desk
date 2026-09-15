@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
+import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { SegmentEventRow, type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import { withoutFileHandles } from "@/features/activity-feed/blocks/SentFilesBlock";
@@ -55,19 +56,22 @@ const delivered: PairedToolResult = {
   images: [],
 };
 
-function renderCall() {
+function renderCall(
+  { expanded = true, source = stubDataSource({}), ev = call }:
+    { expanded?: boolean; source?: AgentDataSource; ev?: ActivityEvent } = {},
+) {
   const ctx: EventRowContext = {
     session: { source: "claude", sessionId: "session-1", mode: "nice" },
     rawSource: "addressable",
-    expandedTools: new Set(["call-1"]),
+    expandedTools: new Set(expanded ? ["call-1"] : []),
     onToggleTool: () => {},
     pairedToolResults: new Map([["call-1", delivered]]),
     showCacheHits: false,
   };
   return render(
-    <DataSourceProvider source={stubDataSource({})}>
+    <DataSourceProvider source={source}>
       <SegmentEventRow
-        ev={call}
+        ev={ev}
         ctx={ctx}
         isFirst
         isLast
@@ -84,8 +88,8 @@ describe("a call that hands files to the reader", () => {
     const { container } = renderCall();
     expect(screen.getByText("cull-ad-1-fit.png")).toBeDefined();
     expect(screen.getByText("cull-lc-1-fit.png")).toBeDefined();
-    // The path is still reachable, on the row that carries it.
-    expect(screen.getByText("cull-ad-1-fit.png").getAttribute("title"))
+    // The path is still reachable, on the item that carries it.
+    expect(screen.getByText("cull-ad-1-fit.png").closest("li")?.getAttribute("title"))
       .toBe(`${ROOT}/cull-ad-1-fit.png`);
     expect(container.textContent).not.toContain("file_uuid");
     // The delivery itself still reports, since a failure would report here too.
@@ -104,6 +108,51 @@ describe("a call that hands files to the reader", () => {
     expect(container.textContent).toContain(CAPTION);
     // And in the heading above the call, where a description would be.
     expect(toolIntent(call)).toBe(CAPTION);
+  });
+
+  it("draws the pictures themselves, addressed by their place in the call", () => {
+    const eventFileUrl = vi.fn(
+      (_s, event: number, block: number, file: number) => `/file/${event}-${block}-${file}`,
+    );
+    renderCall({ source: stubDataSource({ eventFileUrl }) });
+
+    const opened = screen.getAllByRole("button", { name: /^Open .+ larger$/ });
+    expect(opened).toHaveLength(2);
+    // The call's own event and block, and one index per file: no path travels in the request.
+    expect(eventFileUrl.mock.calls.map((args) => args.slice(1))).toEqual([[7, 0, 0], [7, 0, 1]]);
+  });
+
+  it("names a file it cannot draw rather than asking for it as a picture", () => {
+    const eventFileUrl = vi.fn(() => "/file/report");
+    const report = `${ROOT}/triage-report.md`;
+    renderCall({
+      source: stubDataSource({ eventFileUrl }),
+      ev: {
+        ...call,
+        blocks: [{
+          ...call.blocks[0]!,
+          input: { files: [report], caption: CAPTION, status: "normal" },
+        }],
+      },
+    });
+
+    expect(screen.getByText("triage-report.md")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^Open .+ larger$/ })).toBeNull();
+    expect(eventFileUrl).not.toHaveBeenCalled();
+  });
+
+  // The same reason a tool-returned picture rides its folded header: the picture is why the call
+  // happened, and a reader scrolling past should not have to open the row to find that out.
+  it("shows the pictures while the call is folded, and only once when it is open", () => {
+    const eventFileUrl = vi.fn(() => "/file/one");
+    const folded = renderCall({ expanded: false, source: stubDataSource({ eventFileUrl }) });
+    expect(screen.getAllByRole("button", { name: /^Open .+ larger$/ })).toHaveLength(2);
+    // Folded, the pictures ride the header line itself: the list they sit in is not drawn.
+    expect(folded.container.querySelectorAll("li")).toHaveLength(0);
+    folded.unmount();
+
+    renderCall({ source: stubDataSource({ eventFileUrl }) });
+    expect(screen.getAllByRole("button", { name: /^Open .+ larger$/ })).toHaveLength(2);
   });
 
   it("keeps a result that says something other than which handles it minted", () => {

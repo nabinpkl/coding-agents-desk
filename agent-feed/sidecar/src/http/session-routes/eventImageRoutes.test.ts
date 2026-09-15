@@ -80,3 +80,90 @@ test("refuses a mode it does not know, because an index means a different line i
 test("leaves every other path to the routes after it", async () => {
   expect(await get(`/api/sessions/claude/${SESSION_ID}/events/0/raw`)).toBeUndefined();
 });
+
+/**
+ * A transcript whose only line is a call handing files to the reader, with `files` pointing at
+ * whatever paths the test wants named.
+ */
+async function transcriptSendingFiles(files: string[]): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-file-"));
+  roots.push(root);
+  const transcript = join(root, `${SESSION_ID}.jsonl`);
+  const line = JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{
+        type: "tool_use",
+        id: "call-1",
+        name: "SendUserFile",
+        input: { files, caption: "Two renders", status: "normal" },
+      }],
+    },
+    timestamp: "2026-09-15T05:00:00.000Z",
+    uuid: crypto.randomUUID(),
+  });
+  await writeFile(transcript, `${line}\n`);
+  state.sessions.set(sessionKey("claude", SESSION_ID), {
+    source: "claude",
+    sessionId: SESSION_ID,
+    project: root,
+    transcriptPath: transcript,
+    lastEventAt: 1_000,
+  });
+  return root;
+}
+
+test("serves a picture a call handed over, named by its place in that call", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
+  roots.push(root);
+  const picture = join(root, "render.png");
+  await writeFile(picture, Buffer.from(PNG_BASE64, "base64"));
+  await transcriptSendingFiles([picture]);
+
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("image/png");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(Buffer.from(await response.arrayBuffer()).toString("base64")).toBe(PNG_BASE64);
+});
+
+test("serves nothing the transcript did not name, whatever the request asks for", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
+  roots.push(root);
+  const picture = join(root, "render.png");
+  await writeFile(picture, Buffer.from(PNG_BASE64, "base64"));
+  await transcriptSendingFiles([picture]);
+
+  // Past the end of the list the call actually made.
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1?mode=nice`)).status)
+    .toBe(404);
+  // And a block that hands nothing over.
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/files/0?mode=nice`)).status)
+    .toBe(404);
+});
+
+test("refuses a file that is not a picture, rather than serving whatever it holds", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
+  roots.push(root);
+  const secret = join(root, "id_rsa.png");
+  await writeFile(secret, "-----BEGIN OPENSSH " + "PRIVATE KEY-----\n");
+  await transcriptSendingFiles([secret, join(root, "gone.png"), root]);
+
+  // Named by the transcript, extension and all, and still refused: the bytes are sniffed.
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`)).status)
+    .toBe(415);
+  // A path that is not there, and a directory.
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1?mode=nice`)).status)
+    .toBe(404);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/2?mode=nice`)).status)
+    .toBe(404);
+});
+
+test("refuses a relative path, which names a directory nobody agreed on", async () => {
+  await transcriptSendingFiles(["render.png"]);
+
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`)).status)
+    .toBe(404);
+});
