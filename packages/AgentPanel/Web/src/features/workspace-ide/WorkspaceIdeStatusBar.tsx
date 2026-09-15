@@ -7,8 +7,9 @@
 // have to go looking for belongs -- and where the control for a pane that is currently closed
 // belongs, because the pane itself cannot carry it.
 //
-// Deliberately two items. A status bar fills up with whatever nobody found a home for, and every
-// addition costs the two that are here their glanceability.
+// Deliberately two items, and both at the left end. A status bar fills up with whatever nobody
+// found a home for, and every addition costs the two that are here their glanceability -- the
+// empty right end is the reminder of that rather than space waiting to be used.
 
 import { GitBranch, SquareTerminal } from "lucide-react";
 import type { WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
@@ -102,9 +103,11 @@ export function WorkspaceIdeStatusBar({
         aria-pressed={terminalVisible}
         title="Terminal"
         onClick={onToggleTerminal}
-        // Wider than the branch item is padded: it is the one target here with no text to
-        // aim at, and the corner is where a thumb lands.
-        className={`${ITEM} ml-auto px-3`}
+        // Beside the branch rather than opposite it. The two are one group -- what this project
+        // is, and a way into it -- and a control alone at the far end of a 1500px bar is a long
+        // way from the eye that has just read the branch. Padded wider than the branch item
+        // because it is the one target here with no text to aim at.
+        className={`${ITEM} px-3`}
       >
         <SquareTerminal aria-hidden className="size-4" />
       </button>
