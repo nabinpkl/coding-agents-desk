@@ -12,6 +12,11 @@ import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import { EventImageBlock } from "@/features/activity-feed/blocks/EventImageBlock";
+import {
+  SentFilesBlock,
+  sentFiles,
+  withoutFileHandles,
+} from "@/features/activity-feed/blocks/SentFilesBlock";
 import { shellCommand } from "@/features/activity-feed/rows/activityEventText";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/blocks/streamingText";
@@ -38,11 +43,14 @@ function stripReadLineNumbers(text: string): string {
 function ToolResultBlock({
   block,
   renderMarkdown,
+  text,
 }: {
   block: ActivityBlock;
   renderMarkdown?: boolean;
+  /** What to show instead of the result's own preview, where the call renders the rest itself. */
+  text?: string;
 }) {
-  const showing = block.preview ?? "";
+  const showing = text ?? block.preview ?? "";
 
   return (
     <div
@@ -65,16 +73,21 @@ function ToolResultBlock({
 function ToolResultContent({
   result,
   ctx,
+  text,
 }: {
   result: PairedToolResult;
   ctx: EventRowContext;
+  /** What the result says, where the call has already drawn the rest of it. */
+  text?: string;
 }) {
   const hasImages = result.images.length > 0;
+  const showing = text ?? result.block.preview;
   // A result that returned only a picture is not empty, and saying so above the picture would be
   // the one false thing in the row.
-  const content = result.block.preview ? (
-    <ToolResultBlock block={result.block} />
-  ) : hasImages ? null : (
+  // Nor would "(empty result)" be true of a call that drew the result itself and left nothing over.
+  const content = showing ? (
+    <ToolResultBlock block={result.block} text={showing} />
+  ) : hasImages || text !== undefined ? null : (
     <LabeledTextBlock
       block={{ ...result.block, kind: "plain", label: "Tool Result", text: "(empty result)" }}
     />
@@ -191,11 +204,21 @@ export function Block({
     // shell code block, which highlights it and scrolls horizontally rather
     // than cutting it off at the row's width.
     const command = shellCommand(b);
-    const hasBody = isFileBody || command !== null || pairedResult !== undefined;
+    const handedOver = sentFiles(b.input);
+    const caption = typeof b.input?.caption === "string" ? b.input.caption.trim() : "";
+    const hasBody =
+      isFileBody || command !== null || pairedResult !== undefined || handedOver !== null;
+    const headerChip = isEditDiff ? "Edit" : b.tool;
+    // The summary is written to stand alone -- a folded row and the sticky bar show it with no
+    // chip beside it -- so on this line, which draws the chip, it repeats the tool's name back:
+    // `SendUserFile  SendUserFile aim-deep.png`. Said once.
+    const summary = b.summary ?? "";
+    const named = headerChip && summary.startsWith(`${headerChip} `)
+      ? summary.slice(headerChip.length + 1)
+      : summary;
     const headerLabel = isFileBody
       ? (typeof b.input?.file_path === "string" ? b.input.file_path.split("/").pop() ?? "" : "")
-      : (b.summary || "");
-    const headerChip = isEditDiff ? "Edit" : b.tool;
+      : named;
     // A call that returned a picture shows it while folded, since that picture is usually why the
     // call was made. Open, the result draws it full size, so the header's copy steps aside.
     const headerImages = !isExpanded && pairedResult ? pairedResult.images : [];
@@ -262,7 +285,16 @@ export function Block({
             {isMarkdownWrite ? (
               <Markdown content={b.input!.content as string} />
             ) : null}
-            {pairedResult ? <ToolResultContent result={pairedResult} ctx={ctx} /> : null}
+            {handedOver ? (
+              <SentFilesBlock files={handedOver} caption={caption || undefined} />
+            ) : null}
+            {pairedResult ? (
+              <ToolResultContent
+                result={pairedResult}
+                ctx={ctx}
+                text={handedOver ? withoutFileHandles(pairedResult.block.preview) : undefined}
+              />
+            ) : null}
           </>
         ) : null}
       </div>

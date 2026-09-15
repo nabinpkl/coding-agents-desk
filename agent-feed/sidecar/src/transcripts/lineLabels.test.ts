@@ -66,6 +66,33 @@ test('every claude tool call gets a label, not just the six with a rule', () => 
   expect(toolBlock('Bash', { command: 'ls -la' })?.summary).toBe('ls -la');
 });
 
+test('a call that hands over files is labelled with the files, not the delivery mode', () => {
+  const toolBlock = (name: string, input: Record<string, unknown>) =>
+    blocks(claudeAdapter, {
+      type: 'assistant',
+      timestamp: '2026-07-29T12:00:00.000Z',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call-1', name, input }],
+      },
+    })[0];
+
+  // `status` is the only bare string on a SendUserFile, so the any-string fallback used to make
+  // every one of these read `SendUserFile normal`.
+  expect(toolBlock('SendUserFile', {
+    files: ['/tmp/s/edges-9-focus-wire.png', '/tmp/s/edges-5-folders.png'],
+    caption: 'One file at a time instead of all of them',
+    status: 'normal',
+  })?.summary).toBe('SendUserFile edges-9-focus-wire.png, edges-5-folders.png');
+
+  // A description still wins: it says why, and the names are on the call's own rows.
+  expect(toolBlock('SomeFutureTool', { description: 'Why this ran', files: ['/tmp/a.png'] })?.summary)
+    .toBe('SomeFutureTool Why this ran');
+  // Nothing usable in the list leaves the tool named rather than labelled with punctuation.
+  expect(toolBlock('SendUserFile', { files: [], status: 'normal' })?.summary)
+    .toBe('SendUserFile normal');
+});
+
 function patchApplyEnd(payload: Record<string, unknown>) {
   return blocks(codexAdapter, {
     timestamp: '2026-07-30T12:00:00.000Z',

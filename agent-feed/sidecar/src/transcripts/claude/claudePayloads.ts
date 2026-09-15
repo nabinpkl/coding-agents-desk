@@ -69,6 +69,15 @@ export function summarizeToolUse(name: string, input?: Record<string, unknown>):
     const value = i[key];
     if (typeof value === 'string' && value.trim()) return `${name} ${value.trim().slice(0, 200)}`;
   }
+  // A tool handed a LIST of files is about those files. `SendUserFile` is the one here, and the
+  // only bare string it carries is `status`, so the fallback below labelled every one of them
+  // `SendUserFile normal` -- a row that names the delivery mode and not what was delivered.
+  if (Array.isArray(i.files)) {
+    const names = (i.files as unknown[])
+      .filter((file): file is string => typeof file === 'string' && file.trim().length > 0)
+      .map((file) => basename(file));
+    if (names.length) return `${name} ${names.join(', ')}`.slice(0, 200);
+  }
   // Any string input at all beats a blank chip. Keys are read off the transcript, so
   // this walks the object's OWN entries rather than indexing by a name from it.
   for (const [key, value] of Object.entries(i)) {

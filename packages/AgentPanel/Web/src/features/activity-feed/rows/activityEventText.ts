@@ -117,12 +117,17 @@ const SHELL_COMMAND_INPUT = new Map([
  *
  * First description wins. An event with parallel tool calls has several, and a heading is one
  * line; the rest are still on their own rows.
+ *
+ * `caption` counts as a description: it is what `SendUserFile` calls the sentence saying why these
+ * files are being handed over, and that sentence is the whole reason the call happened.
  */
 export function toolIntent(event: { blocks: ActivityBlock[] }): string | null {
   for (const block of event.blocks) {
     if (block.kind !== "tool_use") continue;
-    const description = block.input?.description;
-    if (typeof description === "string" && description.trim()) return description.trim();
+    for (const key of ["description", "caption"]) {
+      const said = block.input?.[key];
+      if (typeof said === "string" && said.trim()) return said.trim();
+    }
   }
   return null;
 }
