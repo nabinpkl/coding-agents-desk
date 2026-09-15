@@ -168,6 +168,18 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         let proc = Process()
         proc.executableURL = launch.executable
         proc.arguments = launch.arguments
+        // Bun (under `--watch`, and standalone `--compile`) drops dot-prefixed
+        // compiler intermediates (`*.bun-build`) beside its working directory. With
+        // no cwd set here, Process inherits the host's own -- the repo checkout --
+        // so a live dev sidecar was littering the git root and agent-feed/sidecar/
+        // with these on every reload. Give it a disposable directory instead, the
+        // same fix `build-agent-feed-sidecar` already applies to the one-shot
+        // compile in the Justfile.
+        let sidecarWorkingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-agent-feed-sidecar-cwd", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: sidecarWorkingDirectory, withIntermediateDirectories: true)
+        proc.currentDirectoryURL = sidecarWorkingDirectory
         // Merge into the inherited env rather than replacing it. Setting
         // Process.environment replaces the whole child env, which would strip
         // PATH/HOME and break transcript discovery. Inherit
