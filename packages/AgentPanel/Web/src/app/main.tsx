@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@/app/styles.css";
 import { App } from "@/app/AgentPanelApp";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { panelEntry } from "@/app/page/panelEntry";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -65,7 +66,9 @@ if (entry === "ide") {
   const transport: AgentHttpTransport = new FetchHttpTransport();
   createRoot(root).render(
     <StrictMode>
-      <WorkspaceIdeSurface transport={transport} feed={new SidecarDataSource(transport)} />
+      <PanelErrorBoundary surface="IDE">
+        <WorkspaceIdeSurface transport={transport} feed={new SidecarDataSource(transport)} />
+      </PanelErrorBoundary>
     </StrictMode>,
   );
 } else if (entry === "desktop") {
@@ -75,7 +78,9 @@ if (entry === "ide") {
   const transport: AgentHttpTransport = new FetchHttpTransport();
   createRoot(root).render(
     <StrictMode>
-      <DesktopViewer transport={transport} />
+      <PanelErrorBoundary surface="desktop viewer">
+        <DesktopViewer transport={transport} />
+      </PanelErrorBoundary>
     </StrictMode>,
   );
 } else {
@@ -96,11 +101,13 @@ if (entry === "ide") {
   // desktop viewer: the feed is reachable from every shell, the desktop from none of them.
   createRoot(root).render(
     <StrictMode>
-      {hasNativeHost() ? (
-        <App feed={feed} host={host} />
-      ) : (
-        <BrowserSurfaces transport={transport} feed={feed} host={host} />
-      )}
+      <PanelErrorBoundary surface="panel">
+        {hasNativeHost() ? (
+          <App feed={feed} host={host} />
+        ) : (
+          <BrowserSurfaces transport={transport} feed={feed} host={host} />
+        )}
+      </PanelErrorBoundary>
     </StrictMode>,
   );
 

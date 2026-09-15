@@ -54,7 +54,7 @@ export interface DevServerHooks {
  * which React surfaces as an unmount crash in every test that renders the row. A half-implemented
  * hot context is not a dev server for this panel, so it reads as absent.
  */
-function devServerHooks(candidate: unknown): DevServerHooks | undefined {
+export function devServerHooks(candidate: unknown): DevServerHooks | undefined {
   if (!candidate || typeof candidate !== "object") return undefined;
   const { on, off } = candidate as Partial<DevServerHooks>;
   return typeof on === "function" && typeof off === "function"
