@@ -214,6 +214,10 @@ export {
 export type {
   WorkspaceBrowseEntry,
   WorkspaceBrowseListing,
+  WorkspaceCommit,
+  WorkspaceCommitDetail,
+  WorkspaceCommitDiff,
+  WorkspaceCommitFile,
   WorkspaceDirectoryEntry,
   WorkspaceError,
   WorkspaceErrorCode,

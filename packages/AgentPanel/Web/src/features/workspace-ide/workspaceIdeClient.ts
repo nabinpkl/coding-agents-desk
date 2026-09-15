@@ -5,6 +5,9 @@
 // directly would silently answer the default one.
 
 import type {
+  WorkspaceCommit,
+  WorkspaceCommitDetail,
+  WorkspaceCommitDiff,
   WorkspaceFileConflict,
   WorkspaceFileRead,
   WorkspaceFileWritten,
@@ -97,6 +100,34 @@ export class WorkspaceIdeClient {
 
   git(id: string): Promise<{ status: WorkspaceGitStatus }> {
     return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/git`);
+  }
+
+  /**
+   * The commits on the workspace's current branch, newest first.
+   *
+   * The limit travels rather than being the sidecar's to choose, because the panel is the half that
+   * knows whether the reader has asked for more: the popup opens on one page and grows.
+   */
+  commits(id: string, limit: number): Promise<{ commits: WorkspaceCommit[] }> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/commits?${query}`);
+  }
+
+  /** What one commit touched, against the commit before it. */
+  commit(id: string, hash: string): Promise<{ detail: WorkspaceCommitDetail }> {
+    const query = new URLSearchParams({ hash });
+    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/commit?${query}`);
+  }
+
+  /**
+   * The patch for one path in one commit.
+   *
+   * One path per request rather than the commit's whole patch: a reader who expanded a commit is
+   * looking at a list of files, and has asked for none of them yet.
+   */
+  commitDiff(id: string, hash: string, path: string): Promise<{ diff: WorkspaceCommitDiff }> {
+    const query = new URLSearchParams({ hash, path });
+    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/diff?${query}`);
   }
 
   /**

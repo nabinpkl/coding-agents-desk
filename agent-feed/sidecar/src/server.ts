@@ -29,6 +29,7 @@ import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
+import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
 import { createWorkspaceRoutes } from "@/http/workspace-routes/workspaceRoutes";
 import { createWorkspaceStreamRoutes } from "@/http/workspace-routes/workspaceStreamRoutes";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
@@ -171,6 +172,7 @@ const routes: RouteHandler[] = [
     maxTextBytes: config.workspaceMaxTextBytes,
     maxDocumentBytes: config.workspaceMaxDocumentBytes,
   }),
+  createWorkspaceHistoryRoutes(workspaceService),
   createWorkspaceRoutes(workspaceService),
   createSessionRoutes(describeAgentSession),
 ];

@@ -252,6 +252,8 @@ export function WorkspaceIdeSurface({
           than on either pane, and it is the strip that survives both of them being hidden. */}
       <WorkspaceIdeStatusBar
         git={ide.git}
+        client={ide.client}
+        workspaceId={ide.workspaceId}
         terminalVisible={preferences.terminalVisible}
         onShowSourceControl={showSourceControl}
         onToggleTerminal={() => ide.update({ terminalVisible: !preferences.terminalVisible })}

@@ -257,3 +257,102 @@ it("opens the lower pane on the workspace itself, not on a wall of tmux sessions
   const terminal = await screen.findByTestId("terminal");
   expect(terminal.getAttribute("data-path")).toBe(WORKSPACE.root);
 });
+
+/** The three answers the history popup reads, in the order it reads them. */
+function historyAnswers(transport: FakeHttpTransport): void {
+  transport.responses.set("GET /api/workspace/w-1/commits?limit=50", {
+    status: 200,
+    body: JSON.stringify({
+      commits: [{
+        hash: "1111111111111111111111111111111111111111",
+        shortHash: "1111111",
+        subject: "teach the bar to look backwards",
+        author: "Ada",
+        committedAt: Math.round(Date.now() / 1000) - 3600,
+        parentCount: 1,
+      }],
+    }),
+  });
+  transport.responses.set(
+    "GET /api/workspace/w-1/commit?hash=1111111111111111111111111111111111111111",
+    {
+      status: 200,
+      body: JSON.stringify({
+        detail: {
+          workspaceId: "w-1",
+          hash: "1111111111111111111111111111111111111111",
+          files: [{
+            path: "src/main.ts",
+            status: "M",
+            additions: 2,
+            deletions: 1,
+            previousPath: null,
+          }],
+        },
+      }),
+    },
+  );
+  transport.responses.set(
+    "GET /api/workspace/w-1/diff?hash=1111111111111111111111111111111111111111&path=src%2Fmain.ts",
+    {
+      status: 200,
+      body: JSON.stringify({
+        diff: {
+          workspaceId: "w-1",
+          hash: "1111111111111111111111111111111111111111",
+          path: "src/main.ts",
+          patch: [
+            "diff --git a/src/main.ts b/src/main.ts",
+            "@@ -1,2 +1,3 @@",
+            " export {};",
+            "-const old = 1;",
+            "+const fresh = 2;",
+            "",
+          ].join("\n"),
+          truncated: false,
+        },
+      }),
+    },
+  );
+}
+
+it("pops the history up from the bar, and reads a commit down to its diff", async () => {
+  const transport = await mounted();
+  historyAnswers(transport);
+
+  fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
+
+  const popup = await screen.findByRole("dialog", { name: "Commit history" });
+  const commit = await within(popup).findByRole("button", { name: /teach the bar to look backwards/ });
+  // Nothing is fetched below the log until it is asked for: a panel that read every commit's
+  // patch to draw a list of subjects would be megabytes to answer one question.
+  expect(transport.requests.some((request) => request.path.startsWith("/api/workspace/w-1/commit?")))
+    .toBe(false);
+
+  fireEvent.click(commit);
+  const file = await within(popup).findByRole("button", { name: "Show the diff for src/main.ts" });
+
+  fireEvent.click(file);
+  // The patch's own header is dropped -- it restates the row above it -- and the changed lines are
+  // what is left, without the markers that classified them.
+  expect(await within(popup).findByText("const fresh = 2;")).toBeInTheDocument();
+  expect(within(popup).getByText("const old = 1;")).toBeInTheDocument();
+  expect(within(popup).queryByText(/diff --git/)).not.toBeInTheDocument();
+});
+
+it("closes the history on Escape, and gives the button its focus back", async () => {
+  const transport = await mounted();
+  historyAnswers(transport);
+  const trigger = screen.getByRole("button", { name: "Show git history" });
+
+  fireEvent.click(trigger);
+  const popup = await screen.findByRole("dialog", { name: "Commit history" });
+  await waitFor(() => expect(popup).toHaveFocus());
+
+  fireEvent.keyDown(document, { key: "Escape" });
+
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  // The reader was standing on that button. Leaving focus on a removed node drops a keyboard
+  // reader back at the top of the document.
+  expect(trigger).toHaveFocus();
+});

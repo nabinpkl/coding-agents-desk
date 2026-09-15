@@ -6,24 +6,9 @@ import type { WorkspaceGitEntry } from "@agentdesk/agent-feed-wire";
 import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
 import {
   sourceControlSections,
-  type GitTone,
+  TONE_BADGE,
   type SourceControlSection,
 } from "@/features/workspace-ide/sidebar/gitTones";
-
-/**
- * Every state tints its badge except conflict, which fills.
- *
- * A conflict blocks work, so it is the one that should stop the eye. Its label takes the page
- * background rather than white, staying legible in both themes.
- */
-const BADGE: Record<GitTone, string> = {
-  modified: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  added: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  deleted: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
-  untracked: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-  conflicted: "bg-fuchsia-600 text-background",
-  ignored: "bg-muted text-muted-foreground",
-};
 
 export function SourceControl({
   entries,
@@ -124,7 +109,7 @@ function Group({
                 >
                   <span
                     className={`grid h-[17px] min-w-[18px] shrink-0 place-items-center rounded px-1
-                      font-mono text-[10px] leading-none ${BADGE[row.tone]}`}
+                      font-mono text-[10px] leading-none ${TONE_BADGE[row.tone]}`}
                   >
                     {row.letters}
                   </span>

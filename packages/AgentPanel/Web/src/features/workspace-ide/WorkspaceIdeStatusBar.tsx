@@ -7,12 +7,16 @@
 // have to go looking for belongs -- and where the control for a pane that is currently closed
 // belongs, because the pane itself cannot carry it.
 //
-// Deliberately two items, and both at the left end. A status bar fills up with whatever nobody
-// found a home for, and every addition costs the two that are here their glanceability -- the
+// Three items, all at the left end, and each one is about the repository or a way into it: what
+// branch this is, a shell in it, and what has already landed on it. A status bar fills up with
+// whatever nobody found a home for, and every addition costs the others their glanceability -- the
 // empty right end is the reminder of that rather than space waiting to be used.
 
-import { GitBranch, SquareTerminal } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { GitBranch, History, SquareTerminal } from "lucide-react";
 import type { WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
+import { WorkspaceIdeHistory } from "@/features/workspace-ide/WorkspaceIdeHistory";
+import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
 // No horizontal padding here: each item sets its own, and two `px-*` on one element would be
@@ -36,17 +40,53 @@ function branchLabel(branch: string, changed: number): string {
 
 export function WorkspaceIdeStatusBar({
   git,
+  client,
+  workspaceId,
   terminalVisible,
   onShowSourceControl,
   onToggleTerminal,
 }: {
   git: WorkspaceGitStatus | null;
+  /** The history popup reads its own three levels, so it is handed the client rather than data. */
+  client: WorkspaceIdeClient;
+  workspaceId: string | null;
   terminalVisible: boolean;
   /** Reveals the sidebar on its source-control section, which is where the count resolves. */
   onShowSourceControl: () => void;
   onToggleTerminal: () => void;
 }) {
   const changed = changedFileCount(git?.entries ?? []);
+  const historyId = useId();
+  const historyTrigger = useRef<HTMLButtonElement | null>(null);
+  const bar = useRef<HTMLElement | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  /** Close, and put focus back where it was, because a keyboard reader is standing on that button. */
+  const closeHistory = useCallback(() => {
+    setHistoryOpen(false);
+    historyTrigger.current?.focus();
+  }, []);
+
+  // Escape and a click anywhere else, which is what a reader expects of anything that popped up.
+  // On `pointerdown` rather than `click`: a click that starts inside the popup and ends outside it
+  // -- selecting a line of a diff and releasing past the edge -- is not a click elsewhere.
+  useEffect(() => {
+    if (!historyOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeHistory();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && bar.current?.contains(target)) return;
+      setHistoryOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [historyOpen, closeHistory]);
   // No branch means either a directory git does not track or a detached HEAD: `branch
   // --show-current` answers empty for both, so there is nothing honest to print. An item that
   // said "no branch" over a plain directory would be reporting on git rather than on the project.
@@ -54,6 +94,7 @@ export function WorkspaceIdeStatusBar({
 
   return (
     <footer
+      ref={bar}
       aria-label="Workspace status"
       // One file-tree row tall, 32px, with type one step under the panel's 16px body rather than
       // the two steps a status bar usually takes. The usual ratio is set against a 13px UI; this
@@ -63,7 +104,11 @@ export function WorkspaceIdeStatusBar({
       // Still under the 44px touch minimum, knowingly. Every control on this surface is, and a
       // bar sized for a thumb would take a row of the editor on the phone, which can least
       // spare one.
-      className="flex h-8 shrink-0 items-center border-t border-border bg-muted/40 text-sm"
+      //
+      // `relative` so the history popup rises from this strip and is anchored to its left end,
+      // where the control that opens it sits. Not clipped by anything between here and the page,
+      // so the popup overlays the editor rather than being cut off at the top of the bar.
+      className="relative flex h-8 shrink-0 items-center border-t border-border bg-muted/40 text-sm"
     >
       {branch !== null
         ? (
@@ -111,6 +156,36 @@ export function WorkspaceIdeStatusBar({
       >
         <SquareTerminal aria-hidden className="size-4" />
       </button>
+
+      {/* After the terminal, and the same size as it: a way INTO the repository followed by a way
+          BACK through it. It opens no pane, so unlike the terminal toggle it is pressed only while
+          its popup is up. */}
+      <button
+        type="button"
+        ref={historyTrigger}
+        aria-label="Show git history"
+        aria-expanded={historyOpen}
+        aria-controls={historyOpen ? historyId : undefined}
+        aria-pressed={historyOpen}
+        title="History"
+        onClick={() => (historyOpen ? closeHistory() : setHistoryOpen(true))}
+        className={`${ITEM} px-3`}
+      >
+        <History aria-hidden className="size-4" />
+      </button>
+
+      {/* Nothing to read the history of until a workspace is chosen, so the popup is not rendered
+          rather than rendered empty: the roster is what the reader has to answer first. */}
+      {historyOpen && workspaceId !== null
+        ? (
+          <WorkspaceIdeHistory
+            id={historyId}
+            client={client}
+            workspaceId={workspaceId}
+            onClose={closeHistory}
+          />
+        )
+        : null}
     </footer>
   );
 }

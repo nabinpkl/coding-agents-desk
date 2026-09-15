@@ -30,6 +30,26 @@ const STATUS_TONES: Record<string, GitTone> = {
 /** Highest severity first, so a two-letter code collapses to the meaning that matters. */
 const TONE_SEVERITY = ["U", "M", "A", "D"];
 
+/**
+ * What each tone looks like on a status badge.
+ *
+ * Beside the tones rather than beside either drawer of them, because two now draw this badge -- the
+ * source-control list and the history popup's file rows -- and a deleted file that is rose in one
+ * place and amber in the other is the drift a second copy produces.
+ *
+ * Every state tints except conflict, which fills: a conflict blocks work, so it is the one that
+ * should stop the eye. Its label takes the page background rather than white, staying legible in
+ * both themes.
+ */
+export const TONE_BADGE: Record<GitTone, string> = {
+  modified: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  added: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+  deleted: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+  untracked: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+  conflicted: "bg-fuchsia-600 text-background",
+  ignored: "bg-muted text-muted-foreground",
+};
+
 export function gitStatusTone(letter: string): GitTone {
   return STATUS_TONES[letter] ?? "modified";
 }

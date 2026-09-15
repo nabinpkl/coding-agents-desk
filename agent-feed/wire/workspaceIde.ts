@@ -189,3 +189,60 @@ export type WorkspaceStreamEvent =
   | { type: "tree"; workspaceId: string; tree: WorkspaceTreeNode[] }
   | { type: "git"; status: WorkspaceGitStatus }
   | { type: "changed"; workspaceId: string; changedPaths: string[] };
+
+/**
+ * One commit in the history the status bar pops up.
+ *
+ * The full hash travels as well as the short one because every follow-up request names a commit,
+ * and an abbreviation is only unique until the repository grows. The short one is what the reader
+ * sees, so it is git's own abbreviation rather than a slice taken here: how many characters that
+ * takes is a property of the repository, and git is the only one that knows it.
+ */
+export interface WorkspaceCommit {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  /** Committer date, in seconds since the epoch. The panel decides how to say it. */
+  committedAt: number;
+  /** A merge has more than one parent, and its file list is read against the first. */
+  parentCount: number;
+}
+
+/**
+ * One path a commit touched, with the counts git reports for it.
+ *
+ * `additions` and `deletions` are null for a binary file, which `--numstat` reports as `-`: zero
+ * would be a lie about a file that changed, and the panel says "binary" where it would say counts.
+ */
+export interface WorkspaceCommitFile {
+  path: string;
+  /** The `--name-status` letter: `A`, `M`, `D`, `R`, `C` or `T`, with its similarity score cut. */
+  status: string;
+  additions: number | null;
+  deletions: number | null;
+  /** Where a renamed or copied file came from, so the row can say what moved. */
+  previousPath: string | null;
+}
+
+export interface WorkspaceCommitDetail {
+  workspaceId: string;
+  hash: string;
+  files: WorkspaceCommitFile[];
+}
+
+/**
+ * The patch for one path in one commit, against the commit before it.
+ *
+ * One path at a time rather than the whole commit: a refactor's patch is megabytes, and a reader
+ * who expanded a commit to see its files has not asked for every one of them yet.
+ */
+export interface WorkspaceCommitDiff {
+  workspaceId: string;
+  hash: string;
+  path: string;
+  patch: string;
+  /** True when the patch was cut at the sidecar's ceiling, so the panel can say so rather than
+   * showing a diff that ends mid-hunk as though that were the end of it. */
+  truncated: boolean;
+}
