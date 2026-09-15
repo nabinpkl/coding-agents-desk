@@ -5,7 +5,7 @@
 import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
-import { proxyToSidecar } from "@/app/sidecarProxy";
+import { proxyToSidecar } from "@/app/dev-server/sidecarProxy";
 
 const servers: Server[] = [];
 

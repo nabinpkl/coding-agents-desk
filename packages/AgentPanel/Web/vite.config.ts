@@ -17,8 +17,8 @@ import {
   parseDescriptor,
   SIDECAR_STALE_MS,
   type LiveSidecar,
-} from "./src/app/sidecarBoard";
-import { proxyToSidecar } from "./src/app/sidecarProxy";
+} from "./src/app/dev-server/sidecarBoard";
+import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { PANEL_BUILD_ROUTE } from "./src/features/profile/panelBuildRoute";
 
 /**

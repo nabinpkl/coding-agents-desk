@@ -6,7 +6,7 @@ import {
   parseDescriptor,
   SIDECAR_STALE_MS,
   type LiveSidecar,
-} from "@/app/sidecarBoard";
+} from "@/app/dev-server/sidecarBoard";
 
 const NOW = 1_700_000_000_000;
 
