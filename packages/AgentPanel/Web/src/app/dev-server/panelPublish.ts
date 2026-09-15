@@ -77,6 +77,20 @@ const TYPECHECK_STARTED = /(Starting compilation in watch mode|File change detec
 const GRACE_MS = 400;
 
 /**
+ * How long a hold waits when there is nothing deciding about it and nothing objecting.
+ *
+ * The same silence, reached from the other side. Vite sees a write the moment it lands; tsc only
+ * sees it if the TEXT changed, so a file written back to what it already was is held here and
+ * judged nowhere. Silence for this long means the typechecker had nothing to say about the write,
+ * so the verdict it last gave still stands and the hold can go.
+ *
+ * Longer than the grace above because it is waiting for a run to START rather than to finish, and
+ * tsc's own watch debounce is a quarter second before it says anything at all. It costs nothing on
+ * the ordinary path, where a verdict arrives and cancels this.
+ */
+const SILENCE_MS = 1_500;
+
+/**
  * What is held, what is blocking it, and when it goes.
  *
  * Separated from the plugin because every interesting decision here is a race with something: a
@@ -136,6 +150,12 @@ export function createPublishGate(io: PublishGateIO) {
       if (released.delete(file)) return false;
       held.add(file);
       broadcast();
+      // Nothing is deciding and nothing objects, so unless the typechecker speaks up this write did
+      // not change the tree and the standing verdict covers it.
+      if (!checking && blocked === null) {
+        abort();
+        cancelPending = io.defer(flush, SILENCE_MS);
+      }
       return true;
     },
 

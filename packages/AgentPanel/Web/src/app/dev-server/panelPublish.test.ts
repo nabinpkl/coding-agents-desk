@@ -116,18 +116,43 @@ describe("the publish gate", () => {
     expect(gate.report().held).toEqual([]);
   });
 
-  // The state the mtime comparison this replaced could get stuck in: restore a file to its previous
-  // contents and tsc sees no change at all, so it never runs again, so nothing ever clears the hold.
-  it("hands over a change that leaves the tree exactly as the typechecker last saw it", () => {
+  // The state the mtime comparison this replaced could get stuck in, reached from both sides: a file
+  // written back to what it already was is seen by Vite, which watches writes, and not by tsc, which
+  // watches text. So there is no later verdict, and a hold that waits for one waits for ever.
+  it("hands over a write the typechecker never had anything to say about", () => {
     const file = `${PANEL}/app/main.tsx`;
-    const { gate, released, settle } = gateWith();
+    const { gate, released, settle, pending } = gateWith();
     gate.readTypecheckLine(STARTED);
-    gate.hold(file);
     gate.readTypecheckLine(GREEN);
-    // Nothing follows: no further run, no further verdict, because the text did not change.
+
+    // Held after the last verdict, with nothing following it at all.
+    gate.hold(file);
+    expect(pending()).toBe(true);
     settle();
     expect(released).toEqual([file]);
     expect(gate.report().held).toEqual([]);
+  });
+
+  it("waits for the verdict instead when the typechecker did wake up", () => {
+    const file = `${PANEL}/app/main.tsx`;
+    const { gate, released, pending } = gateWith();
+    gate.readTypecheckLine(STARTED);
+    gate.readTypecheckLine(GREEN);
+    gate.hold(file);
+    // tsc noticed after all, so the standing verdict no longer covers the tree.
+    gate.readTypecheckLine(STARTED);
+    expect(pending()).toBe(false);
+    expect(released).toEqual([]);
+    expect(gate.report().held).toEqual(["main.tsx"]);
+  });
+
+  it("does not hand anything over while the tree is refused", () => {
+    const { gate, pending } = gateWith();
+    gate.readTypecheckLine(STARTED);
+    gate.readTypecheckLine(ERROR_LINE);
+    gate.readTypecheckLine(RED);
+    gate.hold(`${PANEL}/app/main.tsx`);
+    expect(pending()).toBe(false);
   });
 
   it("hands everything over when a caller says so, unjudged files included", () => {
