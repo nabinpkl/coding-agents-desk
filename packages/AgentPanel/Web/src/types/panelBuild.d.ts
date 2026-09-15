@@ -12,7 +12,8 @@ declare const __PANEL_BUILD__: string;
 interface ImportMeta {
   /** Present only when a dev server is serving this page. Undefined in a bundled build. */
   readonly hot?: {
-    on(event: string, listener: () => void): void;
-    off(event: string, listener: () => void): void;
+    /** Vite's own events carry nothing this panel reads; a custom one carries its payload. */
+    on(event: string, listener: (data?: unknown) => void): void;
+    off(event: string, listener: (data?: unknown) => void): void;
   };
 }

@@ -22,10 +22,19 @@
 //
 // So the row shows the id, re-read on every update, and lets the TONE say whether the page is
 // still in a position to know.
+//
+// There is now a third fact, and it is the one a reader most needs: the dev server DELIBERATELY
+// holds a change back until the tree typechecks (`app/dev-server/panelPublish.ts`), so a connected
+// page can be behind the tree on purpose. `held` is what it is sitting on, `blocked` is why, and
+// `publish` is the override for whoever is confident the code is good before the typechecker says
+// so. Without those the gate would be indistinguishable from the panel quietly not updating, which
+// is the failure this module exists to prevent.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   PANEL_BUILD_ROUTE,
+  PANEL_PUBLISH_EVENT,
+  PANEL_PUBLISH_ROUTE,
   type PanelBuildReport,
 } from "@/features/profile/panelBuildRoute";
 
@@ -42,8 +51,8 @@ export const PANEL_BUILD_ID: string =
 
 /** The part of Vite's HMR client this reads. Named so a test can stand in for it. */
 export interface DevServerHooks {
-  on(event: string, listener: () => void): void;
-  off(event: string, listener: () => void): void;
+  on(event: string, listener: (data?: unknown) => void): void;
+  off(event: string, listener: (data?: unknown) => void): void;
 }
 
 /**
@@ -67,6 +76,38 @@ export interface PanelBuild {
   id: string;
   /** Whether this page is still hearing from the dev server, and so whether `id` can be trusted. */
   connected: boolean;
+  /** File names the server is holding back from this page. Empty means the page is current. */
+  held: string[];
+  /** What the typechecker objects to, and so why the held files are still held. */
+  blocked: string | null;
+  /** True while the typechecker is deciding: the held files are on their way, not stuck. */
+  checking: boolean;
+  /** True when nothing is gating updates, so what arrives is whatever was on disk. */
+  unfiltered: boolean;
+  /** Hand over what is held now, whatever the typechecker thinks of it. */
+  publish: () => void;
+}
+
+/** What a page with no dev server behind it reports: a frozen bundle holds nothing back. */
+const NOT_SERVED = {
+  id: PANEL_BUILD_ID,
+  connected: true,
+  held: [],
+  blocked: null,
+  checking: false,
+  unfiltered: false,
+} satisfies Omit<PanelBuild, "publish">;
+
+/** A report is read off the wire, so each field is checked rather than cast. */
+function readReport(report: PanelBuildReport): Omit<PanelBuild, "connected" | "publish"> {
+  if (typeof report.build !== "string" || report.build === "") throw new Error("no build");
+  return {
+    id: report.build,
+    held: Array.isArray(report.held) ? report.held.filter((name) => typeof name === "string") : [],
+    blocked: typeof report.blocked === "string" ? report.blocked : null,
+    checking: report.checking === true,
+    unfiltered: report.unfiltered === true,
+  };
 }
 
 /**
@@ -81,7 +122,17 @@ export interface PanelBuild {
  * exists, so it is the one that most needs a test.
  */
 export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild {
-  const [build, setBuild] = useState<PanelBuild>({ id: PANEL_BUILD_ID, connected: true });
+  const [build, setBuild] = useState<Omit<PanelBuild, "publish">>(NOT_SERVED);
+
+  const publish = useCallback(() => {
+    if (!devServerHooks(devServer)) return;
+    void fetch(PANEL_PUBLISH_ROUTE, { method: "POST" })
+      .then((answer) => (answer.ok ? answer.json() : Promise.reject(new Error(String(answer.status)))))
+      .then((report: PanelBuildReport) => {
+        setBuild((current) => ({ ...current, ...readReport(report) }));
+      })
+      .catch(() => setBuild((current) => ({ ...current, id: "unknown" })));
+  }, [devServer]);
 
   useEffect(() => {
     const hot = devServerHooks(devServer);
@@ -92,8 +143,7 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
       fetch(PANEL_BUILD_ROUTE, { signal: aborter.signal })
         .then((answer) => (answer.ok ? answer.json() : Promise.reject(new Error(String(answer.status)))))
         .then((report: PanelBuildReport) => {
-          if (typeof report.build !== "string" || report.build === "") throw new Error("no build");
-          setBuild((current) => ({ ...current, id: report.build }));
+          setBuild((current) => ({ ...current, ...readReport(report) }));
         })
         .catch(() => {
           // A dev server that cannot say what the tree is gets `unknown`, not the constant this
@@ -108,12 +158,23 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
       setBuild((current) => ({ ...current, connected: true }));
       reread();
     };
+    // Pushed the moment the server holds something or lets it go, so the row does not wait for an
+    // update that is being deliberately withheld from it.
+    const published = (data?: unknown) => {
+      if (!data || typeof data !== "object") return;
+      try {
+        setBuild((current) => ({ ...current, ...readReport(data as PanelBuildReport) }));
+      } catch {
+        reread();
+      }
+    };
 
     hot.on("vite:ws:disconnect", lost);
     hot.on("vite:ws:connect", found);
     // Every applied update, which is the moment the tree this tab is running may have moved. A
     // change with no HMR boundary reloads the page instead, and the mount read below covers that.
     hot.on("vite:afterUpdate", reread);
+    hot.on(PANEL_PUBLISH_EVENT, published);
     reread();
 
     return () => {
@@ -121,8 +182,9 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
       hot.off("vite:ws:disconnect", lost);
       hot.off("vite:ws:connect", found);
       hot.off("vite:afterUpdate", reread);
+      hot.off(PANEL_PUBLISH_EVENT, published);
     };
   }, [devServer]);
 
-  return build;
+  return { ...build, publish };
 }

@@ -13,6 +13,7 @@ import {
   summarizeMediaCapabilities,
 } from "@/features/profile/mediaCapabilities";
 import { usePanelBuild } from "@/features/profile/panelBuild";
+import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -229,6 +230,8 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
           aria-hidden
         />
       </button>
+
+      <PanelBuildStatus build={build} />
 
       <DesktopParkModal open={parkOpen} park={park} onClose={() => setParkOpen(false)} />
 

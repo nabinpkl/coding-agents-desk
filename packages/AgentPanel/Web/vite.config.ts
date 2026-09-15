@@ -19,7 +19,12 @@ import {
   type LiveSidecar,
 } from "./src/app/dev-server/sidecarBoard";
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
-import { PANEL_BUILD_ROUTE } from "./src/features/profile/panelBuildRoute";
+import { panelPublish } from "./src/app/dev-server/panelPublish";
+import {
+  PANEL_BUILD_ROUTE,
+  PANEL_PUBLISH_EVENT,
+  PANEL_PUBLISH_ROUTE,
+} from "./src/features/profile/panelBuildRoute";
 
 /**
  * Where this session's own sidecar is listening. Per-machine and tier-derived (stable/dev), so it
@@ -246,16 +251,6 @@ function panelSessions(): Plugin {
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
         const path = url.split("?")[0] ?? "";
-        // What tree this server is serving, asked by the Profile row on load and on every applied
-        // update. Only the dev server answers it: a bundled build has no server to ask and its
-        // compile-time id is already exact.
-        if (path === PANEL_BUILD_ROUTE) {
-          response.statusCode = 200;
-          response.setHeader("content-type", "application/json; charset=utf-8");
-          response.setHeader("cache-control", "no-store");
-          response.end(JSON.stringify({ build: panelBuildId() }));
-          return;
-        }
         // The default session -- the one this server runs beside -- answers on `/api` directly.
         // Handled here rather than by `server.proxy` because that option costs the whole origin
         // its HTTP/2 (see `defaultSidecar`), and this plugin already proxies the other sessions.
@@ -355,7 +350,28 @@ function vncBridge(port = 5900, host = "127.0.0.1"): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), panelSessions(), vncBridge()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // Before `panelSessions`, because middleware runs in the order it was added and this one owns
+    // the two `/@panel-build` routes the other used to answer half of.
+    panelPublish({
+      buildRoute: PANEL_BUILD_ROUTE,
+      publishRoute: PANEL_PUBLISH_ROUTE,
+      event: PANEL_PUBLISH_EVENT,
+      buildId: panelBuildId,
+      // This package's own TypeScript, not a global one: the gate has to be the same judgement
+      // `just check` makes, or a green gate would mean nothing. `--pretty false` keeps the output
+      // parseable and `--preserveWatchOutput` stops it clearing the terminal the server logs to.
+      typecheck: {
+        command: fileURLToPath(new URL("./node_modules/.bin/tsc", import.meta.url)),
+        args: ["--noEmit", "--watch", "--pretty", "false", "--preserveWatchOutput"],
+        cwd: fileURLToPath(new URL(".", import.meta.url)),
+      },
+    }),
+    panelSessions(),
+    vncBridge(),
+  ],
   base: "./",
   define: {
     __PANEL_BUILD__: JSON.stringify(panelBuildId()),

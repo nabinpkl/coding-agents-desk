@@ -5,11 +5,16 @@ import {
   usePanelBuild,
   type DevServerHooks,
 } from "@/features/profile/panelBuild";
-import { PANEL_BUILD_ROUTE } from "@/features/profile/panelBuildRoute";
+import {
+  PANEL_BUILD_ROUTE,
+  PANEL_PUBLISH_EVENT,
+  PANEL_PUBLISH_ROUTE,
+  type PanelBuildReport,
+} from "@/features/profile/panelBuildRoute";
 
 /** A stand-in for Vite's HMR client, so the events can be fired on demand. */
 function devServer() {
-  const listeners = new Map<string, Set<() => void>>();
+  const listeners = new Map<string, Set<(data?: unknown) => void>>();
   const hooks: DevServerHooks = {
     on: (event, listener) => {
       (listeners.get(event) ?? listeners.set(event, new Set()).get(event)!).add(listener);
@@ -18,7 +23,8 @@ function devServer() {
   };
   return {
     hooks,
-    emit: (event: string) => listeners.get(event)?.forEach((listener) => listener()),
+    emit: (event: string, data?: unknown) =>
+      listeners.get(event)?.forEach((listener) => listener(data)),
     listening: (event: string) => listeners.get(event)?.size ?? 0,
   };
 }
@@ -30,6 +36,20 @@ function serveBuild(build: string | Error) {
     asked.push(String(input));
     if (build instanceof Error) throw build;
     return new Response(JSON.stringify({ build }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  vi.stubGlobal("fetch", stub);
+  return { asked };
+}
+
+/** Answers both routes with a whole report, and records the requests in order. */
+function serveReport(report: Partial<PanelBuildReport> & { build: string }) {
+  const asked: { url: string; method: string }[] = [];
+  const stub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    asked.push({ url: String(input), method: init?.method ?? "GET" });
+    return new Response(JSON.stringify(report), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -120,6 +140,17 @@ describe("dev server connection", () => {
     await waitFor(() => expect(result.current.id).toBe("723fcbe"));
   });
 
+  it("stops listening to the publisher too when the row unmounts", async () => {
+    const server = devServer();
+    serveBuild("7373cec");
+    const { result, unmount } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+
+    expect(server.listening(PANEL_PUBLISH_EVENT)).toBe(1);
+    unmount();
+    expect(server.listening(PANEL_PUBLISH_EVENT)).toBe(0);
+  });
+
   it("stops listening when the row unmounts", async () => {
     const server = devServer();
     serveBuild("7373cec");
@@ -132,5 +163,69 @@ describe("dev server connection", () => {
     expect(server.listening("vite:ws:disconnect")).toBe(0);
     expect(server.listening("vite:ws:connect")).toBe(0);
     expect(server.listening("vite:afterUpdate")).toBe(0);
+  });
+});
+
+// The gate deliberately keeps a page behind the tree until it typechecks, so "not updating" now has
+// two meanings that look the same from the outside. These are what tells them apart.
+describe("work the dev server is holding", () => {
+  it("reads what is held and why from the same route as the build", async () => {
+    const server = devServer();
+    serveReport({
+      build: "7373cec+",
+      held: ["ActivityBlockViews.tsx", "panelBuild.ts"],
+      blocked: "panelBuild.ts(91,5): error TS2322: Type 'null' is not assignable.",
+      checking: false,
+      unfiltered: false,
+    });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+
+    await waitFor(() => expect(result.current.held).toHaveLength(2));
+    expect(result.current.blocked).toContain("error TS2322");
+    expect(result.current.checking).toBe(false);
+  });
+
+  it("takes a pushed report without asking again", async () => {
+    const server = devServer();
+    const { asked } = serveReport({ build: "7373cec" });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+
+    act(() =>
+      server.emit(PANEL_PUBLISH_EVENT, {
+        build: "7373cec+",
+        held: ["main.tsx"],
+        blocked: null,
+        checking: true,
+        unfiltered: false,
+      }),
+    );
+    expect(result.current.held).toEqual(["main.tsx"]);
+    expect(result.current.checking).toBe(true);
+    // One read on mount, and nothing since: the push carries the whole report.
+    expect(asked).toHaveLength(1);
+  });
+
+  it("asks the server to hand the work over, and takes the answer", async () => {
+    const server = devServer();
+    serveReport({ build: "7373cec", held: ["main.tsx"], blocked: "main.tsx(1,1): error TS1005: ';'" });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.held).toEqual(["main.tsx"]));
+
+    const { asked } = serveReport({ build: "7373cec", held: [], blocked: null });
+    act(() => result.current.publish());
+    await waitFor(() => expect(result.current.held).toEqual([]));
+    expect(asked).toEqual([{ url: PANEL_PUBLISH_ROUTE, method: "POST" }]);
+    expect(result.current.blocked).toBeNull();
+  });
+
+  it("has nothing to publish in a build with no dev server behind it", () => {
+    const { asked } = serveReport({ build: "should-not-be-asked" });
+    const { result } = renderHook(() => usePanelBuild(null));
+
+    act(() => result.current.publish());
+    expect(asked).toEqual([]);
+    expect(result.current.held).toEqual([]);
+    expect(result.current.unfiltered).toBe(false);
   });
 });
