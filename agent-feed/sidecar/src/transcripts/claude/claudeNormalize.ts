@@ -214,7 +214,7 @@ export function normalizedRecord(
     return { result: { event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) }, turnClosed: false, ...(cwd ? { cwd } : {}) }, rawBlocks };
   }
 
-  const contentBlocks = normalizeBlocks(message.content);
+  const contentBlocks = commandOutputBlocks(message.content) ?? normalizeBlocks(message.content);
   const stateBlocks: NormalizedClaudeBlock[] = [];
   const usage = t === 'assistant'
     ? extractClaudeUsage(message.usage, assistantModel(message), ts)
@@ -255,4 +255,31 @@ export function normalizedRecord(
   }
   if (cwd) result.cwd = cwd;
   return { result, rawBlocks };
+}
+
+/** Strips SGR colour codes, which is all the CLI's own output ever carries. */
+const SGR = /\u001b\[[0-9;]*m/g;
+
+/**
+ * A slash command's confirmation, as the one legible row it is.
+ *
+ * `/model` and `/compact` write their result back into the context wrapped in
+ * `<local-command-stdout>` and painted with terminal dim codes, so the feed rendered
+ * `<local-command-stdout>\u001b[2mCompacted \u001b[22m</local-command-stdout>` as if a person had
+ * typed it. The wrapper and the paint are for the terminal it was already printed on; what is
+ * left is a sentence -- `Compacted`, `Set model to claude-opus-5` -- and for `/model` it is the
+ * only record in the transcript that the model changed at all, because that command never reaches
+ * the model and so has no typed row of its own.
+ *
+ * A metadata row rather than prose, because it is the harness reporting, not the person speaking.
+ * Returns null for everything else, which leaves the ordinary path untouched.
+ */
+function commandOutputBlocks(content: unknown): NormalizedClaudeBlock[] | null {
+  if (typeof content !== "string") return null;
+  const match = /^\s*<local-command-stdout>([\s\S]*)<\/local-command-stdout>\s*$/.exec(content);
+  if (!match) return null;
+  const text = match[1]!.replace(SGR, "").trim();
+  // An empty one still gets a row: the command ran and said nothing, which is different from the
+  // command not appearing, and the raw drawer is one click away either way.
+  return [{ block: metadataBlock("Command", text || "(no output)"), raw: null }];
 }

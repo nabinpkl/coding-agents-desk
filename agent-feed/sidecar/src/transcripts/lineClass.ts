@@ -78,6 +78,35 @@ const CLAUDE_HOOK_ATTACHMENTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The wrappers the CLI writes around a slash command a person ran.
+ *
+ * Running `/model` or `/compact` writes up to three user records that nobody typed: a caveat
+ * telling the model not to act on what follows, a structured echo of the command, and the
+ * command's own confirmation line. Measured across 1,006 transcripts here: 645 of them, and the
+ * echo renders as raw XML in the middle of the thread -- `<command-name>/model</command-name>` and
+ * its two siblings, angle brackets and all.
+ *
+ * Two of the three are machinery and the third is not, which is why this is a list and not a
+ * prefix test:
+ *
+ *   - The caveat is byte-identical every single time. It is the harness talking to the model.
+ *   - The echo duplicates what the confirmation says in prose. `Set model to claude-opus-5` is a
+ *     better row than `<command-name>/model</command-name> <command-args>claude-opus-5</command-args>`,
+ *     and after a compaction the echo is a THIRD copy: the person's own `/compact` row is already
+ *     above, and the banner between them says it happened.
+ *   - `<local-command-stdout>` stays. It is the only legible record of what the command did, and
+ *     for `/model` it is the only record at all -- there is no typed row, because the command
+ *     never reached the model.
+ *
+ * A person who literally types one of these tags loses that row from the nice view. That is the
+ * trade the raw view exists to cover, and it is the same one every rule in this file makes.
+ */
+const CLAUDE_COMMAND_SCAFFOLD_TAGS: readonly string[] = [
+  '<local-command-caveat>',
+  '<command-name>',
+];
+
+/**
  * Codex top-level record types that carry only harness state.
  *
  * These are the four the adapter already renders as a labelled config dump
@@ -119,6 +148,19 @@ export function classifyClaudeLine(record: Record<string, unknown>): LineClass {
     if (message && typeof message === 'object' && !Array.isArray(message)) {
       if (isTracelessThinking((message as Record<string, unknown>).content)) {
         return 'machinery';
+      }
+    }
+  }
+
+  if (type === 'user') {
+    const message = record.message;
+    if (message && typeof message === 'object' && !Array.isArray(message)) {
+      const content = (message as Record<string, unknown>).content;
+      // A string in every one of the 645 measured; an array of blocks is a person's real message
+      // with an attachment in it, and none of those starts with a command tag.
+      if (typeof content === 'string') {
+        const head = content.trimStart();
+        if (CLAUDE_COMMAND_SCAFFOLD_TAGS.some((tag) => head.startsWith(tag))) return 'machinery';
       }
     }
   }

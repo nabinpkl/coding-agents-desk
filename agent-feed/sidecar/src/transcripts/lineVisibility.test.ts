@@ -250,3 +250,23 @@ test('codex custom tool records use the existing tool block semantics', () => {
   })));
   expect(output.blocks[0]).toMatchObject({ kind: 'tool_result', callId: 'call-1', preview: 'generated' });
 });
+
+test("a slash command's confirmation renders as one row, not as terminal paint", () => {
+  // `/compact` and `/model` write their result back into the context wrapped for the terminal it
+  // was already printed on. The feed showed the wrapper and the dim codes verbatim, as if somebody
+  // had typed them, directly under the compaction banner.
+  const event = visible(claudeAdapter.processLine(JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: '<local-command-stdout>\u001b[2mCompacted \u001b[22m</local-command-stdout>' },
+    timestamp: '2026-09-14T06:23:58.000Z',
+  })));
+  expect(event.blocks[0]).toEqual({ kind: 'metadata', label: 'Command', text: 'Compacted' });
+
+  // And for `/model` this is the only record that the model changed: the command never reaches
+  // the model, so there is no typed row anywhere above it.
+  const model = visible(claudeAdapter.processLine(JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: '<local-command-stdout>Set model to claude-opus-5</local-command-stdout>' },
+  })));
+  expect(model.blocks[0]).toEqual({ kind: 'metadata', label: 'Command', text: 'Set model to claude-opus-5' });
+});
