@@ -54,11 +54,15 @@ export function WorkspaceIdeStatusBar({
   return (
     <footer
       aria-label="Workspace status"
-      // 24px: a status bar's whole point is costing the panes almost nothing, and this is the
-      // density the sidebar's own 28px controls already set. It is under the 44px touch minimum,
-      // which is a deviation taken knowingly -- every control on this surface is, and a bar sized
-      // for a thumb would take a row of the editor on the surface that can least spare one.
-      className="flex h-6 shrink-0 items-center border-t border-border bg-muted/40 text-[11px]"
+      // One file-tree row tall, 32px, with type one step under the panel's 16px body rather than
+      // the two steps a status bar usually takes. The usual ratio is set against a 13px UI; this
+      // panel's body is 16px because it is read on a phone, so 11px beside it was not dense, it
+      // was shorter than a single tree row and the eye took the whole bar for a border.
+      //
+      // Still under the 44px touch minimum, knowingly. Every control on this surface is, and a
+      // bar sized for a thumb would take a row of the editor on the phone, which can least
+      // spare one.
+      className="flex h-8 shrink-0 items-center border-t border-border bg-muted/40 text-sm"
     >
       {branch !== null
         ? (
@@ -69,7 +73,7 @@ export function WorkspaceIdeStatusBar({
             onClick={onShowSourceControl}
             className={`${ITEM} px-2`}
           >
-            <GitBranch aria-hidden className="size-3.5" />
+            <GitBranch aria-hidden className="size-4" />
             {/* Full ink and monospace: the branch is the one thing on this bar a reader came to
                 read, and it is an identifier they may need to type back somewhere. Capped in
                 characters rather than pixels so a long branch truncates at the same place in
@@ -81,8 +85,8 @@ export function WorkspaceIdeStatusBar({
               ? (
                 <span
                   aria-hidden
-                  className="min-w-[16px] rounded-full bg-background px-1.5 text-center font-mono
-                    text-[10px] leading-[15px]"
+                  className="min-w-[20px] rounded-full bg-background px-1.5 text-center font-mono
+                    text-xs leading-[19px]"
                 >
                   {changed > 99 ? "99+" : changed}
                 </span>
@@ -102,7 +106,7 @@ export function WorkspaceIdeStatusBar({
         // aim at, and the corner is where a thumb lands.
         className={`${ITEM} ml-auto px-3`}
       >
-        <SquareTerminal aria-hidden className="size-3.5" />
+        <SquareTerminal aria-hidden className="size-4" />
       </button>
     </footer>
   );
