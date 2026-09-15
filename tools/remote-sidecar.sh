@@ -17,9 +17,8 @@
 # Verbs: setup (once per peer), ship, watch, run, stop, status. `run` implies `ship`, so an edit
 # reaches the peer with one command.
 #
-# `watch` is the half that was missing. The peer's sidecar already runs under `bun --watch`, so it
-# re-reads its own sources about four seconds after they change -- but they only change when
-# somebody runs `ship`, and nobody remembers to. Measured 2026-09-13 on the oracle peer: the
+# `watch` is the half that was missing. The peer's sidecar picks up its own sources seconds after
+# they change -- but they only change when somebody runs `ship`, and nobody remembers to. Measured 2026-09-13 on the oracle peer: the
 # process had been up two days and four hours, and the newest file in its shipped tree was two days
 # old, so every sidecar change made in between was invisible there while the panel showed a healthy
 # peer answering `/api/config`. That is the same failure this repo already paid for on the Mac,
@@ -28,9 +27,9 @@
 # is missing.
 #
 # So `watch` closes the loop: it polls the shipped closure HERE with `find`, which costs nothing
-# and touches no network while nothing is changing, and ships only when a file actually moved.
-# `bun --watch` on the peer does the rest. An edit reaches the peer the way an edit reaches the
-# Mac's own sidecar -- by saving it.
+# and touches no network while nothing is changing, and ships only when a file actually moved. The
+# peer's supervisor does the rest. An edit reaches the peer the way an edit reaches the Mac's own
+# sidecar -- by saving it.
 
 set -euo pipefail
 
@@ -48,6 +47,13 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 # an OOM kill, a tailnet drop. One request a minute is invisible next to what the panel's own
 # streams already hold open.
 HEALTH_INTERVAL="${AGENTDESK_REMOTE_SIDECAR_HEALTH_SECONDS:-60}"
+
+# How long the peer's supervisor collects writes before deciding about them, in milliseconds.
+#
+# Sized to an rsync rather than to a keystroke: the whole ship has to land before the tree is worth
+# judging, and a ship that takes longer than this simply gets judged twice, which costs one extra
+# restart and nothing else.
+SETTLE_MS="${AGENTDESK_REMOTE_SIDECAR_SETTLE_MS:-2000}"
 
 on_peer() {
     # BatchMode so a missing key fails loudly instead of hanging on a password prompt.
@@ -95,7 +101,7 @@ pty_proto_source="${repo}/terminal/pty-manager/proto/pty.proto"
 # only when somebody ships by hand, which is the exact failure `watch` exists to end.
 closure=("${sidecar_sources[@]}" "${wire_source}" "${runtime_paths_source}" "${pty_proto_source}")
 # The two files whose change means the peer has to resolve dependencies again. Everything else in
-# the closure is source the peer's `bun --watch` re-reads by itself.
+# the closure is source the peer's supervisor picks up by itself.
 manifest=("${repo}/agent-feed/sidecar/package.json" "${repo}/agent-feed/sidecar/bun.lock")
 
 ship_sources() {
@@ -120,13 +126,24 @@ stop_sidecar() {
     on_peer "if [ -f '${pidfile}' ]; then kill \$(cat '${pidfile}') 2>/dev/null || true; rm -f '${pidfile}'; fi"
 }
 
-# Starts the peer's sidecar under `bun --watch`, bound to the address it is reachable at.
+# Starts the peer's sidecar under its supervisor, bound to the address it is reachable at.
+#
+# `src/supervisor.ts`, not `bun --watch src/server.ts`. Watch mode re-read the source on every
+# write, and a write is a moment inside an edit rather than an edit: a file that arrived half
+# transferred threw during the reload and left the process ALIVE WITH ITS PORT FREE, which is the
+# one failure shape this whole script is built to notice and could not. The supervisor owns the
+# server as a child, parses what changed, and replaces it only once every changed file is whole.
+#
+# The settle window is longer here than the supervisor's own default. A peer's tree arrives by
+# rsync, one file at a time as they transfer, so a ship of several files is one change spread over
+# however long the link takes; the default would replace the sidecar once per file on the way to
+# the tree somebody meant to send.
 #
 # The overrides are not cosmetic. `runtimePaths()` has no platform branch: its runtime root is
 # ~/Library/Application Support and its rendezvous board is /Users/Shared, and `announceSidecar`
 # runs at module scope, so on Linux the board mkdir throws EACCES and the sidecar dies at boot. The
-# board is unread on the peer -- this panel declares the peer rather than discovering it -- so it
-# only has to be somewhere writable.
+# board is not read by the panel on the peer -- this panel declares the peer rather than discovering
+# it -- but the supervisor writes its own held state beside it, which `status` reads back.
 #
 # The transcript roots are deliberately absent: they already default to $HOME/.claude/... , so the
 # peer's own home is picked up with nothing said about it.
@@ -134,9 +151,10 @@ launch_sidecar() {
     on_peer "cd '${remote_repo}/agent-feed/sidecar' && \
         AGENTDESK_RUNTIME_ROOT='${remote_root}/runtime' \
         AGENTDESK_SIDECAR_REGISTRY='${remote_root}/sidecars' \
+        AGENT_FEED_SUPERVISOR_SETTLE_MS='${SETTLE_MS}' \
         AGENT_FEED_HOST='${1}' \
         AGENT_FEED_PORT='${port}' \
-        nohup '${bun}' --watch src/server.ts > '${log}' 2>&1 & echo \$! > '${pidfile}'"
+        nohup '${bun}' src/supervisor.ts > '${log}' 2>&1 & echo \$! > '${pidfile}'"
 }
 
 # Reachable FROM THIS MAC, which is the property that matters. A sidecar bound to loopback on the
@@ -221,11 +239,12 @@ watch)
         ship_sources
         [ -z "${install_needed}" ] || ship_dependencies
         printf '%s  shipped to %s\n' "$(date +%H:%M:%S)" "${peer}"
-        # Checked after every edit rather than only on the interval, because an edit is the most
-        # likely thing to have broken it. `bun --watch` reloads in process and rebinds the port, so
-        # a reload that THREW leaves a live process with nothing listening -- indistinguishable
-        # from a healthy peer until something asks it for data. Same trap as on the Mac, where the
-        # host now probes the port rather than the process.
+        # Checked after every edit rather than only on the interval, because an edit is still the
+        # most likely thing to have broken it. It used to be the likeliest by far: under
+        # `bun --watch` a reload that THREW left a live process with nothing listening, which is
+        # indistinguishable from a healthy peer until something asks it for data. The supervisor
+        # closes that hole -- it replaces the server only once the tree parses, and starts it again
+        # if it dies -- so what is left here is the peer itself going away.
         sleep 5
         checked="$(date +%s)"
         ensure_running || true
@@ -254,8 +273,8 @@ status)
     echo "tailnet       ${address:-<none>}"
     on_peer "if [ -f '${pidfile}' ] && kill -0 \$(cat '${pidfile}') 2>/dev/null; then echo 'process       running (pid '\$(cat '${pidfile}')')'; else echo 'process       not running'; fi"
     # WHICH code it is serving, which is the question every other line here fails to answer. A
-    # sidecar under `bun --watch` keeps its port across a reload, so a tree two days stale answers
-    # /api/config exactly as a current one does -- and that is how the oracle peer spent two days
+    # sidecar that is up answers /api/config whatever tree it was started from, so one two days
+    # stale looks exactly like a current one -- and that is how the oracle peer spent two days
     # serving code nobody had shipped. Compared against this repo, not against the clock, because
     # "up to date" means "the same as here".
     newest_here="$(find "${closure[@]}" -type f -exec stat -f '%m' {} + 2>/dev/null | sort -rn | head -1)"
@@ -273,6 +292,22 @@ status)
             echo "              start the watcher: just remote-sidecar-watch ${peer}"
         fi
     fi
+    # What its supervisor is sitting on, which is the other way a peer can be behind this repo: the
+    # files arrived and were refused. Read off the board file the supervisor heartbeats, since the
+    # panel reads only THIS machine's board and a peer cannot write to it.
+    # `find` rather than a glob: the peer's login shell may be zsh, which fails a glob that matches
+    # nothing loudly enough to land in this output as an error about a file nobody asked for.
+    on_peer "find '${remote_root}/sidecars' -name '*.supervisor.json' -exec cat {} + 2>/dev/null" \
+        | while IFS= read -r line; do
+        case "${line}" in
+            *'"held":true'*)
+                echo "supervisor    holding the shipped tree back"
+                echo "              ${line}"
+                ;;
+            *'"held":false'*) echo "supervisor    running the shipped tree" ;;
+        esac
+    done
+
     # Asked from HERE, because reachable-from-the-Mac is the property that matters, not
     # listening-on-the-peer. A sidecar bound to loopback on the peer passes the second and fails this.
     if sidecar_answers "${address}"; then

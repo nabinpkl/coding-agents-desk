@@ -35,8 +35,16 @@ const SOURCE = dirname(SERVER);
  *
  * An editor writing a file produces more than one event, and a tool rewriting several files
  * produces one burst; restarting per event would restart into each intermediate tree in turn.
+ *
+ * Overridable because the writer is not always an editor. A peer's tree arrives by rsync
+ * (`tools/remote-sidecar.sh`), which lands each file as it transfers, so a ship of several files
+ * is one change spread over as long as the link takes. Waiting 200ms there would replace the
+ * sidecar once per file on the way to the tree somebody actually meant to send.
  */
-const SETTLE_MS = 200;
+const SETTLE_MS = Math.max(
+  50,
+  Number(process.env.AGENT_FEED_SUPERVISOR_SETTLE_MS) || 200,
+);
 
 /** After a child that died on its own, so a crash loop does not spin the machine. */
 const BACKOFF_MS = [500, 1_000, 2_000, 5_000, 10_000];

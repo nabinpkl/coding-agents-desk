@@ -14,7 +14,7 @@ infer backwards from the shape of the tree:
 
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
   of them, but the working loop is TypeScript: the Vite-served panel in `packages/AgentPanel/Web/`
-  and the `bun --watch` sidecar in `agent-feed/sidecar/src/`, with `tools/grid-encoder` as the
+  and the supervised sidecar in `agent-feed/sidecar/src/`, with `tools/grid-encoder` as the
   native helper behind them. An edit reaches the running system by a page reload, not a rebuild.
   This repo began as a Swift host plus a Swift iOS client and moved off that path because compiling
   and reinstalling dominated iteration; the Swift that remains is lifecycle, transport, security
@@ -291,12 +291,14 @@ with no rebuild, no reinstall, and no re-pair.
   it to answer, and points the launch at it. The launch FAILS if that server cannot come up, because
   the dev origin is not a fallback. Pass `bundled` to judge the panel as it actually ships
   (ADR-0095, ADR-0096).
-- **`sidecar` (`live` default | `bundled`)** spawns `bun --watch` over `agent-feed/sidecar/src/server.ts`
-  instead of the compiled binary. Measured: an edit was visible through `/api/config` about 4s later
-  **with the pid unchanged** -- `--watch` re-reads in process and rebinds the port, so the host's
-  supervisor never sees an exit. (`--hot` is deliberately not used: hot replacement would leave the
-  catalog, the file watchers and the live observers half-swapped.) The cost is accepted rather than
-  hidden: this arm executes the **working tree**, so a half-saved file is what runs. The Justfile
+- **`sidecar` (`live` default | `bundled`)** spawns `agent-feed/sidecar/src/supervisor.ts` instead
+  of the compiled binary. The supervisor owns the server as a child, watches the tree, PARSES what
+  changed, and replaces the child only once every changed file is whole -- so this arm executes the
+  working tree without a half-saved file being what runs. It replaced `bun --watch src/server.ts`,
+  which re-read on every write: a write is a moment inside an edit, and a reload that threw left the
+  process alive with its port free, killing every stream the panel held while nothing noticed for a
+  minute. Parsed rather than typechecked, because neither tree typechecks at runtime and a resident
+  `tsc --watch` cost 844MB at its peak here (`footprint`, 2026-09-15). The Justfile
   resolves `bun` to an absolute path and passes it with the entry (`AGENTDESK_BUN_PATH`,
   `AGENTDESK_AGENT_FEED_SIDECAR_ENTRY`), because the host's child environment is deliberately
   stripped of the PATH that would find a Homebrew install. Every fallback -- no `bun`, unreadable
@@ -349,7 +351,7 @@ and reversed with `just dev-login-uninstall`:
   resolves peers from -- and for each one keeps its sidecar RUNNING and its sources CURRENT.
   Neither half is worth anything alone: shipping into a dead sidecar and supervising a two-day-old
   tree are the same failure. This is the remote instance of the frozen-runtime bug above. A peer's
-  sidecar already runs under `bun --watch`, so it re-reads its sources about four seconds after
+  sidecar runs under the same supervisor the Mac's does, so it picks up its sources seconds after
   they change -- but they only changed when somebody ran `ship`, and nobody did. Measured
   2026-09-13 on the oracle peer: up two days and four hours, newest shipped file two days old,
   answering `/api/config` the whole time. **A peer that answers tells you nothing about which code
@@ -830,10 +832,12 @@ on the wrong one.
   `AGENTDESK_AGENT_FEED_SIDECAR_LOG` overrides the path.
 
 One state that used to need noticing by hand no longer does: a `bun --watch` sidecar that threw
-during a reload stays ALIVE with its port free, so every exit-driven restart path misses it. The
-host now probes the port rather than the process and restarts after a minute of silence. If a
-surface goes blank, `/api/config` answering is still worth checking, but a sidecar sitting dead for
-half an hour is no longer the expected shape of that.
+during a reload stayed ALIVE with its port free, so every exit-driven restart path missed it. Two
+things closed it. The host probes the port rather than the process and restarts after a minute of
+silence; and since 2026-09-15 the live arm is a supervisor rather than `--watch`, which never hands
+the server a file that will not parse and starts it again if it dies. If a surface goes blank,
+`/api/config` answering is still worth checking, but a sidecar sitting dead for half an hour is no
+longer the expected shape of that.
 
 ## A channel that is turned off without being awaited will race its own re-opening
 
