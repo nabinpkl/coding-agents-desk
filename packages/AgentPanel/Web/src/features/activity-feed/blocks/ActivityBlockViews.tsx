@@ -209,10 +209,12 @@ export function Block({
     // shell code block, which highlights it and scrolls horizontally rather
     // than cutting it off at the row's width.
     const command = shellCommand(b);
-    const handedOver = sentFiles(b.input);
+    // A call whose result already carried its picture draws it there, full size, so the files it
+    // named are not drawn a second time above it. `Read screenshot.png` is that case.
+    const namedFiles = pairedResult?.images.length ? null : sentFiles(b);
     const caption = typeof b.input?.caption === "string" ? b.input.caption.trim() : "";
     const hasBody =
-      isFileBody || command !== null || pairedResult !== undefined || handedOver !== null;
+      isFileBody || command !== null || pairedResult !== undefined || namedFiles !== null;
     const headerChip = isEditDiff ? "Edit" : b.tool;
     // The summary is written to stand alone -- a folded row and the sticky bar show it with no
     // chip beside it -- so on this line, which draws the chip, it repeats the tool's name back:
@@ -230,8 +232,8 @@ export function Block({
     // The same for a call that HANDED pictures over, which is the other way one reaches a row.
     // Capped, because these come in sets and each one is `shrink-0`: past a few, the thumbnails
     // would take the width the call's own name is truncating in.
-    const headerFiles = !isExpanded && handedOver
-      ? handedOver.map((path, fileIndex) => ({ path, fileIndex }))
+    const headerFiles = !isExpanded && namedFiles
+      ? namedFiles.map((path, fileIndex) => ({ path, fileIndex }))
         .filter(({ path }) => isPicture(path))
         .slice(0, HEADER_THUMBNAILS)
       : [];
@@ -309,9 +311,9 @@ export function Block({
             {isMarkdownWrite ? (
               <Markdown content={b.input!.content as string} />
             ) : null}
-            {handedOver ? (
+            {namedFiles ? (
               <SentFilesBlock
-                files={handedOver}
+                files={namedFiles}
                 caption={caption || undefined}
                 ctx={ctx}
                 eventIndex={eventIndex}
@@ -322,7 +324,7 @@ export function Block({
               <ToolResultContent
                 result={pairedResult}
                 ctx={ctx}
-                text={handedOver ? withoutFileHandles(pairedResult.block.preview) : undefined}
+                text={namedFiles ? withoutFileHandles(pairedResult.block.preview) : undefined}
               />
             ) : null}
           </>

@@ -26,6 +26,9 @@ export interface ActivityBlock {
   tool?: string;
   summary?: string;
   input?: Record<string, unknown>;
+  /** On a tool_use: the files the call names, resolved by the sidecar. A picture among them is
+   *  fetched by its POSITION here, so this order is the address and not a display choice. */
+  files?: string[];
   preview?: string;
   hiddenChars?: number;
   hiddenLines?: number;

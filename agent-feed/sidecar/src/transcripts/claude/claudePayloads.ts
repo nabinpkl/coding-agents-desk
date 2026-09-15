@@ -5,6 +5,7 @@
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import { contextWindowFor } from "@/config";
 import { cacheTtlFromUsage } from "@/cacheTtl";
+import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
 import type { ActivityBlock, DeclaredModel, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import { basename } from 'node:path';
 import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
@@ -172,12 +173,16 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
     } else if (t === 'tool_use' && typeof b.name === 'string') {
       const input = (b.input as Record<string, unknown> | undefined) ?? {};
       const id = typeof b.id === 'string' ? (b.id as string) : undefined;
+      // Resolved here rather than left to the reader, because the panel addresses one of these by
+      // its POSITION and the route resolves that position from the same rule. See claudeFiles.ts.
+      const files = toolFilePaths(input);
       out.push({
         block: {
           kind: 'tool_use',
           tool: b.name as string,
           summary: summarizeToolUse(b.name as string, input),
           input,
+          ...(files.length ? { files } : {}),
           ...(id ? { callId: id } : {}),
         },
         raw: null,

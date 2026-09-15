@@ -2,18 +2,23 @@
 
 import { EventFileImage } from "@/features/activity-feed/blocks/EventImageBlock";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
+import type { ActivityBlock } from "@/features/activity-feed/useSessionEventsStream";
 
 /**
- * What a call handed to the reader: the sentence it sent them with, and the files themselves.
+ * The files a call named, drawn: the sentence it sent them with, and the pictures themselves.
  *
- * `SendUserFile` is the call, and every part of it was unreadable in the feed. Its result
- * enumerates each absolute path a second time beside a `file_uuid`, which is the delivery
+ * `SendUserFile` is what this was built for, and every part of it was unreadable in the feed. Its
+ * result enumerates each absolute path a second time beside a `file_uuid`, which is the delivery
  * system's handle and nothing a reader can act on; the sentence saying what the files were sat in
  * the call's `caption`, a key nothing rendered; and the pictures -- usually the whole point of the
  * message -- were a list of names in a temp directory.
  *
- * The names come from the CALL rather than from its result, because the call is what asked; a
- * result that failed still shows its own text under this.
+ * It draws any call's files, not just that one's, because the same gap is everywhere: a command
+ * that renders a chart names the file it wrote and nothing in the transcript holds the picture.
+ *
+ * The list comes from the CALL rather than from its result, because the call is what asked; a
+ * result that failed still shows its own text under this. A file that is no longer there shows as
+ * its name, which is what the row said before there was a picture to draw.
  */
 export function SentFilesBlock({
   files,
@@ -61,12 +66,15 @@ export function SentFilesBlock({
   );
 }
 
-/** The files a tool call handed over, or null for a call that handed over none. */
-export function sentFiles(input: Record<string, unknown> | undefined): string[] | null {
-  const files = input?.files;
-  if (!Array.isArray(files)) return null;
-  const paths = files.filter((file): file is string => typeof file === "string" && file.trim() !== "");
-  return paths.length ? paths : null;
+/**
+ * The files a tool call names, or null for a call that names none.
+ *
+ * Read off the block rather than derived from `input`: the sidecar resolved this list, and a
+ * picture in it is addressed by its position, so deriving a second order here is how the third
+ * file starts answering with the fifth.
+ */
+export function sentFiles(block: ActivityBlock): string[] | null {
+  return block.files?.length ? block.files : null;
 }
 
 export function fileName(path: string): string {

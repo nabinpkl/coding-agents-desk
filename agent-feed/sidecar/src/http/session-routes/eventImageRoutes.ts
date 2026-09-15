@@ -22,6 +22,7 @@ import {
   readEventRaw,
   releaseIndex,
 } from "@/transcripts/event-index/eventIndex";
+import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { adapterFor } from "@/transcripts/sourceAdapters";
 import { jsonResponse } from "@/http/httpResponses";
@@ -85,16 +86,17 @@ async function eventImage(
 }
 
 /**
- * One file a tool call handed to the reader, by its place in that call's `files` list.
+ * One file a tool call names, by its place in that call's list (`claudeFiles.ts` builds it).
  *
- * `SendUserFile` names absolute paths on the machine the sidecar runs on, and its pictures are
- * usually the whole point of the message -- a render, a screenshot, a chart -- so a feed that can
- * only print their names is showing the reader the index of something they were sent.
+ * The pictures a session makes live on the machine the sidecar runs on rather than in the
+ * transcript -- a render `SendUserFile` handed over, a chart a command just wrote -- so a feed
+ * without this can only print their names, which is showing the reader the index of something
+ * instead of the thing.
  *
  * Addressed by POSITION IN THE TRANSCRIPT, never by a path in the request, and that is the whole
  * access rule: the bytes are served only where this session's own line at this event, this block
  * and this index already names that file. So the capability is the transcript, and the panel
- * cannot ask for anything the session did not hand over.
+ * cannot ask for anything the session did not name.
  *
  * Two more bounds on top. The content-type is SNIFFED from the bytes with the composer's own
  * reader rather than taken from the extension, so only a real PNG, JPEG, GIF or WebP is ever
@@ -115,8 +117,11 @@ async function eventFile(
     const line = await readEventRaw("claude", sessionId, session.transcriptPath, eventIndex, mode);
     if (line === null) return jsonResponse({ error: "event not found" }, 404);
     const block = adapterFor("claude").processLine(line)?.event?.blocks[blockIndex];
-    const files = block?.kind === "tool_use" ? block.input?.files : undefined;
-    const path = Array.isArray(files) ? files[fileIndex] : undefined;
+    // The same rule the normalizer put on the block, applied to the same line: the panel's `k` is
+    // a position in THAT list and nothing else resolves it.
+    const path = block?.kind === "tool_use"
+      ? toolFilePaths(block.input)[fileIndex]
+      : undefined;
     // Absolute only. A relative path would be resolved against whatever directory this process
     // happens to be in, which is not a place the transcript was talking about.
     if (typeof path !== "string" || !isAbsolute(path)) {

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
@@ -36,6 +36,8 @@ const call: ActivityEvent = {
       caption: CAPTION,
       status: "normal",
     },
+    // Resolved by the sidecar, which is what the panel addresses a picture by.
+    files: [`${ROOT}/cull-ad-1-fit.png`, `${ROOT}/cull-lc-1-fit.png`],
   }],
 };
 
@@ -132,6 +134,7 @@ describe("a call that hands files to the reader", () => {
         blocks: [{
           ...call.blocks[0]!,
           input: { files: [report], caption: CAPTION, status: "normal" },
+          files: [report],
         }],
       },
     });
@@ -153,6 +156,46 @@ describe("a call that hands files to the reader", () => {
 
     renderCall({ source: stubDataSource({ eventFileUrl }) });
     expect(screen.getAllByRole("button", { name: /^Open .+ larger$/ })).toHaveLength(2);
+  });
+
+  // A scratchpad gets swept and a branch gets switched, so a row can outlive the file it names.
+  it("leaves the name behind when the picture is no longer there", () => {
+    const { container } = renderCall({
+      source: stubDataSource({ eventFileUrl: () => "/file/gone" }),
+    });
+    for (const image of container.querySelectorAll("img")) fireEvent.error(image);
+
+    expect(screen.getByText("cull-ad-1-fit.png")).toBeDefined();
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    // And no chip reporting a failure the reader can do nothing about.
+    expect(container.textContent).not.toContain("Image did not load");
+  });
+
+  it("leaves a picture the result already returned to the result", () => {
+    const ctx = { ...delivered, images: [1] };
+    const { container } = render(
+      <DataSourceProvider source={stubDataSource({ eventImageUrl: () => "/img/8-1" })}>
+        <SegmentEventRow
+          ev={call}
+          ctx={{
+            session: { source: "claude", sessionId: "session-1", mode: "nice" },
+            rawSource: "addressable",
+            expandedTools: new Set(["call-1"]),
+            onToggleTool: () => {},
+            pairedToolResults: new Map([["call-1", ctx]]),
+            showCacheHits: false,
+          }}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </DataSourceProvider>,
+    );
+    // One picture, drawn where the result put it, rather than the same one twice.
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("/img/8-1");
   });
 
   it("keeps a result that says something other than which handles it minted", () => {

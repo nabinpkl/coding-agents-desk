@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import { CHIP_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
@@ -10,9 +10,9 @@ import { ImageLightbox } from "@/features/image-viewer/ImageLightbox";
  * The thumbnail is the whole control, the way it is in the composer's strip: the large target
  * opens it, and there is nothing else to do with a picture that has already been sent.
  *
- * Where there is no picture to show it says so rather than disappearing. A message reading
- * "[Image #3] what about this" beside nothing would read as a feed that lost the image, which is a
- * worse thing to be told than that this view cannot load it.
+ * Where there is no picture to show it says so rather than disappearing, unless the caller has
+ * something better to leave behind -- a row that prints the file's name needs no chip saying the
+ * same thing twice.
  *
  * Takes an address rather than finding one, because two different things in a row are pictures:
  * an image block inside a message, and a file a call handed to the reader. They are addressed
@@ -23,6 +23,7 @@ export function EventPicture({
   alt,
   title,
   label = "Open image larger",
+  missing,
   compact = false,
 }: {
   /** Where the bytes are, or null where this view has no address it can load. */
@@ -34,13 +35,24 @@ export function EventPicture({
   /** What the control does, said per picture: a row can carry several, and they are not the same
    *  one repeated. */
   label?: string;
+  /** What stands where the picture cannot be drawn. A caller whose row names the file anyway
+   *  passes `null`: the name is the fallback, and a chip beside it would say it twice. */
+  missing?: ReactNode;
   /** One line tall, for a collapsed tool call's header, where it says what the call carried. */
   compact?: boolean;
 }) {
   const [opened, setOpened] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // WHICH address failed, not merely that one did: a row whose picture moves -- a live message
+  // becoming a transcript row -- would otherwise carry the first failure forever.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
+  // Compared to the address, so a view with no address at all is not read as a failure.
+  const failed = url !== null && failedUrl === url;
   if (url === null || failed) {
+    // A message reading "[Image #3] what about this" beside nothing would read as a feed that lost
+    // the image, which is a worse thing to be told than that this view cannot load it. A caller
+    // whose row names the file itself says so instead, by passing its own `missing`.
+    if (missing !== undefined) return <>{missing}</>;
     return (
       <span className={`${CHIP_CLASS}inline-block bg-muted text-muted-foreground`}>
         {failed ? "Image did not load" : "Image"}
@@ -64,7 +76,7 @@ export function EventPicture({
           src={url}
           alt=""
           loading="lazy"
-          onError={() => setFailed(true)}
+          onError={() => setFailedUrl(url)}
           className={
             compact
               ? "block h-[1.4em] max-w-[4em] object-contain"
@@ -111,8 +123,9 @@ export function EventImageBlock({
  * A picture a tool call handed to the reader, addressed by its place in that call's file list.
  *
  * The file itself lives on the machine the session runs on rather than in the transcript, so this
- * is the one picture in the feed that can go away while the row that mentions it stays. That reads
- * as "Image did not load", which is what happened.
+ * is the one picture in the feed that can go away while the row naming it stays -- a scratchpad is
+ * swept, a branch is switched. Then the row reads as the name it read as before there was a
+ * picture to draw, rather than as a chip reporting a failure the reader can do nothing about.
  */
 export function EventFileImage({
   ctx,
@@ -140,6 +153,9 @@ export function EventFileImage({
       alt={`${name}, sent to you`}
       title={name}
       label={`Open ${name} larger`}
+      // The row prints the file's name whether or not the picture arrives, and the folded header
+      // prints it in the call's own label, so a picture that is gone leaves the name behind.
+      missing={null}
       compact={compact}
     />
   );

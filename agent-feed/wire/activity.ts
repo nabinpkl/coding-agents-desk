@@ -28,6 +28,12 @@ export interface ActivityBlock {
   // Raw tool_use input. Carried so the Agent Panel can render richer views
   // (e.g. unified diffs for Edit) without re-fetching the transcript.
   input?: Record<string, unknown>;
+  // On a tool_use: the files the call names, resolved by the adapter -- what it handed over, the
+  // file it worked on, the pictures its command mentions. Carried rather than left to the reader
+  // because a picture among them is fetched by its POSITION here, with
+  // `GET .../blocks/<b>/files/<k>`, and the sidecar resolves that position from the same rule. Two
+  // readers deriving the order separately is a request for the third file answered with the fifth.
+  files?: string[];
   preview?: string;
   // Set on tool_result blocks whose preview was capped by the adapter.
   // hiddenChars = bytes the sidecar dropped; hiddenLines = newline count in
