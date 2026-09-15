@@ -164,7 +164,7 @@ afterEach(async () => {
   state.sessionUsage.clear();
   state.eventSubscribers.clear();
   state.transcriptFollows.clear();
-  state.transcriptWatchedPaths.clear();
+  state.transcriptFollowsByPath.clear();
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -202,11 +202,9 @@ test("a transcript that grows past a window after the stream opened hands over a
     transcriptPath,
     lastEventAt: Date.now(),
   });
-  // Pinned so the process's real watcher never takes this path: `watchTranscript` re-points a
-  // path it already holds instead of adding it. Growth is driven by the explicit `syncIndex`
-  // below, which is exactly what the watcher would have called, and the test stops being a race
-  // between a filesystem event and its own assertions.
-  state.transcriptWatchedPaths.set(transcriptPath, key);
+  // Growth is driven by the explicit `syncIndex` below, which is exactly what a published write
+  // would have called, so the test is about the checkpoint rule rather than a race between a
+  // filesystem event and its own assertions. Nothing watches this directory.
 
   const envelopes: TimelineEnvelope[] = [];
   const errors: string[] = [];
@@ -252,7 +250,6 @@ test("an ordinary turn's rows still arrive as rows", async () => {
     transcriptPath,
     lastEventAt: Date.now(),
   });
-  state.transcriptWatchedPaths.set(transcriptPath, key);
 
   const envelopes: TimelineEnvelope[] = [];
   const stop = subscribeTranscriptTimeline(SOURCE, SESSION_ID, 1, "nice", {

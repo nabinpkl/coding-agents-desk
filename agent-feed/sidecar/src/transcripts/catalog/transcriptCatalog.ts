@@ -19,6 +19,7 @@ import {
   scheduleBroadcast,
 } from "@/transcripts/catalog/catalogState";
 import { projectSummaries } from "@/transcripts/catalog/catalogViews";
+import { publishTranscriptWrite } from "@/transcripts/catalog/transcriptWrites";
 import { resolveStateDbPath } from "@/transcripts/codex/codexTranscript";
 
 // The Pi watcher debounces here rather than in `piCatalog.ts`, because the debounce
@@ -60,10 +61,20 @@ function attachSourceWatchers(): void {
   // One tree watch rather than one per transcript. All three of appearing, growing and being
   // deleted reconcile the same way here, so the event kind was never read and nothing is lost by
   // `fs.watch` not reporting it. See `watchTree` for what that saves.
+  //
+  // It has two consumers now: this catalog, and the event index through `publishTranscriptWrite`.
+  // The index used to keep its own per-file watches and they went minutes late in a long-lived
+  // process while this one stayed current -- `transcriptWrites.ts` carries that measurement.
   const claudeWatcher = watchTree({
     root: config.claudeProjectsDirectory,
-    depth: 1,
+    // Deeper than the catalog itself needs, because this watch is also the event index's:
+    // a subagent's transcript sits at `<project>/<session>/subagents/agent-<id>.jsonl`, three
+    // below the root, and it is followed by a reader even though it is not a catalog session.
+    // The extra paths cost `refreshClaudeSession` a basename test and nothing else -- it
+    // answers only for a transcript exactly two below the root.
+    depth: 3,
     onPath: (path) => {
+      publishTranscriptWrite(path);
       void refreshClaudeSession(path).catch((error) => {
         console.error("agent feed Claude candidate reconcile failed", error);
       });
@@ -101,6 +112,9 @@ function attachSourceWatchers(): void {
     depth: 3,
     accepts: (path) => ROLLOUT_PATTERN.test(basename(path)),
     onEntry: (path, change) => {
+      // A rollout that is still there has rows for whoever is following it, whether this is the
+      // first event for it or the hundredth. Only a file that has gone has nothing to hand over.
+      if (change !== "vanished") publishTranscriptWrite(path);
       if (change === "written") {
         void refreshCodexRollout(path).catch((error) => {
           console.error("agent feed Codex rollout refresh failed", error);

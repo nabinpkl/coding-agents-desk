@@ -1,4 +1,3 @@
-import type { FSWatcher } from "chokidar";
 import type { EventSubscriber } from "@/transcripts/event-index/eventIndex";
 import type { DeclaredModel, Session, TokenUsage } from "@/transcripts/transcriptTypes";
 
@@ -10,16 +9,16 @@ export interface OpenStream {
 }
 
 /**
- * The one watch on a transcript file, and everyone reading through it.
+ * One followed transcript, and everyone reading through it.
  *
  * Refcounted by `handlers.size` rather than a separate counter: every follower
  * registers exactly one error handler, so the two cannot come apart. The handlers
- * exist because a shared watcher has no single subscriber to fail to, and a watch
- * that dies silently looks exactly like a session that stopped writing.
+ * exist because a follow is shared and has no single subscriber to fail to, and a
+ * read that fails silently looks exactly like a session that stopped writing.
  */
 export interface TranscriptFollow {
-  /** Re-reads the transcript from where the index left off. The watcher calls it; which file
-   *  it reads is closed over, and `transcriptWatchedPaths` is what maps the other way. */
+  /** Re-reads the transcript from where the index left off. A published write calls it; which
+   *  file it reads is closed over, and `transcriptFollowsByPath` is what maps the other way. */
   sync: () => void;
   handlers: Set<(error: unknown) => void>;
 }
@@ -50,28 +49,16 @@ export interface TranscriptState {
   // Sessions whose file grew while their index build was already running. That
   // build started from the size it saw when it began, so those bytes are outside
   // it; the flag makes it look again before it settles rather than leaving them
-  // for the next filesystem event, which -- now that there is one watcher per
-  // file instead of one per reader -- may not come.
+  // for the next filesystem event, which may never come: a file that has stopped
+  // growing produces nothing more to be told about.
   indexResyncs: Set<string>;
   indexReferences: Map<string, number>;
-  // One watch per followed transcript, shared by every reader of it.
+  // One follow per followed transcript, shared by every reader of it.
   transcriptFollows: Map<string, TranscriptFollow>;
-  // ONE watcher for every transcript this process follows, created with the first path and
-  // never closed. Under Bun, closing a watch on a path leaves the NEXT watch on that same path
-  // inert -- measured 2026-09-10 as a clean alternation, `3, 0, 3, 0, 3, 0` events delivered
-  // over six open/close cycles, against `3, 3, 3, 3, 3, 3` on Node for the same script, and
-  // reproduced on raw `node:fs.watch` with no chokidar involved. A reader leaving and another
-  // arriving straight after is the ordinary case here -- a card toggled, a reader moving
-  // between two cards on one session, a Vite reload -- so every second visit to a thread got a
-  // dead watch and a transcript that only advanced when some other reader forced a scan.
-  //
-  // A path is therefore added once and never removed, which also makes the open-contending-
-  // with-close deadlock unreachable rather than merely ordered around. Measured cost of 500
-  // watched paths: no RSS change.
-  transcriptWatcher: FSWatcher | null;
-  // Which session each watched path belongs to. Outlives the follow, because the path stays on
-  // the watcher after its last reader leaves.
-  transcriptWatchedPaths: Map<string, string>;
+  // Which session a written transcript path belongs to, so a write published by the catalog's
+  // corpus watch reaches the follow that wants it. Dropped with the follow: this process no
+  // longer holds a watch per path, so there is nothing left that has to outlive its readers.
+  transcriptFollowsByPath: Map<string, string>;
   // Latest context-window occupancy per indexed session, folded line by line as
   // the index is built and extended. Lives here rather than in the catalog
   // because the indexing pass is the one place that already reads every line;
@@ -102,8 +89,7 @@ export const state: TranscriptState = {
   indexResyncs: new Set(),
   indexReferences: new Map(),
   transcriptFollows: new Map(),
-  transcriptWatcher: null,
-  transcriptWatchedPaths: new Map(),
+  transcriptFollowsByPath: new Map(),
   sessionUsage: new Map(),
   sessionModels: new Map(),
   eventSubscribers: new Map(),

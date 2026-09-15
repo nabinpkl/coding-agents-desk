@@ -894,10 +894,43 @@ scan. Measured on one session: 320s, 124s and 33s of silence inside ten minutes 
 throughout. Every probe aimed at it found a healthy layer, including a standalone chokidar watch on
 the same path in another process, which fired perfectly -- it was the first watch in ITS process.
 
-So a watched path is added once and never removed (`eventIndex.ts`, `watchTranscript`), on one
-watcher for the process. Two details that bite on the way there: `chokidar.watch([])` never reaches
-`ready`, so a watcher created bare and filled by `add` hangs rather than watching; and 500 watched
-paths cost no measurable RSS, so never closing is not the expensive half of this.
+The answer was one watcher for the process with paths added once and never removed. Two details
+that bit on the way there: `chokidar.watch([])` never reaches `ready`, so a watcher created bare
+and filled by `add` hangs rather than watching; and 500 watched paths cost no measurable RSS, so
+never closing was not the expensive half of it.
+
+#### And then the per-file watches went minutes late anyway, so the index stopped watching
+
+Settled 2026-09-15, from a report that a message sent to a session sometimes never appeared in the
+panel. Measured with a throwaway session and 20 sent messages, watching four things at once: the
+file on disk, the sidecar's timeline stream, a standalone Bun watcher on the same file, and two
+freshly started sidecars built from the same source.
+
+The transcript is never the late half. A `queue-operation` enqueue and the `user` record for the
+same message are 30 to 700ms apart across 14 sampled turns, whether the session was idle or
+mid-turn. What was late was delivery: 1s, 6s, 16s, 26s, 31s, 51s, 62s, 71s, 77s, 93s, 103s, 123s,
+202s, arriving in bursts.
+
+Four measurements place the fault, and none of them is the filesystem. A standalone Bun process
+running the same chokidar 5 and a raw `node:fs.watch` on that same transcript fired within one
+second on every write throughout. A freshly started sidecar delivered in 1 to 2 seconds every time,
+and so did a fresh one started under `bun --watch`, so `--watch` itself is not it. The decisive one
+is inside the one degraded process: at the same instants, its catalog watch -- the single recursive
+`fs.watch` on `~/.claude/projects` from `watchTree` -- reported `lastEventAt` for the same session
+within 3 seconds each time, to the same millisecond value a fresh sidecar reported, while its own
+per-file watch on that transcript was 35s and 71s late for those same two writes.
+
+So one recursive watch per corpus stays healthy in a long-lived process where hundreds of per-file
+watches do not, and **the event index no longer watches anything**. The catalog's corpus watches
+publish every write through `transcriptWrites.ts`, and `followTranscript` routes it to whoever is
+reading that file. What this does NOT cover, and what would need a stat of each followed file on a
+timer rather than a second watcher: a corpus watch that dies leaves a followed transcript sitting
+still with only a line in the catalog's log to say so.
+
+Two things hid all of this for weeks. The panel backfills a hole once a later row exposes it
+(`useTimelineGapFill`), so a row that was 90 seconds late usually arrived alongside the reply and
+read as normal. And a sidecar that has just reloaded is prompt, so it worked right after every edit
+and rotted from there.
 
 ## Several sessions share one branch, so re-read before you trust anything
 

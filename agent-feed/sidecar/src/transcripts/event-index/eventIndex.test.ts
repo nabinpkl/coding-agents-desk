@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   acquireIndex,
@@ -18,6 +18,8 @@ import {
 } from "@/transcripts/event-index/eventIndex";
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
+import { watchTree } from "@/transcripts/catalog/watchTree";
+import { publishTranscriptWrite } from "@/transcripts/catalog/transcriptWrites";
 
 /**
  * Waits for a filesystem event to be delivered, or gives up.
@@ -33,6 +35,7 @@ async function waitFor(settled: () => boolean, timeoutMs = 4000): Promise<void> 
 }
 
 const roots: string[] = [];
+const watches: { close(): Promise<void> }[] = [];
 const source = "codex" as const;
 const sessionId = "11111111-1111-1111-1111-111111111111";
 
@@ -47,12 +50,8 @@ afterEach(async () => {
   state.indexReferences.clear();
   state.sessionUsage.clear();
   state.transcriptFollows.clear();
-  // The process keeps one watcher and never takes a path off it, so a test that wants a clean
-  // one closes it here. Safe between tests only because each builds its own temp transcript:
-  // re-watching a path that has been closed is what this whole area is about.
-  await state.transcriptWatcher?.close();
-  state.transcriptWatcher = null;
-  state.transcriptWatchedPaths.clear();
+  state.transcriptFollowsByPath.clear();
+  await Promise.all(watches.splice(0).map((watch) => watch.close()));
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -261,18 +260,18 @@ describe("nice mode", () => {
 });
 
 describe("following a transcript", () => {
-  test("readers of one transcript share a single watch and one index reference each", async () => {
+  test("readers of one transcript share a single follow and one index reference each", async () => {
     const transcriptPath = await interleavedTranscript();
     const key = sessionKey(source, sessionId);
 
     const releaseFirst = followTranscript(source, sessionId, transcriptPath, () => {});
     const releaseSecond = followTranscript(source, sessionId, transcriptPath, () => {});
-    // Two agent windows on one thread: two readers, two index references, one watch.
+    // Two agent windows on one thread: two readers, two index references, one follow.
     expect(state.transcriptFollows.size).toBe(1);
     expect(state.indexReferences.get(key)).toBe(2);
 
     releaseFirst();
-    // The watch outlives the first reader, because the second is still reading.
+    // The follow outlives the first reader, because the second is still reading.
     expect(state.transcriptFollows.size).toBe(1);
     expect(state.indexReferences.get(key)).toBe(1);
     // A release that runs twice must not take the surviving reader's slot with it.
@@ -351,33 +350,35 @@ test("a reader coming back to a thread still hears what is appended to it", asyn
   // The case is ordinary, not exotic: a card toggled, a reader moving between two cards on one
   // session, a Vite reload. Each takes the last reader off a transcript and puts one back.
   //
-  // Under Bun that used to end the session's updates, because the watch was closed with the
-  // last reader and re-opened with the next, and Bun leaves the second watch on a path inert.
-  // Measured 2026-09-10: six open/close cycles on one file delivered `3, 0, 3, 0, 3, 0` events,
-  // the same script on Node delivered `3, 3, 3, 3, 3, 3`. On a live session that showed up as
-  // 320 seconds of a thread not advancing while its file grew the whole time.
-  //
-  // So this drives the real watcher rather than asserting the bookkeeping: bookkeeping is
-  // exactly what looked correct while nothing was being delivered.
+  // It has broken twice, both times silently, and both times the bookkeeping looked right while
+  // nothing was delivered. Under Bun, a watch closed with the last reader left the next watch on
+  // that path inert -- `3, 0, 3, 0, 3, 0` over six open/close cycles, measured 2026-09-10. And
+  // the per-file watches that replaced it went 30 to 200 seconds late in a long-lived process,
+  // measured 2026-09-15. So this drives a real `watchTree` over a real directory, the same way
+  // the catalog does in production, rather than asserting that a map holds the right string.
   const transcriptPath = await interleavedTranscript();
   const key = sessionKey(source, sessionId);
   const notices: number[] = [];
   const unsubscribe = subscribeEvents(source, sessionId, ({ event }) => notices.push(event.index));
+  watches.push(watchTree({
+    root: dirname(transcriptPath),
+    depth: 0,
+    onPath: publishTranscriptWrite,
+    onError: () => {},
+  }));
 
   const release = followTranscript(source, sessionId, transcriptPath, () => {});
   await ensureIndexed(source, sessionId, transcriptPath);
-  const watcher = state.transcriptWatcher;
-  expect(watcher).not.toBeNull();
+  expect(state.transcriptFollowsByPath.get(transcriptPath)).toBe(key);
 
-  // The reader leaves. The follow goes; the path stays on the watcher.
+  // The reader leaves. The follow goes, and its route with it.
   release();
   expect(state.transcriptFollows.has(key)).toBe(false);
-  expect(state.transcriptWatchedPaths.has(transcriptPath)).toBe(true);
+  expect(state.transcriptFollowsByPath.has(transcriptPath)).toBe(false);
 
-  // And comes back, onto the same watcher rather than a fresh one.
+  // And comes back.
   const refollow = followTranscript(source, sessionId, transcriptPath, () => {});
   await ensureIndexed(source, sessionId, transcriptPath);
-  expect(state.transcriptWatcher).toBe(watcher);
 
   notices.length = 0;
   await appendFile(transcriptPath, `${contentLine(101)}\n`);
