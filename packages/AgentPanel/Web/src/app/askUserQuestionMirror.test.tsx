@@ -394,6 +394,46 @@ describe("AskUserQuestion mirror", () => {
     unmount();
   });
 
+  it("folds the question down to one row and puts it back, keeping the draft", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    openQuestion(TWO_QUESTIONS);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dark mode" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse question" }));
+
+    // The panel is gone and the row that reopens it is not: the question's own words, so the
+    // reader knows what they folded away, and no options to answer it in place.
+    const reopen = screen.getByRole("button", {
+      name: /Reopen Claude's question: Which features do you want to enable\?/,
+    });
+    expect(reopen).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("checkbox", { name: "Dark mode" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Submit answer" })).toBeNull();
+    // One of the two is answered already, which is the fact reopening would be for.
+    expect(reopen).toHaveTextContent("1 of 2 left");
+
+    fireEvent.click(reopen);
+    // The draft is the caller's, not the panel's, so folding it away never touched it.
+    expect(screen.getByRole("checkbox", { name: "Dark mode" })).toBeChecked();
+    unmount();
+  });
+
+  it("opens a NEW call whole, however the last one was left", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    openQuestion(TWO_QUESTIONS);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse question" }));
+    expect(screen.queryByRole("button", { name: "Collapse question" })).toBeNull();
+
+    // A question nobody has seen yet is not one anybody asked to hide.
+    openQuestion(QUESTION);
+    expect(
+      screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" }),
+    ).toBeInTheDocument();
+    unmount();
+  });
+
   it("says how many questions of a call this half cannot reach", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);

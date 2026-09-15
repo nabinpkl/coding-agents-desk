@@ -20,7 +20,15 @@
 // need to know which one it is attached to.
 
 import { type ReactNode, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  LoaderCircle,
+  X,
+} from "lucide-react";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { isAnswered } from "@/features/session-view/composer/question/questionAnswers";
@@ -60,12 +68,33 @@ export function AskUserQuestionMirror({
   // the band gives this component the call's id as its key, so a new call starts back at the first
   // question without an effect to say so.
   const [at, setAt] = useState(0);
+  // Folded away, and folded back out again. The band does not scroll and sits between the
+  // transcript and the composer, so a question with four options and a preview on each takes the
+  // conversation it is about down to a sliver -- and a reader who wants to go back and READ before
+  // answering has nowhere to put it. The same key that resets the pager resets this, so a new call
+  // arrives open: a question nobody has seen yet is not one anybody asked to hide.
+  //
+  // Not stored. It is one tap to redo, it is about a call that ends within the turn, and a stored
+  // fold would have to be aged out of storage by the same reader's next thousand questions.
+  const [shownWhole, setShownWhole] = useState(true);
   const inert = pending || disabled;
   const many = questions.length > 1;
   const shown = Math.min(at, Math.max(questions.length - 1, 0));
   const question = questions[shown];
   const missing = questions.filter((_, index) => !isAnswered(drafts[index] ?? EMPTY)).length;
   if (!question) return null;
+  if (!shownWhole) {
+    return (
+      <FoldedQuestion
+        question={question}
+        total={questions.length}
+        missing={missing}
+        pending={pending}
+        error={error}
+        onOpen={() => setShownWhole(true)}
+      />
+    );
+  }
   return (
     <section
       aria-label="Claude question"
@@ -82,6 +111,16 @@ export function AskUserQuestionMirror({
         ) : (
           <span className="flex-1" />
         )}
+        <button
+          type="button"
+          onClick={() => setShownWhole(false)}
+          aria-expanded
+          aria-label="Collapse question"
+          title="Fold the question away and give the room back to the transcript"
+          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
+        >
+          <ChevronUp className="size-4" aria-hidden />
+        </button>
         {onDismiss ? (
           <button
             type="button"
@@ -173,6 +212,72 @@ export function AskUserQuestionMirror({
       ) : null}
     </section>
   );
+}
+
+/**
+ * The question folded down to one row, and the way back out of it.
+ *
+ * The whole row is the control, so reopening costs a tap anywhere along it rather than a hit on a
+ * 16px chevron with a thumb. It keeps the question's own words: a bar reading "1 question" would
+ * be a thing to open to find out what it is, and the point of folding it was to stop looking at it.
+ *
+ * Tinted rather than muted, because this is not a closed detail -- something is waiting on the
+ * reader, and a row the same colour as the border would read as having gone away.
+ */
+function FoldedQuestion({
+  question,
+  total,
+  missing,
+  pending,
+  error,
+  onOpen,
+}: {
+  question: AskUserQuestionItem;
+  total: number;
+  missing: number;
+  pending: boolean;
+  error: string | null;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-expanded={false}
+      aria-label={`Reopen Claude's question: ${question.question}`}
+      // The refusal's own sentence, which is too long for the row and does not need to be on it:
+      // it is already on screen in full the moment this reopens, which is the only place the
+      // reader can act on it anyway.
+      title={error ?? "Reopen the question"}
+      className={`mb-3 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+        error
+          ? "border-destructive/50 bg-destructive/5 hover:bg-destructive/10 active:bg-destructive/15"
+          : "border-primary/40 bg-primary/5 hover:bg-primary/10 active:bg-primary/15"
+      }`}
+    >
+      {pending
+        ? <LoaderCircle className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
+        : <ChevronDown className={`size-4 shrink-0 ${error ? "text-destructive" : "text-primary"}`} aria-hidden />}
+      <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 text-foreground">
+        {question.question}
+      </span>
+      {/* What reopening would be FOR, in the words the open panel uses for the same fact. */}
+      <span
+        className={`shrink-0 text-(length:--agent-panel-fs-sidebar-meta,13px) ${
+          error ? "text-destructive" : "text-muted-foreground"
+        }`}
+      >
+        {error ? "Not sent" : foldedStatus(total, missing)}
+      </span>
+    </button>
+  );
+}
+
+/** The folded row's right-hand word: what answering still needs, or that it does not. */
+function foldedStatus(total: number, missing: number): string {
+  if (missing === 0) return total > 1 ? "All answered" : "Answered";
+  if (total === 1) return "Unanswered";
+  return `${missing} of ${total} left`;
 }
 
 /** What is left to do, in the place a disabled Submit button cannot say it. */
