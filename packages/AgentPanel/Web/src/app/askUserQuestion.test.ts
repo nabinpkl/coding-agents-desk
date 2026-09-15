@@ -167,6 +167,59 @@ describe("openAskUserQuestion", () => {
     expect(openAskUserQuestion([durable], [tail])?.callId).toBe("toolu_1");
   });
 
+  it("closes a question the reader answered by typing something else instead", () => {
+    // The shape measured in a real transcript on 2026-09-15: the call gets no tool_result ever,
+    // the person's own message follows it, and the session carries on underneath a mirror that
+    // used to stay up for good.
+    const events = [
+      event(0, [toolUse("toolu_1", QUESTION_INPUT)], { messageId: "msg_asked" }),
+      event(1, [{ kind: "text", text: "continue no edit" }], { type: "user", humanTurn: true }),
+      event(2, [{ kind: "text", text: "Following the thread" }], { messageId: "msg_after" }),
+    ];
+    expect(openAskUserQuestion(events, [])).toBeNull();
+  });
+
+  it("closes a question the turn moved past without ever answering it", () => {
+    const events = [
+      event(0, [toolUse("toolu_1", QUESTION_INPUT)], { messageId: "msg_asked" }),
+      event(1, [{ kind: "reasoning", text: "on to the next thing" }], {
+        type: "reasoning",
+        messageId: "msg_after",
+      }),
+    ];
+    expect(openAskUserQuestion(events, [])).toBeNull();
+  });
+
+  it("keeps the question open while its OWN message writes its other lines", () => {
+    // A call batched alongside this one writes a line from the same message, and a result for that
+    // call arrives while this question is still standing. Neither is the turn moving anywhere.
+    const events = [
+      event(0, [toolUse("toolu_1", QUESTION_INPUT)], { messageId: "msg_asked" }),
+      event(1, [{ kind: "tool_use", tool: "Bash", summary: "Bash", callId: "bash_1", input: {} }], {
+        messageId: "msg_asked",
+      }),
+      event(2, [toolResult("bash_1")], { type: "user" }),
+    ];
+    expect(openAskUserQuestion(events, [])?.callId).toBe("toolu_1");
+  });
+
+  it("keeps the question open while the live tail republishes the message that asked it", () => {
+    // The tail IS the turn that asked, so its rows are never evidence the turn moved on -- even
+    // the ones the mirror publishes with no message id at all.
+    const durable = event(0, [toolUse("toolu_1", QUESTION_INPUT)], { messageId: "msg_asked" });
+    const tail = [
+      event(1, [{ kind: "text", text: "thinking out loud" }], { phase: "streaming" }),
+      { ...durable, index: 2, phase: "streaming" as const },
+    ];
+    expect(openAskUserQuestion([durable], tail)?.callId).toBe("toolu_1");
+  });
+
+  it("does not let the live tail reopen a question the transcript already closed", () => {
+    const durable = event(0, [toolUse("toolu_1", QUESTION_INPUT)], { messageId: "msg_asked" });
+    const events = [durable, event(1, [toolResult("toolu_1")], { type: "user" })];
+    expect(openAskUserQuestion(events, [{ ...durable, index: 2 }])).toBeNull();
+  });
+
   it("ignores other tool_use blocks", () => {
     const events = [
       event(0, [{ kind: "tool_use", tool: "Bash", summary: "Bash", callId: "bash_1", input: { command: "ls" } }]),
