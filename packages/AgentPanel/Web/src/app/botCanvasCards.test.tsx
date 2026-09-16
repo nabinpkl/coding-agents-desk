@@ -217,8 +217,10 @@ describe("App shell", () => {
     });
 
     // The point of the view: both Bots and both their sessions are on screen together, with
-    // nothing selected and no Bot picked.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    // nothing selected and no Bot picked. The selected tab is what says so -- the canvas draws no
+    // bar of its own over a pinned sidebar that already names it.
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("banner")).toBeNull();
     expect(canvas().getByText("Release Captain")).toBeInTheDocument();
     expect(canvas().getByText("Docs Keeper")).toBeInTheDocument();
     expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
@@ -232,7 +234,6 @@ describe("App shell", () => {
     // typed into.
     fireEvent.click(canvas().getByRole("button", { name: /^Session Codex 01/ }));
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
     expect(screen.getByRole("region", { name: /^Session Codex 01 session/ })).toBeInTheDocument();
     expect(screen.getByLabelText("Codex composer text")).toBeInTheDocument();

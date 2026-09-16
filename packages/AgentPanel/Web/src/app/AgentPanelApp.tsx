@@ -189,6 +189,22 @@ export function App({ feed, host, machines, fill = false }: Props) {
     ? botsState.bots.find((bot) => bot.botId === thread.selectedBotId)?.name
     : undefined;
   /**
+   * The canvas with no bar over it.
+   *
+   * That bar exists to name the session under it and to carry the session's controls, and the
+   * canvas has neither: it is every Bot at once, and the cards carry their own controls because
+   * each one holds a session of its own. What is left is the word "Canvas" written directly above
+   * the pinned sidebar's selected Canvas tab, and 44px of a strip whose cards are measured in rows.
+   *
+   * Gated on the sidebar being PINNED rather than dropped outright, because the bar is not only a
+   * title: its one button is the way back to a sidebar that is away, and on a phone with the drawer
+   * closed it is also the only thing on screen that says where the reader is. Both of those are
+   * exactly what a pinned sidebar is already doing two inches to the left.
+   */
+  const headerlessCanvas = chrome.sidebarMode === "canvas"
+    && chrome.sidebarPinned
+    && !commands.forkedSession;
+  /**
    * The names already standing where a new session would be started, which is what its number
    * counts past. The catalog's titles plus the ones this panel has started and the catalog has not
    * heard of yet -- without the second half, two presses in one minute propose the same name, and
@@ -345,41 +361,43 @@ export function App({ feed, host, machines, fill = false }: Props) {
             the physical edge instead of floating above a gap; `main` therefore states its own
             background rather than inheriting this one. */}
         <div className="flex min-w-0 flex-1 flex-col bg-card pb-[env(safe-area-inset-bottom)]">
-          <header
-            data-window-drag
-            className={`flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5${
-              chrome.sidebarPinned ? "" : " agent-window-titlebar-main-leading"
-            }`}
-          >
-            {!chrome.sidebarPinned ? (
-              <button
-                ref={chrome.drawerTriggerRef}
-                type="button"
-                onClick={chrome.openSidebar}
-                onPointerEnter={chrome.hoverCapable ? chrome.revealSidebarOnHover : undefined}
-                onPointerLeave={chrome.hoverCapable ? chrome.hideSidebarAfterHover : undefined}
-                aria-label={chrome.usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
-                aria-expanded={chrome.drawerOpen || chrome.hoverPreviewOpen}
-                title={chrome.usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
-                className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2 active:bg-muted/70"
-              >
-                <PanelLeft className="size-5" aria-hidden />
-            </button>
-            ) : null}
-            <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
-              {commands.forkedSession
-                ? commands.forkedSession.title
-                : chrome.sidebarMode === "canvas"
-                ? "Canvas"
-                : chrome.sidebarMode === "bots"
-                  ? selectedBotName || "Bots"
-                  : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
-            </h1>
-            {/* The open session's whole control strip, portalled in by `SessionView`. The gap is
-                this node's rather than the header's because the strip's own members used to be
-                the header's children and spaced by it. */}
-            <div ref={setThreadControlsHost} className="flex shrink-0 items-center gap-1" />
-          </header>
+          {headerlessCanvas ? null : (
+            <header
+              data-window-drag
+              className={`flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5${
+                chrome.sidebarPinned ? "" : " agent-window-titlebar-main-leading"
+              }`}
+            >
+              {!chrome.sidebarPinned ? (
+                <button
+                  ref={chrome.drawerTriggerRef}
+                  type="button"
+                  onClick={chrome.openSidebar}
+                  onPointerEnter={chrome.hoverCapable ? chrome.revealSidebarOnHover : undefined}
+                  onPointerLeave={chrome.hoverCapable ? chrome.hideSidebarAfterHover : undefined}
+                  aria-label={chrome.usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
+                  aria-expanded={chrome.drawerOpen || chrome.hoverPreviewOpen}
+                  title={chrome.usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2 active:bg-muted/70"
+                >
+                  <PanelLeft className="size-5" aria-hidden />
+                </button>
+              ) : null}
+              <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
+                {commands.forkedSession
+                  ? commands.forkedSession.title
+                  : chrome.sidebarMode === "canvas"
+                  ? "Canvas"
+                  : chrome.sidebarMode === "bots"
+                    ? selectedBotName || "Bots"
+                    : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
+              </h1>
+              {/* The open session's whole control strip, portalled in by `SessionView`. The gap is
+                  this node's rather than the header's because the strip's own members used to be
+                  the header's children and spaced by it. */}
+              <div ref={setThreadControlsHost} className="flex shrink-0 items-center gap-1" />
+            </header>
+          )}
 
           {/* One scroller per surface, and the session owns its own: `SessionView` is a flex
               column that fills whatever box it is given, so the transcript inside it scrolls

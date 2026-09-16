@@ -112,6 +112,28 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("drops the bar over the canvas, and keeps it once the sidebar is away", () => {
+    const { unmount } = setup();
+
+    // Pinned: the selected Canvas tab is on screen, so a bar repeating the word over it is a
+    // row of the strip's height spent on nothing.
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+
+    // Away: the bar is the only thing naming the view, and its button is the way back.
+    fireEvent.click(screen.getByRole("button", { name: "Close agent navigation" }));
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    expect(screen.getByRole("button", { name: "Pin agent sidebar" })).toBeInTheDocument();
+
+    // And a view that DOES have a session under the bar keeps it either way.
+    fireEvent.click(screen.getByRole("button", { name: "Pin agent sidebar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Sessions" }));
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    unmount();
+  });
+
   it("clears the session workspace in the empty Bots view and restores it on return", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);

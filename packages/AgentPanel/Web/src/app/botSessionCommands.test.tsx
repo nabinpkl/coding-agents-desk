@@ -120,7 +120,10 @@ describe("App shell", () => {
     expect(terminalPaneMock.context).toEqual({ kind: "tmux", session: "agentdesk-fork-fork-1" });
 
     fireEvent.click(screen.getByRole("button", { name: "Close fork" }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    // Back on the canvas, which over a pinned sidebar draws no bar at all -- so the fork's own
+    // title going away is what says the view closed.
+    expect(screen.queryByRole("banner")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
     unmount();
   });
 
@@ -209,7 +212,10 @@ describe("App shell", () => {
 
     expect(terminalPaneMock.context).toBeNull();
     expect(screen.queryByLabelText("Name")).toBeNull();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Canvas");
+    // Still the canvas, with no fork view over it. The canvas draws no bar of its own beside a
+    // pinned sidebar, so the selected tab is what names the view.
+    expect(screen.queryByRole("banner")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
     unmount();
   });
 
