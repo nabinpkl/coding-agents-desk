@@ -7,8 +7,8 @@
 //
 // Two things here cannot be settled by reading the code at all. Whether `touch-action: pan-x pan-y`
 // really leaves both touch points reaching the listeners while one finger still scrolls natively,
-// and whether `inert` really takes the strip out of hit-testing so a press lands on the scroller
-// underneath it. Both are browser behaviour, and both are load-bearing for the mode.
+// and whether a card drawn at a fifth of its size is still hit-tested and still answers a press.
+// Both are browser behaviour, and both are load-bearing for the mode.
 //
 // Run it against a live panel, which means `just host-run` is up: `just canvas-zoom-verify`.
 // Loopback, because none of this is about transport and the tailnet leg has its own check;
@@ -69,7 +69,6 @@ const canvas = (page) => page.evaluate(() => {
     // The strip must be the SAME element after a toggle. A remount would silently tear down and
     // stand up every open session card inside it, and every stream they hold.
     stripStamp: strip.dataset.zoomStamp || null,
-    inert: strip.hasAttribute('inert'),
     touchAction: scroller.style.touchAction,
     naturalWidth: strip.offsetWidth,
     scrollWidth: scroller.scrollWidth,
@@ -104,7 +103,6 @@ try {
   check('the canvas has cards to zoom', off && off.cards > 0, off ? `${off.cards} cards` : 'no strip');
   check('mode off leaves no transform on the strip', off.transform === '', off.transform || 'none');
   check('mode off inserts no sizer between the strip and the scroller', !off.hasSizer);
-  check('mode off leaves the strip hit-testable', !off.inert);
   check('mode off leaves touch-action alone', off.touchAction === '', off.touchAction || 'unset');
   check('mode off gives the sizer no box of its own', off.wrapperDisplay === 'contents',
     off.wrapperDisplay || 'unset');
@@ -139,9 +137,6 @@ try {
     `${fit.scrollWidth} wide`);
   check('the mode takes the browser pinch but leaves it scrolling', fit.touchAction === 'pan-x pan-y',
     fit.touchAction || 'unset');
-  check('a canvas drawn too small to aim at is inert', fit.inert === (fit.scale < 0.8),
-    `scale ${fit.scale.toFixed(3)}, inert ${fit.inert}`);
-
 
   /** Back to a known state: fit, freshly loaded. Anything below would otherwise inherit a scale. */
   async function backToFit() {
@@ -198,47 +193,100 @@ try {
     `content ${Math.round(held.content)} vs ${Math.round(held.was)}`);
 
   // -------------------------------------------------------------------------
-  // A press while inert reaches the scroller, not the card
+  // The cards are live at every scale, and the canvas around them is the way in and out
   // -------------------------------------------------------------------------
 
-  const atFit = await backToFit();
-  if (atFit.inert) {
-    const target = await page.evaluate(() => {
-      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
-      const box = strip.children[Math.min(1, strip.children.length - 1)].getBoundingClientRect();
-      return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
-    });
-    // `elementFromPoint` is the browser's own hit test, which is the thing `inert` is claimed to
-    // change. Asserted directly rather than inferred from the click having worked.
-    const lands = await page.evaluate(({ x, y }) => {
-      const hit = document.elementFromPoint(x, y);
-      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
-      return { insideStrip: strip.contains(hit), tag: hit ? hit.tagName : null };
-    }, target);
-    check('inert takes the cards out of hit-testing, so a press reaches the canvas',
-      !lands.insideStrip, `landed on ${lands.tag}`);
+  let atFit = await backToFit();
+  const onCard = await page.evaluate(() => {
+    const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+    const box = strip.children[Math.min(1, strip.children.length - 1)].getBoundingClientRect();
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+  });
+  // `elementFromPoint` is the browser's own hit test. The mode used to take the strip out of it
+  // below a threshold, so a press at fit reached the canvas underneath; the cards are the
+  // reader's at every scale now, and whether that survives being drawn at a fifth of their size
+  // is browser behaviour rather than something the code can be read for.
+  const lands = await page.evaluate(({ x, y }) => {
+    const hit = document.elementFromPoint(x, y);
+    const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+    // Which CARD it landed in, not merely which tag. The strip is a `ul` and so is the session
+    // list inside every card, so a bare tag name cannot tell a hit on a card from a hit on the
+    // strip itself -- and a log line a reader can misread is how a check passes for the wrong
+    // reason. An index means an `li` of the strip genuinely took the press.
+    const card = hit && hit !== strip ? hit.closest('ul[aria-label="Bot canvas"] > li') : null;
+    return {
+      card: card ? [...strip.children].indexOf(card) : -1,
+      tag: hit ? hit.tagName : null,
+      named: card ? (card.textContent || '').trim().slice(0, 30) : null,
+    };
+  }, onCard);
+  check('a card is hit-tested at fit, however small it is drawn', lands.card >= 0,
+    `scale ${atFit.scale.toFixed(3)}, landed on ${lands.tag} in card ${lands.card} (${lands.named})`);
 
-    await page.mouse.click(target.x, target.y);
+  // And it answers. A control's own `aria-expanded` changing is the only thing that says the
+  // press arrived at the card rather than merely near it -- at this scale the button is a handful
+  // of pixels across, which is the cost of the mode being live rather than a picture.
+  const probe = await page.evaluate(() => {
+    const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+    const button = strip.querySelector('button[aria-expanded]');
+    if (!button) return null;
+    button.dataset.zoomProbe = '1';
+    const box = button.getBoundingClientRect();
+    return {
+      was: button.getAttribute('aria-expanded'),
+      label: (button.getAttribute('aria-label') || button.textContent || '').trim().slice(0, 40),
+      width: Math.round(box.width),
+      x: Math.round(box.left + box.width / 2),
+      y: Math.round(box.top + box.height / 2),
+    };
+  });
+  if (probe) {
+    await page.mouse.click(probe.x, probe.y);
     await page.waitForTimeout(700);
-    const tapped = await canvas(page);
-    check('a press on a card zooms to it at its own size', tapped.scale > 0.99,
-      `scale ${tapped.scale.toFixed(3)}`);
-
-    // And back out. Pressed well below the strip, which at 1:1 is only as tall as its tallest
-    // card, so this lands on the canvas rather than on a card that is live again at that scale.
-    const empty = await page.evaluate(() => {
-      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
-      const scroller = strip.parentElement.parentElement;
-      const box = scroller.getBoundingClientRect();
-      const under = strip.getBoundingClientRect().bottom;
-      return { x: Math.round(box.left + 40), y: Math.round(Math.min(box.bottom - 20, under + 60)) };
+    const now = await page.evaluate(() => {
+      const button = document.querySelector('[data-zoom-probe]');
+      return button ? button.getAttribute('aria-expanded') : null;
     });
-    await page.mouse.click(empty.x, empty.y);
-    await page.waitForTimeout(700);
-    const back = await canvas(page);
-    check('a press on the empty canvas returns to fit', back.scale < 0.99,
-      `scale ${back.scale.toFixed(3)}`);
+    check('a control inside a card answers a press at fit', now !== null && now !== probe.was,
+      `${probe.label || 'a card control'}, ${probe.width}px wide: ${probe.was} -> ${now}`);
+  } else {
+    check('a control inside a card answers a press at fit', false, 'no aria-expanded control found');
   }
+
+  // Press-to-zoom is what the canvas AROUND the strip is left with, and it is enough to get in and
+  // out of a surface carrying no chrome of its own: a press below a card goes to that card at 1:1,
+  // and a press on the empty canvas at 1:1 comes back out to fit.
+  atFit = await backToFit();
+  const under = await page.evaluate(() => {
+    const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+    const scroller = strip.parentElement.parentElement;
+    const box = scroller.getBoundingClientRect();
+    const card = strip.children[Math.min(1, strip.children.length - 1)].getBoundingClientRect();
+    const below = strip.getBoundingClientRect().bottom;
+    return {
+      x: Math.round(card.left + card.width / 2),
+      y: Math.round(Math.min(box.bottom - 20, below + 40)),
+    };
+  });
+  await page.mouse.click(under.x, under.y);
+  await page.waitForTimeout(700);
+  const zoomed = await canvas(page);
+  check('a press on the canvas under a card zooms to that card at its own size', zoomed.scale > 0.99,
+    `${atFit.scale.toFixed(3)} -> ${zoomed.scale.toFixed(3)}`);
+
+  // And back out. Pressed well below the strip, which at 1:1 is only as tall as its tallest card.
+  const empty = await page.evaluate(() => {
+    const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+    const scroller = strip.parentElement.parentElement;
+    const box = scroller.getBoundingClientRect();
+    const below = strip.getBoundingClientRect().bottom;
+    return { x: Math.round(box.left + 40), y: Math.round(Math.min(box.bottom - 20, below + 60)) };
+  });
+  await page.mouse.click(empty.x, empty.y);
+  await page.waitForTimeout(700);
+  const back = await canvas(page);
+  check('a press on the empty canvas returns to fit', back.scale < 0.99,
+    `scale ${back.scale.toFixed(3)}`);
 
   // -------------------------------------------------------------------------
   // One finger still pans natively

@@ -350,7 +350,6 @@ describe("App shell", () => {
     // the only one jsdom can answer: its CSS model implements no `touch-action`, so the property
     // reads undefined whether or not anything set it. Nothing written at all is what is meant.
     expect(strip).not.toHaveAttribute("style");
-    expect(strip).not.toHaveAttribute("inert");
     expect(scroller).not.toHaveAttribute("style");
     expect(scroller.className).toContain("overflow-auto");
     // The wrapper is always in the tree and generates no box while the mode is off, which is what

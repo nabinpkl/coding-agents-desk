@@ -415,10 +415,6 @@ function BotCanvasList({
       ref={list}
       role="list"
       aria-label="Bot canvas"
-      // Drawn too small for a card to be worth aiming at, so nothing in the strip takes a press,
-      // a focus or a place in the accessibility tree. The scroller underneath still does, which
-      // is what lets a press on a card zoom to it.
-      inert={zoom.inert}
       style={zoom.stripStyle}
       className="flex w-max items-start gap-3 p-3"
     >

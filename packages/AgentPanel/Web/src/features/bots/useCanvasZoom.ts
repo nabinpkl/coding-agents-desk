@@ -99,17 +99,6 @@ function storable(scale: number): boolean {
   return Number.isFinite(scale) && scale >= MIN_CANVAS_ZOOM && scale <= 1;
 }
 
-/**
- * Below this, a card stops being something a finger can aim at and the strip goes `inert`.
- *
- * `inert` because it blocks pointer events, focus and the accessibility tree in one, which is the
- * whole of what is wanted: a control nobody can usefully hit should not be in the tab order
- * either. The cost is that a zoomed-out canvas is invisible to assistive technology, which is
- * acceptable only because this mode is pointer-first by nature -- there is no keyboard pinch --
- * and the sidebar's roster remains the named route to every Bot and every session.
- */
-export const INTERACTIVE_SCALE = 0.8;
-
 /** How far inside the scroller a card lands when a press zooms to it, so it is not flush. */
 const CARD_INSET = 12;
 
@@ -207,8 +196,6 @@ export interface CanvasZoom {
   scale: number;
   /** Whether the strip and the scroller have been measured, so `scale` means something yet. */
   measured: boolean;
-  /** The strip's `inert`, for a canvas drawn too small to aim at. */
-  inert: boolean;
   /**
    * The wrapper that gives the scroller the range the transform does not.
    *
@@ -369,9 +356,12 @@ export function useCanvasZoom({
       if (event.touches.length < 2) began = 0;
     };
 
-    // A press that reaches the scroller rather than a card. Below the threshold that is every
-    // press, because the strip is not a hit-test target at all; above it, it is the empty canvas
-    // around the cards. Either way it means "not a card", which is all this needs to know.
+    // A press that reaches the scroller rather than a card, which is the empty canvas AROUND the
+    // strip: beside it, and below it, where a canvas drawn small leaves most of the panel empty.
+    //
+    // The strip itself is a hit-test target at every scale, so a press on a card belongs to the
+    // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
+    // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
     const onClick = (event: MouseEvent) => {
       if (strand.contains(event.target as Node)) return;
       const rect = box.getBoundingClientRect();
@@ -417,7 +407,6 @@ export function useCanvasZoom({
     on,
     scale,
     measured,
-    inert: on && scale < INTERACTIVE_SCALE,
     sizerStyle: on && measured
       ? { width: content.width * scale, height: content.height * scale }
       : { display: "contents" },
