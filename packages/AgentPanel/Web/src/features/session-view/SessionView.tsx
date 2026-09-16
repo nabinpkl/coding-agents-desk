@@ -354,6 +354,17 @@ export function SessionView({
       onClose={() => setTasksPanelOpen(false)}
     />
   ) : null;
+  /**
+   * Where that panel lands, which the compact branch answers differently from the wide one.
+   *
+   * `fixed inset-0` means the viewport until an ancestor carries a transform, a filter or a
+   * containment, any of which silently becomes its containing block instead. A canvas card is not
+   * the viewport, so the compact sheet goes to the body, which is what its own positioning already
+   * claims. Nothing moves today; the canvas's zoom mode is about to put a transform there, on a
+   * phone, where every open card renders this sheet. The wide branch is `absolute` against the
+   * card and stays in it, one host per session (`BotSessionCard`).
+   */
+  const tasksTarget = compact ? globalThis.document?.body ?? null : tasksHost;
 
   return (
     // The transcript does NOT read `feed` from this component -- `useSessionEventsStream` and the
@@ -474,7 +485,7 @@ export function SessionView({
       {terminal.kind === "loading" || terminal.kind === "ready" ? (
         <AgentTerminalPane feed={feed} context={terminal.context} onState={updateTerminalState} />
       ) : null}
-      {tasksPanel && tasksHost ? createPortal(tasksPanel, tasksHost) : tasksPanel}
+      {tasksPanel && tasksTarget ? createPortal(tasksPanel, tasksTarget) : tasksPanel}
     </div>
     </DataSourceProvider>
   );

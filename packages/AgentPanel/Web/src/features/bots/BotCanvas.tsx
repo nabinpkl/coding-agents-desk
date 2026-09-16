@@ -1,33 +1,22 @@
-import { Bot, ChevronDown, LoaderCircle, Plus } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
-import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
-import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
-import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { BotAvatar } from "@/features/bots/BotSidebarPanel";
+import type { SessionViewContext } from "@/features/session-view/SessionView";
 import {
-  DEFAULT_CARD_SIZE,
   botCanvasOrderOf,
   loadBotCanvasOrder,
-  loadCanvasScroll,
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
-  storeCanvasScroll,
   storeSessionCardSizes,
   type BotCardSize,
   type BotCardSizes,
-  type CanvasScroll,
 } from "@/features/bots/botCanvasPreferences";
-import { botSurfaceStyle } from "@/features/bots/botSurface";
 import { botsOnShownMachines } from "@/features/bots/botMachines";
-import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
-import { BotCanvasCard, CanvasNotice } from "@/features/bots/cards/BotCanvasCard";
-import { sessionKey, STRIP_GAP, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
+import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
+import { CanvasNotices, CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
+import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
 
@@ -215,39 +204,17 @@ export function BotCanvas({
   /** Takes the card away. The tmux session keeps running; nothing was attached to detach. */
   onCloseNewSession: (sessionId: string) => void;
 }) {
-  if (loading) {
+  // Nothing to lay out, so nothing below this point would be about anything: no scroller, no
+  // strip, and no offset to come back to. The condition stays here rather than inside the
+  // placeholder so a reader of the canvas can see when it does not draw one.
+  if (loading || error !== null || bots.length === 0) {
     return (
-      <CanvasNotice>
-        <LoaderCircle className="size-4 animate-spin" aria-hidden />
-        Loading Bots…
-      </CanvasNotice>
-    );
-  }
-  if (error) {
-    return (
-      <div role="alert" className="flex h-full items-center justify-center p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-destructive">
-        Bots unavailable: {error}
-      </div>
-    );
-  }
-  if (bots.length === 0) {
-    return (
-      <CanvasNotice>
-        <Bot className="size-5" aria-hidden />
-        <span>
-          {detachedCount > 0
-            ? `No Bots on the canvas. Put one on from the roster in the sidebar.`
-            : "No bots yet"}
-        </span>
-        <button
-          type="button"
-          onClick={onAddBot}
-          className="mt-1 flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-primary/15"
-        >
-          <Plus className="size-4" aria-hidden />
-          Add Bot
-        </button>
-      </CanvasNotice>
+      <CanvasPlaceholder
+        loading={loading}
+        error={error}
+        detachedCount={detachedCount}
+        onAddBot={onAddBot}
+      />
     );
   }
 
@@ -412,34 +379,12 @@ function BotCanvasList({
       // the cards are measured in, and the bar this surface no longer draws already gave it back.
       className="mx-4 h-full overflow-auto overscroll-contain"
     >
-      {machineErrors.map(({ label, reason }) => (
-        <div
-          key={label}
-          role="status"
-          className="mx-3 mt-3 rounded-lg border border-border bg-muted/60 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
-        >
-          {label} is not answering, so its Bots are not on the canvas: {reason}
-        </div>
-      ))}
-      {/* A canvas emptied by the chips above rather than by having no Bots. Without this the strip
-          is simply blank, and the two look identical to a reader who has forgotten pressing one. */}
-      {standing.length === 0 && arranged.length > 0 ? (
-        <div
-          role="status"
-          className="mx-3 mt-3 rounded-lg border border-border bg-muted/60 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
-        >
-          {arranged.length} {arranged.length === 1 ? "Bot is" : "Bots are"} on machines you have
-          hidden. The machines are in the sidebar's Canvas roster, above the Bots.
-        </div>
-      ) : null}
-      {orphanedError ? (
-        <div
-          role="alert"
-          className="mx-3 mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive"
-        >
-          {orphanedError}
-        </div>
-      ) : null}
+      <CanvasNotices
+        machineErrors={machineErrors}
+        onCanvas={arranged.length}
+        drawn={standing.length}
+        orphanedError={orphanedError}
+      />
       {/* One strip, and nothing wraps out of it. A card widened here takes the room and pushes the
           cards after it along; none of them can drop to a line below, because there is no line
           below. That is the whole difference from the grid this replaced, and it is why the canvas

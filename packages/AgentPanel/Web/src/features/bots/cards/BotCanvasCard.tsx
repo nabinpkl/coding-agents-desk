@@ -4,7 +4,7 @@
 // what it had left over, which is why the width and height it remembers are the CARD's and the
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
-import { Bot, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
@@ -18,17 +18,6 @@ import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/Bot
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/botCanvasPreferences";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-
-export function CanvasNotice({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      role="status"
-      className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground"
-    >
-      {children}
-    </div>
-  );
-}
 
 export function BotCanvasCard({
   bot,
