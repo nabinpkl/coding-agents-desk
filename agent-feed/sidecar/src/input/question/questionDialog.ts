@@ -60,6 +60,18 @@
  *   80-column pane `Esc to cancel` lands split across two rows and no single line holds it. It is
  *   therefore read as the run it belongs to rather than row by row; see `footerStart`.
  *
+ *   **A question whose options carry PREVIEWS is drawn in two columns, and that changes what a
+ *   row is.** Measured 2026-09-16 on 2.1.273. A SINGLE-SELECT question with at least one option
+ *   preview draws its labels in a narrow left band with the preview panel beside them, so every
+ *   option row also holds a slice of that panel -- and a label check against it fails, which is
+ *   the whole of why answering one refused with `wrong-option` and sent nothing. It is a property
+ *   of the QUESTION rather than of the call: a no-preview question in the same dialog draws one
+ *   column, and a multi-select question draws one even when its options carry previews. Two more
+ *   things ride with it. An answered row's tick sits inside the band rather than at the end of the
+ *   line. And there is NO numbered free-text row at all: its free text is the `Notes` field under
+ *   the panel, reached with `n` rather than with a digit, so `otherRowIndex` answers -1 for this
+ *   shape and the driver takes another route entirely.
+ *
  * The free-text row is always the LAST numbered row inside the box, after every option. Nothing
  * here asserts that on its own: the driver knows how many options the tool call carried and
  * refuses a dialog whose row count disagrees, so the assumption is checked on every use instead of
@@ -85,6 +97,12 @@ const BOX = /^\[([ ✔])\]\s*(.*)$/;
 const BUTTON = /^(❯| ) {4}(Submit|Next)\s*$/;
 /** What every question screen's footer says, and the only thing that identifies one. */
 const FOOTER = "Esc to cancel";
+/** The label of the free-text field a two-column question draws under its preview panel. */
+const NOTES = "Notes:";
+/** What the preview panel's own border draws, in the column the left band ends at. */
+const PANEL = /^[\u250c\u2502\u251c\u2514]/;
+/** In the footer only while a text field holds the keyboard, which is how focus is read here. */
+const EDITOR = "ctrl+g to edit in VS Code";
 /** One tab: its state glyph and its label, up to the next glyph or the closing arrow. */
 const TAB = /([☐☒✔])\s+([^☐☒✔→]+)/g;
 
@@ -112,6 +130,19 @@ export interface QuestionTab {
   submit: boolean;
 }
 
+/**
+ * The free-text field a two-column question draws, which is not one of its rows.
+ *
+ * Its own thing rather than a row because nothing reaches it by number: `n` opens it, and a digit
+ * pressed while it is closed moves the cursor among the options instead.
+ */
+export interface QuestionNotes {
+  /** What it holds, verbatim. It may be Claude's own prompt; `isPlaceholder` tells them apart. */
+  text: string;
+  /** Whether it holds the keyboard, in which case `n` would be typed into it rather than open it. */
+  focused: boolean;
+}
+
 /** A question dialog as the pane is drawing it right now. */
 export interface QuestionDialog {
   tabs: QuestionTab[];
@@ -122,6 +153,8 @@ export interface QuestionDialog {
   multiSelect: boolean;
   /** The rows inside the box. `Chat about this` is outside it and is not one of these. */
   rows: QuestionRow[];
+  /** The two-column shape's `Notes` field, or null on a question drawn in one column. */
+  notes: QuestionNotes | null;
 }
 
 /**
@@ -153,6 +186,7 @@ function reviewScreen(lines: readonly string[], ready: number): QuestionDialog |
     review: true,
     multiSelect: false,
     rows,
+    notes: null,
   };
 }
 
@@ -167,14 +201,23 @@ function questionScreen(lines: readonly string[]): QuestionDialog | null {
 
   const tabs = tabRow(lines[opening + 1] ?? "");
   if (tabs.length === 0) return null;
+  const inside = lines.slice(opening + 2, closing);
+  // Cut to the left band before anything is read out of it, so a two-column question's rows are
+  // its labels rather than its labels with a slice of the preview panel stuck to them.
+  const band = notesField(inside, lines.slice(closing));
+  const box = band ? inside.map((line) => line.slice(0, band.column).trimEnd()) : inside;
   // The first non-blank line after the tab row. Reading it by offset instead would break on the
   // day Claude puts anything else between them, and this costs one scan.
-  const asked = lines.slice(opening + 2, closing).find((line) => line.trim().length > 0);
+  //
+  // Read UNCUT, unlike the rows: the panel starts beside the first option and leaves this line the
+  // whole width, so cutting it to the band would truncate any question longer than the band is
+  // wide -- which is most of them. Caught by a capture whose question is three characters too
+  // long, having been invisible on one whose question was short enough to survive.
+  const asked = inside.find((line) => line.trim().length > 0);
   if (!asked) return null;
 
   const rows: QuestionRow[] = [];
-  for (let index = opening + 2; index < closing; index += 1) {
-    const line = lines[index]!;
+  for (const line of box) {
     const row = numberedRow(line) ?? buttonRow(line);
     // A line this cannot parse is a wrapped label or a description, and is skipped rather than
     // counted. Neither carries anything the driver acts on.
@@ -187,6 +230,35 @@ function questionScreen(lines: readonly string[]): QuestionDialog | null {
     review: false,
     multiSelect: rows.some((row) => row.ticked !== null),
     rows,
+    notes: band ? { text: band.text, focused: band.focused } : null,
+  };
+}
+
+/**
+ * The `Notes` field of a two-column question, with the column its left band ends at.
+ *
+ * `below` is everything under the closing rule rather than the footer alone, because `footerStart`
+ * answers with the row that COMPLETES the anchor -- which on a wrapped footer is its last row, and
+ * the `ctrl+g` hint that says a field has the keyboard sits above it.
+ *
+ * TWO things have to agree before a screen is read as that layout, because cutting every line at a
+ * column is not something to do on a guess: a `Notes:` label indented into the middle of the
+ * screen, and the preview panel's own border drawn in that same column. A one-column question has
+ * neither, and nothing else on these screens has both.
+ */
+function notesField(
+  box: readonly string[],
+  below: readonly string[],
+): { column: number; text: string; focused: boolean } | null {
+  const line = box.find((entry) => entry.startsWith(" ") && entry.trimStart().startsWith(NOTES));
+  if (!line) return null;
+  const column = line.indexOf(NOTES);
+  if (column <= 0 || !box.some((entry) => PANEL.test(entry.slice(column)))) return null;
+  return {
+    column,
+    text: line.slice(column + NOTES.length).trim(),
+    // The same hint the one-column shape puts in its footer when the cursor reaches a text row.
+    focused: below.some((entry) => entry.includes(EDITOR)),
   };
 }
 
@@ -247,18 +319,35 @@ function buttonRow(line: string): QuestionRow | null {
  * Which row is the free-text one, or -1 when the dialog draws none.
  *
  * Always the last numbered row in the box: the tool's own options are drawn first and this follows
- * them, with the inline button and `Chat about this` outside the numbered run this reads.
+ * them, with the inline button and `Chat about this` outside the numbered run this reads. -1 is
+ * also the answer for a two-column question, which draws no free-text row at all.
  */
 export function otherRowIndex(dialog: QuestionDialog): number {
+  // A two-column question has none: nothing on it is reached by number except its options, and its
+  // free text is the `Notes` field, which is not a row.
+  if (dialog.notes) return -1;
   for (let index = dialog.rows.length - 1; index >= 0; index -= 1) {
     if (!dialog.rows[index]!.button) return index;
   }
   return -1;
 }
 
-/** Whether the free-text row is showing Claude's own prompt rather than somebody's words. */
+/** Whether a free-text field is showing Claude's own prompt rather than somebody's words. */
 export function isPlaceholder(text: string): boolean {
-  return (PLACEHOLDERS as readonly string[]).includes(text.trim());
+  const said = text.trim();
+  return (PLACEHOLDERS as readonly string[]).includes(said) || isNotePrompt(said);
+}
+
+/**
+ * The two spellings a `Notes` field's own prompt takes, measured on 2.1.273.
+ *
+ * `press n to add notes` while it is idle, and `Add notes on this design...` once it has the
+ * keyboard. The second one says `design` whatever the question is about -- measured on a question
+ * about fruit -- so it reads as a fixed sentence, and is matched loosely anyway because nothing
+ * here depends on which of the two it is beyond knowing that nobody typed it.
+ */
+function isNotePrompt(said: string): boolean {
+  return said === "press n to add notes" || /^Add notes on .+\u2026$/.test(said);
 }
 
 /**

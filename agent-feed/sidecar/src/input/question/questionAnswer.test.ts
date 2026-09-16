@@ -297,3 +297,111 @@ test("free text replaces what the row already holds rather than being appended t
   expect(outcome).toEqual({ answered: true });
   expect(pane.answerFor(0)).toEqual(["the whole thought"]);
 });
+
+const METAL: PaneQuestion = {
+  header: "Metal",
+  question: "Which metal?",
+  multiSelect: false,
+  options: ["Iron", "Tin"],
+  preview: true,
+};
+
+test("a two-column question is answered by walking the cursor, never by its digit", async () => {
+  const pane = new QuestionPane([METAL]);
+  const { runtime, sent } = driving(pane);
+  const outcome = await answerTmuxQuestion(session(), [pick("Which metal?", [[1, "Tin"]])], runtime);
+
+  expect(outcome).toEqual({ answered: true });
+  expect(pane.answerFor(0)).toEqual(["Tin"]);
+  // The digit that answers a one-column question only MOVES the cursor here, so pressing it and
+  // walking away would leave the question unanswered while reporting that it was not.
+  expect(sent.join("")).not.toContain("2");
+  expect(sent.at(-1)).toBe("\r");
+});
+
+test("free text on a two-column question is written into its Notes field", async () => {
+  const pane = new QuestionPane([METAL]);
+  const { runtime, sent } = driving(pane);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [{ question: "Which metal?", chosen: [], other: "a metal of my own" }],
+    runtime,
+  );
+
+  expect(outcome).toEqual({ answered: true });
+  expect(pane.answerFor(0)).toEqual(["a metal of my own"]);
+  // There is no numbered row to reach it with: `n` is the only way in.
+  expect(sent).toContain("n");
+});
+
+test("a note somebody had started is replaced rather than prepended to", async () => {
+  const pane = new QuestionPane([METAL]);
+  // Somebody opened the field at the keyboard and typed half a thought into it.
+  pane.send(new TextEncoder().encode("nhalf a thought"));
+  expect(pane.notes[0]).toBe("half a thought");
+
+  const { runtime } = driving(pane);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [{ question: "Which metal?", chosen: [], other: "the whole thought" }],
+    runtime,
+  );
+
+  expect(outcome).toEqual({ answered: true });
+  // The field opens with its caret in FRONT of what it holds, so without moving to the end first
+  // every backspace deletes nothing and this reads "the whole thoughthalf a thought".
+  expect(pane.answerFor(0)).toEqual(["the whole thought"]);
+});
+
+test("a two-column option whose row says something else is refused before any key is sent", async () => {
+  const pane = new QuestionPane([METAL]);
+  const { runtime, sent } = driving(pane);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [pick("Which metal?", [[1, "NOT WHAT THE ROW SAYS"]])],
+    runtime,
+  );
+
+  expect(outcome).toMatchObject({ answered: false, reason: "wrong-option", sent: false });
+  expect(sent).toEqual([]);
+  expect(pane.closed).toBeNull();
+});
+
+test("a dialog mixing both shapes is answered by the keys each one takes", async () => {
+  // One call really does draw both: the shape is a property of the QUESTION, so a question with
+  // previews and one without sit side by side and take different keys.
+  const pane = new QuestionPane([
+    METAL,
+    { header: "Colour", question: "Which colour?", multiSelect: false, options: ["ALPHA", "BRAVO"] },
+  ]);
+  const { runtime } = driving(pane);
+  const outcome = await answerTmuxQuestion(session(), [
+    pick("Which metal?", [[0, "Iron"]]),
+    pick("Which colour?", [[1, "BRAVO"]]),
+  ], runtime);
+
+  expect(outcome).toEqual({ answered: true });
+  expect(pane.closed).toBe("submitted");
+  expect(pane.answerFor(0)).toEqual(["Iron"]);
+  expect(pane.answerFor(1)).toEqual(["BRAVO"]);
+});
+
+test("a Notes field somebody is typing in is not navigated out of", async () => {
+  // Every key reaches that field as text, so walking to another tab from there would write into
+  // somebody's half-typed note. The refusal leaves the dialog exactly as it was found.
+  const pane = new QuestionPane([
+    METAL,
+    { header: "Colour", question: "Which colour?", multiSelect: false, options: ["ALPHA", "BRAVO"] },
+  ]);
+  pane.send(new TextEncoder().encode("nmid-sentence"));
+  const { runtime, sent } = driving(pane);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [pick("Which colour?", [[0, "ALPHA"]]), pick("Which metal?", [[0, "Iron"]])],
+    runtime,
+  );
+
+  expect(outcome).toMatchObject({ answered: false, sent: false });
+  expect(sent).toEqual([]);
+  expect(pane.notes[0]).toBe("mid-sentence");
+});

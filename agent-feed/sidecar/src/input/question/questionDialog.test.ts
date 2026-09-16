@@ -183,3 +183,37 @@ test("a dialog taller than its pane is only readable with the scrollback", () =>
   expect(otherRowIndex(dialog)).toBe(4);
   expect(isPlaceholder(dialog.rows[4]!.text)).toBe(true);
 });
+
+test("a two-column question's rows are its labels, not the panel drawn beside them", () => {
+  const dialog = questionDialog(pane(capture("a two-column question, nothing answered")))!;
+
+  // Uncut, row one reads `Iron` followed by the preview panel's own top border, which is what made
+  // the label check refuse every answer to one of these as `wrong-option` before any key went out.
+  expect(dialog.rows.map((row) => row.text)).toEqual(["Iron", "Tin"]);
+  // And nothing here is a free-text row: this shape's text goes in the `Notes` field, which has no
+  // number, so a driver reaching for one by index would land on an option instead.
+  expect(otherRowIndex(dialog)).toBe(-1);
+  expect(dialog.notes).toEqual({ text: "press n to add notes", focused: false });
+  expect(isPlaceholder(dialog.notes!.text)).toBe(true);
+});
+
+test("a two-column answer is a tick inside the band rather than at the end of the line", () => {
+  const dialog = questionDialog(pane(capture("a two-column question answered, with a note")))!;
+
+  expect(dialog.rows.map((row) => `${row.text}:${row.chosen}`))
+    .toEqual(["A short one:false", "A deliberately very:true"]);
+  expect(dialog.notes!.text).toBe("combo note");
+  expect(isPlaceholder(dialog.notes!.text)).toBe(false);
+});
+
+test("the band keeps its width on a wider pane, so the same much of a label is recoverable", () => {
+  const wide = questionDialog(pane(capture("a two-column question on a 120-column pane")))!;
+  const narrow = questionDialog(pane(capture("a two-column question answered, with a note")))!;
+
+  // Forty extra columns go to the rules and the footer; the band and the panel are drawn the same.
+  expect(wide.rows.map((row) => row.text)).toEqual(["A short one", "A deliberately very long"]);
+  expect(wide.tabs.map((tab) => tab.label)).toEqual(narrow.tabs.map((tab) => tab.label));
+  // What shortens a label is its own tick, not the pane: the answered row gives up the end of the
+  // band to it, so less of the same label survives there than here.
+  expect(narrow.rows[1]!.text).toBe("A deliberately very");
+});

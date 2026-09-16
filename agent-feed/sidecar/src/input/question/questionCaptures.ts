@@ -298,4 +298,103 @@ export const CAPTURES: readonly QuestionCapture[] = [
     multiSelect: false,
     review: false,
   },
+  {
+    // The shape that made answering a question fail outright, and the reason this file says width
+    // is part of the record: a SINGLE-SELECT question whose options carry previews is drawn in two
+    // columns, so every option row also holds a slice of the preview panel beside it. Read without
+    // cutting to the band, row one says `Iron` followed by the panel's own top border, and the
+    // label check before any key goes out refuses it as `wrong-option`. There is also no
+    // `Type something.` row here at all: this shape's free text is the `Notes` field below.
+    name: "a two-column question, nothing answered",
+    screen: [
+      "────────────────────────────────────────────────────────────────────────────────",
+      "←  ☐ Metal  ☐ Grip  ✔ Submit  →",
+      "",
+      "Which metal appeals to you?",
+      "",
+      "❯ 1. Iron                         ┌──────────────────────────────────────────┐",
+      "  2. Tin                          │ ┌─────────┐                              │",
+      "                                  ├─── ✂ ─── 5 lines hidden ─────────────────┤",
+      "                                  └──────────────────────────────────────────┘",
+      "",
+      "                                  Notes: press n to add notes",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Chat about this",
+      "",
+      "Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions ·",
+      "Esc to cancel",
+    ].join("\n"),
+    tabs: ["Metal", "Grip", "Submit"],
+    question: "Which metal appeals to you?",
+    rows: [">1. Iron", " 2. Tin"],
+    multiSelect: false,
+    review: false,
+  },
+  {
+    // The same shape with a long label, an answer and a note. Three readings come only from here.
+    // A wrapped label continues inside the band, so the panel keeps drawing to the right of it. An
+    // answered row's tick sits INSIDE the band rather than at the end of the line, which is why it
+    // is still found after the cut. And the tick eats into the band, so less of that label is
+    // recoverable here than on the same row unanswered -- `A deliberately very` against
+    // `A deliberately very long`.
+    name: "a two-column question answered, with a note",
+    screen: [
+      "────────────────────────────────────────────────────────────────────────────────",
+      "←  ☒ Alpha  ☐ Beta  ☐ Gamma  ✔ Submit  →",
+      "",
+      "Which option do you prefer for Alpha?",
+      "",
+      "❯ 1. A short one                  ┌──────────────────────────────────────────┐",
+      "  2. A deliberately very     ✔    │ Short option                             │",
+      "    long option label that        ├─── ✂ ─── 4 lines hidden ─────────────────┤",
+      "    will certainly not fit        └──────────────────────────────────────────┘",
+      "    inside a narrow column",
+      "                                  Notes: combo note",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Chat about this",
+      "",
+      "Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions ·",
+      "Esc to cancel",
+    ].join("\n"),
+    tabs: ["Alpha", "Beta", "Gamma", "Submit"],
+    question: "Which option do you prefer for Alpha?",
+    rows: [">1. A short one", " 2. A deliberately very ✔"],
+    multiSelect: false,
+    review: false,
+  },
+  {
+    // The same question on a 120-column pane, which is here to settle what the band does with the
+    // extra room: nothing. It stays 34 columns wide and the preview panel keeps its own width, so
+    // the whole block is drawn the same and only the rules and the footer grow. A reader that had
+    // worked out the band from the pane width would have been right at 80 and wrong here.
+    name: "a two-column question on a 120-column pane",
+    screen: [
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "←  ☐ Alpha  ☐ Beta  ☐ Gamma  ✔ Submit  →",
+      "",
+      "Which option do you prefer for Alpha?",
+      "",
+      "❯ 1. A short one                  ┌──────────────────────────────────────────┐",
+      "  2. A deliberately very long     │ Short option                             │",
+      "    option label that will        │ content here                             │",
+      "    certainly not fit inside a    │ line three                               │",
+      "    narrow column                 │ line four                                │",
+      "                                  ├─── ✂ ─── 1 lines hidden ─────────────────┤",
+      "                                  └──────────────────────────────────────────┘",
+      "",
+      "                                  Notes: press n to add notes",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "  Chat about this",
+      "",
+      "Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel",
+    ].join("\n"),
+    tabs: ["Alpha", "Beta", "Gamma", "Submit"],
+    question: "Which option do you prefer for Alpha?",
+    rows: [">1. A short one", " 2. A deliberately very long"],
+    multiSelect: false,
+    review: false,
+  },
 ];

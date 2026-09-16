@@ -33,7 +33,10 @@ export function questionStateFrom(dialog: QuestionDialog): TmuxQuestionState {
       marked: row.ticked ?? row.chosen,
       cursor: row.cursor,
     }));
-  const free = other >= 0 ? dialog.rows[other] : undefined;
+  // A two-column question has no free-text ROW: what it offers instead is the `Notes` field under
+  // its preview panel, which is the same thing to a panel reading this and a different thing
+  // entirely to the driver pressing keys at it.
+  const free = other >= 0 ? dialog.rows[other]!.text : dialog.notes?.text;
   return {
     question: dialog.question,
     review: dialog.review,
@@ -46,6 +49,6 @@ export function questionStateFrom(dialog: QuestionDialog): TmuxQuestionState {
     options,
     // Claude's own prompt is not somebody's words, and a panel that adopted it would put
     // "Type something." in a reader's field.
-    other: free && !isPlaceholder(free.text) ? free.text : null,
+    other: free !== undefined && !isPlaceholder(free) ? free : null,
   };
 }

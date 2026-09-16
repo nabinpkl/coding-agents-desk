@@ -55,3 +55,20 @@ test("the review screen says so, and carries which questions are still unanswere
   expect(state.question).toBeNull();
   expect(state.tabs.every((tab) => !tab.answered)).toBe(true);
 });
+
+test("a two-column question's Notes field is what a panel reads as its free text", () => {
+  const state = questionStateFrom(dialogFor("a two-column question answered, with a note"));
+
+  expect(state.options.map((option) => `${option.label}:${option.marked}`))
+    .toEqual(["A short one:false", "A deliberately very:true"]);
+  // There is no free-text ROW on this shape. A panel that kept looking for one would read the last
+  // option as the field, showing one option fewer than the question has and the wrong text beside.
+  expect(state.other).toBe("combo note");
+});
+
+test("an unopened Notes field is Claude's own prompt rather than somebody's words", () => {
+  const state = questionStateFrom(dialogFor("a two-column question, nothing answered"));
+
+  expect(state.other).toBeNull();
+  expect(state.options.map((option) => option.label)).toEqual(["Iron", "Tin"]);
+});

@@ -44,18 +44,12 @@
  *   questions by matching the QUESTION TEXT rather than by counting tabs -- which is also what
  *   makes it work when somebody has already navigated the dialog by hand.
  */
-import {
-  bytesForRailKey,
-  type TmuxQuestionAnswer,
-  type TmuxQuestionOutcome,
-  type TmuxQuestionRefusal,
+import type {
+  TmuxQuestionAnswer,
+  TmuxQuestionOutcome,
+  TmuxQuestionRefusal,
 } from "@agentdesk/agent-feed-wire";
-import {
-  captureTmuxQuestionView,
-  hexSend,
-  TmuxUnavailable,
-  type TmuxPaneView,
-} from "@/terminal/tmux/tmuxSessions";
+import { captureTmuxQuestionView, hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { inTurn } from "@/input/tmuxComposerPanes";
 import { saysTheSame } from "@/input/rewindPicker";
@@ -65,38 +59,27 @@ import {
   questionDialog,
   type QuestionDialog,
 } from "@/input/question/questionDialog";
+import { answerPreviewQuestion } from "@/input/question/questionPreview";
+import {
+  dialogGone,
+  goTo,
+  moveCursor,
+  moveCursorToButton,
+  press,
+  reread,
+  RETURN,
+  RUBOUT,
+  sanitised,
+  send,
+  TAB,
+  waitForDialogToGo,
+  type QuestionRuntime,
+} from "@/input/question/questionKeys";
 
-const UP = bytesForRailKey("up");
-const DOWN = bytesForRailKey("down");
-const LEFT = bytesForRailKey("left");
-const RIGHT = bytesForRailKey("right");
-const TAB = bytesForRailKey("tab");
-const RETURN = "\r";
-/** What a terminal sends for Backspace, which is DEL rather than BS. */
-const RUBOUT = "";
+export type { QuestionRuntime };
+
 /** The row the review screen offers, matched by label because its number moves with the screen. */
 const SUBMIT = "Submit answers";
-
-const REDRAW_LIMIT_MS = 4_000;
-const REDRAW_POLL_MS = 25;
-/**
- * How many reads any one walk may take.
- *
- * A bound on how long this may hold a pane, not on how far a cursor may travel: the tool caps a
- * call at four questions of four options, so every real walk here is a handful of steps and this
- * only stops a pane that has stopped moving from spinning the budget.
- */
-const MAX_STEPS = 24;
-
-/** Everything this needs from tmux, injected so the suite needs no tmux server. */
-export interface QuestionRuntime {
-  pane: (sessionId: string) => Promise<string | null>;
-  screen: (pane: string) => Promise<TmuxPaneView>;
-  send: (pane: string, bytes: Uint8Array) => Promise<void>;
-  /** Overridable so a test does not spend the live redraw budget proving a refusal. */
-  redrawLimitMs?: number;
-  wait?: (ms: number) => Promise<void>;
-}
 
 const LIVE: QuestionRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),
@@ -177,16 +160,19 @@ async function answerOne(
   if (!dialog) return "wrong-dialog";
 
   const other = otherRowIndex(dialog);
-  if (other < 0) return "wrong-dialog";
+  // A two-column question draws no free-text row and every row it has is an option; any other
+  // question with none is a shape this does not recognise and must not press keys at.
+  if (other < 0 && !dialog.notes) return "wrong-dialog";
   // The free-text row is the last numbered one, so everything before it is the tool's own options.
   // That reading is not asserted here: the label check below is what tests it, because an index
   // landing on the free-text row would be checked against a label the row does not say.
-  const options = dialog.rows.slice(0, other);
+  const options = other < 0 ? dialog.rows.filter((row) => !row.button) : dialog.rows.slice(0, other);
   for (const pick of answer.chosen) {
     const row = options[pick.index];
     if (!row || !saysTheSame(row.text, pick.label)) return "wrong-option";
   }
 
+  if (dialog.notes) return await answerPreviewQuestion(pane, answers, at, dialog, runtime);
   return dialog.multiSelect
     ? await answerMany(pane, answers, at, dialog, runtime)
     : await answerOnce(pane, answers, at, dialog, runtime);
@@ -298,16 +284,6 @@ async function typeOther(
 }
 
 /**
- * An escape in somebody's typed answer must arrive as a character, not as a key.
- *
- * The same guard `paste` makes in the composer, and it matters more here: a bare escape on this
- * screen cancels the whole dialog and takes their words with it.
- */
-function sanitised(text: string): string {
-  return text.replaceAll("", "␛");
-}
-
-/**
  * Finishes the dialog, which for most calls means noticing it has already finished itself.
  *
  * A dialog of ONE single-select question draws no Submit tab at all and closes on the keystroke
@@ -330,154 +306,6 @@ async function submit(
 
   await send(pane, String(row.number), runtime);
   return (await waitForDialogToGo(pane, runtime)) ? null : "still-open";
-}
-
-/**
- * Walks to a question by its TEXT, or to the review screen.
- *
- * Reading where it is after every step rather than counting from where it started, because a
- * person may have been navigating this dialog by hand and because the single-select digit advances
- * a tab by itself. That also means nothing here depends on which way the arrows clamp.
- */
-async function goTo(
-  pane: string,
-  answers: readonly TmuxQuestionAnswer[],
-  target: number | "review",
-  runtime: QuestionRuntime,
-): Promise<QuestionDialog | null> {
-  const wanted = target === "review" ? answers.length : target;
-  for (let step = 0; step < MAX_STEPS; step += 1) {
-    const dialog = questionDialog(await runtime.screen(pane));
-    if (!dialog) return null;
-    const at = locate(dialog, answers);
-    if (at === null) return null;
-    if (at === wanted) return dialog;
-    // A cursor parked in the free-text row eats Left and Right as text-cursor moves, so it has to
-    // come off that row before any tab step means anything. Only on a question screen: the review
-    // screen's last row is `Cancel`, which is an ordinary row and not somewhere text goes.
-    const typing = !dialog.review
-      && dialog.rows.findIndex((row) => row.cursor) === otherRowIndex(dialog);
-    if (!(await press(pane, typing ? TAB : at < wanted ? RIGHT : LEFT, runtime))) return null;
-  }
-  return null;
-}
-
-/** Which question the dialog is showing, as an index into `answers`, or the review screen. */
-function locate(dialog: QuestionDialog, answers: readonly TmuxQuestionAnswer[]): number | null {
-  if (dialog.review) return answers.length;
-  if (!dialog.question) return null;
-  const at = answers.findIndex((answer) => saysTheSame(dialog.question!, answer.question));
-  return at < 0 ? null : at;
-}
-
-/** Walks the cursor onto one row, reading where it is between presses. */
-async function moveCursor(
-  pane: string,
-  answers: readonly TmuxQuestionAnswer[],
-  at: number,
-  wanted: number,
-  runtime: QuestionRuntime,
-): Promise<QuestionDialog | null> {
-  for (let step = 0; step < MAX_STEPS; step += 1) {
-    const dialog = await reread(pane, answers, at, runtime);
-    if (!dialog) return null;
-    const on = dialog.rows.findIndex((row) => row.cursor);
-    if (on === wanted) return dialog;
-    if (on < 0) return null;
-    if (!(await press(pane, on < wanted ? DOWN : UP, runtime))) return null;
-  }
-  return null;
-}
-
-/** The same walk, onto whichever row is the inline button. */
-async function moveCursorToButton(
-  pane: string,
-  answers: readonly TmuxQuestionAnswer[],
-  at: number,
-  runtime: QuestionRuntime,
-): Promise<QuestionDialog | null> {
-  const dialog = await reread(pane, answers, at, runtime);
-  if (!dialog) return null;
-  const button = dialog.rows.findIndex((row) => row.button);
-  return button < 0 ? null : await moveCursor(pane, answers, at, button, runtime);
-}
-
-/** The dialog as it is now, refusing if it has stopped showing the question being answered. */
-async function reread(
-  pane: string,
-  answers: readonly TmuxQuestionAnswer[],
-  at: number,
-  runtime: QuestionRuntime,
-): Promise<QuestionDialog | null> {
-  const dialog = questionDialog(await runtime.screen(pane));
-  if (!dialog || locate(dialog, answers) !== at) return null;
-  return dialog;
-}
-
-/**
- * Sends keys and waits for the pane to look different.
- *
- * Waiting on DIFFERENCE rather than on a predicate about the result, which is the composer
- * module's lesson at another menu: the screen already satisfies most predicates before the redraw
- * lands, so a walk that waited for one would read a selection a press behind and step again.
- */
-async function press(pane: string, keys: string, runtime: QuestionRuntime): Promise<boolean> {
-  const before = (await runtime.screen(pane)).screen;
-  await send(pane, keys, runtime);
-  return (await poll(pane, runtime, (view) => view.screen !== before)) !== null;
-}
-
-function send(pane: string, keys: string, runtime: QuestionRuntime): Promise<void> {
-  return runtime.send(pane, new TextEncoder().encode(keys));
-}
-
-/** Reads until the pane satisfies `wanted`, answering null when it never did. */
-async function poll(
-  pane: string,
-  runtime: QuestionRuntime,
-  wanted: (view: TmuxPaneView) => boolean,
-): Promise<TmuxPaneView | null> {
-  const limit = runtime.redrawLimitMs ?? REDRAW_LIMIT_MS;
-  const wait = runtime.wait ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
-  const started = Date.now();
-  for (;;) {
-    const view = await runtime.screen(pane);
-    if (wanted(view)) return view;
-    if (Date.now() - started >= limit) return null;
-    await wait(REDRAW_POLL_MS);
-  }
-}
-
-/**
- * Whether the dialog has gone, as opposed to the screen being unreadable.
- *
- * Two reads rather than one, and that is the whole point. This module reads a dialog off a screen,
- * so "not a dialog" is also what a pane caught mid-redraw says, and what an unfamiliar shape says
- * -- and the caller treats this answer as SUCCESS. A screen that is merely between paints changes
- * between two reads a poll interval apart; one with no dialog on it does not. So the second read
- * has to agree, character for character, before anything is reported as answered.
- */
-async function dialogGone(pane: string, runtime: QuestionRuntime): Promise<boolean> {
-  const first = await runtime.screen(pane);
-  if (questionDialog(first) !== null) return false;
-  await waiter(runtime)(REDRAW_POLL_MS);
-  const second = await runtime.screen(pane);
-  return second.screen === first.screen && questionDialog(second) === null;
-}
-
-/** The same question, asked until the redraw budget runs out. */
-async function waitForDialogToGo(pane: string, runtime: QuestionRuntime): Promise<boolean> {
-  const limit = runtime.redrawLimitMs ?? REDRAW_LIMIT_MS;
-  const started = Date.now();
-  for (;;) {
-    if (await dialogGone(pane, runtime)) return true;
-    if (Date.now() - started >= limit) return false;
-    await waiter(runtime)(REDRAW_POLL_MS);
-  }
-}
-
-function waiter(runtime: QuestionRuntime): (ms: number) => Promise<void> {
-  return runtime.wait ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
 }
 
 /** A refusal, carrying back every word the reader typed so none of them is lost to it. */
