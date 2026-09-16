@@ -1,4 +1,4 @@
-import { Monitor } from "lucide-react";
+import { Monitor, Scan } from "lucide-react";
 
 /**
  * What the canvas is holding, above the roster that decides it.
@@ -47,6 +47,7 @@ export function BotCanvasStatus({
   hidden,
   countOf,
   onToggle,
+  zoom,
 }: {
   /** Bots on the canvas, hidden machines included. The chips' counts sum to this. */
   total: number;
@@ -61,6 +62,16 @@ export function BotCanvasStatus({
   /** How many of the canvas's Bots are on that machine, shown or not. */
   countOf: (key: string) => number;
   onToggle: (key: string) => void;
+  /**
+   * The canvas drawn small enough to see all of, and the control that turns that on.
+   *
+   * It is here rather than on the canvas for the reason everything else in this block is: the
+   * canvas is a horizontal strip whose cards are as tall as their own rosters, so every row it
+   * spends on chrome is a row the cards do not get. The cost is real and worth saying -- with the
+   * drawer closed on a phone, leaving the mode means opening the sidebar -- and it is bounded by
+   * the gestures doing everything inside the mode, so this is only needed to enter and to leave.
+   */
+  zoom: { on: boolean; onToggle: () => void };
 }) {
   return (
     <div className="border-b border-border px-3 py-2">
@@ -108,6 +119,22 @@ export function BotCanvasStatus({
           })}
         </div>
       )}
+      <button
+        type="button"
+        aria-pressed={zoom.on}
+        onClick={zoom.onToggle}
+        title={zoom.on
+          ? "Draw the canvas at its own size again"
+          : "Draw the whole canvas at once. Pinch or double-tap to move around it."}
+        className={`mt-1.5 flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+          zoom.on
+            ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
+            : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+        }`}
+      >
+        <Scan className="size-3.5 shrink-0" aria-hidden />
+        Fit the whole canvas
+      </button>
     </div>
   );
 }

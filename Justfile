@@ -1108,6 +1108,20 @@ panel-scroll-memory-verify:
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/panel-scroll-memory-verify.mjs'
 
+# Checks the Bot canvas's zoom mode in a browser that lays pages out.
+# NOT in `just check`: it needs a live panel (`just host-run`) and the Bots on this machine.
+# The unit tests cannot see any of this -- jsdom measures nothing, so the hook never learns a size
+# and a focal-point assertion there would pass against an implementation that ignored the pointer.
+# Two things here cannot be settled by reading at all: whether `touch-action: pan-x pan-y` leaves
+# both touch points reaching the listeners while one finger still scrolls natively, and whether
+# `inert` really takes the strip out of hit-testing so a press lands on the scroller under it.
+canvas-zoom-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      node '{{justfile_directory()}}/chrome-test/canvas-zoom-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay

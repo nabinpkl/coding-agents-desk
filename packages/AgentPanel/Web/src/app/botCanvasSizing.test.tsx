@@ -316,4 +316,54 @@ describe("App shell", () => {
     }
   });
 
+
+  it("adds nothing to the canvas until the zoom mode is asked for, and remembers being asked", () => {
+    // The guarantee the whole mode rests on. Off is not `scale(1)` and not a neutral wrapper: the
+    // transform node and the sizer do not exist, so the strip keeps the pointer arithmetic and the
+    // `position: fixed` semantics it has today, and abandoning the mode is deleting one branch.
+    //
+    // What this canNOT check is the mode drawing: jsdom measures nothing, so the hook never learns
+    // a size and never produces a scale. That half is `just canvas-zoom-verify`, in a browser that
+    // lays pages out. What is worth pinning here is the absence, and that the toggle is wired.
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          ...BOT_WITH_ONE_SESSION,
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          sessions: [FIXTURE_SESSIONS[0]!],
+        }],
+      });
+    });
+
+    const strip = screen.getByRole("list", { name: "Bot canvas" });
+    const scroller = strip.parentElement!;
+    // Read off the style ATTRIBUTE rather than the property, which is the stronger claim and also
+    // the only one jsdom can answer: its CSS model implements no `touch-action`, so the property
+    // reads undefined whether or not anything set it. Nothing written at all is what is meant.
+    expect(strip).not.toHaveAttribute("style");
+    expect(strip).not.toHaveAttribute("inert");
+    expect(scroller).not.toHaveAttribute("style");
+    // The strip's parent is the scroller itself, which is what says no sizer was inserted between
+    // them. A wrapper would show up here as a div with a width nobody asked for.
+    expect(scroller.className).toContain("overflow-auto");
+
+    const fit = screen.getByRole("button", { name: "Fit the whole canvas" });
+    expect(fit).toHaveAttribute("aria-pressed", "false");
+    act(() => fireEvent.click(fit));
+    expect(screen.getByRole("button", { name: "Fit the whole canvas" }))
+      .toHaveAttribute("aria-pressed", "true");
+    // Stored, because this panel is edited while it is read and a reload happens many times an
+    // hour. A mode that forgot would be one the reader re-enters all day.
+    expect(localStorage.getItem("agent-panel.bot-canvas.zoom-mode")).toBe("on");
+
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Fit the whole canvas" })));
+    expect(localStorage.getItem("agent-panel.bot-canvas.zoom-mode")).toBeNull();
+    unmount();
+  });
+
 });

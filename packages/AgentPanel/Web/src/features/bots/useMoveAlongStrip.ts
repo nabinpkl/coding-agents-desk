@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
+import { effectiveScale } from "@/features/bots/useCanvasZoom";
 
 /** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
 const EDGE_SCROLL_MARGIN = 56;
@@ -32,6 +33,12 @@ export interface StripMove {
  *
  * Positions are read ONCE, when the drag begins. Reading them again mid-drag would be reading the
  * transforms this is applying, and the card would chase itself.
+ *
+ * Two coordinate systems meet here and the canvas's zoom mode is what makes the difference visible.
+ * A rect is what the card is DRAWN at; a `translateX` inside the strip is applied in the strip's
+ * own laid-out space, before the scale. So every measurement taken off a rect is divided back into
+ * layout space, and the scale is read once at the same moment the positions are, for the same
+ * reason. With the mode off it is exactly 1 and every division below is a no-op.
  */
 export function useMoveAlongStrip({
   canvas,
@@ -43,6 +50,8 @@ export function useMoveAlongStrip({
   onDrop: (from: number, to: number) => void;
 }): StripMove {
   const laidOut = useRef<{ left: number; width: number }[]>([]);
+  /** What the strip was drawn at when the drag began. Exactly 1 unless the zoom mode is on. */
+  const scale = useRef(1);
   const from = useRef(0);
   const pointer = useRef(0);
   const scrolling = useRef<number | null>(null);
@@ -59,7 +68,7 @@ export function useMoveAlongStrip({
     if (!held) return;
     // Against the strip rather than the window, so scrolling under the drag does not read as the
     // pointer having moved.
-    const dx = clientX - pointer.current;
+    const dx = (clientX - pointer.current) / scale.current;
     const centre = held.left + dx + held.width / 2;
     let to = from.current;
     for (let i = 0; i < cards.length; i += 1) {
@@ -75,10 +84,11 @@ export function useMoveAlongStrip({
   const start = (index: number, clientX: number): void => {
     const strip = list.current;
     if (!strip) return;
+    scale.current = effectiveScale(strip);
     const origin = strip.getBoundingClientRect().left;
     laidOut.current = [...strip.children].map((child) => {
       const box = child.getBoundingClientRect();
-      return { left: box.left - origin, width: box.width };
+      return { left: (box.left - origin) / scale.current, width: box.width / scale.current };
     });
     from.current = index;
     pointer.current = clientX;
@@ -89,6 +99,8 @@ export function useMoveAlongStrip({
     measure(clientX);
     const scroller = canvas.current;
     if (!scroller) return;
+    // The edge test and the creep step stay in SCREEN pixels: the margin is how close a hand is to
+    // the side of the panel, and `scrollLeft` moves the scroller, which is outside the transform.
     const box = scroller.getBoundingClientRect();
     const step =
       clientX > box.right - EDGE_SCROLL_MARGIN

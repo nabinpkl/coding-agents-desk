@@ -227,6 +227,12 @@ export function storeCanvasOpenKeys(keys: ReadonlySet<string>): void {
  * Both axes, because a card is as tall as its own roster and a tall one scrolls the canvas down as
  * well as along.
  *
+ * CONTENT-space pixels rather than the scroller's own, because the canvas's zoom mode draws this
+ * same strip at a smaller scale and an offset taken at one scale names a different card at
+ * another. Divided by the scale on the way out and multiplied back on the way in; see
+ * `useRememberedCanvasScroll`. Everything written before that mode existed was taken at scale 1,
+ * which is what it still means, so there is nothing to migrate.
+ *
  * Clamped by the browser on the way in: assigning past the end of a scroller lands at the end, so a
  * remembered offset for a canvas that has since lost half its cards degrades to its last card
  * rather than to nothing.

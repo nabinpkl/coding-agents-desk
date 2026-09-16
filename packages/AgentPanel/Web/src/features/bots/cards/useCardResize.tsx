@@ -8,6 +8,7 @@ import {
   clampCardWidth,
   type BotCardSize,
 } from "@/features/bots/botCanvasPreferences";
+import { effectiveScale } from "@/features/bots/useCanvasZoom";
 
 /** How far one arrow key moves an edge. */
 const KEY_STEP = 24;
@@ -68,9 +69,14 @@ export function useCardResize({
   /** The size to keep, on pointer release or a key press. */
   onResizeCommit: (size: BotCardSize) => void;
 }): CardResize {
-  const drag = useRef<{ pointerId: number; startX: number; startY: number; from: BotCardSize } | null>(
-    null,
-  );
+  // `scale` is what the grip was DRAWN at when the drag began, which is 1 unless the canvas's zoom
+  // mode is on. A pointer delta arrives in screen pixels and the width it is added to is a layout
+  // one, so under a scaled canvas a drag of forty pixels would grow the card by forty divided by
+  // nothing and the edge would run away from the finger. Read once, with the rest of the start
+  // state, rather than per event.
+  const drag = useRef<
+    { pointerId: number; startX: number; startY: number; from: BotCardSize; scale: number } | null
+  >(null);
 
   // The room each edge has to move in, which the window and the panel are no part of: a card bigger
   // than the screen is a card you asked to see more of at once, and the canvas scrolls. Asked with a
@@ -118,6 +124,7 @@ export function useCardResize({
       startX: event.clientX,
       startY: event.clientY,
       from: { width, height },
+      scale: effectiveScale(event.currentTarget),
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -129,9 +136,10 @@ export function useCardResize({
     const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
     // Right and down grow the card, which is the direction the edge under the pointer is moving.
+    const at = active.scale;
     onResize({
-      width: axes.width ? widthWithin(active.from.width + event.clientX - active.startX) : width,
-      height: axes.height ? heightWithin(active.from.height + event.clientY - active.startY) : height,
+      width: axes.width ? widthWithin(active.from.width + (event.clientX - active.startX) / at) : width,
+      height: axes.height ? heightWithin(active.from.height + (event.clientY - active.startY) / at) : height,
     });
   };
 

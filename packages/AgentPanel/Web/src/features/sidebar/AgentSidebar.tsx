@@ -109,6 +109,8 @@ interface AgentSidebarProps {
     hidden: ReadonlySet<string>;
     countOf: (key: string) => number;
     onToggle: (key: string) => void;
+    /** The canvas drawn small enough to see all of at once. See `BotCanvasStatus`. */
+    zoom: { on: boolean; onToggle: () => void };
   };
   /**
    * The sessions NOT on the canvas, as `source:sessionId`.
@@ -309,6 +311,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                   hidden={props.canvasMachines.hidden}
                   countOf={props.canvasMachines.countOf}
                   onToggle={props.canvasMachines.onToggle}
+                  zoom={props.canvasMachines.zoom}
                 />
               )
             }

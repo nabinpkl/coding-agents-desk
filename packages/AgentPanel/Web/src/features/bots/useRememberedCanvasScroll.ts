@@ -29,6 +29,16 @@ const SCROLL_SETTLE_MS = 200;
 export function useRememberedCanvasScroll(
   scroller: React.RefObject<HTMLDivElement | null>,
   content: unknown,
+  /**
+   * What the canvas is drawn at, and whether that is settled yet.
+   *
+   * The offset is stored in CONTENT space so it keeps naming the same cards at any scale, which
+   * means the restore cannot happen until the scale is known. `ready` is what says so: with the
+   * zoom mode off it is true from the first layout, and with it on it waits for the strip and the
+   * panel to be measured. Without that wait the restore fires against a scale of 1 and lands
+   * wherever the stored number happens to point, which looks exactly like having forgotten.
+   */
+  zoom: { scale: number; ready: boolean },
 ): () => void {
   const restored = useRef(false);
   const wanted = useRef<CanvasScroll | null>(null);
@@ -36,7 +46,7 @@ export function useRememberedCanvasScroll(
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
-    if (restored.current) return;
+    if (restored.current || !zoom.ready) return;
     const el = scroller.current;
     if (!el) return;
     // Read once and held, because this effect runs again on every render until it lands, and what
@@ -49,11 +59,19 @@ export function useRememberedCanvasScroll(
       restored.current = true;
       return;
     }
-    if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) return;
+    if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) {
+      // Nothing to scroll yet. Normally that means the Bots have not arrived, so the restore waits
+      // and this effect runs again when they do. Drawn whole by the zoom mode it means the
+      // opposite -- the canvas fits, and always will at this scale -- and leaving the restore
+      // pending there would fire it later, at the moment a pinch first gives the scroller some
+      // range, yanking the reader off the very point they had just zoomed to.
+      if (zoom.scale < 1) restored.current = true;
+      return;
+    }
     restored.current = true;
-    el.scrollLeft = left;
-    el.scrollTop = top;
-  }, [scroller, content]);
+    el.scrollLeft = left * zoom.scale;
+    el.scrollTop = top * zoom.scale;
+  }, [scroller, content, zoom.ready, zoom.scale]);
 
   // Written from one place, on a timer, rather than beside each of the things that scroll the
   // canvas -- the reader, a card coming into view, a drag creeping at the edge. They all end up
@@ -61,13 +79,15 @@ export function useRememberedCanvasScroll(
   const remember = useCallback(() => {
     const el = scroller.current;
     if (!el || !restored.current) return;
-    latest.current = { left: el.scrollLeft, top: el.scrollTop };
+    // Back into content space on the way out, so a position taken while zoomed out still names the
+    // card it was taken over once the canvas is drawn at some other size.
+    latest.current = { left: el.scrollLeft / zoom.scale, top: el.scrollTop / zoom.scale };
     if (timer.current !== null) return;
     timer.current = setTimeout(() => {
       timer.current = null;
       if (latest.current) storeCanvasScroll(latest.current);
     }, SCROLL_SETTLE_MS);
-  }, [scroller]);
+  }, [scroller, zoom.scale]);
 
   // Leaving the canvas is the one scroll that never settles, because the component goes with it.
   useEffect(() => () => {

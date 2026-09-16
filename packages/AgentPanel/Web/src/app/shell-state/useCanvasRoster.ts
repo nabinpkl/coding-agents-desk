@@ -18,6 +18,7 @@ import {
   storeDetachedSessionKeys,
   storeHiddenMachines,
 } from "@/features/bots/botCanvasPreferences";
+import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/useCanvasZoom";
 
 export function useCanvasRoster(botsState: {
   bots: BotView[];
@@ -137,6 +138,17 @@ export function useCanvasRoster(botsState: {
     });
   }, []);
   useEffect(() => storeHiddenMachines(hiddenMachines), [hiddenMachines]);
+  /**
+   * Whether the canvas is drawn small enough to see all of at once.
+   *
+   * Here with the rest of what the reader arranged, and for the same stated reason: the control is
+   * in the sidebar's Canvas roster, and a picker cannot drive state that lives inside the thing it
+   * is driving. The SCALE is not here -- it belongs to the gesture, nothing above the canvas reads
+   * it, and it is kept beside the gesture in `useCanvasZoom`.
+   */
+  const [canvasZoomMode, setCanvasZoomMode] = useState<boolean>(loadCanvasZoomMode);
+  const toggleCanvasZoom = useCallback(() => setCanvasZoomMode((on) => !on), []);
+  useEffect(() => storeCanvasZoomMode(canvasZoomMode), [canvasZoomMode]);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
     setDetachedBotIds((current) => {
       // A new set rather than a mutation, because React decides whether to re-render by identity.
@@ -156,6 +168,8 @@ export function useCanvasRoster(botsState: {
     canvasBots,
     hiddenMachines,
     toggleMachineOnCanvas,
+    canvasZoomMode,
+    toggleCanvasZoom,
     removeSessionFromCanvas,
     toggleCanvasSession,
     openSessionOnCanvas,

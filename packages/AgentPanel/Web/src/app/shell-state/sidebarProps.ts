@@ -102,6 +102,9 @@ export function sidebarProps({
       countOf: (key: string) =>
         roster.canvasBots.filter((bot) => machines.keyOfBot(bot.botId) === key).length,
       onToggle: roster.toggleMachineOnCanvas,
+      // Beside the machine chips because it answers the same kind of question they do: not which
+      // Bots are on the canvas, but how much of the canvas the reader can see at once.
+      zoom: { on: roster.canvasZoomMode, onToggle: roster.toggleCanvasZoom },
     },
     detachedSessionKeys: roster.detachedSessionKeys,
     canvasOpenSessionKeys: roster.canvasOpenKeys,

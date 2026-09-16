@@ -19,6 +19,7 @@ import { CanvasNotices, CanvasPlaceholder } from "@/features/bots/cards/canvasNo
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
+import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
 
 // Re-exported because this is the canvas's entry point: the app imports the surface and the shape
 // of a failure from one name, and the parts moving out did not move that.
@@ -74,6 +75,7 @@ export function BotCanvas({
   onAddBot,
   newSessions,
   onCloseNewSession,
+  zoomMode,
 }: {
   bots: BotView[];
   /**
@@ -203,6 +205,16 @@ export function BotCanvas({
   newSessions: readonly NewBotSession[];
   /** Takes the card away. The tmux session keeps running; nothing was attached to detach. */
   onCloseNewSession: (sessionId: string) => void;
+  /**
+   * Draw the whole canvas at once, small enough to see the arrangement, and pinch to move around it.
+   *
+   * A mode rather than a replacement, and off it costs nothing: no transform and no wrapper exist
+   * in the tree, so the strip keeps the pointer arithmetic and the `position: fixed` semantics it
+   * has today. Driven from the sidebar's Canvas roster, which is where the canvas's other chrome
+   * lives, because a strip of cards as tall as their own rosters has no row to spare. See
+   * `useCanvasZoom`.
+   */
+  zoomMode: boolean;
 }) {
   // Nothing to lay out, so nothing below this point would be about anything: no scroller, no
   // strip, and no offset to come back to. The condition stays here rather than inside the
@@ -241,6 +253,7 @@ export function BotCanvas({
       onToggleSession={onToggleSession}
       newSessions={newSessions}
       onCloseNewSession={onCloseNewSession}
+      zoomMode={zoomMode}
     />
   );
 }
@@ -284,6 +297,7 @@ function BotCanvasList({
   onToggleSession,
   newSessions,
   onCloseNewSession,
+  zoomMode,
 }: {
   bots: BotView[];
   hues: ReadonlyMap<string, number>;
@@ -310,6 +324,8 @@ function BotCanvasList({
   onToggleSession: (key: string) => void;
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
+  /** See the canvas above: the whole strip drawn small enough to see at once. */
+  zoomMode: boolean;
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
@@ -367,11 +383,76 @@ function BotCanvasList({
     && !detachedSessionKeys.has(botError.session)
     && standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
   const orphanedError = botError !== null && !carried ? botError.message : null;
-  const rememberScroll = useRememberedCanvasScroll(canvas, standing);
+  const zoom = useCanvasZoom({ scroller: canvas, strip: list, on: zoomMode });
+  // The stored offset is in content space, so it cannot be put back until the scale is known.
+  const rememberScroll = useRememberedCanvasScroll(canvas, standing, {
+    scale: zoom.scale,
+    ready: !zoom.on || zoom.measured,
+  });
+  // One strip, and nothing wraps out of it. A card widened here takes the room and pushes the cards
+  // after it along; none of them can drop to a line below, because there is no line below. That is
+  // the whole difference from the grid this replaced, and it is why the canvas scrolls sideways
+  // rather than being capped to fit.
+  //
+  // `items-start` because a card is as tall as its own roster: without it every card stretches to
+  // the tallest, so a Bot with two sessions beside a Bot with twelve becomes a card mostly made of
+  // empty. The cost is a ragged bottom edge, which is the honest shape of a row that holds
+  // different amounts.
+  //
+  // Held in a const rather than written inline because the sizer below wraps it only while the
+  // zoom mode is drawing small, and JSX has no way to conditionally wrap an element in place.
+  const strip = (
+    <ul
+      ref={list}
+      role="list"
+      aria-label="Bot canvas"
+      // Drawn too small for a card to be worth aiming at, so nothing in the strip takes a press,
+      // a focus or a place in the accessibility tree. The scroller underneath still does, which
+      // is what lets a press on a card zoom to it.
+      inert={zoom.inert}
+      style={zoom.stripStyle}
+      className="flex w-max items-start gap-3 p-3"
+    >
+      {standing.map((bot, index) => (
+        <BotCanvasCard
+          key={bot.botId}
+          offset={move.offsetOf(index)}
+          lifted={move.liftedIndex === index}
+          onMoveStart={(clientX) => move.start(index, clientX)}
+          onMoveBy={move.to}
+          onMoveEnd={move.end}
+          onMoveBySteps={(steps) => rearrange(index, index + steps)}
+          canMoveLeft={index > 0}
+          canMoveRight={index < standing.length - 1}
+          bot={bot}
+          hue={hues.get(bot.botId)}
+          sessionContext={sessionContextFor(bot.botId)}
+          {...(labelOf(bot.botId) ? { machineLabel: labelOf(bot.botId)! } : {})}
+          botError={botError}
+          detachedSessionKeys={detachedSessionKeys}
+          openKeys={openKeys}
+          onToggleSession={onToggleSession}
+          sessionSizes={sessionSizes}
+          onResizeSession={resizeSession}
+          onAddSession={onAddSession}
+          onForkSession={onForkSession}
+          onForkFromLastMessage={onForkFromLastMessage}
+          onForkFromLastCompaction={onForkFromLastCompaction}
+          onRenameSession={onRenameSession}
+          onDetachSession={onDetachSession}
+          onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
+          onDetachBot={onDetachBot}
+          newSessions={newSessions.filter((each) => each.botId === bot.botId)}
+          onCloseNewSession={onCloseNewSession}
+        />
+      ))}
+    </ul>
+  );
   return (
     <div
       ref={canvas}
       onScroll={rememberScroll}
+      style={zoom.scrollerStyle}
       // The margin is the SCROLLER's rather than padding on the strip inside it, so the gutter
       // holds while the canvas is scrolled: cards enter and leave at the inset edge instead of
       // running to the window's, and the strip reads as a region with room around it rather than
@@ -385,50 +466,13 @@ function BotCanvasList({
         drawn={standing.length}
         orphanedError={orphanedError}
       />
-      {/* One strip, and nothing wraps out of it. A card widened here takes the room and pushes the
-          cards after it along; none of them can drop to a line below, because there is no line
-          below. That is the whole difference from the grid this replaced, and it is why the canvas
-          scrolls sideways rather than being capped to fit.
-
-          `items-start` because a card is as tall as its own roster: without it every card stretches
-          to the tallest, so a Bot with two sessions beside a Bot with twelve becomes a card mostly
-          made of empty. The cost is a ragged bottom edge, which is the honest shape of a row that
-          holds different amounts. */}
-      <ul ref={list} role="list" aria-label="Bot canvas" className="flex w-max items-start gap-3 p-3">
-        {standing.map((bot, index) => (
-          <BotCanvasCard
-            key={bot.botId}
-            offset={move.offsetOf(index)}
-            lifted={move.liftedIndex === index}
-            onMoveStart={(clientX) => move.start(index, clientX)}
-            onMoveBy={move.to}
-            onMoveEnd={move.end}
-            onMoveBySteps={(steps) => rearrange(index, index + steps)}
-            canMoveLeft={index > 0}
-            canMoveRight={index < standing.length - 1}
-            bot={bot}
-            hue={hues.get(bot.botId)}
-            sessionContext={sessionContextFor(bot.botId)}
-            {...(labelOf(bot.botId) ? { machineLabel: labelOf(bot.botId)! } : {})}
-            botError={botError}
-            detachedSessionKeys={detachedSessionKeys}
-            openKeys={openKeys}
-            onToggleSession={onToggleSession}
-            sessionSizes={sessionSizes}
-            onResizeSession={resizeSession}
-            onAddSession={onAddSession}
-            onForkSession={onForkSession}
-            onForkFromLastMessage={onForkFromLastMessage}
-            onForkFromLastCompaction={onForkFromLastCompaction}
-            onRenameSession={onRenameSession}
-            onDetachSession={onDetachSession}
-            onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
-            onDetachBot={onDetachBot}
-            newSessions={newSessions.filter((each) => each.botId === bot.botId)}
-            onCloseNewSession={onCloseNewSession}
-          />
-        ))}
-      </ul>
+      {/* The SIZER, and only while the mode is drawing small. A transform does not change
+          `scrollWidth`, so without a box sized to what is actually drawn the scroller keeps a
+          range several times wider than its contents and most of it is empty. With one, panning
+          is ordinary scrolling -- which is what keeps the momentum on a phone, and what lets the
+          remembered offset go on meaning something. Absent when the mode is off, so the default
+          canvas has no wrapper at all rather than a neutral one. */}
+      {zoom.sizerStyle ? <div style={zoom.sizerStyle}>{strip}</div> : strip}
     </div>
   );
 }
