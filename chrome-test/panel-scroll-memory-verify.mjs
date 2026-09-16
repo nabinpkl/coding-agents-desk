@@ -127,6 +127,13 @@ await page.waitForTimeout(5000);
 const cameBack = await firstCard();
 check('the reload comes back to the same card', cameBack.card === along.card && along.card > 0,
   `card ${along.card} -> card ${cameBack.card}`);
+// The ratchet. A card that mounts open finishes filling in after the restore has fired, so the
+// strip is narrower at that moment than it ends up (measured here: 4569px then 4911px), the
+// browser clamps the assignment to what it reaches, and the settle write then made that clamped
+// offset the new remembered one -- walking the reader further off the place they left on every
+// single reload, with nothing that ever walked it back.
+check('the reload does not overwrite the place it restored', cameBack.stored === along.stored,
+  `${along.stored} -> ${cameBack.stored}`);
 
 await browser.close();
 if (failures.length > 0) {

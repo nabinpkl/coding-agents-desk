@@ -186,6 +186,52 @@ describe("App shell", () => {
     }
   });
 
+  it("keeps asking for the remembered place while the strip is still growing under it", async () => {
+    // The ratchet this was written for. A card that mounts open finishes filling in after the
+    // restore has already fired, so the strip is narrower at that moment than it ends up: measured
+    // in a real browser, 4569px wide when the restore ran and 4911px a moment later. The browser
+    // clamps the assignment to what the strip reaches, and the settle write below then made that
+    // clamped offset the new remembered one, walking the reader further off on every reload.
+    localStorage.setItem("agent-panel.bot-canvas.scroll", JSON.stringify({ left: 1800, top: 0 }));
+    // jsdom lays nothing out and does not clamp a scroll, so both halves are stood up by hand: an
+    // extent that grows, and a scroller that refuses to go past it the way a browser would.
+    let extent = 1000;
+    let at = 0;
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get: () => extent });
+    Object.defineProperty(HTMLElement.prototype, "scrollLeft", {
+      configurable: true,
+      get: () => at,
+      set(value: number) { at = Math.min(value, extent); },
+    });
+    try {
+      const { transport, unmount } = setup();
+      deliverProjects(transport);
+      fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+      act(() => {
+        transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+      });
+      const scroller = screen
+        .getByRole("list", { name: "Bot canvas" })
+        .closest(".overflow-auto") as HTMLElement;
+      expect(scroller.scrollLeft).toBe(1000);
+      // The scroll a browser raises for that clamped landing, which is the event that used to be
+      // taken for the reader having chosen to be there and written down as the new place.
+      fireEvent.scroll(scroller);
+
+      // The cards finish filling in, which reaches this component as nothing at all -- no render,
+      // no event -- which is why the hold re-applies on a frame rather than on a commit.
+      extent = 3000;
+      await waitFor(() => expect(scroller.scrollLeft).toBe(1800), { timeout: 2000 });
+      // And the place it was asked for is still the remembered one, rather than where it got to.
+      expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.scroll") ?? "null"))
+        .toEqual({ left: 1800, top: 0 });
+      unmount();
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollWidth");
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollLeft");
+    }
+  });
+
   it("shows every Bot at once on the canvas, and opens their sessions inline beside each other", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

@@ -1,10 +1,11 @@
 // Opening the canvas where the reader left it, and keeping saying where that is.
 //
 // Its own file because it is a hook with a lifecycle rather than a piece of the surface: a
-// restore that has to wait for content to exist, a throttled write, and one final write on the
-// way out. See `botCanvasPreferences.ts` for where the offset is actually stored.
+// restore that has to wait for content to exist, a hold that keeps asking for the offset while
+// the strip is still growing under it, a throttled write, and one final write on the way out.
+// See `botCanvasPreferences.ts` for where the offset is actually stored.
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { loadCanvasScroll, storeCanvasScroll, type CanvasScroll } from "@/features/bots/botCanvasPreferences";
 
 /**
@@ -17,6 +18,24 @@ import { loadCanvasScroll, storeCanvasScroll, type CanvasScroll } from "@/featur
  * always the last thing written.
  */
 const SCROLL_SETTLE_MS = 200;
+
+/**
+ * How long a restore that landed short keeps asking for the offset it was aiming at.
+ *
+ * Assigning past the end of a scroller lands at the end, and this scroller has an end that moves.
+ * Measured against this repo's own Bots: the strip is 4569px wide when the restore fires and
+ * 4911px a moment later, as the cards that opened finish filling in. So a restore to 3927 landed
+ * at 3585, the settle timer below wrote THAT down, and every reload walked the reader a little
+ * further from where they had been reading. A ratchet, with nothing that ever walked it back.
+ *
+ * Re-applied on a frame rather than on a render, because what moves the end is a card measuring
+ * itself, and that reaches this component as nothing at all.
+ *
+ * Long enough to cover the cards settling, short enough that a reader who reloads and reaches
+ * straight for the canvas is not fought for long -- and their own first wheel, touch, press or
+ * key ends it early anyway.
+ */
+const RESTORE_HOLD_MS = 1500;
 
 /**
  * Opens the canvas where it was left, and keeps saying where that is.
@@ -44,6 +63,8 @@ export function useRememberedCanvasScroll(
   const wanted = useRef<CanvasScroll | null>(null);
   const latest = useRef<CanvasScroll | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The offset a restore is still asking for, in content space, or null once it has let go. */
+  const [holding, setHolding] = useState<CanvasScroll | null>(null);
 
   useLayoutEffect(() => {
     if (restored.current || !zoom.ready) return;
@@ -69,16 +90,55 @@ export function useRememberedCanvasScroll(
       return;
     }
     restored.current = true;
-    el.scrollLeft = left * zoom.scale;
-    el.scrollTop = top * zoom.scale;
+    const asked = { left: left * zoom.scale, top: top * zoom.scale };
+    el.scrollLeft = asked.left;
+    el.scrollTop = asked.top;
+    // Landing short of what was asked for is the browser saying the strip does not reach that far
+    // YET, so the offset is held and re-applied until it does. Landing exactly needs no hold: the
+    // end only moves outwards while the cards fill in, so an offset that already fits keeps
+    // fitting, and a hold is a second and a half of not writing down where the reader goes.
+    if (el.scrollLeft < asked.left - 1 || el.scrollTop < asked.top - 1) setHolding({ left, top });
   }, [scroller, content, zoom.ready, zoom.scale]);
+
+  // Asks again, every frame, until the strip is wide enough to answer or the reader takes over.
+  useEffect(() => {
+    if (holding === null) return;
+    const el = scroller.current;
+    if (!el) return;
+    const release = (): void => setHolding(null);
+    let frame = requestAnimationFrame(function again() {
+      // Writing the offset it already has is not a scroll, so re-asking after it has landed costs
+      // nothing; what it buys is the case where the strip grows again before the hold is over.
+      el.scrollLeft = holding.left * zoom.scale;
+      el.scrollTop = holding.top * zoom.scale;
+      frame = requestAnimationFrame(again);
+    });
+    // Fighting a reader who is already scrolling is worse than landing short of where they were,
+    // so any input of their own ends the hold before the timer does.
+    const timeout = setTimeout(release, RESTORE_HOLD_MS);
+    el.addEventListener("wheel", release, { passive: true });
+    el.addEventListener("touchstart", release, { passive: true });
+    el.addEventListener("pointerdown", release, { passive: true });
+    window.addEventListener("keydown", release, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timeout);
+      el.removeEventListener("wheel", release);
+      el.removeEventListener("touchstart", release);
+      el.removeEventListener("pointerdown", release);
+      window.removeEventListener("keydown", release, true);
+    };
+  }, [holding, scroller, zoom.scale]);
 
   // Written from one place, on a timer, rather than beside each of the things that scroll the
   // canvas -- the reader, a card coming into view, a drag creeping at the edge. They all end up
   // here because they all end up as a scroll event.
   const remember = useCallback(() => {
     const el = scroller.current;
-    if (!el || !restored.current) return;
+    // A hold is the restore still arriving rather than the reader moving: the scrolls it raises
+    // say how far the strip can reach so far, not where anybody chose to be, and writing one of
+    // those down is exactly how the remembered place walks away from the reader.
+    if (!el || !restored.current || holding !== null) return;
     // Back into content space on the way out, so a position taken while zoomed out still names the
     // card it was taken over once the canvas is drawn at some other size.
     latest.current = { left: el.scrollLeft / zoom.scale, top: el.scrollTop / zoom.scale };
@@ -87,7 +147,7 @@ export function useRememberedCanvasScroll(
       timer.current = null;
       if (latest.current) storeCanvasScroll(latest.current);
     }, SCROLL_SETTLE_MS);
-  }, [scroller, zoom.scale]);
+  }, [scroller, zoom.scale, holding]);
 
   // Leaving the canvas is the one scroll that never settles, because the component goes with it.
   useEffect(() => () => {
