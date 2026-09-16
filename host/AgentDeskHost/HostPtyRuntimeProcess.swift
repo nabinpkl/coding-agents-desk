@@ -44,6 +44,13 @@ enum HostPtyRuntimeRecoveryDecision: Equatable {
     case fail(reason: String)
 }
 
+/// What to do when a daemon's own process exits.
+enum HostPtyRuntimeRestartDecision: Equatable {
+    /// Run the whole opening ladder again, vault first, then the manager that needs it.
+    case relaunch
+    case leave(reason: String)
+}
+
 /// The result of bringing one component up.
 enum HostPtyRuntimeOutcome: Equatable {
     case ready
@@ -80,6 +87,49 @@ enum HostPtyRuntimeSocketVerifier {
         return recordedIdentity.digest == bundledDigest ? .preserve(peer) : .handover(peer)
     }
 
+    /// Whether a daemon that exited on its own should be brought back.
+    ///
+    /// Only the manager is, and the asymmetry is ADR-0080's again, read the other way round. The
+    /// vault holds the only master descriptor for every live session, so one that exits has already
+    /// taken them with it and a fresh one comes up empty; whether a new one may be started is the
+    /// manager's custody reseed to settle, not a termination handler's. The manager holds duplicate
+    /// leases and re-adopts the vault's sessions when it cold starts, so bringing it back costs
+    /// bounded replay state.
+    ///
+    /// This exists because nothing else was watching. Measured on 2026-09-15: the manager cold
+    /// started at 14:20:18, could not reach a vault the host had judged alive by pid alone, and
+    /// exited two seconds later. Every PTY-backed terminal in the panel answered 503 for the next
+    /// twelve hours, and the only record of it anywhere was one line in a per-launch log file.
+    static func restart(
+        component: HostPtyRuntimeProcess.Component,
+        deliberate: Bool,
+        openingLadderSettled: Bool,
+        somethingServing: Bool,
+        consecutiveRestarts: Int,
+        limit: Int
+    ) -> HostPtyRuntimeRestartDecision {
+        guard component == .manager else {
+            return .leave(reason: "a vault that exited holds nothing and a fresh one comes up empty")
+        }
+        if deliberate {
+            return .leave(reason: "this host ended that process itself")
+        }
+        // The opening pass reports its own failure and settles readiness; re-entering it from
+        // inside itself would race that report with a second ladder.
+        guard openingLadderSettled else {
+            return .leave(reason: "the opening launch has not finished deciding")
+        }
+        // A handover ends with the outgoing generation exiting, which is this same callback on a
+        // socket that is healthier than it was a moment ago.
+        if somethingServing {
+            return .leave(reason: "another generation is already serving the socket")
+        }
+        guard consecutiveRestarts < limit else {
+            return .leave(reason: "restarted \(limit) times without staying up")
+        }
+        return .relaunch
+    }
+
     /// Chooses what happens after a handover attempt failed or a decision blocked.
     ///
     /// A live vault is always kept, which is what makes "sessions never end" structural rather than
@@ -103,7 +153,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private static let executablePathBufferLength = 4 * 1_024
     private static let diagnosticsTailLength = 2 * 1_024
 
-    private enum Component: String {
+    enum Component: String {
         case vault
         case manager
     }
@@ -119,6 +169,20 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private let readinessLock = NSLock()
     private var readiness: Bool?
     private var readinessWaiters: [CheckedContinuation<Bool, Never>] = []
+    /// Exits this host caused, so its own termination handler does not read one as a crash.
+    private var deliberateExits: Set<Component> = []
+    /// When the manager generation this host launched started, and how many times it has been
+    /// restarted since the last one that stayed up.
+    private var managerLaunchedAt: Date?
+    private var managerRestarts = 0
+    /// A manager with no vault to reach exits about two seconds in (`wait_for_vault` polls for
+    /// two), so waiting that long is what keeps a restart from being a second helping of the same
+    /// failure, and the cap bounds a genuine crash loop to roughly ten seconds of it.
+    private static let managerRestartDelay: TimeInterval = 2
+    private static let managerRestartLimit = 5
+    /// Up this long is a generation that served rather than a crash loop, so the count starts over
+    /// and a host that has been running for days still gets its five attempts.
+    private static let managerSettledSeconds: TimeInterval = 60
 
     init(
         vaultBinaryURL: URL,
@@ -195,6 +259,54 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
 
     private func startOnQueue() {
         settleReadiness(launchComponents())
+    }
+
+    /// Whether the opening ladder has reached a verdict. `readiness` is written under its lock
+    /// because `waitUntilReady` reads it from wherever the caller is; this reads it the same way.
+    private var readinessSettled: Bool {
+        readinessLock.lock()
+        defer { readinessLock.unlock() }
+        return readiness != nil
+    }
+
+    private func socketURL(for component: Component) -> URL {
+        component == .vault ? vaultSocketURL : managerSocketURL
+    }
+
+    /// A daemon exiting is not an event this host can afford to only log.
+    ///
+    /// The whole ladder runs again rather than just the component that went, because the manager
+    /// is the one that exits and the vault is usually why: a manager restarted against the same
+    /// absent vault would repeat the exit exactly. Re-running `launchComponents` cold starts the
+    /// vault first when nothing is serving it, and preserves it in one comparison when something
+    /// is, so the common case costs a digest and a `kill(pid, 0)`.
+    private func handleExit(of component: Component) {
+        let deliberate = deliberateExits.remove(component) != nil
+        if component == .manager,
+           let launchedAt = managerLaunchedAt,
+           Date().timeIntervalSince(launchedAt) >= Self.managerSettledSeconds {
+            managerRestarts = 0
+        }
+        switch HostPtyRuntimeSocketVerifier.restart(
+            component: component,
+            deliberate: deliberate,
+            openingLadderSettled: readinessSettled,
+            somethingServing: servingPeer(socketURL: socketURL(for: component)) != nil,
+            consecutiveRestarts: managerRestarts,
+            limit: Self.managerRestartLimit
+        ) {
+        case .leave(let reason):
+            logger.notice("PTY \(component.rawValue, privacy: .public) was not restarted reason=\(reason, privacy: .public)")
+        case .relaunch:
+            managerRestarts += 1
+            logger.error("PTY manager exited on its own; re-running the launch ladder attempt=\(self.managerRestarts, privacy: .public)")
+            queue.asyncAfter(deadline: .now() + Self.managerRestartDelay) { [weak self] in
+                guard let self else { return }
+                if self.launchComponents() {
+                    self.logger.notice("PTY runtime restored after an unattended manager exit")
+                }
+            }
+        }
     }
 
     private func launchComponents() -> Bool {
@@ -392,6 +504,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         // Sessions survived that only because the outgoing manager's leases reseeded the vault.
         guard runtimeIdentity(socketURL: socketURL)?.pid != process.processIdentifier else { return }
         logger.notice("PTY \(component.rawValue, privacy: .public) discarding candidate pid=\(process.processIdentifier, privacy: .public) that never published an identity")
+        deliberateExits.insert(component)
         process.terminate()
         processes[component] = nil
     }
@@ -464,12 +577,21 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         process.terminationHandler = { [runtime = self] finished in
             let status = finished.terminationStatus
             runtime.queue.async {
-                runtime.processes[component] = nil
+                // Only if this is still the generation that entry names. The handler runs long
+                // after the exit it reports, and a restart has already stored its replacement.
+                if runtime.processes[component] === finished { runtime.processes[component] = nil }
                 runtime.logger.notice("PTY \(component.rawValue, privacy: .public) exited status=\(status, privacy: .public)")
+                runtime.handleExit(of: component)
             }
         }
         try process.run()
+        // A new generation starts unmarked. `discardCandidateIfIdle` marks a component just before
+        // terminating it, and the one case where that mark is never consumed is a process that died
+        // on its own between the liveness check and the terminate; left behind, it would swallow
+        // the next genuine crash.
+        deliberateExits.remove(component)
         processes[component] = process
+        if component == .manager { managerLaunchedAt = Date() }
         // Activation is the identity the daemon publishes for itself, never the socket's peer pid.
         //
         // A handover candidate inherits the listening socket through SCM_RIGHTS instead of binding

@@ -75,6 +75,87 @@ struct HostPtyRuntimeProcessTests {
         ) == .block(reason: "live PTY runtime has no matching durable identity"))
     }
 
+    /// The gap this closes, measured 2026-09-15: a cold-started manager could not reach its vault,
+    /// exited two seconds in, and stayed down for twelve hours because the only thing watching was
+    /// a log line.
+    @Test func aManagerThatExitsOnItsOwnIsBroughtBack() {
+        #expect(HostPtyRuntimeSocketVerifier.restart(
+            component: .manager,
+            deliberate: false,
+            openingLadderSettled: true,
+            somethingServing: false,
+            consecutiveRestarts: 0,
+            limit: 5
+        ) == .relaunch)
+    }
+
+    /// A vault that exited took every master descriptor with it, so whether a fresh one may start
+    /// is the manager's custody reseed to settle rather than this callback's.
+    @Test func aVaultThatExitsIsLeftAlone() {
+        #expect(HostPtyRuntimeSocketVerifier.restart(
+            component: .vault,
+            deliberate: false,
+            openingLadderSettled: true,
+            somethingServing: false,
+            consecutiveRestarts: 0,
+            limit: 5
+        ) != .relaunch)
+    }
+
+    /// The three exits that are not a crash: one this host asked for, one during the opening
+    /// ladder, and the outgoing half of a handover whose successor is already serving.
+    @Test func anOrderlyExitIsNotRestarted() {
+        for decision in [
+            HostPtyRuntimeSocketVerifier.restart(
+                component: .manager,
+                deliberate: true,
+                openingLadderSettled: true,
+                somethingServing: false,
+                consecutiveRestarts: 0,
+                limit: 5
+            ),
+            HostPtyRuntimeSocketVerifier.restart(
+                component: .manager,
+                deliberate: false,
+                openingLadderSettled: false,
+                somethingServing: false,
+                consecutiveRestarts: 0,
+                limit: 5
+            ),
+            HostPtyRuntimeSocketVerifier.restart(
+                component: .manager,
+                deliberate: false,
+                openingLadderSettled: true,
+                somethingServing: true,
+                consecutiveRestarts: 0,
+                limit: 5
+            ),
+        ] {
+            #expect(decision != .relaunch)
+        }
+    }
+
+    /// A manager that cannot stay up is a different fault, and restarting it forever would bury
+    /// the log line that says which one.
+    @Test func aCrashLoopStopsAtTheLimit() {
+        #expect(HostPtyRuntimeSocketVerifier.restart(
+            component: .manager,
+            deliberate: false,
+            openingLadderSettled: true,
+            somethingServing: false,
+            consecutiveRestarts: 4,
+            limit: 5
+        ) == .relaunch)
+        #expect(HostPtyRuntimeSocketVerifier.restart(
+            component: .manager,
+            deliberate: false,
+            openingLadderSettled: true,
+            somethingServing: false,
+            consecutiveRestarts: 5,
+            limit: 5
+        ) == .leave(reason: "restarted 5 times without staying up"))
+    }
+
     /// The invariant behind ADR-0080: whatever goes wrong, a live vault keeps serving. Terminating
     /// it would close the last master descriptor for every session on the machine.
     @Test func liveVaultIsKeptWhateverWentWrong() {
