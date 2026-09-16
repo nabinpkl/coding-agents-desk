@@ -17,7 +17,9 @@ import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/botCanvasPreferences";
-import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
+import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
+import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
+import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
 
 export function BotCanvasCard({
   bot,
@@ -45,6 +47,8 @@ export function BotCanvasCard({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onReorderSessions,
+  scroller,
   newSessions,
   onCloseNewSession,
   machineLabel,
@@ -81,6 +85,21 @@ export function BotCanvasCard({
   /** Takes one session's card off the canvas; the Bot keeps the session either way. */
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  /**
+   * Stands this Bot's sessions in a new order, naming the one that was carried.
+   *
+   * The whole order rather than the move, because that is what the Bot is asked to hold and what
+   * the sidecar checks against the references it has: see `botSessionOrder.ts` for the translation
+   * from the cards on screen, which are only ever a subset of it.
+   */
+  onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
+  /**
+   * The canvas's own scroller, so a session carried to the edge of the panel makes it creep.
+   *
+   * The card cannot be it: a Bot card clips its overflow and never scrolls, so the roster inside it
+   * is laid out in full and the thing that has to move is the surface underneath.
+   */
+  scroller: React.RefObject<HTMLDivElement | null>;
   /** This Bot's share of the sessions the panel has started, already filtered to it. */
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
@@ -142,6 +161,24 @@ export function BotCanvasCard({
     if (held.carrying) onMoveEnd();
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
+  // The same carry the strip does with Bot cards, one level down and over this Bot's own roster.
+  // What it moves is the BOT's order rather than anything held here, so the drop translates the
+  // positions on screen into the full order and hands that over; nothing local remembers it.
+  const roster = useRef<HTMLUListElement | null>(null);
+  const rearrangeSessions = (from: number, to: number): void => {
+    const moved = reorderSessionRefs(bot.sessionRefs, shown, from, to);
+    if (moved) onReorderSessions(bot, moved.sessionRefs, moved.moved);
+  };
+  const moveSession = useMoveAlongStrip({
+    canvas: scroller,
+    list: roster,
+    gap: SESSION_GAP,
+    // The Bot's own sessions and nothing after them. The starting cards and the missing references
+    // are laid out in this same row and have no place in the order, so a card dropped on one would
+    // be aimed at a position that cannot be expressed.
+    count: shown.length,
+    onDrop: rearrangeSessions,
+  });
   const live = shown.filter((session) => session.activity === "live").length;
   const counted = `${shown.length} ${shown.length === 1 ? "session" : "sessions"}${
     live > 0 ? `, ${live} live` : ""
@@ -301,6 +338,7 @@ export function BotCanvasCard({
           // per session is what makes opening one a local act -- it grows downwards in its own
           // place while the rest keep theirs, instead of taking over the width of a list.
           <ul
+            ref={roster}
             role="list"
             aria-label={`${bot.name} sessions`}
             // The leading inset is the half that matters, and it is twice the other three on
@@ -327,11 +365,19 @@ export function BotCanvasCard({
             // edge.
             className="flex items-start gap-4 p-2.5 pl-5"
           >
-            {shown.map((session) => (
+            {shown.map((session, index) => (
               <BotSessionCard
                 key={sessionKey(session)}
                 bot={bot}
                 session={session}
+                offset={moveSession.offsetOf(index)}
+                lifted={moveSession.liftedIndex === index}
+                onMoveStart={(clientX) => moveSession.start(index, clientX)}
+                onMoveBy={moveSession.to}
+                onMoveEnd={moveSession.end}
+                onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
+                canMoveEarlier={index > 0}
+                canMoveLater={index < shown.length - 1}
                 hue={hue}
                 shade={shades.get(sessionKey(session))}
                 solo={bot.sessionRefs.length === 1}

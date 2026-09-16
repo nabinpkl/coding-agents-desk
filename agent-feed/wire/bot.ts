@@ -167,6 +167,28 @@ export interface DetachBotSessionsCommand {
 }
 
 /**
+ * Puts a Bot's sessions in a new order. Nothing is attached and nothing is detached: this is the
+ * same curation, standing differently.
+ *
+ * Order is the BOT's fact rather than a viewer's arrangement, which is why it is a command at all.
+ * The panel ranks a Bot's session colours by this list, so a reader who rearranged it locally
+ * would be looking at a card whose colours disagreed with its positions -- and nobody else would
+ * see the arrangement, on this machine or any other.
+ *
+ * The COMPLETE order rather than a move, and refused unless it names exactly the references the
+ * Bot already holds. Both halves are about the same hazard, a caller working from a roster that
+ * has moved since it was read: a move by index would quietly reorder around a session attached in
+ * the meantime, and a partial list would have to be interpreted -- appended, prepended, or read as
+ * a detach -- when what it really says is that the caller is out of date. Stating the order in
+ * full is what makes that detectable, and refusing is what stops it being guessed at.
+ */
+export interface ReorderBotSessionsCommand {
+  requestId: string;
+  /** Every reference the Bot holds, in the order it should now stand. */
+  sessionRefs: BotSessionRef[];
+}
+
+/**
  * Retires sessions: ends them, forgets them, and disposes of what their launch created.
  *
  * The inverse of `BotLaunchCommand`. Starting a session in a worktree is one call; tearing one

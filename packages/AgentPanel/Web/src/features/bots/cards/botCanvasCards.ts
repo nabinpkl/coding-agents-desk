@@ -9,6 +9,16 @@ import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
 export const STRIP_GAP = 12;
 
 /**
+ * The `gap-4` between one Bot's sessions, which is the same measurement one level down.
+ *
+ * Its own number rather than the strip's because the two gaps are set apart on purpose: sessions
+ * sit further from each other than Bots do, since each carries a rail and two rails close together
+ * read as one striped edge. Move the class and move this, or a dragged session steps aside by the
+ * wrong amount and settles a few pixels off where it was drawn.
+ */
+export const SESSION_GAP = 16;
+
+/**
  * How wide a session stands while it is closed, which is not a number anyone chose and not one
  * that is remembered.
  *

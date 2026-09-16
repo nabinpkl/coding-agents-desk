@@ -54,6 +54,7 @@ export type {
   BotSnapshot,
   BotView,
   DetachBotSessionsCommand,
+  ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
   RetiredBotSession,
 } from "./bot.ts";

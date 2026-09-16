@@ -52,8 +52,7 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
  *
  * `feed` is the sidecar reached over HTTP: projects, threads, transcripts, commands. `host` is the
  * Mac's native authority reached by postMessage: another application's text fields and its question
- * panel. Handing the view one merged object would let a future call reach the second
- * while believing it was talking to the first.
+ * panel. Merging them into one would let a future call reach the second believing it was the first.
  */
 interface Props {
   feed: SidecarDataSource;
@@ -460,6 +459,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 onForkFromLastCompaction={commands.forkFromLastCompaction}
                 onRenameSession={commands.setRenamingSession}
                 onDetachSession={commands.detachBotSession}
+                onReorderSessions={commands.reorderBotSessions}
                 onRemoveSessionFromCanvas={roster.removeSessionFromCanvas}
                 onDetachBot={roster.toggleBotOnCanvas}
                 detachedCount={botsState.bots.length - roster.canvasBots.length}

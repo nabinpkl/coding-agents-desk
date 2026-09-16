@@ -2,6 +2,7 @@ import type {
   AddBotCommand,
   AddBotSessionsCommand,
   DetachBotSessionsCommand,
+  ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
 import {
@@ -70,6 +71,13 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     if (request.method === "POST" && retireMatch) {
       return retireBotSessions(request, retireMatch[1]!, registry);
     }
+    // Reordering is neither of those: the same references, standing differently. Its own path for
+    // the same reason they have theirs -- `/sessions` is where a body naming sessionRefs ATTACHES
+    // them, so a reorder posted there would add every session the Bot already has.
+    const orderMatch = /^\/api\/bots\/([^/]+)\/sessions\/order$/.exec(url.pathname);
+    if (request.method === "POST" && orderMatch) {
+      return reorderBotSessions(request, orderMatch[1]!, registry);
+    }
     return undefined;
   };
 }
@@ -129,6 +137,23 @@ async function retireBotSessions(
     if (body instanceof Response) return body;
     return jsonResponse(
       await registry.retireSessions(decodedBotId, body as unknown as RetireBotSessionsCommand, { kind: "user" }),
+    );
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function reorderBotSessions(
+  request: Request,
+  botId: string,
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    const decodedBotId = decodeBotId(botId);
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    return jsonResponse(
+      await registry.reorderSessions(decodedBotId, body as unknown as ReorderBotSessionsCommand, { kind: "user" }),
     );
   } catch (error) {
     return routeError(error);

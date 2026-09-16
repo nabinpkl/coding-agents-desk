@@ -43,10 +43,31 @@ export interface StripMove {
 export function useMoveAlongStrip({
   canvas,
   list,
+  gap = STRIP_GAP,
+  count,
   onDrop,
 }: {
   canvas: React.RefObject<HTMLDivElement | null>;
   list: React.RefObject<HTMLUListElement | null>;
+  /**
+   * The gap the strip lays its boxes out with, which a card stepping aside has to clear as well.
+   *
+   * A parameter because this is used at two scales now: the canvas's own strip of Bots, and the
+   * row of sessions inside one Bot's card, which stand further apart. Reading it off the element
+   * would be better and is not free -- `getComputedStyle` per drag start, for a number the caller
+   * already knows from the class it wrote.
+   */
+  gap?: number;
+  /**
+   * How many of the strip's children may be carried, counted from the first.
+   *
+   * The session row is the reason: after a Bot's own sessions it also lays out the ones this panel
+   * has started and has nowhere to put yet, and the references whose transcripts have gone
+   * missing. Neither has a place in the Bot's order, so a card dropped on one would be aimed at a
+   * position that cannot be expressed. Absent, every child is movable, which is what the canvas
+   * strip wants.
+   */
+  count?: number;
   onDrop: (from: number, to: number) => void;
 }): StripMove {
   const laidOut = useRef<{ left: number; width: number }[]>([]);
@@ -86,7 +107,7 @@ export function useMoveAlongStrip({
     if (!strip) return;
     scale.current = effectiveScale(strip);
     const origin = strip.getBoundingClientRect().left;
-    laidOut.current = [...strip.children].map((child) => {
+    laidOut.current = [...strip.children].slice(0, count).map((child) => {
       const box = child.getBoundingClientRect();
       return { left: (box.left - origin) / scale.current, width: box.width / scale.current };
     });
@@ -142,7 +163,7 @@ export function useMoveAlongStrip({
       const held = laidOut.current[carried.from];
       if (!held) return 0;
       // A card the held one has passed steps aside by exactly the room the held one takes.
-      const stride = held.width + STRIP_GAP;
+      const stride = held.width + gap;
       if (carried.to > carried.from && index > carried.from && index <= carried.to) return -stride;
       if (carried.to < carried.from && index < carried.from && index >= carried.to) return stride;
       return 0;

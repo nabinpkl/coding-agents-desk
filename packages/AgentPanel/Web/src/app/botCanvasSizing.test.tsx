@@ -286,6 +286,9 @@ describe("App shell", () => {
         "Fork session",
         "Fork from last message",
         "Fork from last compaction",
+        // One direction only: this is the first of the Bot's two sessions, so there is nowhere
+        // earlier for it to go and the entry that would say so is absent rather than inert.
+        "Move right",
         "Remove from bot",
         "Remove from canvas",
       ]);

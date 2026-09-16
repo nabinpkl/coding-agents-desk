@@ -5,7 +5,7 @@
 // and that is a different thing from the Bot card that holds it.
 
 import { Bot, ChevronDown } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
@@ -16,6 +16,9 @@ import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { botSessionStyle } from "@/features/bots/botSurface";
+
+/** How far a press has to travel before it stops being a click and becomes a carry. */
+const MOVE_THRESHOLD = 4;
 
 /**
  * One of a Bot's sessions, which is a Bot one level down.
@@ -37,6 +40,14 @@ export function BotSessionCard({
   solo,
   open,
   onToggle,
+  offset,
+  lifted,
+  onMoveStart,
+  onMoveBy,
+  onMoveEnd,
+  onMoveBySteps,
+  canMoveEarlier,
+  canMoveLater,
   size,
   onResize,
   onResizeCommit,
@@ -66,6 +77,17 @@ export function BotSessionCard({
   solo: boolean;
   open: boolean;
   onToggle: () => void;
+  /** How far this card is drawn from where the roster laid it out, while a move is happening. */
+  offset: number;
+  /** Whether this is the card being carried, rather than one stepping aside for it. */
+  lifted: boolean;
+  onMoveStart: (clientX: number) => void;
+  onMoveBy: (clientX: number) => void;
+  onMoveEnd: () => void;
+  /** The keyboard's way to the same thing: one place earlier or later in the Bot's order. */
+  onMoveBySteps: (steps: number) => void;
+  canMoveEarlier: boolean;
+  canMoveLater: boolean;
   size: BotCardSize;
   onResize: (size: BotCardSize) => void;
   onResizeCommit: (size: BotCardSize) => void;
@@ -119,6 +141,47 @@ export function BotSessionCard({
   // no "among", and a rail down the only thing in a container draws a line between a group and
   // itself. The card keeps its shade either way, so it still reads as a card sitting on its Bot.
   const railed = shaded !== undefined && !solo;
+  // A press on this card's face is a click until it has travelled far enough to be a carry, the
+  // same threshold and for the same reason as the Bot header one level up: without it a hand that
+  // shifts two pixels while opening a session would reorder its Bot.
+  //
+  // On the BUTTON rather than on the row around it, which is the difference from that header. The
+  // face is the only part of this row that is not already a control -- the session's own controls
+  // and its menu sit beside it -- so it is the one thing there is to grab, and capturing the
+  // pointer on the element the click will be dispatched to is what keeps the click working at all.
+  const grab = useRef<{ pointerId: number; startX: number; carrying: boolean } | null>(null);
+  const carried = useRef(false);
+  const grabCard = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    // Cleared on the way IN rather than after a carry, so a drag that ended somewhere else does not
+    // leave a flag behind to swallow the next tap.
+    carried.current = false;
+    grab.current = { pointerId: event.pointerId, startX: event.clientX, carrying: false };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const carryCard = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    const held = grab.current;
+    if (!held || held.pointerId !== event.pointerId) return;
+    if (!held.carrying) {
+      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD) return;
+      held.carrying = true;
+      carried.current = true;
+      onMoveStart(held.startX);
+    }
+    onMoveBy(event.clientX);
+  };
+  const dropCard = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    const held = grab.current;
+    if (!held || held.pointerId !== event.pointerId) return;
+    grab.current = null;
+    if (held.carrying) onMoveEnd();
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+  // A carry ends with a pointerup on this button, which the browser reports as a click; opening the
+  // session there would mean every reorder also toggled the card it moved.
+  const openUnlessCarried = (): void => {
+    if (carried.current) return;
+    onToggle();
+  };
   const resize = useCardResize({
     name: title,
     noun: "session",
@@ -134,7 +197,16 @@ export function BotSessionCard({
     // on the main axis, and the column inside it is `flex-1 min-w-0`. Leaving the width off
     // therefore resolved the whole session to ZERO -- which is what a phone showed, a Bot card with
     // an empty body and a one-pixel sliver where the roster should be.
-    <li className="shrink-0" style={{ width: open ? resize.width : CLOSED_SESSION_WIDTH }}>
+    <li
+      className={`shrink-0 ${lifted ? "z-10" : ""}`}
+      style={{
+        width: open ? resize.width : CLOSED_SESSION_WIDTH,
+        transform: offset === 0 ? undefined : `translateX(${offset}px)`,
+        // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
+        // thing that should look like it is moving.
+        transition: lifted ? undefined : "transform 150ms ease",
+      }}
+    >
       <div
         // `relative` so this card is what the session's tasks panel is positioned against. That
         // panel is absolutely placed against its nearest positioned ancestor, which without this
@@ -202,9 +274,16 @@ export function BotSessionCard({
           >
             <button
               type="button"
-              onClick={onToggle}
+              onClick={openUnlessCarried}
+              onPointerDown={grabCard}
+              onPointerMove={carryCard}
+              onPointerUp={dropCard}
+              onPointerCancel={dropCard}
               aria-expanded={open}
-              className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+              // `cursor-pointer` rather than the header's `cursor-grab`, because unlike that header
+              // this element's first job is opening the session; the grabbing cursor appears once a
+              // press is actually being held, which is when it says something true.
+              className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
             >
               {/* The face, not a dot. A dot said live or not live and nothing about WHICH session
                   this was, so a Bot's roster opened with a column of identical marks. */}
@@ -255,6 +334,8 @@ export function BotSessionCard({
                 onFork={onFork}
                 onForkFromLastMessage={onForkFromLastMessage}
                 onForkFromLastCompaction={onForkFromLastCompaction}
+                onMoveEarlier={canMoveEarlier ? () => onMoveBySteps(-1) : undefined}
+                onMoveLater={canMoveLater ? () => onMoveBySteps(1) : undefined}
                 onDetach={onDetach}
                 onRemoveFromCanvas={onRemoveFromCanvas}
               />

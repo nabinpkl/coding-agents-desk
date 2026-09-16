@@ -68,6 +68,7 @@ export function BotCanvas({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onReorderSessions,
   detachedCount,
   detachedSessionKeys,
   openKeys,
@@ -170,6 +171,11 @@ export function BotCanvas({
    */
   onDetachBot: (bot: BotView) => void;
   /**
+   * Stands one Bot's sessions in a new order, naming the one carried. A Bot command rather than an
+   * arrangement of this canvas: that order is the Bot's own and reaches every surface reading it.
+   */
+  onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
+  /**
    * How many Bots exist but are off the canvas, which is only ever asked when `bots` is empty. An
    * empty canvas that says "No bots yet" over a roster of eight is a lie, and would send the reader
    * to Add Bot rather than to the roster their Bots are already in.
@@ -248,6 +254,7 @@ export function BotCanvas({
       onDetachSession={onDetachSession}
       onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
       onDetachBot={onDetachBot}
+      onReorderSessions={onReorderSessions}
       detachedSessionKeys={detachedSessionKeys}
       openKeys={openKeys}
       onToggleSession={onToggleSession}
@@ -292,6 +299,7 @@ function BotCanvasList({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onReorderSessions,
   detachedSessionKeys,
   openKeys,
   onToggleSession,
@@ -319,6 +327,7 @@ function BotCanvasList({
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
   detachedSessionKeys: ReadonlySet<string>;
   openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
@@ -442,6 +451,8 @@ function BotCanvasList({
           onDetachSession={onDetachSession}
           onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
           onDetachBot={onDetachBot}
+          onReorderSessions={onReorderSessions}
+          scroller={canvas}
           newSessions={newSessions.filter((each) => each.botId === bot.botId)}
           onCloseNewSession={onCloseNewSession}
         />

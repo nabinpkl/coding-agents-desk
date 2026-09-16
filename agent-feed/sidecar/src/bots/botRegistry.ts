@@ -12,6 +12,7 @@ import type {
   BotView,
   StartedSession,
   DetachBotSessionsCommand,
+  ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
@@ -29,6 +30,7 @@ import {
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { BotSessionStarter } from "@/bots/botSessionLaunch";
 import { BotSessionRetirer, detachRefs } from "@/bots/botSessionRemoval";
+import { reorderRefs } from "@/bots/botSessionOrder";
 import {
   BotConflictError,
   BotForbiddenError,
@@ -309,6 +311,41 @@ export class BotRegistry {
 
     const record = await this.store.mutate((snapshot) =>
       detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
+    );
+    return this.viewRecord(record);
+  }
+
+  /**
+   * Stands this Bot's sessions in a new order, attaching and detaching nothing.
+   *
+   * A Bot command rather than a panel preference because the order IS the Bot's: it is what the
+   * record holds, what every surface reading this sidecar draws, and what the panel ranks a Bot's
+   * session colours by. Kept locally it would be an arrangement one reader could see, disagreeing
+   * with the colours on the cards it arranged.
+   *
+   * The command names the whole order and is refused unless it is exactly this Bot's references;
+   * `reorderRefs` carries why. One bound comes along with the shared normalizer: a Bot with more
+   * sessions than a single command may carry cannot be reordered, which is far past any roster
+   * this surface has been asked to draw.
+   */
+  async reorderSessions(
+    botId: string,
+    command: ReorderBotSessionsCommand,
+    actor: BotActor,
+  ): Promise<BotView> {
+    if (actor.kind !== "user") {
+      throw new BotForbiddenError("only the authenticated user may reorder a Bot's sessions");
+    }
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
+    // No catalog resolution, for `detachSessions`' reason: what has to be true is that the Bot
+    // claims these references, and the stored record is the only authority on that. A session the
+    // catalog has forgotten still has a place in the order, and is still draggable on the card.
+    const normalized = normalizeSessionRefCommand(command);
+    const signature = commandSignature({ botId, ...normalized });
+    const idempotencyKey = `reorder:${actorKey(actor)}:${normalized.requestId}`;
+
+    const record = await this.store.mutate((snapshot) =>
+      reorderRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
     );
     return this.viewRecord(record);
   }

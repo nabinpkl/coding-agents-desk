@@ -384,6 +384,38 @@ export function useBotCommands(
       });
   }, [feeds]);
 
+  /**
+   * Stands one Bot's sessions in a new order.
+   *
+   * Nothing is set here on success, for `detachBotSession`'s reason: the Bot stream publishes the
+   * new snapshot and the cards move on their own, which is also what happens when the same Bot is
+   * rearranged from another surface or another machine. Until it arrives the cards sit where they
+   * were, so a reorder looks like a drag that sprang back for as long as the round trip takes.
+   *
+   * A failure is named against the session that was carried rather than dropped on the canvas
+   * band, because that card is still on screen and still in its old place: an order that silently
+   * did not take is indistinguishable from a drag that missed.
+   */
+  const reorderBotSessions = useCallback(
+    (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => {
+      const label = bot.sessions
+        .find((session) => session.source === moved.source && session.sessionId === moved.sessionId)
+        ?.title || moved.sessionId;
+      setBotCommandError(null);
+      void Promise.resolve()
+        .then(() => feeds.forBot(bot.botId).reorderBotSessions(bot.botId, { sessionRefs }))
+        .catch((error: unknown) => {
+          setBotCommandError({
+            session: `${moved.source}:${moved.sessionId}`,
+            message: `Could not move ${label} in ${bot.name}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        });
+    },
+    [feeds],
+  );
+
   return {
     botCommandError,
     setBotCommandError,
@@ -410,5 +442,6 @@ export function useBotCommands(
     createBot,
     attachBotSessions,
     detachBotSession,
+    reorderBotSessions,
   };
 }

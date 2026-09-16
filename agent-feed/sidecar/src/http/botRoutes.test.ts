@@ -146,6 +146,49 @@ test("detaches sessions through a POST route the host relay can reach", async ()
   }]);
 });
 
+test("reorders sessions through a path of its own, so an order is never read as an attach", async () => {
+  const calls: unknown[] = [];
+  const registry = {
+    async reorderSessions(botId: string, command: unknown, actor: unknown) {
+      calls.push({ botId, command, actor });
+      return bot;
+    },
+    async addSessions() {
+      throw new Error("an order must not reach the attach path");
+    },
+    async detachSessions() {
+      throw new Error("an order must not reach the detach path");
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry);
+  const request = new Request("http://localhost/api/bots/bot%201/sessions/order", {
+    method: "POST",
+    body: JSON.stringify({
+      requestId: "order-1",
+      sessionRefs: [
+        { source: "claude", sessionId: "claude-2" },
+        { source: "pi", sessionId: "pi-1" },
+      ],
+    }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual(bot);
+  expect(calls).toEqual([{
+    botId: "bot 1",
+    command: {
+      requestId: "order-1",
+      sessionRefs: [
+        { source: "claude", sessionId: "claude-2" },
+        { source: "pi", sessionId: "pi-1" },
+      ],
+    },
+    actor: { kind: "user" },
+  }]);
+});
+
 test("leaves a DELETE on the sessions path unmatched rather than answering it", async () => {
   const registry = {
     async detachSessions() {

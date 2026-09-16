@@ -34,6 +34,7 @@ import type {
   ParkRestoreReport,
   ParkStateResponse,
   ProjectSummary,
+  ReorderBotSessionsCommand,
   LimitsStreamMessage,
   SessionSummary,
   SidecarConfig,
@@ -195,6 +196,25 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
       await this.transport.request(
         "POST",
         `/api/bots/${encodeURIComponent(botId)}/sessions/detach`,
+        { body: { ...command, requestId: crypto.randomUUID() } },
+      ),
+    );
+  }
+
+  /**
+   * Stands a Bot's sessions in a new order, and answers with the Bot holding it. Its own path
+   * rather than the attach one, where a body naming sessionRefs ADDS them; it states the Bot's
+   * whole order and is refused unless that is exactly what the Bot holds, so a panel working from
+   * a roster that has moved is told rather than silently rewriting it.
+   */
+  async reorderBotSessions(
+    botId: string,
+    command: Omit<ReorderBotSessionsCommand, "requestId">,
+  ): Promise<BotView> {
+    return parse<BotView>(
+      await this.transport.request(
+        "POST",
+        `/api/bots/${encodeURIComponent(botId)}/sessions/order`,
         { body: { ...command, requestId: crypto.randomUUID() } },
       ),
     );

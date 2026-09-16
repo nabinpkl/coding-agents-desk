@@ -1,4 +1,13 @@
-import { EyeOff, GitBranch, GitFork, Pencil, Scissors, Unlink } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  EyeOff,
+  GitBranch,
+  GitFork,
+  Pencil,
+  Scissors,
+  Unlink,
+} from "lucide-react";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 
 /**
@@ -13,6 +22,8 @@ export function SessionRowMenu({
   onFork,
   onForkFromLastMessage,
   onForkFromLastCompaction,
+  onMoveEarlier,
+  onMoveLater,
   onDetach,
   onRemoveFromCanvas,
 }: {
@@ -49,6 +60,20 @@ export function SessionRowMenu({
    * is already at it, which is what the plain fork above does.
    */
   onForkFromLastCompaction?: () => void;
+  /**
+   * Moves this session one place earlier in its Bot's order, or later.
+   *
+   * The keyboard's way to what dragging a card does, and the reason the drag is not the whole
+   * feature: a pointer gesture has no keyboard equivalent at all, so without these two the order
+   * would be something only a mouse could set. Absent at each end of the roster, where there is
+   * nowhere further to go, and absent together on a surface with no order to change.
+   *
+   * Worded for the canvas, where a Bot's sessions stand side by side. The sidebar lists the same
+   * sessions down a column and does not offer these yet; when it does, "Move left" names nothing
+   * there and the labels become the caller's to pass rather than this menu's to assume.
+   */
+  onMoveEarlier?: () => void;
+  onMoveLater?: () => void;
   onDetach: () => void;
   /**
    * Takes this session's card off the canvas and changes nothing about the Bot.
@@ -77,6 +102,12 @@ export function SessionRowMenu({
       onSelect: onForkFromLastCompaction,
     });
   }
+  // Above the removals and below the forks, which is the list widening from making something new,
+  // through rearranging what is here, to taking it away. Both entries are the Bot's own order
+  // rather than this view's, so they sit with "Remove from bot" rather than with the canvas act
+  // under it.
+  if (onMoveEarlier) items.push({ label: "Move left", icon: ArrowLeft, onSelect: onMoveEarlier });
+  if (onMoveLater) items.push({ label: "Move right", icon: ArrowRight, onSelect: onMoveLater });
   // "from bot", not "from canvas": this drops the Bot's reference to the session wherever the row
   // is being read, and is the only one of the two that asks the sidecar for anything. Both survive
   // a reload; only this one survives it for somebody else.
