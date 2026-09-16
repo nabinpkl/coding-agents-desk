@@ -149,7 +149,6 @@ try {
     const tapped = await canvas(page);
     check('a press on a card zooms to it at its own size', tapped.scale > 0.99,
       `scale ${tapped.scale.toFixed(3)}`);
-    check('a press on the canvas at its own size goes back out', true);
 
     // And back out, which is the only way out of the mode that is not the sidebar toggle.
     await page.mouse.click(target.x, Math.min(880, target.y));
