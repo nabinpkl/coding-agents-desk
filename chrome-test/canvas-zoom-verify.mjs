@@ -17,8 +17,6 @@
 // sidecar cycle an encoder underneath somebody's live stream.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -35,10 +33,11 @@ const pw = await import(pathToFileURL(join(PW_ROOT, 'index.js')).href);
 const chromium = pw.chromium || (pw.default && pw.default.chromium);
 if (!chromium) throw new Error('could not load playwright chromium from ' + PW_ROOT);
 
-// The whole working directory is this RUN's, not this script's: several agents share this machine,
-// and Chrome keeps a SingletonLock in its user-data-dir, so a fixed path means a second run either
-// attaches to somebody else's browser or refuses to start.
-const work = mkdtempSync(join(tmpdir(), 'canvas-zoom-'));
+// Nothing here names a profile directory, and that is the point rather than an omission: several
+// agents share this machine, and Chrome keeps a SingletonLock in its user-data-dir, so any fixed
+// path means a second run either attaches to somebody else's browser or refuses to start.
+// `chromium.launch` mints a unique throwaway profile per run and removes it on close, which is
+// what the shared-machine rule wants; `panel-scroll-memory-verify.mjs` does the same.
 
 const failures = [];
 function check(claim, held, detail) {
@@ -77,7 +76,7 @@ const canvas = (page) => page.evaluate(() => {
 
 let browser;
 try {
-  browser = await chromium.launch({ headless: true, args: [`--user-data-dir=${join(work, 'profile')}`] });
+  browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1280, height: 900 },
@@ -219,7 +218,6 @@ try {
     `scrollLeft ${panFrom} -> ${panned.scrollLeft}`);
 } finally {
   if (browser) await browser.close();
-  rmSync(work, { recursive: true, force: true });
 }
 
 if (failures.length > 0) {
