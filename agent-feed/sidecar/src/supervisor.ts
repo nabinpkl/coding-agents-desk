@@ -16,12 +16,12 @@
 // same rendezvous board the sidecar announces itself on, so the panel can show a held sidecar
 // instead of the reader seeing a feed that has merely gone quiet.
 
-import { rmSync, renameSync, writeFileSync } from "node:fs";
-import { userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import chokidar from "chokidar";
-import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
-import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
+import {
+  clearSupervisorDescriptor,
+  writeSupervisorDescriptor,
+} from "@/sidecarRegistry";
 import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
@@ -60,20 +60,18 @@ function say(message: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// The board file the panel reads
+// The board the panel reads
+//
+// Written rather than served, because this process serves nothing: the sidecar is the thing with a
+// port, and it reads this back to answer `/api/config`. That is what carries a held sidecar to a
+// panel on ANOTHER machine, which cannot see this file at all.
 
-const board = join(runtimePaths().sidecarRegistry, `${userInfo().username}.supervisor.json`);
 let published: SupervisorState = { held: false, blocked: null };
 
 function publish(state: SupervisorState = published): void {
   published = state;
   try {
-    ensureCrossSessionDirectory(dirname(board));
-    const temporary = `${board}.${process.pid}.tmp`;
-    // Temp-then-rename, so a reader never catches a half-written file, and a heartbeat so a
-    // supervisor that died reads as absent rather than as its last words.
-    writeFileSync(temporary, JSON.stringify({ ...state, pid: process.pid, heartbeat: Date.now() }));
-    renameSync(temporary, board);
+    writeSupervisorDescriptor(state);
   } catch (error) {
     // The panel loses one row of detail; the dev loop is unaffected, so this is not worth dying for.
     say(`could not publish state: ${String(error)}`);
@@ -199,11 +197,7 @@ function stop(signal: NodeJS.Signals): void {
   clearTimeout(settle);
   say(`${signal}; stopping the sidecar`);
   child?.kill();
-  try {
-    rmSync(board, { force: true });
-  } catch {
-    // aged out by the reader instead
-  }
+  clearSupervisorDescriptor();
   // The child holds the port, so leaving before it is gone hands the next launch a bound port. It
   // gets a moment, and the process leaves either way rather than hanging on a child that will not
   // go. A supervisor killed with SIGKILL cannot do even this, which is why `host-login` reclaims

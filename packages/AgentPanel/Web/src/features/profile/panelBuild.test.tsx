@@ -174,7 +174,7 @@ describe("work the dev server is holding", () => {
       build: "7373cec+",
       held: ["ActivityBlockViews.tsx", "panelBuild.ts"],
       blocked: "ActivityBlockViews.tsx: Unexpected end of file (line 412)",
-      sidecar: null,
+      sidecars: [],
     });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 
@@ -193,7 +193,7 @@ describe("work the dev server is holding", () => {
         build: "7373cec+",
         held: ["main.tsx"],
         blocked: "main.tsx: Syntax Error",
-        sidecar: null,
+        sidecars: [],
       }),
     );
     expect(result.current.held).toEqual(["main.tsx"]);
@@ -201,27 +201,29 @@ describe("work the dev server is holding", () => {
     expect(asked).toHaveLength(1);
   });
 
-  // The other process's gate, carried on the same report rather than fetched separately: the panel
-  // has a bounded number of connections to spend and this is not worth one.
-  it("carries what the sidecar's own supervisor is holding", async () => {
+  // The other processes' gates, carried on the same report rather than fetched separately: the
+  // panel has a bounded number of connections to spend and this is not worth one, least of all one
+  // per machine.
+  it("carries what each machine's supervisor is holding", async () => {
     const server = devServer();
     serveReport({
       build: "7373cec",
-      sidecar: { held: true, blocked: "sessionRoutes.ts: Syntax Error" },
+      sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error" }],
     });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 
-    await waitFor(() => expect(result.current.sidecar?.held).toBe(true));
-    expect(result.current.sidecar?.blocked).toContain("sessionRoutes.ts");
+    await waitFor(() => expect(result.current.sidecars).toHaveLength(1));
+    expect(result.current.sidecars[0]?.machine).toBe("oracle");
+    expect(result.current.sidecars[0]?.blocked).toContain("sessionRoutes.ts");
   });
 
   it("reads a sidecar report that is not the contract as no supervisor at all", async () => {
     const server = devServer();
-    serveReport({ build: "7373cec", sidecar: "not an object" as never });
+    serveReport({ build: "7373cec", sidecars: "not a list" as never });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 
     await waitFor(() => expect(result.current.id).toBe("7373cec"));
-    expect(result.current.sidecar).toBeNull();
+    expect(result.current.sidecars).toEqual([]);
   });
 
   it("holds nothing in a build with no dev server behind it", () => {
@@ -230,6 +232,6 @@ describe("work the dev server is holding", () => {
 
     expect(asked).toEqual([]);
     expect(result.current.held).toEqual([]);
-    expect(result.current.sidecar).toBeNull();
+    expect(result.current.sidecars).toEqual([]);
   });
 });

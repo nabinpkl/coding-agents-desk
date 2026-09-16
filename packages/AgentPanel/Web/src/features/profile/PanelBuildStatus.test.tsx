@@ -16,7 +16,7 @@ function build(overrides: Partial<PanelBuild> = {}): PanelBuild {
     connected: true,
     held: [],
     blocked: null,
-    sidecar: null,
+    sidecars: [],
     ...overrides,
   };
 }
@@ -55,30 +55,45 @@ describe("held work in the sidebar", () => {
 
   // The other process, on the same row. The sidecar runs the working tree too, and a reader looking
   // at a feed with no new rows cannot otherwise tell it apart from a session that has gone quiet.
-  it("says when the sidecar's own supervisor is holding the tree back", () => {
+  it("names the machine whose supervisor is holding its tree back", () => {
     render(
       <PanelBuildStatus
-        build={build({ sidecar: { held: true, blocked: "sessionRoutes.ts: Syntax Error" } })}
+        build={build({
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error" }],
+        })}
       />,
     );
-    expect(screen.getByText("Sidecar held back")).toBeDefined();
+    expect(screen.getByText("oracle sidecar held back")).toBeDefined();
     expect(screen.getByText(/sessionRoutes.ts/)).toBeDefined();
   });
 
-  it("stays quiet about a sidecar that is merely running", () => {
-    const { container } = render(
-      <PanelBuildStatus build={build({ sidecar: { held: false, blocked: null } })} />,
-    );
-    expect(container.textContent).toBe("");
-  });
-
-  it("shows both halves when both are behind", () => {
+  // The panel reads more than one machine, and a held peer is invisible from a feed that has simply
+  // stopped producing rows.
+  it("says it once per machine", () => {
     render(
       <PanelBuildStatus
-        build={build({ held: ["main.tsx"], sidecar: { held: true, blocked: null } })}
+        build={build({
+          sidecars: [
+            { machine: "dev", held: true, blocked: null },
+            { machine: "oracle", held: true, blocked: "half a file" },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText("dev sidecar held back")).toBeDefined();
+    expect(screen.getByText("oracle sidecar held back")).toBeDefined();
+  });
+
+  it("shows both halves when the panel and a sidecar are both behind", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          held: ["main.tsx"],
+          sidecars: [{ machine: "oracle", held: true, blocked: null }],
+        })}
       />,
     );
     expect(screen.getByText("1 file held back")).toBeDefined();
-    expect(screen.getByText("Sidecar held back")).toBeDefined();
+    expect(screen.getByText("oracle sidecar held back")).toBeDefined();
   });
 });

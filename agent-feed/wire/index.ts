@@ -194,6 +194,7 @@ export type {
   ProjectsPayload,
   SessionsPayload,
   SidecarConfig,
+  SupervisorStatus,
   TimelineEnvelope,
   TimelineMessage,
   WireErrorPayload,

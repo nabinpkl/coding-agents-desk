@@ -230,4 +230,31 @@ export interface SidecarConfig {
   usageVendors: UsageVendorId[];
   /** Whether the Desktop park surface has a window manager to drive. */
   parkAvailable: boolean;
+  /**
+   * What this machine's sidecar supervisor is holding back, or null when nothing supervises it.
+   *
+   * Here rather than on a route of its own because it is a fact about the machine, like everything
+   * else on this document, and because the panel's dev server already asks every sidecar it knows
+   * for `/api/config` on a timer to see whether it is alive. Carrying it on an answer somebody is
+   * already waiting for costs no request, and connections are the scarce thing between the panel
+   * and a peer.
+   *
+   * Null on a bundled sidecar, which has no supervisor, and on one whose supervisor stopped
+   * heartbeating: a dead supervisor's last words shown as live are worse than saying nothing.
+   */
+  supervisor: SupervisorStatus | null;
+}
+
+/**
+ * A sidecar supervisor's view of its own tree.
+ *
+ * The supervisor runs the sidecar as a child and replaces it only when every changed file parses
+ * (`agent-feed/sidecar/src/supervisorGate.ts`), so a sidecar can be deliberately older than the
+ * tree beside it. Without this the panel shows a feed that has merely gone quiet.
+ */
+export interface SupervisorStatus {
+  /** True when the tree has moved since the running sidecar was started. */
+  held: boolean;
+  /** Which file will not parse, and why. Null when nothing is in the way. */
+  blocked: string | null;
 }

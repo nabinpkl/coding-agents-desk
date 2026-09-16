@@ -1,7 +1,7 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config";
-import { announceSidecar } from "@/sidecarRegistry";
+import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import {
   BYE_BYTES,
   jsonResponse,
@@ -217,6 +217,12 @@ const server = Bun.serve<undefined>({
         // requests per surface, and an extra availability call fired on mount
         // loses that race and reads as "this machine cannot do it".
         parkAvailable: config.yabaiPath !== null,
+        // Read per request, from the file this machine's supervisor heartbeats. It belongs on this
+        // answer because the panel's dev server already asks every sidecar it knows for
+        // `/api/config` on a timer to see whether it is alive, so a peer's held state crosses the
+        // link with no request of its own -- and a peer is exactly the case a file cannot serve,
+        // since the panel is on a different machine.
+        supervisor: readSupervisorDescriptor(),
       };
       return jsonResponse(body);
     }

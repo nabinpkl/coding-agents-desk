@@ -22,8 +22,13 @@ export const PANEL_PUBLISH_EVENT = "panel:publish-state";
  * is gated the same way the panel is (`agent-feed/sidecar/src/supervisorGate.ts`). A reader looking
  * at a feed with no new rows cannot tell a quiet session from a sidecar that has been refusing to
  * restart for ten minutes, and until this crossed over, only its log could.
+ *
+ * One per machine, because the panel reads more than one: a session on an ssh peer is served by
+ * that peer's own sidecar and gated by that peer's own supervisor.
  */
 export interface SidecarSupervisorReport {
+  /** The label the reader knows the machine by, which is how the row names it. */
+  machine: string;
   /** True when a file it watches will not parse, so the running sidecar is older than the tree. */
   held: boolean;
   /** Which file, and what is wrong with it. */
@@ -45,11 +50,11 @@ export interface PanelBuildReport {
   /** Which held file will not parse, and why. Null when nothing is held. */
   blocked: string | null;
   /**
-   * The sidecar supervisor's own state, or null when there is not one behind this panel.
+   * Every machine whose sidecar supervisor is holding its tree back. Empty is the ordinary state.
    *
-   * Null covers both a bundled sidecar, which has no supervisor, and a supervisor that died: it is
-   * read from a file it heartbeats, and a stale one reads as absent rather than as its last known
-   * state. A frozen report of a dead process is the failure this whole row exists to remove.
+   * Absence covers a bundled sidecar, which has no supervisor, and a supervisor that stopped
+   * heartbeating: a stale descriptor reads as no supervisor rather than as its last known state,
+   * because a frozen report of a dead process is the failure this whole row exists to remove.
    */
-  sidecar: SidecarSupervisorReport | null;
+  sidecars: SidecarSupervisorReport[];
 }

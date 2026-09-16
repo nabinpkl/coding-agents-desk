@@ -13,6 +13,7 @@ const config: SidecarConfig = {
   summaryModel: null,
   usageVendors: ["codex"],
   parkAvailable: false,
+  supervisor: null,
 };
 
 function report(inputTokens: number): UsageReport {

@@ -25,12 +25,12 @@ import {
 const PANEL = "/repo/packages/AgentPanel/Web/src";
 const MAIN = `${PANEL}/app/main.tsx`;
 
-function gateWith(sidecar: SupervisorReport | null = null) {
+function gateWith(sidecars: SupervisorReport[] = []) {
   const reports: PublishReport[] = [];
   const gate = createPublishGate({
     broadcast: (report) => reports.push(report),
     buildId: () => "abc1234+",
-    sidecar: () => sidecar,
+    sidecars: () => sidecars,
   });
   return { gate, reports };
 }
@@ -83,17 +83,27 @@ describe("the publish gate", () => {
 
   // The other process's gate, carried on the same report: the sidecar runs the working tree too, and
   // a reader looking at a feed with no new rows cannot otherwise tell it apart from a quiet session.
-  it("carries what the sidecar's own supervisor is holding", () => {
-    const { gate } = gateWith({ held: true, blocked: "sessionRoutes.ts: Unexpected end of file" });
-    expect(gate.report().sidecar).toEqual({
-      held: true,
-      blocked: "sessionRoutes.ts: Unexpected end of file",
-    });
+  it("carries what each machine's supervisor is holding", () => {
+    const { gate } = gateWith([
+      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file" },
+    ]);
+    expect(gate.report().sidecars).toEqual([
+      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file" },
+    ]);
   });
 
-  it("says nothing about a sidecar that has no supervisor behind it", () => {
+  // A machine that is merely running is not news, and every machine the panel can see answers.
+  it("leaves out the machines that are running the tree they were given", () => {
+    const { gate } = gateWith([
+      { machine: "dev", held: false, blocked: null },
+      { machine: "oracle", held: true, blocked: "half a file" },
+    ]);
+    expect(gate.report().sidecars.map((sidecar) => sidecar.machine)).toEqual(["oracle"]);
+  });
+
+  it("says nothing at all when no machine is holding anything", () => {
     const { gate } = gateWith();
-    expect(gate.report().sidecar).toBeNull();
+    expect(gate.report().sidecars).toEqual([]);
   });
 });
 

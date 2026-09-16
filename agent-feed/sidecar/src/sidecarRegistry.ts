@@ -1,6 +1,7 @@
-import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import type { SupervisorStatus } from "@agentdesk/agent-feed-wire";
 import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
 
@@ -84,5 +85,68 @@ export function announceSidecar(
         // aged out by the reader instead
       }
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The supervisor's own descriptor, on the same board and by the same rules
+//
+// Two processes need the shape of this file and they are not the same process: the supervisor
+// writes it (it is the only one that knows), and the sidecar reads it back to answer `/api/config`
+// for a panel that may be on another machine and cannot see the file at all. One home for both, so
+// the reader cannot drift from the writer.
+
+/** How stale a supervisor descriptor may be before it reads as no supervisor at all. */
+const SUPERVISOR_STALE_MS = HEARTBEAT_MS * 3;
+
+/** `<registry>/<user>.supervisor.json`, beside the sidecar descriptor this user already writes. */
+export function supervisorDescriptorPath(dir = runtimePaths().sidecarRegistry): string {
+  return join(dir, `${userInfo().username}.supervisor.json`);
+}
+
+/**
+ * Publish what the supervisor is holding, atomically and with a heartbeat.
+ *
+ * Temp-then-rename for the reason the sidecar descriptor uses it: a reader must never catch this
+ * half written. The heartbeat is what lets a reader tell a supervisor that is thinking from one
+ * that died, which a file alone cannot say.
+ */
+export function writeSupervisorDescriptor(status: SupervisorStatus, dir?: string): void {
+  const file = supervisorDescriptorPath(dir);
+  ensureCrossSessionDirectory(dirname(file));
+  const temporary = `${file}.${process.pid}.tmp`;
+  writeFileSync(temporary, JSON.stringify({ ...status, pid: process.pid, heartbeat: Date.now() }));
+  renameSync(temporary, file);
+}
+
+/** Take it back off the board, so a stopped supervisor vanishes now rather than aging out. */
+export function clearSupervisorDescriptor(dir?: string): void {
+  try {
+    rmSync(supervisorDescriptorPath(dir), { force: true });
+  } catch {
+    // aged out by the reader instead
+  }
+}
+
+/**
+ * What this machine's supervisor is holding, or null when nothing live is supervising.
+ *
+ * Null covers three cases a reader cannot tell apart and does not need to: no supervisor was ever
+ * started, the file is malformed, and the supervisor stopped heartbeating. All three mean the same
+ * thing to whoever is looking at the panel -- nobody is holding anything back on this machine's
+ * behalf that they can be told about.
+ */
+export function readSupervisorDescriptor(dir?: string, now = Date.now()): SupervisorStatus | null {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(supervisorDescriptorPath(dir), "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const heartbeat = typeof raw.heartbeat === "number" ? raw.heartbeat : 0;
+  if (now - heartbeat > SUPERVISOR_STALE_MS) return null;
+  return {
+    held: raw.held === true,
+    blocked: typeof raw.blocked === "string" ? raw.blocked : null,
   };
 }

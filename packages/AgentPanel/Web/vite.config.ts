@@ -126,6 +126,65 @@ const SESSION_ID = /^[a-z0-9-]+$/i;
 const declaredPeers = parseDeclaredPeers(process.env.AGENTDESK_PANEL_REMOTE_SIDECARS);
 
 /**
+ * What each machine's sidecar supervisor is holding back, keyed by the label the reader knows it by.
+ *
+ * Filled from the `/api/config` answers this server already asks every sidecar for, and read by the
+ * publisher plugin, which is where the panel's own held work is reported. Module scope because it
+ * is one fact about this machine's view of the world rather than either plugin's private state, and
+ * because the two plugins that touch it are built separately.
+ *
+ * Entries are replaced on every answer and deleted when a sidecar stops answering, so nothing here
+ * outlives the thing it describes.
+ */
+const supervisors = new Map<string, { held: boolean; blocked: string | null }>();
+
+/** One `/api/config` answer, read for the only field this cares about. */
+function readSupervisorFrom(label: string, host: string, port: number, onChange: () => void): void {
+  const probe = httpRequest(
+    { host, port, method: "GET", path: "/api/config", timeout: 4_000 },
+    (answer) => {
+      if (answer.statusCode !== 200) {
+        answer.resume();
+        if (supervisors.delete(label)) onChange();
+        return;
+      }
+      let body = "";
+      answer.setEncoding("utf8");
+      answer.on("data", (chunk: string) => {
+        // Bounded, because this is a body from another machine and the only part that matters is
+        // small. A sidecar answering something enormous here is a sidecar that is not one.
+        if (body.length < 64_000) body += chunk;
+      });
+      answer.on("end", () => {
+        const before = JSON.stringify(supervisors.get(label) ?? null);
+        try {
+          const status = (JSON.parse(body) as { supervisor?: unknown }).supervisor;
+          if (status && typeof status === "object") {
+            const { held, blocked } = status as { held?: unknown; blocked?: unknown };
+            supervisors.set(label, {
+              held: held === true,
+              blocked: typeof blocked === "string" ? blocked : null,
+            });
+          } else {
+            supervisors.delete(label);
+          }
+        } catch {
+          supervisors.delete(label);
+        }
+        if (JSON.stringify(supervisors.get(label) ?? null) !== before) onChange();
+      });
+    },
+  );
+  probe.on("timeout", () => probe.destroy());
+  // Unreachable: the sidecar list ages it out on its own clock, and logging every tick of a peer
+  // that is simply off would drown the server's log.
+  probe.on("error", () => {
+    if (supervisors.delete(label)) onChange();
+  });
+  probe.end();
+}
+
+/**
  * Serves the sidecars the panel can reach: the login sessions on this machine, plus declared peers.
  *
  * A session on this machine announces itself on a shared board (see `announceSidecar`); this reads
@@ -247,6 +306,20 @@ function panelSessions(): Plugin {
         setInterval(() => probeDeclared(broadcast), SIDECAR_STALE_MS / 3).unref?.();
       }
 
+      // What each machine's supervisor is holding, on the same clock and from the same answer the
+      // liveness probe already reads. Every live sidecar, this session's included, so the panel's
+      // row says the same thing about a peer as it does about the Mac in front of the reader.
+      const readSupervisors = () => {
+        const live = liveSidecars();
+        for (const label of supervisors.keys()) {
+          if (label !== self && !live.has(label)) supervisors.delete(label);
+        }
+        readSupervisorFrom(self, defaultSidecar.host, defaultSidecar.port, () => {});
+        for (const [id, entry] of live) readSupervisorFrom(id, entry.host, entry.port, () => {});
+      };
+      readSupervisors();
+      setInterval(readSupervisors, SIDECAR_STALE_MS / 3).unref?.();
+
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
         const path = url.split("?")[0] ?? "";
@@ -358,9 +431,10 @@ export default defineConfig({
       buildRoute: PANEL_BUILD_ROUTE,
       event: PANEL_PUBLISH_EVENT,
       buildId: panelBuildId,
-      // Beside the descriptor each sidecar announces itself with, and named for this login session
-      // the same way: the supervisor behind this panel is the one running as this user.
-      supervisorBoard: join(runtimePaths().sidecarRegistry, `${userInfo().username}.supervisor.json`),
+      // Filled by `panelSessions`, which already asks every sidecar it knows whether it is alive.
+      // The publisher reports it because the panel's own held work is reported there, and a reader
+      // wants one answer to "is what I am looking at current", not two.
+      supervisors: () => [...supervisors].map(([machine, status]) => ({ machine, ...status })),
     }),
     panelSessions(),
     vncBridge(),

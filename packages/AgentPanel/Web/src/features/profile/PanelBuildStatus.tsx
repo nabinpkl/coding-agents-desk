@@ -17,9 +17,7 @@ import type { PanelBuild } from "@/features/profile/panelBuild";
 
 export function PanelBuildStatus({ build }: { build: PanelBuild }) {
   if (!build.connected) return null;
-
-  const sidecarHeld = build.sidecar?.held === true;
-  if (build.held.length === 0 && !sidecarHeld) return null;
+  if (build.held.length === 0 && build.sidecars.length === 0) return null;
 
   const count = `${build.held.length} ${build.held.length === 1 ? "file" : "files"}`;
   return (
@@ -33,13 +31,15 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
         </div>
       ) : null}
 
-      {/* The same fact about the other process, which gates its own restarts the same way. */}
-      {sidecarHeld ? (
-        <div className="space-y-0.5">
-          <span className="text-amber-500">Sidecar held back</span>
-          <Reason text={build.sidecar?.blocked ?? null} fallback="a file it watches will not parse" />
+      {/* The same fact about the other processes, one per machine: a session on an ssh peer is
+          served by that peer's own sidecar and gated by that peer's own supervisor, and a reader
+          looking at its feed cannot otherwise tell a held sidecar from a session gone quiet. */}
+      {build.sidecars.map((sidecar) => (
+        <div key={sidecar.machine} className="space-y-0.5">
+          <span className="text-amber-500">{sidecar.machine} sidecar held back</span>
+          <Reason text={sidecar.blocked} fallback="a file it watches will not parse" />
         </div>
-      ) : null}
+      ))}
     </div>
   );
 }

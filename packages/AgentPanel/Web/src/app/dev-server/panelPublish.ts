@@ -22,7 +22,6 @@
 // page load, which still transforms whatever is on disk and still reports its own failure through
 // Vite's overlay. The gate covers the live update path, which is the one that interrupts somebody.
 
-import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { transformWithEsbuild, type HotUpdateOptions, type Plugin, type ViteDevServer } from "vite";
 
@@ -31,11 +30,19 @@ export interface PublishReport {
   build: string;
   held: string[];
   blocked: string | null;
-  sidecar: SupervisorReport | null;
+  sidecars: SupervisorReport[];
 }
 
-/** What the sidecar's supervisor writes on its board file. Its own shape, in its own process. */
+/**
+ * One machine's sidecar supervisor, as the dev server heard it.
+ *
+ * A list rather than one, because the panel reads more than one machine: a session on an ssh peer
+ * is served by that peer's own sidecar, gated by that peer's own supervisor, and a reader looking
+ * at its feed has no way to tell a held sidecar there from a session that has gone quiet.
+ */
 export interface SupervisorReport {
+  /** The label the reader knows the machine by, which is how the row names it. */
+  machine: string;
   held: boolean;
   blocked: string | null;
 }
@@ -46,23 +53,14 @@ export interface PublishGateIO {
   broadcast(report: PublishReport): void;
   /** The build id of the tree as it is right now. */
   buildId(): string;
-  /** What the sidecar's supervisor is doing, or null when there is no live one to ask. */
-  sidecar(): SupervisorReport | null;
+  /** What each machine's sidecar supervisor is doing, for every one still answering. */
+  sidecars(): SupervisorReport[];
 }
 
 /** Only these are held. A stylesheet cannot take a render down, and holding one would just delay it. */
 const HELD_EXTENSIONS = /\.(ts|tsx)$/;
 
-/**
- * How old the sidecar supervisor's board file may be before it reads as no supervisor at all.
- *
- * Three missed heartbeats, which is what the sidecar board itself ages a descriptor out at. A
- * supervisor that died leaves its last state on disk, and showing that as live would put a frozen
- * report on the one row whose whole job is to say whether what you are looking at is current.
- */
-const SUPERVISOR_STALE_MS = 15_000;
-
-/** How often the board file is re-read, since a process that dies produces no filesystem event. */
+/** How often the machines' states are compared, since nothing pushes a change here. */
 const SUPERVISOR_POLL_MS = 2_000;
 
 /**
@@ -81,7 +79,9 @@ export function createPublishGate(io: PublishGateIO) {
     // The first one still held, which is the one a reader can act on. Named by file, because the
     // row is one line wide and the path is the half that does not fit.
     blocked: firstReason(held),
-    sidecar: io.sidecar(),
+    // Only the ones with something to say. A machine that is merely running is not news, and the
+    // row is built to render nothing at all when there is nothing to render.
+    sidecars: io.sidecars().filter((sidecar) => sidecar.held),
   });
 
   const broadcast = () => io.broadcast(report());
@@ -130,36 +130,15 @@ export interface PanelPublishOptions {
   /** The build id of the tree as it is right now. */
   buildId: () => string;
   /**
-   * The file the sidecar's supervisor heartbeats its own state onto.
+   * What each machine's sidecar supervisor is holding.
    *
-   * A file rather than a request, because the supervisor is the sidecar's PARENT and serves nothing
-   * itself: asking the sidecar would be asking the process being held back whether it is being held
-   * back. It sits on the rendezvous board this machine already keeps, beside the descriptor each
-   * sidecar announces itself with.
+   * Resolved by the config rather than read here, because the answer comes from `/api/config` on
+   * every sidecar this server knows -- which the session plugin already asks on a timer to see
+   * whether each one is alive. A supervisor serves nothing itself, so asking a sidecar is the only
+   * way to hear about a peer's at all, and riding an answer somebody is already waiting for costs
+   * no request.
    */
-  supervisorBoard: string;
-}
-
-/**
- * The supervisor's state, or null when there is no live supervisor behind this panel.
- *
- * An absent file is the ordinary answer, not an error: a bundled sidecar has no supervisor and never
- * writes one. A file older than three heartbeats is treated the same way, because the alternative is
- * putting a dead process's last words on the one row whose job is to say what is current.
- */
-function readSupervisorBoard(file: string): SupervisorReport | null {
-  let raw: Record<string, unknown>;
-  try {
-    raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-  const heartbeat = typeof raw.heartbeat === "number" ? raw.heartbeat : 0;
-  if (Date.now() - heartbeat > SUPERVISOR_STALE_MS) return null;
-  return {
-    held: raw.held === true,
-    blocked: typeof raw.blocked === "string" ? raw.blocked : null,
-  };
+  supervisors: () => SupervisorReport[];
 }
 
 /**
@@ -187,7 +166,7 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
   const gate = createPublishGate({
     broadcast: (report) => server?.environments.client.hot.send(options.event, report),
     buildId: options.buildId,
-    sidecar: () => readSupervisorBoard(options.supervisorBoard),
+    sidecars: options.supervisors,
   });
 
   return {
@@ -207,12 +186,12 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
     configureServer(dev) {
       server = dev;
 
-      // Polled rather than watched: the state that matters most is a supervisor that STOPPED, and a
-      // process that dies produces no filesystem event. Pushed only when it actually moved, so a
-      // quiet machine costs one small read every couple of seconds and no traffic at all.
+      // Polled rather than pushed: the list is refreshed by another plugin on its own clock, and
+      // the state that matters most is a supervisor that STOPPED, which produces no event anywhere.
+      // Compared rather than sent, so a quiet machine costs one string comparison and no traffic.
       let last = "";
       const poll = setInterval(() => {
-        const now = JSON.stringify(readSupervisorBoard(options.supervisorBoard));
+        const now = JSON.stringify(gate.report().sidecars);
         if (now === last) return;
         last = now;
         gate.announce();

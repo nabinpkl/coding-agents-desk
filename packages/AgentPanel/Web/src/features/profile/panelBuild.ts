@@ -80,8 +80,8 @@ export interface PanelBuild {
   held: string[];
   /** Which held file will not parse, and why. */
   blocked: string | null;
-  /** What the sidecar's own supervisor is holding, or null when there is no live one. */
-  sidecar: SidecarSupervisorReport | null;
+  /** Every machine whose own supervisor is holding its tree back. */
+  sidecars: SidecarSupervisorReport[];
 }
 
 /** What a page with no dev server behind it reports: a frozen bundle holds nothing back. */
@@ -90,7 +90,7 @@ const NOT_SERVED = {
   connected: true,
   held: [],
   blocked: null,
-  sidecar: null,
+  sidecars: [],
 } satisfies PanelBuild;
 
 /** A report is read off the wire, so each field is checked rather than cast. */
@@ -100,17 +100,20 @@ function readReport(report: PanelBuildReport): Omit<PanelBuild, "connected"> {
     id: report.build,
     held: Array.isArray(report.held) ? report.held.filter((name) => typeof name === "string") : [],
     blocked: typeof report.blocked === "string" ? report.blocked : null,
-    sidecar: readSidecar(report.sidecar),
+    sidecars: readSidecars(report.sidecars),
   };
 }
 
-/** The other process's gate, checked the same way: a shape that is not the contract is not a gate. */
-function readSidecar(report: PanelBuildReport["sidecar"]): SidecarSupervisorReport | null {
-  if (!report || typeof report !== "object") return null;
-  return {
-    held: report.held === true,
-    blocked: typeof report.blocked === "string" ? report.blocked : null,
-  };
+/** The other processes' gates, checked the same way: a shape that is not the contract is not one. */
+function readSidecars(report: PanelBuildReport["sidecars"]): SidecarSupervisorReport[] {
+  if (!Array.isArray(report)) return [];
+  return report
+    .filter((entry): entry is SidecarSupervisorReport => !!entry && typeof entry === "object")
+    .map((entry) => ({
+      machine: typeof entry.machine === "string" ? entry.machine : "sidecar",
+      held: entry.held === true,
+      blocked: typeof entry.blocked === "string" ? entry.blocked : null,
+    }));
 }
 
 /**
