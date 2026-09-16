@@ -451,7 +451,6 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 machines={shellMachines.chips}
                 keyOfBot={shellMachines.keyOfBot}
                 hiddenMachines={roster.hiddenMachines}
-                onToggleMachine={roster.toggleMachineOnCanvas}
                 machineErrors={botsState.machineErrors}
                 sessionContextFor={(botId) => shellMachines.contextFor(sessionViewContext, botId)}
                 botError={commands.botCommandError}

@@ -278,8 +278,8 @@ export function BrowserSurfaces({
             at once -- a Bot is a directory and those are not all on one machine -- so this moves
             the session list, the open thread, the terminals, the IDE and the desktop, and leaves
             the canvas showing the lot. Called "session" before, which named neither the thing it
-            switches nor the thing it does not; the canvas carries the other half of the sentence in
-            its own chip row (`BotMachineChips`). */}
+            switches nor the thing it does not; the sidebar's Canvas roster carries the other half
+            of the sentence, a chip per machine with its count (`BotMachineChips`). */}
         {surface !== "screen" && sessions.length > 1 ? (
           <div
             role="group"

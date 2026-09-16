@@ -26,7 +26,6 @@ import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { BotCanvasCard, CanvasNotice } from "@/features/bots/cards/BotCanvasCard";
-import { BotMachineChips } from "@/features/bots/cards/BotMachineChips";
 import { sessionKey, STRIP_GAP, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
@@ -68,7 +67,6 @@ export function BotCanvas({
   machines,
   keyOfBot,
   hiddenMachines,
-  onToggleMachine,
   machineErrors,
   botError,
   onAddSession,
@@ -117,15 +115,21 @@ export function BotCanvas({
    *
    * The canvas is the one surface that does not obey the tab bar's machine picker -- a Bot is a
    * directory and those are not all on one machine, so showing them side by side is the point --
-   * which means it owes the reader a statement of what it IS showing. That is what these become:
-   * a chip each, and the control that narrows the strip. See `BotMachineChips`.
+   * which means it owes the reader a statement of what it IS showing. These are the machines that
+   * statement names; the sidebar's canvas roster draws it, and the strip reads the answer. See
+   * `BotMachineChips`. Used here to label a card with the machine its Bot is on.
    */
   machines: readonly { key: string; label: string }[];
   /** Which machine a Bot is on. Undefined for a Bot no roster claims, which renders unlabelled. */
   keyOfBot: (botId: string) => string | undefined;
-  /** Machines the reader is not showing right now. Their cards are absent, their chip is not. */
+  /**
+   * Machines the reader is not showing right now, decided in the sidebar's canvas roster.
+   *
+   * Their cards are absent and their chip is not, which is why this arrives as a set rather than
+   * as a shorter `bots`: the count beside a hidden machine's chip is what says how many cards it
+   * is holding back, and the strip has to agree with it.
+   */
   hiddenMachines: ReadonlySet<string>;
-  onToggleMachine: (key: string) => void;
   /**
    * Machines that cannot be read, while others can.
    *
@@ -254,7 +258,6 @@ export function BotCanvas({
       machines={machines}
       keyOfBot={keyOfBot}
       hiddenMachines={hiddenMachines}
-      onToggleMachine={onToggleMachine}
       machineErrors={machineErrors}
       botError={botError}
       onAddSession={onAddSession}
@@ -298,7 +301,6 @@ function BotCanvasList({
   machines,
   keyOfBot,
   hiddenMachines,
-  onToggleMachine,
   machineErrors,
   botError,
   onAddSession,
@@ -323,7 +325,6 @@ function BotCanvasList({
   machines: readonly { key: string; label: string }[];
   keyOfBot: (botId: string) => string | undefined;
   hiddenMachines: ReadonlySet<string>;
-  onToggleMachine: (key: string) => void;
   machineErrors: readonly { label: string; reason: string }[];
   botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
@@ -414,12 +415,6 @@ function BotCanvasList({
       // the cards are measured in, and the bar this surface no longer draws already gave it back.
       className="mx-4 h-full overflow-auto overscroll-contain"
     >
-      <BotMachineChips
-        machines={machines}
-        hidden={hiddenMachines}
-        countOf={(key) => arranged.filter((bot) => keyOfBot(bot.botId) === key).length}
-        onToggle={onToggleMachine}
-      />
       {machineErrors.map(({ label, reason }) => (
         <div
           key={label}
@@ -437,7 +432,7 @@ function BotCanvasList({
           className="mx-3 mt-3 rounded-lg border border-border bg-muted/60 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
         >
           {arranged.length} {arranged.length === 1 ? "Bot is" : "Bots are"} on machines you have
-          hidden. Press a machine above to show them.
+          hidden. The machines are in the sidebar's Canvas roster, above the Bots.
         </div>
       ) : null}
       {orphanedError ? (

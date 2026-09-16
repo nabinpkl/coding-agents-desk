@@ -75,6 +75,16 @@ export function sidebarProps({
     onRenameSession: commands.setRenamingSession,
     detachedBotIds: roster.detachedBotIds,
     onToggleBotOnCanvas: roster.toggleBotOnCanvas,
+    // Counted over the Bots ON the canvas rather than over the whole roster, and over all of them
+    // rather than over the ones a shown machine is contributing: the number beside a hidden
+    // machine's chip is what says how many cards pressing it would bring back.
+    canvasMachines: {
+      machines: machines.chips,
+      hidden: roster.hiddenMachines,
+      countOf: (key: string) =>
+        roster.canvasBots.filter((bot) => machines.keyOfBot(bot.botId) === key).length,
+      onToggle: roster.toggleMachineOnCanvas,
+    },
     detachedSessionKeys: roster.detachedSessionKeys,
     canvasOpenSessionKeys: roster.canvasOpenKeys,
     onOpenSessionOnCanvas: roster.openSessionOnCanvas,

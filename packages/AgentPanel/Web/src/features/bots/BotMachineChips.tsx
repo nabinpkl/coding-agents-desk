@@ -11,13 +11,20 @@ import { Monitor } from "lucide-react";
  * better. This is the half of that sentence the canvas owes the reader: here is what it is showing,
  * and here is how to narrow it.
  *
+ * It says that from the SIDEBAR's canvas roster rather than from the strip itself, which is where it
+ * used to sit. The canvas is a horizontal strip whose cards are as tall as their own rosters, so
+ * every row it spends on chrome is a row the cards do not get -- and this row is about the same
+ * thing the roster beside it already is, which is which Bots are on the canvas and which are not.
+ * The Bots are listed there, the machine counts are listed here, and the strip is left to the cards.
+ *
  * Rendered only when there is more than one machine, which is every panel until a peer is declared.
  * A single chip saying "dev" over a canvas of dev's Bots is a control that can only tell you
  * what you already know, and one that can only turn everything off.
  *
  * The count is on the chip rather than in a tooltip because it is the answer to the question a
  * hidden machine raises. A chip with nothing behind it and a chip holding back six cards look
- * identical otherwise, and the second is the one a reader is trying to find.
+ * identical otherwise, and the second is the one a reader is trying to find. The counts add up to
+ * the Bot count under them, because both count what is on the canvas rather than what is on screen.
  */
 export function BotMachineChips({
   machines,
@@ -37,10 +44,7 @@ export function BotMachineChips({
     <div
       role="group"
       aria-label="Machines on the canvas"
-      // Sticky to the scroller's top-left rather than scrolling away with the strip: the canvas
-      // scrolls sideways for as long as the roster is wide, and a control that leaves with the
-      // first card is one a reader has to scroll back for to answer "where did those go".
-      className="sticky top-0 left-0 z-20 flex w-max flex-wrap items-center gap-1.5 px-3 pt-3"
+      className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2"
     >
       <Monitor className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       {machines.map(({ key, label }) => {

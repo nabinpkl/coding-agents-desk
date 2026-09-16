@@ -15,6 +15,7 @@ import {
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "@/features/profile/ProfileRow";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
+import { BotMachineChips } from "@/features/bots/BotMachineChips";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { UsageHandle } from "@/features/usage/useUsage";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
@@ -82,6 +83,21 @@ interface AgentSidebarProps {
    */
   detachedBotIds: ReadonlySet<string>;
   onToggleBotOnCanvas: (bot: BotView) => void;
+  /**
+   * Which machines the canvas is showing, and the control that narrows it. Empty machines means
+   * one machine, and nothing renders.
+   *
+   * It belongs to the Canvas tab rather than to the canvas because it is the same question this
+   * roster already answers -- which Bots are on the canvas -- asked one level up, and because the
+   * canvas is a horizontal strip where every row of chrome is a row its cards do not get. Arrives
+   * as one group because its four members are one control; see `BotMachineChips`.
+   */
+  canvasMachines: {
+    machines: readonly { key: string; label: string }[];
+    hidden: ReadonlySet<string>;
+    countOf: (key: string) => number;
+    onToggle: (key: string) => void;
+  };
   /**
    * The sessions NOT on the canvas, as `source:sessionId`.
    *
@@ -271,14 +287,24 @@ export function AgentSidebar(props: AgentSidebarProps) {
             }}
             status={
               props.botsError ? null : (
-                <SidebarStatus>
-                  {props.botsLoading
-                    ? "Loading Bots…"
-                    : (() => {
-                        const shown = props.bots.filter((bot) => !props.detachedBotIds.has(bot.botId)).length;
-                        return `${shown} ${shown === 1 ? "bot" : "bots"} on the canvas`;
-                      })()}
-                </SidebarStatus>
+                <>
+                  {/* Above the count rather than below it, because the counts on the chips are the
+                      same total broken down by machine: 7 and 1 over "8 bots on the canvas". */}
+                  <BotMachineChips
+                    machines={props.canvasMachines.machines}
+                    hidden={props.canvasMachines.hidden}
+                    countOf={props.canvasMachines.countOf}
+                    onToggle={props.canvasMachines.onToggle}
+                  />
+                  <SidebarStatus>
+                    {props.botsLoading
+                      ? "Loading Bots…"
+                      : (() => {
+                          const shown = props.bots.filter((bot) => !props.detachedBotIds.has(bot.botId)).length;
+                          return `${shown} ${shown === 1 ? "bot" : "bots"} on the canvas`;
+                        })()}
+                  </SidebarStatus>
+                </>
               )
             }
           />
