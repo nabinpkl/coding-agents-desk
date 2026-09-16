@@ -341,16 +341,20 @@ describe("App shell", () => {
     });
 
     const strip = screen.getByRole("list", { name: "Bot canvas" });
-    const scroller = strip.parentElement!;
+    const sizer = strip.parentElement!;
+    const scroller = sizer.parentElement!;
     // Read off the style ATTRIBUTE rather than the property, which is the stronger claim and also
     // the only one jsdom can answer: its CSS model implements no `touch-action`, so the property
     // reads undefined whether or not anything set it. Nothing written at all is what is meant.
     expect(strip).not.toHaveAttribute("style");
     expect(strip).not.toHaveAttribute("inert");
     expect(scroller).not.toHaveAttribute("style");
-    // The strip's parent is the scroller itself, which is what says no sizer was inserted between
-    // them. A wrapper would show up here as a div with a width nobody asked for.
     expect(scroller.className).toContain("overflow-auto");
+    // The wrapper is always in the tree and generates no box while the mode is off, which is what
+    // lets it appear without moving the strip. Moving the strip would remount it, and with it
+    // every open session card -- so this assertion is about live streams, not about layout.
+    expect(sizer).toHaveAttribute("style", "display: contents;");
+    expect(sizer).not.toHaveAttribute("class");
 
     const fit = screen.getByRole("button", { name: "Fit the whole canvas" });
     expect(fit).toHaveAttribute("aria-pressed", "false");

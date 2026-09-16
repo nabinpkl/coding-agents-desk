@@ -52,9 +52,11 @@ const STRIP = 'ul[aria-label="Bot canvas"]';
 const canvas = (page) => page.evaluate(() => {
   const strip = document.querySelector('ul[aria-label="Bot canvas"]');
   if (!strip) return null;
-  const parent = strip.parentElement;
-  const sized = parent && parent.style.width !== '' ? parent : null;
-  const scroller = sized ? sized.parentElement : parent;
+  // The wrapper is always in the tree; it is SIZED only while the mode draws small, and carries
+  // `display: contents` otherwise so it generates no box at all.
+  const wrapper = strip.parentElement;
+  const sized = wrapper && wrapper.style.width !== '' ? wrapper : null;
+  const scroller = wrapper.parentElement;
   const drawn = strip.getBoundingClientRect().width / strip.offsetWidth;
   const first = strip.children[0];
   const box = scroller.getBoundingClientRect();
@@ -63,11 +65,17 @@ const canvas = (page) => page.evaluate(() => {
     transform: strip.style.transform,
     hasSizer: sized !== null,
     sizerWidth: sized ? parseFloat(sized.style.width) : null,
+    wrapperDisplay: wrapper.style.display,
+    // The strip must be the SAME element after a toggle. A remount would silently tear down and
+    // stand up every open session card inside it, and every stream they hold.
+    stripStamp: strip.dataset.zoomStamp || null,
     inert: strip.hasAttribute('inert'),
     touchAction: scroller.style.touchAction,
     naturalWidth: strip.offsetWidth,
     scrollWidth: scroller.scrollWidth,
+    clientWidth: scroller.clientWidth,
     scrollLeft: scroller.scrollLeft,
+    scrollerLeft: box.left,
     cards: strip.children.length,
     // Where the first card is on screen, which is what a focal point has to hold still.
     firstCardLeft: first ? first.getBoundingClientRect().left - box.left : null,
@@ -98,6 +106,8 @@ try {
   check('mode off inserts no sizer between the strip and the scroller', !off.hasSizer);
   check('mode off leaves the strip hit-testable', !off.inert);
   check('mode off leaves touch-action alone', off.touchAction === '', off.touchAction || 'unset');
+  check('mode off gives the sizer no box of its own', off.wrapperDisplay === 'contents',
+    off.wrapperDisplay || 'unset');
 
   // -------------------------------------------------------------------------
   // The mode on, at fit
@@ -110,7 +120,16 @@ try {
 
   const fit = await canvas(page);
   check('the mode draws the canvas smaller than its own size', fit.scale < 0.99, `scale ${fit.scale.toFixed(3)}`);
-  check('the mode wraps the strip in a sizer', fit.hasSizer);
+  check('the mode gives the sizer a box the size of what is drawn', fit.hasSizer,
+    fit.sizerWidth === null ? 'no width' : `${fit.sizerWidth}px`);
+
+  // Stamped now, while the mode is on at fit, and read back at the end of this same page life.
+  // Every scale change below resizes the sizer, and if the wrapper were rendered conditionally
+  // that would move the strip in the tree -- remounting it, and with it every open session card
+  // and every stream those hold. The stamp is how that shows up as a failure rather than silently.
+  await page.evaluate(() => {
+    document.querySelector('ul[aria-label="Bot canvas"]').dataset.zoomStamp = 'alive';
+  });
   // The whole reason the sizer exists: without it the scroller keeps the untransformed range and
   // most of it is empty, so the canvas pans into nothing.
   check('the scroll range matches what is drawn, not what is laid out',
@@ -123,38 +142,14 @@ try {
   check('a canvas drawn too small to aim at is inert', fit.inert === (fit.scale < 0.8),
     `scale ${fit.scale.toFixed(3)}, inert ${fit.inert}`);
 
-  // -------------------------------------------------------------------------
-  // A press while inert reaches the scroller, not the card
-  // -------------------------------------------------------------------------
 
-  if (fit.inert) {
-    const target = await page.evaluate(() => {
-      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
-      const box = strip.children[Math.min(1, strip.children.length - 1)].getBoundingClientRect();
-      return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
-    });
-    // `elementFromPoint` is the browser's own hit test, which is the thing `inert` is claimed to
-    // change. Asserted directly rather than inferred from the click having worked.
-    const lands = await page.evaluate(({ x, y }) => {
-      const hit = document.elementFromPoint(x, y);
-      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
-      return { insideStrip: strip.contains(hit), tag: hit ? hit.tagName : null };
-    }, target);
-    check('inert takes the cards out of hit-testing, so a press reaches the canvas',
-      !lands.insideStrip, `landed on ${lands.tag}`);
-
-    await page.mouse.click(target.x, target.y);
-    await page.waitForTimeout(700);
-    const tapped = await canvas(page);
-    check('a press on a card zooms to it at its own size', tapped.scale > 0.99,
-      `scale ${tapped.scale.toFixed(3)}`);
-
-    // And back out, which is the only way out of the mode that is not the sidebar toggle.
-    await page.mouse.click(target.x, Math.min(880, target.y));
-    await page.waitForTimeout(700);
-    const back = await canvas(page);
-    check('a press on the empty canvas returns to fit', back.scale < 0.99,
-      `scale ${back.scale.toFixed(3)}`);
+  /** Back to a known state: fit, freshly loaded. Anything below would otherwise inherit a scale. */
+  async function backToFit() {
+    await page.evaluate(() => localStorage.setItem('agent-panel.bot-canvas.zoom-scale', '0.02'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector(STRIP, { timeout: 30000 });
+    await page.waitForTimeout(4000);
+    return canvas(page);
   }
 
   // -------------------------------------------------------------------------
@@ -183,6 +178,10 @@ try {
   const pinched = await canvas(page);
   check('a two-finger pinch zooms the canvas in', pinched.scale > before.scale + 0.01,
     `${before.scale.toFixed(3)} -> ${pinched.scale.toFixed(3)}`);
+  // The scale just changed, which resized the sizer. A wrapper rendered conditionally would have
+  // moved the strip in the tree at that moment, remounting it and every open session inside it.
+  check('changing the scale does not remount the strip', pinched.stripStamp === 'alive',
+    pinched.stripStamp === null ? 'the strip was replaced' : 'same element');
 
   // The focal rule: whatever was between the fingers is still between them. Checked by asking
   // where the content under the midpoint sits afterwards, in the strip's own coordinates.
@@ -193,16 +192,71 @@ try {
     const box = scroller.getBoundingClientRect();
     const scale = strip.getBoundingClientRect().width / strip.offsetWidth;
     return { content: (scroller.scrollLeft + (x - box.left)) / scale, was };
-  }, { x: midX, y: midY, was: (before.scrollLeft + (midX - 0)) / before.scale });
+  }, { x: midX, y: midY, was: (before.scrollLeft + (midX - before.scrollerLeft)) / before.scale });
   check('the pinch holds whatever was between the fingers',
     Math.abs(held.content - held.was) < 60,
     `content ${Math.round(held.content)} vs ${Math.round(held.was)}`);
 
   // -------------------------------------------------------------------------
+  // A press while inert reaches the scroller, not the card
+  // -------------------------------------------------------------------------
+
+  const atFit = await backToFit();
+  if (atFit.inert) {
+    const target = await page.evaluate(() => {
+      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+      const box = strip.children[Math.min(1, strip.children.length - 1)].getBoundingClientRect();
+      return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+    });
+    // `elementFromPoint` is the browser's own hit test, which is the thing `inert` is claimed to
+    // change. Asserted directly rather than inferred from the click having worked.
+    const lands = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+      return { insideStrip: strip.contains(hit), tag: hit ? hit.tagName : null };
+    }, target);
+    check('inert takes the cards out of hit-testing, so a press reaches the canvas',
+      !lands.insideStrip, `landed on ${lands.tag}`);
+
+    await page.mouse.click(target.x, target.y);
+    await page.waitForTimeout(700);
+    const tapped = await canvas(page);
+    check('a press on a card zooms to it at its own size', tapped.scale > 0.99,
+      `scale ${tapped.scale.toFixed(3)}`);
+
+    // And back out. Pressed well below the strip, which at 1:1 is only as tall as its tallest
+    // card, so this lands on the canvas rather than on a card that is live again at that scale.
+    const empty = await page.evaluate(() => {
+      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+      const scroller = strip.parentElement.parentElement;
+      const box = scroller.getBoundingClientRect();
+      const under = strip.getBoundingClientRect().bottom;
+      return { x: Math.round(box.left + 40), y: Math.round(Math.min(box.bottom - 20, under + 60)) };
+    });
+    await page.mouse.click(empty.x, empty.y);
+    await page.waitForTimeout(700);
+    const back = await canvas(page);
+    check('a press on the empty canvas returns to fit', back.scale < 0.99,
+      `scale ${back.scale.toFixed(3)}`);
+  }
+
+  // -------------------------------------------------------------------------
   // One finger still pans natively
   // -------------------------------------------------------------------------
 
-  const panFrom = (await canvas(page)).scrollLeft;
+  await backToFit();
+  // Pinched in first. At fit the whole canvas is inside the panel by definition, so there is
+  // nothing to scroll and the check would pass without exercising anything -- and a check that
+  // cannot fail reads as evidence in the log while proving nothing.
+  await touch('touchStart', 60);
+  for (const spread of [120, 200, 280]) {
+    await touch('touchMove', spread);
+    await page.waitForTimeout(60);
+  }
+  await touch('touchEnd', 280);
+  await page.waitForTimeout(400);
+  const panStart = await canvas(page);
+  const panFrom = panStart.scrollLeft;
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchStart', touchPoints: [{ x: 900, y: 450, id: 1 }],
   });
@@ -213,9 +267,12 @@ try {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForTimeout(700);
   const panned = await canvas(page);
+  // Stated separately, so a canvas with nothing to scroll fails loudly here rather than letting
+  // the claim below pass for having had nothing to do.
+  const room = panStart.scrollWidth - panStart.clientWidth;
+  check('the pinch left the canvas with room to pan', room > 1, `${Math.round(room)}px of range`);
   check('one finger still scrolls the canvas, so the pinch did not take panning with it',
-    panned.scrollLeft !== panFrom || panned.scrollWidth <= 1284,
-    `scrollLeft ${panFrom} -> ${panned.scrollLeft}`);
+    panned.scrollLeft !== panFrom, `scrollLeft ${panFrom} -> ${panned.scrollLeft}`);
 } finally {
   if (browser) await browser.close();
 }

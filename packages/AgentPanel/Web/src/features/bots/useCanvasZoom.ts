@@ -209,8 +209,17 @@ export interface CanvasZoom {
   measured: boolean;
   /** The strip's `inert`, for a canvas drawn too small to aim at. */
   inert: boolean;
-  /** The wrapper that gives the scroller the range the transform does not. */
-  sizerStyle: CSSProperties | undefined;
+  /**
+   * The wrapper that gives the scroller the range the transform does not.
+   *
+   * Never undefined, because the wrapper is never removed. It carries `display: contents` while the
+   * mode is off, which generates no box at all, so the strip is laid out exactly as though it were
+   * still the scroller's own child. Conditionally rendering the wrapper instead looks tidier and
+   * is a serious bug: it moves the strip in the tree, so React unmounts it and mounts a new one --
+   * which detaches the element the ResizeObserver is watching, and, far worse, remounts every open
+   * session card inside it, tearing down every live stream on the canvas on each toggle.
+   */
+  sizerStyle: CSSProperties;
   stripStyle: CSSProperties | undefined;
   scrollerStyle: CSSProperties | undefined;
 }
@@ -280,6 +289,11 @@ export function useCanvasZoom({
     // Layout values on both sides: `offsetWidth` is what the strip WOULD occupy, so the strip's
     // own transform does not perturb the number the transform is computed from.
     const measure = () => {
+      // A detached node measures zero, and zero here would clear `measured`, drop the sizer and
+      // undo the very layout being measured. It cannot happen now that the wrapper is permanent,
+      // and it is guarded anyway because the failure it caused was invisible: the observer went on
+      // reporting about an element no longer in the page, and the canvas simply never drew small.
+      if (!strand.isConnected) return;
       setContent((was) =>
         unchanged(was, strand.offsetWidth, strand.offsetHeight)
           ? was
@@ -406,7 +420,7 @@ export function useCanvasZoom({
     inert: on && scale < INTERACTIVE_SCALE,
     sizerStyle: on && measured
       ? { width: content.width * scale, height: content.height * scale }
-      : undefined,
+      : { display: "contents" },
     // No transform at exactly 1:1, where the mode has nothing to draw differently. Not tidiness:
     // a `scale(1)` is still a transform, and a transform is still a containing block for every
     // `position: fixed` under it, so emitting one there would move things for no gain.

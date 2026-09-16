@@ -466,13 +466,20 @@ function BotCanvasList({
         drawn={standing.length}
         orphanedError={orphanedError}
       />
-      {/* The SIZER, and only while the mode is drawing small. A transform does not change
-          `scrollWidth`, so without a box sized to what is actually drawn the scroller keeps a
-          range several times wider than its contents and most of it is empty. With one, panning
-          is ordinary scrolling -- which is what keeps the momentum on a phone, and what lets the
-          remembered offset go on meaning something. Absent when the mode is off, so the default
-          canvas has no wrapper at all rather than a neutral one. */}
-      {zoom.sizerStyle ? <div style={zoom.sizerStyle}>{strip}</div> : strip}
+      {/* The SIZER. A transform does not change `scrollWidth`, so without a box sized to what is
+          actually drawn the scroller keeps a range several times wider than its contents and most
+          of it is empty. With one, panning is ordinary scrolling, which is what keeps the momentum
+          on a phone and lets the remembered offset go on meaning something.
+
+          Always rendered, and `display: contents` while the mode is off -- so it generates no box
+          and the strip is laid out exactly as though it were still the scroller's own child.
+          Rendering it conditionally reads tidier and was a real bug: it moves the strip in the
+          tree, so React unmounts it and mounts a new one. That detached the element the
+          ResizeObserver was watching, which then reported zero and undid the measurement; and it
+          would remount every open session card inside the strip, standing up every stream on the
+          canvas again on each toggle. Same trick, and the same reason, as `BotSessionCard`'s
+          tasks host. */}
+      <div style={zoom.sizerStyle}>{strip}</div>
     </div>
   );
 }

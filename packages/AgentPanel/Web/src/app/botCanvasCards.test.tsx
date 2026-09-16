@@ -126,7 +126,12 @@ describe("App shell", () => {
         });
       });
 
-      const scroller = screen.getByRole("list", { name: "Bot canvas" }).parentElement!;
+      // The scrolling ancestor rather than the immediate parent: the zoom mode keeps a wrapper
+      // between the two, permanently, so that turning the mode on cannot move the strip in the
+      // tree and remount every open session inside it.
+      const scroller = screen
+        .getByRole("list", { name: "Bot canvas" })
+        .closest(".overflow-auto") as HTMLElement;
       expect(scroller.scrollLeft).toBe(640);
       // The card holding the restored session is open, and did not drag the strip to itself.
       expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
@@ -160,7 +165,12 @@ describe("App shell", () => {
         transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
       });
 
-      const scroller = screen.getByRole("list", { name: "Bot canvas" }).parentElement!;
+      // The scrolling ancestor rather than the immediate parent: the zoom mode keeps a wrapper
+      // between the two, permanently, so that turning the mode on cannot move the strip in the
+      // tree and remount every open session inside it.
+      const scroller = screen
+        .getByRole("list", { name: "Bot canvas" })
+        .closest(".overflow-auto") as HTMLElement;
       scroller.scrollLeft = 320;
       fireEvent.scroll(scroller);
       // On a delay, so a flick is one storage write rather than one per frame.

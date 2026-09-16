@@ -101,7 +101,10 @@ check('the reload does not overwrite the line it restored', back.stored === left
 /** Which card the strip is scrolled to, which is what an offset into it stands for. */
 const firstCard = () => page.evaluate(() => {
   const list = document.querySelector('ul[aria-label="Bot canvas"]');
-  const el = list && list.parentElement;
+  // The scrolling ancestor, not the immediate parent. The canvas's zoom mode keeps a wrapper
+  // between the two -- `display: contents` while the mode is off, a sized box while it is on --
+  // and reading the wrapper's scrollLeft would report 0 forever and pass for the wrong reason.
+  const el = list && list.closest('.overflow-auto');
   if (!list || !el) return { card: null, stored: null };
   return {
     card: [...list.children].findIndex((c) => c.offsetLeft + c.offsetWidth > el.scrollLeft),
