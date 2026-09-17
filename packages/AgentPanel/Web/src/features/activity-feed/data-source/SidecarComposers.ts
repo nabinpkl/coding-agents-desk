@@ -17,6 +17,8 @@ import type {
   TmuxComposerState,
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
+  TmuxQuestionPoint,
+  TmuxQuestionPointOutcome,
   TmuxQuestionState,
   WindowComposerEnvelope,
   WindowComposerStatus,
@@ -323,6 +325,28 @@ export class SidecarComposers extends SidecarTranscript {
         "POST",
         `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/question`,
         { body: { answers } },
+      ),
+    );
+  }
+
+  /**
+   * Moves the cursor in that dialog onto one option, without answering it.
+   *
+   * The other direction of the live mirror, and the one call here that is allowed to fail
+   * quietly. Everything else this class does is something a reader asked for; this is the panel
+   * keeping the terminal's highlight alongside its own, so a refusal means the two are briefly
+   * out of step rather than that anything was lost. The sidecar is what enforces that only arrows
+   * are pressed to do it -- a digit would answer the question instead of pointing at it.
+   */
+  async pointTmuxQuestion(
+    session: SessionAddress,
+    point: TmuxQuestionPoint,
+  ): Promise<TmuxQuestionPointOutcome> {
+    return parse<TmuxQuestionPointOutcome>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/question/point`,
+        { body: point },
       ),
     );
   }

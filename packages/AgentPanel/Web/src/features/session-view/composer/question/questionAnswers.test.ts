@@ -7,6 +7,7 @@ import {
   chooseOption,
   emptyDrafts,
   isAnswered,
+  paneCursorFrom,
   sameLabel,
   toAnswers,
   writeOther,
@@ -212,5 +213,57 @@ describe("following what the terminal already holds", () => {
     const drafts = emptyDrafts([SINGLE]);
     expect(adoptPaneState(drafts, [SINGLE], showing({ question: null, review: true }), () => true))
       .toEqual(drafts);
+  });
+});
+
+describe("where the terminal's own cursor is", () => {
+  it("answers in the tool call's own indices, not the screen's", () => {
+    expect(paneCursorFrom([SINGLE], showing())).toEqual({ at: 0, option: 0 });
+    expect(paneCursorFrom([SINGLE], showing({
+      options: [
+        { label: "ALPHA", marked: false, cursor: false },
+        { label: "BRAVO", marked: false, cursor: false },
+        { label: "CHARLIE", marked: false, cursor: true },
+      ],
+    }))).toEqual({ at: 0, option: 2 });
+  });
+
+  it("keeps the cursor and the answer apart when the pane has them on different rows", () => {
+    // The case the whole separation exists for, and the shape the terminal actually draws: an
+    // answered single-select question marks the chosen row with a trailing tick and leaves the
+    // cursor back where it was. Folding the two together would move this reader's answer to
+    // whatever row somebody last walked past.
+    const pane = showing({
+      options: [
+        { label: "ALPHA", marked: false, cursor: true },
+        { label: "BRAVO", marked: true, cursor: false },
+        { label: "CHARLIE", marked: false, cursor: false },
+      ],
+    });
+
+    expect(adoptPaneState(emptyDrafts([SINGLE]), [SINGLE], pane, () => true)[0])
+      .toEqual({ chosen: [1], other: "" });
+    expect(paneCursorFrom([SINGLE], pane)).toEqual({ at: 0, option: 0 });
+  });
+
+  it("has no answer when the cursor is not on an option at all", () => {
+    // A cursor parked in the free-text row or on a multi-select question's inline button: neither
+    // is an option, and `TmuxQuestionState` has already dropped both, so no option carries it.
+    expect(paneCursorFrom([SINGLE], showing({
+      options: [
+        { label: "ALPHA", marked: false, cursor: false },
+        { label: "BRAVO", marked: false, cursor: false },
+        { label: "CHARLIE", marked: false, cursor: false },
+      ],
+    }))).toBeNull();
+  });
+
+  it("says nothing rather than guessing at a row it cannot match", () => {
+    // A ring drawn on a guess is indistinguishable from one drawn on a reading.
+    expect(paneCursorFrom([SINGLE], showing({
+      options: [{ label: "ZULU", marked: false, cursor: true }],
+    }))).toBeNull();
+    expect(paneCursorFrom([SINGLE], showing({ question: null, review: true }))).toBeNull();
+    expect(paneCursorFrom([SINGLE], null)).toBeNull();
   });
 });

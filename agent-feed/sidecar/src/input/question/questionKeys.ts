@@ -9,7 +9,7 @@
  * to refuse on. Keeping that here is what let the second shape be a second answerer rather than a
  * second copy of the first.
  */
-import { bytesForRailKey, type TmuxQuestionAnswer } from "@agentdesk/agent-feed-wire";
+import { bytesForRailKey } from "@agentdesk/agent-feed-wire";
 import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { saysTheSame } from "@/input/rewindPicker";
 import {
@@ -17,6 +17,21 @@ import {
   questionDialog,
   type QuestionDialog,
 } from "@/input/question/questionDialog";
+
+/**
+ * All these walks need of a call: the text of each question, in the dialog's own order.
+ *
+ * Narrower than `TmuxQuestionAnswer` on purpose. Walking to a question and putting the cursor on a
+ * row are the same journey whether or not there is an answer to press at the end of it, and the
+ * live cursor mirror has no answers at all -- only a reader looking at an option. Typing the walk
+ * to the answer shape would have forced that caller to invent empty answers to satisfy it, which
+ * is a lie about intent in exactly the module whose whole job is not pressing the wrong key.
+ *
+ * `TmuxQuestionAnswer` satisfies this structurally, so every existing caller passes as it is.
+ */
+export interface QuestionAsked {
+  question: string;
+}
 
 export const UP = bytesForRailKey("up");
 export const DOWN = bytesForRailKey("down");
@@ -66,7 +81,7 @@ export interface QuestionRuntime {
  */
 export async function goTo(
   pane: string,
-  answers: readonly TmuxQuestionAnswer[],
+  answers: readonly QuestionAsked[],
   target: number | "review",
   runtime: QuestionRuntime,
 ): Promise<QuestionDialog | null> {
@@ -93,7 +108,7 @@ export async function goTo(
 }
 
 /** Which question the dialog is showing, as an index into `answers`, or the review screen. */
-export function locate(dialog: QuestionDialog, answers: readonly TmuxQuestionAnswer[]): number | null {
+export function locate(dialog: QuestionDialog, answers: readonly QuestionAsked[]): number | null {
   if (dialog.review) return answers.length;
   if (!dialog.question) return null;
   const at = answers.findIndex((answer) => saysTheSame(dialog.question!, answer.question));
@@ -103,7 +118,7 @@ export function locate(dialog: QuestionDialog, answers: readonly TmuxQuestionAns
 /** Walks the cursor onto one row, reading where it is between presses. */
 export async function moveCursor(
   pane: string,
-  answers: readonly TmuxQuestionAnswer[],
+  answers: readonly QuestionAsked[],
   at: number,
   wanted: number,
   runtime: QuestionRuntime,
@@ -122,7 +137,7 @@ export async function moveCursor(
 /** The same walk, onto whichever row is the inline button. */
 export async function moveCursorToButton(
   pane: string,
-  answers: readonly TmuxQuestionAnswer[],
+  answers: readonly QuestionAsked[],
   at: number,
   runtime: QuestionRuntime,
 ): Promise<QuestionDialog | null> {
@@ -135,7 +150,7 @@ export async function moveCursorToButton(
 /** The dialog as it is now, refusing if it has stopped showing the question being answered. */
 export async function reread(
   pane: string,
-  answers: readonly TmuxQuestionAnswer[],
+  answers: readonly QuestionAsked[],
   at: number,
   runtime: QuestionRuntime,
 ): Promise<QuestionDialog | null> {

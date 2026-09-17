@@ -212,14 +212,28 @@ export function SessionComposer({
   const tmuxComposerSession = useMemo(() => ({ source, sessionId }), [source, sessionId]);
   // ...but not until the reader means to use it. Opening this stream puts a `tmux pipe-pane` on
   // the session's pane, and a reader who opened a thread to READ it has asked for nothing: the
-  // transcript, the question and everything else on screen come from files the sidecar already
-  // watches. So looking costs the pane nothing, and intent is what attaches -- reaching for the
-  // field, or touching the question the session is waiting on. The draft carry-over below is what
-  // makes the band changing hands at that moment invisible to whoever is mid-sentence.
+  // transcript and everything else on screen come from files the sidecar already watches. So
+  // looking costs the pane nothing, and intent is what attaches -- reaching for the field. The
+  // draft carry-over below is what makes the band changing hands at that moment invisible to
+  // whoever is mid-sentence.
+  //
+  // An OPEN QUESTION is its own intent, and that is a change: touching the question used to be
+  // what attached the pane, and it made the mirror useless for the thing it exists to do. While a
+  // dialog stands in that pane it is a live surface somebody may be walking with the arrow keys,
+  // and what the panel has to show is where they have got to -- which it cannot learn without
+  // watching. Waiting for a touch meant the reader had to answer before they could see what was
+  // already answered, so the first thing the mirror told them was nothing.
+  //
+  // Bounded, which is what makes it affordable: a question is open for part of a turn rather than
+  // for the life of a session, and only the session this band is rendered for has one watched.
   const [engaged, setEngaged] = useState(false);
   useEffect(() => setEngaged(false), [source, sessionId]);
   const engage = useCallback(() => setEngaged(true), []);
-  const tmuxComposer = useTmuxComposer(feed, tmuxComposerSession, isClaude && engaged);
+  const tmuxComposer = useTmuxComposer(
+    feed,
+    tmuxComposerSession,
+    isClaude && (engaged || question !== null),
+  );
 
   // Delivery priority is one explicit state, not several independent availability flags.
   //
@@ -314,7 +328,7 @@ export function SessionComposer({
     sessionId,
     isClaude,
     question,
-    // Null until the reader touches the question, because that is what attaches the pane. The
+    // Live for as long as a question is open, because the question is what attaches the pane. The
     // mirror draws from the tool call either way; this is only what the terminal already holds.
     paneQuestion: tmuxComposer.paneQuestion,
     engage,

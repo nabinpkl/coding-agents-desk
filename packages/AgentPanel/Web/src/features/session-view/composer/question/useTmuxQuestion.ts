@@ -17,6 +17,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
+  TmuxQuestionPoint,
+  TmuxQuestionPointOutcome,
   TmuxQuestionRefusal,
   TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
@@ -28,6 +30,7 @@ import {
   chooseOption,
   emptyDrafts,
   isAnswered,
+  paneCursorFrom,
   toAnswers,
   writeOther,
   type QuestionDraft,
@@ -39,6 +42,17 @@ export interface TmuxQuestionSender {
     session: SessionAddress,
     answers: readonly TmuxQuestionAnswer[],
   ) => Promise<TmuxQuestionOutcome>;
+  /**
+   * Moves the terminal's own cursor onto an option, answering nothing.
+   *
+   * Separate from the answer call because the two are allowed to do different things to a pane,
+   * and the separation is enforced on the sidecar side: this one may press only arrows, so it
+   * cannot finish the dialog however wrong it is about which row to land on.
+   */
+  pointTmuxQuestion: (
+    session: SessionAddress,
+    point: TmuxQuestionPoint,
+  ) => Promise<TmuxQuestionPointOutcome>;
 }
 
 /**
@@ -135,7 +149,19 @@ export function useTmuxQuestion(
     setDrafts((current) =>
       chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
     );
-  }, [count, questions]);
+    // And the other way: put the terminal's own cursor on the row this reader just looked at, so
+    // somebody watching that pane sees where the panel has got to. Deliberately not awaited and
+    // deliberately silent -- the draft above is the answer, this is only a highlight, and a
+    // terminal that refuses or is not there must not stop anybody answering in the panel.
+    const label = questions[at]?.options[index]?.label;
+    if (label === undefined) return;
+    void feed.pointTmuxQuestion(session, {
+      questions: questions.map((entry) => entry.question),
+      at,
+      option: index,
+      label,
+    }).catch(() => {});
+  }, [count, feed, questions, session]);
 
   const write = useCallback((at: number, text: string) => {
     setError(null);
@@ -173,6 +199,14 @@ export function useTmuxQuestion(
   return {
     questions,
     drafts: aligned,
+    /**
+     * Where the terminal's own cursor is, for drawing only.
+     *
+     * Never folded into `drafts`: the pane routinely holds a cursor on one row and an answer on
+     * another, so a panel that merged them would move somebody's answer to whatever row they last
+     * walked past, and `canSubmit` would go true off a highlight.
+     */
+    paneCursor: paneCursorFrom(questions, pane),
     pending,
     error,
     /** Whether every question has something to send, which is what the dialog needs to finish. */

@@ -182,3 +182,37 @@ export function toAnswers(
   }
   return answers;
 }
+
+/**
+ * Which option the session's own terminal has its cursor on, or null when it has none on one.
+ *
+ * Kept OUT of the draft on purpose, and this is the distinction the whole live mirror turns on. A
+ * cursor is the row somebody is looking at; a draft is the answer they have given. The terminal
+ * draws both at once and they are routinely different -- an answered single-select question puts
+ * a trailing tick on the chosen row and leaves the cursor back on row one, so a panel that folded
+ * the cursor into `chosen` would move the reader's own answer to whatever row they last walked
+ * past. Worse, `isAnswered` is computed off `chosen`, so a bare highlight would light up Submit
+ * for a question nobody has answered.
+ *
+ * So this returns a place to draw a ring, and nothing that can be sent anywhere.
+ *
+ * Resolved back to the tool call's own indices rather than reported as screen positions: the
+ * label is matched by prefix, because a long one wraps in the terminal and only its start comes
+ * back. Null whenever that match fails, which is the honest answer -- a ring drawn on a guess
+ * would be indistinguishable from one drawn on a reading.
+ */
+export function paneCursorFrom(
+  questions: readonly AskUserQuestionItem[],
+  pane: TmuxQuestionState | null,
+): { at: number; option: number } | null {
+  const shown = pane?.question;
+  if (!pane || shown === null || shown === undefined) return null;
+  const at = questions.findIndex((entry) => sameLabel(shown, entry.question));
+  if (at < 0) return null;
+  // The free-text row and the inline button are not options, and `TmuxQuestionState` has already
+  // dropped them, so a cursor parked on one of those shows up here as no option having it.
+  const on = pane.options.find((option) => option.cursor);
+  if (!on) return null;
+  const option = questions[at]!.options.findIndex((entry) => sameLabel(on.label, entry.label));
+  return option < 0 ? null : { at, option };
+}

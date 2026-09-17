@@ -35,6 +35,8 @@ export {
 export type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
+  TmuxQuestionPoint,
+  TmuxQuestionPointOutcome,
   TmuxQuestionRefusal,
   TmuxQuestionState,
 } from "./tmuxQuestion.ts";

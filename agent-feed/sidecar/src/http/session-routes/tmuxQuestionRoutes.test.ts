@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { TmuxQuestionAnswer } from "@agentdesk/agent-feed-wire";
+import type { TmuxQuestionAnswer, TmuxQuestionPoint } from "@agentdesk/agent-feed-wire";
 import {
   createTmuxQuestionRoutes,
   type TmuxQuestionDependencies,
@@ -10,14 +10,19 @@ const server = { timeout() {} } as never;
 
 function routeWith(overrides: Partial<TmuxQuestionDependencies> = {}) {
   const answered: { sessionId: string; answers: readonly TmuxQuestionAnswer[] }[] = [];
+  const pointed: { sessionId: string; point: TmuxQuestionPoint }[] = [];
   const question: TmuxQuestionDependencies = {
     answer: async (sessionId, answers) => {
       answered.push({ sessionId, answers });
       return { answered: true };
     },
+    point: async (sessionId, point) => {
+      pointed.push({ sessionId, point });
+      return { pointed: true };
+    },
     ...overrides,
   };
-  return { route: createTmuxQuestionRoutes(question), answered };
+  return { route: createTmuxQuestionRoutes(question), answered, pointed };
 }
 
 function call(
@@ -149,4 +154,54 @@ test("a body that is not JSON is refused", async () => {
   const url = new URL(`http://127.0.0.1/api/sessions/claude/${SESSION}/question`);
   const response = await route(new Request(url.toString(), { method: "POST", body: "{" }), url, server);
   expect(response?.status).toBe(400);
+});
+
+const POINT: TmuxQuestionPoint = {
+  questions: ["Which colour?"],
+  at: 0,
+  option: 1,
+  label: "BRAVO",
+};
+
+test("a point reaches the driver with the question it names", async () => {
+  const { route, pointed, answered } = routeWith();
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/question/point`, POINT);
+
+  expect(await response!.json()).toEqual({ pointed: true });
+  expect(pointed).toEqual([{ sessionId: SESSION, point: POINT }]);
+  // The two drivers are separate because they may press different keys. Pointing must never reach
+  // the one that can finish the dialog.
+  expect(answered).toEqual([]);
+});
+
+test("a point is refused when it names no question text to find the dialog by", async () => {
+  const { route, pointed } = routeWith();
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/question/point`, {
+    ...POINT,
+    questions: ["Which colour?", "  "],
+  });
+
+  // The dialog is located by matching question text, so a blank entry leaves one tab
+  // unrecognisable and the walk with nothing to stop at.
+  expect(response!.status).toBe(400);
+  expect(pointed).toEqual([]);
+});
+
+test("a point is refused when it is about a question the call does not have", async () => {
+  const { route, pointed } = routeWith();
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/question/point`, {
+    ...POINT,
+    at: 3,
+  });
+
+  expect(response!.status).toBe(400);
+  expect(pointed).toEqual([]);
+});
+
+test("the answer path is not reachable through the point path", async () => {
+  const { route } = routeWith();
+  // `/question` is anchored, so this is a check that it stays that way: a body shaped like an
+  // answer posted at the point path must not be run as one.
+  const response = await call(route, "GET", `/api/sessions/claude/${SESSION}/question/point`, POINT);
+  expect(response).toBeUndefined();
 });

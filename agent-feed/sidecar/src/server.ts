@@ -16,6 +16,7 @@ import {
 } from "@/http/session-routes/tmuxComposerRoutes";
 import { createTmuxQuestionRoutes } from "@/http/session-routes/tmuxQuestionRoutes";
 import { answerTmuxQuestion } from "@/input/question/questionAnswer";
+import { pointTmuxQuestion } from "@/input/question/questionPoint";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
 import { createParkRoutes } from "@/http/parkRoutes";
 import { createWindowRoutes } from "@/http/windowRoutes";
@@ -164,7 +165,9 @@ const routes: RouteHandler[] = [
   )),
   // And `/question`, which drives the same keyboard at the dialog that replaces that composer
   // while Claude is waiting for an answer. No pane signal: it is one operation, not a watch.
-  createTmuxQuestionRoutes({ answer: answerTmuxQuestion }),
+  // Two drivers behind one path, split by what each may press: `answer` may press the keys that
+  // finish the call, `point` only the arrows that move a cursor without committing anything.
+  createTmuxQuestionRoutes({ answer: answerTmuxQuestion, point: pointTmuxQuestion }),
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // And `/events/<n>/blocks/<b>/image`, the picture behind an image block.

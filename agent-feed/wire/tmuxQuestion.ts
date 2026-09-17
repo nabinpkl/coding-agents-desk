@@ -131,3 +131,43 @@ export type TmuxQuestionOutcome =
      */
     sent: boolean;
   };
+
+/**
+ * Where the pane's cursor should be sitting, which is not an answer to anything.
+ *
+ * The live half of the mirror, and the reason it is a separate shape from `TmuxQuestionAnswer`
+ * rather than a flag on it: an answer is a commitment that cannot be taken back, and this is a
+ * highlight moving. A reader scrolling the options in the panel is deciding, not deciding-and-
+ * submitting, so what crosses here must be incapable of finishing the dialog.
+ *
+ * That is a constraint on the KEYS the sidecar may press, and it is why this exists at all. A
+ * digit on a single-select question selects the row, marks the tab answered and advances to the
+ * next question in one press -- so the obvious way to put the cursor on option two is the one way
+ * that also answers the question. Only the arrows move without committing, which is what the
+ * driver behind this is restricted to.
+ *
+ * `questions` carries the whole call rather than just the one being pointed at, because the
+ * dialog is located by question TEXT rather than by counting tabs -- the same rule the answers
+ * use, and what makes this work when somebody has been navigating the dialog by hand.
+ */
+export interface TmuxQuestionPoint {
+  /** Every question of the call, in the tool call's own order. */
+  questions: string[];
+  /** Which of them to point at, as an index into `questions`. */
+  at: number;
+  /** The option to put the cursor on, by its index in that question's own `options`. */
+  option: number;
+  /** The label that index is expected to name, checked against the row before anything moves. */
+  label: string;
+}
+
+/**
+ * Whether the cursor was moved.
+ *
+ * Carries no `keptText` and no `sent`, unlike an answer's outcome, because there is nothing to
+ * lose here: nothing was typed, and a refusal leaves a cursor wherever it already was. A caller
+ * that gets `false` has a mirror one step behind, not a reader's words missing.
+ */
+export type TmuxQuestionPointOutcome =
+  | { pointed: true }
+  | { pointed: false; reason: TmuxQuestionRefusal };

@@ -11,6 +11,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
+  TmuxQuestionPoint,
+  TmuxQuestionPointOutcome,
   TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
@@ -48,18 +50,26 @@ const CALL: OpenAskUserQuestion = {
 };
 
 function Mirror(
-  { question, answer, pane }: {
+  { question, answer, point, pane }: {
     question: OpenAskUserQuestion;
     answer: Answer;
+    /** Where the surface asked the terminal to put its cursor, when a test is watching for it. */
+    point?: (session: SessionAddress, wanted: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
     /** What the session's own terminal is showing, once anything is watching it. */
     pane?: TmuxQuestionState | null;
   },
 ) {
-  const model = useTmuxQuestion({ answerTmuxQuestion: answer }, SESSION, question, pane ?? null);
+  const model = useTmuxQuestion(
+    { answerTmuxQuestion: answer, pointTmuxQuestion: point ?? (async () => ({ pointed: true })) },
+    SESSION,
+    question,
+    pane ?? null,
+  );
   return (
     <AskUserQuestionMirror
       questions={model.questions}
       drafts={model.drafts}
+      paneCursor={model.paneCursor}
       pending={model.pending}
       disabled={false}
       error={model.error}
@@ -344,5 +354,77 @@ describe("the tmux question mirror", () => {
       />,
     );
     expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("");
+  });
+});
+
+describe("the live cursor mirror", () => {
+  it("points the terminal at the option this reader picked, without answering it", () => {
+    const pointed: TmuxQuestionPoint[] = [];
+    render(
+      <Mirror
+        question={CALL}
+        answer={async () => ({ answered: true })}
+        point={async (_session, wanted) => {
+          pointed.push(wanted);
+          return { pointed: true };
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("radio", { name: "BRAVO" }));
+
+    // The whole call travels, because the sidecar finds its place in the dialog by matching
+    // question text rather than by counting tabs.
+    expect(pointed).toEqual([{
+      questions: ["Which colour?", "Which toppings?"],
+      at: 0,
+      option: 1,
+      label: "BRAVO",
+    }]);
+  });
+
+  it("carries on drafting when the terminal will not take the cursor", () => {
+    render(
+      <Mirror
+        question={CALL}
+        answer={async () => ({ answered: true })}
+        point={async () => {
+          throw new Error("no pane");
+        }}
+      />,
+    );
+
+    // The draft is the answer and the point is only a highlight, so a session with no terminal --
+    // or one that refuses -- must not stop anybody answering in the panel.
+    fireEvent.click(screen.getByRole("radio", { name: "BRAVO" }));
+    expect(screen.getByRole("radio", { name: "BRAVO" })).toBeChecked();
+    expect(screen.queryByText(/no pane/)).toBeNull();
+  });
+
+  it("draws the terminal's cursor without marking anything answered", () => {
+    render(
+      <Mirror
+        question={CALL}
+        answer={async () => ({ answered: true })}
+        pane={{
+          question: "Which colour?",
+          review: false,
+          multiSelect: false,
+          tabs: [{ label: "Colour", answered: false }],
+          options: [
+            { label: "ALPHA", marked: false, cursor: false },
+            { label: "BRAVO", marked: false, cursor: true },
+          ],
+          other: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByTitle("The session's terminal has its cursor on this option"))
+      .toBeInTheDocument();
+    // A highlight is not an answer. If the cursor were folded into the draft this radio would be
+    // checked and Submit would be offering to send an answer nobody gave.
+    expect(screen.getByRole("radio", { name: "BRAVO" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Submit answer" })).toBeDisabled();
   });
 });

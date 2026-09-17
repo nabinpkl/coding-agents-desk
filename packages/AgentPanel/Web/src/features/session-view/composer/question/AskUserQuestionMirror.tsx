@@ -19,7 +19,7 @@
 // panel click by click. They differ because the two dialogs differ, and the rendering does not
 // need to know which one it is attached to.
 
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -32,6 +32,7 @@ import {
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { isAnswered } from "@/features/session-view/composer/question/questionAnswers";
+import { QuestionSection } from "@/features/session-view/composer/question/QuestionSection";
 
 const EMPTY: QuestionDraft = { chosen: [], other: "" };
 
@@ -43,6 +44,7 @@ export function AskUserQuestionMirror({
   error,
   notice,
   canSubmit,
+  paneCursor,
   onChoose,
   onWriteOther,
   onSubmit,
@@ -58,6 +60,14 @@ export function AskUserQuestionMirror({
   /** A standing fact about this surface, as opposed to something that went wrong. */
   notice?: string | null;
   canSubmit: boolean;
+  /**
+   * Where the session's own terminal has its cursor, or null when nothing is watching that pane.
+   *
+   * Optional because only one of the two mechanisms behind this surface has a terminal at all,
+   * and because a pane is not attached until the reader touches something -- so null is the
+   * ordinary state, not a failure.
+   */
+  paneCursor?: { at: number; option: number } | null;
   onChoose: (question: number, option: number) => void;
   onWriteOther: (question: number, text: string) => void;
   onSubmit: () => void;
@@ -147,6 +157,10 @@ export function AskUserQuestionMirror({
           // The tab strip is already showing every header, so repeating it here would say the
           // same word twice. With one question there is no strip, and it would be lost.
           showHeader={!many}
+          // Only when the terminal is on the same question this surface is showing. The pager
+          // here and the tab in the pane move independently, and a ring drawn from the wrong
+          // question would land on whatever option happened to share its index.
+          cursor={paneCursor?.at === shown ? paneCursor.option : null}
           inert={inert}
           onChoose={(option) => onChoose(shown, option)}
           onWriteOther={(text) => onWriteOther(shown, text)}
@@ -359,109 +373,3 @@ function Step({
   );
 }
 
-/** One question: what it asks, what it offers, and the row for an answer it did not offer. */
-function QuestionSection({
-  question,
-  draft,
-  showHeader,
-  inert,
-  onChoose,
-  onWriteOther,
-}: {
-  question: AskUserQuestionItem;
-  draft: QuestionDraft;
-  showHeader: boolean;
-  inert: boolean;
-  onChoose: (option: number) => void;
-  onWriteOther: (text: string) => void;
-}) {
-  const name = `ask-user-question-${question.question}`;
-  const typed = draft.other.trim().length > 0;
-  const field = useRef<HTMLInputElement | null>(null);
-  // Picking the free-text row is a move to it, not a value: it clears the option this question
-  // was holding (single-select, where they are alternatives) and puts the cursor in the field.
-  // Pressing it while it already holds words is the one case that means "not this after all".
-  const pickOther = () => {
-    if (typed) {
-      onWriteOther("");
-      return;
-    }
-    if (!question.multiSelect && draft.chosen[0] !== undefined) onChoose(draft.chosen[0]);
-    field.current?.focus();
-  };
-  return (
-    <div className="pt-1">
-      <p className="text-(length:--agent-panel-fs-sidebar-body,15px) font-medium leading-6 text-foreground">
-        {question.question}
-      </p>
-      {showHeader && question.header ? (
-        <p className="mt-0.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-          {question.header}
-          {question.multiSelect ? " \u00b7 choose any" : ""}
-        </p>
-      ) : question.multiSelect ? (
-        <p className="mt-0.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-          Choose any
-        </p>
-      ) : null}
-      <div className="mt-2 space-y-1">
-        {question.options.map((option, index) => {
-          const id = `${name}-${index}`;
-          return (
-            <div key={index} className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50">
-              <input
-                id={id}
-                type={question.multiSelect ? "checkbox" : "radio"}
-                name={question.multiSelect ? undefined : name}
-                checked={draft.chosen.includes(index)}
-                disabled={inert}
-                onChange={() => onChoose(index)}
-                aria-label={option.label}
-                className="mt-1 size-4 accent-primary"
-              />
-              <label
-                htmlFor={id}
-                className="min-w-0 flex-1 cursor-pointer text-(length:--agent-panel-fs-sidebar-body,15px) leading-6"
-              >
-                <span className="font-medium text-foreground">{option.label}</span>
-                {option.description ? (
-                  <span className="block text-(length:--agent-panel-fs-sidebar-meta,13px) leading-5 text-muted-foreground">
-                    {option.description}
-                  </span>
-                ) : null}
-                {/* Preformatted and scrollable: a preview is a small diagram, and reflowing it
-                    would take away the thing it was drawn to show. */}
-                {option.preview ? (
-                  <pre className="mt-1 max-w-full overflow-x-auto rounded-lg bg-muted/60 px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) leading-5 text-muted-foreground">
-                    {option.preview}
-                  </pre>
-                ) : null}
-              </label>
-            </div>
-          );
-        })}
-        <div className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50">
-          <input
-            type={question.multiSelect ? "checkbox" : "radio"}
-            name={question.multiSelect ? undefined : name}
-            checked={typed}
-            disabled={inert}
-            onChange={pickOther}
-            aria-label="Something else"
-            className="mt-1 size-4 accent-primary"
-          />
-          <input
-            ref={field}
-            type="text"
-            value={draft.other}
-            disabled={inert}
-            onChange={(event) => onWriteOther(event.target.value)}
-            placeholder="Something else"
-            aria-label={`Your own answer to: ${question.question}`}
-            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}

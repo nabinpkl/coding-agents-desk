@@ -51,6 +51,14 @@ export interface QuestionMirrorModel {
   callId: string;
   questions: readonly AskUserQuestionItem[];
   drafts: readonly QuestionDraft[];
+  /**
+   * The option the session's own terminal has its cursor on, or null when nothing is watching it.
+   *
+   * A place to draw a ring, not an answer. Only the tmux half ever has one: the Desktop panel
+   * reports its own selection and is mirrored click by click, so it has no separate cursor to
+   * disagree with.
+   */
+  paneCursor: { at: number; option: number } | null;
   pending: boolean;
   disabled: boolean;
   error: string | null;
@@ -102,6 +110,7 @@ export function useQuestionMirror({
       callId: question.callId,
       questions: tmuxQuestion.questions,
       drafts: tmuxQuestion.drafts,
+      paneCursor: tmuxQuestion.paneCursor,
       pending: tmuxQuestion.pending,
       disabled: false,
       error: tmuxQuestion.error,
@@ -123,6 +132,9 @@ export function useQuestionMirror({
     callId: question.callId,
     questions: [windowQuestion.question],
     drafts: [{ chosen: windowQuestion.selected, other: windowQuestion.otherText }],
+    // This half has no terminal to follow: what it mirrors is a Desktop panel, which reports its
+    // own selection rather than a cursor moving separately from one.
+    paneCursor: null,
     pending: windowQuestion.pending,
     disabled: !windowQuestion.enabled,
     error: windowQuestion.error,

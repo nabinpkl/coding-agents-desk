@@ -376,20 +376,24 @@ describe("AskUserQuestion mirror", () => {
     unmount();
   });
 
-  it("leaves the session's pane alone until the reader touches the question", () => {
+  it("leaves the pane alone for a thread being read, and attaches for an open question", () => {
     const { transport, unmount } = setup();
-    openClaudeThread(transport);
-    openQuestion(TWO_QUESTIONS);
-
-    // Opening the stream puts a `tmux pipe-pane` on the session's pane, so reading a thread must
-    // not do it. Reading the question is reading.
     const paneStream = () =>
       transport.subscriptions.filter((open) => open.path.includes("/composer/stream"))
         .filter((open) => !open.path.includes("/window/"));
+
+    // Opening the stream puts a `tmux pipe-pane` on the session's pane, so reading a thread must
+    // not do it. That half is unchanged: everything on screen for a thread nobody is typing into
+    // comes from files the sidecar already watches.
+    openClaudeThread(transport);
     expect(paneStream()).toHaveLength(0);
 
-    // Touching it is intent, and that is what attaches.
-    fireEvent.click(screen.getByRole("checkbox", { name: "Dark mode" }));
+    // An open question is different, and this is the rule that moved. While the dialog stands in
+    // that pane it is a live surface somebody may be walking with the arrow keys, and where they
+    // have got to is the one thing the panel cannot learn from a file. Waiting for a touch meant
+    // a reader had to answer before they could see what was already answered -- so the mirror's
+    // first act was to show them nothing.
+    openQuestion(TWO_QUESTIONS);
     expect(paneStream().length).toBeGreaterThan(0);
     unmount();
   });
