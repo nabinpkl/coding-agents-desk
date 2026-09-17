@@ -1,4 +1,5 @@
 import { Monitor, Move, Scan } from "lucide-react";
+import { CANVAS_ROOM_STEPS } from "@/features/bots/botCanvasPreferences";
 
 /**
  * What the canvas is holding, above the roster that decides it.
@@ -74,17 +75,19 @@ export function BotCanvasStatus({
    */
   zoom: { on: boolean; onToggle: () => void };
   /**
-   * The gutter the fitted canvas is given to be scrolled around in, and the control for it.
+   * How much room the fitted canvas is given to be scrolled around in, and the control for it.
    *
-   * Asked for rather than always on, and that is the whole reason it is a control: room on an
-   * axis that did not have any turns a canvas which only scrolled sideways into one that drifts
-   * diagonally under a trackpad. Off, the canvas sits against the corner as it always has.
+   * A size rather than a switch because the sizes are not interchangeable: the small one lifts
+   * the canvas off the corner while leaving a short canvas no vertical range to drift in, and
+   * the large ones let it be parked well away from the corner at the cost of exactly that drift.
+   * `CANVAS_ROOM_STEPS` carries the measurements. Chips rather than a slider, because they are
+   * the idiom directly above and every value is one press away rather than a drag.
    *
    * It does nothing while the canvas is drawn at its own size -- the gutter belongs to the box
    * the mode draws into, and there is no such box at 1:1 -- so it is disabled there rather than
    * left to look like a control that does not work.
    */
-  room: { on: boolean; onToggle: () => void };
+  room: { size: number; onChange: (size: number) => void };
 }) {
   return (
     <div className="border-b border-border px-3 py-2">
@@ -148,27 +151,39 @@ export function BotCanvasStatus({
         <Scan className="size-3.5 shrink-0" aria-hidden />
         Fit the whole canvas
       </button>
-      <button
-        type="button"
-        aria-pressed={room.on}
-        disabled={!zoom.on}
-        onClick={room.onToggle}
-        title={zoom.on
-          ? room.on
-            ? "Take the room back out, so the canvas sits against the corner."
-            : "Add room around the canvas, so it can be scrolled off the corner."
-          : "Fit the whole canvas first: the room is around what that draws."}
-        className={`mt-1.5 flex min-h-7 w-full items-center gap-1.5 rounded-md border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-          !zoom.on
-            ? "cursor-not-allowed border-border bg-card text-muted-foreground/50"
-            : room.on
-              ? "cursor-pointer border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
-              : "cursor-pointer border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
-        }`}
+      <div
+        role="group"
+        aria-label="Room to move the canvas"
+        className="mt-1.5 flex flex-wrap items-center gap-1.5"
       >
-        <Move className="size-3.5 shrink-0" aria-hidden />
-        Room to move it
-      </button>
+        <Move
+          className={`size-3.5 shrink-0 ${zoom.on ? "text-muted-foreground" : "text-muted-foreground/40"}`}
+          aria-hidden
+        />
+        {CANVAS_ROOM_STEPS.map((size) => (
+          <button
+            key={size}
+            type="button"
+            aria-pressed={room.size === size}
+            disabled={!zoom.on}
+            title={!zoom.on
+              ? "Fit the whole canvas first: the room is around what that draws."
+              : size === 0
+                ? "No room: the canvas sits against the corner."
+                : `${size} pixels of room on every side, to scroll the canvas into.`}
+            onClick={() => room.onChange(size)}
+            className={`flex min-h-7 shrink-0 items-center rounded-full border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+              !zoom.on
+                ? "cursor-not-allowed border-border bg-card text-muted-foreground/40"
+                : room.size === size
+                  ? "cursor-pointer border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
+                  : "cursor-pointer border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+            }`}
+          >
+            {size === 0 ? "None" : size}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

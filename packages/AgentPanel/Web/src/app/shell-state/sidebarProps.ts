@@ -107,7 +107,7 @@ export function sidebarProps({
       zoom: { on: roster.canvasZoomMode, onToggle: roster.toggleCanvasZoom },
       // Beside the mode it belongs to: it is the room the fitted canvas gets to be moved around
       // in, and it does nothing at all while the canvas is drawn at its own size.
-      room: { on: roster.canvasRoomMode, onToggle: roster.toggleCanvasRoom },
+      room: { size: roster.canvasRoom, onChange: roster.setCanvasRoom },
     },
     detachedSessionKeys: roster.detachedSessionKeys,
     canvasOpenSessionKeys: roster.canvasOpenKeys,

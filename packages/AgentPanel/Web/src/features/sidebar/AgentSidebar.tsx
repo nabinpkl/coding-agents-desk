@@ -111,8 +111,8 @@ interface AgentSidebarProps {
     onToggle: (key: string) => void;
     /** The canvas drawn small enough to see all of at once. See `BotCanvasStatus`. */
     zoom: { on: boolean; onToggle: () => void };
-    /** The gutter that fitted canvas is given to be scrolled around in. */
-    room: { on: boolean; onToggle: () => void };
+    /** How much room that fitted canvas is given to be scrolled around in, in pixels a side. */
+    room: { size: number; onChange: (size: number) => void };
   };
   /**
    * The sessions NOT on the canvas, as `source:sessionId`.

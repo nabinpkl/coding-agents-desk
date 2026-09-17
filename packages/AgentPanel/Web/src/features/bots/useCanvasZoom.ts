@@ -138,18 +138,6 @@ export function clampZoom(scale: number, fit: number): number {
   return Math.min(1, Math.max(fit, scale));
 }
 
-/**
- * The gutter the canvas gets to be scrolled around in, beyond its own edges.
- *
- * Small, fixed, and asked for rather than always there -- all three for one reason. Half a panel
- * each way was the first answer and it is what lets a canvas be parked dead centre, but it gives
- * every axis a scroll range whether or not that axis needed one, and a canvas that only moved
- * sideways starts drifting diagonally under a trackpad. Sixty-four lifts it off the corner and
- * leaves somewhere to nudge it, while a short canvas -- the 984x33 ribbon this machine's eight
- * Bots draw at fit -- keeps no vertical range at all.
- */
-const CANVAS_ROOM = { left: 64, top: 64 };
-
 /** No room at all, held once so the gutter being off hands back the same object every render. */
 const NO_ROOM = { left: 0, top: 0 };
 
@@ -266,8 +254,12 @@ export function useCanvasZoom({
   scroller: React.RefObject<HTMLDivElement | null>;
   strip: React.RefObject<HTMLUListElement | null>;
   on: boolean;
-  /** Whether the canvas is given a gutter to be scrolled around in. See `CANVAS_ROOM`. */
-  room: boolean;
+  /**
+   * How much room the canvas is given to be scrolled around in, in pixels on every side. Zero is
+   * the default and means the canvas sits against the corner. See `CANVAS_ROOM_STEPS` for what
+   * the sizes are and why the smallest useful one is small.
+   */
+  room: number;
 }): CanvasZoom {
   const [wanted, setWanted] = useState(loadCanvasZoomScale);
   const [content, setContent] = useState<Size>({ width: 0, height: 0 });
@@ -283,9 +275,10 @@ export function useCanvasZoom({
   const floor = useRef(fit);
   floor.current = fit;
 
-  // The gutter the canvas is scrolled around in. A fixed border rather than anything derived from
-  // the scale, so it does not move under a pinch: the canvas grows and shrinks inside it.
-  const gutter = on && measured && room ? CANVAS_ROOM : NO_ROOM;
+  // The gutter the canvas is scrolled around in. The reader's own number rather than anything
+  // derived from the scale, so it does not move under a pinch: the canvas grows and shrinks
+  // inside a border that stays put.
+  const gutter = on && measured && room > 0 ? { left: room, top: room } : NO_ROOM;
   const gap = useRef(gutter);
   gap.current = gutter;
 

@@ -11,7 +11,7 @@ import {
   clampCardWidth,
   loadBotCanvasOrder,
   loadCanvasOpenKeys,
-  loadCanvasRoomMode,
+  loadCanvasRoom,
   loadCanvasScroll,
   loadDetachedBotIds,
   loadDetachedSessionKeys,
@@ -21,7 +21,7 @@ import {
   orderBotsForCanvas,
   storeBotCanvasOrder,
   storeCanvasOpenKeys,
-  storeCanvasRoomMode,
+  storeCanvasRoom,
   storeCanvasScroll,
   storeDetachedBotIds,
   storeDetachedSessionKeys,
@@ -237,18 +237,29 @@ describe("how far the canvas is scrolled", () => {
   });
 });
 
-describe("whether the fitted canvas has room around it", () => {
+describe("how much room the fitted canvas has around it", () => {
   beforeEach(() => localStorage.clear());
 
-  it("is off until a reader asks for it, because room an axis did not need reads as drift", () => {
-    expect(loadCanvasRoomMode()).toBe(false);
-    storeCanvasRoomMode(true);
-    expect(loadCanvasRoomMode()).toBe(true);
+  it("is none until a reader asks for a size, because room an axis did not need reads as drift", () => {
+    expect(loadCanvasRoom()).toBe(0);
+    storeCanvasRoom(256);
+    expect(loadCanvasRoom()).toBe(256);
   });
 
   it("forgets it rather than storing the value that means the default", () => {
-    storeCanvasRoomMode(true);
-    storeCanvasRoomMode(false);
+    storeCanvasRoom(256);
+    storeCanvasRoom(0);
+    expect(localStorage.getItem("agent-panel.bot-canvas.room")).toBeNull();
+  });
+
+  it("refuses a size it never offered, including the switch this key used to hold", () => {
+    // A number between the steps is a hand-edited or stale value rather than a choice, and "on"
+    // is what this key held while the room was a switch. Both mean no room rather than a guess.
+    localStorage.setItem("agent-panel.bot-canvas.room", "on");
+    expect(loadCanvasRoom()).toBe(0);
+    localStorage.setItem("agent-panel.bot-canvas.room", "99");
+    expect(loadCanvasRoom()).toBe(0);
+    storeCanvasRoom(99);
     expect(localStorage.getItem("agent-panel.bot-canvas.room")).toBeNull();
   });
 });

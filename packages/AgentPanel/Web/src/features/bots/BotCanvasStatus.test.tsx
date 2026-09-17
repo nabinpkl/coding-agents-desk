@@ -8,7 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { BotCanvasStatus } from "@/features/bots/BotCanvasStatus";
 
 const MACHINES = [
@@ -17,7 +17,7 @@ const MACHINES = [
 ];
 const COUNTS = (key: string) => (key === "dev" ? 7 : 1);
 const ZOOM = { on: false, onToggle: () => undefined };
-const ROOM = { on: false, onToggle: () => undefined };
+const ROOM = { size: 0, onChange: () => undefined };
 
 afterEach(cleanup);
 
@@ -77,10 +77,10 @@ describe("BotCanvasStatus", () => {
     expect(screen.queryByRole("group", { name: "Machines on the canvas" })).toBeNull();
   });
 
-  it("offers room to move the fitted canvas, and only while there is one", () => {
+  it("offers room to move the fitted canvas by size, and only while there is one", () => {
     // The gutter is around what the fit mode draws into, and at the canvas's own size there is no
     // such box -- so the control says so by being disabled rather than by doing nothing.
-    const onToggle = vi.fn();
+    const onChange = vi.fn();
     const { rerender } = render(
       <BotCanvasStatus
         total={8}
@@ -90,12 +90,13 @@ describe("BotCanvasStatus", () => {
         countOf={COUNTS}
         onToggle={() => undefined}
         zoom={ZOOM}
-        room={{ on: false, onToggle }}
+        room={{ size: 0, onChange }}
       />,
     );
-    const move = screen.getByRole("button", { name: "Room to move it" });
-    expect(move).toBeDisabled();
-    expect(move).toHaveAttribute("title", "Fit the whole canvas first: the room is around what that draws.");
+    const group = screen.getByRole("group", { name: "Room to move the canvas" });
+    expect(within(group).getByRole("button", { name: "256" })).toBeDisabled();
+    expect(within(group).getByRole("button", { name: "None" }))
+      .toHaveAttribute("title", "Fit the whole canvas first: the room is around what that draws.");
 
     rerender(
       <BotCanvasStatus
@@ -106,14 +107,16 @@ describe("BotCanvasStatus", () => {
         countOf={COUNTS}
         onToggle={() => undefined}
         zoom={{ on: true, onToggle: () => undefined }}
-        room={{ on: false, onToggle }}
+        room={{ size: 64, onChange }}
       />,
     );
-    const live = screen.getByRole("button", { name: "Room to move it" });
-    expect(live).toBeEnabled();
-    expect(live).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(live);
-    expect(onToggle).toHaveBeenCalledTimes(1);
+    const live = screen.getByRole("group", { name: "Room to move the canvas" });
+    // The size the canvas is actually at is the pressed one, and every other size is one press
+    // away rather than a cycle through the ones in between.
+    expect(within(live).getByRole("button", { name: "64" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(live).getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(within(live).getByRole("button", { name: "512" }));
+    expect(onChange).toHaveBeenCalledWith(512);
   });
 
   it("offers the whole canvas at once, and says which way that is set", () => {

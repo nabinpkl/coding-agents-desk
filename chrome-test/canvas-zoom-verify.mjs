@@ -182,7 +182,7 @@ try {
 
   check('no gutter until it is asked for', fit.pad < 4, `${Math.round(fit.pad)}px`);
 
-  await page.evaluate(() => localStorage.setItem('agent-panel.bot-canvas.room', 'on'));
+  await page.evaluate(() => localStorage.setItem('agent-panel.bot-canvas.room', '64'));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector(STRIP, { timeout: 30000 });
   await page.waitForTimeout(4000);
@@ -203,6 +203,17 @@ try {
   check('scrolled to the start, the canvas sits a gutter in from both edges',
     Math.abs(parked.stripBox.left - 64) < 4 && Math.abs(parked.stripBox.top - 64) < 4,
     `canvas at ${Math.round(parked.stripBox.left)},${Math.round(parked.stripBox.top)}`);
+
+  // And it is a SIZE rather than a switch: a bigger step puts proportionally more room in, which
+  // is what lets the canvas be parked well away from the corner rather than merely off it.
+  await page.evaluate(() => localStorage.setItem('agent-panel.bot-canvas.room', '256'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(STRIP, { timeout: 30000 });
+  await page.waitForTimeout(4000);
+  const wider = await scrolledTo(0, 0);
+  check('a bigger step puts that much more room in',
+    Math.abs(wider.stripBox.left - 256) < 4 && Math.abs(wider.stripBox.top - 256) < 4,
+    `canvas at ${Math.round(wider.stripBox.left)},${Math.round(wider.stripBox.top)}`);
 
   // Back off for everything below, which is about the mode rather than about the gutter.
   await page.evaluate(() => localStorage.removeItem('agent-panel.bot-canvas.room'));

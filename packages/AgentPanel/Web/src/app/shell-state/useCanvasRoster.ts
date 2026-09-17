@@ -10,12 +10,12 @@ import { useCallback, useEffect, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import {
   loadCanvasOpenKeys,
-  loadCanvasRoomMode,
+  loadCanvasRoom,
   loadDetachedBotIds,
   loadDetachedSessionKeys,
   loadHiddenMachines,
   storeCanvasOpenKeys,
-  storeCanvasRoomMode,
+  storeCanvasRoom,
   storeDetachedBotIds,
   storeDetachedSessionKeys,
   storeHiddenMachines,
@@ -151,11 +151,10 @@ export function useCanvasRoster(botsState: {
   const [canvasZoomMode, setCanvasZoomMode] = useState<boolean>(loadCanvasZoomMode);
   const toggleCanvasZoom = useCallback(() => setCanvasZoomMode((on) => !on), []);
   useEffect(() => storeCanvasZoomMode(canvasZoomMode), [canvasZoomMode]);
-  // The gutter around the fitted canvas, which is the same kind of fact and kept the same way: the
-  // reader asked for room to move the canvas in, and the control for it sits beside the mode's.
-  const [canvasRoomMode, setCanvasRoomMode] = useState<boolean>(loadCanvasRoomMode);
-  const toggleCanvasRoom = useCallback(() => setCanvasRoomMode((on) => !on), []);
-  useEffect(() => storeCanvasRoomMode(canvasRoomMode), [canvasRoomMode]);
+  // How much room the fitted canvas is given to be moved around in, which is the same kind of fact
+  // and kept the same way: the control for it sits beside the mode's, in the sidebar.
+  const [canvasRoom, setCanvasRoom] = useState<number>(loadCanvasRoom);
+  useEffect(() => storeCanvasRoom(canvasRoom), [canvasRoom]);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
     setDetachedBotIds((current) => {
       // A new set rather than a mutation, because React decides whether to re-render by identity.
@@ -177,8 +176,8 @@ export function useCanvasRoster(botsState: {
     toggleMachineOnCanvas,
     canvasZoomMode,
     toggleCanvasZoom,
-    canvasRoomMode,
-    toggleCanvasRoom,
+    canvasRoom,
+    setCanvasRoom,
     removeSessionFromCanvas,
     toggleCanvasSession,
     openSessionOnCanvas,

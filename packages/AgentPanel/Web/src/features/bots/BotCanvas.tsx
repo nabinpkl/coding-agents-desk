@@ -220,7 +220,7 @@ export function BotCanvas({
    * lives, because a strip of cards as tall as their own rosters has no row to spare. See
    * `useCanvasZoom`.
    */
-  canvasZoom: { mode: boolean; room: boolean };
+  canvasZoom: { mode: boolean; room: number };
 }) {
   // Nothing to lay out, so nothing below this point would be about anything: no scroller, no
   // strip, and no offset to come back to. The condition stays here rather than inside the
@@ -334,7 +334,7 @@ function BotCanvasList({
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
   /** See the canvas above: the whole strip drawn small enough to see at once. */
-  canvasZoom: { mode: boolean; room: boolean };
+  canvasZoom: { mode: boolean; room: number };
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.

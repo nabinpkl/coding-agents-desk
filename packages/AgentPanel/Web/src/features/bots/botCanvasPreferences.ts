@@ -245,26 +245,41 @@ export interface CanvasScroll {
 }
 
 /**
- * Whether the fitted canvas is given a gutter to be scrolled around in.
+ * How much room the fitted canvas is given to be scrolled around in, in pixels on every side.
+ *
+ * Steps rather than a free number, because what makes a size good is decided by two measured
+ * facts rather than by taste. None is the default and has to be: room on an axis that had no
+ * scroll range gives it one, so a canvas that had only ever moved sideways starts drifting
+ * diagonally under a trackpad. 64 lifts the canvas off the corner and leaves somewhere to nudge
+ * it, while a short canvas -- the 984x33 ribbon eight Bots draw at fit on this machine -- still
+ * keeps no vertical range at all. The larger two buy what the small one cannot, which is a canvas
+ * that can be parked well away from the corner rather than merely off it, and they buy it with
+ * exactly that drift. Which is the reader's to choose, having now been offered both.
  *
  * Here rather than beside the zoom mode and scale in `useCanvasZoom`, which is where the rest of
  * that mode's storage lives, for two reasons that agree: this is an arrangement the reader made
  * rather than anything the gesture reads, and that file is at its line cap.
  */
+export const CANVAS_ROOM_STEPS: readonly number[] = [0, 64, 256, 512];
+
 const ROOM_KEY = "agent-panel.bot-canvas.room";
 
-export function loadCanvasRoomMode(): boolean {
-  if (typeof window === "undefined") return false;
+export function loadCanvasRoom(): number {
+  if (typeof window === "undefined") return 0;
   try {
-    return localStorage.getItem(ROOM_KEY) === "on";
+    const raw = localStorage.getItem(ROOM_KEY);
+    const parsed = raw === null ? 0 : Number(raw);
+    // Only a size it could have been set to. Anything else means none: a hand-edited number, or
+    // the "on" this key held while the room was a switch rather than a size.
+    return CANVAS_ROOM_STEPS.includes(parsed) ? parsed : 0;
   } catch {
-    return false;
+    return 0;
   }
 }
 
-export function storeCanvasRoomMode(on: boolean): void {
+export function storeCanvasRoom(size: number): void {
   try {
-    if (on) localStorage.setItem(ROOM_KEY, "on");
+    if (size > 0 && CANVAS_ROOM_STEPS.includes(size)) localStorage.setItem(ROOM_KEY, String(size));
     else localStorage.removeItem(ROOM_KEY);
   } catch {
     // The canvas still draws; it just has no room around it next time.
