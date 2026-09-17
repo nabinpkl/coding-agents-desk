@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  linuxBootTimeMs,
   parseProcessLstart,
   parseRegistryProcStart,
+  resetBootTimeCache,
   startTimesAgree,
 } from "@/tasks/processStartTime";
 
@@ -42,6 +44,34 @@ describe("proc start parsing", () => {
     expect(parseRegistryProcStart("")).toBeNull();
     expect(parseRegistryProcStart("yesterday")).toBeNull();
     expect(parseProcessLstart("Fri Xxx 14 13:10:48 2026")).toBeNull();
+  });
+
+  test("a Linux registry stamp is ticks since boot, not a date", () => {
+    // The real pair, measured 2026-09-17 on the `oracle` peer: `procStart` 275826256 for a session
+    // `ps` reports as `Wed Sep 16 08:34:38 2026`, with `btime` 1786789416. Before this, the ctime
+    // parser read that one token as garbage and every record on that machine was skipped -- which
+    // took background tasks, the cross-session inbox and unstamped pane resolution with it.
+    const registry = parseRegistryProcStart("275826256", 1786789416 * 1000);
+    expect(registry).not.toBeNull();
+    expect(startTimesAgree(registry!, parseProcessLstart("Wed Sep 16 08:34:38 2026")!)).toBe(true);
+  });
+
+  test("ticks with no boot time to add them to is null, not an epoch in 1970", () => {
+    // Every other answer is worse than none: 275826256 ms of its own is March 1970, which passes
+    // no agreement check but claims to be an answer.
+    expect(parseRegistryProcStart("275826256", null)).toBeNull();
+  });
+
+  test("boot time comes off /proc/stat, and its absence is an answer", () => {
+    resetBootTimeCache();
+    expect(linuxBootTimeMs(() => "cpu  1 2 3\nbtime 1786789416\nprocesses 99\n"))
+      .toBe(1786789416 * 1000);
+    resetBootTimeCache();
+    // A Mac has no such file, and the throw is the ordinary case rather than a fault.
+    expect(linuxBootTimeMs(() => { throw new Error("ENOENT"); })).toBeNull();
+    resetBootTimeCache();
+    expect(linuxBootTimeMs(() => "cpu  1 2 3\nprocesses 99\n")).toBeNull();
+    resetBootTimeCache();
   });
 
   test("whole-second rounding on both sides still agrees", () => {
