@@ -59,12 +59,28 @@ export interface QuestionMirrorModel {
    * disagree with.
    */
   paneCursor: { at: number; option: number } | null;
+  /**
+   * Which question the terminal is showing, so the surface can page to the same one.
+   *
+   * Without this the mirror only worked while both happened to be on the same question, and there
+   * was nothing to keep them there: the reader's panel stayed on question one while the terminal
+   * moved to question two, and every reading after that was about a question nothing was drawing.
+   */
+  paneAt: number | null;
   pending: boolean;
   disabled: boolean;
   error: string | null;
   notice: string | null;
   canSubmit: boolean;
   onChoose: (question: number, option: number) => void;
+  /**
+   * Moves the terminal's cursor to an option without answering anything.
+   *
+   * Separate from `onChoose` because a click that does not change the draft still has to reach the
+   * terminal: re-picking the option the panel already shows is how a reader pulls the two back
+   * together when they have drifted, and a checked radio fires no change event to carry it.
+   */
+  onPoint: (question: number, option: number) => void;
   onWriteOther: (question: number, text: string) => void;
   onSubmit: () => void;
   onSkip?: () => void;
@@ -111,6 +127,7 @@ export function useQuestionMirror({
       questions: tmuxQuestion.questions,
       drafts: tmuxQuestion.drafts,
       paneCursor: tmuxQuestion.paneCursor,
+      paneAt: tmuxQuestion.paneAt,
       pending: tmuxQuestion.pending,
       disabled: false,
       error: tmuxQuestion.error,
@@ -119,6 +136,10 @@ export function useQuestionMirror({
       onChoose: (at, option) => {
         engage();
         tmuxQuestion.choose(at, option);
+      },
+      onPoint: (at, option) => {
+        engage();
+        tmuxQuestion.point(at, option);
       },
       onWriteOther: (at, text) => {
         engage();
@@ -135,6 +156,7 @@ export function useQuestionMirror({
     // This half has no terminal to follow: what it mirrors is a Desktop panel, which reports its
     // own selection rather than a cursor moving separately from one.
     paneCursor: null,
+    paneAt: null,
     pending: windowQuestion.pending,
     disabled: !windowQuestion.enabled,
     error: windowQuestion.error,
@@ -147,6 +169,8 @@ export function useQuestionMirror({
     // This half mirrors ONE question, so the index is always zero and is dropped here rather than
     // threaded through a hook that has nowhere to put it.
     onChoose: (_question, option) => windowQuestion.selectOption(option),
+    // Nothing to point at: this half drives a Desktop panel, which has no cursor of its own.
+    onPoint: () => {},
     onWriteOther: (_question, text) => windowQuestion.changeOther(text),
     onSubmit: windowQuestion.submit,
     onSkip: windowQuestion.skip,

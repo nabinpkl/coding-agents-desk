@@ -216,3 +216,27 @@ export function paneCursorFrom(
   const option = questions[at]!.options.findIndex((entry) => sameLabel(on.label, entry.label));
   return option < 0 ? null : { at, option };
 }
+
+/**
+ * Which question of the call the terminal is showing, or null when that cannot be told.
+ *
+ * Separate from `paneCursorFrom` because the two answer different things and one of them is
+ * routinely null while the other is not: the cursor can be parked on a multi-select question's
+ * inline Submit button or on its free-text row, neither of which is an option, and the pane is
+ * still plainly on that question. A surface that derived "which question" from the cursor would
+ * lose the pane every time somebody walked past the end of the options.
+ *
+ * This is the half that was missing when the mirror first shipped, and the failure was total
+ * rather than subtle: the reader's panel sat on question one while the terminal had moved to
+ * question two, so every cursor reading was about a question the panel was not showing, no ring
+ * was ever drawn, and arrowing in the terminal appeared to do nothing at all.
+ */
+export function paneQuestionAt(
+  questions: readonly AskUserQuestionItem[],
+  pane: TmuxQuestionState | null,
+): number | null {
+  const shown = pane?.question;
+  if (!pane || shown === null || shown === undefined) return null;
+  const at = questions.findIndex((entry) => sameLabel(shown, entry.question));
+  return at < 0 ? null : at;
+}

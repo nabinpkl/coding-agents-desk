@@ -8,6 +8,7 @@ import {
   emptyDrafts,
   isAnswered,
   paneCursorFrom,
+  paneQuestionAt,
   sameLabel,
   toAnswers,
   writeOther,
@@ -265,5 +266,33 @@ describe("where the terminal's own cursor is", () => {
     }))).toBeNull();
     expect(paneCursorFrom([SINGLE], showing({ question: null, review: true }))).toBeNull();
     expect(paneCursorFrom([SINGLE], null)).toBeNull();
+  });
+});
+
+describe("which question the terminal is on", () => {
+  it("answers even when the cursor is nowhere near an option", () => {
+    // The case that made the mirror look completely dead. A multi-select question parks the cursor
+    // on its inline Submit button or its free-text row, neither of which is an option, so nothing
+    // reports a cursor -- while the pane is plainly still on that question.
+    const pane = {
+      question: "Which toppings?",
+      review: false,
+      multiSelect: true,
+      tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
+      options: [
+        { label: "DELTA", marked: false, cursor: false },
+        { label: "ECHO", marked: false, cursor: false },
+      ],
+      other: null,
+    };
+
+    expect(paneCursorFrom([SINGLE, MANY], pane)).toBeNull();
+    expect(paneQuestionAt([SINGLE, MANY], pane)).toBe(1);
+  });
+
+  it("has no answer for a review screen or a question this call does not carry", () => {
+    expect(paneQuestionAt([SINGLE], showing({ question: null, review: true }))).toBeNull();
+    expect(paneQuestionAt([SINGLE], showing({ question: "Something else entirely?" }))).toBeNull();
+    expect(paneQuestionAt([SINGLE], null)).toBeNull();
   });
 });

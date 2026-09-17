@@ -31,6 +31,7 @@ import {
   emptyDrafts,
   isAnswered,
   paneCursorFrom,
+  paneQuestionAt,
   toAnswers,
   writeOther,
   type QuestionDraft,
@@ -143,16 +144,19 @@ export function useTmuxQuestion(
   // Every write aligns first, because a call's questions arrive rather than existing all at once:
   // the tool_use's input streams into the transcript, and a draft built from the first reading is
   // short until the last question lands. `alignDrafts` keeps what has been answered already.
-  const choose = useCallback((at: number, index: number) => {
-    setError(null);
-    touched.current.add(at);
-    setDrafts((current) =>
-      chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
-    );
-    // And the other way: put the terminal's own cursor on the row this reader just looked at, so
-    // somebody watching that pane sees where the panel has got to. Deliberately not awaited and
-    // deliberately silent -- the draft above is the answer, this is only a highlight, and a
-    // terminal that refuses or is not there must not stop anybody answering in the panel.
+  /**
+   * Puts the terminal's own cursor on an option, changing no answer.
+   *
+   * Its own callback rather than something `choose` does, because the two are wanted at different
+   * moments and tying them together broke the case that matters most. A radio that is already
+   * checked fires no change event, so re-picking the option this panel already shows sent nothing
+   * -- and that is exactly the gesture a reader makes when the terminal has drifted somewhere else
+   * and they want the two back together. Pointing has to be reachable when the draft does not move.
+   *
+   * Not awaited and deliberately silent: this is a highlight, and a terminal that refuses or is not
+   * there must never stop somebody answering in the panel.
+   */
+  const point = useCallback((at: number, index: number) => {
     const label = questions[at]?.options[index]?.label;
     if (label === undefined) return;
     void feed.pointTmuxQuestion(session, {
@@ -161,7 +165,19 @@ export function useTmuxQuestion(
       option: index,
       label,
     }).catch(() => {});
-  }, [count, feed, questions, session]);
+  }, [feed, questions, session]);
+
+  const choose = useCallback((at: number, index: number) => {
+    setError(null);
+    touched.current.add(at);
+    setDrafts((current) =>
+      chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
+    );
+    // Keeps the terminal alongside a pick made any way at all, including from the keyboard, where
+    // there is no row click to carry it. A pick made BY a click points twice, and the second walk
+    // is free: `moveCursor` returns without pressing anything when the cursor is already there.
+    point(at, index);
+  }, [count, point, questions]);
 
   const write = useCallback((at: number, text: string) => {
     setError(null);
@@ -207,11 +223,19 @@ export function useTmuxQuestion(
      * walked past, and `canSubmit` would go true off a highlight.
      */
     paneCursor: paneCursorFrom(questions, pane),
+    /**
+     * Which question the terminal is showing, so the surface can page to it.
+     *
+     * Not derivable from `paneCursor`, which is null whenever the cursor is somewhere that is not
+     * an option -- a Submit button, a free-text row -- while the pane is still on that question.
+     */
+    paneAt: paneQuestionAt(questions, pane),
     pending,
     error,
     /** Whether every question has something to send, which is what the dialog needs to finish. */
     canSubmit: count > 0 && aligned.every(isAnswered),
     choose,
+    point,
     write,
     submit,
   };

@@ -20,6 +20,7 @@ export function QuestionSection({
   cursor,
   inert,
   onChoose,
+  onPoint,
   onWriteOther,
 }: {
   question: AskUserQuestionItem;
@@ -36,6 +37,8 @@ export function QuestionSection({
   cursor: number | null;
   inert: boolean;
   onChoose: (option: number) => void;
+  /** Moves the terminal's cursor to this option, answering nothing. */
+  onPoint: (option: number) => void;
   onWriteOther: (text: string) => void;
 }) {
   const name = `ask-user-question-${question.question}`;
@@ -77,6 +80,11 @@ export function QuestionSection({
               // worse than no ring, and a sentence standing under every question forever to
               // explain one that appears occasionally is worse than both.
               title={cursor === index ? "The session's terminal has its cursor on this option" : undefined}
+              // On the ROW, not on the input, because the input is the half that goes quiet: a
+              // radio already checked fires no change event, so re-picking the option this panel
+              // already shows reached nothing -- and that is precisely the gesture for pulling the
+              // terminal back when it has drifted somewhere else.
+              onClick={() => { if (!inert) onPoint(index); }}
               className={`flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50 ${
                 cursor === index ? "bg-primary/5 ring-1 ring-primary/40" : ""
               }`}

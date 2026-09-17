@@ -19,7 +19,7 @@
 // panel click by click. They differ because the two dialogs differ, and the rendering does not
 // need to know which one it is attached to.
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -45,7 +45,9 @@ export function AskUserQuestionMirror({
   notice,
   canSubmit,
   paneCursor,
+  paneAt,
   onChoose,
+  onPoint,
   onWriteOther,
   onSubmit,
   onSkip,
@@ -68,7 +70,11 @@ export function AskUserQuestionMirror({
    * ordinary state, not a failure.
    */
   paneCursor?: { at: number; option: number } | null;
+  /** Which question the session's own terminal is showing, or null when nothing is watching it. */
+  paneAt?: number | null;
   onChoose: (question: number, option: number) => void;
+  /** Moves the terminal's cursor to an option, answering nothing. */
+  onPoint?: (question: number, option: number) => void;
   onWriteOther: (question: number, text: string) => void;
   onSubmit: () => void;
   onSkip?: () => void;
@@ -87,6 +93,17 @@ export function AskUserQuestionMirror({
   // Not stored. It is one tap to redo, it is about a call that ends within the turn, and a stored
   // fold would have to be aged out of storage by the same reader's next thousand questions.
   const [shownWhole, setShownWhole] = useState(true);
+  // Follows the terminal to whichever question it is on. Without this the mirror only worked while
+  // the two happened to agree: the terminal moves to the next question as soon as one is answered,
+  // and a panel left behind on the previous one drew no cursor and looked like nothing was
+  // mirroring at all.
+  //
+  // Keyed on the pane's own index rather than run every render, so paging by hand still works --
+  // it holds until the terminal actually moves, which is the point at which following it is what
+  // a reader wants.
+  useEffect(() => {
+    if (paneAt !== null && paneAt !== undefined) setAt(paneAt);
+  }, [paneAt]);
   const inert = pending || disabled;
   const many = questions.length > 1;
   const shown = Math.min(at, Math.max(questions.length - 1, 0));
@@ -163,6 +180,7 @@ export function AskUserQuestionMirror({
           cursor={paneCursor?.at === shown ? paneCursor.option : null}
           inert={inert}
           onChoose={(option) => onChoose(shown, option)}
+          onPoint={(option) => onPoint?.(shown, option)}
           onWriteOther={(text) => onWriteOther(shown, text)}
         />
       </div>
