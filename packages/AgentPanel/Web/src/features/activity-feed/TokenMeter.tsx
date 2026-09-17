@@ -102,6 +102,45 @@ function CacheCountdown({ usage }: { usage: TokenUsage }) {
 }
 
 /**
+ * The family word out of a model id: `claude-opus-5[1m]` -> `opus`.
+ *
+ * Read off the id rather than looked up, which is why there is no table of model names here to go
+ * stale the day a fifth family ships. The sidecar's `claudeModelAlias` stays the authority
+ * anywhere the version matters -- the usage calendar names three different `opus` ids in a list
+ * whose whole job is telling them apart, and this footer has room for one word.
+ *
+ * Null for an id that is not shaped like one of Claude's: `<synthetic>`, and Codex, which names no
+ * model on an occupancy record at all. Nothing is guessed from those, because the exact id is
+ * already one hover away on the count beside this.
+ */
+export function modelFamily(model: string | undefined): string | null {
+  const match = /^claude-([a-z]+)(?:-|\[|$)/.exec((model ?? "").trim());
+  return match ? match[1]! : null;
+}
+
+/**
+ * Which model this context is being spent on, in the one word the row has room for.
+ *
+ * The version is dropped on purpose: what a reader checks here is whether they are still on the
+ * model they meant to be on, and `opus` answers that where `claude-opus-5[1m]` would take the
+ * width the occupancy count needs. The full id is on the title, on the count's tooltip, and named
+ * outright in the popover.
+ */
+function ModelChip({ model }: { model: string | undefined }) {
+  const family = modelFamily(model);
+  if (family === null) return null;
+  return (
+    <span
+      title={model}
+      aria-label={`Model: ${model}`}
+      className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none text-muted-foreground/70"
+    >
+      {family}
+    </span>
+  );
+}
+
+/**
  * Occupancy as a compact count, with a fill bar when the window is known, and the figures behind
  * both on hover or a click.
  *
@@ -175,8 +214,10 @@ export function TokenMeter({
     // re-read"; the count and the track answer "how big is it", and they are one object drawn as
     // one -- same width, same edges, stacked, with only their own hairline gap between them. The
     // gap out to the clock is four times that, which is what keeps the bar from reading as the
-    // clock's.
+    // clock's. The model leads and is not a reading at all: it is what every number after it is
+    // about, and it changes hourly on a session whose reader switches model mid-thread.
     <span className="flex shrink-0 items-center gap-2 px-1">
+      <ModelChip model={usage.model} />
       <CacheCountdown usage={usage} />
       <LimitChips quotas={accountWide(limits)} />
       <button

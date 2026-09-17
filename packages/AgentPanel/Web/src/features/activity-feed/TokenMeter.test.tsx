@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { TokenMeter, formatTokens } from "@/features/activity-feed/TokenMeter";
+import { TokenMeter, formatTokens, modelFamily } from "@/features/activity-feed/TokenMeter";
 import { newerUsage } from "@/features/activity-feed/usageFromEvents";
 
 describe("TokenMeter", () => {
@@ -175,5 +175,43 @@ describe("cost threshold", () => {
     const count = screen.getByLabelText("Context: 300,000 tokens");
     expect(count.className).toContain("text-amber-500");
     expect(screen.getByTitle(/compacting now pays for itself/)).toBeTruthy();
+  });
+});
+
+describe("model name", () => {
+  it("names the model in the one word the footer has room for", () => {
+    render(
+      <TokenMeter usage={{ current: 150_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5[1m]" }} />,
+    );
+
+    // The tier suffix is what makes this the 1M run rather than the 200k one, so it stays on the
+    // title where the exact answer belongs. What the row shows is the word a reader is checking.
+    expect(screen.getByLabelText("Model: claude-opus-5[1m]").textContent).toBe("opus");
+  });
+
+  it("says nothing for an id that is not shaped like one of Claude's", () => {
+    // Codex names no model on an occupancy record, and a Claude line the harness stamped
+    // `<synthetic>` names nothing real. A guessed word would read exactly like a measured one.
+    render(<TokenMeter usage={{ current: 41_400, limit: null, updatedAt: 1, model: "<synthetic>" }} />);
+
+    expect(screen.queryByLabelText(/^Model:/)).toBeNull();
+  });
+});
+
+describe("modelFamily", () => {
+  it("takes the family word off the id, whatever version follows it", () => {
+    expect(modelFamily("claude-opus-5")).toBe("opus");
+    expect(modelFamily("claude-sonnet-4-6")).toBe("sonnet");
+    expect(modelFamily("claude-haiku-4-5-20251001")).toBe("haiku");
+    // The two ids one character apart that the sidecar's alias exists to keep separate share a
+    // family, which is the whole point of showing the family here and the alias there.
+    expect(modelFamily("claude-fable-5")).toBe("fable");
+    expect(modelFamily("claude-fable-5-1")).toBe("fable");
+  });
+
+  it("answers null rather than guessing at an id it cannot read", () => {
+    expect(modelFamily(undefined)).toBeNull();
+    expect(modelFamily("<synthetic>")).toBeNull();
+    expect(modelFamily("gpt-5.6-sol")).toBeNull();
   });
 });
