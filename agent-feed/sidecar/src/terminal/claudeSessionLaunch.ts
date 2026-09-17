@@ -16,23 +16,30 @@ import {
   createTmuxSession,
   findTmuxSessionByIdentity,
   killTmuxSession,
-  stampTmuxSessionIdentity,
   tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
+import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 
 /**
- * The pane a session started or resumed by this sidecar runs in.
+ * The pane a session started or resumed by this sidecar is BORN in.
  *
- * Derived from the session id rather than the title, because it is the meeting point of two
- * lookups that never speak: a second viewer of one session has only the id, and must land on the
- * pane the first one made. The friendly names in `tmuxSessionNames.ts` are for panes a person
- * types at; this one is addressed by machines.
+ * Not the name it keeps. `adoptTitleName` renames it after the session's title as soon as the
+ * identity stamp reads back, so `tmux list-sessions` is a list of titles rather than of uuids;
+ * what this name is for is the window before that, and the case where it never happens.
  *
- * It is also what makes a session survive becoming real. A session started here has no transcript
- * and no catalog row, and the ordinary "watch this session" path goes looking for a pane by this
- * name once the catalog knows the id -- so the pane it was started in is the pane that path finds.
- * Give it a name of its own and the card's terminal jumps to a second pane the moment the session
- * exists, or worse, resumes the transcript beside the process still writing it.
+ * Derived from the session id because at creation the id is the only thing two callers are
+ * guaranteed to agree on, and because a name unique by construction is what makes `new-session -A`
+ * safe here: a second create under this name is the same session, never a different one that
+ * happens to share a title. It stays the pane's name whenever the stamp cannot be proved, which is
+ * what keeps `endClaudeSession` able to find a pane that carries no identity of its own.
+ *
+ * What makes a session survive becoming real is now the stamp rather than this name. A session
+ * started here has no transcript and no catalog row, and the ordinary "watch this session" path
+ * goes looking once the catalog knows the id -- it finds the pane by its stamp, which is why the
+ * rename is allowed to happen at all and why it happens only after that stamp reads back. What has
+ * to stay true is that the path finds the pane the session was STARTED in: a second pane opened for
+ * one id is a terminal that jumps the moment the session exists, or worse, a transcript resumed
+ * beside the process still writing it.
  */
 export function claudeSessionPaneName(sessionId: string): string {
   return `agentdesk-${sessionId}`;
@@ -81,9 +88,10 @@ export interface StartedClaudeSession {
 /**
  * Starts a session in its own detached pane, with nobody watching.
  *
- * The stamp is best effort for the same reason it is on the terminal path: it makes the pane
- * findable after a rename, and a session that is running is worth more than one refused because
- * its label could not be written.
+ * The name it answers with is the one the pane ended up with, which is not always the one it was
+ * created under: `adoptTitleName` renames it after the title once the stamp reads back. Reported
+ * rather than re-derived, because a caller deriving it a second time would be guessing at which of
+ * the two happened.
  */
 export async function startClaudeSession(options: {
   cwd: string;
@@ -91,15 +99,15 @@ export async function startClaudeSession(options: {
   title: string;
   prompt?: string;
 }): Promise<StartedClaudeSession> {
-  const tmuxSession = claudeSessionPaneName(options.sessionId);
+  const pane = claudeSessionPaneName(options.sessionId);
   await createTmuxSession({
-    session: tmuxSession,
+    session: pane,
     cwd: options.cwd,
     command: newClaudeSessionCommand(options),
     columns: UNATTENDED_COLUMNS,
     rows: UNATTENDED_ROWS,
   });
-  await stampTmuxSessionIdentity(tmuxSession, options.sessionId).catch(() => {});
+  const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
   return { sessionId: options.sessionId, title: options.title, tmuxSession };
 }
 
@@ -184,8 +192,8 @@ export function forkClaudeSessionCommand(
  * Forks a session into its own detached pane, with nobody watching.
  *
  * The sibling of `startClaudeSession`, and the answer to "fork this and hand it a brief" without a
- * terminal being open to watch it happen. Same stamp, same geometry, same best-effort reasoning:
- * a fork that is running is worth more than one refused because its label could not be written.
+ * terminal being open to watch it happen. Same geometry, same naming: born under the fork's id and
+ * renamed to the fork's title once its stamp reads back.
  */
 export async function startForkedClaudeSession(options: {
   cwd: string;
@@ -194,15 +202,15 @@ export async function startForkedClaudeSession(options: {
   title: string;
   brief?: string;
 }): Promise<StartedClaudeSession> {
-  const tmuxSession = claudeForkPaneName(options.forkId);
+  const pane = claudeForkPaneName(options.forkId);
   await createTmuxSession({
-    session: tmuxSession,
+    session: pane,
     cwd: options.cwd,
     command: forkClaudeSessionCommand(options),
     columns: UNATTENDED_COLUMNS,
     rows: UNATTENDED_ROWS,
   });
-  await stampTmuxSessionIdentity(tmuxSession, options.forkId).catch(() => {});
+  const tmuxSession = await adoptTitleName(pane, options.forkId, options.title);
   return { sessionId: options.forkId, title: options.title, tmuxSession };
 }
 

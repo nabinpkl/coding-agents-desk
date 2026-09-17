@@ -33,6 +33,8 @@ import {
 export interface ResolvedAgentTerminalSession {
   projectPath: string;
   activity: string;
+  /** What the session is called, which is what a pane this path creates gets named after. */
+  title: string;
 }
 
 /** Everything `open` needs that depends on what the terminal is pointed at. */
@@ -53,6 +55,14 @@ export interface TerminalIdentity {
    * session id that the sidecar resolved to a pane name itself, so there is nothing to mistype.
    */
   createTmux: { cwd: string; command: string[] } | null;
+  /**
+   * The title a pane created by this open should take, once its stamp reads back.
+   *
+   * Set only where this call is the one CREATING the pane. A pane that is merely joined belongs to
+   * whoever started it, and renaming somebody else's session out from under them is not this
+   * path's to do -- `renameSession.ts` is, where a person asked for it.
+   */
+  nameFromTitle?: string;
   /**
    * The session this terminal creates, when it creates one. Only the fork path does.
    *
@@ -311,6 +321,10 @@ async function identifySessionTmux(
     },
     // Resuming, not creating: the session already exists and already has whatever name it has.
     stampSession: sessionId,
+    // The pane, though, is this call's own, so it takes the session's title the way a freshly
+    // started one does -- otherwise reopening a stopped session is the remaining way to get a
+    // uuid-named pane on the list.
+    nameFromTitle: session.title,
   };
 }
 /**
@@ -344,5 +358,8 @@ export async function liveTmuxSession(
     .filter((entry) => entry.sessionId === sessionId)
     .map((entry) => entry.tmuxSession)
     .filter((pane): pane is string => pane !== null);
+  // Still meaningful after panes started being renamed to their titles, though it reads as though
+  // it should not be: a pane only gives up this name once its stamp reads back, so reaching here at
+  // all -- the stamp having answered nothing -- means the sidecar's own pane is still called this.
   return panes.find((pane) => pane !== claudeSessionPaneName(sessionId)) ?? panes[0] ?? null;
 }

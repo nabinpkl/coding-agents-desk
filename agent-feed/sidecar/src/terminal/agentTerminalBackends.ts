@@ -42,6 +42,14 @@ export interface TmuxTerminalBackend {
     settle: (session: string) => Promise<void>;
   };
   stampSessionIdentity: (session: string, sessionId: string) => Promise<unknown>;
+  /**
+   * Stamps a pane and renames it after its session's title, answering the name it ended up with.
+   *
+   * A member of this object rather than reached for directly, for the same reason the stamp is one:
+   * the backend is injected WHOLE by tests, so a function imported straight into the body here
+   * would drive real tmux from a test that handed over its own.
+   */
+  relabelSession: (pane: string, sessionId: string, title: string) => Promise<string>;
 }
 
 /**
@@ -72,11 +80,22 @@ export async function connectTmuxTerminal(
   //
   // Best effort, deliberately: the stamp makes a pane findable AFTER a rename, and a terminal
   // that opens is worth more than one refused because its label could not be written.
+  let target = session;
   if (identity.stampSession) {
-    await backend.stampSessionIdentity(session, identity.stampSession)
-      .catch(() => {});
+    if (created && identity.nameFromTitle) {
+      // A pane this call brought into existence is this call's to name, and it is named the way a
+      // session started with no terminal watching is -- otherwise reopening a session whose pane
+      // is gone would be the one remaining way to put a uuid on the session list.
+      //
+      // The attach below uses the ANSWER rather than the name above it: tmux addresses a session
+      // by name, so attaching under the old one would miss a pane that had just been renamed.
+      target = await backend.relabelSession(session, identity.stampSession, identity.nameFromTitle);
+    } else {
+      await backend.stampSessionIdentity(session, identity.stampSession)
+        .catch(() => {});
+    }
   }
-  return attachTmux(backend, session, dimensions);
+  return attachTmux(backend, target, dimensions);
 }
 
 async function tmuxExists(backend: TmuxTerminalBackend, session: string): Promise<boolean> {

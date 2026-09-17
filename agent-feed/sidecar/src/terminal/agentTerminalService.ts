@@ -30,6 +30,7 @@ import {
   tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
 import { TmuxAttachments, type TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
+import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 import type { PtyEnvelope, PtySessionSummary } from "@/terminal/pty/ptyProtocol";
 import {
   AgentTerminalConflictError,
@@ -155,6 +156,12 @@ export class AgentTerminalService {
      * at run time in every one of them while the types still agree.
      */
     private readonly stampSessionIdentity = stampTmuxSessionIdentity,
+    /**
+     * Names a pane this service just created after the session inside it. Its own parameter for the
+     * same reason the stamp above is: `sessionTmux` is injected whole and a fifth member added to
+     * that shape is undefined at run time in every test that hands over its own four.
+     */
+    private readonly relabelSession = adoptTitleName,
   ) {
   }
 
@@ -176,6 +183,7 @@ export class AgentTerminalService {
           attachments: this.tmux,
           sessionTmux: this.sessionTmux,
           stampSessionIdentity: this.stampSessionIdentity,
+          relabelSession: this.relabelSession,
         },
         identity,
         identity.tmuxSession,

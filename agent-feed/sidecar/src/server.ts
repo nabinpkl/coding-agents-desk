@@ -100,6 +100,7 @@ const agentTerminals = new AgentTerminalService(
     return {
       projectPath: session.project,
       activity: summary.activity,
+      title: summary.title,
     };
   },
 );
