@@ -56,8 +56,12 @@ export function useRememberedCanvasScroll(
    * zoom mode off it is true from the first layout, and with it on it waits for the strip and the
    * panel to be measured. Without that wait the restore fires against a scale of 1 and lands
    * wherever the stored number happens to point, which looks exactly like having forgotten.
+   *
+   * `pad` is the room the mode leaves around the canvas to be scrolled into, and so the distance
+   * between the scroller's origin and the canvas's own. An offset stored without it would be
+   * half a panel out on every visit, in the same direction each time.
    */
-  zoom: { scale: number; ready: boolean },
+  zoom: { scale: number; ready: boolean; pad: { left: number; top: number } },
 ): () => void {
   const restored = useRef(false);
   const wanted = useRef<CanvasScroll | null>(null);
@@ -74,9 +78,14 @@ export function useRememberedCanvasScroll(
     // it is looking for cannot change underneath it -- nothing writes the offset until it has.
     wanted.current ??= loadCanvasScroll();
     const { left, top } = wanted.current;
-    // Nothing to put back, so the canvas is already where it belongs and every scroll from here is
-    // the reader's. Marked restored rather than left pending, or the first one would be ignored.
-    if (left === 0 && top === 0) {
+    // Nothing to put back AND nowhere else to put it, so the canvas is already where it belongs
+    // and every scroll from here is the reader's. Marked restored rather than left pending, or the
+    // first one would be ignored.
+    //
+    // The second half of that is the room: a stored zero means the canvas's own top-left against
+    // the panel's, which with room around the canvas is half a panel along from where an
+    // unscrolled scroller sits. So a zero still has somewhere to be put back to.
+    if (left === 0 && top === 0 && zoom.pad.left === 0 && zoom.pad.top === 0) {
       restored.current = true;
       return;
     }
@@ -90,7 +99,10 @@ export function useRememberedCanvasScroll(
       return;
     }
     restored.current = true;
-    const asked = { left: left * zoom.scale, top: top * zoom.scale };
+    const asked = {
+      left: left * zoom.scale + zoom.pad.left,
+      top: top * zoom.scale + zoom.pad.top,
+    };
     el.scrollLeft = asked.left;
     el.scrollTop = asked.top;
     // Landing short of what was asked for is the browser saying the strip does not reach that far
@@ -98,7 +110,7 @@ export function useRememberedCanvasScroll(
     // end only moves outwards while the cards fill in, so an offset that already fits keeps
     // fitting, and a hold is a second and a half of not writing down where the reader goes.
     if (el.scrollLeft < asked.left - 1 || el.scrollTop < asked.top - 1) setHolding({ left, top });
-  }, [scroller, content, zoom.ready, zoom.scale]);
+  }, [scroller, content, zoom.ready, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   // Asks again, every frame, until the strip is wide enough to answer or the reader takes over.
   useEffect(() => {
@@ -109,8 +121,8 @@ export function useRememberedCanvasScroll(
     let frame = requestAnimationFrame(function again() {
       // Writing the offset it already has is not a scroll, so re-asking after it has landed costs
       // nothing; what it buys is the case where the strip grows again before the hold is over.
-      el.scrollLeft = holding.left * zoom.scale;
-      el.scrollTop = holding.top * zoom.scale;
+      el.scrollLeft = holding.left * zoom.scale + zoom.pad.left;
+      el.scrollTop = holding.top * zoom.scale + zoom.pad.top;
       frame = requestAnimationFrame(again);
     });
     // Fighting a reader who is already scrolling is worse than landing short of where they were,
@@ -128,7 +140,7 @@ export function useRememberedCanvasScroll(
       el.removeEventListener("pointerdown", release);
       window.removeEventListener("keydown", release, true);
     };
-  }, [holding, scroller, zoom.scale]);
+  }, [holding, scroller, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   // Written from one place, on a timer, rather than beside each of the things that scroll the
   // canvas -- the reader, a card coming into view, a drag creeping at the edge. They all end up
@@ -141,13 +153,16 @@ export function useRememberedCanvasScroll(
     if (!el || !restored.current || holding !== null) return;
     // Back into content space on the way out, so a position taken while zoomed out still names the
     // card it was taken over once the canvas is drawn at some other size.
-    latest.current = { left: el.scrollLeft / zoom.scale, top: el.scrollTop / zoom.scale };
+    latest.current = {
+      left: (el.scrollLeft - zoom.pad.left) / zoom.scale,
+      top: (el.scrollTop - zoom.pad.top) / zoom.scale,
+    };
     if (timer.current !== null) return;
     timer.current = setTimeout(() => {
       timer.current = null;
       if (latest.current) storeCanvasScroll(latest.current);
     }, SCROLL_SETTLE_MS);
-  }, [scroller, zoom.scale, holding]);
+  }, [scroller, zoom.scale, zoom.pad.left, zoom.pad.top, holding]);
 
   // Leaving the canvas is the one scroll that never settles, because the component goes with it.
   useEffect(() => () => {

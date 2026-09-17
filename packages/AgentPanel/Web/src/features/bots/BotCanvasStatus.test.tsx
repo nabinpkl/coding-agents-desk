@@ -17,13 +17,14 @@ const MACHINES = [
 ];
 const COUNTS = (key: string) => (key === "dev" ? 7 : 1);
 const ZOOM = { on: false, onToggle: () => undefined };
+const ROOM = { on: false, onToggle: () => undefined };
 
 afterEach(cleanup);
 
 describe("BotCanvasStatus", () => {
   it("says the canvas total and breaks it down by machine", () => {
     render(
-      <BotCanvasStatus total={8} shown={8} machines={MACHINES} hidden={new Set()} countOf={COUNTS} onToggle={() => undefined} zoom={ZOOM} />,
+      <BotCanvasStatus total={8} shown={8} machines={MACHINES} hidden={new Set()} countOf={COUNTS} onToggle={() => undefined} zoom={ZOOM} room={ROOM} />,
     );
     // Plain "8", not "8 of 8": a ratio where both halves agree is a question raised for nothing.
     expect(screen.getByRole("status")).toHaveTextContent("8 bots on the canvas");
@@ -35,7 +36,7 @@ describe("BotCanvasStatus", () => {
 
   it("says how many cards a hidden machine is holding back", () => {
     render(
-      <BotCanvasStatus total={8} shown={7} machines={MACHINES} hidden={new Set(["oracle"])} countOf={COUNTS} onToggle={() => undefined} zoom={ZOOM} />,
+      <BotCanvasStatus total={8} shown={7} machines={MACHINES} hidden={new Set(["oracle"])} countOf={COUNTS} onToggle={() => undefined} zoom={ZOOM} room={ROOM} />,
     );
     // The whole point of the line: a reader who does not remember pressing a chip sees a strip one
     // card short, and this is the only thing that says why. `total` still counts what is ON the
@@ -59,6 +60,7 @@ describe("BotCanvasStatus", () => {
         countOf={() => 1}
         onToggle={onToggle}
         zoom={ZOOM}
+        room={ROOM}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /oracle/ }));
@@ -69,10 +71,49 @@ describe("BotCanvasStatus", () => {
     // Which is every panel until a peer is declared. A lone chip could only tell a reader what they
     // already know, and could only turn everything off; the count is a fact about the canvas.
     render(
-      <BotCanvasStatus total={1} shown={1} machines={[]} hidden={new Set()} countOf={() => 0} onToggle={() => undefined} zoom={ZOOM} />,
+      <BotCanvasStatus total={1} shown={1} machines={[]} hidden={new Set()} countOf={() => 0} onToggle={() => undefined} zoom={ZOOM} room={ROOM} />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("1 bot on the canvas");
     expect(screen.queryByRole("group", { name: "Machines on the canvas" })).toBeNull();
+  });
+
+  it("offers room to move the fitted canvas, and only while there is one", () => {
+    // The gutter is around what the fit mode draws into, and at the canvas's own size there is no
+    // such box -- so the control says so by being disabled rather than by doing nothing.
+    const onToggle = vi.fn();
+    const { rerender } = render(
+      <BotCanvasStatus
+        total={8}
+        shown={8}
+        machines={MACHINES}
+        hidden={new Set()}
+        countOf={COUNTS}
+        onToggle={() => undefined}
+        zoom={ZOOM}
+        room={{ on: false, onToggle }}
+      />,
+    );
+    const move = screen.getByRole("button", { name: "Room to move it" });
+    expect(move).toBeDisabled();
+    expect(move).toHaveAttribute("title", "Fit the whole canvas first: the room is around what that draws.");
+
+    rerender(
+      <BotCanvasStatus
+        total={8}
+        shown={8}
+        machines={MACHINES}
+        hidden={new Set()}
+        countOf={COUNTS}
+        onToggle={() => undefined}
+        zoom={{ on: true, onToggle: () => undefined }}
+        room={{ on: false, onToggle }}
+      />,
+    );
+    const live = screen.getByRole("button", { name: "Room to move it" });
+    expect(live).toBeEnabled();
+    expect(live).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(live);
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
   it("offers the whole canvas at once, and says which way that is set", () => {
@@ -89,6 +130,7 @@ describe("BotCanvasStatus", () => {
         countOf={COUNTS}
         onToggle={() => undefined}
         zoom={{ on: false, onToggle }}
+        room={ROOM}
       />,
     );
     const fit = screen.getByRole("button", { name: "Fit the whole canvas" });
@@ -105,6 +147,7 @@ describe("BotCanvasStatus", () => {
         countOf={COUNTS}
         onToggle={() => undefined}
         zoom={{ on: true, onToggle }}
+        room={ROOM}
       />,
     );
     // Pressed, and the title says what pressing it again does rather than repeating its label.

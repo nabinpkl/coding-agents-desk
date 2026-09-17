@@ -469,7 +469,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 onAddBot={() => commands.setBotCreatorOpen(true)}
                 newSessions={commands.newSessions}
                 onCloseNewSession={commands.closeNewSession}
-                zoomMode={roster.canvasZoomMode}
+                canvasZoom={{ mode: roster.canvasZoomMode, room: roster.canvasRoomMode }}
               />
             ) : chrome.sidebarMode === "sessions" ? (
               <div className="flex h-full items-center justify-center p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">

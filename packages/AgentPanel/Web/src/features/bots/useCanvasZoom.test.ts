@@ -78,24 +78,34 @@ describe("holding the point under the fingers still", () => {
     // The whole of the gesture. At 0.5 the content 800px into the scroller is 1600 into the strip;
     // drawn at 1 that content sits at 1600, so the scroller has to be at 1600 - 400 to leave it
     // under a finger 400px into the panel.
-    const at = { scrollLeft: 800, scrollTop: 0, pointerX: 400, pointerY: 0 };
+    const at = { scrollLeft: 800, scrollTop: 0, pointerX: 400, pointerY: 0, padLeft: 0, padTop: 0 };
     expect(focalScroll(at, 0.5, 1)).toEqual({ left: 2000, top: 0 });
 
     // And back again, which has to return where it came from or a pinch in and out drifts.
-    expect(focalScroll({ scrollLeft: 2000, scrollTop: 0, pointerX: 400, pointerY: 0 }, 1, 0.5))
-      .toEqual({ left: 800, top: 0 });
+    expect(focalScroll({ ...at, scrollLeft: 2000 }, 1, 0.5)).toEqual({ left: 800, top: 0 });
+  });
+
+  it("holds the point under the fingers through the room around the canvas", () => {
+    // The same gesture with the canvas sitting half a panel in. The content under the finger is
+    // (800 + 400 - 500) / 0.5 = 1400, which drawn at 1 and put back behind the same room leaves
+    // the scroller at 1400 + 500 - 400. Forgetting the room holds a point half a panel away.
+    const at = { scrollLeft: 800, scrollTop: 0, pointerX: 400, pointerY: 0, padLeft: 500, padTop: 0 };
+    expect(focalScroll(at, 0.5, 1)).toEqual({ left: 1500, top: 0 });
+    expect(focalScroll({ ...at, scrollLeft: 1500 }, 1, 0.5)).toEqual({ left: 800, top: 0 });
   });
 
   it("never asks for an offset behind the start, which no scroller can be at", () => {
     // Zooming out near the left edge computes a negative offset; the browser would clamp it and
     // the next gesture would then read a scroll position that never happened.
-    expect(focalScroll({ scrollLeft: 0, scrollTop: 0, pointerX: 400, pointerY: 300 }, 1, 0.5))
-      .toEqual({ left: 0, top: 0 });
+    expect(focalScroll(
+      { scrollLeft: 0, scrollTop: 0, pointerX: 400, pointerY: 300, padLeft: 0, padTop: 0 }, 1, 0.5,
+    )).toEqual({ left: 0, top: 0 });
   });
 
   it("leaves the scroller alone rather than dividing by a scale of zero", () => {
-    expect(focalScroll({ scrollLeft: 120, scrollTop: 40, pointerX: 0, pointerY: 0 }, 0, 1))
-      .toEqual({ left: 120, top: 40 });
+    expect(focalScroll(
+      { scrollLeft: 120, scrollTop: 40, pointerX: 0, pointerY: 0, padLeft: 0, padTop: 0 }, 0, 1,
+    )).toEqual({ left: 120, top: 40 });
   });
 });
 

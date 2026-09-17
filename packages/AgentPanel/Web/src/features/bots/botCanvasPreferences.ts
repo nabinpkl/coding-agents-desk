@@ -244,8 +244,39 @@ export interface CanvasScroll {
   top: number;
 }
 
+/**
+ * Whether the fitted canvas is given a gutter to be scrolled around in.
+ *
+ * Here rather than beside the zoom mode and scale in `useCanvasZoom`, which is where the rest of
+ * that mode's storage lives, for two reasons that agree: this is an arrangement the reader made
+ * rather than anything the gesture reads, and that file is at its line cap.
+ */
+const ROOM_KEY = "agent-panel.bot-canvas.room";
+
+export function loadCanvasRoomMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(ROOM_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function storeCanvasRoomMode(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(ROOM_KEY, "on");
+    else localStorage.removeItem(ROOM_KEY);
+  } catch {
+    // The canvas still draws; it just has no room around it next time.
+  }
+}
+
 function offset(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+  // Negative is a place, not a mistake. The zoom mode leaves room around the canvas to be scrolled
+  // into, and an offset is measured from the canvas's own top-left, so a reader who parks the
+  // canvas below or right of where it starts stores a number behind its start. The browser clamps
+  // anything unreachable on the way back in, which is what makes accepting them safe.
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 export function loadCanvasScroll(): CanvasScroll {

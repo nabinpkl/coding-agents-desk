@@ -1,4 +1,4 @@
-import { Monitor, Scan } from "lucide-react";
+import { Monitor, Move, Scan } from "lucide-react";
 
 /**
  * What the canvas is holding, above the roster that decides it.
@@ -48,6 +48,7 @@ export function BotCanvasStatus({
   countOf,
   onToggle,
   zoom,
+  room,
 }: {
   /** Bots on the canvas, hidden machines included. The chips' counts sum to this. */
   total: number;
@@ -72,6 +73,18 @@ export function BotCanvasStatus({
    * the gestures doing everything inside the mode, so this is only needed to enter and to leave.
    */
   zoom: { on: boolean; onToggle: () => void };
+  /**
+   * The gutter the fitted canvas is given to be scrolled around in, and the control for it.
+   *
+   * Asked for rather than always on, and that is the whole reason it is a control: room on an
+   * axis that did not have any turns a canvas which only scrolled sideways into one that drifts
+   * diagonally under a trackpad. Off, the canvas sits against the corner as it always has.
+   *
+   * It does nothing while the canvas is drawn at its own size -- the gutter belongs to the box
+   * the mode draws into, and there is no such box at 1:1 -- so it is disabled there rather than
+   * left to look like a control that does not work.
+   */
+  room: { on: boolean; onToggle: () => void };
 }) {
   return (
     <div className="border-b border-border px-3 py-2">
@@ -134,6 +147,27 @@ export function BotCanvasStatus({
       >
         <Scan className="size-3.5 shrink-0" aria-hidden />
         Fit the whole canvas
+      </button>
+      <button
+        type="button"
+        aria-pressed={room.on}
+        disabled={!zoom.on}
+        onClick={room.onToggle}
+        title={zoom.on
+          ? room.on
+            ? "Take the room back out, so the canvas sits against the corner."
+            : "Add room around the canvas, so it can be scrolled off the corner."
+          : "Fit the whole canvas first: the room is around what that draws."}
+        className={`mt-1.5 flex min-h-7 w-full items-center gap-1.5 rounded-md border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+          !zoom.on
+            ? "cursor-not-allowed border-border bg-card text-muted-foreground/50"
+            : room.on
+              ? "cursor-pointer border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
+              : "cursor-pointer border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+        }`}
+      >
+        <Move className="size-3.5 shrink-0" aria-hidden />
+        Room to move it
       </button>
     </div>
   );

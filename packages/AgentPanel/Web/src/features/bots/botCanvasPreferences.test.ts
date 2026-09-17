@@ -11,6 +11,7 @@ import {
   clampCardWidth,
   loadBotCanvasOrder,
   loadCanvasOpenKeys,
+  loadCanvasRoomMode,
   loadCanvasScroll,
   loadDetachedBotIds,
   loadDetachedSessionKeys,
@@ -20,6 +21,7 @@ import {
   orderBotsForCanvas,
   storeBotCanvasOrder,
   storeCanvasOpenKeys,
+  storeCanvasRoomMode,
   storeCanvasScroll,
   storeDetachedBotIds,
   storeDetachedSessionKeys,
@@ -220,14 +222,34 @@ describe("how far the canvas is scrolled", () => {
     expect(loadCanvasScroll()).toEqual({ left: 1840, top: 0 });
   });
 
-  it("refuses an offset behind the start, which no scroller can be at", () => {
+  it("keeps an offset behind the canvas's own start, which the room around it makes a place", () => {
+    // It used to refuse this, on the grounds that no scroller can be at a negative offset. The
+    // zoom mode's room made it a real one: the offset is measured from the canvas, not from the
+    // scroller, so parking the canvas lower and further right than it starts stores a number
+    // behind its start. Anything the canvas cannot actually reach is clamped by the browser.
     localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({ left: -400, top: 40 }));
-    expect(loadCanvasScroll()).toEqual({ left: 0, top: 40 });
+    expect(loadCanvasScroll()).toEqual({ left: -400, top: 40 });
   });
 
   it("opens at the left edge rather than trusting a value it cannot read", () => {
     localStorage.setItem(SCROLL_STORAGE_KEY, "{not json");
     expect(loadCanvasScroll()).toEqual({ left: 0, top: 0 });
+  });
+});
+
+describe("whether the fitted canvas has room around it", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("is off until a reader asks for it, because room an axis did not need reads as drift", () => {
+    expect(loadCanvasRoomMode()).toBe(false);
+    storeCanvasRoomMode(true);
+    expect(loadCanvasRoomMode()).toBe(true);
+  });
+
+  it("forgets it rather than storing the value that means the default", () => {
+    storeCanvasRoomMode(true);
+    storeCanvasRoomMode(false);
+    expect(localStorage.getItem("agent-panel.bot-canvas.room")).toBeNull();
   });
 });
 

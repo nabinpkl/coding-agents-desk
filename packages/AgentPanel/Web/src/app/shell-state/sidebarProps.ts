@@ -105,6 +105,9 @@ export function sidebarProps({
       // Beside the machine chips because it answers the same kind of question they do: not which
       // Bots are on the canvas, but how much of the canvas the reader can see at once.
       zoom: { on: roster.canvasZoomMode, onToggle: roster.toggleCanvasZoom },
+      // Beside the mode it belongs to: it is the room the fitted canvas gets to be moved around
+      // in, and it does nothing at all while the canvas is drawn at its own size.
+      room: { on: roster.canvasRoomMode, onToggle: roster.toggleCanvasRoom },
     },
     detachedSessionKeys: roster.detachedSessionKeys,
     canvasOpenSessionKeys: roster.canvasOpenKeys,

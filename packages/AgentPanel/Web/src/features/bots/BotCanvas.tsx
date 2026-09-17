@@ -76,7 +76,7 @@ export function BotCanvas({
   onAddBot,
   newSessions,
   onCloseNewSession,
-  zoomMode,
+  canvasZoom,
 }: {
   bots: BotView[];
   /**
@@ -220,7 +220,7 @@ export function BotCanvas({
    * lives, because a strip of cards as tall as their own rosters has no row to spare. See
    * `useCanvasZoom`.
    */
-  zoomMode: boolean;
+  canvasZoom: { mode: boolean; room: boolean };
 }) {
   // Nothing to lay out, so nothing below this point would be about anything: no scroller, no
   // strip, and no offset to come back to. The condition stays here rather than inside the
@@ -260,7 +260,7 @@ export function BotCanvas({
       onToggleSession={onToggleSession}
       newSessions={newSessions}
       onCloseNewSession={onCloseNewSession}
-      zoomMode={zoomMode}
+      canvasZoom={canvasZoom}
     />
   );
 }
@@ -305,7 +305,7 @@ function BotCanvasList({
   onToggleSession,
   newSessions,
   onCloseNewSession,
-  zoomMode,
+  canvasZoom,
 }: {
   bots: BotView[];
   hues: ReadonlyMap<string, number>;
@@ -334,7 +334,7 @@ function BotCanvasList({
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
   /** See the canvas above: the whole strip drawn small enough to see at once. */
-  zoomMode: boolean;
+  canvasZoom: { mode: boolean; room: boolean };
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
@@ -392,11 +392,14 @@ function BotCanvasList({
     && !detachedSessionKeys.has(botError.session)
     && standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
   const orphanedError = botError !== null && !carried ? botError.message : null;
-  const zoom = useCanvasZoom({ scroller: canvas, strip: list, on: zoomMode });
+  const zoom = useCanvasZoom({
+    scroller: canvas, strip: list, on: canvasZoom.mode, room: canvasZoom.room,
+  });
   // The stored offset is in content space, so it cannot be put back until the scale is known.
   const rememberScroll = useRememberedCanvasScroll(canvas, standing, {
     scale: zoom.scale,
     ready: !zoom.on || zoom.measured,
+    pad: zoom.pad,
   });
   // One strip, and nothing wraps out of it. A card widened here takes the room and pushes the cards
   // after it along; none of them can drop to a line below, because there is no line below. That is

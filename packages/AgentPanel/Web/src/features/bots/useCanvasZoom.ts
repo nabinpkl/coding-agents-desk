@@ -139,23 +139,49 @@ export function clampZoom(scale: number, fit: number): number {
 }
 
 /**
+ * The gutter the canvas gets to be scrolled around in, beyond its own edges.
+ *
+ * Small, fixed, and asked for rather than always there -- all three for one reason. Half a panel
+ * each way was the first answer and it is what lets a canvas be parked dead centre, but it gives
+ * every axis a scroll range whether or not that axis needed one, and a canvas that only moved
+ * sideways starts drifting diagonally under a trackpad. Sixty-four lifts it off the corner and
+ * leaves somewhere to nudge it, while a short canvas -- the 984x33 ribbon this machine's eight
+ * Bots draw at fit -- keeps no vertical range at all.
+ */
+const CANVAS_ROOM = { left: 64, top: 64 };
+
+/** No room at all, held once so the gutter being off hands back the same object every render. */
+const NO_ROOM = { left: 0, top: 0 };
+
+/**
  * Where the scroller has to be so that whatever is under the pointer stays under it.
  *
  * The whole of the zoom arithmetic, and the difference between a gesture that feels like grabbing
  * the canvas and one that makes a reader chase the card they were already pointing at. `pointerX`
  * and `pointerY` are relative to the scroller's own top-left, not the page's.
+ *
+ * `padLeft` and `padTop` are the room around the canvas, which is the distance between the
+ * scroller's origin and the canvas's own. Everything else here is in content coordinates, so a
+ * gesture that forgot the room would hold a point half a panel away from the reader's fingers.
  */
 export function focalScroll(
-  at: { scrollLeft: number; scrollTop: number; pointerX: number; pointerY: number },
+  at: {
+    scrollLeft: number;
+    scrollTop: number;
+    pointerX: number;
+    pointerY: number;
+    padLeft: number;
+    padTop: number;
+  },
   from: number,
   to: number,
 ): { left: number; top: number } {
   if (!(from > 0) || !(to > 0)) return { left: at.scrollLeft, top: at.scrollTop };
-  const contentX = (at.scrollLeft + at.pointerX) / from;
-  const contentY = (at.scrollTop + at.pointerY) / from;
+  const contentX = (at.scrollLeft + at.pointerX - at.padLeft) / from;
+  const contentY = (at.scrollTop + at.pointerY - at.padTop) / from;
   return {
-    left: Math.max(0, contentX * to - at.pointerX),
-    top: Math.max(0, contentY * to - at.pointerY),
+    left: Math.max(0, contentX * to + at.padLeft - at.pointerX),
+    top: Math.max(0, contentY * to + at.padTop - at.pointerY),
   };
 }
 
@@ -197,6 +223,15 @@ export interface CanvasZoom {
   /** Whether the strip and the scroller have been measured, so `scale` means something yet. */
   measured: boolean;
   /**
+   * The room around the canvas, in scroller pixels, and so the distance between the scroller's
+   * own origin and the canvas's. Zero on both axes while the mode is off.
+   *
+   * Handed out because an offset into this scroller is no longer an offset into the canvas, and
+   * everything that converts between the two -- the remembered place, most of all -- has to say
+   * which of them it means.
+   */
+  pad: { left: number; top: number };
+  /**
    * The wrapper that gives the scroller the range the transform does not.
    *
    * Never undefined, because the wrapper is never removed. It carries `display: contents` while the
@@ -226,10 +261,13 @@ export function useCanvasZoom({
   scroller,
   strip,
   on,
+  room,
 }: {
   scroller: React.RefObject<HTMLDivElement | null>;
   strip: React.RefObject<HTMLUListElement | null>;
   on: boolean;
+  /** Whether the canvas is given a gutter to be scrolled around in. See `CANVAS_ROOM`. */
+  room: boolean;
 }): CanvasZoom {
   const [wanted, setWanted] = useState(loadCanvasZoomScale);
   const [content, setContent] = useState<Size>({ width: 0, height: 0 });
@@ -245,6 +283,12 @@ export function useCanvasZoom({
   const floor = useRef(fit);
   floor.current = fit;
 
+  // The gutter the canvas is scrolled around in. A fixed border rather than anything derived from
+  // the scale, so it does not move under a pinch: the canvas grows and shrinks inside it.
+  const gutter = on && measured && room ? CANVAS_ROOM : NO_ROOM;
+  const gap = useRef(gutter);
+  gap.current = gutter;
+
   // Where the next paint has to leave the scroller, set by whatever changed the scale and applied
   // once the sizer has resized. In a layout effect so the reader never sees the frame where the
   // strip has changed size and the scroller has not caught up with it.
@@ -257,6 +301,20 @@ export function useCanvasZoom({
     box.scrollLeft = at.left;
     box.scrollTop = at.top;
   });
+
+  // The gutter appearing or going away moves the canvas inside the scroller, so the scroller moves
+  // with it and the reader sees nothing happen. Without this, turning it on drops room in ahead of
+  // a scroller already somewhere and the canvas lurches by exactly that much. The restore on mount
+  // sets an absolute offset AFTER this runs, so the two never double up.
+  const applied = useRef(gutter);
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    const was = applied.current;
+    applied.current = gutter;
+    if (!box || (was.left === gutter.left && was.top === gutter.top)) return;
+    box.scrollLeft += gutter.left - was.left;
+    box.scrollTop += gutter.top - was.top;
+  }, [scroller, gutter.left, gutter.top]);
 
   // One write for the scale, from an effect on the value rather than beside each of the gestures
   // that move it, which is how one of them ends up forgotten.
@@ -310,6 +368,8 @@ export function useCanvasZoom({
       scrollTop: box.scrollTop,
       pointerX: (clientX ?? rect.left + rect.width / 2) - rect.left,
       pointerY: (clientY ?? rect.top + rect.height / 2) - rect.top,
+      padLeft: gap.current.left,
+      padTop: gap.current.top,
     }, from, to);
     setWanted(to);
   }, [scroller]);
@@ -379,10 +439,13 @@ export function useCanvasZoom({
         return;
       }
       // Straight to the card that was aimed at, rather than to whatever happened to be under the
-      // middle of the screen. The target scale is 1, so content coordinates ARE scroll offsets.
+      // middle of the screen. The target scale is 1, so a content coordinate is a scroll offset
+      // once the room around the canvas is added back to it.
       landing.current = {
-        left: Math.max(0, (box.scrollLeft + card.left - rect.left) / drawn.current - CARD_INSET),
-        top: Math.max(0, (box.scrollTop + card.top - rect.top) / drawn.current - CARD_INSET),
+        left: Math.max(0, (box.scrollLeft + card.left - rect.left - gap.current.left) / drawn.current
+          + gap.current.left - CARD_INSET),
+        top: Math.max(0, (box.scrollTop + card.top - rect.top - gap.current.top) / drawn.current
+          + gap.current.top - CARD_INSET),
       };
       setWanted(1);
     };
@@ -407,8 +470,19 @@ export function useCanvasZoom({
     on,
     scale,
     measured,
+    pad: gutter,
+    // The gutter is the sizer's own padding rather than a translate on the strip, which keeps the
+    // rule below true: while the canvas is drawn at its own size there is no transform in the
+    // tree at all, and so no containing block stolen from anything `position: fixed` inside a
+    // card. `border-box`, so the width quoted here is the whole box including that padding.
     sizerStyle: on && measured
-      ? { width: content.width * scale, height: content.height * scale }
+      ? {
+        width: content.width * scale + gutter.left * 2,
+        height: content.height * scale + gutter.top * 2,
+        paddingLeft: gutter.left,
+        paddingTop: gutter.top,
+        boxSizing: "border-box",
+      }
       : { display: "contents" },
     // No transform at exactly 1:1, where the mode has nothing to draw differently. Not tidiness:
     // a `scale(1)` is still a transform, and a transform is still a containing block for every

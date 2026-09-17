@@ -111,6 +111,8 @@ interface AgentSidebarProps {
     onToggle: (key: string) => void;
     /** The canvas drawn small enough to see all of at once. See `BotCanvasStatus`. */
     zoom: { on: boolean; onToggle: () => void };
+    /** The gutter that fitted canvas is given to be scrolled around in. */
+    room: { on: boolean; onToggle: () => void };
   };
   /**
    * The sessions NOT on the canvas, as `source:sessionId`.
@@ -312,6 +314,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                   countOf={props.canvasMachines.countOf}
                   onToggle={props.canvasMachines.onToggle}
                   zoom={props.canvasMachines.zoom}
+                  room={props.canvasMachines.room}
                 />
               )
             }

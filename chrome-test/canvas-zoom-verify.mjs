@@ -71,10 +71,28 @@ const canvas = (page) => page.evaluate(() => {
     stripStamp: strip.dataset.zoomStamp || null,
     touchAction: scroller.style.touchAction,
     naturalWidth: strip.offsetWidth,
+    naturalHeight: strip.offsetHeight,
     scrollWidth: scroller.scrollWidth,
+    scrollHeight: scroller.scrollHeight,
     clientWidth: scroller.clientWidth,
+    clientHeight: scroller.clientHeight,
     scrollLeft: scroller.scrollLeft,
+    scrollTop: scroller.scrollTop,
     scrollerLeft: box.left,
+    // The gutter between the scroller's origin and the canvas's own, which every content
+    // coordinate below has to be measured from. Zero unless the room is turned on.
+    pad: scroller.scrollLeft + (strip.getBoundingClientRect().left - box.left),
+    // Where the drawn canvas actually sits inside the panel, which is the whole question the room
+    // around it exists to answer.
+    stripBox: (() => {
+      const at = strip.getBoundingClientRect();
+      return {
+        left: at.left - box.left,
+        top: at.top - box.top,
+        width: at.width,
+        height: at.height,
+      };
+    })(),
     cards: strip.children.length,
     // Where the first card is on screen, which is what a focal point has to hold still.
     firstCardLeft: first ? first.getBoundingClientRect().left - box.left : null,
@@ -125,22 +143,88 @@ try {
   // Every scale change below resizes the sizer, and if the wrapper were rendered conditionally
   // that would move the strip in the tree -- remounting it, and with it every open session card
   // and every stream those hold. The stamp is how that shows up as a failure rather than silently.
-  await page.evaluate(() => {
-    document.querySelector('ul[aria-label="Bot canvas"]').dataset.zoomStamp = 'alive';
-  });
   // The whole reason the sizer exists: without it the scroller keeps the untransformed range and
   // most of it is empty, so the canvas pans into nothing.
+  const drawnAt = {
+    width: Math.round(fit.naturalWidth * fit.scale),
+    height: Math.round(fit.naturalHeight * fit.scale),
+  };
+  // The sizer's reason for existing: without it the scroller keeps the untransformed range and
+  // most of it is empty. With the gutter off, which is the default, the range is what is drawn.
   check('the scroll range matches what is drawn, not what is laid out',
-    Math.abs(fit.scrollWidth - fit.naturalWidth * fit.scale) < Math.max(4, fit.naturalWidth * 0.02),
-    `scrollWidth ${fit.scrollWidth} vs drawn ${Math.round(fit.naturalWidth * fit.scale)}`);
-  check('the whole canvas is inside the panel at fit', fit.scrollWidth <= 1280 + 4,
-    `${fit.scrollWidth} wide`);
+    Math.abs(fit.scrollWidth - drawnAt.width) < Math.max(4, fit.naturalWidth * 0.02),
+    `scrollWidth ${fit.scrollWidth} vs drawn ${drawnAt.width}`);
+  // Measured on the canvas itself rather than on the scroll range, which the room now dwarfs.
+  check('the whole canvas is inside the panel at fit',
+    fit.stripBox.left >= -4 && fit.stripBox.top >= -4
+      && fit.stripBox.left + fit.stripBox.width <= fit.clientWidth + 4
+      && fit.stripBox.top + fit.stripBox.height <= fit.clientHeight + 4,
+    `${drawnAt.width}x${drawnAt.height} at ${Math.round(fit.stripBox.left)},${Math.round(fit.stripBox.top)}`
+      + ` in ${fit.clientWidth}x${fit.clientHeight}`);
   check('the mode takes the browser pinch but leaves it scrolling', fit.touchAction === 'pan-x pan-y',
     fit.touchAction || 'unset');
 
+  // -------------------------------------------------------------------------
+  // The gutter, which is asked for rather than always there
+  // -------------------------------------------------------------------------
+
+  /** Puts the scroller somewhere and reports what that did to the canvas. */
+  const scrolledTo = async (left, top) => {
+    await page.evaluate(({ left, top }) => {
+      const strip = document.querySelector('ul[aria-label="Bot canvas"]');
+      const scroller = strip.parentElement.parentElement;
+      scroller.scrollLeft = left;
+      scroller.scrollTop = top;
+    }, { left, top });
+    await page.waitForTimeout(250);
+    return canvas(page);
+  };
+
+  check('no gutter until it is asked for', fit.pad < 4, `${Math.round(fit.pad)}px`);
+
+  await page.evaluate(() => localStorage.setItem('agent-panel.bot-canvas.room', 'on'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(STRIP, { timeout: 30000 });
+  await page.waitForTimeout(4000);
+  const roomed = await canvas(page);
+  check('the gutter widens the scroll range by its own two sides',
+    Math.abs((roomed.scrollWidth - fit.scrollWidth) - 128) < 8,
+    `${fit.scrollWidth} -> ${roomed.scrollWidth}`);
+
+  // The reason the gutter is small and asked for. A half-panel of room gave every axis a scroll
+  // range whether it needed one or not, so a canvas that only moved sideways drifted diagonally
+  // under a trackpad. A short canvas plus 64 top and bottom still fits the panel, so it does not.
+  check('the gutter gives a short canvas no vertical range to drift in',
+    roomed.scrollHeight <= roomed.clientHeight + 1,
+    `scrollHeight ${roomed.scrollHeight} vs panel ${roomed.clientHeight}`);
+
+  // And it does what it was asked for: the canvas comes off the corner and can be moved.
+  const parked = await scrolledTo(0, 0);
+  check('scrolled to the start, the canvas sits a gutter in from both edges',
+    Math.abs(parked.stripBox.left - 64) < 4 && Math.abs(parked.stripBox.top - 64) < 4,
+    `canvas at ${Math.round(parked.stripBox.left)},${Math.round(parked.stripBox.top)}`);
+
+  // Back off for everything below, which is about the mode rather than about the gutter.
+  await page.evaluate(() => localStorage.removeItem('agent-panel.bot-canvas.room'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(STRIP, { timeout: 30000 });
+  await page.waitForTimeout(4000);
+
+  // Marked HERE, after the last reload of the run rather than with the other fit checks. The
+  // canary below asks whether a scale change replaced the strip, and a reload replaces the whole
+  // document -- so a stamp written before one reports a remount that never happened.
+  await page.evaluate(() => {
+    document.querySelector('ul[aria-label="Bot canvas"]').dataset.zoomStamp = 'alive';
+  });
+
   /** Back to a known state: fit, freshly loaded. Anything below would otherwise inherit a scale. */
   async function backToFit() {
-    await page.evaluate(() => localStorage.setItem('agent-panel.bot-canvas.zoom-scale', '0.02'));
+    await page.evaluate(() => {
+      localStorage.setItem('agent-panel.bot-canvas.zoom-scale', '0.02');
+      // And where it was left, or a section inherits wherever the one before it parked the canvas
+      // in the room around it. Without this the state is "fit" in name only.
+      localStorage.removeItem('agent-panel.bot-canvas.scroll');
+    });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForSelector(STRIP, { timeout: 30000 });
     await page.waitForTimeout(4000);
@@ -180,14 +264,23 @@ try {
 
   // The focal rule: whatever was between the fingers is still between them. Checked by asking
   // where the content under the midpoint sits afterwards, in the strip's own coordinates.
+  // The room around the canvas is part of this sum: it sits between the scroller's origin and the
+  // canvas's own, so a content coordinate that forgets it is out by the room divided by the scale
+  // -- which is a different number at each end of a pinch, and so reads exactly like a drift that
+  // is not happening. Measured off the strip's own box rather than recomputed.
   const held = await page.evaluate(({ x, y, was }) => {
     const strip = document.querySelector('ul[aria-label="Bot canvas"]');
     const sized = strip.parentElement;
     const scroller = sized.style.width !== '' ? sized.parentElement : sized;
     const box = scroller.getBoundingClientRect();
     const scale = strip.getBoundingClientRect().width / strip.offsetWidth;
-    return { content: (scroller.scrollLeft + (x - box.left)) / scale, was };
-  }, { x: midX, y: midY, was: (before.scrollLeft + (midX - before.scrollerLeft)) / before.scale });
+    const pad = scroller.scrollLeft + (strip.getBoundingClientRect().left - box.left);
+    return { content: (scroller.scrollLeft + (x - box.left) - pad) / scale, was };
+  }, {
+    x: midX,
+    y: midY,
+    was: (before.scrollLeft + (midX - before.scrollerLeft) - before.pad) / before.scale,
+  });
   check('the pinch holds whatever was between the fingers',
     Math.abs(held.content - held.was) < 60,
     `content ${Math.round(held.content)} vs ${Math.round(held.was)}`);
