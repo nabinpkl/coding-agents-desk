@@ -333,7 +333,13 @@ function LimitChips({ quotas }: { quotas: UsageQuota[] }) {
               stale ? `read ${formatAge(quota.sampledAt, at)}` : `resets in ${formatResetIn(quota.resetsAt, at)}`
             }`}
             className={
+              // The space is tightened because a monospace one is not a typographic space, it is
+              // a character cell: 0.6em, which is 7.2px at the chip's 12px, against the 6px
+              // between one chip and the next. The window and its percentage were further apart
+              // than `5h: 1%` and `7d: 69%` were, so the row read as four loose things rather
+              // than two pairs. In em, so it holds when the reader scales the panel's type.
               "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums "
+              + "[word-spacing:-0.35em] "
               + chipTone(quota.usedPercent, stale)
             }
           >
