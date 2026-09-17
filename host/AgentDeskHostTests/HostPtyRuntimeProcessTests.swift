@@ -75,6 +75,70 @@ struct HostPtyRuntimeProcessTests {
         ) == .block(reason: "live PTY runtime has no matching durable identity"))
     }
 
+    /// A connect that lands means something is accepting, which is the only question the launch
+    /// ladder is really asking about a predecessor.
+    @Test func aSocketThatAcceptsIsServing() {
+        #expect(HostPtyRuntimeSocketVerifier.probe(connectErrno: nil) == .serving)
+    }
+
+    /// The two answers that positively mean nothing is bound to the path. This is what the host
+    /// could not see on 2026-09-15, when it preserved a vault whose pid was alive and whose socket
+    /// was already refusing, and the manager that needed it exited two seconds later.
+    @Test func aRefusedOrAbsentSocketIsNotServing() {
+        #expect(HostPtyRuntimeSocketVerifier.probe(connectErrno: ECONNREFUSED) == .refused)
+        #expect(HostPtyRuntimeSocketVerifier.probe(connectErrno: ENOENT) == .refused)
+    }
+
+    /// Every other errno is the probe failing rather than the daemon dying, and an absence is the
+    /// cheapest thing a broken probe can produce. Reading one as death would cold start over a
+    /// healthy runtime, so the caller keeps what it has.
+    @Test func aProbeThatCouldNotAnswerIsNotEvidenceOfDeath() {
+        for code in [EMFILE, EINTR, EAGAIN, EACCES] {
+            #expect(HostPtyRuntimeSocketVerifier.probe(connectErrno: code) == .inconclusive(code: code))
+        }
+    }
+
+    /// The errno table above is only half of it. This is the address packing and the kernel's own
+    /// answer, over the three states a daemon's socket passes through: not there at all, bound and
+    /// listening, and the one that cost twelve hours of dead terminals -- the file still present
+    /// after its listener has gone.
+    @Test func aRealSocketIsProbedByConnectingToIt() {
+        // Short and rooted at /tmp on purpose: `sun_path` is 104 bytes, and a unique directory
+        // under $TMPDIR is long enough on its own to overrun it.
+        let path = "/tmp/agentdesk-probe-\(UUID().uuidString.prefix(8)).sock"
+        let url = URL(fileURLWithPath: path)
+        #expect(HostPtyRuntimeProcess.socketProbe(url) == .refused)
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        let name = Array(path.utf8)
+        // Read before the closure: `sun_path` cannot be measured while it is being written.
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        withUnsafeMutablePointer(to: &address.sun_path) { field in
+            field.withMemoryRebound(to: CChar.self, capacity: capacity) { target in
+                for (index, byte) in name.enumerated() { target[index] = CChar(bitPattern: byte) }
+                target[name.count] = 0
+            }
+        }
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        #expect(listener >= 0)
+        let bound = withUnsafePointer(to: &address) { stored in
+            stored.withMemoryRebound(to: sockaddr.self, capacity: 1) { generic in
+                bind(listener, generic, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        #expect(bound == 0)
+        #expect(listen(listener, 4) == 0)
+        #expect(HostPtyRuntimeProcess.socketProbe(url) == .serving)
+
+        // The incident's shape: the listener is gone and its file is not.
+        close(listener)
+        #expect(HostPtyRuntimeProcess.socketProbe(url) == .refused)
+        // Exactly the path this test created, by the name it was given.
+        unlink(path)
+    }
+
     /// The gap this closes, measured 2026-09-15: a cold-started manager could not reach its vault,
     /// exited two seconds in, and stayed down for twelve hours because the only thing watching was
     /// a log line.

@@ -44,6 +44,15 @@ enum HostPtyRuntimeRecoveryDecision: Equatable {
     case fail(reason: String)
 }
 
+/// What asking a socket whether anything is accepting on it answered.
+enum HostPtyRuntimeSocketProbe: Equatable {
+    case serving
+    /// Nothing is bound to that path, so whoever the identity file names is a corpse.
+    case refused
+    /// The probe could not answer. Read as serving, because a probe's silence is not evidence.
+    case inconclusive(code: Int32)
+}
+
 /// What to do when a daemon's own process exits.
 enum HostPtyRuntimeRestartDecision: Equatable {
     /// Run the whole opening ladder again, vault first, then the manager that needs it.
@@ -85,6 +94,21 @@ enum HostPtyRuntimeSocketVerifier {
             )
         }
         return recordedIdentity.digest == bundledDigest ? .preserve(peer) : .handover(peer)
+    }
+
+    /// What a connect to a daemon's socket says about whether it is serving.
+    ///
+    /// Only two errno values mean the daemon is gone, and everything else is the probe failing
+    /// rather than the daemon: out of descriptors, interrupted, a full accept backlog on a busy
+    /// one. Reading those as death would cold start over a healthy runtime, so they answer
+    /// `inconclusive` and the caller keeps what it has. The asymmetry is deliberate and it is this
+    /// repo's absent-result rule in one expression: an absence is the cheapest thing a broken probe
+    /// can produce, so only the two answers that positively mean "nothing is bound here" count.
+    static func probe(connectErrno: Int32?) -> HostPtyRuntimeSocketProbe {
+        guard let code = connectErrno else { return .serving }
+        // ECONNREFUSED: the file is there and no process is listening on it. ENOENT: not even that.
+        if code == ECONNREFUSED || code == ENOENT { return .refused }
+        return .inconclusive(code: code)
     }
 
     /// Whether a daemon that exited on its own should be brought back.
@@ -278,8 +302,8 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     /// The whole ladder runs again rather than just the component that went, because the manager
     /// is the one that exits and the vault is usually why: a manager restarted against the same
     /// absent vault would repeat the exit exactly. Re-running `launchComponents` cold starts the
-    /// vault first when nothing is serving it, and preserves it in one comparison when something
-    /// is, so the common case costs a digest and a `kill(pid, 0)`.
+    /// vault first when nothing is serving it, and preserves it when something is, so the common
+    /// case costs a digest, a `proc_pidpath` and a connect to a socket on this machine.
     private func handleExit(of component: Component) {
         let deliberate = deliberateExits.remove(component) != nil
         if component == .manager,
@@ -615,13 +639,63 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     ///
     /// Identified by the identity a daemon publishes for itself, not by who created the socket.
     /// After a handover the creator is the *previous* generation, usually already exited, so asking
-    /// the socket would report a dead pid and make the host cold start over a healthy runtime.
-    /// `executablePath(pid:)` fails for a dead process, which is also the liveness check.
+    /// the socket who owns it would report a dead pid and make the host cold start over a healthy
+    /// runtime. `executablePath(pid:)` fails for a dead process, which is the liveness half.
+    ///
+    /// Both halves are required, and for a while only the first was. A pid that resolves says a
+    /// process exists; it does not say that process is still accepting connections, and the two
+    /// come apart exactly when it matters most -- during the seconds an outgoing generation takes
+    /// to exit. Measured 2026-09-15: this host preserved a vault whose pid was alive and whose
+    /// socket was already refusing, then cold started a manager that needed it, and the manager
+    /// exited two seconds later with `Connection refused`. Every PTY-backed terminal was down for
+    /// twelve hours. A daemon is serving when its socket says so.
+    ///
+    /// Answering nil for something that is alive but unreachable is a cold start over a process
+    /// that may still hold descriptors, and that is the right trade: those sessions are already
+    /// unreachable through a socket nothing answers, and a cold start that turns out to be wrong
+    /// loses the race harmlessly, because the daemon binding the socket refuses to start when
+    /// something is already listening on it.
     private func servingPeer(socketURL: URL) -> HostPtyRuntimeSocketPeer? {
         guard let identity = runtimeIdentity(socketURL: socketURL),
-              let path = Self.executablePath(pid: identity.pid)
+              let path = Self.executablePath(pid: identity.pid),
+              Self.socketProbe(socketURL) != .refused
         else { return nil }
         return HostPtyRuntimeSocketPeer(pid: identity.pid, executablePath: path)
+    }
+
+    /// Asks the socket the only way there is to ask: by connecting to it.
+    ///
+    /// A connect on an `AF_UNIX` stream socket is decided in the kernel against the listener's
+    /// backlog, with no round trip and nothing for the daemon to do, so this does not depend on a
+    /// daemon being responsive enough to answer a protocol request -- which is what makes it safe
+    /// to call from the launch ladder and from `terminatePredecessor`'s poll. The connection is
+    /// closed immediately; both daemons take short-lived clients as a matter of course, since the
+    /// sidecar opens one per call.
+    static func socketProbe(_ socketURL: URL) -> HostPtyRuntimeSocketProbe {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        let name = Array(socketURL.path.utf8)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        // `sun_path` is 104 bytes here and the name needs its terminator inside that.
+        guard name.count < capacity else {
+            return .inconclusive(code: ENAMETOOLONG)
+        }
+        withUnsafeMutablePointer(to: &address.sun_path) { field in
+            field.withMemoryRebound(to: CChar.self, capacity: capacity) { path in
+                for (index, byte) in name.enumerated() { path[index] = CChar(bitPattern: byte) }
+                path[name.count] = 0
+            }
+        }
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return HostPtyRuntimeSocketVerifier.probe(connectErrno: errno) }
+        defer { close(descriptor) }
+        let outcome = withUnsafePointer(to: &address) { stored in
+            stored.withMemoryRebound(to: sockaddr.self, capacity: 1) { generic in
+                Darwin.connect(descriptor, generic, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return HostPtyRuntimeSocketVerifier.probe(connectErrno: outcome == 0 ? nil : errno)
     }
 
     private func runtimeIdentity(socketURL: URL) -> HostPtyRuntimeIdentity? {
