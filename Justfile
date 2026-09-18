@@ -151,6 +151,7 @@ agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp
 dev_login_log := env_var_or_default("AGENTDESK_DEV_LOGIN_LOG", "/tmp/agentdesk-dev-login.log")
 panel_dev_login_log := env_var_or_default("AGENTDESK_PANEL_DEV_LOGIN_LOG", "/tmp/agentdesk-panel-dev-login.log")
 remote_sidecar_login_log := env_var_or_default("AGENTDESK_REMOTE_SIDECAR_LOGIN_LOG", "/tmp/agentdesk-remote-sidecar-login.log")
+proxy_observer_relay_login_log := env_var_or_default("AGENTDESK_PROXY_OBSERVER_RELAY_LOGIN_LOG", "/tmp/agentdesk-proxy-observer-relay-login.log")
 # The dev server's TLS material belongs to its durable runtime, outside the checkout.
 # Deleting build caches must not erase the certificate/key of the running server.
 agent_panel_dev_tls_dir := shell('node tools/runtime-paths.mjs panel-tls')
@@ -1751,6 +1752,15 @@ remote-sidecar-stop peer port="7682":
 remote-sidecar-status peer port="7682":
     bash tools/remote-sidecar.sh status '{{peer}}' '{{port}}'
 
+# The relay that lets a peer's sidecar reach this Mac's proxy-agent observer API, in the
+# foreground. `proxy-observer-relay-login.sh` is this same recipe as a supervised job, so there is
+# one definition of what the relay is rather than two that drift.
+#
+# Foreground on purpose, like `agent-webview-dev`: launchd supervises the process it starts, so the
+# thing it starts has to be the server itself.
+proxy-observer-relay:
+    bun tools/proxy-observer-relay.mjs
+
 # Who is watching a sidecar's displays and which grid-encoders are capturing for them. One login
 # session per sidecar; the registry entry names its port.
 webrtc-sessions user=env_var_or_default("USER", "dev"):
@@ -2264,9 +2274,10 @@ host-login:
 
 # Make the dev loop what this Mac comes back to after a restart.
 #
-# Three jobs: the host, the panel's dev server, and a watcher per declared peer. What they have in
-# common is that each is a piece of the no-rebuild loop that somebody would otherwise have to
-# remember to start, and forgetting any of them leaves a machine that looks like it is working.
+# Four jobs: the host, the panel's dev server, a watcher per declared peer, and the relay a peer's
+# sidecar reaches this Mac's proxy-agent through. What they have in common is that each is a piece
+# of the no-rebuild loop that somebody would otherwise have to remember to start, and forgetting
+# any of them leaves a machine that looks like it is working.
 #
 # Two LaunchAgents cannot both own the login launch, so this takes ownership from the app's own.
 # `LaunchAgentInstaller` writes `{{host_bundle_id}}` with `RunAtLoad` and NO environment, which is
@@ -2283,6 +2294,7 @@ dev-login-install:
     LABEL='{{host_bundle_id}}.devlogin'
     PANEL_LABEL='{{host_bundle_id}}.paneldev'
     PEERS_LABEL='{{host_bundle_id}}.remotesidecars'
+    RELAY_LABEL='{{host_bundle_id}}.proxyobserver'
     mkdir -p "$AGENTS"
     # The toolchain is located HERE, from a shell that has a working PATH, rather than guessed by
     # the script launchd runs. Every one of these lives somewhere a login job cannot find: `just`
@@ -2366,16 +2378,28 @@ dev-login-install:
     # that a quiet loop rather than a failure. Declaring the first peer in .env is what starts it,
     # after a `launchctl kickstart -k` or the next login.
     write_agent "$PEERS_LABEL" remote-sidecar-login.sh true '{{remote_sidecar_login_log}}'
-    echo "dev-login-install: $LABEL, $PANEL_LABEL and $PEERS_LABEL own this Mac's login launch"
+    # And a fourth, which is the peers job's other half. A peer's sidecar is pointed at this Mac's
+    # proxy-agent observer API to mirror Claude's live network traffic, and that API is reachable
+    # only through this relay. Without it the peer finds nothing at its own loopback and shows no
+    # mirror -- which is indistinguishable from a peer whose sessions are simply quiet, so nothing
+    # reports it.
+    #
+    # Note what this publishes: captured Anthropic API traffic, prompts and responses included,
+    # reaches the tailnet through the relay's `tailscale serve` front. WireGuard device identity is
+    # the whole of the boundary. Running this at login is that decision made once rather than each
+    # time somebody starts it by hand.
+    write_agent "$RELAY_LABEL" proxy-observer-relay-login.sh true '{{proxy_observer_relay_login_log}}'
+    echo "dev-login-install: $LABEL, $PANEL_LABEL, $PEERS_LABEL and $RELAY_LABEL own this Mac's login launch"
     echo "  host log:   {{dev_login_log}}"
     echo "  panel log:  {{panel_dev_login_log}}"
     echo "  peers log:  {{remote_sidecar_login_log}}"
+    echo "  relay log:  {{proxy_observer_relay_login_log}}"
 
 # Give the login launch back to the app's own agent.
 dev-login-uninstall:
     #!/usr/bin/env bash
     set -euo pipefail
-    for LABEL in '{{host_bundle_id}}.devlogin' '{{host_bundle_id}}.paneldev' '{{host_bundle_id}}.remotesidecars'; do
+    for LABEL in '{{host_bundle_id}}.devlogin' '{{host_bundle_id}}.paneldev' '{{host_bundle_id}}.remotesidecars' '{{host_bundle_id}}.proxyobserver'; do
         launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
         rm -f "$HOME/Library/LaunchAgents/$LABEL.plist"
         echo "dev-login-uninstall: removed $LABEL"

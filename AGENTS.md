@@ -429,6 +429,17 @@ and reversed with `just dev-login-uninstall`:
   answering `/api/config` the whole time. **A peer that answers tells you nothing about which code
   it is answering from**, which is why `remote-sidecar-status` now says so out loud. With no peers
   declared the job says so and idles, so installing it before there is a peer is harmless.
+- **`com.example.agentdesk.AgentDeskHost.proxyobserver`** runs `tools/proxy-observer-relay-login.sh` -> `just
+  proxy-observer-relay`, `KeepAlive`, and it is the peers job's other half. A peer's sidecar mirrors
+  Claude's live network traffic by subscribing to proxy-agent's observer API, which listens on THIS
+  Mac's loopback and refuses anything whose `Host` is not a literal loopback address -- deliberate
+  DNS-rebinding hardening, and `tailscale serve` cannot satisfy it in either mode. The relay sits in
+  front of it on 9156, rewrites `Host`, and is a local caller as far as proxy-agent is concerned.
+  **Read that as a deliberate widening, not plumbing**: what crosses the tailnet is captured
+  Anthropic API traffic, prompts and responses included, bounded by WireGuard device identity and by
+  nothing else, on the peer as well, where any local process can connect. Without the relay a peer
+  points at its own loopback, finds nothing, and shows no mirror -- which looks exactly like a peer
+  whose sessions are quiet, so nothing reports it.
 - The app's own agent is booted out and deleted by the install, because two `RunAtLoad` jobs have no
   defined order and the loser is whichever host `open` then merely activates. It stays gone: every
   launch this path makes carries `AGENTDESK_DEV_ITERATION_RUN`, which is the flag
