@@ -101,6 +101,26 @@ export interface AgentTerminalDescriptor {
   pid: number;
   columns: number;
   rows: number;
+  /**
+   * Whether the program in this pane has asked for mouse reports, in SGR form, so a viewer may
+   * forward its wheel to the program instead of scrolling its own buffer.
+   *
+   * It exists because a fullscreen program has no tmux scrollback to import -- tmux keeps none for
+   * the alternate screen -- so the only history that can be scrolled is the program's own, and the
+   * only way to reach it is to send the wheel. Measured 2026-09-18 on a peer running Claude Code
+   * with `"tui": "fullscreen"`: the pane reported `mouse_all_flag=1 mouse_sgr_flag=1`, and five
+   * forwarded `ESC [ < 64 ; col ; row M` reports scrolled its view back through content that
+   * `capture-pane` could not see at all.
+   *
+   * SGR specifically, and false for every other encoding, because the legacy X10 form cannot
+   * address a column past 223 and a wheel report sent in the wrong encoding does not fail -- it
+   * arrives in the program as text.
+   *
+   * A property of the program as it stood when this terminal opened. A pane that enters or leaves
+   * fullscreen while somebody is watching is covered by the other half of the viewer's condition,
+   * which reads xterm's own buffer type and follows the live stream; see `attachCustomWheelEventHandler`.
+   */
+  mouseReporting: boolean;
 }
 
 /** One terminal's message, carried inside an envelope on the shared stream. */

@@ -33,8 +33,10 @@ import { adoptPaneSize, refreshPaneSize, type SharedPane } from "@/terminal/tmux
 
 /** Everything this needs from tmux, injected so the logic can be tested without a tmux server. */
 export interface TmuxPaneRuntime {
-  /** The pane's pid and geometry, for the descriptor the panel renders. */
-  describe(session: string): Promise<{ pid: number; columns: number; rows: number }>;
+  /** The pane's pid, geometry and mouse mode, for the descriptor the panel renders. */
+  describe(
+    session: string,
+  ): Promise<{ pid: number; columns: number; rows: number; mouseReporting: boolean }>;
   /** The scrollback and the screen, composed for a terminal to write directly. */
   capture(session: string, lines: number): Promise<string>;
   /**
@@ -73,7 +75,14 @@ export function hexKeyArguments(bytes: Uint8Array): string[] {
 
 /** The connection surface `AgentTerminalService` uses, backed by tmux rather than a PTY. */
 export class TmuxSessionConnection {
-  readonly attachment: { sessionName: string; pid: number; columns: number; rows: number };
+  readonly attachment: {
+    sessionName: string;
+    pid: number;
+    columns: number;
+    rows: number;
+    /** See the wire descriptor's own field: what the program in the pane asked the mouse for. */
+    mouseReporting: boolean;
+  };
   private readonly envelopeListeners = new Set<EnvelopeListener>();
   private readonly failureListeners = new Set<FailureListener>();
   private closed = false;
@@ -88,6 +97,7 @@ export class TmuxSessionConnection {
       pid: pane.pid,
       columns: pane.columns,
       rows: pane.rows,
+      mouseReporting: pane.mouseReporting,
     };
   }
 
@@ -308,6 +318,7 @@ export class TmuxAttachments {
       pid: geometry.pid,
       columns: geometry.columns,
       rows: geometry.rows,
+      mouseReporting: geometry.mouseReporting,
       revision: 0,
       wanted: null,
       resizing: null,

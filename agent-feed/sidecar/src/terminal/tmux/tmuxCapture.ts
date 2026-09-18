@@ -63,7 +63,7 @@ export function captureQuestionViewArgs(session: string, lines: number): string[
 }
 
 /**
- * How tall that screen is, and where the cursor sits in it.
+ * How tall that screen is, where the cursor sits in it, and which screen it IS.
  *
  * The height says how many rows the viewer has to open. The cursor says where to leave it, which
  * matters because the program on the other end goes on drawing RELATIVE to it: Claude Code's
@@ -71,10 +71,17 @@ export function captureQuestionViewArgs(session: string, lines: number): string[
  * viewer that ended its import at the end of the captured text left the cursor several rows below
  * the composer, and every subsequent keystroke was echoed onto the status divider instead of into
  * the box -- correct bytes, correct terminal, wrong origin.
+ *
+ * `alternate_on` is the third because a capture carries text and a cursor and NOT the terminal
+ * modes in force, and the viewer has no other way to learn them: `pipe-pane` starts at now, so the
+ * `ESC[?1049h` that put a fullscreen program on the alternate screen was written once at its
+ * startup and is never sent again. A viewer joining afterwards therefore paints an alternate
+ * screen into its normal buffer and believes it is looking at ordinary output. See
+ * `terminalHistoryPayload`.
  */
 export function paneGeometryArgs(session: string): string[] {
   return [
-    "display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x}",
+    "display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x} #{alternate_on}",
   ];
 }
 
@@ -160,20 +167,33 @@ async function readPaneView(args: string[]): Promise<TmuxPaneView> {
  * and the pane is what this module can see.
  */
 export function terminalHistoryPayload(
-  { scrollback, screen, rows, cursor }: {
+  { scrollback, screen, rows, cursor, alternateScreen = false }: {
     scrollback: string;
     screen: string;
     rows: number;
     /** The pane's cursor, zero-based as tmux reports it. */
     cursor: { row: number; column: number };
+    /** Whether the pane is on the alternate screen, which changes what there is to hand over. */
+    alternateScreen?: boolean;
   },
 ): string {
-  const history = historyForTerminal(scrollback);
-  const opening = "\r\n".repeat(Math.max(0, rows - 1));
-  // CUP is one-based, and addresses the screen -- which the opening rows above put exactly where
+  // CUP is one-based, and addresses the screen -- which the opening rows below put exactly where
   // the pane's screen is.
   const home = `\u001b[${cursor.row + 1};${cursor.column + 1}H`;
-  return `${history}${opening}\u001b[H${historyForTerminal(screen.replace(/\n$/, ""))}${home}`;
+  const painted = historyForTerminal(screen.replace(/\n$/, ""));
+  // An alternate screen has no history to sit above it, by definition: tmux keeps no scrollback for
+  // one, and a fullscreen program redraws rather than scrolls. So the viewer is told to switch
+  // buffers and handed the screen, and the two paragraphs of positioning below do not apply --
+  // there is nothing under this screen for it to straddle.
+  //
+  // The switch is sent for the viewer's own sake rather than for the picture, which would look the
+  // same either way. It puts xterm in the state the pane is in, so `buffer.active.type` answers
+  // truthfully, the imported screen stays out of the scrollback the reader scrolls, and the wheel
+  // can be forwarded to the program instead of moving an empty buffer. See `mouseReporting`.
+  if (alternateScreen) return `\u001b[?1049h\u001b[H${painted}${home}`;
+  const history = historyForTerminal(scrollback);
+  const opening = "\r\n".repeat(Math.max(0, rows - 1));
+  return `${history}${opening}\u001b[H${painted}${home}`;
 }
 
 /** Everything the viewer needs to open with: the pane's scrollback and its current screen. */
@@ -204,6 +224,7 @@ export async function captureTmuxHistory(session: string, lines: number): Promis
     screen: screen.out,
     rows,
     cursor: { row: coordinate(fields[1]), column: coordinate(fields[2]) },
+    alternateScreen: fields[3] === "1",
   });
 }
 

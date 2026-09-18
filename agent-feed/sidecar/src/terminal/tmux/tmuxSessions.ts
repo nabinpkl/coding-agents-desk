@@ -58,29 +58,56 @@ export {
  * session inherits the global one again, which also repairs a session an older build clobbered.
  *
  * The viewer keeps its own scrolling regardless, because its wheel handler consumes the event
- * rather than letting xterm forward it.
+ * rather than letting xterm forward it -- and where it does forward one, it sends the report to
+ * the PROGRAM as `send-keys` bytes, which does not go through tmux's own mouse handling either.
+ * See `mouseReporting` on the terminal descriptor.
  */
 export async function restoreTmuxMouse(session: string): Promise<void> {
   const { err, code } = await tmux(["set-option", "-u", "-t", session, "mouse"]);
   if (code !== 0) throw new TmuxUnavailable(`tmux set-option mouse exited ${code}: ${err.trim()}`);
 }
 
-/** The pane's pid and geometry, in one query, for the descriptor the panel renders. */
-export async function describeTmuxPane(
-  session: string,
-): Promise<{ pid: number; columns: number; rows: number }> {
-  const { out, err, code } = await tmux([
-    "display-message", "-p", "-t", session, "#{pane_pid}|#{pane_width}|#{pane_height}",
-  ]);
-  if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}: ${err.trim()}`);
-  const parsed = out.trim().split("|").map((value) => Number.parseInt(value, 10));
-  const [pid, columns, rows] = parsed;
-  if (parsed.length !== 3
+/** What `describeTmuxPane` asks tmux for, in one query. */
+export const paneDescriptionArgs = (session: string): string[] => [
+  "display-message", "-p", "-t", session,
+  "#{pane_pid}|#{pane_width}|#{pane_height}|#{mouse_any_flag}|#{mouse_sgr_flag}",
+];
+
+/**
+ * The pane's pid, geometry and mouse mode, in one query, for the descriptor the panel renders.
+ *
+ * The mouse flags are tmux's own record of what the program in the pane asked for, and they are
+ * here rather than inferred because there is nowhere else to get them: the DECSET that turned
+ * tracking on was written at the program's startup, long before any viewer attached, and
+ * `capture-pane` hands over text rather than modes.
+ *
+ * Both flags, not either. `mouse_any_flag` says the program wants reports at all; `mouse_sgr_flag`
+ * says it selected the SGR encoding, which is the only one this repo sends. A report in the wrong
+ * encoding is not refused by the program, it is read as typed text.
+ */
+export interface TmuxPaneDescription {
+  pid: number;
+  columns: number;
+  rows: number;
+  mouseReporting: boolean;
+}
+
+/** What `paneDescriptionArgs` answers with, as its own function so the parse can be tested. */
+export function parsePaneDescription(out: string): TmuxPaneDescription {
+  const fields = out.trim().split("|");
+  const [pid, columns, rows] = fields.slice(0, 3).map((value) => Number.parseInt(value, 10));
+  if (fields.length !== 5
     || pid === undefined || columns === undefined || rows === undefined
     || !Number.isInteger(pid) || !Number.isInteger(columns) || !Number.isInteger(rows)) {
     throw new TmuxUnavailable(`tmux reported an unreadable pane: ${out.trim()}`);
   }
-  return { pid, columns, rows };
+  return { pid, columns, rows, mouseReporting: fields[3] === "1" && fields[4] === "1" };
+}
+
+export async function describeTmuxPane(session: string): Promise<TmuxPaneDescription> {
+  const { out, err, code } = await tmux(paneDescriptionArgs(session));
+  if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}: ${err.trim()}`);
+  return parsePaneDescription(out);
 }
 
 export function attachedClientArgs(session: string): string[] {

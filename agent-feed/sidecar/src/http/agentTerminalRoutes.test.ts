@@ -17,6 +17,7 @@ const descriptor: AgentTerminalDescriptor = {
   pid: 42,
   columns: 90,
   rows: 28,
+  mouseReporting: false,
 };
 
 function fakeService(overrides: Partial<AgentTerminalRoutesService> = {}) {

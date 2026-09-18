@@ -23,13 +23,17 @@ interface Recorded {
 
 function runtime(
   overrides: Partial<TmuxPaneRuntime> = {},
-): { runtime: TmuxPaneRuntime; log: Recorded; pane: { pid: number; columns: number; rows: number } } {
+): {
+  runtime: TmuxPaneRuntime;
+  log: Recorded;
+  pane: { pid: number; columns: number; rows: number; mouseReporting: boolean };
+} {
   const log: Recorded = {
     pipes: 0, stops: 0, sent: [], captures: 0, resizes: [], clientChecks: 0, releases: 0,
     emit: () => {},
   };
   // The pane's real shape, so `describe` answers what `resize` did rather than a constant.
-  const pane = { pid: 4242, columns: 80, rows: 24 };
+  const pane = { pid: 4242, columns: 80, rows: 24, mouseReporting: false };
   const base: TmuxPaneRuntime = {
     describe: async () => ({ ...pane }),
     capture: async () => { log.captures += 1; return "screen bytes"; },
@@ -62,7 +66,8 @@ test("reports the pane's pid and geometry, so the tile renders what is actually 
   const { runtime: tmux } = runtime();
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 80, rows: 24 });
-  expect(connection.attachment).toEqual({ sessionName: "rags", pid: 4242, columns: 80, rows: 24 });
+  expect(connection.attachment)
+    .toEqual({ sessionName: "rags", pid: 4242, columns: 80, rows: 24, mouseReporting: false });
 });
 
 test("a second viewer shares the first one's pipe rather than opening another", async () => {

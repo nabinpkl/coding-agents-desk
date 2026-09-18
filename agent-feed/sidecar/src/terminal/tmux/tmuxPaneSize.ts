@@ -20,6 +20,13 @@ export interface SharedPane {
   pid: number;
   columns: number;
   rows: number;
+  /**
+   * What the program in the pane has asked the mouse for, kept current by every `describe`.
+   *
+   * On the pane rather than on each viewer because it is a fact about the program, and a second
+   * card opening on one session must not be told something different from the first.
+   */
+  mouseReporting: boolean;
   revision: number;
   /** The shape the most recent viewport report asked for, waiting for the applier to reach it. */
   wanted: { columns: number; rows: number } | null;
@@ -83,6 +90,9 @@ export interface SharedPane {
  */
 export async function refreshPaneSize(runtime: TmuxPaneRuntime, pane: SharedPane): Promise<void> {
   const geometry = await runtime.describe(pane.session);
+  // Before the early return, because the mouse mode moves without the shape moving: a session that
+  // restarts into a fullscreen renderer keeps its 80x24 and changes what its wheel means.
+  pane.mouseReporting = geometry.mouseReporting;
   if (geometry.columns === pane.columns && geometry.rows === pane.rows) return;
   pane.columns = geometry.columns;
   pane.rows = geometry.rows;
@@ -125,6 +135,7 @@ export async function adoptPaneSize(
       const moved = geometry.columns !== pane.columns || geometry.rows !== pane.rows;
       pane.columns = geometry.columns;
       pane.rows = geometry.rows;
+      pane.mouseReporting = geometry.mouseReporting;
       if (!moved) continue;
       // Fanned out HERE, once per actual move, rather than from the caller's continuation.
       //

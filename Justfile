@@ -1122,6 +1122,16 @@ canvas-zoom-verify:
     PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
       node '{{justfile_directory()}}/chrome-test/canvas-zoom-verify.mjs'
 
+# Checks that a wheel over a peer's FULLSCREEN pane reaches the program, and that one over an
+# ordinary pane still sends it nothing. Needs a live panel and a peer with both kinds of pane on it:
+# the fullscreen one is found by its tmux flags rather than named. WHEEL_MACHINE picks the peer.
+terminal-wheel-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      node '{{justfile_directory()}}/chrome-test/terminal-wheel-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay

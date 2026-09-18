@@ -207,12 +207,17 @@ export class AgentTerminalService {
     connection: TerminalConnection,
   ): AgentTerminalDescriptor {
     const terminalId = crypto.randomUUID();
+    const attachment = connection.attachment;
     const descriptor: AgentTerminalDescriptor = {
       terminalId,
       ptySessionName: identity.ptySessionName,
-      pid: connection.attachment.pid,
-      columns: connection.attachment.columns,
-      rows: connection.attachment.rows,
+      pid: attachment.pid,
+      columns: attachment.columns,
+      rows: attachment.rows,
+      // Only a joined pane answers this. A PTY this service launched is watched from its first
+      // byte, so its viewer learns the mouse mode from the stream the way a real terminal does and
+      // has nothing to be told. See the wire descriptor's own field.
+      mouseReporting: "mouseReporting" in attachment && attachment.mouseReporting,
     };
     const active: ActiveTerminal = {
       descriptor,

@@ -9,7 +9,9 @@ import {
   renameSessionArgs,
   setSessionIdentityArgs,
   newSessionArgs,
+  paneDescriptionArgs,
   paneGeometryArgs,
+  parsePaneDescription,
   historyForTerminal,
   parseTmuxSessions,
   terminalHistoryPayload,
@@ -62,7 +64,50 @@ test("asks for the scrollback and stops one line short of the screen", () => {
 test("captures the screen separately, with no range, so the two do not overlap", () => {
   expect(captureScreenArgs("keyboard")).toEqual(["capture-pane", "-p", "-e", "-t", "keyboard"]);
   expect(paneGeometryArgs("keyboard"))
-    .toEqual(["display-message", "-p", "-t", "keyboard", "#{pane_height} #{cursor_y} #{cursor_x}"]);
+    .toEqual([
+      "display-message", "-p", "-t", "keyboard",
+      "#{pane_height} #{cursor_y} #{cursor_x} #{alternate_on}",
+    ]);
+});
+
+test("reads the pane's mouse mode, which is what says the wheel may be forwarded", () => {
+  // Both flags or nothing. `mouse_any_flag` alone means the program wants reports in an encoding
+  // this repo does not send, and an SGR report it cannot read arrives as text rather than being
+  // refused. Measured on a peer running Claude Code with `"tui": "fullscreen"`: 1 and 1.
+  expect(parsePaneDescription("1848157|80|24|1|1\n").mouseReporting).toBe(true);
+  expect(parsePaneDescription("1848157|80|24|1|0\n").mouseReporting).toBe(false);
+  expect(parsePaneDescription("1848157|80|24|0|1\n").mouseReporting).toBe(false);
+  expect(parsePaneDescription("62756|80|24|0|0\n"))
+    .toEqual({ pid: 62756, columns: 80, rows: 24, mouseReporting: false });
+});
+
+test("refuses a pane description it cannot read rather than reporting a plausible one", () => {
+  // An unreadable answer used to be a shorter one, and the fields it lost were the mouse flags at
+  // the end. Falling back to false there would report every fullscreen pane as un-scrollable.
+  expect(() => parsePaneDescription("1848157|80|24")).toThrow(TmuxUnavailable);
+  expect(() => parsePaneDescription("|80|24|1|1")).toThrow(TmuxUnavailable);
+});
+
+test("asks tmux for the mouse flags in the same query as the geometry", () => {
+  expect(paneDescriptionArgs("rags")).toEqual([
+    "display-message", "-p", "-t", "rags",
+    "#{pane_pid}|#{pane_width}|#{pane_height}|#{mouse_any_flag}|#{mouse_sgr_flag}",
+  ]);
+});
+
+test("hands an alternate screen over as one, since there is no history to sit above it", () => {
+  // tmux keeps no scrollback for the alternate screen, so the opening rows this payload normally
+  // writes would be positioning a screen against history that cannot exist. What the viewer needs
+  // instead is the mode itself: `pipe-pane` starts at now, so the `ESC[?1049h` that put the
+  // program there was written at its startup and is never sent again, and a viewer that never
+  // hears it paints a fullscreen program into its own scrollback and scrolls an empty buffer.
+  expect(terminalHistoryPayload({
+    scrollback: "",
+    screen: "top\nmiddle\nbottom\n",
+    rows: 3,
+    cursor: { row: 2, column: 6 },
+    alternateScreen: true,
+  })).toBe("\u001b[?1049h\u001b[Htop\r\nmiddle\r\nbottom\u001b[3;7H");
 });
 
 test("opens exactly one screen of rows between the history and the screen", () => {

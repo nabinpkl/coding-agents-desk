@@ -40,6 +40,7 @@ import type {
 import { createTerminalFit } from "@/features/terminal/mounted-terminal/agentTerminalFit";
 import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
 import { createTerminalReceive } from "@/features/terminal/mounted-terminal/agentTerminalStream";
+import { attachTerminalWheel } from "@/features/terminal/mounted-terminal/terminalWheel";
 import {
   BASE_FONT_SIZE,
   bytesFromBase64,
@@ -160,18 +161,13 @@ export function useAgentTerminal(
       // `6.1.0-beta.292` core, and it was the one installed.
       terminal.open(mount);
 
-      // The wheel belongs to whoever is reading, not to the program being read.
-      //
-      // On the normal screen the bytes are in this buffer, so scrolling it is the whole job, and
-      // returning false keeps xterm from forwarding a mouse event that tmux would answer by
-      // entering copy-mode. On the alternate screen there is no scrollback by definition -- a
-      // fullscreen program redraws rather than scrolls -- and xterm's fallback there is to send
-      // arrow keys, which in an agent's composer edits the line instead of moving a view. So the
-      // wheel does nothing there, which is at least honest.
-      terminal.attachCustomWheelEventHandler((event) => {
-        if (terminal.buffer.active.type === "alternate") return false;
-        terminal.scrollLines(Math.sign(event.deltaY) * WHEEL_LINES);
-        return false;
+      // What the reader is scrolling back over is not always in this buffer: on the alternate
+      // screen it belongs to the program, and the wheel is sent to it. See `attachTerminalWheel`.
+      let mouseReporting = false;
+      attachTerminalWheel(terminal, {
+        scrollLines: WHEEL_LINES,
+        mouseReporting: () => mouseReporting,
+        send: (data) => sendRef.current?.(data),
       });
 
       // A tap has to focus the terminal by hand, or a phone gets no keyboard.
@@ -369,6 +365,7 @@ export function useAgentTerminal(
             return;
           }
           descriptor = opened;
+          mouseReporting = opened.mouseReporting;
           terminal.resize(opened.columns, opened.rows);
           // The grid a tmux attach ends up with comes from HERE, not from a checkpoint: the
           // history is imported rather than replayed, so `checkpointBegin` never arrives and this
