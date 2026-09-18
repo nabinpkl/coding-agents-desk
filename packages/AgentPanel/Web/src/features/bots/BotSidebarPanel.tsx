@@ -207,7 +207,31 @@ export function BotSidebarPanel({
                 key={bot.botId}
                 className="border-b border-border/80"
               >
-                <div className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${selected ? "border-primary bg-muted" : "border-transparent"}`}>
+                <div
+                  // The same surface and rail its card wears on the canvas, so one Bot is one
+                  // colour in both places -- the rule its sessions already follow, one level up.
+                  //
+                  // `border-l-2` where the card carries six. That ratio exists to say which way
+                  // the nesting goes among cards on the strip, and there is no nesting to state
+                  // here; six pixels in a sidebar a reader has dragged narrow is a bar arguing
+                  // with the name beside it. The COLOUR is the half that has to match.
+                  //
+                  // Painted only while the Bot has a card, for the reason a session row is: the
+                  // colour is what having a card looks like. Off the strip it goes neutral and
+                  // dim under the same crossed eye. The dimming sits on this header rather than
+                  // on the whole entry so it cannot reach the session rows below, which carry
+                  // colours of their own and answer this question one at a time.
+                  //
+                  // The selected Bot no longer takes `bg-muted`. It is a utility, so it outranks
+                  // the component layer this fill lives in and would repaint the row flat grey --
+                  // exactly how an open session's row used to lose its colour.
+                  className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${
+                    hue !== undefined && onStrip !== false
+                      ? "bot-surface bot-rail"
+                      : "border-transparent"
+                  } ${onStrip === false ? "opacity-55" : ""}`}
+                  style={hue === undefined || onStrip === false ? undefined : botSurfaceStyle(hue)}
+                >
                   {canvas ? (
                     // The avatar IS the control, and the badge on its corner is what it says. A
                     // control of its own would be a second 40px column in a sidebar the reader has
@@ -285,6 +309,20 @@ export function BotSidebarPanel({
                       {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
                     </span>
                   </span>
+                  {/* Same mark its sessions wear, and for the same reason: the row has given up
+                      its colour, and dim on its own reads as disabled rather than as off the
+                      canvas. The avatar's badge states the same fact as a CONTROL, which is what
+                      a reader presses; this is what a reader reads. */}
+                  {onStrip === false ? (
+                    <span
+                      role="img"
+                      aria-label="Off the canvas"
+                      title="Off the canvas"
+                      className="flex shrink-0 items-center text-muted-foreground"
+                    >
+                      <EyeOff className="size-4" aria-hidden />
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onAddSession(bot)}

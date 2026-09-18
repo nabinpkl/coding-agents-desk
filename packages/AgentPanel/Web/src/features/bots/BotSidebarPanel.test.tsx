@@ -11,7 +11,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 
@@ -158,8 +158,10 @@ describe("BotSidebarPanel session rows", () => {
     const gone = rowOf("Second session").className;
     expect(gone).not.toContain("bot-session-fill");
     expect(gone).toContain("opacity-55");
-    // Dim alone reads as disabled, so the mark is what carries the meaning.
-    expect(screen.getAllByLabelText("Off the canvas")).toHaveLength(1);
+    // Dim alone reads as disabled, so the mark is what carries the meaning. Counted inside the
+    // session list: a Bot's own header wears the same mark, and the whole panel would count that.
+    const rows = within(screen.getByRole("list", { name: "Work bot sessions" }));
+    expect(rows.getAllByLabelText("Off the canvas")).toHaveLength(1);
     // Its neighbour still has a card, so it keeps both its colour and its full strength.
     const kept = rowOf("First session").className;
     expect(kept).toContain("bot-session-fill");
@@ -170,8 +172,49 @@ describe("BotSidebarPanel session rows", () => {
     // The other way for a session to have no card. A row cannot act on the difference between the
     // two, so it states the one thing a reader can see: there is no card for this right now.
     panel({ detachedBotIds: new Set(["b-work"]), machineHiddenBotIds: new Set() });
-    expect(screen.getAllByLabelText("Off the canvas")).toHaveLength(2);
+    const rows = within(screen.getByRole("list", { name: "Work bot sessions" }));
+    expect(rows.getAllByLabelText("Off the canvas")).toHaveLength(2);
     expect(rowOf("First session").className).not.toContain("bot-session-fill");
     expect(rowOf("Second session").className).toContain("opacity-55");
+  });
+});
+
+/**
+ * A Bot row says the same things about itself that its sessions say, one level up: whose row this
+ * is, in the colour its card wears on the canvas, and whether there is a card to match.
+ */
+describe("BotSidebarPanel bot rows", () => {
+  /**
+   * The header strip of one Bot's entry, which is the part that carries the colour.
+   *
+   * Found through the Add-sessions button rather than the Bot's name, because these fixtures give
+   * each Bot a directory named after it, so the name renders twice in one row -- once as the title
+   * and once in the path line under it -- and matching on it finds both.
+   */
+  const headerOf = (name: string) =>
+    screen.getByRole("button", { name: `Add sessions to ${name}` }).closest("div")!;
+
+  it("wears its card's surface while it has one", () => {
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
+    expect(headerOf("Work bot").className).toContain("bot-surface");
+    // And the rail, which is the half the canvas reads a card's owner from.
+    expect(headerOf("Work bot").className).toContain("bot-rail");
+  });
+
+  it("gives the colour up, dims and says so when it has no card", () => {
+    panel({ detachedBotIds: new Set(["b-work"]), machineHiddenBotIds: new Set() });
+    const header = headerOf("Work bot");
+    expect(header.className).not.toContain("bot-surface");
+    expect(header.className).toContain("opacity-55");
+    expect(within(header).getByLabelText("Off the canvas")).toBeInTheDocument();
+  });
+
+  it("says it the same way when a hidden machine is what is holding the card back", () => {
+    // Two routes to having no card, one appearance. The control keeps the distinction, because
+    // only it can act on it; the colour and the mark are about what is on the strip.
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set(["b-peer"]) });
+    const header = headerOf("Peer bot");
+    expect(header.className).not.toContain("bot-surface");
+    expect(within(header).getByLabelText("Off the canvas")).toBeInTheDocument();
   });
 });
