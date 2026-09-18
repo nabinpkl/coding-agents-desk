@@ -426,6 +426,7 @@ export function BotSidebarPanel({
                               title={session.title || session.sessionId}
                               activity={session.activity}
                               shaded={Boolean(shaded) && !noCard}
+                              rank={ranks.get(bot.botId)}
                             />
                             {/* `font-medium`, matching the same session's title on its canvas card.
                                 One object drawn at two weights in two places is drift, not

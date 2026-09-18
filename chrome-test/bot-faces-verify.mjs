@@ -87,9 +87,17 @@ try {
   const heads = new Set(faced.map((d) => d.head).filter(Boolean));
   check('two Bots do not wear the same head', heads.size > 1, `${heads.size} distinct heads over ${faced.length} discs`);
   // Roster and cards move together: the press reaches past the list it was pressed in.
-  const cardFaces = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] svg.bot-face')].length);
+  const cardFaces = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] svg.bot-face:is(.size-9,.size-10)')].length);
   const cards = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] :is(span.rounded-full:is(.size-9,.size-10), svg.bot-face:is(.size-9,.size-10))')].length);
   check('the canvas cards wear faces too', cards === 0 || cardFaces === cards, `${cardFaces}/${cards} card discs`);
+  // Sessions wear their Bot's face on their own shade step: the shaded marks flip, the neutral
+  // ones (off the canvas, no hue to take) keep their discs.
+  const sessionFaces = await page.evaluate(() => [...document.querySelectorAll('svg.bot-face.size-6')].length);
+  const leftoverInitials = await page.evaluate(() => [...document.querySelectorAll(
+    'ul[aria-label="Bots"] span.rounded-full.size-6, [aria-label="Bot canvas"] span.rounded-full.size-6',
+  )].filter((el) => !el.className.includes('border')).length);
+  check('shaded session marks wear faces too', sessionFaces > 0, `${sessionFaces} session faces`);
+  check('no shaded session mark keeps initials', leftoverInitials === 0, `${leftoverInitials} left`);
   await page.screenshot({ path: '/tmp/bot-faces-on.png' });
 
   await page.reload({ waitUntil: 'domcontentloaded' });

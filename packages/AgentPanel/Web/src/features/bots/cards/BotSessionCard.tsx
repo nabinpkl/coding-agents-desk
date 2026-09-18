@@ -36,6 +36,7 @@ export function BotSessionCard({
   bot,
   session,
   hue,
+  rank,
   shade,
   solo,
   open,
@@ -64,6 +65,8 @@ export function BotSessionCard({
   session: SessionSummary;
   /** The Bot's place on the colour wheel, which every one of its sessions shares. */
   hue: number | undefined;
+  /** The Bot's rank in the creation order, which draws its sessions' faces. Beside the hue. */
+  rank: number | undefined;
   /** This session's step on that Bot's shade ladder, which is what separates it from its siblings. */
   shade: number | undefined;
   /**
@@ -291,6 +294,7 @@ export function BotSessionCard({
                 title={title}
                 activity={session.activity}
                 shaded={Boolean(shaded)}
+                rank={rank}
                 className="mt-0.5"
               />
               <span className="min-w-0 flex-1">

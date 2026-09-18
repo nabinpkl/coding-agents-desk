@@ -382,6 +382,7 @@ export function BotCanvasCard({
                 canMoveEarlier={index > 0}
                 canMoveLater={index < shown.length - 1}
                 hue={hue}
+                rank={rank}
                 shade={shades.get(sessionKey(session))}
                 solo={bot.sessionRefs.length === 1}
                 open={openKeys.has(sessionKey(session))}

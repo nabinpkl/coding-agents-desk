@@ -7,6 +7,7 @@
 
 import type { Bin } from "@agentdesk/agent-feed-wire";
 import { sessionInitials } from "@/features/bots/botSurface";
+import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 
 /**
  * The mark that says a session belongs to the Bot it sits in, and which of that Bot's sessions
@@ -41,6 +42,7 @@ export function SessionAvatar({
   title,
   activity,
   shaded,
+  rank,
   className = "",
 }: {
   title: string;
@@ -54,10 +56,33 @@ export function SessionAvatar({
    * nothing set is invalid at computed-value time, so the declaration drops and the disc comes
    * back TRANSPARENT with nothing said about it. The neutral disc is the honest answer wherever
    * there is no hue to be a shade of, and it is the same fallback `BotAvatar` takes.
+   *
+   * Faces need it too: a face with no hue in scope has no colour to take, so an unshaded session
+   * keeps its disc whatever the switch says.
    */
   shaded: boolean;
+  /**
+   * Its Bot's rank in the creation order, which draws the face.
+   *
+   * The shape says whose session this is and the ancestor's step says which one: the row's style
+   * already publishes the hue and the step, so the head takes the session's shade the way the
+   * disc did. Absent wherever there is no roster to rank against -- the new-session card's
+   * session has no transcript yet and no step on any ladder -- and those keep their initials.
+   */
+  rank?: number;
   className?: string;
 }) {
+  const faces = useBotFaces();
+  if (faces && rank !== undefined && shaded) {
+    // The live ring stays, because the face says which session this is and only the ring says
+    // whether it is live. Rounded with it, so the ring hugs the head rather than boxing it.
+    return (
+      <BotFace
+        rank={rank}
+        className={`size-6 shrink-0 ${activity === "live" ? "rounded-full ring-2 ring-green-500" : ""} ${className}`}
+      />
+    );
+  }
   return (
     <span
       // Decorative: the title it abbreviates is the next element in the row, and the activity it
