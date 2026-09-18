@@ -15,8 +15,8 @@ describe("sidebar preferences", () => {
   });
 
   it("restores a saved open state and width", () => {
-    storeSidebarPreferences({ open: false, width: 336, mode: "sessions" });
-    expect(loadSidebarPreferences()).toEqual({ open: false, width: 336, mode: "sessions" });
+    storeSidebarPreferences({ open: false, width: 336, mode: "sessions", botFaces: false });
+    expect(loadSidebarPreferences()).toEqual({ open: false, width: 336, mode: "sessions", botFaces: false });
   });
 
   it("validates stale fields independently", () => {
@@ -24,20 +24,26 @@ describe("sidebar preferences", () => {
       open: "yes",
       width: 9999,
       mode: "desktop",
+      botFaces: "always",
     }));
     expect(loadSidebarPreferences()).toEqual(DEFAULT_SIDEBAR_PREFERENCES);
   });
 
   it("restores the view that was selected", () => {
-    storeSidebarPreferences({ open: true, width: 264, mode: "canvas" });
+    storeSidebarPreferences({ open: true, width: 264, mode: "canvas", botFaces: false });
     expect(loadSidebarPreferences().mode).toBe("canvas");
   });
 
+  it("remembers the faces once chosen", () => {
+    storeSidebarPreferences({ open: true, width: 264, mode: "bots", botFaces: true });
+    expect(loadSidebarPreferences().botFaces).toBe(true);
+  });
+
   it("clamps widths before storing them", () => {
-    storeSidebarPreferences({ open: true, width: 1, mode: "sessions" });
+    storeSidebarPreferences({ open: true, width: 1, mode: "sessions", botFaces: false });
     expect(loadSidebarPreferences().width).toBe(MIN_SIDEBAR_WIDTH);
 
-    storeSidebarPreferences({ open: true, width: 9999, mode: "sessions" });
+    storeSidebarPreferences({ open: true, width: 9999, mode: "sessions", botFaces: false });
     expect(loadSidebarPreferences().width).toBe(MAX_SIDEBAR_WIDTH);
   });
 });

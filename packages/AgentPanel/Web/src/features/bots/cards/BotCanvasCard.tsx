@@ -24,6 +24,7 @@ import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
 export function BotCanvasCard({
   bot,
   hue,
+  rank,
   sessionContext,
   botError,
   detachedSessionKeys,
@@ -56,6 +57,8 @@ export function BotCanvasCard({
   bot: BotView;
   /** This Bot's place on the colour wheel, or nothing if the roster does not know it yet. */
   hue: number | undefined;
+  /** This Bot's rank in the creation order, or nothing where the hue is nothing. Draws the face. */
+  rank: number | undefined;
   sessionContext: SessionViewContext;
   botError: BotCommandError | null;
   detachedSessionKeys: ReadonlySet<string>;
@@ -266,7 +269,7 @@ export function BotCanvasCard({
           onPointerUp={dropHeader}
           onPointerCancel={dropHeader}
         >
-          <BotAvatar bot={bot} hue={hue} size="size-9" />
+          <BotAvatar bot={bot} hue={hue} rank={rank} size="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
               {bot.name}

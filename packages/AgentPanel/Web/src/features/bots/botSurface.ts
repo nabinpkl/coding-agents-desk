@@ -53,6 +53,17 @@ export const BOT_HUE_STEP = 137.508;
 export const BOT_HUE_OFFSET = 24;
 
 /**
+ * The roster in creation order, id tie-broken for stability.
+ *
+ * The one ordering both the hues and the ranks below are read from, so the two cannot disagree
+ * about which Bot stands where.
+ */
+function orderedRoster(bots: readonly BotColourIdentity[]): BotColourIdentity[] {
+  return [...bots].sort((a, b) =>
+    a.createdAt - b.createdAt || (a.botId < b.botId ? -1 : a.botId > b.botId ? 1 : 0));
+}
+
+/**
  * Every Bot's hue, by id.
  *
  * Ordered by creation, so a Bot's colour is fixed for as long as it exists. Two properties come out
@@ -74,13 +85,26 @@ export const BOT_HUE_OFFSET = 24;
  * stable across snapshots, and their two colours would swap under the reader.
  */
 export function botCanvasHues(bots: readonly BotColourIdentity[]): ReadonlyMap<string, number> {
-  const ranked = [...bots].sort((a, b) =>
-    a.createdAt - b.createdAt || (a.botId < b.botId ? -1 : a.botId > b.botId ? 1 : 0));
   const hues = new Map<string, number>();
-  ranked.forEach((bot, index) => {
+  orderedRoster(bots).forEach((bot, index) => {
     hues.set(bot.botId, (BOT_HUE_OFFSET + index * BOT_HUE_STEP) % 360);
   });
   return hues;
+}
+
+/**
+ * Every Bot's rank in the creation order `botCanvasHues` colours by, by id.
+ *
+ * The face a Bot wears is drawn from the same rank its colour is, which is what keeps the two
+ * agreeing without either knowing about the other: a Bot keeps its face for exactly as long as it
+ * keeps its hue. One ordering, two readers, so this shares the sort rather than repeating it.
+ */
+export function botCanvasRanks(bots: readonly BotColourIdentity[]): ReadonlyMap<string, number> {
+  const ranks = new Map<string, number>();
+  orderedRoster(bots).forEach((bot, index) => {
+    ranks.set(bot.botId, index);
+  });
+  return ranks;
 }
 
 /**

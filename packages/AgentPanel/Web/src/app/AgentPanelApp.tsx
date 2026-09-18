@@ -35,7 +35,7 @@ import { AppDialogs } from "@/app/AppDialogs";
 import { sidebarProps } from "@/app/shell-state/sidebarProps";
 import { storeSelection } from "@/features/sidebar/selectionStore";
 import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
-import { botCanvasHues } from "@/features/bots/botSurface";
+import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { useBotMachines } from "@/app/shell-state/useBotMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
@@ -131,6 +131,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
    * off it. The full list is what makes a Bot's colour its own.
    */
   const botHues = useMemo(() => botCanvasHues(botsState.bots), [botsState.bots]);
+  const botRanks = useMemo(() => botCanvasRanks(botsState.bots), [botsState.bots]);
   // Read once, at mount. Storage is written on every selection, so re-reading it later would
   // race the write this component just made.
   /**
@@ -442,6 +443,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
               <BotCanvas
                 bots={roster.canvasBots}
                 hues={botHues}
+                ranks={botRanks}
                 loading={botsState.loading}
                 error={botsState.error}
                 machines={shellMachines.chips}

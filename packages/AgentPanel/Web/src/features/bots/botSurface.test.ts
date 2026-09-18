@@ -13,6 +13,7 @@ import {
   BOT_SESSION_HUE_SPACING,
   BOT_SESSION_SHADES,
   botCanvasHues,
+  botCanvasRanks,
   botSessionShades,
   botSessionStyle,
   botSurfaceStyle,
@@ -102,6 +103,28 @@ describe("botCanvasHues", () => {
 
   test("an empty roster is an empty map rather than a throw", () => {
     expect(botCanvasHues([]).size).toBe(0);
+  });
+});
+
+describe("botCanvasRanks", () => {
+  test("ranks the creation order the hues colour by, so a face and a colour cannot disagree", () => {
+    const ranks = botCanvasRanks(ROSTER);
+    const hues = botCanvasHues(ROSTER);
+    for (const each of ROSTER) {
+      const rank = ranks.get(each.botId)!;
+      expect(hues.get(each.botId)).toBeCloseTo((BOT_HUE_OFFSET + rank * BOT_HUE_STEP) % 360, 6);
+    }
+    expect(ranks.get(ROSTER[0]!.botId)).toBe(0);
+  });
+
+  test("a reordered snapshot ranks nothing differently", () => {
+    const forwards = botCanvasRanks(ROSTER);
+    const backwards = botCanvasRanks([...ROSTER].reverse());
+    expect([...backwards.entries()].sort()).toEqual([...forwards.entries()].sort());
+  });
+
+  test("a Bot the roster has never seen has no rank, which is what leaves a preview faceless", () => {
+    expect(botCanvasRanks(ROSTER).get("not-a-bot-yet")).toBeUndefined();
   });
 });
 

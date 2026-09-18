@@ -673,6 +673,67 @@
   .bot-rail {
     border-left-color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--bot-hue));
   }
+
+  /* A generated face, on the rail's own colour.
+
+     The rail is the saturated end of this hue's ladder and the accent disc under the face is the
+     pale end, so the head reads against its disc at every hue without a contrast measurement per
+     part: light puts 0.620 of lightness against 0.860, dark 0.720 against 0.380. The eyes are not
+     ink at all -- they take the disc's fill, so what shows through an eye is exactly what is
+     behind the face, and the two can never disagree about the colour of the thing between them.
+
+     The session hue with the Bot's as its fallback, and the step defaulting to zero, so one class
+     serves a Bot's 40px avatar and one of its sessions' 24px marks. `botSessionStyle` publishes
+     both or neither, which is why the step needs a default here and the hue does not. */
+  .bot-face {
+    color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--bot-session-hue, var(--bot-hue)));
+    --bot-face-socket: oklch(
+      calc(var(--bot-accent-l) + var(--bot-session-step, 0) * var(--bot-session-accent-dl))
+      calc(var(--bot-accent-c) + var(--bot-session-step, 0) * var(--bot-session-accent-dc))
+      var(--bot-session-hue, var(--bot-hue))
+    );
+  }
+
+  /* Closing is a squash rather than a second drawing, so the face stays the same face: what a
+     reader recognises is the head and the eye shape, and both survive the transform. `fill-box`
+     because the default `view-box` origin would scale the eyes about the middle of the 32x32
+     canvas and slide them up the head as they closed. */
+  .bot-face-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 140ms ease;
+  }
+
+  .bot-face-eyes--shut {
+    transform: scaleY(0.12);
+  }
+
+  /* A blink is the shut state held for a tenth of a second, which is why it is the same transform:
+     one movement to learn, and the closed eyes of a folded card read as the face having settled
+     rather than as a different mark. Seven seconds because a blink a reader notices twice is a
+     blink they start watching for. */
+  .bot-face-eyes--open {
+    animation: bot-face-blink 7s ease-in-out infinite;
+    animation-delay: var(--bot-face-blink-delay, 0s);
+  }
+
+  @keyframes bot-face-blink {
+    0%, 93%, 100% { transform: scaleY(1); }
+    95.5%, 96.5% { transform: scaleY(0.12); }
+  }
+
+  /* Reduced motion keeps the STATE and drops the movement: eyes still shut when a card folds, they
+     just arrive shut. A blink has nothing to say that the open eyes were not already saying, so it
+     goes entirely. */
+  @media (prefers-reduced-motion: reduce) {
+    .bot-face-eyes {
+      transition: none;
+    }
+
+    .bot-face-eyes--open {
+      animation: none;
+    }
+  }
 }
 
 @layer base {

@@ -1133,6 +1133,16 @@ terminal-wheel-verify:
     PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
       node '{{justfile_directory()}}/chrome-test/terminal-wheel-verify.mjs'
 
+# Checks that the faces switch trades initials for generated faces on every ranked
+# avatar, and back again. Needs a live panel with at least one Bot: the roster and the canvas
+# cards move together, a reload keeps the choice, and the run puts the switch back off.
+bot-faces-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      node '{{justfile_directory()}}/chrome-test/bot-faces-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay

@@ -374,7 +374,7 @@ describe("App shell", () => {
     // The Agents window is 480pt wide, which is compact, and it is on a Mac, which hovers. Both
     // at once is the case that used to fall through to the touch story and ignore the mouse.
     installViewport({ compact: true, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions" });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false });
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
@@ -409,7 +409,7 @@ describe("App shell", () => {
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
     vi.useFakeTimers();
     installViewport({ compact: false, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions" });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false });
     const first = setup();
     deliverProjects(first.transport);
 
@@ -424,6 +424,7 @@ describe("App shell", () => {
       open: false,
       width: 300,
       mode: "sessions",
+      botFaces: false,
     });
 
     fireEvent.pointerLeave(trigger);
@@ -443,6 +444,7 @@ describe("App shell", () => {
       open: true,
       width: 316,
       mode: "sessions",
+      botFaces: false,
     });
 
     firePointerEvent(separator, "pointerdown", { pointerId: 7, clientX: 316 });
@@ -453,6 +455,7 @@ describe("App shell", () => {
       open: true,
       width: 356,
       mode: "sessions",
+      botFaces: false,
     });
 
     first.unmount();
@@ -467,6 +470,7 @@ describe("App shell", () => {
       open: false,
       width: 356,
       mode: "sessions",
+      botFaces: false,
     });
     restored.unmount();
     vi.useRealTimers();

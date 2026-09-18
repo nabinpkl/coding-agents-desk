@@ -1,30 +1,36 @@
-import { Bot, Check, EyeOff, LoaderCircle, Plus } from "lucide-react";
+import { Bot, Check, EyeOff, LoaderCircle, Plus, ScanFace } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
-import { botCanvasHues, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
+import { BotFace, setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { botCanvasHues, botCanvasRanks, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
 /**
- * A Bot's face: its picture, or its initials on its own colour.
+ * A Bot's face: its picture, its generated face, or its initials on its own colour.
  *
  * The hue is the same one its card wears on the canvas, which is the whole reason it is here --
  * a colour that named a Bot in one surface and not in the other would be two facts to learn
  * instead of one. It arrives as a number rather than being derived from the Bot, because the
  * derivation ranks a Bot against the whole roster and this component is only ever given one.
+ * The rank arrives beside it for the same reason, and is what draws the face: same ordering, so
+ * the face agrees with the colour without either knowing about the other.
  *
  * Absent, the avatar is the neutral disc it has always been. That is the right answer, not a
  * fallback, wherever there is no roster to rank against: the Bot creator's live preview is of a
  * Bot that does not exist yet, and a colour there would be a promise about which one it will get.
+ * An unranked Bot keeps its initials when faces are on for the same reason: no rank, no face.
  */
-export function BotAvatar({ bot, hue, size = "size-10" }: {
+export function BotAvatar({ bot, hue, rank, size = "size-10" }: {
   bot: Pick<BotView, "name" | "iconUrl">;
   hue?: number;
+  rank?: number;
   size?: string;
 }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [bot.iconUrl]);
+  const faces = useBotFaces();
   const initials = bot.name
     .split(/\s+/)
     .filter(Boolean)
@@ -54,7 +60,7 @@ export function BotAvatar({ bot, hue, size = "size-10" }: {
       }`}
       style={botSurfaceStyle(hue)}
     >
-      {initials}
+      {faces && rank !== undefined ? <BotFace rank={rank} /> : initials}
     </span>
   );
 }
@@ -153,16 +159,34 @@ export function BotSidebarPanel({
    * this list is the colour of its card by construction rather than by agreement.
    */
   const hues = useMemo(() => botCanvasHues(bots), [bots]);
+  const ranks = useMemo(() => botCanvasRanks(bots), [bots]);
+  const faces = useBotFaces();
   return (
     <div className="min-h-0">
-      <button
-        type="button"
-        onClick={onAddBot}
-        className="flex min-h-11 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-primary/15"
-      >
-        <Plus className="size-4" aria-hidden />
-        Add Bot
-      </button>
+      <div className="flex items-center border-b border-border">
+        <button
+          type="button"
+          onClick={onAddBot}
+          className="flex min-h-11 flex-1 cursor-pointer items-center gap-2 px-3 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-primary/15"
+        >
+          <Plus className="size-4" aria-hidden />
+          Add Bot
+        </button>
+        {/* The one control for the faces switch, so both mounts of this roster move together: the
+            store above is what carries the press to every avatar, including the canvas cards. Off
+            until chosen -- the initials are what every reader knows, and the press is remembered
+            the way the sidebar's own arrangement is. */}
+        <button
+          type="button"
+          onClick={() => setBotFaces(!faces)}
+          aria-pressed={faces}
+          aria-label={faces ? "Show Bot initials instead of faces" : "Show Bot faces instead of initials"}
+          title={faces ? "Showing faces" : "Showing initials"}
+          className="mr-1 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary aria-pressed:text-primary text-muted-foreground hover:bg-muted/60 hover:text-foreground active:bg-muted/80"
+        >
+          <ScanFace className="size-4" aria-hidden />
+        </button>
+      </div>
       {status}
       {loading ? (
         <div role="status" className="flex min-h-28 items-center justify-center gap-2 p-4 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
@@ -261,7 +285,7 @@ export function BotSidebarPanel({
                       // that clicking here does anything.
                       className="relative shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary disabled:cursor-default disabled:hover:ring-0"
                     >
-                      <BotAvatar bot={bot} hue={hue} />
+                      <BotAvatar bot={bot} hue={hue} rank={ranks.get(bot.botId)} />
                       {/* Ringed in the row's own background so it reads as sitting ON the avatar
                           rather than being part of the picture. */}
                       <span
@@ -276,7 +300,7 @@ export function BotSidebarPanel({
                       </span>
                     </button>
                   ) : (
-                    <BotAvatar bot={bot} hue={hue} />
+                    <BotAvatar bot={bot} hue={hue} rank={ranks.get(bot.botId)} />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">

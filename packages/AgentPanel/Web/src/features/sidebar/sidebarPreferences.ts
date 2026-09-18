@@ -15,6 +15,15 @@ export interface SidebarPreferences {
    * the arrangement before the reload has told them anything.
    */
   mode: AgentSidebarMode;
+  /**
+   * Whether Bots wear their generated faces instead of their initials.
+   *
+   * Here rather than beside the generator because that file answers what a face IS and this one
+   * answers what the reader chose to see -- and because the canvas preferences module is at its
+   * line cap. Off until chosen: the initials are what every reader knows, and a face nobody asked
+   * for is a rename nobody made.
+   */
+  botFaces: boolean;
 }
 
 const SIDEBAR_MODES: readonly AgentSidebarMode[] = ["sessions", "bots", "canvas"];
@@ -23,6 +32,7 @@ export const DEFAULT_SIDEBAR_PREFERENCES: SidebarPreferences = {
   open: true,
   width: 264,
   mode: "sessions",
+  botFaces: false,
 };
 
 const STORAGE_KEY = "agent-panel.sidebar.preferences";
@@ -50,6 +60,9 @@ export function loadSidebarPreferences(): SidebarPreferences {
       mode: SIDEBAR_MODES.includes(parsed.mode as AgentSidebarMode)
         ? (parsed.mode as AgentSidebarMode)
         : DEFAULT_SIDEBAR_PREFERENCES.mode,
+      botFaces: typeof parsed.botFaces === "boolean"
+        ? parsed.botFaces
+        : DEFAULT_SIDEBAR_PREFERENCES.botFaces,
     };
   } catch {
     return DEFAULT_SIDEBAR_PREFERENCES;
@@ -62,6 +75,7 @@ export function storeSidebarPreferences(preferences: SidebarPreferences): void {
       open: preferences.open,
       width: clampSidebarWidth(preferences.width),
       mode: preferences.mode,
+      botFaces: preferences.botFaces === true,
     }));
   } catch {
     // The panel remains usable with in-memory state when WebKit storage is disabled.
