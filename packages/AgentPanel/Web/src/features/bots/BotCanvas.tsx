@@ -2,12 +2,7 @@ import { useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import {
-  botCanvasOrderOf,
-  loadBotCanvasOrder,
   loadSessionCardSizes,
-  moveInOrder,
-  orderBotsForCanvas,
-  storeBotCanvasOrder,
   storeSessionCardSizes,
   type BotCardSize,
   type BotCardSizes,
@@ -68,6 +63,7 @@ export function BotCanvas({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onMoveBot,
   onReorderSessions,
   detachedCount,
   detachedSessionKeys,
@@ -175,6 +171,8 @@ export function BotCanvas({
    * arrangement of this canvas: that order is the Bot's own and reaches every surface reading it.
    */
   onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
+  /** Stands one Bot where another stands. By id; see `moveBot` in `useCanvasRoster`. */
+  onMoveBot: (moved: string, target: string) => void;
   /**
    * How many Bots exist but are off the canvas, which is only ever asked when `bots` is empty. An
    * empty canvas that says "No bots yet" over a roster of eight is a lie, and would send the reader
@@ -255,6 +253,7 @@ export function BotCanvas({
       onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
       onDetachBot={onDetachBot}
       onReorderSessions={onReorderSessions}
+      onMoveBot={onMoveBot}
       detachedSessionKeys={detachedSessionKeys}
       openKeys={openKeys}
       onToggleSession={onToggleSession}
@@ -299,6 +298,7 @@ function BotCanvasList({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onMoveBot,
   onReorderSessions,
   detachedSessionKeys,
   openKeys,
@@ -328,6 +328,7 @@ function BotCanvasList({
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
   onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
+  onMoveBot: (moved: string, target: string) => void;
   detachedSessionKeys: ReadonlySet<string>;
   openKeys: ReadonlySet<string>;
   onToggleSession: (key: string) => void;
@@ -339,13 +340,11 @@ function BotCanvasList({
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
   const [sessionSizes, setSessionSizes] = useState<BotCardSizes>(loadSessionCardSizes);
-  const [order, setOrder] = useState<string[]>(loadBotCanvasOrder);
-  const arranged = orderBotsForCanvas(bots, order);
   // Hidden machines drop out HERE rather than upstream, because hiding one is a question about what
   // this strip shows and not about which Bots exist: the sidebar roster still lists every one, and
   // its chip still says how many each machine is holding back. Shared with the sidebar's status
   // rather than written twice, because that status counts exactly these.
-  const standing = botsOnShownMachines(arranged, hiddenMachines, keyOfBot);
+  const standing = botsOnShownMachines(bots, hiddenMachines, keyOfBot);
   const labelOf = (botId: string): string | undefined => {
     const key = keyOfBot(botId);
     return key === undefined ? undefined : machines.find((machine) => machine.key === key)?.label;
@@ -355,14 +354,14 @@ function BotCanvasList({
   // asked how much room a card has -- and the strip is what a move reads card positions from.
   const canvas = useRef<HTMLDivElement | null>(null);
   const list = useRef<HTMLUListElement | null>(null);
-  // `moveInOrder` hands back the same array when the move is a no-op, which is what makes the
-  // identity check below meaningful rather than a comparison of two fresh arrays.
+  // Moved by id rather than by these indices: the strip is showing a subset of the roster -- a
+  // detached Bot has no card, and a hidden machine's are filtered out -- while the order a drop
+  // rewrites is the whole roster's, and the sidebar's list draws from that same one.
   const rearrange = (from: number, to: number): void => {
-    const current = botCanvasOrderOf(standing);
-    const next = moveInOrder(current, from, to);
-    if (next === current) return;
-    setOrder(next);
-    storeBotCanvasOrder(next);
+    const moved = standing[from]?.botId;
+    const target = standing[to]?.botId;
+    if (moved === undefined || target === undefined) return;
+    onMoveBot(moved, target);
   };
   const move = useMoveAlongStrip({ canvas, list, onDrop: rearrange });
   const resizeSession =(key: string, size: BotCardSize, keep: boolean): void => {
@@ -472,7 +471,7 @@ function BotCanvasList({
     >
       <CanvasNotices
         machineErrors={machineErrors}
-        onCanvas={arranged.length}
+        onCanvas={bots.length}
         drawn={standing.length}
         orphanedError={orphanedError}
       />

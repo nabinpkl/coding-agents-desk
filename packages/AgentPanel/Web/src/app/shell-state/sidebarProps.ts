@@ -65,7 +65,9 @@ export function sidebarProps({
     onToggleProject: inventory.toggleProject,
     onSelectSession: thread.openCatalogSession,
     onCreatePiSession: (project: ProjectSummary) => void createPiSession(project),
-    bots: botsState.bots,
+    // The canvas's own arrangement rather than the order the machines answered in: this list and
+    // the strip are the same Bots, so a reader who moves a card has moved this row with it.
+    bots: roster.orderedBots,
     botMachineLabels: machines.labels,
     botsLoading: botsState.loading,
     botsError: botsState.error,

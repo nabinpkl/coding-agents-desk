@@ -1,19 +1,24 @@
 // What the reader arranged on the canvas: which Bots are on it, which sessions are open, and which
 // machines it is showing at all.
 //
-// Four sets, all remembered, and all held above the canvas rather than inside it -- the sidebar's
-// roster puts a Bot back and opens a card too, and a picker cannot drive state that lives inside
-// the thing it is driving. `botCanvasPreferences` carries why remembering them is safe now and
-// was not before.
+// Four sets and the order they stand in, all remembered, and all held above the canvas rather than
+// inside it -- the sidebar's roster puts a Bot back, opens a card and lists them in that same
+// order, and a picker cannot drive state that lives inside the thing it is driving.
+// `botCanvasPreferences` carries why remembering them is safe now and was not before.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import {
+  botCanvasOrderOf,
+  loadBotCanvasOrder,
   loadCanvasOpenKeys,
   loadCanvasRoom,
   loadDetachedBotIds,
   loadDetachedSessionKeys,
   loadHiddenMachines,
+  moveInOrder,
+  orderBotsForCanvas,
+  storeBotCanvasOrder,
   storeCanvasOpenKeys,
   storeCanvasRoom,
   storeDetachedBotIds,
@@ -89,7 +94,42 @@ export function useCanvasRoster(botsState: {
   // each of those is how one of them ends up forgotten.
   useEffect(() => storeDetachedBotIds(detachedBotIds), [detachedBotIds]);
   useEffect(() => storeDetachedSessionKeys(detachedSessionKeys), [detachedSessionKeys]);
-  const canvasBots = botsState.bots.filter((bot) => !detachedBotIds.has(bot.botId));
+  /**
+   * The order the Bots stand in, left to right, and the one every surface that lists them reads.
+   *
+   * Up here for the reason the sets above are: the strip is not the only thing that draws this
+   * roster. The sidebar's Canvas list is the same Bots, and while this lived inside the canvas that
+   * list stayed in the order the machines answered in -- a Bot third on the strip and last in the
+   * sidebar, which is two answers to one question.
+   */
+  const [botOrder, setBotOrder] = useState<string[]>(loadBotCanvasOrder);
+  useEffect(() => storeBotCanvasOrder(botOrder), [botOrder]);
+  /** Every Bot the panel can see, arranged. What the sidebar's roster lists. */
+  const orderedBots = useMemo(
+    () => orderBotsForCanvas(botsState.bots, botOrder),
+    [botsState.bots, botOrder],
+  );
+  // Read through a ref so the move below keeps one identity for the life of the panel: it is handed
+  // to the canvas, and a fresh callback on every roster snapshot would rebuild the strip's props.
+  const arranged = useRef(orderedBots);
+  arranged.current = orderedBots;
+  /**
+   * Stands one Bot where another is, naming both rather than their places on the strip.
+   *
+   * Ids because the strip moves a card among the ones it is SHOWING, and that is a subset twice
+   * over: a detached Bot has no card, and a hidden machine's Bots are filtered out of it. An order
+   * written from those positions would hold only what was on screen, so a Bot put back would return
+   * to the end rather than to its place, and the sidebar -- which lists every one of them -- would
+   * disagree with the strip about where it belongs.
+   */
+  const moveBot = useCallback((moved: string, target: string) => {
+    const ids = botCanvasOrderOf(arranged.current);
+    const next = moveInOrder(ids, ids.indexOf(moved), ids.indexOf(target));
+    // `moveInOrder` hands back the same array when the move is a no-op, so this is an identity
+    // check rather than a comparison of two fresh arrays.
+    if (next !== ids) setBotOrder(next);
+  }, []);
+  const canvasBots = orderedBots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because
   // the card it opens is not being rendered.
@@ -171,7 +211,9 @@ export function useCanvasRoster(botsState: {
     setDetachedSessionKeys,
     canvasOpenKeys,
     setCanvasOpenKeys,
+    orderedBots,
     canvasBots,
+    moveBot,
     hiddenMachines,
     toggleMachineOnCanvas,
     canvasZoomMode,

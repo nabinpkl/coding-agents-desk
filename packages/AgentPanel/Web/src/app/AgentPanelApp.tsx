@@ -96,10 +96,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
   const chrome = useSidebarChrome();
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
-  const roster = useCanvasRoster({
-    bots: botsState.bots,
-    settled: botsState.settled && shellMachines.known,
-  });
+  const roster = useCanvasRoster({ bots: botsState.bots, settled: botsState.settled && shellMachines.known });
   const commands = useBotCommands(
     shellMachines.feeds,
     { setDetachedBotIds: roster.setDetachedBotIds, setDetachedSessionKeys: roster.setDetachedSessionKeys, setCanvasOpenKeys: roster.setCanvasOpenKeys },
@@ -462,6 +459,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 onReorderSessions={commands.reorderBotSessions}
                 onRemoveSessionFromCanvas={roster.removeSessionFromCanvas}
                 onDetachBot={roster.toggleBotOnCanvas}
+                onMoveBot={roster.moveBot}
                 detachedCount={botsState.bots.length - roster.canvasBots.length}
                 detachedSessionKeys={roster.detachedSessionKeys}
                 openKeys={roster.canvasOpenKeys}
