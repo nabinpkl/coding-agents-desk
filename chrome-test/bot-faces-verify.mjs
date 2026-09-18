@@ -49,16 +49,19 @@ const watchdog = setTimeout(() => {
   void teardown().then(() => process.exit(1));
 }, 120_000);
 
-// Avatar discs, wherever they are drawn: roster rows and card headers alike. `size-9` on a card
-// and `size-10` in the sidebar; the session marks (`size-6`) are a different component and are
-// not what this switch changes.
+// Avatar roots, wherever they are drawn: roster rows and card headers alike. A face stands alone
+// as an svg; initials stand in their disc. `size-9` on a card and `size-10` in the sidebar; the
+// session marks (`size-6`) are a different component and are not what this switch changes.
 const discs = () => page.evaluate(() => [...document.querySelectorAll(
-  'ul[aria-label="Bots"] [aria-hidden].rounded-full:is(.size-9,.size-10), [aria-label="Bot canvas"] [aria-hidden].rounded-full:is(.size-9,.size-10)',
-)].map((el) => ({
-  face: el.querySelector('svg.bot-face') !== null,
-  head: el.querySelector('svg.bot-face path:nth-of-type(1)')?.getAttribute('d') ?? null,
-  text: el.textContent ?? '',
-})));
+  'ul[aria-label="Bots"] :is(span.rounded-full:is(.size-9,.size-10), svg.bot-face:is(.size-9,.size-10)), [aria-label="Bot canvas"] :is(span.rounded-full:is(.size-9,.size-10), svg.bot-face:is(.size-9,.size-10))',
+)].map((el) => {
+  const face = el.tagName.toLowerCase() === 'svg';
+  return {
+    face,
+    head: face ? el.querySelector('path')?.getAttribute('d') ?? null : null,
+    text: face ? '' : (el.textContent ?? ''),
+  };
+}));
 
 try {
   // The canvas, which is the surface the owner reads: the roster beside the strip draws the same
@@ -85,7 +88,7 @@ try {
   check('two Bots do not wear the same head', heads.size > 1, `${heads.size} distinct heads over ${faced.length} discs`);
   // Roster and cards move together: the press reaches past the list it was pressed in.
   const cardFaces = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] svg.bot-face')].length);
-  const cards = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] [aria-hidden].rounded-full:is(.size-9,.size-10)')].length);
+  const cards = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] :is(span.rounded-full:is(.size-9,.size-10), svg.bot-face:is(.size-9,.size-10))')].length);
   check('the canvas cards wear faces too', cards === 0 || cardFaces === cards, `${cardFaces}/${cards} card discs`);
   await page.screenshot({ path: '/tmp/bot-faces-on.png' });
 

@@ -148,11 +148,12 @@ export function botFaceOf(rank: number): BotFaceShape {
 }
 
 /**
- * A Bot's face, on whatever disc it is placed in.
+ * A Bot's face, sized by its caller.
  *
- * Fills its parent rather than taking a size, the way the disc's initials do: the avatar is already
- * sized in one place (`size-6` for a session, `size-9` and `size-10` for a Bot) and a second number
- * here is a second place for those to disagree.
+ * It fills nothing on its own: the avatar is already sized in one place (`size-6` for a session,
+ * `size-9` and `size-10` for a Bot) and a number here is a second place for those to disagree. It
+ * stands alone rather than inside the initials' disc, whose circle would ring every head in the
+ * shape the faces were drawn to replace.
  *
  * The head takes `currentColor` and the eyes take the disc's own fill, so the eyes are holes rather
  * than ink. That is what keeps the contrast honest at every hue without measuring anything: what
@@ -163,17 +164,20 @@ export function botFaceOf(rank: number): BotFaceShape {
  * is the Bot they are still looking at, and a blink is the same movement played briefly. Both live
  * in `styles.css` with the reduced-motion answer beside them.
  */
-export function BotFace({ rank, shut = false, className = "" }: {
+export function BotFace({ rank, shut = false, className = "", style }: {
   rank: number;
   /** Eyes closed. The caller decides what that means; nothing here knows about the canvas. */
   shut?: boolean;
   className?: string;
+  /** The hue the face's CSS reads for the head and the eye sockets. */
+  style?: CSSProperties;
 }) {
   const face = botFaceOf(rank);
   return (
     <svg
       viewBox="0 0 32 32"
-      className={`bot-face size-full ${className}`}
+      className={`bot-face ${className}`}
+      style={style}
       // Decorative. The name it stands for is the next element in every row that draws it, and the
       // state its eyes carry is said in words by whatever control changed it.
       aria-hidden

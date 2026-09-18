@@ -49,6 +49,13 @@ export function BotAvatar({ bot, hue, rank, size = "size-10" }: {
       />
     );
   }
+  if (faces && rank !== undefined) {
+    // The face IS the avatar, not a picture inside one. It stands alone rather than in the
+    // initials' disc: a circle behind it would ring every head in the same shape the faces were
+    // drawn to replace, and the head's own outline is the identity. The hue still crosses on a
+    // style, because the face's CSS reads it for the head's colour and the eyes' sockets.
+    return <BotFace rank={rank} className={`${size} shrink-0`} style={botSurfaceStyle(hue)} />;
+  }
   return (
     <span
       aria-hidden
@@ -60,7 +67,7 @@ export function BotAvatar({ bot, hue, rank, size = "size-10" }: {
       }`}
       style={botSurfaceStyle(hue)}
     >
-      {faces && rank !== undefined ? <BotFace rank={rank} /> : initials}
+      {initials}
     </span>
   );
 }
