@@ -79,6 +79,21 @@ bun="${remote_home}/.bun/bin/bun"
 log="${remote_root}/sidecar.log"
 pidfile="${remote_root}/sidecar.pid"
 
+# Resolved on THIS Mac, not the peer: proxy-agent only ever runs here (SPEC keeps it single-host),
+# so every peer's Claude-network mirror binds back to whichever tailnet address this Mac has right
+# now rather than a value written down anywhere. Empty when this Mac has no tailnet address, in
+# which case the peer's sidecar falls back to its own loopback default and the mirror is silently
+# absent rather than pointed at nothing.
+#
+# Points at proxy-observer-relay's port (9156), not proxy-agent-server's own 9155: that server's
+# `enforce_local_request` middleware rejects any request whose Host header does not parse as a
+# literal IPv4 loopback address -- deliberate DNS-rebinding hardening for its "loopback-only, one
+# trusted local user" boundary, and neither `tailscale serve --tcp` (raw passthrough) nor `--http`
+# (passes the client's own Host through unchanged) can satisfy it. The relay is a genuine loopback
+# caller from proxy-agent-server's point of view; run it with `bun tools/proxy-observer-relay.mjs`
+# before a peer's sidecar can reach this Mac's observer API.
+mac_tailnet_address="$(tailscale ip -4 2>/dev/null || true)"
+
 peer_tailnet_address() {
     on_peer 'tailscale ip -4 2>/dev/null | head -1'
 }
@@ -152,13 +167,25 @@ stop_sidecar() {
 #
 # The transcript roots are deliberately absent: they already default to $HOME/.claude/... , so the
 # peer's own home is picked up with nothing said about it.
+#
+# AGENT_FEED_PROXY_OBSERVER_ENDPOINT points the peer's OWN claudeNetworkSource back at this Mac's
+# proxy-agent over tailscale, rather than at the peer's loopback default (nothing runs proxy-agent
+# there). The peer's sidecar is still what binds a captured flow's session id against ITS OWN local
+# transcript catalog -- that is the whole reason the mirror stays attached to the right Bot card
+# instead of landing on this Mac's roster. Omitted entirely when this Mac has no tailnet address,
+# so the sidecar's own url-parsing default takes over instead of failing on an empty value.
 launch_sidecar() {
+    proxy_observer_env=""
+    if [ -n "${mac_tailnet_address}" ]; then
+        proxy_observer_env="AGENT_FEED_PROXY_OBSERVER_ENDPOINT='http://${mac_tailnet_address}:9156' "
+    fi
     on_peer "cd '${remote_repo}/agent-feed/sidecar' && \
         AGENTDESK_RUNTIME_ROOT='${remote_root}/runtime' \
         AGENTDESK_SIDECAR_REGISTRY='${remote_root}/sidecars' \
         AGENT_FEED_SUPERVISOR_SETTLE_MS='${SETTLE_MS}' \
         AGENT_FEED_HOST='${1}' \
         AGENT_FEED_PORT='${port}' \
+        ${proxy_observer_env}\
         nohup '${bun}' src/supervisor.ts > '${log}' 2>&1 & echo \$! > '${pidfile}'"
 }
 
