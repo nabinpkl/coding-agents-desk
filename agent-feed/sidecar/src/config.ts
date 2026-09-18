@@ -70,9 +70,16 @@ export const config = {
   // Read as a FENCE, never as a path builder. A running task's output path comes from the
   // kernel (the task shell's own fd 1) and a finished one's from the harness's tool_result
   // text; this value only answers "is that path where it should be" before we open it.
+  //
+  // `/tmp` rather than `/private/tmp`, which is where this pointed and is a macOS spelling: on
+  // Linux there is no `/private` at all and the captures are at `/tmp/claude-<uid>`, so a peer
+  // fenced every one of its own tasks out and showed none. On a Mac the two name one directory
+  // through a symlink, and `isInsideTaskRoot` accepts both spellings rather than trusting this
+  // one -- measured on this machine, transcripts carry 23,540 of the `/private` spelling and 354
+  // of the bare one, and the bare ones were being refused here too.
   claudeTaskRoot: directoryEnvironment(
     "AGENT_FEED_CLAUDE_TASK_ROOT",
-    `/private/tmp/claude-${userInfo().uid}`,
+    `/tmp/claude-${userInfo().uid}`,
   ),
   // Where an image dropped into the panel's composer is written for the pane's Claude to read.
   //

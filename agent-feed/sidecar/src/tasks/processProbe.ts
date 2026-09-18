@@ -18,6 +18,7 @@
 // command into a log file and reads only the tail at the end, which leaves that stdout capture
 // empty -- the shape other tools render as "No output yet". Walking the shell's DESCENDANTS and
 // reading their fd 1 finds the file the work is really being written to.
+import { realpathSync } from "node:fs";
 import { config } from "@/config";
 import { LSOF_BINARY, type CommandRunner } from "@/tasks/commandRunner";
 import {
@@ -126,16 +127,52 @@ export function taskShellsFromDescriptors(descriptors: readonly LsofDescriptor[]
   return [...shells.values()];
 }
 
+/** Cached per root, because where a directory really is cannot move under a running process. */
+const spellingsByRoot = new Map<string, readonly string[]>();
+
+function withSlash(path: string): string {
+  return path.endsWith("/") ? path : `${path}/`;
+}
+
+/**
+ * Every name this machine reaches the task root by: the configured one, and where it really is.
+ *
+ * Two names for one directory is the ordinary case rather than an exotic one. On a Mac `/tmp` is a
+ * symlink to `/private/tmp`, and the harness writes whichever spelling it happened to resolve --
+ * measured here, 23,540 capture paths under `/private/tmp` and 354 under `/tmp`, for the same
+ * files. A fence that knows one spelling silently refuses the other, and refusing reads as "that
+ * task has no output" rather than as a mismatch.
+ *
+ * A root that does not resolve is not cached, so one created later is picked up without a restart.
+ */
+export function taskRootSpellings(root: string): readonly string[] {
+  const cached = spellingsByRoot.get(root);
+  if (cached) return cached;
+  const literal = withSlash(root);
+  let spellings: readonly string[] = [literal];
+  try {
+    const real = withSlash(realpathSync(root));
+    if (real !== literal) spellings = [literal, real];
+    spellingsByRoot.set(root, spellings);
+  } catch {
+    // Nothing there yet. Answer with the literal spelling and ask again next time.
+  }
+  return spellings;
+}
+
 /**
  * Whether a path is where the harness parks task output.
  *
  * A fence, not a path builder. Everything we open is discovered -- from the kernel for a running
  * task, from the harness's own tool_result text for a finished one -- and this is the check that
  * a discovered path is somewhere we are willing to read before we read it.
+ *
+ * Accepting both spellings of one directory widens nothing: they are the same inode, and the
+ * traversal check below is what keeps a discovered path from climbing out of it.
  */
 export function isInsideTaskRoot(path: string): boolean {
-  const root = config.claudeTaskRoot.endsWith("/") ? config.claudeTaskRoot : `${config.claudeTaskRoot}/`;
-  return path.startsWith(root) && !path.includes("/..");
+  if (path.includes("/..")) return false;
+  return taskRootSpellings(config.claudeTaskRoot).some((root) => path.startsWith(root));
 }
 
 /**

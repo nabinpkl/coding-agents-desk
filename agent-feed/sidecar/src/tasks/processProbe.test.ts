@@ -3,13 +3,18 @@
 // Nothing here forks: every reading is a canned `lsof` answer through `fakeRunner`.
 
 import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { config } from "@/config";
 import {
   type CommandRunner,
+  isInsideTaskRoot,
   outputTargetsOf,
   parseLsofDescriptors,
   type ProcessRow,
   resetProcessTableCache,
+  taskRootSpellings,
   taskShellsByOwner,
   taskShellsFromDescriptors,
 } from "@/tasks/processProbe";
@@ -240,5 +245,53 @@ describe("outputTargetsOf", () => {
         `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
+  });
+});
+
+describe("the task root fence", () => {
+  test("a capture under the configured root passes, and one outside it does not", () => {
+    expect(isInsideTaskRoot(CAPTURE)).toBe(true);
+    expect(isInsideTaskRoot("/etc/passwd")).toBe(false);
+    // The traversal check is what makes accepting several spellings safe: neither name is a way
+    // to climb out of the directory they both point at.
+    expect(isInsideTaskRoot(`${ROOT}/../../etc/passwd`)).toBe(false);
+  });
+
+  test("a root reached through a symlink answers to both its names", () => {
+    // The shape this exists for: on a Mac `/tmp` is a symlink to `/private/tmp`, and the harness
+    // writes capture paths under either name for the same files. A fence that knew one spelling
+    // refused the other, and a refusal reads as "this task has no output".
+    const work = realpathSync(mkdtempSync(join(tmpdir(), "task-root-")));
+    try {
+      const real = join(work, "real");
+      const link = join(work, "link");
+      mkdirSync(real);
+      symlinkSync(real, link);
+      const spellings = taskRootSpellings(link);
+      expect(spellings).toContain(`${link}/`);
+      expect(spellings).toContain(`${real}/`);
+      // Both spellings of one directory, so a path written either way is inside it.
+      expect(spellings.some((root) => `${real}/s/tasks/b1.output`.startsWith(root))).toBe(true);
+      expect(spellings.some((root) => `${link}/s/tasks/b1.output`.startsWith(root))).toBe(true);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  test("a root that is not there yet is answered again once it appears", () => {
+    // The absent answer must not be cached, or a machine whose task root is created after the
+    // sidecar started would refuse every task until someone restarted it. Proven by creating the
+    // directory between the two calls rather than by asking twice, which a cache would also pass.
+    const work = realpathSync(mkdtempSync(join(tmpdir(), "task-root-late-")));
+    try {
+      const real = join(work, "real");
+      const link = join(work, "link");
+      mkdirSync(real);
+      expect(taskRootSpellings(link)).toEqual([`${link}/`]);
+      symlinkSync(real, link);
+      expect(taskRootSpellings(link)).toContain(`${real}/`);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
   });
 });
