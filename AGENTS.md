@@ -279,9 +279,41 @@ two trees disagreed and nothing could catch it -- the sidecar wrote `.ts` on 652
 imports, the panel on 0 of 770, and both typecheck either way.
 
 **Only fan-out promotes a cluster.** Do not create a directory because a concept feels like it
-deserves one. Create it because the flat list went past twelve and three or more of its files are
-about the same thing. Concepts do not earn directories, counts do, and that is what keeps the
-layout from tracking whoever last had an opinion about it.
+deserves one. Create it because the flat list went past twelve and three or more of the files
+ALREADY THERE are about the same thing. Concepts do not earn directories, counts do, and that is
+what keeps the layout from tracking whoever last had an opinion about it.
+
+**A full directory owes a split, and the file arriving is not what you split.** This is the one that
+keeps going wrong, and it goes wrong in the way that is hardest to catch: both gates stay green. A
+directory sitting at twelve is asked for a thirteenth file, the author looks for a cluster to put
+the NEWCOMER in, finds it is one file or two, reads the three-file floor as forbidding that, and
+appends the new concept to an existing file instead -- usually one that already does something
+adjacent, which is what makes it sound reasonable rather than like giving up. Measured on
+`features/bots/` (2026-09-18, sitting at exactly twelve): the proposal was to put a per-Bot geometry
+generator into `botSurface.ts`, because that file already decides a Bot's colour. `botSurface.ts` is
+262 lines, so the 500-line cap stays green, the directory count stays green, and a new idea is now
+hidden inside a file named for a different one. That is the failure both caps exist to prevent,
+reached by obeying both of them.
+
+Two sentences close it:
+
+- **Cluster first, then place.** Being at twelve is the signal; the thirteenth file only delivers
+  it. The directory owed a split before the newcomer existed, so relieve the DIRECTORY -- promote
+  three or more of the files already in it that are about the same thing -- and then put the new
+  file flat, where it belongs, with room to spare. `features/bots/` has six about the canvas itself
+  (`BotCanvas.tsx`, `BotCanvasStatus.tsx`, `botCanvasPreferences.ts`, `useCanvasZoom.ts`,
+  `useMoveAlongStrip.ts`, `useRememberedCanvasScroll.ts`); moving three of them into `canvas/` puts
+  the directory at nine, and the file that started the question lands flat as the tenth.
+- **The floor is asked of the cluster you are PROMOTING, never of the newcomer.** "A new
+  subdirectory would hold only two files" is not a finding about the new file, it is a sign the
+  clustering question got pointed at the wrong end of the directory. A newcomer that genuinely
+  arrives as three or more related files IS a cluster and gets its own subdirectory on the spot;
+  one or two files land flat, which is what flat is for.
+
+If no three of the twelve belong together, that is the finding rather than a licence to cram. Say so
+and stop: a dozen files with nothing in common is a feature boundary that is wrong, which is a
+larger change than the one you were making and the owner's call, not something to settle by hiding a
+concept inside an unrelated file.
 
 Gated since 2026-09-09, and gated the same way the 500-line cap was: only after the tree already
 satisfied it. Nine directories were over the ceiling that morning and the worst held 36; the gate
