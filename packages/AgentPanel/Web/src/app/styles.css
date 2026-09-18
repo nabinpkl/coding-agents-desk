@@ -640,9 +640,12 @@
     color: var(--session-muted, var(--muted-foreground));
   }
 
-  /* Split from the fill because the sidebar wants only this half: its session rows carry the shade
-     as a rail down their leading edge, where a background tint would be a third thing competing
-     with the row's own selected and off-the-canvas states. */
+  /* Split from the fill because the two are worn in different combinations, not because one
+     surface wants only this half. The sidebar's rows wore the rail alone until they took the fill
+     too, and they take it on one condition: the session has a card on the canvas. Colour is what
+     a card looks like here, so a row without one gives it up and goes neutral and dim under a
+     crossed-eye mark, and the coloured rows are exactly the set standing on the strip. What takes
+     neither is a row whose Bot has no hue at all, which has no fill to resolve. */
   .bot-session-edge {
     border-color: oklch(
       calc(var(--bot-border-l) + var(--bot-session-step) * var(--bot-session-border-dl))

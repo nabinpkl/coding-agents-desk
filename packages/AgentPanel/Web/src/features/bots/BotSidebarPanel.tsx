@@ -1,4 +1,4 @@
-import { Bot, Check, LoaderCircle, Plus } from "lucide-react";
+import { Bot, Check, EyeOff, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -184,9 +184,10 @@ export function BotSidebarPanel({
             const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
             const hue = hues.get(bot.botId);
             const selected = selectedBotIds.has(bot.botId);
-            // Off the canvas dims the whole entry, sessions included, because the thing that is
-            // not on the canvas is the Bot rather than its header. Undefined when there is no
-            // canvas in the picture, which is not the same as being off one.
+            // Undefined when there is no canvas in the picture, which is not the same as being
+            // off one. This used to dim the whole entry, sessions included; the avatar's badge
+            // says it without spending opacity, and the dimming reached down into rows that now
+            // carry a colour of their own and cannot afford to be washed out.
             //
             // Two ways to be off it, and the row states the one a reader can act on from here.
             // `onStrip` is the question the dimming and the badge answer -- is there a card for
@@ -204,7 +205,7 @@ export function BotSidebarPanel({
             return (
               <li
                 key={bot.botId}
-                className={`border-b border-border/80 ${onStrip === false ? "opacity-55" : ""}`}
+                className="border-b border-border/80"
               >
                 <div className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${selected ? "border-primary bg-muted" : "border-transparent"}`}>
                   {canvas ? (
@@ -301,10 +302,13 @@ export function BotSidebarPanel({
                     {bot.sessions.map((session) => {
                       const key = attachedSessionKey(session);
                       const active = selected && selectedSessionKeys.has(key);
-                      // Dimmed the way a Bot that is off the canvas is, and for the same reason:
+                      // No card for this session right now, by either route: the reader took the
+                      // session off, or took the whole Bot off. One fact rather than two, because
                       // a row that looks identical to the ones with cards would make the canvas
-                      // look as though it had lost one.
-                      const offCanvas = canvas?.detachedSessionKeys.has(key) ?? false;
+                      // read as having lost one, and from here a reader cannot act on which of
+                      // the two reasons it is.
+                      const noCard = (canvas?.detachedSessionKeys.has(key) ?? false)
+                        || onStrip === false;
                       const shaded = botSessionStyle(hue, shades.get(key));
                       return (
                         // The row was one button until it grew a second action. A button cannot
@@ -313,21 +317,30 @@ export function BotSidebarPanel({
                         // both.
                         <li
                           key={key}
-                          // A rail rather than a tint. The row already has two backgrounds to say
-                          // things with -- selected, and dimmed when it is off the canvas -- and a
-                          // third would be arguing with both; the leading edge is empty, and it
-                          // lines up under the Bot header's own `border-l-2` so a Bot's sessions
-                          // read as one column of its colour.
+                          // The same fill and rail its card wears on the canvas, so one session is
+                          // one colour wherever it is drawn -- and ONLY while it is drawn in both
+                          // places. The colour is what a card looks like, so a row with no card
+                          // gives it up and goes neutral and dim, which leaves the coloured rows
+                          // reading as exactly the set standing on the strip.
+                          //
+                          // Nothing here says whether that card is unfolded, and it used to: an
+                          // open session took `bg-muted`, a utility, which outranks this layer and
+                          // painted the row `oklch(0.97 0 0)` -- flat grey -- while its card went
+                          // on wearing the session's colour. Measured on the live canvas, an open
+                          // "evals" card sat at `oklch(0.95 0.05 161.51)` against that grey. So the
+                          // one row a reader was most likely to be looking at was the one that had
+                          // dropped the colour, and folded state is not worth a colour it has to
+                          // take from identity. `aria-current` still carries it, where it costs
+                          // nothing to say.
                           className={`flex items-center border-l-2 pr-1.5 ${
-                            shaded ? "bot-session-edge" : "border-transparent"
-                          } ${active ? "bg-muted" : ""} ${offCanvas ? "opacity-55" : ""}`}
+                            shaded && !noCard ? "bot-session-edge bot-session-fill" : "border-transparent"
+                          } ${noCard ? "opacity-55" : ""}`}
                           style={shaded}
                         >
                           <button
                             type="button"
                             onClick={() => onSelectSession(bot, session)}
                             aria-current={active ? "page" : undefined}
-                            title={offCanvas ? "Off the canvas" : undefined}
                             // `pl-6` where this was `pl-14`, which costs the title nothing: 24px of
                             // padding plus the 24px mark and the 8px gap after it puts the text at
                             // the same 56px it started at. The indent is now SPOKEN by the mark
@@ -343,7 +356,7 @@ export function BotSidebarPanel({
                             <SessionAvatar
                               title={session.title || session.sessionId}
                               activity={session.activity}
-                              shaded={Boolean(shaded)}
+                              shaded={Boolean(shaded) && !noCard}
                             />
                             {/* `font-medium`, matching the same session's title on its canvas card.
                                 One object drawn at two weights in two places is drift, not
@@ -353,6 +366,20 @@ export function BotSidebarPanel({
                             <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium">
                               {session.title || session.sessionId}
                             </span>
+                            {/* Says this session has no card right now, in words the dimming
+                                cannot: dim alone reads as disabled. The crossed eye the row menu
+                                already spends on "Remove from canvas", so the mark and the control
+                                that sets it say one thing. */}
+                            {noCard ? (
+                              <span
+                                role="img"
+                                aria-label="Off the canvas"
+                                title="Off the canvas"
+                                className="flex shrink-0 items-center session-muted-ink"
+                              >
+                                <EyeOff className="size-3.5" aria-hidden />
+                              </span>
+                            ) : null}
                             <SourceBadge source={session.source} />
                           </button>
                           <SessionRowMenu

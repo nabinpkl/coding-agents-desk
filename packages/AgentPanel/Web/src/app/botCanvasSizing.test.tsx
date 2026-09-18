@@ -303,10 +303,13 @@ describe("App shell", () => {
       expect(transport.requests.some((request) => request.path.endsWith("/sessions/detach"))).toBe(false);
       expect(screen.getByText("1 session, 1 off the canvas")).toBeInTheDocument();
 
-      // Still in the roster, dimmed rather than dropped, and clicking it is the way back.
+      // Still in the roster, dimmed rather than dropped, and clicking it is the way back. It says
+      // so with a mark rather than a hover title: the row gives up its colour when it loses its
+      // card, and a dimmed grey row on its own reads as disabled rather than as off the canvas.
       const roster = within(screen.getByRole("list", { name: "Bots" }));
       const row = roster.getByRole("button", { name: /^Session Claude 01/ });
-      expect(row).toHaveAttribute("title", "Off the canvas");
+      expect(within(row).getByLabelText("Off the canvas")).toBeInTheDocument();
+      expect(row.closest("li")!.className).toContain("opacity-55");
       fireEvent.click(row);
       expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
         "aria-expanded",

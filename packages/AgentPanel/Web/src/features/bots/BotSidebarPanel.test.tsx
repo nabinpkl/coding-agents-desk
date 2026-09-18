@@ -28,16 +28,29 @@ const bot = (botId: string, name: string): BotView => ({
 
 const HOME = bot("b-home", "Home bot");
 const PEER = bot("b-peer", "Peer bot");
+/** A Bot with sessions, which is what the rows below are about. */
+const WORK = {
+  ...bot("b-work", "Work bot"),
+  sessionRefs: [
+    { source: "claude", sessionId: "s-1" },
+    { source: "claude", sessionId: "s-2" },
+  ],
+  sessions: [
+    { source: "claude", sessionId: "s-1", title: "First session", activity: "cold" },
+    { source: "claude", sessionId: "s-2", title: "Second session", activity: "cold" },
+  ],
+} as unknown as BotView;
 const LABELS = new Map([["b-home", "dev"], ["b-peer", "oracle"]]);
 
 function panel(canvas: {
   detachedBotIds: ReadonlySet<string>;
   machineHiddenBotIds: ReadonlySet<string>;
+  detachedSessionKeys?: ReadonlySet<string>;
   onToggle?: (bot: BotView) => void;
 }) {
   return render(
     <BotSidebarPanel
-      bots={[HOME, PEER]}
+      bots={[HOME, PEER, WORK]}
       machineLabels={LABELS}
       loading={false}
       error={null}
@@ -51,7 +64,7 @@ function panel(canvas: {
       canvas={{
         detachedBotIds: canvas.detachedBotIds,
         machineHiddenBotIds: canvas.machineHiddenBotIds,
-        detachedSessionKeys: new Set(),
+        detachedSessionKeys: canvas.detachedSessionKeys ?? new Set(),
         onToggle: canvas.onToggle ?? (() => undefined),
       }}
     />,
@@ -116,5 +129,49 @@ describe("BotSidebarPanel canvas rows", () => {
     const peer = control(/Put Peer bot on the canvas/);
     expect(peer).toHaveAttribute("aria-pressed", "false");
     expect(peer).toBeEnabled();
+  });
+});
+
+/**
+ * What a session row says about itself: which session it is, and whether it has a card.
+ *
+ * Both used to be spent on the same pixels. The row carried its Bot's colour as a 2px rail because
+ * a background tint would have fought the dimming that meant "off the canvas", so the colour that
+ * names a session was the one that gave way. The row takes the full fill now, and the two stopped
+ * competing by being made one answer: a session is painted exactly when it has a card, and a row
+ * without one goes neutral and dim under a mark that says so.
+ */
+describe("BotSidebarPanel session rows", () => {
+  const rowOf = (title: string) => screen.getByText(title).closest("li")!;
+
+  it("paints a session row in its own colour rather than leaving it grey", () => {
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
+    expect(rowOf("First session").className).toContain("bot-session-fill");
+  });
+
+  it("takes the colour off a session with no card, dims it, and says why", () => {
+    panel({
+      detachedBotIds: new Set(),
+      machineHiddenBotIds: new Set(),
+      detachedSessionKeys: new Set(["claude:s-2"]),
+    });
+    const gone = rowOf("Second session").className;
+    expect(gone).not.toContain("bot-session-fill");
+    expect(gone).toContain("opacity-55");
+    // Dim alone reads as disabled, so the mark is what carries the meaning.
+    expect(screen.getAllByLabelText("Off the canvas")).toHaveLength(1);
+    // Its neighbour still has a card, so it keeps both its colour and its full strength.
+    const kept = rowOf("First session").className;
+    expect(kept).toContain("bot-session-fill");
+    expect(kept).not.toContain("opacity-55");
+  });
+
+  it("says the same of every session when the whole Bot is off the strip", () => {
+    // The other way for a session to have no card. A row cannot act on the difference between the
+    // two, so it states the one thing a reader can see: there is no card for this right now.
+    panel({ detachedBotIds: new Set(["b-work"]), machineHiddenBotIds: new Set() });
+    expect(screen.getAllByLabelText("Off the canvas")).toHaveLength(2);
+    expect(rowOf("First session").className).not.toContain("bot-session-fill");
+    expect(rowOf("Second session").className).toContain("opacity-55");
   });
 });
