@@ -40,6 +40,11 @@ port="${3:-7682}"
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 
+# This script's own path, absolute. `watch` re-execs it, and a bare `$0` is relative to whatever
+# directory the caller happened to be in -- resolved the same way `repo` above is, and from the
+# same `$0`, so a copy run from elsewhere re-execs that copy rather than this tree's.
+self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
 # How often `watch` asks whether the peer is still serving, in seconds.
 #
 # Slow because it is the recovery path and not the delivery one: an edit is health-checked the
@@ -214,7 +219,22 @@ watch)
     # supervising a two-day-old tree are the same failure wearing different clothes.
     address="$(peer_tailnet_address || true)"
     stamp="$(mktemp)"
-    trap 'rm -f "${stamp}"' EXIT
+    # Untouched for the life of the process, unlike `stamp`, so it answers one question only: has
+    # this script been written since this watcher parsed it.
+    self_stamp="$(mktemp)"
+    trap 'rm -f "${stamp}" "${self_stamp}"' EXIT
+    # Set by the re-exec below. A change to this script is most often a change to how the peer is
+    # LAUNCHED, and `ensure_running` deliberately leaves a peer that answers alone -- so a healthy
+    # peer would keep its old launch until it died of something else, which is exactly the failure
+    # this whole arm exists to end. Relaunching is a few seconds of the panel's streams against
+    # this peer, paid once per edit to this file.
+    if [ -n "${AGENTDESK_REMOTE_SIDECAR_RELAUNCH:-}" ] && [ -n "${address}" ]; then
+        echo "  relaunching ${peer}'s sidecar, so the change to this script reaches it"
+        stop_sidecar || true
+        launch_sidecar "${address}"
+        sleep 3
+    fi
+    unset AGENTDESK_REMOTE_SIDECAR_RELAUNCH
     ensure_running || true
     ship_sources
     ship_dependencies
@@ -225,6 +245,25 @@ watch)
     checked=0
     while :; do
         sleep 1
+        # The watcher ships the peer's sources and keeps missing its own. Bash parsed this file when
+        # the process started and never reads it again, so an edit here reaches a RUNNING watcher
+        # never. Measured 2026-09-18 on the oracle peer: this loop had been up since 2026-09-15 and
+        # was still launching the peer from a `launch_sidecar` written before an environment
+        # variable was added to it a day later, so the peer ran CURRENT SOURCES from a STALE
+        # LAUNCHER. That is the frozen-runtime failure this script exists to end, one level up, and
+        # invisible for the same reason: a peer answering /api/config looks identical either way.
+        #
+        # So the watcher replaces itself, the way the sidecar's own supervisor does and for the same
+        # reason -- the code least able to notice it is stale is the code that decides when to
+        # restart. Parsed before the exec, because a save is a moment inside an edit: half a file
+        # would replace a working watcher with one that dies on a syntax error, and the next pass is
+        # a second away.
+        if [ -n "$(changed_since "${self_stamp}" "${self}")" ]; then
+            bash -n "${self}" 2>/dev/null || continue
+            printf '%s  this script changed -- restarting the watcher\n' "$(date +%H:%M:%S)"
+            rm -f "${stamp}" "${self_stamp}"
+            AGENTDESK_REMOTE_SIDECAR_RELAUNCH=1 exec bash "${self}" watch "${peer}" "${port}"
+        fi
         now="$(date +%s)"
         if [ "$((now - checked))" -ge "${HEALTH_INTERVAL}" ]; then
             checked="${now}"
