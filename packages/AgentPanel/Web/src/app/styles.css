@@ -674,6 +674,51 @@
     border-left-color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--bot-hue));
   }
 
+  /* The terminal canvas wears the same palette as the Bot canvas, keyed on its own hue.
+   *
+   * One palette rather than two, on purpose: the numbers above are measured contrast floors, not
+   * Bot opinions, and a second set is a second thing to keep above AA. What crosses the boundary
+   * here is `--terminal-hue` (and a child's step), published by `terminalSurface.ts`, so a
+   * terminal card never resolves against a `--bot-hue` inherited from a card around it -- both
+   * canvases can be mounted in one panel.
+   *
+   * Only the card-level classes are mirrored. The terminal canvas renders no `SessionView`, so
+   * the `--session-view-*` interior handoff has nothing to land on: an open child's tile paints
+   * its own ground, and the card's fill shows only at its edges, which is what says the tile is
+   * sitting ON its parent. The same ordering rule as `.bot-rail` applies: `.terminal-rail` is
+   * last, so it wins the one edge it sets. */
+  .terminal-surface {
+    background-color: oklch(var(--bot-surface-l) var(--bot-surface-c) var(--terminal-hue));
+    border-color: oklch(var(--bot-border-l) var(--bot-border-c) var(--terminal-hue));
+  }
+
+  .terminal-session-fill {
+    background-color: oklch(
+      var(--bot-session-fill-l) var(--bot-session-fill-c)
+      var(--terminal-session-hue, var(--terminal-hue))
+    );
+  }
+
+  .terminal-session-edge {
+    border-color: oklch(
+      calc(var(--bot-border-l) + var(--terminal-session-step) * var(--bot-session-border-dl))
+      calc(var(--bot-border-c) + var(--terminal-session-step) * var(--bot-session-border-dc))
+      var(--terminal-session-hue, var(--terminal-hue))
+    );
+  }
+
+  .terminal-session-accent {
+    background-color: oklch(
+      calc(var(--bot-accent-l) + var(--terminal-session-step) * var(--bot-session-accent-dl))
+      calc(var(--bot-accent-c) + var(--terminal-session-step) * var(--bot-session-accent-dc))
+      var(--terminal-session-hue, var(--terminal-hue))
+    );
+  }
+
+  .terminal-rail {
+    border-left-color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--terminal-hue));
+  }
+
   /* A generated face, on the rail's own colour.
 
      The rail is the saturated end of this hue's ladder and the accent disc under the face is the

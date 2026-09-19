@@ -49,6 +49,22 @@ export class SidecarTerminals extends SidecarComposers {
   }
 
   /**
+   * Ends a tmux session and everything running in it, on purpose.
+   *
+   * The viewer's goodbye is `closeTerminal`, which never ends a session whatever mode it names --
+   * a closing tile is not a reason to end work it was only watching. This is the opposite actor,
+   * the owner asking through a confirmed control, so it is a separate route rather than a mode.
+   * A session that is already gone resolves rather than failing: retiring something that has
+   * already stopped is the ordinary case.
+   */
+  async killTmuxSession(session: string): Promise<void> {
+    expectEmpty(await this.transport.request(
+      "DELETE",
+      `/api/tmux/sessions/${encodeURIComponent(session)}`,
+    ));
+  }
+
+  /**
    * The scrollback the viewer was never sent, base64 with its escapes; empty when there is none.
    *
    * A tmux attach draws one screen, so everything before it exists only in tmux. This is how the
