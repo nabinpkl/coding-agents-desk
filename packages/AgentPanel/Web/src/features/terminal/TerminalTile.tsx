@@ -1,6 +1,8 @@
 import { useCallback, useState } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
+import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 /**
@@ -35,12 +37,19 @@ export function TerminalTile({ feed, session }: {
   const onState = useCallback((_context: AgentTerminalContext, next: AgentTerminalState) => {
     setState(next);
   }, []);
-  const { mountRef, labels } = useAgentTerminal({
+  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
     feed,
     context,
     sizing: { kind: "fixed", columns: TILE_COLUMNS, rows: TILE_ROWS },
     onState,
   });
+  // Read once per tile rather than at import: a browser does not grow a software keyboard part way
+  // through a session, but a test has to be able to say which kind of browser it is.
+  const [softwareKeyboard] = useState(drawsOwnKeyboard);
+  // Only where the keyboard is missing these keys, and only while that keyboard is up: a desktop
+  // browser has Esc and Ctrl already, and a rail standing under every tile would spend height on
+  // terminals nobody is typing into.
+  const showsKeyRail = focused && softwareKeyboard;
 
   return (
     <section
@@ -58,6 +67,9 @@ export function TerminalTile({ feed, session }: {
         </span>
       </header>
       <div ref={mountRef} className="p-1" />
+      {showsKeyRail ? (
+        <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
+      ) : null}
       <footer className="flex min-h-5 shrink-0 items-center gap-2 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span className="truncate">
           {state?.kind === "error"

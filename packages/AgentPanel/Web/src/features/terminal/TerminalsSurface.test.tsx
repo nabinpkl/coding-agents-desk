@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
@@ -12,18 +12,25 @@ class FakeTerminal {
   readonly scrolled: number[] = [];
   readonly buffer = { active: { type: "normal" as "normal" | "alternate" } };
   element: HTMLElement | undefined;
+  textarea: HTMLTextAreaElement | undefined;
   wheel: ((event: WheelEvent) => boolean) | null = null;
   constructor(options: Record<string, unknown>) {
     this.options = options;
     terminal = this;
   }
-  open(element: HTMLElement) { this.element = element; }
+  open(element: HTMLElement) {
+    this.element = element;
+    // xterm's hidden helper field, which is what actually holds focus and what the tile listens
+    // to for whether this terminal is the thing being typed into.
+    this.textarea = element.ownerDocument.createElement("textarea");
+    element.append(this.textarea);
+  }
   attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) { this.wheel = handler; }
   scrollLines(amount: number) { this.scrolled.push(amount); }
   clear() {}
   reset() {}
   resize() {}
-  focus() {}
+  focus() { this.textarea?.focus(); }
   dispose() {}
   write(bytes: Uint8Array, done: () => void) {
     this.writes.push(new TextDecoder().decode(bytes));
@@ -134,4 +141,29 @@ it("surfaces the sidecar's reason when tmux cannot be reached", async () => {
   } as unknown as Partial<SidecarDataSource>);
   render(<TerminalsSurface feed={feed} />);
   expect(await screen.findByText("no tmux binary found")).toBeTruthy();
+});
+
+it("gives a phone the key rail on a tile once its terminal has focus", async () => {
+  // A phone: no hover, coarse pointer, and a keyboard that appears over half the screen.
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+  const feed = feedWith([
+    { name: "canvas-fork", windows: 1, attachedClients: 0, path: "/projects/agent-desk" },
+  ]);
+
+  render(<TerminalsSurface feed={feed} />);
+  await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
+
+  // Attaching focuses the terminal, so the rail is there with the keyboard it belongs to.
+  expect(await screen.findByLabelText("Terminal key rail")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Esc" }));
+  expect(vi.mocked(feed.sendTerminalInput)).toHaveBeenLastCalledWith("terminal-1", "\u001b");
+
+  act(() => terminal.textarea?.dispatchEvent(new FocusEvent("blur")));
+  expect(screen.queryByLabelText("Terminal key rail")).toBeNull();
 });
