@@ -54,16 +54,62 @@ let latest: { atMs: number; samples: QuotaSample[] } | null = null;
 /**
  * Folds one flow's response headers into the current reading.
  *
- * Newest wins whole. A flow carrying no rate-limit headers at all leaves the previous reading
- * standing rather than clearing it: most flows are not `/v1/messages`, and a meter that blanked
- * every time a heartbeat went past would spend most of its life empty.
+ * Newest wins whole, and `atMs` is the moment the READING was taken rather than the moment this
+ * process saw it. Those are not the same clock, and taking the second one for the first is how the
+ * meter sat a percent behind the CLI's own status line.
+ *
+ * Two reasons they diverge, both measured 2026-09-16 against the running observer:
+ *
+ *   - The header is stamped when the API begins the request, so a long turn carries the reading
+ *     from when it STARTED. One flow started at 01:08:33 and completed at 01:09:21, arriving after
+ *     three shorter flows that started later, and its 48-second-old number would have won on
+ *     arrival order.
+ *   - The observer replays its retained flows when a stream is created, ordered by flow id. Ten
+ *     flows landed in the same millisecond: by their own `startedAt` the 5h window climbed
+ *     0.58 to 0.60, and the one that happened to arrive last was the 01:07:34 flow at 0.59. Every
+ *     one of them carried `Date.now()`, so the guard below could not tell them apart and the last
+ *     one processed won. The panel read 59 while the account was at 60.
+ *
+ * A flow carrying no rate-limit headers at all leaves the previous reading standing rather than
+ * clearing it: most flows are not `/v1/messages`, and a meter that blanked every time a heartbeat
+ * went past would spend most of its life empty.
  */
 export function noteRateLimitHeaders(headers: unknown, atMs: number): void {
   const samples = parseRateLimitHeaders(headers, atMs);
   if (samples.length === 0) return;
   if (latest && latest.atMs > atMs) return;
+  // The stamp moves even when the numbers do not, so a window that holds at one percentage for an
+  // hour of steady traffic keeps reading as current rather than ageing into the stale tone. The
+  // PUBLISH is what gets skipped: every `/v1/messages` flow carries these headers and most of them
+  // repeat the last reading exactly, so pushing each one would wake every open card to redraw the
+  // number it is already showing.
+  const moved = latest === null || movedVisibly(latest.samples, samples);
   latest = { atMs, samples };
-  publish();
+  if (moved) publish();
+}
+
+/**
+ * When a reading was taken, from the flow's own `startedAt`, falling back to the given moment.
+ *
+ * The fallback is the observation time, which is what the reading was stamped with before this
+ * existed: a flow whose start the observer did not report is still worth a reading, and being a
+ * few seconds out is the error this whole function is bounding rather than one it introduces.
+ */
+export function readingTimeMs(startedAt: unknown, fallbackMs: number): number {
+  const parsed = typeof startedAt === "string" ? Date.parse(startedAt) : NaN;
+  return Number.isFinite(parsed) ? parsed : fallbackMs;
+}
+
+/** Whether anything a reader can see differs. The stamp is deliberately not part of it. */
+function movedVisibly(before: QuotaSample[], after: QuotaSample[]): boolean {
+  if (before.length !== after.length) return true;
+  return after.some((sample, index) => {
+    const previous = before[index]!;
+    return previous.usedPercent !== sample.usedPercent
+      || previous.resetsAtMs !== sample.resetsAtMs
+      || previous.windowMinutes !== sample.windowMinutes
+      || (previous.scope ?? null) !== (sample.scope ?? null);
+  });
 }
 
 const listeners = new Set<() => void>();

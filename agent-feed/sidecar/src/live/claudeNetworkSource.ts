@@ -17,7 +17,7 @@
 //     that says the mirror is now wrong rather than merely behind.
 
 import { config } from "@/config";
-import { noteRateLimitHeaders } from "@/usage/claudeLiveQuota";
+import { noteRateLimitHeaders, readingTimeMs } from "@/usage/claudeLiveQuota";
 
 export interface ObserverFlow {
   flowId: string;
@@ -27,6 +27,15 @@ export interface ObserverFlow {
   protocol?: unknown;
   requestBody?: { value?: unknown; sizeBytes?: unknown };
   requestHeaders?: unknown;
+  /**
+   * When the API began this request, as an ISO timestamp.
+   *
+   * The rate-limit headers below are stamped at that moment rather than at completion, so this is
+   * the clock those readings belong to. Flows do not complete in the order they started -- a long
+   * turn finishes after several short ones that began later -- and the observer replays its
+   * retained flows out of order entirely, so ordering them by arrival puts an older number last.
+   */
+  startedAt?: unknown;
   /**
    * The response's headers, which is where Anthropic publishes the account's rate-limit meters
    * (`anthropic-ratelimit-unified-5h-utilization` and its siblings).
@@ -229,7 +238,10 @@ export async function subscribeToObserver(
           // including the flows the mirror drops for having no request body to bind. They are a
           // fact about the account rather than about a session, so the one subscriber that sees
           // every flow is the right place to notice them (`usage/claudeLiveQuota.ts`).
-          noteRateLimitHeaders(event.flowUpserted?.flow?.responseHeaders, Date.now());
+          // Stamped with the flow's own start rather than with now: these readings are taken
+          // when the API begins a request, and flows neither complete nor replay in that order.
+          const flow = event.flowUpserted?.flow;
+          noteRateLimitHeaders(flow?.responseHeaders, readingTimeMs(flow?.startedAt, Date.now()));
           onEvent(event);
         }
       }

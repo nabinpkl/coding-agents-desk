@@ -2,7 +2,9 @@ import { beforeEach, expect, test } from "bun:test";
 import {
   currentLiveQuotas,
   noteRateLimitHeaders,
+  onLiveQuotaChange,
   parseRateLimitHeaders,
+  readingTimeMs,
   resetLiveQuotas,
 } from "@/usage/claudeLiveQuota";
 
@@ -13,6 +15,14 @@ beforeEach(() => {
 /** The shape the observer publishes: one object per header, with its own redaction flag. */
 function header(name: string, value: string, redacted = false) {
   return { name, value, redacted };
+}
+
+/** One window at a given fullness, which is all the ordering tests need to tell readings apart. */
+function utilization(value: string) {
+  return [
+    header("anthropic-ratelimit-unified-5h-utilization", value),
+    header("anthropic-ratelimit-unified-5h-reset", "1789528800"),
+  ];
 }
 
 /** A real capture, trimmed: observed 2026-09-15 on a `/v1/messages` flow carrying 29 headers. */
@@ -97,6 +107,53 @@ test("the newest response wins, and an older one arriving late does not overwrit
   ], 1_000);
 
   expect(currentLiveQuotas().map((quota) => quota.usedPercent)).toEqual([21, 51]);
+});
+
+test("a reading is timed by the flow's own start, not by when we saw it", async () => {
+  // The header is stamped when the API begins the request, so this is the clock that orders two
+  // readings. Measured 2026-09-16: a flow that started at 01:08:33 completed at 01:09:21, after
+  // three shorter flows that started later.
+  expect(readingTimeMs("2026-09-16T01:08:45.760883+00:00", 7)).toBe(Date.parse("2026-09-16T01:08:45.760Z"));
+
+  // A flow the observer reported no start for is still worth a reading.
+  for (const absent of [undefined, null, 1_700_000_000, "not a time"]) {
+    expect(readingTimeMs(absent, 7)).toBe(7);
+  }
+});
+
+test("a flow that started earlier but arrived later does not walk the meter back", async () => {
+  // The bug this whole ordering exists for. The observer replays its retained flows on stream
+  // create, ordered by flow id: ten landed in one millisecond, climbing 0.58 to 0.60 by their own
+  // starts, and the one that arrived last was the 01:07:34 flow at 0.59. Read by arrival, the
+  // panel said 59 while the account was at 60 and the CLI's status line said so.
+  const at = (iso: string) => readingTimeMs(iso, 0);
+  noteRateLimitHeaders(utilization("0.6"), at("2026-09-16T01:08:45.760Z"));
+  noteRateLimitHeaders(utilization("0.59"), at("2026-09-16T01:07:34.334Z"));
+  noteRateLimitHeaders(utilization("0.58"), at("2026-09-16T01:06:31.873Z"));
+
+  expect(currentLiveQuotas().map((quota) => quota.usedPercent)).toEqual([60]);
+});
+
+test("a reading that repeats the last one moves the stamp without waking the readers", async () => {
+  // Every `/v1/messages` flow carries these headers and most repeat the last reading exactly.
+  // Pushing each one would wake every open card to redraw the number it is already showing.
+  let pushes = 0;
+  const stop = onLiveQuotaChange(() => {
+    pushes += 1;
+  });
+  try {
+    noteRateLimitHeaders(utilization("0.6"), 1_000);
+    noteRateLimitHeaders(utilization("0.6"), 2_000);
+    expect(pushes).toBe(1);
+    // The stamp still moved, so a window holding steady through an hour of traffic does not age
+    // into the stale tone.
+    expect(currentLiveQuotas()[0]?.atMs).toBe(2_000);
+
+    noteRateLimitHeaders(utilization("0.61"), 3_000);
+    expect(pushes).toBe(2);
+  } finally {
+    stop();
+  }
 });
 
 test("before any response has crossed the proxy there is no reading", async () => {
