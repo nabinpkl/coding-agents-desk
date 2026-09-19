@@ -228,6 +228,14 @@ export interface WorkspaceCommitFile {
 export interface WorkspaceCommitDetail {
   workspaceId: string;
   hash: string;
+  /**
+   * The message under the subject, as the author wrote it, and "" for a commit that has none.
+   *
+   * The subject is not repeated here: it is on the commit itself, which is what a log row draws.
+   * This is the part a one-line row cannot carry, which on this repository is most of the reason
+   * the commit was worth reading.
+   */
+  body: string;
   files: WorkspaceCommitFile[];
 }
 

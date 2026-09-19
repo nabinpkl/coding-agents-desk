@@ -11,7 +11,7 @@
 // been rebased away would be remembering the wrong thing (AGENTS.md, on what earns storage).
 
 import { useCallback, useEffect, useState } from "react";
-import type { WorkspaceCommit, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
+import type { WorkspaceCommit, WorkspaceCommitDetail } from "@agentdesk/agent-feed-wire";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
 
 /** How many commits arrive at a time, and how many each "Show more" adds. */
@@ -25,8 +25,8 @@ export interface CommitHistory {
   limit: number;
   /** The one expanded commit, if any. One at a time: see the popup for why. */
   openHash: string | null;
-  /** Its files, once they arrive. Cached by hash, so re-expanding is free. */
-  files: Record<string, WorkspaceCommitFile[]>;
+  /** Its message and files, once they arrive. Cached by hash, so re-expanding is free. */
+  details: Record<string, WorkspaceCommitDetail>;
   toggleCommit(hash: string): void;
   showMore(): void;
 }
@@ -51,7 +51,7 @@ export function useCommitHistory(
   const [commits, setCommits] = useState<WorkspaceCommit[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [openHash, setOpenHash] = useState<string | null>(null);
-  const [files, setFiles] = useState<Record<string, WorkspaceCommitFile[]>>({});
+  const [details, setDetails] = useState<Record<string, WorkspaceCommitDetail>>({});
 
   // A commit is a fact about one repository, so everything read here belongs to the workspace it
   // was read from. Switching projects with the caches left in place would draw the last project's
@@ -60,7 +60,7 @@ export function useCommitHistory(
     setCommits(null);
     setFailure(null);
     setOpenHash(null);
-    setFiles({});
+    setDetails({});
     setLimit(PAGE);
   }, [workspaceId]);
 
@@ -80,11 +80,11 @@ export function useCommitHistory(
   }, [client, workspaceId, limit, enabled]);
 
   useEffect(() => {
-    if (openHash === null || workspaceId === null || files[openHash]) return;
+    if (openHash === null || workspaceId === null || details[openHash]) return;
     let live = true;
     client.commit(workspaceId, openHash)
       .then((answer) => {
-        if (live) setFiles((current) => ({ ...current, [openHash]: answer.detail.files }));
+        if (live) setDetails((current) => ({ ...current, [openHash]: answer.detail }));
       })
       .catch((cause: unknown) => {
         if (live) setFailure(`Could not read that commit: ${message(cause)}`);
@@ -92,14 +92,14 @@ export function useCommitHistory(
     return () => {
       live = false;
     };
-  }, [client, workspaceId, openHash, files]);
+  }, [client, workspaceId, openHash, details]);
 
   return {
     commits,
     failure,
     limit,
     openHash,
-    files,
+    details,
     toggleCommit: useCallback(
       (hash: string) => setOpenHash((current) => (current === hash ? null : hash)),
       [],

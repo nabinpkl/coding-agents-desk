@@ -4,13 +4,13 @@
 // editor answers what a file says now. This answers the other question a reader of a repository
 // asks constantly -- what landed, and what did it do -- without leaving the surface for a terminal.
 //
-// A list rather than a reader: the log, and what one commit touched. The diff itself opens in the
-// editor behind this panel, which is where a patch is worth reading.
+// A list rather than a reader: the log, then what one commit says and what it touched. The diff
+// itself opens in the editor behind this panel, which is where a patch is worth reading.
 //
-// Each level is fetched only when it is asked for. The log arrives with the panel; a commit's file
-// list costs two `git show` passes and waits for the commit to be expanded. A panel that fetched
-// every file list of fifty commits up front would read the whole repository to draw a list of
-// subjects.
+// Each level is fetched only when it is asked for. The log arrives with the panel; a commit's
+// message and file list cost three `git show` passes and wait for the commit to be expanded. A
+// panel that fetched all of that for fifty commits up front would read the whole repository to
+// draw a list of subjects.
 //
 // Nothing done to the editor closes this panel: not clicking a file here, and not clicking in the
 // editor afterwards. A reader who has found the commit is usually reading several of its files,
@@ -22,9 +22,13 @@
 // panel deliberately -- Escape, or a click in the sidebar or the terminal -- does not throw away
 // the commit it was open on either.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";
-import type { WorkspaceCommit, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
+import type {
+  WorkspaceCommit,
+  WorkspaceCommitDetail,
+  WorkspaceCommitFile,
+} from "@agentdesk/agent-feed-wire";
 import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";
 import type { CommitHistory } from "@/features/workspace-ide/history/useCommitHistory";
 import { PAGE } from "@/features/workspace-ide/history/useCommitHistory";
@@ -68,7 +72,7 @@ export function WorkspaceIdeHistory({
   onClose: () => void;
 }) {
   const panel = useRef<HTMLDivElement | null>(null);
-  const { commits, failure, limit, openHash, files } = history;
+  const { commits, failure, limit, openHash, details } = history;
 
   // The panel takes focus when it opens: it is the thing the reader just asked for, and Escape has
   // to reach it from somewhere. The control that opened it takes focus back on close.
@@ -135,7 +139,7 @@ export function WorkspaceIdeHistory({
                     commit={commit}
                     now={now}
                     expanded={commit.hash === openHash}
-                    files={files[commit.hash]}
+                    detail={details[commit.hash]}
                     showing={showing?.hash === commit.hash ? showing.path : null}
                     onToggle={() => history.toggleCommit(commit.hash)}
                     onSelectFile={(file) => onOpenDiff(commit, file)}
@@ -174,7 +178,7 @@ function Commit({
   commit,
   now,
   expanded,
-  files,
+  detail,
   showing,
   onToggle,
   onSelectFile,
@@ -182,7 +186,8 @@ function Commit({
   commit: WorkspaceCommit;
   now: number;
   expanded: boolean;
-  files: WorkspaceCommitFile[] | undefined;
+  /** Its message and files, or undefined while the read is in flight. */
+  detail: WorkspaceCommitDetail | undefined;
   /** The path of this commit's file that the editor is showing, if it is showing one. */
   showing: string | null;
   onToggle: () => void;
@@ -221,28 +226,97 @@ function Commit({
       </button>
 
       {expanded
-        ? files === undefined
+        ? detail === undefined
           ? <Waiting label="Reading what it changed…" />
-          : files.length === 0
-            ? (
-              <p className="m-0 px-9 py-2 text-xs text-muted-foreground">
-                No file changes against the previous commit.
-              </p>
-            )
-            : (
-              <ul aria-label={`Files in ${commit.shortHash}`} className="m-0 list-none p-0 pb-1">
-                {files.map((file) => (
-                  <ChangedFile
-                    key={file.path}
-                    file={file}
-                    showing={file.path === showing}
-                    onOpen={() => onSelectFile(file)}
-                  />
-                ))}
-              </ul>
-            )
+          : (
+            <>
+              {/* Above the files, because it is why they changed. A commit with no message below
+                  its subject draws nothing here rather than an empty block. */}
+              {detail.body === "" ? null : <CommitMessage body={detail.body} />}
+              {detail.files.length === 0
+                ? (
+                  <p className="m-0 px-9 py-2 text-xs text-muted-foreground">
+                    No file changes against the previous commit.
+                  </p>
+                )
+                : (
+                  <ul aria-label={`Files in ${commit.shortHash}`} className="m-0 list-none p-0 pb-1">
+                    {detail.files.map((file) => (
+                      <ChangedFile
+                        key={file.path}
+                        file={file}
+                        showing={file.path === showing}
+                        onOpen={() => onSelectFile(file)}
+                      />
+                    ))}
+                  </ul>
+                )}
+            </>
+          )
         : null}
     </li>
+  );
+}
+
+/**
+ * How much of a message is drawn before it is worth offering to cut.
+ *
+ * Both, because either alone misses one shape: a wall of a paragraph is one line, and eight short
+ * lines are two hundred characters. Measured against the text rather than against the rendered
+ * box, so what the control hides is exactly what the count says -- a height cut with `line-clamp`
+ * would silently swallow a five-line message whose lines happen to wrap.
+ */
+const MESSAGE_LINES = 6;
+const MESSAGE_CHARACTERS = 400;
+
+/**
+ * What the author wrote under the subject.
+ *
+ * Monospace and pre-wrapped, because a commit message is written into a fixed-width terminal: its
+ * wrapping, its indented lists and its pasted lines are the author's layout, and reflowing them as
+ * prose loses the only formatting the format has.
+ *
+ * Long ones open cut rather than whole. This panel is a log first -- the commit above and the
+ * files below are what a reader is navigating by -- and a forty-line message would push both off
+ * a 460px panel. The reader who came for the message says so, and the state is deliberately not
+ * remembered anywhere: it costs one click, and a panel that reopened mid-message would be
+ * remembering the wrong thing.
+ */
+function CommitMessage({ body }: { body: string }) {
+  const [whole, setWhole] = useState(false);
+  const id = useId();
+  const lines = body.split("\n");
+  const long = lines.length > MESSAGE_LINES || body.length > MESSAGE_CHARACTERS;
+  const shown = !long || whole
+    ? body
+    : `${lines.slice(0, MESSAGE_LINES).join("\n").slice(0, MESSAGE_CHARACTERS).trimEnd()}…`;
+  return (
+    // Indented to the subject above it rather than to the panel, so the eye reads one block.
+    <div className="grid justify-items-start gap-0.5 py-1 pl-8 pr-2">
+      {/* Full ink: this is the thing the reader opened the commit for, not an annotation on it. */}
+      <p
+        id={id}
+        className="m-0 whitespace-pre-wrap break-words font-mono text-[11px] leading-[17px]
+          text-foreground"
+      >
+        {shown}
+      </p>
+      {long
+        ? (
+          <button
+            type="button"
+            aria-expanded={whole}
+            aria-controls={id}
+            onClick={() => setWhole((current) => !current)}
+            className="rounded px-1 py-0.5 text-[11px] text-muted-foreground outline-none
+              transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2
+              focus-visible:ring-primary active:bg-muted/70"
+          >
+            {whole ? "Show less" : "Show the whole message"}
+          </button>
+        )
+        : null}
+    </div>
   );
 }
 

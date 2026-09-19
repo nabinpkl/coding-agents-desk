@@ -14,7 +14,7 @@ import {
   workspaceErrorResponse,
   workspaceRoute,
 } from "@/http/workspace-routes/workspaceResponses";
-import { commitFileDiff, commitFiles, listCommits } from "@/workspace/workspaceHistory";
+import { commitDetail, commitFileDiff, listCommits } from "@/workspace/workspaceHistory";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
 /**
@@ -63,8 +63,8 @@ export function createWorkspaceHistoryRoutes(service: WorkspaceService): RouteHa
 
     const hash = parameters.get("hash") ?? "";
     if (action === "commit") {
-      return commitFiles(root, hash)
-        .then((files) => jsonResponse({ detail: { workspaceId: id, hash, files } }))
+      return commitDetail(root, id, hash)
+        .then((detail) => jsonResponse({ detail }))
         .catch((error: unknown) => refusalResponse(error, id));
     }
 

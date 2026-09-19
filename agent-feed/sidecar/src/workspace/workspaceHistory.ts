@@ -12,6 +12,7 @@
 
 import type {
   WorkspaceCommit,
+  WorkspaceCommitDetail,
   WorkspaceCommitDiff,
   WorkspaceCommitFile,
 } from "@agentdesk/agent-feed-wire";
@@ -186,25 +187,41 @@ export async function listCommits(root: string, limit: number): Promise<Workspac
 }
 
 /**
- * Every path one commit touched, with its counts.
+ * One commit: what its author wrote under the subject, and every path it touched with its counts.
  *
- * Two commands rather than one: git will print both formats at once, but the joined output has to
- * be split back apart on a boundary neither format marks. The name-status pass owns the order and
- * the status, and the numstat pass is looked up by path, so a path missing from one of them costs
- * its counts rather than the row.
+ * Three commands rather than one. Git will print several formats in one pass, but the joined
+ * output then has to be split back apart on a boundary none of them marks. The name-status pass
+ * owns the order and the status, the numstat pass is looked up by path -- so a path missing from
+ * one of them costs its counts rather than the row -- and the message is its own read because it
+ * is the one thing here that is not about files.
+ *
+ * The message is read with `-s` and no `-m`: a merge has one message however many parents it has,
+ * and `-m` would print the header once per parent.
  */
-export async function commitFiles(root: string, hash: string): Promise<WorkspaceCommitFile[]> {
+export async function commitDetail(
+  root: string,
+  workspaceId: string,
+  hash: string,
+): Promise<WorkspaceCommitDetail> {
   const commit = requireHash(hash);
-  const [names, numbers] = await Promise.all([
+  const [message, names, numbers] = await Promise.all([
+    git(["show", "-s", "--format=%b", commit], root),
     git([...AGAINST_FIRST_PARENT, "--name-status", "-z", commit], root),
     git([...AGAINST_FIRST_PARENT, "--numstat", "-z", commit], root),
   ]);
   if (names.code !== 0) throw new WorkspaceFailure("notFound");
   const counts = numbers.code === 0 ? parseNumstat(numbers.out) : new Map();
-  return parseNameStatus(names.out).map((file) => {
-    const count = counts.get(file.path);
-    return count ? { ...file, additions: count.additions, deletions: count.deletions } : file;
-  });
+  return {
+    workspaceId,
+    hash,
+    // Trimmed at the end only: the newlines after the last line are git's, and the blank lines
+    // between paragraphs are the author's.
+    body: message.code === 0 ? message.out.trimEnd() : "",
+    files: parseNameStatus(names.out).map((file) => {
+      const count = counts.get(file.path);
+      return count ? { ...file, additions: count.additions, deletions: count.deletions } : file;
+    }),
+  };
 }
 
 /**

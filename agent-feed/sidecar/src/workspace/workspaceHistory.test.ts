@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  commitDetail,
   commitFileDiff,
-  commitFiles,
   listCommits,
   parseCommits,
   parseNameStatus,
@@ -111,11 +111,27 @@ test("reads what one commit touched, with the counts and the path it came from",
   await run(root, ["commit", "-m", "second"]);
 
   const [second] = await listCommits(root, 1);
-  const files = await commitFiles(root, second!.hash);
-  const byPath = new Map(files.map((file) => [file.path, file]));
+  const detail = await commitDetail(root, "w-1", second!.hash);
+  const byPath = new Map(detail.files.map((file) => [file.path, file]));
   expect(byPath.get("src/b.ts")).toMatchObject({ status: "R", previousPath: "src/a.ts" });
   expect(byPath.get("gone.ts")).toMatchObject({ status: "D", additions: 0, deletions: 1 });
   expect(byPath.get("new.ts")).toMatchObject({ status: "A", additions: 1, deletions: 0 });
+});
+
+test("reads the message under the subject, and answers empty for a commit with none", async () => {
+  const root = await repository();
+  await writeFile(join(root, "a.ts"), "one\n");
+  await run(root, ["add", "."]);
+  await run(root, ["commit", "-m", "subject line\n\nwhy this happened\n\nand a second paragraph"]);
+  await writeFile(join(root, "a.ts"), "two\n");
+  await run(root, ["commit", "-am", "no body at all"]);
+
+  const [bare, withBody] = await listCommits(root, 2);
+  // The subject stays on the commit rather than being repeated here, and the blank line between
+  // the author's two paragraphs is theirs to keep.
+  expect((await commitDetail(root, "w-1", withBody!.hash)).body)
+    .toBe("why this happened\n\nand a second paragraph");
+  expect((await commitDetail(root, "w-1", bare!.hash)).body).toBe("");
 });
 
 test("reads a merge against its first parent, where a combined diff would show nothing", async () => {
@@ -132,7 +148,8 @@ test("reads a merge against its first parent, where a combined diff would show n
 
   const [merge] = await listCommits(root, 1);
   expect(merge!.parentCount).toBe(2);
-  expect((await commitFiles(root, merge!.hash)).map((file) => file.path)).toEqual(["side.ts"]);
+  expect((await commitDetail(root, "w-1", merge!.hash)).files.map((file) => file.path))
+    .toEqual(["side.ts"]);
 });
 
 test("answers the patch for one path, and only that path", async () => {
@@ -157,7 +174,7 @@ test("refuses a hash that is not one, before it reaches an argument list", async
   await writeFile(join(root, "a.ts"), "one\n");
   await run(root, ["add", "."]);
   await run(root, ["commit", "-m", "first"]);
-  await expect(commitFiles(root, "--output=/tmp/escape")).rejects.toThrow("invalid");
+  await expect(commitDetail(root, "w-1", "--output=/tmp/escape")).rejects.toThrow("invalid");
   await expect(commitFileDiff(root, "w-1", "HEAD", "a.ts")).rejects.toThrow("invalid");
 });
 
