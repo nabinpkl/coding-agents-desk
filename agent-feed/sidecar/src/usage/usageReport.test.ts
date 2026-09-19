@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { loadUsageCache } from "@/usage/usageCache";
+import { resetLiveQuotas } from "@/usage/claudeLiveQuota";
 import { createUsageScanner, detectUsageVendors } from "@/usage/usageReport";
 
 interface Fixture {
@@ -12,7 +13,6 @@ interface Fixture {
   // into a unit test and make its assertions depend on the machine it ran on.
   claudeProjects: string;
   claudeConfig: string;
-  claudeLimitsMirror: string;
   cachePath: string;
   write: (name: string, records: unknown[]) => Promise<string>;
 }
@@ -26,7 +26,6 @@ async function fixture(): Promise<Fixture> {
     codexHome: home,
     claudeProjects: join(root, "no-claude"),
     claudeConfig: join(root, "no-claude.json"),
-    claudeLimitsMirror: join(root, "no-mirror.json"),
     cachePath: join(root, "cache.json"),
     write: async (name, records) => {
       const path = join(day, name);
@@ -260,7 +259,6 @@ interface ClaudeFixture {
   codexHome: string;
   claudeProjects: string;
   claudeConfig: string;
-  claudeLimitsMirror: string;
   cachePath: string;
   write: (name: string, records: unknown[]) => Promise<string>;
 }
@@ -273,7 +271,6 @@ async function claudeFixture(): Promise<ClaudeFixture> {
     codexHome: join(root, "no-codex"),
     claudeProjects: join(root, "projects"),
     claudeConfig: join(root, "no-claude.json"),
-    claudeLimitsMirror: join(root, "no-mirror.json"),
     cachePath: join(root, "cache.json"),
     write: async (name, records) => {
       const path = join(slug, name);
@@ -348,6 +345,11 @@ test("one vendor's sweep does not evict the other's cache entries", async () => 
 test("every Claude window reaches the report, stamped with when it was taken", async () => {
   // `utilization` is a fraction in the CLI's own units, so 0.92 is the 92% window. Read as a
   // percent it would render as 1%, which is the trap `claudeQuota.ts` exists to avoid.
+  //
+  // The live reading is dropped first: it is process-global, it outranks the config cache when
+  // newer, and another suite in this process may have left one behind. Without this the
+  // assertion would depend on which file bun ran first.
+  resetLiveQuotas();
   const context = await claudeFixture();
   await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
   await writeFile(context.claudeConfig, JSON.stringify({

@@ -35,6 +35,7 @@ import {
   type ClaudeUsageRow,
 } from "@/usage/claudeUsage";
 import { claudeModelAlias } from "@/usage/claudeModels";
+import { currentLiveQuotas } from "@/usage/claudeLiveQuota";
 import { readClaudeQuotas } from "@/usage/claudeQuota";
 import {
   codexInstalled,
@@ -64,8 +65,6 @@ export interface UsageVendorPaths {
   codexHome: string;
   claudeProjects: string;
   claudeConfig: string;
-  /** Where the statusline leaves Claude's live rate limits; see `config.claudeLimitsMirrorPath`. */
-  claudeLimitsMirror: string;
 }
 
 /**
@@ -234,9 +233,19 @@ async function scanClaudeVendor(
   };
 }
 
+/**
+ * Claude's meters, live where the proxy has seen a response and from the CLI's own config
+ * otherwise.
+ *
+ * Newest wins whole rather than window by window, for the reason the freshness stamp exists at
+ * all: merging two readings taken hours apart would put them on one surface under one age, and
+ * the age is what tells a reader whether to believe the number.
+ */
 async function claudeQuotas(paths: UsageVendorPaths): Promise<UsageQuota[]> {
-  const samples = await readClaudeQuotas(paths.claudeConfig, paths.claudeLimitsMirror);
-  return samples.map(describeQuota);
+  const live = currentLiveQuotas();
+  const cached = await readClaudeQuotas(paths.claudeConfig);
+  const newest = (live[0]?.atMs ?? -1) >= (cached[0]?.atMs ?? -1) ? live : cached;
+  return newest.map(describeQuota);
 }
 
 /**
@@ -387,6 +396,5 @@ function resolvePaths(options: Partial<UsageVendorPaths>): UsageVendorPaths {
     codexHome: options.codexHome ?? config.codexHomeDirectory,
     claudeProjects: options.claudeProjects ?? config.claudeProjectsDirectory,
     claudeConfig: options.claudeConfig ?? config.claudeConfigPath,
-    claudeLimitsMirror: options.claudeLimitsMirror ?? config.claudeLimitsMirrorPath,
   };
 }

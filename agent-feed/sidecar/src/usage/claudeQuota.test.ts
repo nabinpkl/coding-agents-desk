@@ -7,20 +7,16 @@ import { readClaudeQuotas } from "@/usage/claudeQuota";
 const FIVE_HOUR_RESET = 1_788_700_000;
 const SEVEN_DAY_RESET = 1_789_200_000;
 
-async function files(config: unknown, mirror: unknown): Promise<[string, string]> {
-  const root = await mkdtemp(join(tmpdir(), "claude-quota-"));
-  const configPath = join(root, "config.json");
-  const mirrorPath = join(root, "mirror.json");
-  if (config !== undefined) await writeFile(configPath, JSON.stringify(config), "utf8");
-  if (mirror !== undefined) await writeFile(mirrorPath, JSON.stringify(mirror), "utf8");
-  return [configPath, mirrorPath];
+async function configWith(body: unknown): Promise<string> {
+  const path = join(await mkdtemp(join(tmpdir(), "claude-quota-")), "config.json");
+  if (body !== undefined) await writeFile(path, JSON.stringify(body), "utf8");
+  return path;
 }
 
 /**
- * The CLI's config cache, in the units the CLI itself uses: `utilization` is a FRACTION and
- * `resets_at` is epoch SECONDS. Both are pinned by the binary -- the header parser clamps
- * utilization with `Math.max(0, Math.min(1, s))` and the near-limit hint tests
- * `resets_at * 1000 > Date.now()`.
+ * The CLI's config cache, in the CLI's own units: `utilization` is a FRACTION and `resets_at` is
+ * epoch SECONDS. Both are pinned by its binary -- the header parser clamps utilization with
+ * `Math.max(0, Math.min(1, s))` and the near-limit hint tests `resets_at * 1000 > Date.now()`.
  */
 function config(fiveHour: number | null, sevenDay: number | null, fetchedAtMs = 1_788_687_158_244) {
   return {
@@ -35,24 +31,11 @@ function config(fiveHour: number | null, sevenDay: number | null, fetchedAtMs = 
   };
 }
 
-/** The statusline mirror, which carries the percentage already multiplied out. */
-function mirror(fiveHour: number, sevenDay: number, fetchedAtMs: number) {
-  return {
-    fetchedAtMs,
-    rate_limits: {
-      five_hour: { used_percentage: fiveHour, resets_at: FIVE_HOUR_RESET },
-      seven_day: { used_percentage: sevenDay, resets_at: SEVEN_DAY_RESET },
-    },
-  };
-}
-
 test("every window is reported, shortest first, rather than only the fullest", async () => {
-  // One row per window, because the two do not substitute for one another: a heavy afternoon
-  // runs the five-hour meter up while the weekly one is still low, and a reader deciding whether
-  // to start something long needs both numbers rather than whichever is worse right now.
-  const [configPath, mirrorPath] = await files(config(0.12, 0.74), undefined);
-
-  expect(await readClaudeQuotas(configPath, mirrorPath)).toEqual([
+  // One row per window, because the two do not substitute for one another: a heavy afternoon runs
+  // the five-hour meter up while the weekly one is still low, and a reader deciding whether to
+  // start something long needs both numbers rather than whichever is worse right now.
+  expect(await readClaudeQuotas(await configWith(config(0.12, 0.74)))).toEqual([
     {
       atMs: 1_788_687_158_244,
       usedPercent: 12,
@@ -75,83 +58,52 @@ test("every window is reported, shortest first, rather than only the fullest", a
 test("the CLI's utilization is a fraction, so it is multiplied out rather than passed through", async () => {
   // The trap this pins: read as a percent, a window at 92% renders as 1% and a reader takes a
   // nearly-spent window for an empty one.
-  const [configPath, mirrorPath] = await files(config(0.92, 0.36), undefined);
-  const quotas = await readClaudeQuotas(configPath, mirrorPath);
+  const quotas = await readClaudeQuotas(await configWith(config(0.92, 0.36)));
 
   expect(quotas.map((quota) => quota.usedPercent)).toEqual([92, 36]);
 });
 
 test("a reset in epoch seconds becomes milliseconds, and an ISO one still parses", async () => {
-  // Epoch seconds is what both files carry today. The ISO branch is for a config written by an
-  // older CLI, which is the only shape this code has ever been tested against before.
+  // Epoch seconds is what the file carries today. The ISO branch is for a config written by an
+  // older CLI, which is the only shape this code was ever tested against before.
   const iso = "2026-09-06T10:30:00.277564+00:00";
-  const [configPath, mirrorPath] = await files(
-    { cachedUsageUtilization: { fetchedAtMs: 1, utilization: { five_hour: { utilization: 0.1, resets_at: iso } } } },
-    undefined,
-  );
-
-  expect((await readClaudeQuotas(configPath, mirrorPath))[0]?.resetsAtMs).toBe(Date.parse(iso));
-});
-
-test("the newer of the two sources wins whole, rather than being merged window by window", async () => {
-  // Merging would put two readings taken hours apart under one age, and the age is the only
-  // thing that tells a reader whether to believe the number.
-  const [configPath, mirrorPath] = await files(
-    config(0.92, 0.36, 1_788_000_000_000),
-    mirror(4, 11, 1_789_000_000_000),
-  );
-
-  const quotas = await readClaudeQuotas(configPath, mirrorPath);
-  expect(quotas.map((quota) => quota.usedPercent)).toEqual([4, 11]);
-  expect(quotas.every((quota) => quota.atMs === 1_789_000_000_000)).toBe(true);
-});
-
-test("a stale mirror loses to a fresher config", async () => {
-  const [configPath, mirrorPath] = await files(
-    config(0.5, 0.6, 1_789_000_000_000),
-    mirror(4, 11, 1_788_000_000_000),
-  );
-
-  expect((await readClaudeQuotas(configPath, mirrorPath)).map((quota) => quota.usedPercent))
-    .toEqual([50, 60]);
-});
-
-test("the mirror alone is enough, which is the machine this was written on", async () => {
-  // `cachedUsageUtilization` was absent from `~/.claude.json` entirely on 2026-09-15 (CLI
-  // 2.1.273) and from every rotated backup of it, while sessions ran all day. A meter that
-  // needed that field would have shown nothing on the machine that asked for it.
-  const [configPath, mirrorPath] = await files(undefined, mirror(7, 21, 1_789_000_000_000));
-
-  expect((await readClaudeQuotas(configPath, mirrorPath)).map((quota) => quota.usedPercent))
-    .toEqual([7, 21]);
-});
-
-test("a window scoped to one model is named, so two weekly rows are told apart", async () => {
-  const [configPath, mirrorPath] = await files(undefined, {
-    fetchedAtMs: 5,
-    rate_limits: {
-      seven_day: { used_percentage: 30, resets_at: SEVEN_DAY_RESET },
-      seven_day_opus: { used_percentage: 80, resets_at: SEVEN_DAY_RESET },
+  const path = await configWith({
+    cachedUsageUtilization: {
+      fetchedAtMs: 1,
+      utilization: { five_hour: { utilization: 0.1, resets_at: iso } },
     },
   });
 
-  expect((await readClaudeQuotas(configPath, mirrorPath)).map((quota) => quota.scope))
-    .toEqual([null, "Opus"]);
+  expect((await readClaudeQuotas(path))[0]?.resetsAtMs).toBe(Date.parse(iso));
 });
 
-test("no readable source gives an empty list, never a zero", async () => {
-  // A zero would render as a full meter with plenty left, which is a claim. Nothing renders as
-  // no meter, which is the truth.
-  const [configPath, mirrorPath] = await files({}, undefined);
+test("a window scoped to one model is named, so two weekly rows are told apart", async () => {
+  const path = await configWith({
+    cachedUsageUtilization: {
+      fetchedAtMs: 5,
+      utilization: {
+        seven_day: { utilization: 0.3, resets_at: SEVEN_DAY_RESET },
+        seven_day_opus: { utilization: 0.8, resets_at: SEVEN_DAY_RESET },
+      },
+    },
+  });
 
-  expect(await readClaudeQuotas(configPath, mirrorPath)).toEqual([]);
-  expect(await readClaudeQuotas(join(tmpdir(), "nope.json"), join(tmpdir(), "nope2.json")))
-    .toEqual([]);
+  expect((await readClaudeQuotas(path)).map((quota) => quota.scope)).toEqual([null, "Opus"]);
 });
 
-test("a file being rewritten under us is not an error", async () => {
-  const [configPath, mirrorPath] = await files({}, undefined);
-  await writeFile(configPath, '{"cachedUsageUtilization":{"fetchedAtMs":1,"util', "utf8");
+test("an absent or empty config gives an empty list, never a zero", async () => {
+  // A zero would render as a full meter with plenty left, which is a claim. Nothing renders as no
+  // meter, which is the truth -- and absent is the normal state of this file: measured 2026-09-15,
+  // `cachedUsageUtilization` was missing from `~/.claude.json` and from every rotated backup while
+  // sessions ran all day. That is why the live reading is the source and this is the fallback.
+  expect(await readClaudeQuotas(await configWith({}))).toEqual([]);
+  expect(await readClaudeQuotas(await configWith(config(null, null)))).toEqual([]);
+  expect(await readClaudeQuotas(join(tmpdir(), "does-not-exist-claude.json"))).toEqual([]);
+});
 
-  expect(await readClaudeQuotas(configPath, mirrorPath)).toEqual([]);
+test("a config being rewritten under us is not an error", async () => {
+  const path = await configWith({});
+  await writeFile(path, '{"cachedUsageUtilization":{"fetchedAtMs":1,"util', "utf8");
+
+  expect(await readClaudeQuotas(path)).toEqual([]);
 });

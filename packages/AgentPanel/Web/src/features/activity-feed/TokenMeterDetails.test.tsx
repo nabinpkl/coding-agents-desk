@@ -75,15 +75,15 @@ describe("the context readout's detail panel", () => {
   });
 
   it("says why there is no meter rather than showing an empty one", async () => {
-    // Measured 2026-09-15: Claude Code 2.1.273 had written its own on-disk copy of these limits
-    // nowhere on this machine. Zero would read as "plenty left", and a blank section as a bug.
+    // A sidecar that has not seen a response yet has no reading. Zero would read as "plenty left",
+    // and a blank section as a bug.
     const feed = feedWith([]);
     render(<TokenMeter usage={USAGE} feed={feed} />);
 
     fireEvent.pointerEnter(meter());
 
     const panel = await screen.findByRole("dialog");
-    await waitFor(() => expect(panel.textContent).toContain("No limit reading on this machine"));
+    await waitFor(() => expect(panel.textContent).toContain("No limit reading yet"));
     expect(screen.queryByRole("progressbar", { name: /used/ })).toBeNull();
   });
 

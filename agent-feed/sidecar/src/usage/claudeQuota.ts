@@ -1,25 +1,25 @@
-// Claude's rate-limit meters, read from whichever of two files on this machine is fresher.
+// Claude's rate-limit meters as the CLI last wrote them down, which is the FALLBACK source.
+//
+// The live one is `claudeLiveQuota.ts`, reading the same numbers off response headers as they
+// cross the proxy. This file reads what is on disk, for the windows where nothing has crossed it:
+// a sidecar that has just started, or a machine whose Claude traffic is not proxied.
 //
 // Codex stamps `rate_limits` onto the rollout records the sweep is already reading, so its meter
 // falls out of the same pass. Claude writes nothing of the kind into a transcript: 288,219 usage
 // records carry no limit field, and the only rate-limit trace there is `error: "rate_limit"` on a
 // 429, which says a limit was HIT and nothing about where one stands.
 //
-// So there are two places to look, and both are caches somebody else owns:
+// What it does write, sometimes, is `cachedUsageUtilization` in its own top-level config:
+// `{ fetchedAtMs, accountUuid, utilization: { five_hour: { utilization, resets_at }, seven_day:
+// {...}, seven_day_opus: {...} } }`. The CLI writes it only when its in-memory copy has gone
+// stale, drops it on logout, and ignores it when the account it was written for is not the
+// current one -- so it is absent for long stretches. Measured 2026-09-15 on this machine (CLI
+// 2.1.273): absent from `~/.claude.json` entirely, and from all five rotated backups of it, while
+// sessions ran all day. That measurement is why this file is the fallback and not the source.
 //
-//   1. `cachedUsageUtilization` in the CLI's own top-level config, holding the windows it last
-//      saw: `{ fetchedAtMs, accountUuid, utilization: { five_hour: { utilization, resets_at },
-//      seven_day: {...}, seven_day_opus: {...} } }`. The CLI only writes it when its copy has
-//      gone stale, drops it on logout, and ignores it when the account it was written for is not
-//      the current one -- so it is absent for long stretches. Measured 2026-09-15 on this
-//      machine (CLI 2.1.273): absent from `~/.claude.json` entirely, and from all five rotated
-//      backups, while sessions ran all day.
-//
-//   2. The statusline mirror (`tools/claude-statusline-mirror.sh`). The CLI hands its statusline
-//      command `.rate_limits.<window>.used_percentage` on every render, taken from the last
-//      response's headers rather than from a cache, and the mirror writes that payload down. It
-//      is the only source that is live rather than occasional, and it exists only on a machine
-//      whose statusline is configured to write it.
+// It is read and never written. Nothing here, or anywhere else in this tree, modifies a file
+// Claude owns; see AGENTS.md, "Claude's own files are read-only, and its credentials are off
+// limits".
 //
 // Two unit traps, both settled by reading the CLI rather than by assuming, because both are
 // silent when wrong:
@@ -28,9 +28,8 @@
 //     `Math.max(0, Math.min(1, s))` and its near-limit hint compares it against 0.95, and the
 //     statusline payload is built by multiplying it by 100. Read as a percent, a window at 92%
 //     renders as 1%.
-//   - `resets_at` is epoch SECONDS in both files (the CLI tests it as `resets_at * 1000 >
-//     Date.now()`). An ISO string is accepted too, since neither file's shape is ours and an
-//     older CLI wrote one.
+//   - `resets_at` is epoch SECONDS (the CLI tests it as `resets_at * 1000 > Date.now()`). An ISO
+//     string is accepted too, since the file's shape is not ours and an older CLI wrote one.
 
 import { readFile } from "node:fs/promises";
 import { orderQuotas, type QuotaSample } from "@/usage/quotaSample";
@@ -49,12 +48,10 @@ const WINDOWS = [
   { key: "seven_day_sonnet", minutes: 7 * 24 * 60, scope: "Sonnet" },
 ] as const;
 
-/** One window as either file spells it. The two differ only in the name of the number. */
+/** One window as the config cache spells it. */
 interface WindowReading {
-  /** The config cache's spelling: a fraction between 0 and 1. */
+  /** A fraction between 0 and 1. */
   utilization?: number | null;
-  /** The statusline mirror's spelling: already multiplied out, 0 to 100. */
-  used_percentage?: number | null;
   /** Epoch seconds, or an ISO timestamp from an older CLI. */
   resets_at?: number | string | null;
 }
@@ -66,57 +63,23 @@ interface ClaudeConfig {
   } | null;
 }
 
-interface LimitsMirror {
-  fetchedAtMs?: number | null;
-  rate_limits?: Record<string, WindowReading | null | undefined>;
-}
-
 /**
- * Every window Claude publishes a reading for, shortest window first.
- *
- * The two sources are read together and the NEWER one wins whole, rather than being merged
- * window by window. Merging would put two readings taken hours apart on one surface under one
- * age, and the age is the only thing that tells a reader whether to believe the number at all.
+ * Every window the CLI's config names a reading for, shortest window first.
  *
  * An empty list is a real answer and stays empty. A zero would render as a meter with plenty
  * left, which is a claim; nothing renders as no meter, which is the truth.
  */
-export async function readClaudeQuotas(
-  configPath: string,
-  mirrorPath: string,
-): Promise<QuotaSample[]> {
-  const [cached, mirrored] = await Promise.all([
-    readConfigWindows(configPath),
-    readMirrorWindows(mirrorPath),
-  ]);
-  const newest = [cached, mirrored]
-    .filter((source) => source !== null && source.samples.length > 0)
-    .sort((left, right) => right!.fetchedAtMs - left!.fetchedAtMs)[0];
-  return newest ? orderQuotas(newest.samples) : [];
-}
-
-interface QuotaSource {
-  fetchedAtMs: number;
-  samples: QuotaSample[];
-}
-
-async function readConfigWindows(path: string): Promise<QuotaSource | null> {
-  const parsed = await readJson<ClaudeConfig>(path);
+export async function readClaudeQuotas(configPath: string): Promise<QuotaSample[]> {
+  const parsed = await readJson<ClaudeConfig>(configPath);
   const cached = parsed?.cachedUsageUtilization;
-  if (!cached?.utilization || typeof cached.utilization !== "object") return null;
-  return collect(cached.utilization, stamp(cached.fetchedAtMs));
-}
-
-async function readMirrorWindows(path: string): Promise<QuotaSource | null> {
-  const parsed = await readJson<LimitsMirror>(path);
-  if (!parsed?.rate_limits || typeof parsed.rate_limits !== "object") return null;
-  return collect(parsed.rate_limits, stamp(parsed.fetchedAtMs));
+  if (!cached?.utilization || typeof cached.utilization !== "object") return [];
+  return orderQuotas(collect(cached.utilization, stamp(cached.fetchedAtMs)));
 }
 
 function collect(
   windows: Record<string, WindowReading | null | undefined>,
   fetchedAtMs: number,
-): QuotaSource {
+): QuotaSample[] {
   const samples: QuotaSample[] = [];
   for (const window of WINDOWS) {
     const reading = windows[window.key];
@@ -133,14 +96,12 @@ function collect(
       scope: window.scope,
     });
   }
-  return { fetchedAtMs, samples };
+  return samples;
 }
 
-/** Whole percent, from whichever of the two spellings the source uses. */
+/** Whole percent, from the fraction the config stores. */
 function usedPercent(reading: WindowReading | null | undefined): number | null {
   if (!reading) return null;
-  const percentage = reading.used_percentage;
-  if (typeof percentage === "number" && Number.isFinite(percentage)) return clampPercent(percentage);
   const utilization = reading.utilization;
   // The CLI's own units: a fraction, which is why this is the one place a 100 appears.
   if (typeof utilization === "number" && Number.isFinite(utilization)) {

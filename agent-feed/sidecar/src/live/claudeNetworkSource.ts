@@ -17,6 +17,7 @@
 //     that says the mirror is now wrong rather than merely behind.
 
 import { config } from "@/config";
+import { noteRateLimitHeaders } from "@/usage/claudeLiveQuota";
 
 export interface ObserverFlow {
   flowId: string;
@@ -26,6 +27,15 @@ export interface ObserverFlow {
   protocol?: unknown;
   requestBody?: { value?: unknown; sizeBytes?: unknown };
   requestHeaders?: unknown;
+  /**
+   * The response's headers, which is where Anthropic publishes the account's rate-limit meters
+   * (`anthropic-ratelimit-unified-5h-utilization` and its siblings).
+   *
+   * Modelled here even though the live mirror itself has no use for them: they are the only live
+   * source of those numbers on this machine, and the observer is the only place they are legible.
+   * `usage/claudeLiveQuota.ts` reads them off this field.
+   */
+  responseHeaders?: unknown;
 }
 
 /**
@@ -212,7 +222,15 @@ export async function subscribeToObserver(
           } catch {
             continue;
           }
-          if (parsed && typeof parsed === "object") onEvent(parsed as ObserverEvent);
+          if (!parsed || typeof parsed !== "object") continue;
+          const event = parsed as ObserverEvent;
+          // Read here rather than in the backend, and before any of the mirror's own filtering:
+          // the account's rate-limit meters ride on the response headers of ANY Anthropic call,
+          // including the flows the mirror drops for having no request body to bind. They are a
+          // fact about the account rather than about a session, so the one subscriber that sees
+          // every flow is the right place to notice them (`usage/claudeLiveQuota.ts`).
+          noteRateLimitHeaders(event.flowUpserted?.flow?.responseHeaders, Date.now());
+          onEvent(event);
         }
       }
       if (!controller.signal.aborted) onError(new Error("proxy observer stream ended"));

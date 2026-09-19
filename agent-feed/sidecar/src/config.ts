@@ -248,14 +248,6 @@ export const config = {
       || join(userHomeDirectory, "Library", "Caches", "agentdesk-agent-feed", "usage.json"),
   ),
 
-  // Where Claude Code's statusline leaves a copy of the rate limits it is handed, written by
-  // `tools/claude-statusline-mirror.sh`. It exists because the CLI's own on-disk copy of those
-  // limits is absent for long stretches; `claudeQuota.ts` carries the measurements and the units.
-  claudeLimitsMirrorPath: resolve(
-    process.env.AGENT_FEED_CLAUDE_LIMITS_MIRROR?.trim()
-      || join(userHomeDirectory, ".claude", "agentdesk-rate-limits.json"),
-  ),
-
   // The curated Bot roster. Shared by stable and dev sidecars because it names machine-level
   // projects and provider sessions, not one host process's ephemeral runtime. The file itself is
   // the authority; project directories deliberately receive no mirrored bot metadata.

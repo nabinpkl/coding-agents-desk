@@ -166,11 +166,10 @@ function Limits({ state, now }: { state: LimitsState; now: () => number }) {
   }
   if (state.quotas.length === 0) {
     // The one thing a reader genuinely cannot work out from the surface: the meters are missing
-    // because nothing on this machine writes them down, not because they are at zero.
+    // because none has been observed yet, not because they are at zero.
     return (
       <p className="text-xs text-muted-foreground">
-        No limit reading on this machine. Claude Code publishes its five-hour and weekly meters
-        only to its status line; `tools/claude-statusline-mirror.sh` is what leaves a copy behind.
+        No limit reading yet. These arrive on the account's next API response.
       </p>
     );
   }
