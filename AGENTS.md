@@ -304,6 +304,20 @@ with no rebuild, no reinstall, and no re-pair.
   stripped of the PATH that would find a Homebrew install. Every fallback -- no `bun`, unreadable
   entry, non-executable `bun` -- serves the bundled binary and **logs why**, since silently serving
   the frozen one is indistinguishable from an edit that did nothing.
+- **The supervisor replaces ITSELF when its own source moves**, by leaving: the host restarts it on
+  termination within about a second, and a peer's watcher checks after every ship. Every other way
+  of doing it either abandons the running sidecar or races the parent into two supervisors on one
+  port. Which files count as its own are computed from its import graph (`supervisorSources.ts`),
+  not listed, because a list goes stale silently and the code most likely to be wrong about whether
+  it is current is the code that decides when to restart.
+- **A restart can be held back, from the panel's Profile menu.** One switch covers this and the
+  panel's own HMR, because "stop changing under me" is one thought; the parse gate is unchanged
+  either way. A supervisor has no port, so the command goes `POST /api/supervisor` on the sidecar,
+  which leaves it on the same rendezvous board the supervisor publishes its state to
+  (`<registry>/<user>.supervisor.request.json`), re-read both on a one-second timer and at the
+  moment a change is judged -- the timer alone lost a mode chosen a second before a save. A starting
+  supervisor clears that file, so a fresh one is always on auto and the dev server re-sends the
+  reader's mode to any machine that disagrees with it.
 - `just` arguments are POSITIONAL: `just host-run stable live bundled`, not `sidecar=bundled`, which
   would land in `variant`.
 - Two hosts can run concurrently, stable and `.dev`, on tier-derived ports so they never collide:
