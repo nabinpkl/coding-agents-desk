@@ -158,7 +158,10 @@ export function TerminalSidebarParent({
         </p>
       ) : null}
       {parent.children.length > 0 ? (
-        <ul role="list" aria-label={`${leaf} sessions`} className="pb-1">
+        // Indented under the header, so the rows read as this directory's sessions rather than
+        // as siblings of it. The header's mark and the rows' marks state the same nesting in
+        // colour; this states it in space, which is what the eye finds first.
+        <ul role="list" aria-label={`${leaf} sessions`} className="pb-1 pl-4">
           {parent.children.map((child) => {
             const childKey = terminalChildKey(parent.machineId, child.name);
             const step = steps.get(childKey);
