@@ -4,7 +4,7 @@ import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-fe
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotFace, setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
-import { botCanvasHues, botCanvasRanks, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
+import { botCanvasHues, botCanvasRanks, botSessionFaceRank, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
 /**
@@ -379,6 +379,13 @@ export function BotSidebarPanel({
                       const noCard = (canvas?.detachedSessionKeys.has(key) ?? false)
                         || onStrip === false;
                       const shaded = botSessionStyle(hue, shades.get(key));
+                      // Its own face rather than its Bot's, so siblings never share one; either
+                      // half missing leaves the mark on its disc.
+                      const botRank = ranks.get(bot.botId);
+                      const step = shades.get(key);
+                      const faceRank = botRank !== undefined && step !== undefined
+                        ? botSessionFaceRank(botRank, step)
+                        : undefined;
                       return (
                         // The row was one button until it grew a second action. A button cannot
                         // contain a button, so opening the session and opening its menu are now
@@ -426,7 +433,7 @@ export function BotSidebarPanel({
                               title={session.title || session.sessionId}
                               activity={session.activity}
                               shaded={Boolean(shaded) && !noCard}
-                              rank={ranks.get(bot.botId)}
+                              rank={faceRank}
                             />
                             {/* `font-medium`, matching the same session's title on its canvas card.
                                 One object drawn at two weights in two places is drift, not

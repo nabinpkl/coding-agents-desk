@@ -62,11 +62,13 @@ export function SessionAvatar({
    */
   shaded: boolean;
   /**
-   * Its Bot's rank in the creation order, which draws the face.
+   * Which face this session wears, as `botSessionFaceRank` builds it from its Bot's rank and its
+   * own step.
    *
-   * The shape says whose session this is and the ancestor's step says which one: the row's style
-   * already publishes the hue and the step, so the head takes the session's shade the way the
-   * disc did. Absent wherever there is no roster to rank against -- the new-session card's
+   * Deliberately NOT the Bot's face: a Bot with five sessions wearing one face five times teaches
+   * nothing, where five faces teach which session is which. The shape is the session's own while
+   * the shade stays its step on the Bot's ladder, so the two halves of the mark answer different
+   * questions. Absent wherever there is no roster to rank against -- the new-session card's
    * session has no transcript yet and no step on any ladder -- and those keep their initials.
    */
   rank?: number;

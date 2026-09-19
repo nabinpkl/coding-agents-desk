@@ -98,6 +98,15 @@ try {
   )].filter((el) => !el.className.includes('border')).length);
   check('shaded session marks wear faces too', sessionFaces > 0, `${sessionFaces} session faces`);
   check('no shaded session mark keeps initials', leftoverInitials === 0, `${leftoverInitials} left`);
+  // Siblings differ: no Bot's sessions share one face between them. Compared by the whole
+  // drawing, because the first path alone is the antenna where a Bot's sessions share one.
+  const siblingClash = await page.evaluate(() => [...document.querySelectorAll('ul[aria-label="Bots"] > li')]
+    .map((entry) => [...entry.querySelectorAll('ul[aria-label$="sessions"] svg.bot-face.size-6')]
+      .map((face) => face.innerHTML))
+    .filter((drawings) => drawings.length > 1)
+    .filter((drawings) => new Set(drawings).size !== drawings.length)
+    .length);
+  check('no Bot dresses two sessions in the same face', siblingClash === 0);
   await page.screenshot({ path: '/tmp/bot-faces-on.png' });
 
   await page.reload({ waitUntil: 'domcontentloaded' });

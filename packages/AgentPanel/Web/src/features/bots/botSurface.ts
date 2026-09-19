@@ -108,6 +108,19 @@ export function botCanvasRanks(bots: readonly BotColourIdentity[]): ReadonlyMap<
 }
 
 /**
+ * The face a session wears, from its Bot's rank and its own step on that Bot's ladder.
+ *
+ * A session does NOT share its Bot's face: a Bot with five sessions wearing one face five times
+ * teaches nothing, where five faces teach which session is which. The face sits just past the
+ * Bot's own rank, one step per session, so siblings are consecutive ranks -- and consecutive ranks
+ * differ in every part, while anything under forty apart cannot repeat a face at all. Both inputs
+ * are stable across reloads and detaches, so the face is too.
+ */
+export function botSessionFaceRank(botRank: number, step: number): number {
+  return botRank + 1 + step;
+}
+
+/**
  * The hue a card hands to CSS, as the one custom property `.bot-surface` reads.
  *
  * Only the hue crosses this boundary. Lightness and chroma stay in `styles.css` behind the

@@ -14,11 +14,13 @@ import {
   BOT_SESSION_SHADES,
   botCanvasHues,
   botCanvasRanks,
+  botSessionFaceRank,
   botSessionShades,
   botSessionStyle,
   botSurfaceStyle,
   sessionInitials,
 } from "@/features/bots/botSurface";
+import { botFaceOf } from "@/features/bots/avatar/BotFace";
 
 const bot = (botId: string, createdAt: number) => ({ botId, createdAt });
 
@@ -125,6 +127,36 @@ describe("botCanvasRanks", () => {
 
   test("a Bot the roster has never seen has no rank, which is what leaves a preview faceless", () => {
     expect(botCanvasRanks(ROSTER).get("not-a-bot-yet")).toBeUndefined();
+  });
+});
+
+/** A face's identity, the way the avatar test keys it: every part must move for a new face. */
+const faceKey = (rank: number): string => {
+  const face = botFaceOf(rank);
+  return `${face.head}|${face.top.join("+")}|${face.eyes.map((e) => `${e.cx}:${e.rx}:${e.ry}`).join(",")}`;
+};
+
+describe("botSessionFaceRank", () => {
+  test("siblings never share a face, because the step is unique within a Bot", () => {
+    const faces = new Set([0, 1, 2, 3, 4, 5].map((step) => botSessionFaceRank(2, step)));
+    expect(faces.size).toBe(6);
+  });
+
+  test("no session wears its Bot's face, and no sibling wears another's", () => {
+    // Consecutive ranks differ in head, top and eyes alike, and anything under forty apart
+    // cannot repeat a face at all -- so this pins the faces themselves, not the numbers.
+    for (let bot = 0; bot < 12; bot += 1) {
+      const faces = new Set(
+        [bot, ...[0, 1, 2, 3, 4, 5].map((step) => botSessionFaceRank(bot, step))].map(faceKey),
+      );
+      expect(faces.size).toBe(7);
+    }
+  });
+
+  test("a session keeps its face while its neighbours come and go", () => {
+    // Both halves are stable: the Bot's rank moves only if an older Bot is deleted, which the
+    // sidecar has no route for, and the step is the session's place in the Bot's durable refs.
+    expect(botSessionFaceRank(2, 3)).toBe(botSessionFaceRank(2, 3));
   });
 });
 
