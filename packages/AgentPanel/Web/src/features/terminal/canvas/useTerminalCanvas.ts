@@ -247,6 +247,40 @@ export function useTerminalCanvas(
     })();
   }, [all, feedFor, refresh, reload]);
 
+  /**
+   * Picks a child from the roster, the way the Bot sidebar opens a session on its canvas.
+   *
+   * A row for something off the strip is the way back, not a toggle: it clears the parent's
+   * hiding and the child's, and makes sure the session is open. A row already standing toggles,
+   * which is what closes an open tile from the list. The card's scroll-into-view effect fires
+   * off the open set, so no scroll is aimed from here.
+   */
+  const onSelectChild = useCallback((parentKey: string, childKey: string) => {
+    const returning = hiddenParents.has(parentKey) || offStripChildren.has(childKey);
+    if (hiddenParents.has(parentKey)) {
+      setHiddenParents((previous) => {
+        const next = new Set(previous);
+        next.delete(parentKey);
+        return next;
+      });
+    }
+    if (offStripChildren.has(childKey)) {
+      setOffStripChildren((previous) => {
+        const next = new Set(previous);
+        next.delete(childKey);
+        return next;
+      });
+    }
+    setOpenChildren((previous) => {
+      const next = new Set(previous);
+      if (returning) next.add(childKey);
+      else if (next.has(childKey)) next.delete(childKey);
+      else next.add(childKey);
+      storeOpenTerminalChildren(next);
+      return next;
+    });
+  }, [hiddenParents, offStripChildren]);
+
   const onKillChild = useCallback((key: string) => {
     const parsed = parseTerminalChildKey(key);
     if (!parsed) return Promise.reject(new Error(`not a terminal on this canvas: ${key}`));
@@ -307,6 +341,7 @@ export function useTerminalCanvas(
       return next;
     }),
     onKillChild,
+    onSelectChild,
     addingKeys,
     addErrors,
     onAddTerminal,
