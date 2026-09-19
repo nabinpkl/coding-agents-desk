@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
-import { TerminalsSurface } from "@/features/terminal/TerminalsSurface";
+import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -328,8 +328,14 @@ export function BrowserSurfaces({
         ) : surface === "terminals" ? (
           // Keyed by session for the same reason the desktop is: the tmux attaches, the terminal
           // stream and every subscription belong to the sidecar that answered, and none of them
-          // survive a move to another one.
-          <TerminalsSurface key={sessionId ?? "default"} feed={sessionFeed} />
+          // survive a move to another one. The canvas reads every machine at once the way the Bot
+          // canvas does -- a tmux session is a directory and those are not all on one machine --
+          // so this moves the picker-scoped feed and the whole index beside it.
+          <TerminalCanvasShell
+            key={sessionId ?? "default"}
+            feed={sessionFeed}
+            machines={machines}
+          />
         ) : (
           <App
             key={sessionId ?? "default"}
