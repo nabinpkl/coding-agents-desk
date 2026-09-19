@@ -13,6 +13,15 @@ import type { ComposerModel } from "@/features/session-view/composer/sessionComp
  * Every band's send, drawn small inside the field's own box at its trailing edge. Margins centre it
  * on a one-line field (48px tall) and keep it pinned to the last line as the field grows.
  */
+/**
+ * The small icon buttons on the line under the field, beside the context meter: attach, and the
+ * terminal toggle the band draws itself. Colour is left to the caller, which is how the toggle
+ * shows its pressed state without two text colours fighting in one class list. A translucent
+ * hover rather than `bg-muted`, so it darkens whatever tinted dock it sits on.
+ */
+export const COMPOSER_FOOTER_BUTTON_CLASS =
+  "flex size-7 shrink-0 touch-manipulation items-center justify-center rounded-md outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/15 disabled:cursor-not-allowed disabled:opacity-40";
+
 const SEND_IN_FIELD_CLASS =
   "mb-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -80,19 +89,19 @@ if (m.windowBand) {
     ),
     disabled: !m.windowComposer.canSubmit || m.windowComposer.pending,
     className: SEND_IN_FIELD_CLASS,
-    inField: true,
+    placement: "field",
     onClick: () => void m.windowComposer.submitWindow(),
   });
 } else if (m.tmuxBand) {
-  // Beside the field rather than in it: the field's own trailing edge is Send's.
+  // Under the field, beside the context meter: the field's own trailing edge is Send's.
   actions.push({
     key: "attach-tmux-composer",
     ariaLabel: "Add an image to this session's composer",
     title: "Put an image in this session's terminal composer",
-    icon: <Paperclip className="size-4" aria-hidden />,
+    icon: <Paperclip className="size-3.5" aria-hidden />,
     disabled: m.tmuxComposer.pending,
-    className:
-      "flex size-11 touch-manipulation items-center justify-center rounded-xl border border-border text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-40",
+    className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
+    placement: "footer",
     onClick: () => m.filePicker.current?.click(),
   });
   // One action beyond that, like the bands below it and for the same reason: Steer and Stop act
@@ -108,7 +117,7 @@ if (m.windowBand) {
     ),
     disabled: m.tmuxComposer.pending || !m.editorValue.trim(),
     className: SEND_IN_FIELD_CLASS,
-    inField: true,
+    placement: "field",
     onClick: () => void m.tmuxComposer.submit(),
   });
 } else if (m.inboxBand || m.agentTerminalBand) {
@@ -125,7 +134,7 @@ if (m.windowBand) {
     ),
     disabled: m.unavailable || m.deliveryPending || !m.editorValue.trim(),
     className: SEND_IN_FIELD_CLASS,
-    inField: true,
+    placement: "field",
     onClick: () => void submitOwnedTransport(m),
   });
 } else if (!m.unavailable) {
@@ -164,7 +173,7 @@ if (m.windowBand) {
     ),
     disabled: m.pending || !m.editorValue.trim(),
     className: SEND_IN_FIELD_CLASS,
-    inField: true,
+    placement: "field",
     onClick: () => void submitComposer(m, "next"),
   });
 }

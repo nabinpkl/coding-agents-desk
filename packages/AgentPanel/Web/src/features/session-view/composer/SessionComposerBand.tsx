@@ -12,7 +12,7 @@ import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
-import { submitComposer } from "@/features/session-view/composer/sessionComposerActions";
+import { COMPOSER_FOOTER_BUTTON_CLASS, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { List, Paperclip } from "lucide-react";
@@ -91,8 +91,9 @@ export function SessionComposerBand({
   const question = questionMirror
     ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
     : null;
-  const fieldActions = actions.filter((action) => action.inField);
-  const rowActions = actions.filter((action) => !action.inField);
+  const fieldActions = actions.filter((action) => action.placement === "field");
+  const footerActions = actions.filter((action) => action.placement === "footer");
+  const rowActions = actions.filter((action) => action.placement === undefined);
   return (
     <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
@@ -229,30 +230,6 @@ export function SessionComposerBand({
           {fieldActions.map(actionButton)}
           </div>
         </div>
-        {/* Offered only where there is a pane: a session without one has nothing to show. It sits
-            beside the field rather than replacing anything, because the field never goes away --
-            what it controls is whether the session's screen stands above it. */}
-        {terminalComposer ? (
-          <button
-            type="button"
-            onClick={terminalComposer.toggle}
-            aria-pressed={terminalComposer.shown}
-            aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
-            title={terminalComposer.shown
-              ? "Hide this session's screen and keep only the composer."
-              : "Show this session's screen above the composer, so text typed here can be watched"
-                + " arriving in the agent's own composer line."}
-            className={`flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted ${
-              terminalComposer.shown
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            }`}
-          >
-            {/* The thing it opens: a terminal. It used to be a dotted square, which named
-                nothing -- the pressed state is what says whether it is open. */}
-            <TerminalIcon className="size-4" aria-hidden />
-          </button>
-        ) : null}
         {/* Every one of these acts on the draft, so they go where the draft goes. */}
         {rowActions.map(actionButton)}
       </div>
@@ -267,11 +244,40 @@ export function SessionComposerBand({
           onKey={editor.rail.onKey}
         />
       ) : null}
-      {/* The context meter sits below the action row, right-aligned under the
-          buttons in the window band, not in the header. */}
-      {usage ? (
-        <div className="mt-1 flex justify-end px-1">
-          <TokenMeter usage={usage} />
+      {/* One small line under the field: the things that change what the composer holds or shows on
+          the left, the context meter on the right. They were a row of full-size buttons beside the
+          field, which on a narrow card spent a third of the width the draft needed. */}
+      {footerActions.length > 0 || terminalComposer || usage ? (
+        <div className="mt-1 flex items-center gap-0.5 px-1">
+          {footerActions.map(actionButton)}
+          {/* Offered only where there is a pane: a session without one has nothing to show. The
+              field never goes away -- what it controls is whether the session's screen stands
+              above it. */}
+          {terminalComposer ? (
+            <button
+              type="button"
+              onClick={terminalComposer.toggle}
+              aria-pressed={terminalComposer.shown}
+              aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
+              title={terminalComposer.shown
+                ? "Hide this session's screen and keep only the composer."
+                : "Show this session's screen above the composer, so text typed here can be watched"
+                  + " arriving in the agent's own composer line."}
+              className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${
+                terminalComposer.shown
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {/* The thing it opens: a terminal. The pressed state is what says whether it is open. */}
+              <TerminalIcon className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
+          {usage ? (
+            <div className="ml-auto">
+              <TokenMeter usage={usage} />
+            </div>
+          ) : null}
         </div>
       ) : null}
       {caption ? (
