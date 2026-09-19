@@ -15,6 +15,7 @@ import { relative, resolve } from "node:path";
 import type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
+  NewTmuxTerminalContext,
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
   WorkspaceTerminalContext,
@@ -50,9 +51,11 @@ export interface TerminalIdentity {
   /**
    * When set, `tmuxSession` may be started rather than only joined, running this.
    *
-   * Only the session-backed kind carries it. A tmux target named by the panel is somebody else's
-   * session and creating it would answer a typo with a new process; a session-backed one is a
-   * session id that the sidecar resolved to a pane name itself, so there is nothing to mistype.
+   * Only kinds whose name cannot be a typo carry it. A tmux target named by the panel is
+   * somebody else's session and creating it would answer a typo with a new process; a
+   * session-backed one is a session id the sidecar resolved to a pane name itself, and a
+   * `tmux-new` one is a fresh `agentterm-*` name the panel minted for this open, so there is
+   * nothing to mistype in either.
    */
   createTmux: { cwd: string; command: string[] } | null;
   /**
@@ -106,6 +109,7 @@ export async function identifyTerminal(
   context: AgentTerminalContext,
 ): Promise<TerminalIdentity> {
   if (context.kind === "tmux") return identifyTmux(deps, context);
+  if (context.kind === "tmux-new") return identifyNewTmux(deps, context);
   if (context.kind === "session-tmux") return identifySessionTmux(deps, context);
   if (context.kind === "workspace") return identifyWorkspace(deps, context);
   return identifyAgentSession(deps, context);
@@ -124,12 +128,10 @@ export async function identifyTerminal(
  * descriptor carries it as the terminal's label on both backends.
  */
 function identifyTmux(deps: TerminalIdentityDeps, context: TmuxTerminalContext): TerminalIdentity {
-  if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(context.session)) {
-    throw new AgentTerminalInvalidError("tmux session name is not a plain identifier");
-  }
+  const session = tmuxSessionName(context.session);
   return {
-    ptySessionName: `agent-tmux-${context.session}`,
-    tmuxSession: context.session,
+    ptySessionName: `agent-tmux-${session}`,
+    tmuxSession: session,
     cwd: deps.userHomeDirectory,
     command: [],
     // A tmux session is meant to be watched from more than one place, so nothing to refuse.
@@ -137,6 +139,47 @@ function identifyTmux(deps: TerminalIdentityDeps, context: TmuxTerminalContext):
     createTmux: null,
     stampSession: null,
   };
+}
+
+/**
+ * A shell this open may start, in a directory rather than behind an agent.
+ *
+ * The name is validated here for the same reason a tmux target's is: both reach tmux as
+ * `-t`/`-s` on an argument vector this process builds. The directory goes through
+ * `projectDirectory`, the same check the workspace kind goes through, because the panel is a
+ * browser tab and the check is what makes the request safe rather than the caller being well
+ * behaved. An empty command is the login shell itself, resolved in `open`.
+ */
+async function identifyNewTmux(
+  deps: TerminalIdentityDeps,
+  context: NewTmuxTerminalContext,
+): Promise<TerminalIdentity> {
+  const session = tmuxSessionName(context.session);
+  const cwd = await projectDirectory(deps, context.directory);
+  return {
+    ptySessionName: `agent-tmux-${session}`,
+    tmuxSession: session,
+    cwd,
+    command: [],
+    // Joining a session that is already running is the ordinary second-viewer case, so nothing
+    // to refuse; the backend joins when it exists and starts it when it does not.
+    refuseNew: null,
+    createTmux: { cwd, command: [] },
+    stampSession: null,
+  };
+}
+
+/**
+ * What tmux will accept as `-t <session>` on an argument vector this process builds.
+ *
+ * One check for both tmux kinds, because the danger is the same either way: a name that is not
+ * a plain identifier is refused once, at the door, instead of at each call site.
+ */
+function tmuxSessionName(session: string): string {
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(session)) {
+    throw new AgentTerminalInvalidError("tmux session name is not a plain identifier");
+  }
+  return session;
 }
 
 /**

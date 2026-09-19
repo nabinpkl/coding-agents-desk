@@ -179,6 +179,7 @@ export type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
   SessionTmuxTerminalContext,
+  NewTmuxTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalHistory,
   AgentTerminalInput,

@@ -158,6 +158,21 @@ test("opens a tmux target with only the session it names", async () => {
   } }]);
 });
 
+test("opens a tmux-new target with the session and the directory it names", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals", {
+    context: { kind: "tmux-new", session: "agentterm-1a2b3c4d", directory: "/projects/agent-desk" },
+    columns: 100,
+    rows: 30,
+  });
+
+  expect(response?.status).toBe(201);
+  expect(calls).toEqual([{ open: {
+    context: { kind: "tmux-new", session: "agentterm-1a2b3c4d", directory: "/projects/agent-desk" },
+    dimensions: { columns: 100, rows: 30 },
+  } }]);
+});
+
 test("opens a session-backed target with no project path of its own", async () => {
   const { calls, route } = fakeService();
   const response = await call(route, "POST", "/api/terminals", {

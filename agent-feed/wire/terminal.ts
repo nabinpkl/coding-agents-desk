@@ -46,6 +46,23 @@ export interface SessionTmuxTerminalContext {
   sessionId: string;
 }
 
+/**
+ * A tmux session to start when it is not running, and attach to when it is.
+ *
+ * The deliberate exception to the rule below that every context names something that already
+ * exists. It starts nothing but a login shell -- no agent, no resume, no command -- in a caller
+ * directory the sidecar vouches for, so there is no transcript to fork and no second client to a
+ * live one. The panel mints the name (`agentterm-<8hex>`), and a collision is a join: both the
+ * sidecar's existence check and tmux's own `-A` land on the running session.
+ */
+export interface NewTmuxTerminalContext {
+  kind: "tmux-new";
+  /** A plain tmux identifier, the way `TmuxTerminalContext.session` is. */
+  session: string;
+  /** Where the shell starts, vouched for like `WorkspaceTerminalContext.workspacePath`. */
+  directory: string;
+}
+
 /*
  * Two contexts used to live here: `session-fork` and `session-new`, which named a session that did
  * not exist and started it as a side effect of attaching a viewer to it. They moved to
@@ -85,6 +102,7 @@ export type AgentTerminalContext =
   | AgentSessionTerminalContext
   | TmuxTerminalContext
   | SessionTmuxTerminalContext
+  | NewTmuxTerminalContext
   | WorkspaceTerminalContext;
 
 /** `POST /api/terminals` request. */

@@ -191,3 +191,47 @@ so offering one would be offering a choice the next step declines.
 - **Renaming `agent-feed/`.** The port that is still open, per `FEATURE-MAP.md`. Untouched here.
 - **`WorkspaceFileViewer`.** The standalone `app://` viewer is a separate surface with a live
   consumer (`WorkspaceShell/Editor/FileViewer.swift`); R10 deletes only what the IDE owned.
+
+---
+
+# Terminal canvas (opened 2026-09-19)
+
+Replace the flat tmux wall (`TerminalsSurface`) with a canvas of parent/child terminal
+cards: parents are project directories (automatic grouping), children are tmux sessions
+(plain attaches). Same canvas UI internals, activity feed swapped for terminals only.
+No provider semantics anywhere -- vocabulary is tmux sessions + project directories.
+Children exist to run any coding agent (`opencode`, `codex`, …).
+
+Decisions (asked one by one, all answered): automatic grouping by directory; replaces
+the wall with a residue parent for ungrouped sessions; kill-session included behind a
+confirm; multi-machine mirroring the canvas.
+
+Gates for every task: `bun run test`, `tsc --noEmit`, `just agent-feed-fitness`,
+Chrome-for-Testing phone viewport. Commit + push per repo policy.
+
+## Resolved in code before planning (not assumed)
+
+- **Create needs a wire addition.** `identifyTmux` sets `createTmux: null`
+  (`agent-feed/sidecar/src/terminal/agentTerminalIdentity.ts:137`) -- plain opens join
+  only. New kind `{kind:"tmux-new", session, directory}`; panel mints
+  `agentterm-<8hex>`; sidecar validates name + `projectDirectory()` cwd; identity
+  carries `createTmux: {cwd, command: []}` (empty = login shell). `-A` makes a name
+  collision a join.
+- **Kill needs a new route.** `close(mode:"kill")` on tmux only ends viewing
+  (`tmuxAttachment.ts:228`). Primitive `killSessionArgs` exists
+  (`tmuxSessionList.ts:216`). New `DELETE /api/tmux/sessions/:name`, validated.
+- **Empty-parent source**: union per machine of live tmux dirs + IDE workspace roots
+  (`GET /api/workspace/list`) + Bot environment dirs. All existing data, no storage.
+- **Dropped deliberately**: per-child sizes (tiles are fixed 80x24, never claim);
+  parent/child drag-reorder (nothing durable to rewrite; sort parents by path,
+  children by name).
+
+## Tasks
+
+| ID | State | Task |
+|---|---|---|
+| T1 | D | Wire + sidecar: `tmux-new` context kind, identity resolution, `DELETE /api/tmux/sessions/:name`. Tests in the `agentTerminalRoutes` / `tmuxRoutes` patterns. No other sidecar changes -- listing, streams, attach reused. |
+| T2 | R | Panel identity: shared hue/shade module generalized from `botSurface.ts` (rank whole cross-machine roster, never the visible strip); grouping selector (union roster per machine, residue parent); `terminalCanvasPreferences` (hidden parents, off-strip children, open keys). |
+| T3 | R | Panel cards: `TerminalParentCard` (header, hue + 6px rail, add-terminal, menu), `TerminalChildCard` (closed row / open tile body verbatim, own open state), strip with reused scroll + zoom hooks, parent/child menus, kill-confirm dialog, add-terminal flow. Port notices/placeholder states. Drop SessionView, SourceBadge, fork/rename, faces, BotCreatorDialog, new-session cards. Way-back rows in-parent plus strip-end hidden-parents section. |
+| T4 | R | Shell: per-machine feeds (`feedFor`, mirroring `botFeeds`), parent key = `machine:path`, mount where `TerminalsSurface` sits in `BrowserSurfaces.tsx`. Single-machine parity with no peers. |
+| T5 | R | Replace the wall, verify (gates above + phone viewport: touch to keyboard to rail, new terminal lands in the right dir, kill confirms and lands, reload restores arrangement), land. |

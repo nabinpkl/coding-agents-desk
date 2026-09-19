@@ -206,3 +206,67 @@ test("refuses a tmux name that is not a plain identifier", async () => {
       .rejects.toBeInstanceOf(AgentTerminalInvalidError);
   }
 });
+
+test("starts a login shell in the directory when the session is not running", async () => {
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [], settled: [] };
+  const { service, project } = await sessionTmuxFixture(fakes, attached);
+
+  const descriptor = await service.open(
+    { kind: "tmux-new", session: "agentterm-1a2b3c4d", directory: project },
+    { columns: 100, rows: 30 },
+  );
+
+  // The one thing this kind does that a plain tmux target does not: start the session it names,
+  // as a login shell in the vouched directory, at the viewer's own geometry. A second viewer
+  // of the same name lands on it rather than starting another.
+  expect(fakes.created).toEqual([{
+    session: "agentterm-1a2b3c4d",
+    cwd: await realpath(project),
+    command: [],
+    columns: 100,
+    rows: 30,
+  }]);
+  expect(fakes.settled).toEqual(["agentterm-1a2b3c4d"]);
+  expect(attached).toEqual([{ session: "agentterm-1a2b3c4d", columns: 100, rows: 30 }]);
+  expect(descriptor.ptySessionName).toBe("agent-tmux-agentterm-1a2b3c4d");
+});
+
+test("joins a tmux-new session that is already running instead of starting a second", async () => {
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const fakes: SessionTmuxFakes = {
+    owner: null,
+    running: new Set(["agentterm-1a2b3c4d"]),
+    created: [],
+  };
+  const { service, project } = await sessionTmuxFixture(fakes, attached);
+
+  await service.open(
+    { kind: "tmux-new", session: "agentterm-1a2b3c4d", directory: project },
+    { columns: 100, rows: 30 },
+  );
+
+  // Both the sidecar's existence check and tmux's own `-A` land a collision on the running
+  // session, so two opens of one name are two viewers, never two shells.
+  expect(fakes.created).toEqual([]);
+  expect(attached).toEqual([{ session: "agentterm-1a2b3c4d", columns: 100, rows: 30 }]);
+});
+
+test("a tmux-new open vouches for its name and its directory", async () => {
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const { service, project } = await sessionTmuxFixture(fakes, attached);
+
+  // The name reaches tmux as `-s`, the directory as `-c`, so both are refused at the door.
+  for (const session of ["", "a b", "../escape"]) {
+    await expect(service.open({ kind: "tmux-new", session, directory: project }, { columns: 80, rows: 24 }))
+      .rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  }
+  for (const directory of ["/tmp", join(project, "missing"), "relative/path"]) {
+    await expect(
+      service.open({ kind: "tmux-new", session: "agentterm-1a2b3c4d", directory }, { columns: 80, rows: 24 }),
+    ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  }
+  expect(fakes.created).toEqual([]);
+  expect(attached).toEqual([]);
+});

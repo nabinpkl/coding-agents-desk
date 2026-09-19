@@ -9,6 +9,7 @@ import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
  */
 export function terminalContextKey(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return `tmux:${context.session}`;
+  if (context.kind === "tmux-new") return `tmux-new:${context.session}:${context.directory}`;
   if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
   if (context.kind === "workspace") return `workspace:${context.workspacePath}`;
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
@@ -24,6 +25,9 @@ export function terminalContextKey(context: AgentTerminalContext): string {
  */
 export function terminalContextLabel(context: AgentTerminalContext): string {
   if (context.kind === "tmux") return context.session;
+  // The session name, not the directory: the shell it runs is in that directory, but the name is
+  // what the roster and the menus address it by.
+  if (context.kind === "tmux-new") return context.session;
   // The directory, because that is the only thing this terminal is: a shell somewhere. The IDE
   // labels its own pane with the workspace's name, which this has no way to know.
   if (context.kind === "workspace") return context.workspacePath.split("/").pop() || "Workspace";
@@ -43,5 +47,5 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
  * has a pane name the pane already exists.
  */
 export function isTmuxAttach(context: AgentTerminalContext): boolean {
-  return context.kind === "tmux" || context.kind === "session-tmux";
+  return context.kind === "tmux" || context.kind === "session-tmux" || context.kind === "tmux-new";
 }

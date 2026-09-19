@@ -85,6 +85,16 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
   if (kind === "tmux") {
     return { kind, session: stringValue(context.session, "context.session") };
   }
+  // A shell this open may start, in a directory the service vouches for. The name is read here
+  // and refused at the door by the service; the directory is checked against the user's home
+  // there too, which is what makes the request safe rather than the caller being well behaved.
+  if (kind === "tmux-new") {
+    return {
+      kind,
+      session: stringValue(context.session, "context.session"),
+      directory: stringValue(context.directory, "context.directory"),
+    };
+  }
   // No project path: this kind names a session and lets the service resolve where it runs.
   if (kind === "session-tmux") {
     return {
@@ -104,7 +114,7 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
   // capability again and asking for one twice is the same as asking once.
   if (kind !== "agent-session") {
     throw new AgentTerminalInvalidError(
-      "context.kind must be agent-session, tmux, session-tmux or workspace",
+      "context.kind must be agent-session, tmux, tmux-new, session-tmux or workspace",
     );
   }
   return {
