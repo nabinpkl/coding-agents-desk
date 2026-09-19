@@ -10,6 +10,7 @@ import type {
   AgentTerminalHistory,
   AgentTerminalViewport,
   TmuxSessionSummary,
+  WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
 import { expectEmpty, parse } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarComposers } from "@/features/activity-feed/data-source/SidecarComposers";
@@ -46,6 +47,20 @@ export class SidecarTerminals extends SidecarComposers {
       await this.transport.request("GET", "/api/tmux/sessions"),
     );
     return sessions;
+  }
+
+  /**
+   * The workspace roots registered on this machine.
+   *
+   * Here beside the tmux listing rather than only on `WorkspaceIdeClient`, because the terminal
+   * canvas reads every machine at once and a registered root with nothing running in it still
+   * stands on that canvas as the place a shell gets started.
+   */
+  async listWorkspaces(): Promise<WorkspaceSummary[]> {
+    const { workspaces } = parse<{ workspaces: WorkspaceSummary[] }>(
+      await this.transport.request("GET", "/api/workspace/list"),
+    );
+    return workspaces;
   }
 
   /**

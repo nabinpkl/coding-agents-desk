@@ -134,9 +134,13 @@ export function TerminalCanvas({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {mixed ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2" role="group" aria-label="Machines">
-          {machines.map((machine) => {
+      {/* The machine row and the listing's refresh live here rather than in the shell, because
+          the canvas reads every machine at once while the picker scopes everything else to one:
+          a reader who started a session elsewhere needs the way back on the surface showing it.
+          One machine still gets the row, holding only the refresh -- hiding it there would leave
+          a single-machine canvas with no way to re-read at all. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2" role="group" aria-label="Machines">
+        {mixed ? machines.map((machine) => {
             const hidden = hiddenMachines.has(machine.key);
             const count = all.filter((parent) => (parent.machineId ?? "") === machine.key).length;
             return (
@@ -155,7 +159,7 @@ export function TerminalCanvas({
                 {machine.label} · {hidden ? `${count} hidden` : count}
               </button>
             );
-          })}
+          }) : null}
           <button
             type="button"
             onClick={onRefresh}
@@ -164,7 +168,6 @@ export function TerminalCanvas({
             Refresh
           </button>
         </div>
-      ) : null}
       <div
         ref={scroller}
         onScroll={rememberScroll}

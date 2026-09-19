@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupTerminalsByDirectory, parseTerminalChildKey, terminalChildKey } from "@/features/terminal/canvas/terminalGroups";
+import { groupTerminalsByDirectory, mintTerminalSessionName, parseTerminalChildKey, terminalChildKey } from "@/features/terminal/canvas/terminalGroups";
 
 function session(name: string, path: string) {
   return { name, windows: 1, attachedClients: 0, path };
@@ -68,6 +68,14 @@ describe("terminalChildKey", () => {
   it("scopes the name to its machine, because names are per-server", () => {
     expect(terminalChildKey(undefined, "a")).toBe(":a");
     expect(terminalChildKey("peer", "a")).toBe("peer:a");
+  });
+
+  it("mints names no person would type and no two starters share", () => {
+    const first = mintTerminalSessionName();
+    const second = mintTerminalSessionName();
+    expect(first).toMatch(/^agentterm-[0-9a-f]{8}$/);
+    expect(second).toMatch(/^agentterm-[0-9a-f]{8}$/);
+    expect(first).not.toBe(second);
   });
 
   it("parses back what it built, and refuses what it could not have built", () => {

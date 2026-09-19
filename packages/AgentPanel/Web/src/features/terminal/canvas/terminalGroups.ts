@@ -125,6 +125,20 @@ export function terminalChildKey(machineId: string | undefined, session: string)
 }
 
 /**
+ * A fresh tmux session name for a shell this panel starts.
+ *
+ * Minted rather than asked for, because the name is an address the listing reports back: a
+ * collision with a running session is a join at both the sidecar's existence check and tmux's
+ * own `-A`, so two starters racing each other land on one shell rather than on an error. Eight
+ * hex digits, which a typo cannot produce by accident and a reader cannot mistake for a name a
+ * person gave.
+ */
+export function mintTerminalSessionName(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return `agentterm-${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
  * The machine and session a child key names, or null for a hand-edited one.
  *
  * Split on the FIRST colon, because that is where `terminalChildKey` puts it: machine keys
