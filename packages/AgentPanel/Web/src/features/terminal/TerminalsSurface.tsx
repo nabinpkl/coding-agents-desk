@@ -56,10 +56,11 @@ export function TerminalsSurface({ feed }: { feed: SidecarDataSource }) {
             No tmux sessions. Start one in a terminal and refresh.
           </p>
         ) : listing.kind === "ready" ? (
-          // Wrapping at the tile's own width rather than a column count. The grid is fixed, so the
-          // tile has a natural size and the row breaks where the terminals stop fitting; giving it
-          // a guessed pixel box instead clipped the eightieth column off every one of them.
-          <div className="flex flex-wrap items-start gap-3">
+          // One row, scrolled sideways. The tiles are 80 columns wide each, so a wrapping
+          // grid stacked them vertically and every tile overflowed a phone's width with no way
+          // to reach the clipped columns. `w-max` sizes the row to its tiles and the surface
+          // above scrolls it horizontally; vertical scroll stays on that same surface.
+          <div className="flex w-max max-w-none items-start gap-3">
             {listing.sessions.map((session) => (
               <TerminalTile key={session.name} feed={feed} session={session} />
             ))}
