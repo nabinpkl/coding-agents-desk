@@ -14,7 +14,7 @@ import type { useProjectInventory } from "@/app/shell-state/useProjectInventory"
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
-import { botsOnShownMachines } from "@/features/bots/botMachines";
+import { botsOnShownMachines, machineIsHidden } from "@/features/bots/botMachines";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 
@@ -76,6 +76,14 @@ export function sidebarProps({
     onRenameSession: commands.setRenamingSession,
     detachedBotIds: roster.detachedBotIds,
     onToggleBotOnCanvas: roster.toggleBotOnCanvas,
+    // Over the WHOLE roster rather than over the Bots on the canvas, because the rows this marks
+    // include the ones already taken off it: a Bot that is both detached and on a hidden machine
+    // is off the canvas twice, and its row must not offer to put it back with one press.
+    machineHiddenBotIds: new Set(
+      botsState.bots
+        .filter((bot) => machineIsHidden(roster.hiddenMachines, machines.keyOfBot, bot.botId))
+        .map((bot) => bot.botId),
+    ),
     // Counted over the Bots ON the canvas rather than over the whole roster, and over all of them
     // rather than over the ones a shown machine is contributing: the number beside a hidden
     // machine's chip is what says how many cards pressing it would bring back.

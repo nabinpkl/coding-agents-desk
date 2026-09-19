@@ -123,6 +123,17 @@ export function BotSidebarPanel({
   canvas?: {
     detachedBotIds: ReadonlySet<string>;
     /**
+     * The Bots with no card because their MACHINE is hidden, whether or not they are also
+     * detached.
+     *
+     * Kept apart from `detachedBotIds` because they are two axes with two controls. A row here
+     * dims the same way, since what a reader sees is one Bot with no card either way -- but its
+     * avatar toggle is DISABLED rather than relabelled, because pressing it would move this Bot's
+     * own membership and still leave the strip exactly as it was. The way back is the machine chip
+     * above this roster, which is also where the count of what it is holding back is written.
+     */
+    machineHiddenBotIds: ReadonlySet<string>;
+    /**
      * The sessions that are off the canvas, as `source:sessionId`.
      *
      * Their rows stay in this list and are dimmed, which is the whole point of taking one off: the
@@ -176,7 +187,15 @@ export function BotSidebarPanel({
             // Off the canvas dims the whole entry, sessions included, because the thing that is
             // not on the canvas is the Bot rather than its header. Undefined when there is no
             // canvas in the picture, which is not the same as being off one.
+            //
+            // Two ways to be off it, and the row states the one a reader can act on from here.
+            // `onStrip` is the question the dimming and the badge answer -- is there a card for
+            // this Bot right now -- so a Bot that is attached and invisible does not wear a tick
+            // over a dimmed row, which is the contradiction that made this worth writing down.
+            const machineHidden = canvas?.machineHiddenBotIds.has(bot.botId) ?? false;
             const onCanvas = canvas ? !canvas.detachedBotIds.has(bot.botId) : undefined;
+            const onStrip = onCanvas === undefined ? undefined : onCanvas && !machineHidden;
+            const machineLabel = machineLabels?.get(bot.botId);
             // The same ladder the canvas cards stand on, derived here for the same reason the hues
             // are: it is a pure function of the Bot's own durable roster, so both surfaces reach
             // the same answer by construction rather than by agreement. A session that is one
@@ -185,7 +204,7 @@ export function BotSidebarPanel({
             return (
               <li
                 key={bot.botId}
-                className={`border-b border-border/80 ${onCanvas === false ? "opacity-55" : ""}`}
+                className={`border-b border-border/80 ${onStrip === false ? "opacity-55" : ""}`}
               >
                 <div className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${selected ? "border-primary bg-muted" : "border-transparent"}`}>
                   {canvas ? (
@@ -200,13 +219,22 @@ export function BotSidebarPanel({
                     <button
                       type="button"
                       onClick={() => canvas.onToggle(bot)}
-                      aria-pressed={onCanvas}
-                      aria-label={onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
-                      title={onCanvas ? "On the canvas" : "Off the canvas"}
+                      // Disabled rather than relabelled while the machine is hidden: this control
+                      // owns one axis, and on this row the other one is what is holding the card
+                      // back. A press that moved the state it owns and changed nothing on screen
+                      // is the worst of the three options.
+                      disabled={machineHidden}
+                      aria-pressed={onStrip}
+                      aria-label={machineHidden
+                        ? `${bot.name} is on ${machineLabel ?? "a machine"}, which is hidden from the canvas`
+                        : onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
+                      title={machineHidden
+                        ? `${machineLabel ?? "This machine"} is hidden from the canvas. Show it above to bring ${bot.name} back.`
+                        : onCanvas ? "On the canvas" : "Off the canvas"}
                       // The ring on hover is what says this face is a control. Without it the
                       // badge reads as decoration on a picture, and nothing else on the row admits
                       // that clicking here does anything.
-                      className="relative shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary"
+                      className="relative shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary disabled:cursor-default disabled:hover:ring-0"
                     >
                       <BotAvatar bot={bot} hue={hue} />
                       {/* Ringed in the row's own background so it reads as sitting ON the avatar
@@ -214,12 +242,12 @@ export function BotSidebarPanel({
                       <span
                         aria-hidden
                         className={`absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full ring-2 ring-card ${
-                          onCanvas
+                          onStrip
                             ? "bg-primary text-primary-foreground"
                             : "border border-muted-foreground/60 bg-card"
                         }`}
                       >
-                        {onCanvas ? <Check className="size-2.5" strokeWidth={3} /> : null}
+                        {onStrip ? <Check className="size-2.5" strokeWidth={3} /> : null}
                       </span>
                     </button>
                   ) : (
@@ -241,8 +269,16 @@ export function BotSidebarPanel({
                       </span>
                     ) : null}
                     <span className="mt-0.5 block truncate font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                      {machineLabels?.get(bot.botId)
-                        ? <span className="not-italic font-sans font-medium">{`${machineLabels.get(bot.botId)} · `}</span>
+                      {machineLabel
+                        ? (
+                          <span className="not-italic font-sans font-medium">
+                            {machineLabel}
+                            {/* Said in text as well as in the tooltip, because the tooltip needs a
+                                pointer and half the readers of this panel are on a phone. */}
+                            {machineHidden ? " hidden" : ""}
+                            {" · "}
+                          </span>
+                        )
                         : null}
                       {projectName}
                       {bot.environmentAvailability === "missing" ? " · missing directory" : ""}

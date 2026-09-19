@@ -162,10 +162,23 @@ export function botsOnShownMachines<T extends { botId: string }>(
   keyOfBot: (botId: string) => string | undefined,
 ): readonly T[] {
   if (hidden.size === 0) return bots;
-  return bots.filter((bot) => {
-    const key = keyOfBot(bot.botId);
-    return key === undefined || !hidden.has(key);
-  });
+  return bots.filter((bot) => !machineIsHidden(hidden, keyOfBot, bot.botId));
+}
+
+/**
+ * Whether this Bot has no card because the machine it is on is hidden.
+ *
+ * The predicate the filter above is written in, exported because the sidebar roster asks it of one
+ * Bot at a time rather than of a list: a row it marks is dimmed and its on-canvas control is
+ * disabled, and those have to agree with the strip about which Bots those are.
+ */
+export function machineIsHidden(
+  hidden: ReadonlySet<string>,
+  keyOfBot: (botId: string) => string | undefined,
+  botId: string,
+): boolean {
+  const key = keyOfBot(botId);
+  return key !== undefined && hidden.has(key);
 }
 
 /**

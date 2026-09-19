@@ -84,6 +84,14 @@ interface AgentSidebarProps {
   detachedBotIds: ReadonlySet<string>;
   onToggleBotOnCanvas: (bot: BotView) => void;
   /**
+   * The Bots with no card because their MACHINE is hidden, whether or not they are also detached.
+   *
+   * A separate set from `detachedBotIds` because the two are different axes with different
+   * controls: a detached Bot comes back from its own row, and this one comes back from the machine
+   * chip above the roster. Merging them would put a Bot behind a control that cannot reach it.
+   */
+  machineHiddenBotIds: ReadonlySet<string>;
+  /**
    * What the canvas is holding: how many Bots, on which machines, and the control that narrows it.
    *
    * It belongs to the Canvas tab rather than to the canvas because it is the same question this
@@ -286,6 +294,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onAddBot={props.onAddBot}
             canvas={{
               detachedBotIds: props.detachedBotIds,
+              machineHiddenBotIds: props.machineHiddenBotIds,
               detachedSessionKeys: props.detachedSessionKeys,
               onToggle: props.onToggleBotOnCanvas,
             }}
