@@ -159,6 +159,10 @@ export function EventHeading({
   // has no chip and no intent. An empty heading is not free -- it is a focus stop, a hover target
   // and a float the first block has to clear -- so it is not drawn.
   if (!showChevron && !showRole && !isLive && !showCacheBadge && !showIntent) return null;
+  // With nothing in front of it, the intent lines up with the call's name under it rather than
+  // with that call's chevron: the header's chevron is `size-[1em]` and its gap `gap-1.5`
+  // (ActivityBlockViews), so that is how far in the name starts.
+  const intentLeads = !showChevron && !showRole && !isLive && !showCacheBadge;
   return (
     <button
       type="button"
@@ -205,7 +209,12 @@ export function EventHeading({
       {showIntent ? (
         // Bounded, because this sits inside a float-left heading: an unbounded span would grow
         // the float to the width of a long description and push the body around it.
-        <span className="ml-[0.35em] max-w-[36ch] truncate font-sans text-muted-foreground">
+        <span
+          className={
+            (intentLeads ? "ml-[calc(1em+0.375rem)] " : "ml-[0.35em] ") +
+            "max-w-[36ch] truncate font-sans text-muted-foreground"
+          }
+        >
           {intent}
         </span>
       ) : null}
