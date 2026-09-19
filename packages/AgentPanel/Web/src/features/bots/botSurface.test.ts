@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 import {
   BOT_HUE_OFFSET,
   BOT_HUE_STEP,
+  BOT_SESSION_FACE_BASE,
   BOT_SESSION_HUE_SPACING,
   BOT_SESSION_SHADES,
   botCanvasHues,
@@ -20,7 +21,6 @@ import {
   botSurfaceStyle,
   sessionInitials,
 } from "@/features/bots/botSurface";
-import { botFaceOf } from "@/features/bots/avatar/BotFace";
 
 const bot = (botId: string, createdAt: number) => ({ botId, createdAt });
 
@@ -130,27 +130,22 @@ describe("botCanvasRanks", () => {
   });
 });
 
-/** A face's identity, the way the avatar test keys it: every part must move for a new face. */
-const faceKey = (rank: number): string => {
-  const face = botFaceOf(rank);
-  return `${face.head}|${face.top.join("+")}|${face.eyes.map((e) => `${e.cx}:${e.rx}:${e.ry}`).join(",")}`;
-};
-
 describe("botSessionFaceRank", () => {
-  test("siblings never share a face, because the step is unique within a Bot", () => {
-    const faces = new Set([0, 1, 2, 3, 4, 5].map((step) => botSessionFaceRank(2, step)));
-    expect(faces.size).toBe(6);
+  test("siblings never share an input, because the step is unique within a Bot", () => {
+    const inputs = new Set([0, 1, 2, 3, 4, 5].map((step) => botSessionFaceRank(2, step)));
+    expect(inputs.size).toBe(6);
   });
 
-  test("no session wears its Bot's face, and no sibling wears another's", () => {
-    // Consecutive ranks differ in head, top and eyes alike, and anything under forty apart
-    // cannot repeat a face at all -- so this pins the faces themselves, not the numbers.
-    for (let bot = 0; bot < 12; bot += 1) {
-      const faces = new Set(
-        [bot, ...[0, 1, 2, 3, 4, 5].map((step) => botSessionFaceRank(bot, step))].map(faceKey),
-      );
-      expect(faces.size).toBe(7);
+  test("no session input reaches into the Bots' numbering", () => {
+    // Provable by arithmetic rather than by drawing: the smallest session input is the base
+    // itself, and the base sits past every Bot rank this side of 2048. Whether those inputs then
+    // draw different faces is the avatar test's property, pinned over the realistic range there.
+    for (let bot = 0; bot < 256; bot += 1) {
+      for (let step = 0; step < 6; step += 1) {
+        expect(botSessionFaceRank(bot, step)).toBeGreaterThanOrEqual(BOT_SESSION_FACE_BASE);
+      }
     }
+    expect(BOT_SESSION_FACE_BASE).toBeGreaterThan(255);
   });
 
   test("a session keeps its face while its neighbours come and go", () => {

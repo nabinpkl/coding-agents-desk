@@ -84,8 +84,16 @@ try {
   await page.waitForTimeout(1000);
   const faced = await discs();
   check('every ranked disc draws a face after the press', faced.every((d) => d.face), `${faced.filter((d) => d.face).length}/${faced.length}`);
-  const heads = new Set(faced.map((d) => d.head).filter(Boolean));
-  check('two Bots do not wear the same head', heads.size > 1, `${heads.size} distinct heads over ${faced.length} discs`);
+  // Roster Bots alone: each Bot's own head, which is what names it before its name is read.
+  // (The combined count above includes each card twin, which wears its roster row's face on
+  // purpose -- comparing across the two would fault the design for doing its job.)
+  const rosterHeads = await page.evaluate(() => new Set([...document.querySelectorAll(
+    'ul[aria-label="Bots"] > li svg.bot-face:is(.size-9,.size-10)',
+  )].map((face) => face.querySelector('path')?.getAttribute('d') ?? '')).size);
+  const rosterBots = await page.evaluate(() => [...document.querySelectorAll(
+    'ul[aria-label="Bots"] > li svg.bot-face:is(.size-9,.size-10)',
+  )].length);
+  check('every roster Bot draws its own head', rosterHeads === rosterBots, `${rosterHeads} distinct heads over ${rosterBots} discs`);
   // Roster and cards move together: the press reaches past the list it was pressed in.
   const cardFaces = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] svg.bot-face:is(.size-9,.size-10)')].length);
   const cards = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Bot canvas"] :is(span.rounded-full:is(.size-9,.size-10), svg.bot-face:is(.size-9,.size-10))')].length);
@@ -107,6 +115,20 @@ try {
     .filter((drawings) => new Set(drawings).size !== drawings.length)
     .length);
   check('no Bot dresses two sessions in the same face', siblingClash === 0);
+  // Strict on each surface separately: every Bot and every session draws a different geometry.
+  // The two surfaces are NOT compared with each other -- a Bot's card twin wears the same face as
+  // its roster row on purpose, and so does a session's. The blink style is excluded from the key:
+  // it varies by rank, so it would make even identical twins compare different. Paths and eye
+  // boxes are the drawing; anything else is paint.
+  const geometry = (scope) => page.evaluate((root) => [...document.querySelectorAll(`${root} svg.bot-face`)]
+    .map((face) => [
+      ...[...face.querySelectorAll('path')].map((p) => p.getAttribute('d') ?? ''),
+      ...[...face.querySelectorAll('rect')].map((r) => [r.x, r.y, r.width, r.height, r.rx].map((v) => v.baseVal.value).join(',')),
+    ].join('|')), scope);
+  const rosterGeos = await geometry('ul[aria-label="Bots"]');
+  const canvasGeos = await geometry('[aria-label="Bot canvas"]');
+  check('no two faces in the roster share a drawing', new Set(rosterGeos).size === rosterGeos.length, `${new Set(rosterGeos).size}/${rosterGeos.length} distinct`);
+  check('no two faces on the strip share a drawing', new Set(canvasGeos).size === canvasGeos.length, `${new Set(canvasGeos).size}/${canvasGeos.length} distinct`);
   await page.screenshot({ path: '/tmp/bot-faces-on.png' });
 
   await page.reload({ waitUntil: 'domcontentloaded' });

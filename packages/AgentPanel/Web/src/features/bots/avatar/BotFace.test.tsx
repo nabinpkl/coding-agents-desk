@@ -1,33 +1,65 @@
 // What is worth pinning is that a face is a NAME: it must not move, and two Bots must not share it.
 //
 // The drawing itself is a taste question and belongs in a browser. What belongs here is the
-// arithmetic under it, because both of its failures are silent -- a face that changes when the
+// uniqueness under it, because both of its failures are silent -- a face that changes when the
 // roster grows teaches a reader a name and then takes it away, and two Bots with one face teach
-// them nothing at all.
+// them nothing at all. There is no catalogue and no cycle any more: every rank draws its own
+// face, so these tests count faces rather than cycle positions.
 
 import { describe, expect, test } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { BOT_FACE_CYCLE, BotFace, botFaceOf } from "@/features/bots/avatar/BotFace";
+import { BOT_FACE_SPACE, BotFace, botFaceOf } from "@/features/bots/avatar/BotFace";
+import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSurface";
 
 const key = (rank: number): string => {
   const face = botFaceOf(rank);
-  return `${face.head}|${face.top.join("+")}|${face.eyes.map((e) => `${e.cx}:${e.rx}:${e.ry}`).join(",")}`;
+  return `${face.head}|${face.eyes.map((e) => `${e.cx}:${e.rx}:${e.ry}`).join(",")}`;
 };
 
+/**
+ * Every face a realistic panel draws: 256 Bots, and six sessions each for 64 of them. If any two
+ * of these shared a drawing the uniqueness promise would already be broken where it matters.
+ */
+function realisticRanks(): number[] {
+  const ranks: number[] = [];
+  for (let bot = 0; bot < 256; bot += 1) ranks.push(bot);
+  for (let bot = 0; bot < 64; bot += 1) {
+    for (let step = 0; step < 6; step += 1) ranks.push(botSessionFaceRank(bot, step));
+  }
+  return ranks;
+}
+
 describe("botFaceOf", () => {
-  test("a whole cycle of Bots has a whole cycle of faces", () => {
-    const seen = new Set<string>();
-    for (let rank = 0; rank < BOT_FACE_CYCLE; rank += 1) seen.add(key(rank));
-    expect(seen.size).toBe(BOT_FACE_CYCLE);
+  test("every face a realistic panel draws is a different drawing", () => {
+    const ranks = realisticRanks();
+    expect(new Set(ranks.map(key)).size).toBe(ranks.length);
   });
 
-  test("neighbours differ in every part, not only in one", () => {
-    for (let rank = 0; rank < BOT_FACE_CYCLE; rank += 1) {
-      const here = botFaceOf(rank);
-      const next = botFaceOf(rank + 1);
-      expect(here.head).not.toBe(next.head);
-      expect(here.top).not.toBe(next.top);
-      expect(here.eyes).not.toBe(next.eyes);
+  test("no session input reaches a Bot's drawing", () => {
+    // The sessions number from their own base, and the permutation is exact: what is pinned here
+    // is the numbering, which is what keeps the two apart before a single path is drawn.
+    for (let bot = 0; bot < 256; bot += 1) {
+      expect(botSessionFaceRank(bot, 0)).toBeGreaterThanOrEqual(BOT_SESSION_FACE_BASE);
+      expect(botSessionFaceRank(bot, 0)).toBeLessThan(BOT_FACE_SPACE);
+    }
+    expect(BOT_SESSION_FACE_BASE).toBeGreaterThan(256);
+  });
+
+  test("every head stays inside the box it is drawn in", () => {
+    // A spoke past the viewport is clipped silently, which reads as a head with its edge sliced
+    // off. Sweep the realistic range plus deep ranks. Anchors are fitted to 2..30; curve controls
+    // may lean slightly past an anchor they bend toward, so the bound here is the viewport with
+    // a margin rather than the fitting box.
+    const ranks = realisticRanks();
+    for (let extra = 0; extra < 2000; extra += 1) ranks.push(extra * 37);
+    for (const rank of ranks) {
+      const numbers = botFaceOf(rank).head.match(/-?\d+(\.\d+)?/g) ?? [];
+      expect(numbers.length).toBeGreaterThan(0);
+      for (const raw of numbers) {
+        const n = Number(raw);
+        expect(n).toBeGreaterThanOrEqual(1);
+        expect(n).toBeLessThanOrEqual(31);
+      }
     }
   });
 
@@ -35,14 +67,10 @@ describe("botFaceOf", () => {
     expect(botFaceOf(6)).toEqual(botFaceOf(6));
   });
 
-  test("the cycle is where it says it is", () => {
-    expect(key(BOT_FACE_CYCLE)).toBe(key(0));
-    expect(key(BOT_FACE_CYCLE + 5)).toBe(key(5));
-  });
-
   test("a rank no roster can produce still draws a face", () => {
     expect(botFaceOf(-3).head).toBe(botFaceOf(3).head);
     expect(botFaceOf(2.7).head).toBe(botFaceOf(2).head);
+    expect(botFaceOf(Number.NaN).head).toBe(botFaceOf(0).head);
   });
 });
 

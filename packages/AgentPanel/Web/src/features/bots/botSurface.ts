@@ -108,16 +108,24 @@ export function botCanvasRanks(bots: readonly BotColourIdentity[]): ReadonlyMap<
 }
 
 /**
+ * Where session face inputs start.
+ *
+ * Bots number from zero, so sessions number from here: the two never share a face input while
+ * Bots number under 2048, and the permutation behind `botFaceOf` is exact over every input under
+ * 65536, so no face repeats for any roster this side of either bound.
+ */
+export const BOT_SESSION_FACE_BASE = 2048;
+
+/**
  * The face a session wears, from its Bot's rank and its own step on that Bot's ladder.
  *
  * A session does NOT share its Bot's face: a Bot with five sessions wearing one face five times
- * teaches nothing, where five faces teach which session is which. The face sits just past the
- * Bot's own rank, one step per session, so siblings are consecutive ranks -- and consecutive ranks
- * differ in every part, while anything under forty apart cannot repeat a face at all. Both inputs
- * are stable across reloads and detaches, so the face is too.
+ * teaches nothing, where five faces teach which session is which. The step is unique within a
+ * Bot, so siblings never share an input; the base keeps every session's input clear of every
+ * Bot's. Both halves are stable across reloads and detaches, so the face is too.
  */
 export function botSessionFaceRank(botRank: number, step: number): number {
-  return botRank + 1 + step;
+  return BOT_SESSION_FACE_BASE + botRank * BOT_SESSION_SHADES + step;
 }
 
 /**
