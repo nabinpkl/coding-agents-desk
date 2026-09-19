@@ -25,6 +25,7 @@
 
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { WindowComposerClient } from "@/features/window-composer/WindowComposerClient";
+import type { TmuxQuestionState } from "@agentdesk/agent-feed-wire";
 import type { AskUserQuestionItem, OpenAskUserQuestion } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import {
@@ -69,6 +70,7 @@ export function useQuestionMirror({
   sessionId,
   isClaude,
   question,
+  paneQuestion,
   engage,
 }: {
   feed: TmuxQuestionSender;
@@ -78,13 +80,21 @@ export function useQuestionMirror({
   isClaude: boolean;
   question: OpenAskUserQuestion | null;
   /**
+   * What the session's own terminal shows for this question, once anything is watching it.
+   *
+   * Only the draft half uses it. The Desktop panel reports its own live state and is mirrored
+   * click by click, so a second opinion read off a screen would be one more thing to disagree
+   * with it.
+   */
+  paneQuestion: TmuxQuestionState | null;
+  /**
    * Told that the reader has touched the question, which is one of the two things that attach the
    * session's pane. Called before the draft moves, so by the time there is an answer to commit the
    * panel already knows whether there is a pane to commit it to.
    */
   engage: () => void;
 }): QuestionMirrorModel | null {
-  const tmuxQuestion = useTmuxQuestion(feed, session, isClaude ? question : null);
+  const tmuxQuestion = useTmuxQuestion(feed, session, isClaude ? question : null, paneQuestion);
   const windowQuestion = useWindowQuestion(host, sessionId, isClaude && question != null, question);
   if (!isClaude || question == null) return null;
   if (!windowQuestion.visible) {

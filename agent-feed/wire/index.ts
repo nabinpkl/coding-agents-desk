@@ -22,6 +22,7 @@ export type {
   ComposerImageDrop,
   ComposerKeyPress,
   ComposerImageMediaType,
+  TmuxComposerEnvelope,
   TmuxComposerState,
   TmuxComposerUnavailableReason,
 } from "./tmuxComposer.ts";
@@ -35,6 +36,7 @@ export type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
   TmuxQuestionRefusal,
+  TmuxQuestionState,
 } from "./tmuxQuestion.ts";
 
 export type {

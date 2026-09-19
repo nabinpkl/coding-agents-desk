@@ -10,6 +10,7 @@ import type {
   RailModifier,
   TmuxComposerState,
   TmuxComposerUnavailableReason,
+  TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
 import type { ModifierState } from "@/features/keyboard/modifierLatch";
 
@@ -65,6 +66,19 @@ export interface TmuxComposerHandle {
   paned: boolean;
   /** Why the pane cannot be reached right now, or null while it can. */
   reason: TmuxComposerUnavailableReason | null;
+  /**
+   * The question dialog standing in the pane right now, or null when there is none.
+   *
+   * Rides this handle rather than a subscription of its own, because it comes off the same
+   * reading: one capture of one screen answers both what the box holds and what is standing in
+   * front of it. A second stream to the same endpoint would be a second pipe on the same pane.
+   *
+   * What it is FOR is the other direction of the question mirror. The panel draws a question from
+   * the tool call and commits answers to the pane; without this it never learns what somebody at
+   * that keyboard has already ticked, so a reader arriving mid-dialog would see an empty draft
+   * over the top of choices that are already made.
+   */
+  paneQuestion: TmuxQuestionState | null;
   draft: string;
   change: (value: string) => void;
   /**

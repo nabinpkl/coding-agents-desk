@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
+import type { TmuxQuestionState } from "@agentdesk/agent-feed-wire";
 import {
+  adoptPaneState,
   alignDrafts,
   chooseOption,
   emptyDrafts,
   isAnswered,
+  sameLabel,
   toAnswers,
   writeOther,
 } from "@/features/session-view/composer/question/questionAnswers";
@@ -129,5 +132,85 @@ describe("toAnswers", () => {
 
   it("drops drafts for questions that are no longer there", () => {
     expect(alignDrafts(emptyDrafts([SINGLE, MANY]), 1)).toHaveLength(1);
+  });
+});
+
+/** What the pane reports for a dialog showing the single-select question above. */
+function showing(overrides: Partial<TmuxQuestionState> = {}): TmuxQuestionState {
+  return {
+    question: "Which colour?",
+    review: false,
+    multiSelect: false,
+    tabs: [{ label: "Colour", answered: false }],
+    options: [
+      { label: "ALPHA", marked: false, cursor: true },
+      { label: "BRAVO", marked: false, cursor: false },
+      { label: "CHARLIE", marked: false, cursor: false },
+    ],
+    other: null,
+    ...overrides,
+  };
+}
+
+describe("reading a label off a screen", () => {
+  it("matches on the start, because a long one wraps rather than truncating", () => {
+    // The screen gives back as much of the label as fitted on its row, and the rest is on a line
+    // indented exactly like a description -- indistinguishable from one, so unrecoverable.
+    expect(sameLabel("ALPHA a deliberately very long option", "ALPHA a deliberately very long option label")).toBe(true);
+    expect(sameLabel("ALPHA", "ALPHA")).toBe(true);
+    expect(sameLabel("BRAVO", "ALPHA")).toBe(false);
+    // A blank row names nothing, and matching it against everything would answer whatever was
+    // first in the list.
+    expect(sameLabel("   ", "ALPHA")).toBe(false);
+  });
+});
+
+describe("following what the terminal already holds", () => {
+  it("fills a question nobody has answered here", () => {
+    const drafts = emptyDrafts([SINGLE]);
+    const next = adoptPaneState(drafts, [SINGLE], showing({
+      options: [
+        { label: "ALPHA", marked: false, cursor: false },
+        { label: "BRAVO", marked: true, cursor: false },
+        { label: "CHARLIE", marked: false, cursor: true },
+      ],
+    }), () => true);
+
+    // Somebody answered this at the keyboard before the panel was opened on it. Drawing an empty
+    // draft over the top would invite this reader to redo work that is already done.
+    expect(next[0]).toEqual({ chosen: [1], other: "" });
+  });
+
+  it("never overwrites an answer this reader has not sent yet", () => {
+    const drafts = chooseOption(emptyDrafts([SINGLE]), 0, 2, false);
+    const next = adoptPaneState(drafts, [SINGLE], showing({
+      options: [
+        { label: "ALPHA", marked: true, cursor: false },
+        { label: "BRAVO", marked: false, cursor: false },
+        { label: "CHARLIE", marked: false, cursor: false },
+      ],
+    }), () => false);
+
+    // A draft is newer than any screen: the whole point of drafting here is that a tap is not
+    // committed until Submit, so a reading must not take it back.
+    expect(next[0]).toEqual({ chosen: [2], other: "" });
+  });
+
+  it("takes the words in the free-text row, and ignores Claude's own prompt", () => {
+    const withText = adoptPaneState(emptyDrafts([SINGLE]), [SINGLE], showing({
+      other: "a colour of my own",
+    }), () => true);
+    expect(withText[0]).toEqual({ chosen: [], other: "a colour of my own" });
+
+    // A dialog nobody has touched says nothing this side does not already know, and adopting it
+    // every reading would clear the draft continuously.
+    const untouched = adoptPaneState(emptyDrafts([SINGLE]), [SINGLE], showing(), () => true);
+    expect(untouched[0]).toEqual({ chosen: [], other: "" });
+  });
+
+  it("leaves everything alone on the review screen, which reports no question", () => {
+    const drafts = emptyDrafts([SINGLE]);
+    expect(adoptPaneState(drafts, [SINGLE], showing({ question: null, review: true }), () => true))
+      .toEqual(drafts);
   });
 });

@@ -13,6 +13,7 @@
 // Claude-only, like the inbox, and for the same reason: the box this reads is the Claude TUI's.
 
 import type { RailKey, RailModifiers } from "./railKeys.ts";
+import type { TmuxQuestionState } from "./tmuxQuestion.ts";
 
 /** Why a session's tmux composer cannot be mirrored. */
 export type TmuxComposerUnavailableReason =
@@ -150,6 +151,26 @@ export const MAXIMUM_COMPOSER_IMAGE_BYTES = 10 * 1024 * 1024;
  */
 export interface ComposerImageDrop {
   data: string;
+}
+
+/**
+ * One message of a session's composer stream.
+ *
+ * An envelope rather than a bare composer state, because the pane answers two questions at once
+ * and the sidecar reads them from one screen: what the prompt box holds, and what the question
+ * dialog standing in front of it holds. Asking separately would be two captures of one pane taken
+ * at two instants, which is the same mistake as reading the screen and the cursor apart.
+ *
+ * The same shape `WindowComposerEnvelope` already uses for the Claude Desktop path, for the same
+ * reason and deliberately not unified with it: one is an accessibility tree and the other is a
+ * screen, and they agree on nothing below this level.
+ *
+ * Both fields are optional because a message carries only what CHANGED. `question: null` is a
+ * statement -- the dialog has gone -- where an absent `question` says nothing at all.
+ */
+export interface TmuxComposerEnvelope {
+  composer?: TmuxComposerState;
+  question?: TmuxQuestionState | null;
 }
 
 /**

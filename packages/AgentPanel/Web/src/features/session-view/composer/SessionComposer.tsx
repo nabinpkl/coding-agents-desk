@@ -314,6 +314,9 @@ export function SessionComposer({
     sessionId,
     isClaude,
     question,
+    // Null until the reader touches the question, because that is what attaches the pane. The
+    // mirror draws from the tool call either way; this is only what the terminal already holds.
+    paneQuestion: tmuxComposer.paneQuestion,
     engage,
   });
 

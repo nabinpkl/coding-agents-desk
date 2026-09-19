@@ -108,6 +108,7 @@ export function runtime(overrides: Partial<TmuxComposerRuntime> = {}): TmuxCompo
       return "agentdesk-1";
     },
     screen: async () => screenWith(["hello"]),
+    questionScreen: async () => screenWith(["hello"]),
     send: async (_pane, bytes) => {
       sent.push(new TextDecoder().decode(bytes));
     },
@@ -125,6 +126,8 @@ export function watchable(initial: string[] = ["hello"]) {
     screens: 0,
     /** How many times the pane was gone looking for, which is the expensive one. */
     resolved: 0,
+    /** Reads taken far enough back to see a dialog, which only happen when the box is gone. */
+    questionScreens: 0,
     sent: [] as string[],
     watching: false,
   };
@@ -135,6 +138,14 @@ export function watchable(initial: string[] = ["hello"]) {
     },
     screen: async () => {
       state.screens += 1;
+      return screenWith(state.rows);
+    },
+    // Counted separately, and deliberately not as a screen read: `state.screens` is what the
+    // "one read per burst" test measures, and a second capture folded into it would report a
+    // cost that is not there. This one is only reached when the composer box is gone, which is
+    // what a question dialog does to it, and these panes are showing a box.
+    questionScreen: async () => {
+      state.questionScreens += 1;
       return screenWith(state.rows);
     },
     send: async (_pane, bytes) => {

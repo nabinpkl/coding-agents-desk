@@ -13,11 +13,17 @@
 // somebody typed are still in the field they wrote them in, and the outcome's own `keptText` is
 // written back over it -- which is a no-op when they agree and a recovery when they do not.
 
-import { useCallback, useEffect, useState } from "react";
-import type { TmuxQuestionAnswer, TmuxQuestionOutcome, TmuxQuestionRefusal } from "@agentdesk/agent-feed-wire";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  TmuxQuestionAnswer,
+  TmuxQuestionOutcome,
+  TmuxQuestionRefusal,
+  TmuxQuestionState,
+} from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { AskUserQuestionItem, OpenAskUserQuestion } from "@/app/askUserQuestion";
 import {
+  adoptPaneState,
   alignDrafts,
   chooseOption,
   emptyDrafts,
@@ -74,6 +80,12 @@ export function useTmuxQuestion(
   feed: TmuxQuestionSender,
   session: SessionAddress,
   question: OpenAskUserQuestion | null,
+  /**
+   * What the dialog in the session's own terminal holds right now, or null when nothing is
+   * watching it. Null is the ordinary case until the reader touches the question: opening a
+   * thread does not attach the pane, and this arrives with the attachment.
+   */
+  pane: TmuxQuestionState | null = null,
 ) {
   const questions: AskUserQuestionItem[] = question?.questions ?? [];
   const count = questions.length;
@@ -81,18 +93,45 @@ export function useTmuxQuestion(
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Which questions this reader has answered here and not yet sent.
+   *
+   * The guard on following the pane, and the same rule the composer mirror applies to text: a
+   * draft is newer than any screen, so a reading may fill a question nobody has touched and never
+   * overwrite one somebody has. Per question rather than one flag, because a call is answered a
+   * question at a time and the ones still blank are exactly the ones worth filling.
+   */
+  const touched = useRef(new Set<number>());
+
   // A new call starts a fresh draft. Keyed on the callId rather than on the array, which is a new
   // object on every render of the feed.
   useEffect(() => {
     setDrafts(emptyDrafts(question?.questions ?? []));
+    touched.current = new Set();
     setError(null);
   }, [question?.callId]);
+
+  // Follows the terminal, for questions this reader has not answered here. Somebody at that
+  // keyboard may have been part-way through the dialog before the panel was opened on it.
+  useEffect(() => {
+    if (!pane) return;
+    setDrafts((current) =>
+      adoptPaneState(
+        alignDrafts(current, count),
+        questions,
+        pane,
+        (at) => !touched.current.has(at),
+      )
+    );
+    // `questions` is a fresh array on every render of the feed, so the call is keyed by its id.
+  }, [pane, question?.callId]);
 
   // Every write aligns first, because a call's questions arrive rather than existing all at once:
   // the tool_use's input streams into the transcript, and a draft built from the first reading is
   // short until the last question lands. `alignDrafts` keeps what has been answered already.
   const choose = useCallback((at: number, index: number) => {
     setError(null);
+    touched.current.add(at);
     setDrafts((current) =>
       chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
     );
@@ -100,6 +139,7 @@ export function useTmuxQuestion(
 
   const write = useCallback((at: number, text: string) => {
     setError(null);
+    touched.current.add(at);
     setDrafts((current) =>
       writeOther(alignDrafts(current, count), at, text, questions[at]?.multiSelect === true)
     );

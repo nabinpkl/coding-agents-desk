@@ -20,7 +20,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
-      listener.onState(HOLDING);
+      listener.onState({ composer: HOLDING, question: null });
       return () => watched.push(`stop:${sessionId}`);
     },
     sync: async (_sessionId, text) => {

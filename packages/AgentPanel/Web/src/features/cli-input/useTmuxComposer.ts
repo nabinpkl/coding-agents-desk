@@ -8,6 +8,7 @@ import {
   type RailModifier,
   type TmuxComposerState,
   type TmuxComposerUnavailableReason,
+  type TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
 import {
   cycleModifier,
@@ -77,6 +78,8 @@ export function useTmuxComposer(
   active: boolean,
 ): TmuxComposerHandle {
   const [state, setState] = useState<TmuxComposerState | null>(null);
+  /** The dialog standing in the pane, off the same reading as the box. See the handle. */
+  const [paneQuestion, setPaneQuestion] = useState<TmuxQuestionState | null>(null);
   /** Latched by the first reading that found a composer box; see `mirrored` on the handle. */
   const [mirrored, setMirrored] = useState(false);
   /** Latched by the first reading that found a PANE, box or not; see `paned` on the handle. */
@@ -237,6 +240,7 @@ export function useTmuxComposer(
   // written for, and carrying it across would type it into a different session's pane.
   useEffect(() => {
     setState(null);
+    setPaneQuestion(null);
     setError(null);
     edited.current = false;
     pushAgain.current = false;
@@ -254,7 +258,10 @@ export function useTmuxComposer(
   // backgrounded tab report a session as having no pane at all, which is a different claim.
   useEffect(() => {
     if (!key) return;
-    return feed.subscribeTmuxComposer(sessionRef.current, receive);
+    return feed.subscribeTmuxComposer(sessionRef.current, {
+      onComposer: receive,
+      onQuestion: setPaneQuestion,
+    });
   }, [feed, key, receive]);
 
   /**
@@ -451,6 +458,7 @@ export function useTmuxComposer(
     mirrored,
     paned,
     reason: state?.reason ?? null,
+    paneQuestion,
     draft,
     // Only while the box is empty, which is the only time Claude offers one and the only time a
     // placeholder can be seen. A stale hint beside typed text would be a suggestion for nothing.

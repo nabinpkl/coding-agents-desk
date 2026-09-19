@@ -8,7 +8,11 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { TmuxQuestionAnswer, TmuxQuestionOutcome } from "@agentdesk/agent-feed-wire";
+import type {
+  TmuxQuestionAnswer,
+  TmuxQuestionOutcome,
+  TmuxQuestionState,
+} from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
@@ -44,9 +48,14 @@ const CALL: OpenAskUserQuestion = {
 };
 
 function Mirror(
-  { question, answer }: { question: OpenAskUserQuestion; answer: Answer },
+  { question, answer, pane }: {
+    question: OpenAskUserQuestion;
+    answer: Answer;
+    /** What the session's own terminal is showing, once anything is watching it. */
+    pane?: TmuxQuestionState | null;
+  },
 ) {
-  const model = useTmuxQuestion({ answerTmuxQuestion: answer }, SESSION, question);
+  const model = useTmuxQuestion({ answerTmuxQuestion: answer }, SESSION, question, pane ?? null);
   return (
     <AskUserQuestionMirror
       questions={model.questions}
@@ -273,6 +282,53 @@ describe("the tmux question mirror", () => {
 
     expect(screen.getByLabelText("Claude question"))
       .toHaveTextContent("some of these answers may already have landed there");
+  });
+
+  it("follows what the terminal already holds, for a question not answered here", async () => {
+    // The other direction of the mirror. Somebody may have been part-way through this dialog at
+    // the keyboard before the panel was ever opened on it.
+    const pane: TmuxQuestionState = {
+      question: "Which colour?",
+      review: false,
+      multiSelect: false,
+      tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
+      options: [
+        { label: "ALPHA", marked: false, cursor: false },
+        { label: "BRAVO", marked: true, cursor: true },
+      ],
+      other: null,
+    };
+    render(<Mirror question={CALL} answer={async () => ({ answered: true })} pane={pane} />);
+
+    expect(screen.getByRole("radio", { name: "BRAVO" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "ALPHA" })).not.toBeChecked();
+  });
+
+  it("does not take back a choice this reader has made and not sent", () => {
+    const { rerender } = render(
+      <Mirror question={CALL} answer={async () => ({ answered: true })} />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "ALPHA" }));
+
+    // The pane then reports the other option, as it would if this reader's answer had not been
+    // committed yet and somebody else were moving in the dialog.
+    const pane: TmuxQuestionState = {
+      question: "Which colour?",
+      review: false,
+      multiSelect: false,
+      tabs: [{ label: "Colour", answered: true }],
+      options: [
+        { label: "ALPHA", marked: false, cursor: false },
+        { label: "BRAVO", marked: true, cursor: true },
+      ],
+      other: null,
+    };
+    rerender(<Mirror question={CALL} answer={async () => ({ answered: true })} pane={pane} />);
+
+    // A draft is newer than any screen: nothing is committed until Submit, so a reading must not
+    // undo a tap.
+    expect(screen.getByRole("radio", { name: "ALPHA" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "BRAVO" })).not.toBeChecked();
   });
 
   it("starts a fresh draft when a new call arrives", () => {

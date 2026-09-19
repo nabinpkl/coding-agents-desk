@@ -1,9 +1,14 @@
 // What the composer functions need from tmux, injected so a test never touches a pane,
 // and the watch that reports a pane's box as it changes.
 
-import type { TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import type {
+  TmuxComposerEnvelope,
+  TmuxComposerState,
+  TmuxQuestionState,
+} from "@agentdesk/agent-feed-wire";
 import {
   captureTmuxPaneView,
+  captureTmuxQuestionView,
   hexSend,
   TmuxUnavailable,
   type TmuxPaneView,
@@ -11,6 +16,8 @@ import {
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 import { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
+import { questionDialog } from "@/input/question/questionDialog";
+import { questionStateFrom } from "@/input/question/questionMirrorState";
 
 /** Everything the live functions need from tmux, injected so the suite needs no tmux server. */
 export interface TmuxComposerRuntime {
@@ -30,6 +37,16 @@ export interface TmuxComposerRuntime {
    * beside a cursor from another.
    */
   screen: (pane: string) => Promise<TmuxPaneView>;
+  /**
+   * The same pane, read far enough back to take in a question dialog taller than it.
+   *
+   * A second capture rather than a wider `screen`, because the two readers want different things
+   * from one pane. The composer reads a box the screen owns, and history would let an older paint
+   * match it. A dialog is not bounded by the pane at all: four options with real descriptions put
+   * its opening rule and question text above the top of the screen, and all of it is what the
+   * dialog is found by.
+   */
+  questionScreen: (pane: string) => Promise<TmuxPaneView>;
   send: (pane: string, bytes: Uint8Array) => Promise<void>;
   panes: TmuxComposerPanes;
 }
@@ -62,6 +79,7 @@ export const COALESCE_MS = 150;
 export const LIVE: TmuxComposerRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),
   screen: captureTmuxPaneView,
+  questionScreen: captureTmuxQuestionView,
   send: hexSend,
   // One registry for the process, so a watch opened through the routes is visible to a push that
   // took the default runtime. Two would be two answers to one question.
@@ -77,7 +95,14 @@ export function liveTmuxComposerRuntime(
 
 /** Where a watcher's reports go, and how it says there will be no more of them. */
 export interface TmuxComposerListener {
-  onState: (state: TmuxComposerState) => void;
+  /**
+   * One reading of the pane: the box, and the question dialog standing in front of it.
+   *
+   * Both from one capture pass rather than two subscriptions, because they are two questions about
+   * one screen at one instant. A panel that asked separately would be holding a composer from one
+   * moment beside a dialog from another.
+   */
+  onState: (envelope: TmuxComposerEnvelope) => void;
   /**
    * There is nothing to watch, so nothing further will be said.
    *
@@ -136,7 +161,7 @@ export function observeTmuxComposer(
     listener.onEnd();
   };
 
-  const report = (state: TmuxComposerState): void => {
+  const report = (state: TmuxComposerEnvelope): void => {
     if (stopped) return;
     const signature = JSON.stringify(state);
     if (signature === reported) return;
@@ -148,7 +173,13 @@ export function observeTmuxComposer(
     if (stopped || reading || pane === null) return;
     reading = true;
     try {
-      report(await readComposerAt(pane, runtime));
+      const composer = await readComposerAt(pane, runtime);
+      // The dialog takes the composer box away entirely for as long as it is up, so `no-composer`
+      // is exactly when to look for one -- and the only time this pays for a second capture.
+      const question = composer.reason === "no-composer"
+        ? await readQuestionAt(pane, runtime)
+        : null;
+      report({ composer, question });
     } catch {
       // A read that threw is not evidence about the composer, and the next output brings another.
     } finally {
@@ -173,7 +204,7 @@ export function observeTmuxComposer(
     }
     if (stopped) return;
     if (!found) {
-      report(unavailable("no-pane"));
+      report({ composer: unavailable("no-pane"), question: null });
       end();
       return;
     }
@@ -185,7 +216,7 @@ export function observeTmuxComposer(
       }
       unwatch = stop;
     } catch {
-      report(unavailable("tmux-unavailable"));
+      report({ composer: unavailable("tmux-unavailable"), question: null });
       end();
       return;
     }
@@ -204,6 +235,27 @@ export function observeTmuxComposer(
     unwatch?.();
     release?.();
   };
+}
+
+/**
+ * The question dialog standing in `pane`, or null when there is none.
+ *
+ * Null for an unreadable screen too, and that is safe here in a way it is not in the driver: this
+ * only decides what a panel DRAWS, where the driver decides whether keys go out. A reading that
+ * missed a dialog shows a mirror without the pane's own state for one poll; the next output brings
+ * another.
+ */
+export async function readQuestionAt(
+  pane: string,
+  runtime: Pick<TmuxComposerRuntime, "questionScreen">,
+): Promise<TmuxQuestionState | null> {
+  try {
+    const dialog = questionDialog(await runtime.questionScreen(pane));
+    return dialog === null ? null : questionStateFrom(dialog);
+  } catch (error) {
+    if (error instanceof TmuxUnavailable) return null;
+    throw error;
+  }
 }
 
 /** What the composer in `pane` is showing, or why it cannot be seen. */

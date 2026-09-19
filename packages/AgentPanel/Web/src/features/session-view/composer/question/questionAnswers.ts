@@ -10,7 +10,7 @@
 // operation carrying it succeeds, so a refusal puts it back in the field they wrote it in rather
 // than leaving it somewhere that no longer exists.
 
-import type { TmuxQuestionAnswer } from "@agentdesk/agent-feed-wire";
+import type { TmuxQuestionAnswer, TmuxQuestionState } from "@agentdesk/agent-feed-wire";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 
 /** What one question has been answered with so far. */
@@ -94,6 +94,58 @@ export function writeOther(
       ? { chosen: multiSelect || text.length === 0 ? draft.chosen : [], other: text }
       : draft
   );
+}
+
+/**
+ * Whether a label read off a screen names this option.
+ *
+ * A PREFIX check, because a long label wraps in the terminal onto a row indented exactly like a
+ * description, so what a screen can give back is only its start. The same rule the sidecar applies
+ * before it presses anything, applied here for the same reason: position says which row, and text
+ * says whether it is the row this answer was written for.
+ */
+export function sameLabel(onScreen: string, whole: string): boolean {
+  const seen = onScreen.trim();
+  return seen.length > 0 && whole.trim().startsWith(seen);
+}
+
+/**
+ * The drafts, with what the terminal already holds folded into the question it is showing.
+ *
+ * The other direction of the mirror. Somebody at that keyboard may have answered a question before
+ * the panel was ever opened on it, and a panel that drew an empty draft over the top of their
+ * choices would be inviting a reader to overwrite work that is already done.
+ *
+ * Only the question the pane is SHOWING, because that is the only one whose rows it reports: the
+ * tab row says which others are answered but not with what, and a draft filled from "answered"
+ * alone would be a guess.
+ *
+ * `untouched` is the guard, and it is the same rule the composer mirror uses for text: anything
+ * this reader has chosen here and not yet sent is newer than any screen, so the pane may not
+ * overwrite it.
+ */
+export function adoptPaneState(
+  drafts: readonly QuestionDraft[],
+  questions: readonly AskUserQuestionItem[],
+  pane: TmuxQuestionState,
+  untouched: (at: number) => boolean,
+): QuestionDraft[] {
+  const shown = pane.question;
+  if (shown === null) return [...drafts];
+  const at = questions.findIndex((entry) => sameLabel(shown, entry.question));
+  if (at < 0 || at >= drafts.length || !untouched(at)) return [...drafts];
+
+  const chosen: number[] = [];
+  for (const option of pane.options) {
+    if (!option.marked) continue;
+    const index = questions[at]!.options.findIndex((entry) => sameLabel(option.label, entry.label));
+    if (index >= 0 && !chosen.includes(index)) chosen.push(index);
+  }
+  const other = pane.other ?? "";
+  // A dialog nobody has answered yet says nothing this side does not already know, and adopting
+  // it would clear a draft on every reading the pane sends.
+  if (chosen.length === 0 && other.length === 0) return [...drafts];
+  return drafts.map((draft, position) => (position === at ? { chosen, other } : draft));
 }
 
 /** Whether this question has anything to send. */

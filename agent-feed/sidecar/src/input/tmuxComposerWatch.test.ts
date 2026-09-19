@@ -42,7 +42,12 @@ test("reports what the composer holds without waiting for the pane to write", as
     onEnd: () => {},
   }, tmux);
   await settle(60);
-  expect(seen).toEqual([{ text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [] }]);
+  // One reading of the pane carries both halves now: the box, and whatever dialog stands in
+  // front of it. There is no dialog here, which is a statement rather than an absence.
+  expect(seen).toEqual([{
+    composer: { text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [] },
+    question: null,
+  }]);
   expect(state.watching).toBe(true);
   stop();
   expect(state.watching).toBe(false);
@@ -84,8 +89,11 @@ test("reports only what changed, so a redraw above the box costs nobody anything
   write();
   await settle(300);
   expect(seen).toEqual([
-    { text: "hello", hint: null, reason: null, exact: true, commands: [] },
-    { text: "hello there", hint: null, reason: null, exact: true, commands: [] },
+    { composer: { text: "hello", hint: null, reason: null, exact: true, commands: [] }, question: null },
+    {
+      composer: { text: "hello there", hint: null, reason: null, exact: true, commands: [] },
+      question: null,
+    },
   ]);
   stop();
 });
@@ -103,7 +111,10 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
     onEnd: () => { ended += 1; },
   }, tmux);
   await settle(60);
-  expect(seen).toEqual([{ text: null, hint: null, reason: "no-pane", exact: true, commands: [] }]);
+  expect(seen).toEqual([{
+    composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [] },
+    question: null,
+  }]);
   expect(ended).toBe(1);
   expect(state.watching).toBe(false);
   expect(state.screens).toBe(0);

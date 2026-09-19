@@ -249,12 +249,11 @@ describe("App shell", () => {
   function noPaneForClaudeComposer(transport: FakeHttpTransport) {
     engageClaudeComposer();
     act(() => {
+      // One reading of the pane carries both halves: the box, and whatever dialog stands in front
+      // of it. A bare composer state is what the sidecar used to send, and nothing reads it now.
       transport.deliver("/composer/stream", {
-        text: null,
-        hint: null,
-        reason: "no-pane",
-        exact: true,
-        commands: [],
+        composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [] },
+        question: null,
       });
     });
   }
@@ -263,11 +262,8 @@ describe("App shell", () => {
     engageClaudeComposer();
     act(() => {
       transport.deliver("/composer/stream", {
-        text: "",
-        hint: null,
-        reason: null,
-        exact: true,
-        commands: [],
+        composer: { text: "", hint: null, reason: null, exact: true, commands: [] },
+        question: null,
       });
     });
   }

@@ -47,6 +47,38 @@ export type TmuxQuestionRefusal =
   /** The dialog was still open after submitting, so the answers cannot be claimed as sent. */
   | "still-open";
 
+/**
+ * The dialog as the pane is drawing it at this moment, for a panel that follows along.
+ *
+ * The other direction from everything else in this file. `TmuxQuestionAnswer` says what a dialog
+ * should END UP holding; this says what it holds NOW, so a reader answering in the panel sees what
+ * somebody at the keyboard has already done rather than a blank draft that will overwrite it.
+ *
+ * Content is deliberately absent: the question's text, its options and their descriptions are the
+ * tool call the panel already has, untruncated. What a screen can add is only the STATE -- which
+ * rows are marked, which question the terminal is on, what the free-text row holds -- so that is
+ * all this carries.
+ */
+export interface TmuxQuestionState {
+  /** The question on screen, or null on the review screen. */
+  question: string | null;
+  review: boolean;
+  /** Whether the rows carry checkboxes, which is the same fact the tool call states. */
+  multiSelect: boolean;
+  /** One entry per question of the call, in the tab row's own order. */
+  tabs: { label: string; answered: boolean }[];
+  /**
+   * The option rows, in order, without the free-text row that follows them.
+   *
+   * `label` is what the SCREEN says, which is not always the whole label: a long one wraps onto a
+   * row indented exactly like a description, so only its start is recoverable. Match it against
+   * the tool call's own options by prefix, the way the driver does before it presses anything.
+   */
+  options: { label: string; marked: boolean; cursor: boolean }[];
+  /** What the free-text row holds, or null while it is still showing its own prompt. */
+  other: string | null;
+}
+
 /** What one question should end up answered with. */
 export interface TmuxQuestionAnswer {
   /**

@@ -48,12 +48,12 @@ export function pane(initial = "", opening?: TmuxComposerState) {
     },
     subscribeTmuxComposer(
       _session: SessionAddress,
-      onState: (state: TmuxComposerState) => void,
+      handlers: { onComposer?: (state: TmuxComposerState) => void },
     ): () => void {
       feed.subscribes += 1;
       feed.live = true;
-      listener = onState;
-      onState(opening ?? holding(feed.box));
+      listener = handlers.onComposer ?? null;
+      listener?.(opening ?? holding(feed.box));
       return () => {
         feed.live = false;
         listener = null;

@@ -13,9 +13,11 @@ import type {
   ComposerKeyPress,
   RailKey,
   RailModifiers,
+  TmuxComposerEnvelope,
   TmuxComposerState,
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
+  TmuxQuestionState,
   WindowComposerEnvelope,
   WindowComposerStatus,
   WindowQuestionAction,
@@ -209,10 +211,20 @@ export class SidecarComposers extends SidecarTranscript {
    */
   subscribeTmuxComposer(
     session: SessionAddress,
-    onState: (state: TmuxComposerState) => void,
+    handlers: {
+      onComposer?: (state: TmuxComposerState) => void;
+      /** The dialog standing in the pane, or null when it has gone. */
+      onQuestion?: (state: TmuxQuestionState | null) => void;
+    },
   ): () => void {
     return this.transport.subscribe(tmuxComposerPath(session, "/stream"), {
-      onMessage: (payload) => onState(JSON.parse(payload) as TmuxComposerState),
+      onMessage: (payload) => {
+        const envelope = JSON.parse(payload) as TmuxComposerEnvelope;
+        // Only what the message carries. A field left out says nothing, where `question: null` is
+        // the statement that the dialog has gone -- which is what closes the mirror's follow.
+        if (envelope.composer) handlers.onComposer?.(envelope.composer);
+        if (envelope.question !== undefined) handlers.onQuestion?.(envelope.question);
+      },
       // Silent by design: the panel already surfaces a sidecar that has stopped answering, and an
       // `EventSource` reconnects on its own. A session that had no pane when this was opened is
       // also the commonest reason to be here, and it is not a fault.
