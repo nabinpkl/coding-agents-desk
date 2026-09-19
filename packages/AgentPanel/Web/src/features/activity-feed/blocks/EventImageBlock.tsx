@@ -19,12 +19,15 @@ export function EventImageBlock({
   eventIndex,
   blockIndex,
   alt = "Image from this message",
+  compact = false,
 }: {
   ctx: EventRowContext;
   eventIndex: number;
   blockIndex: number;
   /** What the opened picture is, for a reader who cannot see it. */
   alt?: string;
+  /** One line tall, for a collapsed tool call's header, where it says what the call returned. */
+  compact?: boolean;
 }) {
   const dataSource = useDataSource();
   const [opened, setOpened] = useState(false);
@@ -49,7 +52,10 @@ export function EventImageBlock({
         type="button"
         onClick={() => setOpened(true)}
         aria-label="Open image larger"
-        className="block max-w-full touch-manipulation overflow-hidden rounded-md border border-border outline-none transition-[border-color,opacity] hover:border-primary focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary active:opacity-70"
+        className={
+          (compact ? "shrink-0 rounded-sm " : "max-w-full rounded-md ") +
+          "block touch-manipulation overflow-hidden border border-border outline-none transition-[border-color,opacity] hover:border-primary focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary active:opacity-70"
+        }
       >
         {/* Bounded in height, not cropped: a tall screenshot stays a recognisable screenshot. */}
         <img
@@ -57,7 +63,11 @@ export function EventImageBlock({
           alt=""
           loading="lazy"
           onError={() => setFailed(true)}
-          className="block max-h-40 max-w-full object-contain"
+          className={
+            compact
+              ? "block h-[1.4em] max-w-[4em] object-contain"
+              : "block max-h-40 max-w-full object-contain"
+          }
         />
       </button>
       {opened ? (

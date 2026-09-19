@@ -9,6 +9,7 @@ import {
   type EventRowContext,
 } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 
 vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div /> }));
 
@@ -96,6 +97,52 @@ describe("an image in a message", () => {
     expect(screen.queryByText("(empty result)")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open image larger" }));
     expect(screen.getByRole("img", { name: "Image this tool returned" })).toBeVisible();
+  });
+
+  it("shows the picture beside a folded call's header, and only once when the call is open", () => {
+    const call: ActivityEvent = {
+      index: 20,
+      ts: Date.UTC(2026, 8, 14),
+      type: "assistant",
+      blocks: [{ kind: "tool_use", tool: "Read", summary: "shot.png", callId: "call-1" }],
+    };
+    const paired: PairedToolResult = {
+      block: { kind: "tool_result", preview: "", callId: "call-1" },
+      eventIndex: 21,
+      blockIndex: 0,
+      includesRawEvent: false,
+      metadata: [],
+      images: [1],
+    };
+    const eventImageUrl = vi.fn(() => "/img/21-1");
+    const renderCall = (expanded: boolean) => (
+      <DataSourceProvider source={stubDataSource({ eventImageUrl })}>
+        <SegmentEventRow
+          ev={call}
+          ctx={{
+            ...CTX,
+            expandedTools: new Set(expanded ? ["call-1"] : []),
+            pairedToolResults: new Map([["call-1", paired]]),
+          }}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </DataSourceProvider>
+    );
+    const { rerender } = render(renderCall(false));
+
+    expect(screen.getByRole("button", { expanded: false })).toBeVisible();
+    expect(eventImageUrl).toHaveBeenCalledWith(CTX.session, 21, 1);
+    expect(screen.getAllByRole("button", { name: "Open image larger" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Open image larger" }));
+    expect(screen.getByRole("img", { name: "Image this tool returned" })).toBeVisible();
+    fireEvent(screen.getByLabelText("Image"), new Event("cancel", { cancelable: true }));
+
+    rerender(renderCall(true));
+    expect(screen.getAllByRole("button", { name: "Open image larger" })).toHaveLength(1);
   });
 
   it("says there is an image where this view has no address for it", () => {

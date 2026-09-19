@@ -196,37 +196,57 @@ export function Block({
       ? (typeof b.input?.file_path === "string" ? b.input.file_path.split("/").pop() ?? "" : "")
       : (b.summary || "");
     const headerChip = isEditDiff ? "Edit" : b.tool;
+    // A call that returned a picture shows it while folded, since that picture is usually why the
+    // call was made. Open, the result draws it full size, so the header's copy steps aside.
+    const headerImages = !isExpanded && pairedResult ? pairedResult.images : [];
     return (
       <div className="space-y-1.5">
-        <button
-          type="button"
-          onClick={() => hasBody && ctx.onToggleTool(toolKey)}
-          aria-expanded={isExpanded}
-          disabled={!hasBody}
-          className={
-            "flex w-full items-baseline gap-1.5 rounded-sm font-mono text-left transition-colors " +
-            (hasBody ? "hover:bg-foreground/5 " : "cursor-default ")
-          }
+        <div
+          className="flex items-center gap-1.5"
           style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
-          {hasBody ? (
-            <ChevronRight
-              className={
-                "size-[1em] shrink-0 self-center text-muted-foreground transition-transform " +
-                (isExpanded ? "rotate-90" : "")
-              }
-              aria-hidden
-            />
-          ) : (
-            <span className="size-[1em] shrink-0" aria-hidden />
-          )}
-          <span className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-(length:--agent-panel-fs-tile-chip,12px) font-semibold text-foreground/80">
-            {headerChip}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-foreground/80">
-            {headerLabel}
-          </span>
-        </button>
+          <button
+            type="button"
+            onClick={() => hasBody && ctx.onToggleTool(toolKey)}
+            aria-expanded={isExpanded}
+            disabled={!hasBody}
+            className={
+              "flex min-w-0 flex-1 items-baseline gap-1.5 rounded-sm font-mono text-left transition-colors " +
+              (hasBody ? "hover:bg-foreground/5 " : "cursor-default ")
+            }
+          >
+            {hasBody ? (
+              <ChevronRight
+                className={
+                  "size-[1em] shrink-0 self-center text-muted-foreground transition-transform " +
+                  (isExpanded ? "rotate-90" : "")
+                }
+                aria-hidden
+              />
+            ) : (
+              <span className="size-[1em] shrink-0" aria-hidden />
+            )}
+            <span className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-(length:--agent-panel-fs-tile-chip,12px) font-semibold text-foreground/80">
+              {headerChip}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground/80">
+              {headerLabel}
+            </span>
+          </button>
+          {/* Beside the header rather than inside it: a button cannot hold another button. */}
+          {pairedResult
+            ? headerImages.map((blockIndex) => (
+                <EventImageBlock
+                  key={blockIndex}
+                  ctx={ctx}
+                  eventIndex={pairedResult.eventIndex}
+                  blockIndex={blockIndex}
+                  alt="Image this tool returned"
+                  compact
+                />
+              ))
+            : null}
+        </div>
         {isExpanded ? (
           <>
             {/* Wrapped: this is one command, not source, so it has no indentation to read and
