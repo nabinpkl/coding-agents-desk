@@ -117,7 +117,7 @@ export function BotCanvas({
    * directory and those are not all on one machine, so showing them side by side is the point --
    * which means it owes the reader a statement of what it IS showing. These are the machines that
    * statement names; the sidebar's canvas roster draws it, and the strip reads the answer. See
-   * `BotMachineChips`. Used here to label a card with the machine its Bot is on.
+   * `BotCanvasStatus`. Used here to label a card with the machine its Bot is on.
    */
   machines: readonly { key: string; label: string }[];
   /** Which machine a Bot is on. Undefined for a Bot no roster claims, which renders unlabelled. */

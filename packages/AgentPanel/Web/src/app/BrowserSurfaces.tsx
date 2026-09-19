@@ -279,7 +279,7 @@ export function BrowserSurfaces({
             the session list, the open thread, the terminals, the IDE and the desktop, and leaves
             the canvas showing the lot. Called "session" before, which named neither the thing it
             switches nor the thing it does not; the sidebar's Canvas roster carries the other half
-            of the sentence, a chip per machine with its count (`BotMachineChips`). */}
+            of the sentence, a chip per machine with its count (`BotCanvasStatus`). */}
         {surface !== "screen" && sessions.length > 1 ? (
           <div
             role="group"

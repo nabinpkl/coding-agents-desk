@@ -79,6 +79,7 @@ export function sidebarProps({
     // rather than over the ones a shown machine is contributing: the number beside a hidden
     // machine's chip is what says how many cards pressing it would bring back.
     canvasMachines: {
+      total: roster.canvasBots.length,
       machines: machines.chips,
       hidden: roster.hiddenMachines,
       countOf: (key: string) =>
