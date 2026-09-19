@@ -45,7 +45,8 @@ describe("CompactionRow", () => {
 
     fireEvent.click(chip);
     expect(chip).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/Primary Request/)).toBeInTheDocument();
+    // Rendered as Markdown: the summariser's numbered sections arrive as a list, not as digits.
+    expect(screen.getByRole("listitem")).toHaveTextContent("Primary Request");
 
     fireEvent.click(chip);
     expect(screen.queryByText(/Primary Request/)).toBeNull();

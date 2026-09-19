@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import { compactionSummary } from "@/features/activity-feed/rows/activityDisplayItems";
 import { partitionEventBlocks } from "@/features/activity-feed/rows/activityFeedLayout";
@@ -67,9 +68,11 @@ export function CompactionRow({
       </div>
       {summary && open ? (
         // Scrolls in its own box: a summary runs to tens of kilobytes, and a row that tall would
-        // push the rest of the thread a screen away from the banner it belongs to.
-        <div className="mt-2 max-h-[28em] overflow-y-auto overscroll-contain rounded-md border border-border bg-card px-3 py-2">
-          <p className="whitespace-pre-wrap break-words text-foreground">{summary}</p>
+        // push the rest of the thread a screen away from the banner it belongs to. Kept short so
+        // the thread around the banner stays in view while it is open. Markdown because the
+        // summariser writes numbered sections and nested lists.
+        <div className="mt-2 max-h-[16em] overflow-y-auto overscroll-contain rounded-md border border-border bg-card px-3 py-2 leading-(--agent-panel-prose-leading) text-foreground">
+          <Markdown content={summary} />
         </div>
       ) : null}
       <div className="mt-1">
