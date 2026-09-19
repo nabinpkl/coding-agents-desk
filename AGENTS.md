@@ -9,7 +9,7 @@
 
 Before doing project work, read `FEATURE-MAP.md` first, then `PRD.md` and `SPEC.md` once. They are short on purpose.
 
-Three things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
+Four things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
 infer backwards from the shape of the tree:
 
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
@@ -31,6 +31,18 @@ infer backwards from the shape of the tree:
   carry no summary, for one. The Pi SDK itself is NOT dead: `summary/summaryRuntime.ts` runs the
   turn summarizer on `@earendil-works/pi-coding-agent` (the `summaryModel` in `/api/config`), so
   retiring Pi means removing the provider, not that dependency.
+- **The sidebar's Bots tab is dormant in favour of Canvas** (recorded 2026-09-15, on the owner's
+  word). Canvas is where Bots are read and acted on. The Bots tab (`AgentSidebarMode` `"bots"` in
+  `features/sidebar/AgentSidebar.tsx`) is still wired in and still looks current: it sits between
+  Sessions and Canvas, lists every Bot, and opens a Bot's session in the main thread view. Do not
+  extend it, and do not treat a gap in it as a bug to fix. The known one is a two-machine gap: that
+  view is handed the shell's `sessionViewContext`, whose `feed` is whichever machine the tab bar's
+  picker points at, so a peer's Bot session opened there sends its transcript, composer and image
+  drops to the wrong sidecar. Canvas cards do not have this gap, because each card's context comes
+  from `shellMachines.contextFor`. One piece is NOT dormant, so retiring the tab does not mean
+  removing it: `BotSidebarPanel` is the Canvas tab's roster too, rendered there with the `canvas`
+  prop. What IS the tab's alone is `thread.openBotSession`: the Canvas roster opens a session with
+  `roster.openSessionOnCanvas` instead.
 
 # Repository layout
 
