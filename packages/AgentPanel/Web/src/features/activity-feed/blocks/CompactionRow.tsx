@@ -9,7 +9,7 @@ import { partitionEventBlocks } from "@/features/activity-feed/rows/activityFeed
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 const CHIP_CLASS =
-  "flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 font-mono uppercase tracking-wider text-foreground/70";
+  "flex shrink-0 items-center gap-1.5 rounded-full border session-view-compaction px-2 py-0.5 font-mono uppercase tracking-wider text-foreground/70";
 const CHIP_STYLE = { fontSize: "var(--agent-panel-fs-tile-chip, 12px)" };
 
 /**
@@ -53,7 +53,7 @@ export function CompactionRow({
             aria-expanded={open}
             title={open ? "Hide the summary" : "Show the summary"}
             onClick={() => setOpen((value) => !value)}
-            className={`${CHIP_CLASS} cursor-pointer outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80`}
+            className={`${CHIP_CLASS} cursor-pointer outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary`}
             style={CHIP_STYLE}
           >
             {label}

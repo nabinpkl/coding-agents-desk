@@ -131,12 +131,12 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.625rem;
-  /* The ink for muted text inside a compaction's summary box, which sits one step off the rows
-     around it (`.session-view-compaction`). Light's `--muted-foreground` is 0.556 and holds only
-     4.5:1 on the rows themselves, so a step that is visible at all spends it; the ink moves
-     instead, the way `--bot-session-ink-l` does for a session card's caption. Dark has room and
-     keeps its own. */
-  --compaction-ink: oklch(0.5 0 0);
+  /* The ink for muted text on a session surface a step darker than the rows, which is the compaction
+     summary box and the docked bars (`.session-view-compaction`, `.session-view-dock`). Light's
+     `--muted-foreground` is 0.556 and holds only 4.5:1 on the rows themselves, so any step that is
+     visible spends it; the ink moves instead, the way `--bot-session-ink-l` does for a session
+     card's caption. Dark has room and keeps its own. */
+  --session-step-ink: oklch(0.5 0 0);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -159,7 +159,7 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
-    --compaction-ink: oklch(0.708 0 0);
+    --session-step-ink: oklch(0.708 0 0);
   }
 }
 
@@ -284,13 +284,26 @@
   --bot-session-row-tool-c: 0.0125;
   /* The box a compaction's summary sits in: the session's own hue one step down, so it belongs to
      the card and still reads as a different thing from the rows. Darker is the only direction
-     light has, and it is paid for with `--compaction-ink`: over 72 hues muted text holds 5.23:1
-     and the box sits 0.030 dEok off the row surface, about what two adjacent sessions differ by.
-     The border carries the chroma, as the Bot border does. */
+     light has, and it is paid for with `--session-step-ink`: over 72 hues muted text holds 5.23:1
+     and the box sits 0.030 dEok off the row surface, about what two adjacent sessions differ by. */
   --bot-session-compaction-l: 0.965;
   --bot-session-compaction-c: 0.035;
-  --bot-session-compaction-border-l: 0.840;
-  --bot-session-compaction-border-c: 0.080;
+  /* What is DOCKED over the transcript rather than scrolling in it: the two sticky bars and the
+     composer band. Its job is to differ from two neighbours at once, the titlebar directly above
+     the sticky bars and the rows sliding under them, and light can only fit it BETWEEN the two:
+     0.030 dEok off the titlebar and 0.019 off the rows over 72 hues, muted text 5.39:1 on
+     `--session-step-ink`. So the edges are drawn in the hue line rather than left to the fill: under
+     the bars against the rows, and above the transcript against the titlebar (`.session-view-divider`). */
+  --bot-session-dock-l: 0.975;
+  --bot-session-dock-c: 0.030;
+  /* The composer's field, raised out of the dock so it still reads as somewhere to type. */
+  --bot-session-field-l: 0.995;
+  --bot-session-field-c: 0.012;
+  /* One hue line for every edge these draw -- the summary box, the docked bars, the field, and the
+     divider under the titlebar -- at the Bot border's own lightness and chroma, so the chroma sits
+     on the edge where no text does. */
+  --bot-session-line-l: 0.840;
+  --bot-session-line-c: 0.080;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -383,8 +396,15 @@
        raised card, 0.047 dEok off the row surface over 72 hues, muted text at 7.24:1. */
     --bot-session-compaction-l: 0.160;
     --bot-session-compaction-c: 0.070;
-    --bot-session-compaction-border-l: 0.400;
-    --bot-session-compaction-border-c: 0.100;
+    /* Deeper than the rows, the ground and the titlebar (0.255), so both edges come from lightness:
+       0.087 dEok off the titlebar and 0.041 off the rows over 72 hues, muted text 7.16:1. */
+    --bot-session-dock-l: 0.165;
+    --bot-session-dock-c: 0.075;
+    /* Raised back up out of that dock, 0.047 dEok above it and still short of the titlebar. */
+    --bot-session-field-l: 0.225;
+    --bot-session-field-c: 0.090;
+    --bot-session-line-l: 0.400;
+    --bot-session-line-c: 0.100;
   }
 }
 
@@ -491,9 +511,14 @@
       var(--bot-session-compaction-l) var(--bot-session-compaction-c)
       var(--bot-session-hue, var(--bot-hue))
     );
-    --session-view-compaction-border: oklch(
-      var(--bot-session-compaction-border-l) var(--bot-session-compaction-border-c)
-      var(--bot-session-hue, var(--bot-hue))
+    --session-view-dock: oklch(
+      var(--bot-session-dock-l) var(--bot-session-dock-c) var(--bot-session-hue, var(--bot-hue))
+    );
+    --session-view-field: oklch(
+      var(--bot-session-field-l) var(--bot-session-field-c) var(--bot-session-hue, var(--bot-hue))
+    );
+    --session-view-line: oklch(
+      var(--bot-session-line-l) var(--bot-session-line-c) var(--bot-session-hue, var(--bot-hue))
     );
     /* The titlebar, which is the card's own fill and not a surface of its own. An open card lays
        this over the top of `background-color` below, so anything else here is the card changing
@@ -555,8 +580,55 @@
      than the one that ink was chosen against. */
   .session-view-compaction {
     background-color: var(--session-view-compaction, var(--muted));
-    border-color: var(--session-view-compaction-border, var(--border));
-    --muted-foreground: var(--compaction-ink);
+    border-color: var(--session-view-line, var(--border));
+    --muted-foreground: var(--session-step-ink);
+  }
+
+  /* The sticky bars and the composer band, docked over the transcript. Same ink reset, for the same
+     reason. */
+  .session-view-dock {
+    background-color: var(--session-view-dock, var(--card));
+    border-color: var(--session-view-line, var(--border));
+    --muted-foreground: var(--session-step-ink);
+  }
+
+  /* An edge between two of these surfaces that belongs to neither, such as the line between an open
+     card's titlebar and its transcript. */
+  .session-view-divider {
+    border-color: var(--session-view-line, var(--border));
+  }
+
+  /* The composer's field. Its focus border is a utility and wins over this one. */
+  .session-view-field {
+    background-color: var(--session-view-field, var(--background));
+    border-color: var(--session-view-line, var(--border));
+  }
+
+  /* Pressed and hovered states for the two of these that are buttons, mixed toward the ink so
+     they darken in light and lighten in dark from whatever hue the surface has. A grey utility
+     here would flash the session's colour out on hover. */
+  button.session-view-dock:hover {
+    background-color: color-mix(
+      in oklab, var(--session-view-dock, var(--card)) 94%, var(--foreground)
+    );
+  }
+
+  button.session-view-compaction:hover {
+    background-color: color-mix(
+      in oklab, var(--session-view-compaction, var(--muted)) 94%, var(--foreground)
+    );
+  }
+
+  button.session-view-dock:active {
+    background-color: color-mix(
+      in oklab, var(--session-view-dock, var(--card)) 88%, var(--foreground)
+    );
+  }
+
+  button.session-view-compaction:active {
+    background-color: color-mix(
+      in oklab, var(--session-view-compaction, var(--muted)) 88%, var(--foreground)
+    );
   }
 
   /* Caption ink that follows the surface it sits on. Everywhere but a shaded session card there

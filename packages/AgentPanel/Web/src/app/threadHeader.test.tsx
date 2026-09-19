@@ -275,7 +275,7 @@ describe("App shell", () => {
   /** The session's own box: what the card is, from the inside of it. */
   function sessionCard(): HTMLElement {
     const field = screen.getByLabelText("Type into this session's terminal composer");
-    const card = field.closest(".bg-card");
+    const card = field.closest(".session-view-surface");
     if (!(card instanceof HTMLElement)) throw new Error("the session has no card");
     return card;
   }
@@ -326,7 +326,7 @@ describe("App shell", () => {
     noPaneForClaudeComposer(transport);
 
     const field = screen.getByLabelText("Claude composer text");
-    const card = field.closest(".bg-card");
+    const card = field.closest(".session-view-surface");
     if (!(card instanceof HTMLElement)) throw new Error("the session has no card");
     await act(async () => {
       drop(card, [new File(["png"], "shot.png", { type: "image/png" })]);
@@ -374,7 +374,7 @@ describe("App shell", () => {
     noPaneForClaudeComposer(transport);
 
     const field = screen.getByLabelText("Claude composer text");
-    const card = field.closest(".bg-card");
+    const card = field.closest(".session-view-surface");
     if (!(card instanceof HTMLElement)) throw new Error("the session has no card");
     await act(async () => {
       dragOver(card);

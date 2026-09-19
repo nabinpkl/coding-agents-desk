@@ -92,7 +92,7 @@ export function SessionComposerBand({
     ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
     : null;
   return (
-    <section aria-label={sectionLabel} className={`shrink-0 border-t border-border bg-card ${COLUMN_GUTTER_CLASS} py-3`}>
+    <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 
@@ -162,7 +162,7 @@ export function SessionComposerBand({
           // scrolling and auto-grow and gives up only its border.
           // No drop handlers of its own: the whole session card is the target, and a second set
           // here would take the same drop again on the way past, putting the image in twice.
-          className={`flex min-w-0 flex-1 flex-col rounded-xl border border-border bg-background shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${
+          className={`flex min-w-0 flex-1 flex-col rounded-xl border session-view-field shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${
             editor.disabled ? "opacity-40" : ""
           }`}
         >

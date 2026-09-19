@@ -21,7 +21,7 @@ export function RunningTasksChip({
 }) {
   if (count <= 0) return null;
   return (
-    <div className={`flex shrink-0 items-center border-t border-border bg-card ${COLUMN_GUTTER_CLASS} py-1`}>
+    <div className={`flex shrink-0 items-center border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-1`}>
       <button
         type="button"
         onClick={onToggle}

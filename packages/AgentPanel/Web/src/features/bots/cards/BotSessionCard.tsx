@@ -278,7 +278,7 @@ export function BotSessionCard({
           {open ? (
             // A named landmark rather than a bare box: a canvas of open sessions is a page with
             // several of them on it, and each one should be reachable by name.
-            <section className="min-h-0 flex-1 border-t border-border" aria-label={`${title} session`}>
+            <section className="min-h-0 flex-1 border-t session-view-divider" aria-label={`${title} session`}>
               {/* The same component the app's own thread view renders, given a box instead of the
                   page. It needs nothing said to it about being small: everything in it measures the
                   column it is, so the box decides. */}
