@@ -7,8 +7,8 @@ const markdownStyles = readFileSync(
   resolve("src/features/activity-feed/markdown/markdown.css"),
   "utf8",
 );
-// Both files: the three text wrappers moved into `ActivityBlockViews.tsx` when the rows
-// were split, and the rule is about all of them wherever they live.
+// Both files: the text wrappers moved into `ActivityBlockViews.tsx` when the rows were
+// split, and the rule is about all of them wherever they live.
 const eventRows = [
   "src/features/activity-feed/blocks/ActivityEventRows.tsx",
   "src/features/activity-feed/blocks/ActivityBlockViews.tsx",
@@ -31,8 +31,13 @@ describe("Agent Panel type rendering", () => {
     expect(markdownStyles).toContain("line-height: var(--agent-panel-prose-leading");
     // Tailwind emits nothing for a malformed arbitrary-property class, and the
     // line-height then silently falls back to whatever is inherited.
+    //
+    // A census, not a cap: the number moves when a wrapper is added, and it is here so that a
+    // wrapper added WITHOUT the token has to be noticed. Four today -- assistant prose, the plain
+    // path beside it, a reasoning trace, and the body of a skill folded into the call that
+    // loaded it.
     const consumers = eventRows.match(/leading-\(--agent-panel-prose-leading\)/g) ?? [];
-    expect(consumers).toHaveLength(3);
+    expect(consumers).toHaveLength(4);
     expect(eventRows).not.toContain("leading-snug text-foreground");
   });
 

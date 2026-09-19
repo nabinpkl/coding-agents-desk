@@ -13,6 +13,25 @@ import {
   type DisplayItemOptions,
 } from "@/features/activity-feed/rows/activityDisplayItems";
 
+/**
+ * The instructions a skill loaded, folded into the call that loaded them.
+ *
+ * Claude writes a skill activation as THREE records: the `Skill` call, a `tool_result` saying
+ * only `Launching skill: <name>`, and then the whole skill as a separate harness-written user
+ * message. That third record is prose inside a `user` record, so it rendered as the reader's own
+ * right-aligned card -- several hundred lines of instructions attributed to the person, sitting
+ * between the call that loaded them and the work they steered. It is what the call returned, so
+ * it belongs inside the call.
+ */
+export interface SkillBody {
+  text: string;
+  /** The folded record's own index, metadata and raw line, which travel into the call for the
+   *  same reason a paired result's do: it no longer has a row of its own to carry them. */
+  eventIndex: number;
+  metadata: ActivityBlock[];
+  includesRawEvent: boolean;
+}
+
 /** A tool_result that renders inside the tool call it answers. */
 export interface PairedToolResult {
   block: ActivityBlock;
@@ -24,6 +43,8 @@ export interface PairedToolResult {
   metadata: ActivityBlock[];
   /** Indices, in the result's event, of the image blocks this result returned. */
   images: number[];
+  /** Where this call is a `Skill` activation, the skill's own text. */
+  skillBody?: SkillBody;
 }
 
 /**
@@ -37,6 +58,24 @@ function resultImages(ev: ActivityEvent, callId: string | undefined): number[] {
   return ev.blocks.flatMap((block, index) =>
     block.kind === "image" && block.callId === callId ? [index] : [],
   );
+}
+
+/**
+ * Whether this event is text the HARNESS wrote as the user.
+ *
+ * `humanTurn` is the sidecar's answer to "did a person write this line", decided where the raw
+ * record still exists and the panel cannot ask again (`transcripts/humanTurns.ts`): Claude marks
+ * its own injections `isMeta`, whatever they say. Metadata does not disqualify an event from its
+ * shape -- the adapter appends Working Directory to nearly every Claude line -- which is the same
+ * trap `isResultOnly` and `isCompactionEvent` each had to be widened for.
+ */
+function isHarnessUserText(ev: ActivityEvent): boolean {
+  return ev.type === "user" &&
+    ev.humanTurn !== true &&
+    ev.blocks.some((block) => block.kind === "text" && (block.text ?? "").trim() !== "") &&
+    ev.blocks.every(
+      (block) => block.kind === "text" || block.kind === "metadata" || block.kind === "raw",
+    );
 }
 
 /** Everything the feed needs to render one window of events. */
@@ -212,6 +251,45 @@ export function buildFeedLayout(
         images: resultImages(event, block.callId),
       });
     });
+  }
+
+  // A skill's body carries no `callId` -- the harness gives it none -- so it is found by
+  // POSITION: the visible event straight after the `Launching skill:` result of a `Skill` call.
+  // Anything less exact is left alone. A body that is not where it should be keeps its own row
+  // rather than being folded into whichever call happens to sit above it, because the failure of
+  // guessing here is a reader's own message disappearing into a tool row.
+  const skillCallIds = new Set(
+    visibleEvents.flatMap((event) =>
+      event.blocks.flatMap((block) =>
+        block.kind === "tool_use" && block.tool === "Skill" && block.callId ? [block.callId] : [],
+      ),
+    ),
+  );
+  for (let position = 1; position < visibleEvents.length; position++) {
+    const body = visibleEvents[position]!;
+    if (!isHarnessUserText(body)) continue;
+    const answered = visibleEvents[position - 1]!.blocks.flatMap((block) =>
+      block.kind === "tool_result" && block.callId && skillCallIds.has(block.callId)
+        ? [block.callId]
+        : [],
+    );
+    // Exactly one: two skills answered on one line leave nothing to say which body is whose.
+    if (answered.length !== 1) continue;
+    const paired = pairedToolResults.get(answered[0]!);
+    if (!paired) continue;
+    const text = body.blocks
+      .flatMap((block) => (block.kind === "text" && block.text ? [block.text] : []))
+      .join("\n\n")
+      .trim();
+    if (!text) continue;
+    const { folded, hasRawJson } = partitionEventBlocks(body);
+    paired.skillBody = {
+      text,
+      eventIndex: body.index,
+      metadata: folded,
+      includesRawEvent: hasRawJson,
+    };
+    pairedResultEventIds.add(body.index);
   }
 
   const displayEvents = visibleEvents.filter(

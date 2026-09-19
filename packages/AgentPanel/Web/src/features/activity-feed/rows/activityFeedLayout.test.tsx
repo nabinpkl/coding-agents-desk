@@ -163,6 +163,88 @@ describe("feed layout", () => {
     expect(layout.pairedToolResults.size).toBe(0);
   });
 
+  // Claude writes a skill as three records: the call, a `Launching skill:` result, and the whole
+  // skill as a separate harness-written user message. The third one is what these pin.
+  const skillCall: ActivityEvent = {
+    index: 80,
+    ts: 1,
+    type: "assistant",
+    blocks: [
+      { kind: "tool_use", tool: "Skill", callId: "call-1", summary: "Skill artifact-design" },
+      { kind: "raw" },
+    ],
+  };
+  const launching: ActivityEvent = {
+    index: 81,
+    ts: 2,
+    type: "user",
+    blocks: [
+      { kind: "tool_result", preview: "Launching skill: artifact-design", callId: "call-1" },
+      CWD,
+      { kind: "raw" },
+    ],
+  };
+  const skillText = "# Artifact design\n\nApproach this as the design lead at a small studio.";
+
+  it("folds a skill's body into the call that activated it", () => {
+    const layout = buildFeedLayout(
+      [
+        skillCall,
+        launching,
+        { index: 82, ts: 3, type: "user", blocks: [{ kind: "text", text: skillText }, CWD, { kind: "raw" }] },
+      ],
+      NICE,
+    );
+
+    // One row for all three: the call. The body used to be a right-aligned USER card holding
+    // several hundred lines of instructions attributed to the reader.
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([80]);
+    const body = layout.pairedToolResults.get("call-1")?.skillBody;
+    expect(body?.text).toContain("Approach this as the design lead");
+    // The folded record's own raw line and metadata ride into the call, as a paired result's do.
+    expect(body?.eventIndex).toBe(82);
+    expect(body?.includesRawEvent).toBe(true);
+    expect(body?.metadata.map((block) => block.label)).toEqual(["Working Directory"]);
+  });
+
+  it("leaves a person's own message alone when it lands right after a skill", () => {
+    // `humanTurn` is the whole guard. Guessing from position alone would make a reader's message
+    // vanish into a tool row, which is a worse failure than the one being fixed.
+    const layout = buildFeedLayout(
+      [
+        skillCall,
+        launching,
+        {
+          index: 82,
+          ts: 3,
+          type: "user",
+          humanTurn: true,
+          blocks: [{ kind: "text", text: "now use it on the panel" }, CWD, { kind: "raw" }],
+        },
+      ],
+      NICE,
+    );
+
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([80, 82]);
+    expect(layout.pairedToolResults.get("call-1")?.skillBody).toBeUndefined();
+  });
+
+  it("attaches nothing to an ordinary tool call the same text follows", () => {
+    // Only a `Skill` call loads a body. A Read answered by a result, followed by an injected
+    // `<system-reminder>`, must keep both rows.
+    const layout = buildFeedLayout(
+      [
+        { index: 80, ts: 1, type: "assistant", blocks: [{ kind: "tool_use", tool: "Read", callId: "call-1" }] },
+        { index: 81, ts: 2, type: "user", blocks: [{ kind: "tool_result", preview: "file", callId: "call-1" }, CWD] },
+        { index: 82, ts: 3, type: "user", blocks: [{ kind: "text", text: "<system-reminder>hi</system-reminder>" }] },
+      ],
+      NICE,
+    );
+
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([80, 82]);
+    expect(layout.pairedToolResults.get("call-1")?.skillBody).toBeUndefined();
+  });
+
   it("renders a compaction banner even when the line carries metadata", () => {
     const layout = buildFeedLayout([
       {

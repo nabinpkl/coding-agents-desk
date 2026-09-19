@@ -20,7 +20,7 @@ import {
   withoutFileHandles,
 } from "@/features/activity-feed/blocks/SentFilesBlock";
 import { shellCommand } from "@/features/activity-feed/rows/activityEventText";
-import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
+import type { PairedToolResult, SkillBody } from "@/features/activity-feed/rows/activityFeedLayout";
 import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/blocks/streamingText";
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
@@ -123,6 +123,37 @@ function ToolResultContent({
         eventIndex={result.eventIndex}
         includesRawJson={result.includesRawEvent}
         label="Raw result"
+      />
+    </div>
+  );
+}
+
+/**
+ * The instructions a skill loaded, drawn inside the call that loaded them.
+ *
+ * Markdown, because that is what a skill is written in: headings, lists and fenced code, which as
+ * plain text is a wall of `#` and `-`. Bounded and scrolling for the reason the compaction
+ * summary is -- these run to hundreds of lines, and a reader who opened one tool row should not
+ * have to scroll past a document to reach the next.
+ */
+function SkillBodyBlock({ body, ctx }: { body: SkillBody; ctx: EventRowContext }) {
+  return (
+    <div className="space-y-1.5">
+      <div
+        className="max-h-[24em] overflow-y-auto overscroll-contain rounded-sm border border-border/50 bg-muted/30 px-2 py-1.5 leading-(--agent-panel-prose-leading) text-foreground"
+        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
+      >
+        <Markdown content={body.text} />
+      </div>
+      {/* Named apart from the call's own drawer and the result's, because this is a third
+          transcript line that gave up its row to sit here. */}
+      <RawDetails
+        metadata={body.metadata}
+        session={ctx.session}
+        rawSource={ctx.rawSource}
+        eventIndex={body.eventIndex}
+        includesRawJson={body.includesRawEvent}
+        label="Raw skill"
       />
     </div>
   );
@@ -324,8 +355,21 @@ export function Block({
               <ToolResultContent
                 result={pairedResult}
                 ctx={ctx}
-                text={namedFiles ? withoutFileHandles(pairedResult.block.preview) : undefined}
+                text={
+                  // A skill's result says only `Launching skill: <name>`, and the chip and label
+                  // on this very row already say which skill. With the body under it, drawing
+                  // that line is the row repeating itself; empty leaves the result's own Raw
+                  // drawer, which is the part that would otherwise become unreachable.
+                  pairedResult.skillBody
+                    ? ""
+                    : namedFiles
+                      ? withoutFileHandles(pairedResult.block.preview)
+                      : undefined
+                }
               />
+            ) : null}
+            {pairedResult?.skillBody ? (
+              <SkillBodyBlock body={pairedResult.skillBody} ctx={ctx} />
             ) : null}
           </>
         ) : null}
