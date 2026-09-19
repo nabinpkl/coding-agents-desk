@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { BOT_FACE_SPACE, BotFace, botFaceOf } from "@/features/bots/avatar/BotFace";
+import { BOT_FACE_PAIRS, BotFace, botFaceOf } from "@/features/bots/avatar/BotFace";
 import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSurface";
 
 const key = (rank: number): string => {
@@ -17,13 +17,14 @@ const key = (rank: number): string => {
 };
 
 /**
- * Every face a realistic panel draws: 256 Bots, and six sessions each for 64 of them. If any two
- * of these shared a drawing the uniqueness promise would already be broken where it matters.
+ * Every face a large panel draws: forty Bots, and six sessions each for all of them. Every input
+ * sits under 500, so the permutation owes each of these its own pair -- if any two shared a
+ * drawing the numbering promise would already be broken where it matters.
  */
 function realisticRanks(): number[] {
   const ranks: number[] = [];
-  for (let bot = 0; bot < 256; bot += 1) ranks.push(bot);
-  for (let bot = 0; bot < 64; bot += 1) {
+  for (let bot = 0; bot < 40; bot += 1) ranks.push(bot);
+  for (let bot = 0; bot < 40; bot += 1) {
     for (let step = 0; step < 6; step += 1) ranks.push(botSessionFaceRank(bot, step));
   }
   return ranks;
@@ -35,14 +36,22 @@ describe("botFaceOf", () => {
     expect(new Set(ranks.map(key)).size).toBe(ranks.length);
   });
 
+  test("the set behind the permutation is a hundred distinct polygons", () => {
+    // 37 is coprime to 500, so the first five hundred ranks reach every pair: every head in the
+    // frozen set is drawn by some rank, and no two of them are the same string.
+    const heads = new Set<string>();
+    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) heads.add(botFaceOf(rank).head);
+    expect(heads.size).toBe(100);
+  });
+
   test("no session input reaches a Bot's drawing", () => {
     // The sessions number from their own base, and the permutation is exact: what is pinned here
     // is the numbering, which is what keeps the two apart before a single path is drawn.
-    for (let bot = 0; bot < 256; bot += 1) {
+    for (let bot = 0; bot < 40; bot += 1) {
       expect(botSessionFaceRank(bot, 0)).toBeGreaterThanOrEqual(BOT_SESSION_FACE_BASE);
-      expect(botSessionFaceRank(bot, 0)).toBeLessThan(BOT_FACE_SPACE);
+      expect(botSessionFaceRank(bot, 5)).toBeLessThan(BOT_FACE_PAIRS);
     }
-    expect(BOT_SESSION_FACE_BASE).toBeGreaterThan(256);
+    expect(BOT_SESSION_FACE_BASE).toBeGreaterThan(39);
   });
 
   test("every head stays inside the box it is drawn in", () => {

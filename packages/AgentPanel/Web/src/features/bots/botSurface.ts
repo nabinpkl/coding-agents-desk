@@ -110,11 +110,11 @@ export function botCanvasRanks(bots: readonly BotColourIdentity[]): ReadonlyMap<
 /**
  * Where session face inputs start.
  *
- * Bots number from zero, so sessions number from here: the two never share a face input while
- * Bots number under 2048, and the permutation behind `botFaceOf` is exact over every input under
- * 65536, so no face repeats for any roster this side of either bound.
+ * Bots number from zero, so sessions number from here. Every input under 500 reaches its own
+ * head-and-eyes pair, so the two never share a face while Bots number under 256 and every
+ * session input stays under 500 -- forty Bots of six sessions each, hundreds past this roster.
  */
-export const BOT_SESSION_FACE_BASE = 2048;
+export const BOT_SESSION_FACE_BASE = 256;
 
 /**
  * The face a session wears, from its Bot's rank and its own step on that Bot's ladder.

@@ -138,14 +138,18 @@ describe("botSessionFaceRank", () => {
 
   test("no session input reaches into the Bots' numbering", () => {
     // Provable by arithmetic rather than by drawing: the smallest session input is the base
-    // itself, and the base sits past every Bot rank this side of 2048. Whether those inputs then
-    // draw different faces is the avatar test's property, pinned over the realistic range there.
-    for (let bot = 0; bot < 256; bot += 1) {
+    // itself, the base sits past every Bot rank this side of 256, and the largest session input
+    // for forty Bots of six sessions stays under the 500 the permutation is exact over. Whether
+    // those inputs then draw different faces is the avatar test's property, pinned over the
+    // realistic range there.
+    for (let bot = 0; bot < 40; bot += 1) {
       for (let step = 0; step < 6; step += 1) {
-        expect(botSessionFaceRank(bot, step)).toBeGreaterThanOrEqual(BOT_SESSION_FACE_BASE);
+        const input = botSessionFaceRank(bot, step);
+        expect(input).toBeGreaterThanOrEqual(BOT_SESSION_FACE_BASE);
+        expect(input).toBeLessThan(500);
       }
     }
-    expect(BOT_SESSION_FACE_BASE).toBeGreaterThan(255);
+    expect(BOT_SESSION_FACE_BASE).toBeGreaterThan(39);
   });
 
   test("a session keeps its face while its neighbours come and go", () => {

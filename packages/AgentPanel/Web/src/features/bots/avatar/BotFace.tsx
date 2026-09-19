@@ -8,11 +8,19 @@
 // do here is answer "which Bot is this" before the name under it is read, and only SHAPE does that
 // once colour is spent.
 //
-// So every face is GENERATED, not picked: a seeded stream draws one head outline and one set of
-// eyes per rank, with no catalogue and no cycle. A catalogue is what this was, and forty entries
-// cannot cover eighteen Bots and thirty-two sessions without dressing two of them alike -- the
-// failure a face exists to prevent. The space below holds 65,536 drawings; the permutation scatters
-// neighbouring ranks across it, so a new arrival never resembles its neighbour.
+// So the faces are a SET: one hundred frozen polygon heads, each under each of five eye sets,
+// for five hundred pairs with no catalogue left to cycle through. Polygons, because the generated
+// blobs this replaced all read as circles at avatar sizes -- a face has to answer "which Bot is
+// this" before the name under it is read, and only SHAPE does that once colour is spent. No
+// mouth, because at 24px a mouth is two or three pixels every variant would spend on looking the
+// same, and no hats: a topper is a second drawing balanced on the first, and clutter at these
+// sizes rather than part of the face.
+//
+// The hundred were drawn once by a seeded generator under strict filters -- contained in the box,
+// pairwise distinct, every eye station provably on the head -- and checked in as literals: what a
+// Bot wears must never move under it, so no generator runs at load. Ranks permute exactly over
+// the five hundred pairs, so two ranks never reach the same face; bots number from zero and
+// sessions from `BOT_SESSION_FACE_BASE`, so the two never share an input either.
 //
 // Derived, never stored, for the reason `botSurface.ts` gives about colour: a face nobody chose is
 // not an arrangement of this reader's, so it is not storage, and it is not a record the sidecar
@@ -56,179 +64,113 @@ export function setBotFaces(on: boolean): void {
   for (const listener of faceListeners) listener();
 }
 
-/**
- * How many drawings the generator holds.
- *
- * 2^16, and the number is load-bearing for the promise below. The rank-to-index permutation is
- * exact over every input under it, so two ranks never even REACH the same drawing slot -- what is
- * left is whether one slot's drawing equals another's, and the test pins the realistic range
- * exactly rather than hoping. Real rosters are tens of faces; this bound is hundreds of times
- * past that. Bots number from zero and sessions from `BOT_SESSION_FACE_BASE`, so the two never
- * share an input while Bots number under 2048.
- */
-export const BOT_FACE_SPACE = 65536;
-
-/**
- * Scatters neighbouring ranks across the face space.
- *
- * Consecutive ranks MUST NOT draw neighbouring faces: a new Bot arriving after another would
- * otherwise wear something near-identical to it. Any odd multiplier permutes 2^16 exactly, and
- * this one throws consecutive inputs the width of the space apart.
- */
-const FACE_PERMUTE = 32189;
-
-/** SplitMix32: one strong hash from an index, identical on every load. No Math.random anywhere. */
-function hashSeed(index: number): number {
-  let z = (index + 0x9e3779b9) | 0;
-  z = Math.imul(z ^ (z >>> 16), 0x21f0aaad);
-  z = Math.imul(z ^ (z >>> 15), 0x735a2d97);
-  return (z ^ (z >>> 15)) >>> 0;
-}
-
-/** Mulberry32 stream from a hashed seed: the face's private dice, in a fixed order. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Two decimals: exact enough to draw from, coarse enough that a path serialises stably. */
-const r2 = (n: number): number => Math.round(n * 100) / 100;
-const f = (point: readonly [number, number]): string => `${r2(point[0])} ${r2(point[1])}`;
-
-const HEAD_CX = 16;
-const HEAD_CY = 16.5;
-const HEAD_R = 8.8;
-
-/**
- * One head outline in the 32x32 box, drawn from the stream.
- *
- * Six to nine spokes about the centre, each with its own radius: an independent jitter plus a
- * harmonic swell, so some heads read faceted and some lumpy. One cheek is drawn broader than the
- * other, the jaw differs from the crown, and the whole thing leans a little -- asymmetry is a
- * dimension like any other, and a generator that only draws mirror-symmetric heads has half the
- * space. Near-half the heads join their spokes with straight edges and rounded corners, the rest
- * with one smooth closed curve; `fitBox` below shrinks the rare joint maximum back inside the box.
- */
-function headPath(next: () => number): string {
-  const smooth = next() < 0.45;
-  const spokes = 6 + Math.floor(next() * 4);
-  const variation = next() * 0.42;
-  const harmonics = 1 + Math.floor(next() * 3);
-  const phase = next() * Math.PI * 2;
-  const broad = 0.93 + next() * 0.14;
-  const corner = next() * 0.55;
-  const aspectX = 0.9 + next() * 0.18;
-  const aspectY = 0.92 + next() * 0.16;
-  const taper = (next() - 0.5) * 0.3;
-  const tilt = (next() - 0.5) * 0.2;
-  const base = next() * Math.PI * 2;
-  const cosTilt = Math.cos(tilt);
-  const sinTilt = Math.sin(tilt);
-  const pts: Array<readonly [number, number]> = [];
-  for (let k = 0; k < spokes; k += 1) {
-    const angle = base + (k / spokes) * Math.PI * 2;
-    const radius = HEAD_R
-      * (1 + (next() - 0.5) * variation + (variation / 2) * Math.cos(harmonics * angle + phase));
-    let x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    // One cheek broader than the other, mirrored so the width survives the difference.
-    x *= x < 0 ? broad : 2 - broad;
-    const wide = x * aspectX;
-    const tall = y * aspectY;
-    // The jaw differs from the crown.
-    const tapered = wide * (1 + taper * (tall / HEAD_R));
-    pts.push([
-      HEAD_CX + tapered * cosTilt - tall * sinTilt,
-      HEAD_CY + tapered * sinTilt + tall * cosTilt,
-    ]);
-  }
-  if (smooth) return smoothClosed(fitBox(pts));
-  return roundedPolygon(fitBox(pts), corner);
-}
-
-/**
- * Shrinks the spokes about the centre until the head fits the box it is drawn in.
- *
- * The radius swing, asymmetry, aspect, taper and tilt multiply, and their joint maximum reaches
- * past the viewport -- an SVG clips that silently, which reads as a head with its edge sliced
- * off. Scaling about the centre instead keeps every head whole: shape is what names the Bot, and
- * a smaller whole head still says it where a clipped one says nothing.
- */
-function fitBox(pts: Array<readonly [number, number]>): Array<readonly [number, number]> {
-  // The head must stay inside 2..30 on both axes: what hangs past the viewport is clipped
-  // silently, which reads as a head with its edge sliced off.
-  const limitX = 30 - 2;
-  const limitY = Math.min(HEAD_CY - 2, 30 - HEAD_CY) * 2;
-  let scale = 1;
-  for (const [x, y] of pts) {
-    scale = Math.min(
-      scale,
-      limitX / 2 / Math.max(0.01, Math.abs(x - HEAD_CX)),
-      limitY / 2 / Math.max(0.01, Math.abs(y - HEAD_CY)),
-    );
-  }
-  if (scale >= 1) return pts;
-  return pts.map(([x, y]) => [
-    HEAD_CX + (x - HEAD_CX) * scale,
-    HEAD_CY + (y - HEAD_CY) * scale,
-  ] as const);
-}
-
-/** The spokes joined by straight edges with rounded corners. Corner 0 draws sharp. */
-function roundedPolygon(pts: Array<readonly [number, number]>, corner: number): string {
-  const n = pts.length;
-  let d = "";
-  for (let i = 0; i < n; i += 1) {
-    const prev = pts[(i - 1 + n) % n]!;
-    const curr = pts[i]!;
-    const nextPt = pts[(i + 1) % n]!;
-    const inLen = Math.hypot(curr[0] - prev[0], curr[1] - prev[1]) || 1;
-    const outLen = Math.hypot(nextPt[0] - curr[0], nextPt[1] - curr[1]) || 1;
-    const c = (corner * Math.min(inLen, outLen)) / 2;
-    const a: readonly [number, number] = [
-      curr[0] - ((curr[0] - prev[0]) / inLen) * c,
-      curr[1] - ((curr[1] - prev[1]) / inLen) * c,
-    ];
-    const b: readonly [number, number] = [
-      curr[0] + ((nextPt[0] - curr[0]) / outLen) * c,
-      curr[1] + ((nextPt[1] - curr[1]) / outLen) * c,
-    ];
-    d += `${i === 0 ? "M" : "L"}${f(a)}Q${f(curr)} ${f(b)}`;
-  }
-  return `${d}Z`;
-}
-
-/** The spokes joined by one smooth closed curve through all of them. */
-function smoothClosed(pts: Array<readonly [number, number]>): string {
-  const n = pts.length;
-  let d = `M${f(pts[0]!)}`;
-  for (let i = 0; i < n; i += 1) {
-    const p0 = pts[(i - 1 + n) % n]!;
-    const p1 = pts[i]!;
-    const p2 = pts[(i + 1) % n]!;
-    const p3 = pts[(i + 2) % n]!;
-    const c1: readonly [number, number] = [
-      p1[0] + (p2[0] - p0[0]) / 6,
-      p1[1] + (p2[1] - p0[1]) / 6,
-    ];
-    const c2: readonly [number, number] = [
-      p2[0] - (p3[0] - p1[0]) / 6,
-      p2[1] - (p3[1] - p1[1]) / 6,
-    ];
-    d += `C${f(c1)} ${f(c2)} ${f(p2)}`;
-  }
-  return `${d}Z`;
-}
+/** One hundred frozen polygon heads. Generated once under strict filters (contained in 2..30, pairwise distinct, eye stations inside) and checked in as literals: what a Bot wears must never move under it, so the generator does not run at load. */
+const HEADS: readonly string[] = [
+  "M22.18 16.75Q22.27 16.89 22.19 17.03L18.28 24.68Q18.2 24.83 18.05 24.78L8.47 21.56Q8.28 21.5 8.3 21.31L9.36 10.61Q9.38 10.46 9.53 10.44L17.64 9.36Q17.8 9.34 17.88 9.47Z",
+  "M9.18 20.69Q8.31 20.25 8.73 19.36L13.44 9.49Q13.84 8.66 14.67 9.06L23.46 13.32Q24.29 13.72 23.94 14.58L19.69 24.93Q19.31 25.84 18.44 25.4Z",
+  "M27.54 18.18Q27.59 18.28 27.51 18.37L21.53 24.75Q21.45 24.83 21.34 24.87L11.64 27.7Q11.53 27.73 11.48 27.63L7.52 19.57Q7.48 19.48 7.52 19.39L10.89 12.33Q10.93 12.26 10.99 12.2L15.81 8.02Q15.87 7.97 15.96 7.98L23.35 8.53Q23.45 8.54 23.49 8.63Z",
+  "M22.33 20.37Q22.13 20.79 21.76 21.06L18.3 23.53Q17.93 23.8 17.48 23.9L12.49 25.03Q11.96 25.15 11.65 24.7L8.79 20.46Q8.5 20.03 8.47 19.51L8.26 14.75Q8.24 14.24 8.41 13.75L10.27 8.55Q10.47 8 11.05 7.9L16.42 7.02Q16.98 6.93 17.38 7.32L21.13 10.99Q21.48 11.33 21.74 11.74L24.19 15.51Q24.46 15.92 24.25 16.35Z",
+  "M21.16 24.25Q21.13 24.39 20.99 24.39L7.53 24.8Q7.35 24.81 7.3 24.63L3.96 12.4Q3.91 12.23 4.08 12.16L16.34 7.52Q16.47 7.47 16.56 7.57L23.02 14.23Q23.11 14.32 23.09 14.45Z",
+  "M22.1 9.09Q22.24 9.09 22.32 9.21L25.67 14.12Q25.74 14.22 25.71 14.35L24.32 19.58Q24.29 19.71 24.21 19.81L20.47 24.49Q20.38 24.6 20.23 24.6L14.09 24.48Q13.97 24.48 13.88 24.4L10.21 20.86Q10.13 20.77 10.06 20.67L6.79 15.74Q6.71 15.62 6.81 15.52L10.9 11.37Q10.98 11.29 11.08 11.24L15.25 8.91Q15.35 8.86 15.46 8.86Z",
+  "M21.46 8.98Q22.04 9 22.38 9.47L25.72 14.18Q26.05 14.65 25.83 15.19L23.47 20.8Q23.27 21.29 22.77 21.48L17.73 23.44Q17.37 23.58 17.01 23.45L13.4 22.18Q13.04 22.05 12.75 21.79L9.16 18.61Q8.8 18.29 8.79 17.82L8.66 12.34Q8.65 11.81 9.12 11.55L13.71 9.01Q14.17 8.75 14.7 8.77Z",
+  "M18.07 8.76Q18.39 8.66 18.59 8.93L23.87 16.26Q24.07 16.53 23.91 16.83L19.24 25.75Q19.07 26.08 18.74 25.9L9.43 20.72Q9.16 20.56 9.15 20.25L9.01 11.87Q9.01 11.55 9.31 11.46Z",
+  "M9.25 18.05Q9.04 17.53 9.33 17.05L12.95 11.06Q13.19 10.66 13.64 10.52L19.11 8.78Q19.55 8.64 19.81 9.02L24.01 15.3Q24.33 15.77 24.06 16.26L20.71 22.34Q20.44 22.84 19.91 23.03L13.02 25.49Q12.46 25.69 12.23 25.14Z",
+  "M14.04 25.41Q13.91 25.44 13.79 25.36L7.96 21.49Q7.85 21.42 7.84 21.29L7.49 14.8Q7.49 14.67 7.56 14.56L11.46 8.44Q11.53 8.34 11.64 8.34L17.47 8.35Q17.59 8.35 17.71 8.37L25.29 9.94Q25.44 9.97 25.43 10.13L24.84 18.07Q24.83 18.19 24.77 18.29L21.8 23.52Q21.74 23.63 21.63 23.65Z",
+  "M26.37 20.05Q26.41 20.13 26.33 20.16L17.36 23.98Q17.29 24.01 17.2 23.98L9.12 21.33Q9.04 21.31 9.01 21.23L5.32 13.04Q5.28 12.96 5.36 12.93L14.65 9.97Q14.72 9.95 14.79 9.97L22.03 12.43Q22.1 12.45 22.14 12.52Z",
+  "M23.35 13.18Q23.7 13.36 23.55 13.72L19.19 24.39Q19.03 24.78 18.68 24.56L10.41 19.47Q10.05 19.25 10.23 18.87L14.7 9.24Q14.86 8.89 15.21 9.06Z",
+  "M6.63 18.81Q6.6 18.78 6.62 18.75L9.01 12.34Q9.02 12.3 9.04 12.27L12.56 7.07Q12.57 7.05 12.6 7.06L17.4 8.72Q17.43 8.73 17.45 8.74L21.9 11.17Q21.93 11.18 21.94 11.21L24.55 18.11Q24.57 18.14 24.54 18.17L20.98 23.13Q20.96 23.16 20.93 23.17L16.5 25.43Q16.47 25.44 16.44 25.44L10.74 23.81Q10.71 23.8 10.69 23.77Z",
+  "M21.29 24.39Q20.86 24.76 20.29 24.76L14.89 24.72Q14.37 24.72 13.88 24.54L9.28 22.84Q8.79 22.66 8.82 22.13L9.16 16.41Q9.19 15.95 9.38 15.54L11.26 11.62Q11.44 11.26 11.76 11.03L14.79 8.82Q15.11 8.58 15.51 8.66L20.3 9.6Q20.8 9.7 21.21 10.01L25.61 13.33Q26.06 13.67 26.07 14.25L26.12 19.59Q26.12 20.17 25.69 20.54Z",
+  "M18.91 6.43Q19.46 6.4 19.68 6.91L22.42 13.43Q22.63 13.92 22.62 14.45L22.45 21.33Q22.44 21.81 22.04 22.05L16.83 25.16Q16.43 25.4 15.97 25.28L9.1 23.53Q8.57 23.39 8.43 22.86L6.67 15.72Q6.53 15.16 6.75 14.63L9.67 7.54Q9.89 6.99 10.49 6.95Z",
+  "M10.91 11.89Q11.22 11.51 11.55 11.15L14.6 7.87Q14.93 7.51 15.38 7.69L20.48 9.71Q20.94 9.9 21.28 10.27L24.34 13.67Q24.67 14.04 24.63 14.54L24.22 19.33Q24.18 19.84 23.73 20.11L19.61 22.57Q19.21 22.81 18.8 23.02L15 25Q14.59 25.21 14.3 24.84L11.65 21.33Q11.36 20.94 11.07 20.56L7.82 16.37Q7.5 15.96 7.84 15.56Z",
+  "M6.62 22.67Q6.37 22.54 6.36 22.26L6.17 14Q6.17 13.73 6.39 13.59L13.08 9.4Q13.26 9.28 13.48 9.25L19.69 8.33Q19.9 8.29 20.02 8.47L24.37 14.77Q24.5 14.97 24.48 15.21L23.63 22.13Q23.6 22.36 23.39 22.48L15.72 26.9Q15.46 27.05 15.19 26.91Z",
+  "M13.43 7.38Q13.63 7.16 13.9 7.27L19.06 9.27Q19.33 9.38 19.53 9.58L23.42 13.44Q23.62 13.64 23.63 13.93L23.77 20.66Q23.78 20.98 23.51 21.15L18.43 24.4Q18.19 24.55 17.9 24.54L12.42 24.22Q12.13 24.21 11.97 23.97L8.79 19.3Q8.62 19.06 8.64 18.76L8.89 12.73Q8.91 12.42 9.12 12.18Z",
+  "M13.27 25.05Q12.94 25.11 12.71 24.87L5.94 18.21Q5.6 17.88 5.72 17.41L8.18 8.41Q8.3 7.94 8.78 7.96L18.4 8.39Q18.8 8.4 19.03 8.74L23.44 15.18Q23.66 15.51 23.5 15.88L20.13 23.46Q20 23.77 19.67 23.83Z",
+  "M21.89 10.92Q22.13 11.06 22.22 11.33L24.22 17.09Q24.31 17.36 24.18 17.62L21.84 22.27Q21.72 22.51 21.47 22.61L17.01 24.45Q16.77 24.56 16.5 24.55L9.98 24.38Q9.67 24.38 9.52 24.11L6.86 19.3Q6.71 19.04 6.7 18.73L6.47 12.63Q6.46 12.3 6.75 12.13L12.13 8.99Q12.35 8.87 12.6 8.83L17.07 8.22Q17.31 8.19 17.53 8.32Z",
+  "M12.67 8.8Q12.7 8.75 12.76 8.75L18.34 8.75Q18.4 8.75 18.43 8.8L22.63 14.4Q22.67 14.46 22.67 14.53L22.53 21.42Q22.53 21.49 22.47 21.53L16.5 25.85Q16.44 25.89 16.38 25.85L10.33 21.98Q10.27 21.94 10.25 21.87L8.71 14.8Q8.7 14.73 8.74 14.67Z",
+  "M10.63 24.92Q10.31 24.96 10.18 24.67L6.78 17.11Q6.65 16.82 6.85 16.57L12.11 9.86Q12.26 9.67 12.5 9.66L18.69 9.23Q18.93 9.21 19.06 9.41L23.39 15.9Q23.54 16.13 23.45 16.4L21 23.31Q20.91 23.57 20.63 23.61Z",
+  "M23.67 14.12Q23.78 14.32 23.74 14.55L22.81 20.92Q22.77 21.15 22.56 21.24L16.75 23.73Q16.54 23.82 16.32 23.75L9.96 21.78Q9.73 21.71 9.59 21.51L5.4 15.47Q5.25 15.26 5.37 15.03L8.6 8.63Q8.72 8.4 8.98 8.38L19.99 7.63Q20.24 7.61 20.36 7.84Z",
+  "M21.66 11.51Q22.16 11.71 22.2 12.24L22.82 20.48Q22.86 21.01 22.38 21.26L13.69 25.8Q13.13 26.09 12.7 25.63L5.02 17.43Q4.54 16.92 5.02 16.42L12.54 8.54Q12.94 8.12 13.47 8.33Z",
+  "M9.02 9.06Q9.21 8.74 9.58 8.76L16.23 9.12Q16.56 9.14 16.88 9.17L22.67 9.74Q22.99 9.77 23.02 10.1L23.51 17.44Q23.53 17.78 23.37 18.09L20.52 23.65Q20.4 23.88 20.14 23.88L15.57 23.88Q15.31 23.88 15.08 23.77L10.53 21.42Q10.27 21.29 10.09 21.07L5.47 15.69Q5.21 15.39 5.41 15.06Z",
+  "M9.08 18.89Q8.63 18.29 8.8 17.57L11.02 8.02Q11.2 7.26 11.97 7.36L21.94 8.66Q22.73 8.76 22.74 9.56L22.86 20.01Q22.87 20.7 22.33 21.13L15.59 26.5Q15.06 26.93 14.65 26.38Z",
+  "M19.18 10.11Q19.79 10.24 20.06 10.8L22.89 16.6Q23.19 17.21 22.8 17.76L18.95 23.18Q18.55 23.75 17.87 23.85L11.34 24.78Q10.65 24.88 10.53 24.2L9.12 16.5Q8.99 15.82 9.32 15.21L12.5 9.33Q12.8 8.78 13.4 8.91Z",
+  "M9.23 9.55Q9.25 9.43 9.36 9.39L16.6 7.05Q16.71 7.01 16.81 7.07L22.98 10.75Q23.08 10.81 23.07 10.93L22.35 19.59Q22.34 19.7 22.28 19.79L18.45 25.45Q18.39 25.54 18.28 25.54L11.28 25.46Q11.17 25.46 11.13 25.35L7.95 17.55Q7.9 17.43 7.92 17.31Z",
+  "M6.78 21.38Q6.37 21.18 6.39 20.72L6.61 15.39Q6.63 14.95 6.89 14.6L9.89 10.44Q10.15 10.08 10.52 9.84L15.54 6.69Q15.9 6.46 16.23 6.73L20.15 9.83Q20.48 10.1 20.77 10.42L24.22 14.21Q24.52 14.53 24.49 14.97L24.14 21.04Q24.11 21.5 23.74 21.78L19.39 25.02Q19.02 25.29 18.56 25.22L13.27 24.41Q12.82 24.34 12.4 24.14Z",
+  "M23.33 14.19Q23.62 14.6 23.64 15.09L23.94 21.24Q23.97 21.72 23.5 21.87L18.05 23.57Q17.58 23.71 17.11 23.8L10.43 25.08Q9.92 25.17 9.77 24.68L7.96 18.84Q7.81 18.34 7.92 17.84L9.26 11.79Q9.36 11.33 9.73 11.04L14.16 7.6Q14.47 7.36 14.84 7.48L19.25 8.93Q19.62 9.05 19.85 9.37Z",
+  "M27.11 15.75Q27.14 15.8 27.11 15.85L24.58 21.6Q24.56 21.65 24.51 21.68L18.91 24.73Q18.86 24.76 18.8 24.76L12.37 25Q12.32 25 12.27 24.97L7.67 20.88Q7.63 20.84 7.64 20.78L8.45 14.55Q8.46 14.5 8.48 14.45L10.92 8.94Q10.95 8.89 11 8.87L16.74 6.89Q16.79 6.87 16.84 6.9L23.48 9.87Q23.54 9.9 23.58 9.95Z",
+  "M26.3 19.57Q26.82 20.51 25.82 20.88L12.88 25.75Q12.07 26.05 11.85 25.22L9.06 14.56Q8.84 13.74 9.55 13.26L18.53 7.26Q19.24 6.78 19.65 7.53Z",
+  "M18.61 25.63Q18.5 25.95 18.2 25.81L3.84 18.9Q3.47 18.72 3.76 18.43L13.9 8.58Q14.11 8.38 14.34 8.55L22.23 14.33Q22.46 14.5 22.37 14.77Z",
+  "M23 20.75Q22.8 21.3 22.27 21.55L16.92 24.15Q16.46 24.37 15.99 24.19L11.21 22.36Q10.73 22.18 10.61 21.69L9.15 15.8Q9.02 15.28 9.26 14.8L11.6 9.98Q11.84 9.5 12.37 9.51L19.08 9.55Q19.69 9.56 20.17 9.93L24.99 13.68Q25.47 14.05 25.26 14.62Z",
+  "M15.36 9.2Q15.74 9.04 16.14 9.18L20.68 10.88Q21.07 11.03 21.35 11.34L25.21 15.83Q25.52 16.2 25.26 16.6L22.25 21.29Q21.99 21.7 21.59 21.97L16.74 25.22Q16.32 25.5 15.86 25.3L9.8 22.71Q9.36 22.52 9.14 22.1L6.65 17.21Q6.43 16.78 6.7 16.39L9.85 11.74Q10.1 11.36 10.52 11.19Z",
+  "M13.05 23.91Q12.44 24.03 12.09 23.52L8 17.54Q7.57 16.91 7.71 16.16L9.05 8.71Q9.19 7.92 9.99 7.95L19.75 8.31Q20.48 8.33 20.72 9.02L23.04 15.47Q23.27 16.1 22.93 16.68L19.68 22.14Q19.36 22.68 18.75 22.8Z",
+  "M22.9 21.21Q22.9 21.22 22.89 21.23L18.01 23.95Q18 23.95 17.99 23.96L13.26 24.77Q13.25 24.77 13.24 24.77L7.1 21.96Q7.09 21.95 7.08 21.93L4.18 14.75Q4.17 14.73 4.19 14.72L9.01 9.36Q9.02 9.34 9.04 9.33L15.5 5.5Q15.51 5.49 15.53 5.5L20.8 9.45Q20.82 9.46 20.82 9.47L22.88 14.61Q22.89 14.62 22.89 14.64Z",
+  "M9.19 22.31Q9.05 22.25 9.01 22.11L6.51 13.1Q6.47 12.95 6.61 12.88L14.53 8.4Q14.65 8.34 14.77 8.39L22.3 11.35Q22.42 11.4 22.47 11.52L25.64 20.01Q25.69 20.15 25.57 20.23L17.65 25.8Q17.52 25.89 17.39 25.83Z",
+  "M16.07 24.49Q15.56 24.83 15.09 24.45L8.37 19.06Q7.9 18.68 8.12 18.11L11.27 9.87Q11.49 9.29 12.12 9.3L22.27 9.5Q22.86 9.51 22.95 10.09L24.24 18.33Q24.33 18.91 23.84 19.24Z",
+  "M8.28 21.53Q8.02 21.37 8 21.06L7.59 13.84Q7.57 13.53 7.79 13.32L12.98 8.32Q13.18 8.12 13.46 8.13L19.99 8.25Q20.27 8.26 20.36 8.52L22.73 15.26Q22.83 15.53 22.76 15.8L21.3 22.22Q21.24 22.49 20.99 22.62L15.19 25.51Q14.95 25.64 14.71 25.49Z",
+  "M23.26 21.78Q23.25 21.91 23.15 21.98L18.15 25.66Q18.05 25.73 17.93 25.72L11.84 25.46Q11.72 25.45 11.66 25.35L8.29 19.09Q8.23 18.98 8.24 18.86L8.75 12.67Q8.76 12.55 8.82 12.44L12.51 5.57Q12.58 5.45 12.7 5.52L18.95 9.14Q19.06 9.2 19.15 9.29L23.83 13.37Q23.93 13.45 23.92 13.58Z",
+  "M23.12 9.58Q23.74 9.6 23.81 10.21L24.72 17.96Q24.78 18.5 24.33 18.81L18.75 22.74Q18.32 23.04 17.81 22.96L11.39 22.04Q10.88 21.97 10.71 21.48L8.61 15.03Q8.44 14.52 8.84 14.16L13.75 9.68Q14.14 9.33 14.67 9.34Z",
+  "M20.17 10.19Q20.64 10.36 20.94 10.76L25.19 16.4Q25.59 16.92 25.35 17.52L22.8 24.16Q22.56 24.79 21.91 24.66L14.67 23.24Q14.09 23.12 13.55 22.89L7.81 20.44Q7.27 20.21 7.51 19.68L10.2 13.7Q10.42 13.22 10.76 12.82L14.4 8.53Q14.72 8.15 15.19 8.32Z",
+  "M13.5 8.3Q13.98 7.76 14.57 8.17L20.07 12.02Q20.66 12.43 20.8 13.14L22.65 23.15Q22.8 23.95 21.98 23.95L14.41 23.91Q13.59 23.9 13.07 23.27L7.54 16.54Q6.95 15.83 7.56 15.12Z",
+  "M9.96 9.03Q10.04 8.63 10.44 8.56L16.93 7.31Q17.36 7.22 17.71 7.47L23.18 11.35Q23.47 11.55 23.49 11.91L23.83 17.3Q23.85 17.64 23.74 17.97L22.06 22.92Q21.95 23.25 21.61 23.3L15.24 24.24Q14.86 24.29 14.52 24.12L9.28 21.49Q8.98 21.33 8.96 20.99L8.75 15.78Q8.74 15.44 8.8 15.1Z",
+  "M10.47 22.46Q10.39 22.41 10.35 22.33L8.03 17.42Q7.99 17.34 8.04 17.26L10.89 12.4Q10.94 12.32 10.99 12.24L14.28 7.51Q14.34 7.43 14.43 7.44L19.94 8.06Q20.04 8.07 20.09 8.14L23.73 13.07Q23.79 13.15 23.82 13.25L25.54 18.94Q25.57 19.04 25.51 19.12L22.16 24.03Q22.1 24.12 22 24.13L15.35 24.92Q15.26 24.93 15.18 24.89Z",
+  "M19.26 9.29Q20.37 9.02 20.92 10.01L26.07 19.3Q26.62 20.29 25.52 20.57L12.93 23.73Q11.85 24.01 11.42 22.98L7.36 13.41Q6.92 12.39 8 12.12Z",
+  "M12.45 23.94Q11.89 23.93 11.55 23.49L6.64 17.22Q6.32 16.8 6.63 16.37L11.11 10.25Q11.43 9.82 11.95 9.77L20.26 8.93Q20.84 8.88 21.25 9.29L27.72 15.77Q28.17 16.22 27.76 16.7L21.93 23.66Q21.55 24.11 20.96 24.1Z",
+  "M12.09 22.78Q11.64 22.59 11.32 22.23L6.26 16.62Q5.85 16.17 6.26 15.71L10.6 10.84Q11 10.39 11.56 10.14L17.51 7.56Q18.02 7.34 18.33 7.81L21.61 12.76Q21.92 13.23 21.82 13.78L20.79 19.79Q20.72 20.25 20.44 20.62L17.52 24.62Q17.24 25 16.82 24.81Z",
+  "M16.27 26.04Q15.93 26.24 15.6 26.03L11.79 23.55Q11.46 23.33 11.17 23.06L7.11 19.12Q6.76 18.79 6.79 18.31L7.18 12.18Q7.21 11.69 7.54 11.33L11.45 7.18Q11.79 6.83 12.28 6.86L18.93 7.25Q19.4 7.28 19.64 7.68L22.45 12.38Q22.66 12.73 22.81 13.1L24.53 17.44Q24.68 17.82 24.46 18.15L21.41 22.81Q21.16 23.18 20.78 23.41Z",
+  "M22.46 16.48Q22.62 16.83 22.45 17.17L18.62 25.17Q18.45 25.51 18.12 25.32L10.29 20.77Q9.96 20.57 9.98 20.18L10.46 10.57Q10.48 10.24 10.8 10.15L18.15 8.04Q18.47 7.95 18.61 8.25Z",
+  "M10.47 21.04Q10.33 20.92 10.23 20.76L6.26 14.67Q6.16 14.52 6.3 14.4L12.34 9.48Q12.46 9.38 12.62 9.34L18.84 7.62Q19 7.58 19.07 7.72L22.4 14.26Q22.48 14.41 22.44 14.57L21.16 21.08Q21.13 21.24 21.01 21.36L16.3 26.1Q16.18 26.22 16.06 26.11Z",
+  "M24.45 18.73Q24.62 19.3 24.13 19.64L18.15 23.75Q17.68 24.08 17.13 23.92L10.44 22.06Q9.89 21.91 9.65 21.39L6.79 14.95Q6.55 14.42 6.93 13.98L12.51 7.43Q12.97 6.89 13.62 7.16L21.5 10.46Q22.09 10.7 22.27 11.31Z",
+  "M23.44 13.35Q23.5 13.41 23.51 13.48L24.48 18.69Q24.5 18.76 24.5 18.84L24.77 25.81Q24.78 25.92 24.67 25.91L15.2 25.44Q15.09 25.43 14.99 25.41L7.88 23.7Q7.78 23.68 7.74 23.59L5.19 17.37Q5.15 17.27 5.21 17.19L9.45 10.81Q9.5 10.73 9.58 10.67L14.59 6.87Q14.65 6.82 14.72 6.87L19.18 9.74Q19.24 9.78 19.3 9.83Z",
+  "M8.85 17.26Q8.71 17.11 8.84 16.95L15.48 8.26Q15.61 8.1 15.77 8.23L25.13 15.82Q25.31 15.96 25.16 16.13L16.77 25.6Q16.63 25.76 16.48 25.61Z",
+  "M17.04 25.6Q16.95 25.63 16.86 25.59L10.92 22.77Q10.83 22.73 10.81 22.63L9.05 15.72Q9.03 15.62 9.04 15.51L10.09 7.5Q10.11 7.38 10.22 7.41L18.77 9.88Q18.87 9.91 18.96 9.97L24.93 13.78Q25.02 13.84 25.03 13.94L25.64 22.4Q25.65 22.53 25.53 22.57Z",
+  "M26.87 16.41Q27.18 17.07 26.58 17.49L18.06 23.28Q17.62 23.58 17.09 23.53L9.85 22.92Q9.32 22.88 9.33 22.34L9.55 11.96Q9.57 11.22 10.24 10.9L20.88 5.78Q21.62 5.42 21.97 6.16Z",
+  "M16.67 24.19Q16.61 24.21 16.54 24.2L10.18 23.32Q10.11 23.31 10.07 23.25L6.93 18.68Q6.89 18.62 6.88 18.55L6.82 12.3Q6.82 12.21 6.87 12.15L11.61 6.15Q11.66 6.08 11.73 6.11L17.57 8.34Q17.63 8.37 17.69 8.4L22.23 10.92Q22.29 10.95 22.3 11.02L23.91 17.3Q23.93 17.37 23.9 17.44L21.67 22.49Q21.65 22.55 21.58 22.57Z",
+  "M21.46 11.54Q21.92 11.74 22.07 12.21L24.32 19.07Q24.48 19.54 24.05 19.79L17.63 23.59Q17.26 23.81 16.83 23.77L10.54 23.19Q10.11 23.15 10.04 22.72L8.55 14.24Q8.47 13.76 8.82 13.44L14.01 8.79Q14.37 8.47 14.81 8.66Z",
+  "M11.75 9.48Q11.79 9.13 12.14 9.19L21.51 10.83Q21.85 10.89 21.87 11.24L22.32 22.79Q22.34 23.21 21.93 23.17L10.81 22.18Q10.4 22.14 10.45 21.73Z",
+  "M14.39 24.29Q14.15 24.37 13.95 24.2L7.48 18.79Q7.27 18.6 7.33 18.33L8.97 10.69Q9.03 10.41 9.31 10.36L19.36 8.21Q19.65 8.15 19.87 8.36L25.91 13.98Q26.12 14.18 25.97 14.44L21.47 21.97Q21.34 22.19 21.09 22.26Z",
+  "M16.16 8.43Q16.38 8.36 16.58 8.44L25.36 11.66Q25.57 11.74 25.56 11.96L25.4 21.52Q25.39 21.74 25.18 21.8L16.21 24.17Q16.03 24.22 15.86 24.14L8.68 21.01Q8.51 20.93 8.48 20.75L6.84 11.4Q6.8 11.18 7.01 11.11Z",
+  "M9.74 8.73Q10.04 8.01 10.81 8.05L19.55 8.59Q20.24 8.63 20.53 9.27L23.52 15.76Q23.81 16.39 23.59 17.06L21.24 24.33Q21.01 25.03 20.28 24.9L12.07 23.35Q11.42 23.22 11.01 22.7L6.81 17.37Q6.4 16.85 6.65 16.24Z",
+  "M18.01 25.16Q17.86 25.28 17.68 25.2L11.25 22.06Q11.08 21.98 11 21.8L7.59 14.3Q7.51 14.11 7.67 13.97L13.76 8.97Q13.92 8.83 14.12 8.9L22.29 11.57Q22.49 11.63 22.57 11.82L25.4 19.04Q25.48 19.24 25.32 19.37Z",
+  "M23.7 20.97Q23.7 21.17 23.55 21.29L17.57 25.93Q17.42 26.05 17.22 26.03L6.77 24.78Q6.55 24.75 6.55 24.53L6.82 16.09Q6.83 15.87 6.92 15.67L10.48 7.66Q10.55 7.49 10.73 7.49L17.52 7.51Q17.7 7.51 17.83 7.63L23.31 13.04Q23.46 13.17 23.46 13.37Z",
+  "M26.13 12.97Q26.37 13.31 26.21 13.7L23.02 20.95Q22.86 21.31 22.64 21.62L18.71 27.1Q18.51 27.36 18.24 27.18L13.58 23.95Q13.31 23.76 13.13 23.5L9.9 18.91Q9.71 18.64 9.61 18.33L7.63 11.93Q7.52 11.57 7.81 11.33L12.89 7.28Q13.19 7.04 13.57 7.03L21.35 6.74Q21.76 6.72 22.01 7.07Z",
+  "M7.88 20.25Q7.69 20.19 7.72 20L8.79 12.87Q8.82 12.68 8.99 12.57L15.82 8.24Q15.99 8.13 16.13 8.26L21.48 13.03Q21.61 13.14 21.64 13.31L22.61 19.63Q22.63 19.8 22.48 19.87L16.37 22.72Q16.21 22.8 16.04 22.75Z",
+  "M18.65 23.09Q18.27 23.56 17.68 23.38L11.5 21.55Q10.92 21.38 10.72 20.8L7.84 12.06Q7.58 11.25 8.39 11.04L17.29 8.66Q18.05 8.46 18.57 9.04L24.15 15.27Q24.67 15.85 24.17 16.46Z",
+  "M22.27 21.69Q22.03 22.02 21.65 22.13L16.56 23.68Q16.2 23.79 15.83 23.73L10.93 22.93Q10.56 22.87 10.41 22.53L8.03 17.13Q7.86 16.74 7.93 16.32L8.94 10.78Q9.01 10.37 9.41 10.22L15.23 8.14Q15.66 7.98 16.1 8.14L22.39 10.46Q22.8 10.61 23.02 10.99L25.98 15.96Q26.2 16.33 25.94 16.69Z",
+  "M6.49 14.06Q6.44 13.87 6.61 13.78L12.08 10.5Q12.24 10.41 12.42 10.34L18.12 8.05Q18.29 7.98 18.44 8.09L23.11 11.74Q23.25 11.85 23.25 12.03L23.26 18.64Q23.26 18.82 23.14 18.94L19.25 23.13Q19.14 23.25 18.98 23.27L13.78 24.1Q13.62 24.13 13.49 24.04L8.3 20.42Q8.14 20.31 8.09 20.12Z",
+  "M25.65 17.02Q25.79 17.23 25.62 17.42L20.36 23.52Q20.2 23.7 19.95 23.72L9.93 24.23Q9.68 24.25 9.66 24L8.84 16.06Q8.81 15.84 8.95 15.66L13.35 9.95Q13.47 9.79 13.67 9.76L20.13 8.9Q20.34 8.87 20.45 9.04Z",
+  "M22.74 22.66Q22.73 22.72 22.67 22.72L9.38 22.91Q9.31 22.92 9.31 22.84L9.97 10.63Q9.97 10.56 10.04 10.57L23.27 11.21Q23.34 11.21 23.33 11.28Z",
+  "M9.32 19.11Q8.71 18.66 8.76 17.91L9.24 9.78Q9.29 8.96 10.11 9L19.95 9.55Q20.74 9.6 20.86 10.38L22.08 18.2Q22.18 18.87 21.65 19.3L16.46 23.49Q15.93 23.92 15.39 23.52Z",
+  "M8.73 7.96Q8.96 7.4 9.52 7.21L16.95 4.71Q17.64 4.48 18.14 5L23.06 10.08Q23.46 10.5 23.84 10.92L27.55 14.97Q27.94 15.4 27.52 15.8L22.59 20.56Q22.22 20.92 21.86 21.3L18.4 25Q18.13 25.29 17.75 25.18L14.1 24.12Q13.72 24.01 13.38 23.82L8.94 21.33Q8.49 21.08 8.34 20.58L6.52 14.4Q6.35 13.83 6.57 13.27Z",
+  "M14.61 7.52Q14.87 7.14 15.21 7.46L19.5 11.5Q19.77 11.75 20.01 12.02L23.05 15.41Q23.3 15.68 23.32 16.04L23.6 20.6Q23.63 20.96 23.28 21.06L17.72 22.62Q17.3 22.74 16.86 22.66L11.25 21.63Q10.92 21.57 10.75 21.28L8.56 17.59Q8.39 17.3 8.55 17L10.69 13.19Q10.86 12.88 11.06 12.6Z",
+  "M8.68 11.72Q8.65 11.31 9.04 11.15L15.9 8.25Q16.28 8.09 16.65 8.27L23.78 11.72Q24.18 11.91 24.21 12.35L24.89 21.41Q24.93 21.91 24.47 22.12L16.21 25.94Q15.84 26.11 15.51 25.87L9.6 21.57Q9.27 21.33 9.24 20.92Z",
+  "M14.43 23.59Q14.19 23.56 14 23.4L10.34 20.29Q10.15 20.13 10.09 19.89L8.83 14.75Q8.77 14.48 8.86 14.23L10.78 9.04Q10.88 8.78 11.16 8.76L18.9 8.2Q19.29 8.18 19.63 8.37L27.04 12.53Q27.31 12.68 27.33 12.99L27.67 19.04Q27.69 19.35 27.44 19.54L21.31 24.25Q21.05 24.44 20.73 24.4Z",
+  "M11.13 23.26Q10.55 23.11 10.14 22.68L4.86 17.1Q4.46 16.68 4.84 16.23L9.02 11.4Q9.4 10.96 9.97 10.89L16.72 10.08Q17.23 10.02 17.69 10.24L22.77 12.72Q23.21 12.94 23.17 13.43L22.66 18.86Q22.62 19.35 22.31 19.74L18.39 24.59Q18.04 25.03 17.49 24.89Z",
+  "M9.12 23.44Q8.42 23.26 8.39 22.55L8.05 15.1Q8.01 14.42 8.42 13.89L12.38 8.69Q12.69 8.28 13.21 8.27L18.09 8.21Q18.6 8.2 19.03 8.5L25.65 13.18Q26.22 13.58 25.89 14.2L22.86 20.04Q22.55 20.64 22.01 21.05L16.92 24.85Q16.38 25.26 15.73 25.09Z",
+  "M20.03 21.32Q19.94 21.61 19.71 21.82L15.2 26.07Q14.96 26.29 14.67 26.16L6.88 22.72Q6.47 22.54 6.36 22.12L4.03 12.98Q3.91 12.52 4.31 12.27L12.06 7.44Q12.36 7.25 12.68 7.4L18.96 10.12Q19.21 10.23 19.34 10.48L21.82 15.21Q21.94 15.46 21.86 15.73Z",
+  "M18.21 9.84Q18.38 9.78 18.48 9.93L24.66 19.01Q24.76 19.16 24.59 19.22L13.92 23.43Q13.75 23.5 13.64 23.34L7.21 13.96Q7.1 13.8 7.28 13.74Z",
+  "M23.26 16.58Q23.26 16.59 23.26 16.61L23.76 23.26Q23.76 23.28 23.75 23.28L17.64 26.23Q17.62 26.23 17.61 26.23L10.19 24.83Q10.17 24.83 10.17 24.82L5.28 19.96Q5.28 19.95 5.28 19.94L5.52 13.25Q5.52 13.23 5.53 13.22L10.76 8.23Q10.77 8.22 10.78 8.22L17.66 6.67Q17.67 6.67 17.68 6.67L22.43 10.97Q22.44 10.98 22.44 10.99Z",
+  "M7.41 19.92Q7.34 19.82 7.36 19.7L8.46 12.88Q8.47 12.77 8.55 12.69L13.15 8.33Q13.22 8.25 13.33 8.24L19.59 7.62Q19.7 7.61 19.76 7.7L23.48 13.17Q23.55 13.26 23.54 13.38L23.21 20.32Q23.21 20.43 23.13 20.51L18.66 25.27Q18.59 25.35 18.48 25.36L11.84 26.03Q11.72 26.04 11.66 25.94Z",
+  "M24.24 15.68Q24.32 15.81 24.25 15.94L19.77 23.92Q19.7 24.05 19.54 24.04L6.57 23.23Q6.37 23.22 6.4 23.02L8.05 11.81Q8.08 11.62 8.24 11.54L17.82 6.49Q17.98 6.4 18.08 6.56Z",
+  "M16.37 7.68Q16.41 7.65 16.46 7.67L26.92 11.86Q26.97 11.88 26.96 11.93L23.87 20.72Q23.85 20.76 23.81 20.78L16.06 24.32Q16.02 24.34 15.99 24.32L9.81 20.59Q9.77 20.57 9.77 20.53L8.93 12.53Q8.93 12.48 8.97 12.46Z",
+  "M14.56 25.6Q14.49 25.62 14.44 25.57L9.2 20.27Q9.14 20.21 9.13 20.13L8.39 12.42Q8.38 12.33 8.45 12.27L13.97 6.93Q14.04 6.87 14.13 6.89L22.68 8.83Q22.77 8.85 22.78 8.94L23.76 16.71Q23.77 16.8 23.74 16.89L20.54 24.16Q20.51 24.22 20.44 24.24Z",
+  "M11.23 23.7Q10.63 23.73 10.41 23.17L6.76 13.99Q6.53 13.4 7.08 13.07L15.56 8.05Q16.04 7.77 16.49 8.1L23.4 13.11Q23.86 13.43 23.7 13.97L21.16 22.77Q20.99 23.34 20.4 23.37Z",
+  "M6.6 11.46Q6.59 11.41 6.63 11.38L13.09 6.15Q13.13 6.12 13.18 6.12L22.49 6.99Q22.54 6.99 22.54 7.04L23.25 14.75Q23.26 14.79 23.24 14.83L21.57 20.86Q21.56 20.9 21.53 20.93L17.71 26.96Q17.69 27 17.64 26.99L10.89 26.01Q10.84 26 10.83 25.96L7.31 18.41Q7.29 18.37 7.28 18.33Z",
+  "M22.2 19.98Q22.16 20.11 22.1 20.22L18.95 26.05Q18.89 26.17 18.77 26.12L12.22 23.32Q12.12 23.28 12.04 23.2L7.92 19.02Q7.84 18.94 7.83 18.83L7.29 11.81Q7.27 11.68 7.39 11.61L13.62 8.26Q13.7 8.21 13.8 8.23L18.77 9.49Q18.87 9.52 18.95 9.58L23.8 13.35Q23.9 13.42 23.87 13.53Z",
+  "M7.07 19.03Q6.45 18.57 6.61 17.82L8.67 7.86Q8.83 7.05 9.65 7.18L21.58 8.96Q22.34 9.08 22.33 9.85L22.19 19.42Q22.18 20.02 21.7 20.38L15.77 24.75Q15.28 25.11 14.8 24.75Z",
+  "M16.28 6.06Q16.64 5.9 16.93 6.16L23.42 11.92Q23.7 12.17 23.68 12.55L23.16 20.95Q23.14 21.33 22.84 21.56L15.69 27.27Q15.37 27.53 15.03 27.28L6.7 21.22Q6.35 20.96 6.38 20.53L6.9 10.92Q6.92 10.49 7.31 10.31Z",
+  "M20.55 8.13Q21.01 8.14 21.2 8.56L23.73 13.81Q23.92 14.22 23.96 14.68L24.44 21.17Q24.48 21.68 24.07 21.99L18.54 26.2Q18.22 26.45 17.9 26.2L13.82 22.97Q13.52 22.73 13.22 22.51L9.36 19.66Q9.06 19.43 9.03 19.06L8.6 12.03Q8.57 11.59 8.93 11.34L13.54 8.14Q13.9 7.89 14.34 7.9Z",
+  "M13.35 9.48Q13.58 9.08 13.99 9.29L21.67 13.17Q22.08 13.38 22.01 13.83L20.41 24.11Q20.33 24.66 19.81 24.48L7.83 20.36Q7.25 20.16 7.55 19.63Z",
+  "M9.51 15.53Q9.42 15.1 9.67 14.74L14 8.47Q14.19 8.19 14.5 8.34L19.03 10.49Q19.34 10.64 19.53 10.92L24.24 18.01Q24.53 18.44 24.16 18.79L18.62 24.15Q18.29 24.46 17.86 24.34L11.42 22.49Q11 22.36 10.91 21.93Z",
+  "M6.8 16.53Q6.72 16.45 6.81 16.38L15.74 8.96Q15.81 8.9 15.87 8.97L22.38 16.65Q22.44 16.72 22.38 16.79L15.35 25.11Q15.28 25.19 15.21 25.11Z",
+  "M19.15 24Q19.09 24.06 19.01 24.11L15.21 26.5Q15.14 26.55 15.07 26.49L10.66 22.73Q10.57 22.66 10.55 22.55L9.25 16.75Q9.22 16.65 9.23 16.55L9.56 11.4Q9.57 11.3 9.66 11.25L14.34 8.97Q14.44 8.93 14.53 8.89L20.72 6.52Q20.84 6.47 20.89 6.59L23.77 12.63Q23.82 12.75 23.82 12.89L23.43 20.18Q23.43 20.29 23.34 20.36Z",
+  "M8.88 18.04Q8.87 18.03 8.87 18.01L9.5 11.22Q9.5 11.21 9.52 11.2L16.14 7.87Q16.15 7.86 16.17 7.87L21.74 11.52Q21.75 11.53 21.76 11.55L22.5 18.33Q22.51 18.34 22.5 18.36L18.78 25.11Q18.77 25.12 18.76 25.12L12.52 23.86Q12.5 23.86 12.49 23.84Z",
+  "M20.55 23.39Q20.36 23.7 19.99 23.69L14.42 23.56Q14.05 23.55 13.74 23.35L8.73 20.15Q8.4 19.94 8.46 19.55L9.56 12.64Q9.61 12.28 9.93 12.1L14.79 9.31Q15.11 9.13 15.48 9.15L22.24 9.58Q22.68 9.61 22.77 10.04L24.2 16.81Q24.29 17.25 24.07 17.62Z",
+  "M23.67 10.1Q23.94 10.14 23.92 10.41L23.25 17.55Q23.22 17.82 23.09 18.07L19.53 24.63Q19.42 24.83 19.2 24.79L13.44 23.56Q13.22 23.51 13.03 23.39L6.67 19.21Q6.42 19.05 6.4 18.76L5.81 11.05Q5.78 10.75 6.08 10.7L15.03 8.95Q15.34 8.89 15.64 8.94Z",
+  "M6.94 15.98Q6.63 15.54 7.07 15.23L16.78 8.53Q17.23 8.23 17.6 8.62L25.7 17.12Q26.07 17.51 25.67 17.88L15.45 27.28Q14.99 27.7 14.64 27.19Z",
+];
 
 /**
  * One eye, as a rounded box about its centre. A circle is the case where both radii and the corner
- * agree, which is what lets every generated variant share one element and one closing animation.
+ * agree, which is what lets every variant share one element and one closing animation.
  */
 interface Eye {
   cx: number;
@@ -239,37 +181,44 @@ interface Eye {
 }
 
 /**
- * The eyes for one face, drawn from the same stream after the head.
+ * The eyes, which vary in shape AND in number: one eye is the strongest silhouette here.
  *
- * Shape AND number: one eye is the strongest silhouette here, so about one face in eight is a
- * cyclops. Size, height and spacing move within bands measured to stay on every head the
- * generator draws: the narrowest head is eleven across at the eyes' height, and the widest pair
- * of eyes spans under six.
+ * Fixed sets rather than generated, because the stations they sit on are measured: (11,18),
+ * (21,18) and (16,18) were proven inside every head above at generation time, so no eye ever
+ * hangs off its head whatever rank draws it.
  */
-function eyesOf(next: () => number): readonly Eye[] {
-  const single = next() < 0.13;
-  const shape = next();
-  const size = 2.3 + next() * 1.6;
-  const cy = r2(15.8 + next() * 3.4);
-  const dims = shape < 0.32
-    ? { rx: size, ry: size, round: size }
-    : shape < 0.52
-      ? { rx: size * 0.95, ry: size * 0.95, round: 1 }
-      : shape < 0.74
-        ? { rx: size * 1.35, ry: size * 0.72, round: size * 0.72 }
-        : { rx: size * 0.68, ry: size * 1.35, round: size * 0.68 };
-  if (single) {
-    const big = size * 1.5;
-    return [{ cx: 16, cy, rx: big, ry: big, round: big }];
-  }
-  const gap = 4.0 + next() * 1.8;
-  const left = r2(16 - gap / 2);
-  const right = r2(16 + gap / 2);
-  return [
-    { cx: left, cy, ...dims },
-    { cx: right, cy, ...dims },
-  ];
-}
+const EYES: readonly (readonly Eye[])[] = [
+  // round
+  [{ cx: 11, cy: 18, rx: 3.4, ry: 3.4, round: 3.4 }, { cx: 21, cy: 18, rx: 3.4, ry: 3.4, round: 3.4 }],
+  // square
+  [{ cx: 11, cy: 18, rx: 3.2, ry: 3.2, round: 1.1 }, { cx: 21, cy: 18, rx: 3.2, ry: 3.2, round: 1.1 }],
+  // slits, tall
+  [{ cx: 11.2, cy: 18, rx: 2.2, ry: 4.2, round: 2.2 }, { cx: 20.8, cy: 18, rx: 2.2, ry: 4.2, round: 2.2 }],
+  // bands, wide
+  [{ cx: 10.6, cy: 18, rx: 4.2, ry: 2.3, round: 2.3 }, { cx: 21.4, cy: 18, rx: 4.2, ry: 2.3, round: 2.3 }],
+  // one eye
+  [{ cx: 16, cy: 18, rx: 5.2, ry: 5.2, round: 5.2 }],
+];
+
+/**
+ * How many head-and-eyes pairs the set holds: every head under every eye set.
+ *
+ * Five hundred, and the number is load-bearing. The rank-to-index permutation below is exact
+ * over every input under it, so two ranks never reach the same pair -- and a pair IS the face,
+ * head string plus eye boxes. Bots number from zero and sessions from `BOT_SESSION_FACE_BASE`,
+ * so the two never share an input while Bots number under 40. Past either bound the faces still
+ * draw; they just stop promising uniqueness.
+ */
+export const BOT_FACE_PAIRS = 500;
+
+/**
+ * Scatters neighbouring ranks across the pairs.
+ *
+ * Consecutive ranks MUST NOT draw neighbouring pairs: a new arrival would otherwise wear
+ * something near-identical to the Bot before it. 37 is coprime to 500, so it permutes the pairs
+ * exactly, throwing consecutive inputs across heads and eye sets alike.
+ */
+const FACE_PERMUTE = 37;
 
 /** Which parts a rank draws: one generated outline and one generated set of eyes. */
 export interface BotFaceShape {
@@ -283,20 +232,20 @@ export interface BotFaceShape {
  * The rank is the Bot's place in the roster ordered by creation, which is what `botCanvasHues`
  * ranks on and for the same three reasons it gives: taking a Bot off the canvas re-faces nothing,
  * a new Bot re-faces nothing, and a Bot keeps its face for as long as it exists. Sessions number
- * from `BOT_SESSION_FACE_BASE`, so the two never share an input while Bots number under 2048.
+ * from `BOT_SESSION_FACE_BASE`, so the two never share an input while Bots number under 256 --
+ * and every input under 500 reaches its own pair, so no face repeats for any roster this side of
+ * forty Bots.
  *
- * The rank is permuted into the face space and hashed: the same rank draws the same face on every
- * load, and neighbouring ranks land nowhere near each other. A rank that is not finite draws rank
- * zero rather than nothing, because the only thing a caller can do with a thrown error here is
- * draw no face at all.
+ * A rank that is not finite draws rank zero rather than nothing, because the only thing a caller
+ * can do with a thrown error here is draw no face at all.
  */
 export function botFaceOf(rank: number): BotFaceShape {
   const floored = Math.floor(rank);
   const at = Number.isFinite(floored) ? Math.abs(floored) : 0;
-  const rand = stream(hashSeed(((at % BOT_FACE_SPACE) * FACE_PERMUTE) % BOT_FACE_SPACE));
+  const pair = ((at % BOT_FACE_PAIRS) * FACE_PERMUTE) % BOT_FACE_PAIRS;
   return {
-    head: headPath(rand),
-    eyes: eyesOf(rand),
+    head: HEADS[pair % HEADS.length]!,
+    eyes: EYES[Math.floor(pair / HEADS.length) % EYES.length]!,
   };
 }
 
