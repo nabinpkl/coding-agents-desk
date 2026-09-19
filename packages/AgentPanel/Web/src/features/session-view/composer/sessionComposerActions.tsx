@@ -72,6 +72,24 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
 
 export function composerActions(m: ComposerModel): ComposerAction[] {
   const actions: ComposerAction[] = [];
+  // Offered wherever an image has somewhere to go, which is the same rule the card's drop target
+  // follows and not the band that happens to be attached. It used to be pushed inside the tmux
+  // branch, so it appeared the moment the field took focus and the mirror took the band over --
+  // a session nobody had typed in yet showed no way to attach anything, though dropping on it
+  // worked the whole time.
+  if (m.acceptFiles) {
+    // Under the field, beside the context meter: the field's own trailing edge is Send's.
+    actions.push({
+      key: "attach-image",
+      ariaLabel: "Add an image to this session's composer",
+      title: "Put an image in this session's terminal composer",
+      icon: <Paperclip className="size-3.5" aria-hidden />,
+      disabled: m.tmuxComposer.pending,
+      className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
+      placement: "footer",
+      onClick: () => m.filePicker.current?.click(),
+    });
+  }
 if (m.windowBand) {
   // The window band's only explicit action is the Enter button: filling and
   // reading are automatic (focus prefill, debounced sync, one round trip for
@@ -93,18 +111,7 @@ if (m.windowBand) {
     onClick: () => void m.windowComposer.submitWindow(),
   });
 } else if (m.tmuxBand) {
-  // Under the field, beside the context meter: the field's own trailing edge is Send's.
-  actions.push({
-    key: "attach-tmux-composer",
-    ariaLabel: "Add an image to this session's composer",
-    title: "Put an image in this session's terminal composer",
-    icon: <Paperclip className="size-3.5" aria-hidden />,
-    disabled: m.tmuxComposer.pending,
-    className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
-    placement: "footer",
-    onClick: () => m.filePicker.current?.click(),
-  });
-  // One action beyond that, like the bands below it and for the same reason: Steer and Stop act
+  // One action, like the bands below it and for the same reason: Steer and Stop act
   // on a queue the panel owns, and this session owns its own.
   actions.push({
     key: "send-tmux-composer",

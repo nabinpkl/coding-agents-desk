@@ -415,6 +415,7 @@ export function SessionComposer({
         : piUnavailable;
 
   const model: ComposerModel = {
+    acceptFiles: isClaude && !noPane ? acceptFiles : null,
     agentTerminalBand,
     capabilities,
     cliInput,
@@ -459,6 +460,7 @@ export function SessionComposer({
       editor={editor}
       feed={feed}
       filePicker={filePicker}
+      onPickFiles={isClaude && !noPane ? acceptFiles : null}
       isClaude={isClaude}
       isCodex={isCodex}
       model={model}
@@ -471,8 +473,6 @@ export function SessionComposer({
       terminalComposer={terminalComposer}
       terminalHeightBasis={terminalHeightBasis}
       terminalPane={terminalPane}
-      tmuxBand={tmuxBand}
-      tmuxComposer={tmuxComposer}
       usage={usage}
     />
   );

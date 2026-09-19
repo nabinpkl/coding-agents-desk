@@ -30,6 +30,12 @@ export interface ComposerModel {
   editorValue: string;
   /** The session's own error, from the agent control state. */
   error: string | null;
+  /**
+   * Takes images for this session's composer, or null where there is nowhere to put one: not a
+   * Claude session, or one whose pane has been looked for and not found. The same function the
+   * card's drop target is given, so the paperclip and a drop do the same thing.
+   */
+  acceptFiles: ((files: readonly File[]) => void) | null;
   filePicker: RefObject<HTMLInputElement | null>;
   inboxBand: boolean;
   isClaude: boolean;

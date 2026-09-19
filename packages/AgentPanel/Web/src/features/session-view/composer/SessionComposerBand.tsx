@@ -40,6 +40,7 @@ export function SessionComposerBand({
   isCodex,
   model,
   noteTerminalState,
+  onPickFiles,
   questionMirror,
   sectionLabel,
   session,
@@ -48,8 +49,6 @@ export function SessionComposerBand({
   terminalComposer,
   terminalHeightBasis,
   terminalPane,
-  tmuxBand,
-  tmuxComposer,
   usage,
 }: {
   actions: ComposerAction[];
@@ -60,6 +59,8 @@ export function SessionComposerBand({
   editor: ComposerEditor;
   feed: Parameters<typeof AgentTerminalPane>[0]["feed"];
   filePicker: ComposerModel["filePicker"];
+  /** Takes the images the picker returns, or null where this session has nowhere to put one. */
+  onPickFiles: ComposerModel["acceptFiles"];
   isClaude: boolean;
   isCodex: boolean;
   model: ComposerModel;
@@ -82,8 +83,6 @@ export function SessionComposerBand({
     onResized: (height: number) => void;
   } | null;
   terminalHeightBasis: HTMLElement | null;
-  tmuxBand: boolean;
-  tmuxComposer: ComposerModel["tmuxComposer"];
   usage: TokenUsage | null;
 }) {
   // Split off the call id, which is the mirror's key rather than one of its props: the surface
@@ -132,7 +131,11 @@ export function SessionComposerBand({
           />
         </div>
       ) : null}
-      {tmuxBand ? (
+      {/* Rendered wherever an image has somewhere to go rather than only on the attached band: the
+          paperclip that clicks it is offered on the same rule, and the picker has to exist before
+          the reader can reach it. `onPickFiles` engages the mirror and drops, which is exactly
+          what dropping on the card does. */}
+      {onPickFiles ? (
         <input
           ref={filePicker}
           type="file"
@@ -144,7 +147,7 @@ export function SessionComposerBand({
             // Cleared so picking the same file twice in a row fires a second change; the input
             // remembers its value and would otherwise say nothing happened.
             event.target.value = "";
-            if (chosen.length > 0) void tmuxComposer.drop(chosen);
+            if (chosen.length > 0) onPickFiles(chosen);
           }}
         />
       ) : null}
