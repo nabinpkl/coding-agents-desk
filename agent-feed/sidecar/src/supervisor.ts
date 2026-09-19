@@ -25,12 +25,23 @@ import {
   writeSupervisorDescriptor,
 } from "@/sidecarRegistry";
 import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
+import { ownSources } from "@/supervisorSources";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
 
 /** The tree this watches, which is everything the sidecar can import. */
 const SOURCE = dirname(SERVER);
+
+/**
+ * The files THIS process is built from, which are in that tree too.
+ *
+ * The one thing it cannot fix by replacing the child. A change to the rule for when to restart used
+ * to sit here running the old rule and looking exactly like the new one until somebody relaunched
+ * the host, which is the worst kind of stale: the code most likely to be wrong about whether it is
+ * current is the code that decides it.
+ */
+const OWN = ownSources(new URL(import.meta.url).pathname, SOURCE);
 
 /**
  * How long writes are collected before anything is decided about them.
@@ -131,6 +142,21 @@ function startSidecar(): void {
   });
 }
 
+/**
+ * What taking the tree means, which depends on whose code moved.
+ *
+ * Reached only once the gate has decided the tree is worth taking, so the parse rule and the
+ * reader's mode both still apply: a supervisor's own half-written file holds everything back
+ * exactly like the sidecar's does.
+ */
+function takeTheTree(reason: string): void {
+  if (!selfStale) {
+    replaceSidecar(reason);
+    return;
+  }
+  leave(`${reason}, and one of them is this supervisor's own; leaving for a newer one`);
+}
+
 function replaceSidecar(reason: string): void {
   if (!child) {
     say(`${reason}; nothing running, starting the sidecar`);
@@ -145,7 +171,7 @@ function replaceSidecar(reason: string): void {
 }
 
 const gate = createSupervisorGate({
-  restart: replaceSidecar,
+  restart: takeTheTree,
   log: say,
   publish,
 });
@@ -196,8 +222,12 @@ async function parsed(path: string): Promise<ParsedChange> {
 const pending = new Set<string>();
 let settle: ReturnType<typeof setTimeout> | undefined;
 
+/** Set once a file this process is built from has moved, and cleared only by leaving. */
+let selfStale = false;
+
 function noteChange(path: string): void {
   if (!/\.tsx?$/.test(path) || path.endsWith(".test.ts") || path.endsWith(".test.tsx")) return;
+  if (OWN.has(path)) selfStale = true;
   pending.add(path);
   clearTimeout(settle);
   settle = setTimeout(() => {
@@ -221,12 +251,26 @@ function startWatching(): void {
 
 // ---------------------------------------------------------------------------
 
-function stop(signal: NodeJS.Signals): void {
+/**
+ * Stop, and let whatever started this start a newer one.
+ *
+ * The only way a supervisor replaces itself. Every alternative either loses the child or risks two
+ * supervisors on one port: exec would leave the running sidecar with nobody owning it, and spawning
+ * a replacement before exiting would race the parent's own restart. Leaving is the honest version.
+ * The Mac's host restarts this within a second of the exit (`AgentFeedSidecarProcess` schedules on
+ * termination, backing off from 1s and resetting as soon as the new sidecar answers), and a peer's
+ * watcher checks again shortly after every ship (`tools/remote-sidecar.sh`).
+ *
+ * What does not survive is the panel's standing request, which the new supervisor clears at startup
+ * on purpose. The panel says it again within its own poll, which is what `reconcile` in
+ * `packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts` is for.
+ */
+function leave(why: string): void {
   if (stopping) return;
   stopping = true;
   clearTimeout(settle);
   clearInterval(requests);
-  say(`${signal}; stopping the sidecar`);
+  say(`${why}; stopping the sidecar`);
   child?.kill();
   clearSupervisorDescriptor();
   // The child holds the port, so leaving before it is gone hands the next launch a bound port. It
@@ -237,11 +281,11 @@ function stop(signal: NodeJS.Signals): void {
   void child?.exited.then(() => process.exit(0));
 }
 
-process.on("SIGTERM", () => stop("SIGTERM"));
-process.on("SIGINT", () => stop("SIGINT"));
-process.on("SIGHUP", () => stop("SIGHUP"));
+process.on("SIGTERM", () => leave("SIGTERM"));
+process.on("SIGINT", () => leave("SIGINT"));
+process.on("SIGHUP", () => leave("SIGHUP"));
 
-say(`supervising ${SERVER}`);
+say(`supervising ${SERVER}, and watching ${OWN.size} files of its own`);
 // A fresh supervisor is a fresh decision. Whatever a panel asked of the last one is forgotten here,
 // so a request left over from yesterday cannot silently freeze this machine's sidecar.
 clearSupervisorRequest();

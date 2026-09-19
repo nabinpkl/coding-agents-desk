@@ -246,8 +246,11 @@ watch)
         # closes that hole -- it replaces the server only once the tree parses, and starts it again
         # if it dies -- so what is left here is the peer itself going away.
         sleep 5
-        checked="$(date +%s)"
         ensure_running || true
+        # And again shortly after, rather than waiting out the slow interval. The supervisor now
+        # LEAVES when its own source is among the files that just landed, so that it comes back
+        # running them, and the check above can easily catch it in the seconds before it goes.
+        checked="$(( $(date +%s) - HEALTH_INTERVAL + 20 ))"
     done
     ;;
 run)
