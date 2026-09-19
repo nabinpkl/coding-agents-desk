@@ -38,11 +38,13 @@ import {
   subscribeToObserver,
   type AnthropicStreamEvent,
   type ObserverEvent,
+  type ObserverFlow,
   type ObserverSubscription,
 } from "@/live/claudeNetworkSource";
 import { CompactionWatch } from "@/live/claudeCompactionWatch";
 import {
   bufferDelta,
+  flowStartedAtMs,
   isMessageStream,
   newFlowContext,
   observedAtMs,
@@ -261,14 +263,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     if (event.recordsDropped) console.warn(describeRecordsDropped(event.recordsDropped));
   }
 
-  private acceptFlowUpserted(flow: {
-    flowId?: unknown;
-    authority?: unknown;
-    path?: unknown;
-    protocol?: unknown;
-    requestBody?: { value?: unknown };
-    requestHeaders?: unknown;
-  }, ts: number): void {
+  private acceptFlowUpserted(flow: ObserverFlow, ts: number): void {
     const flowId = flow.flowId;
     if (typeof flowId !== "string" || !flowId) return;
     if (this.binds.has(flowId)) return;
@@ -320,7 +315,10 @@ export class ClaudeLiveBackend implements AgentBackend {
           return;
         }
         if (longContext) this.longContextSessions.add(sessionId);
-        this.bindFlow(flowId, sessionId, toolResults, ts);
+        // Dated by the flow, not by the event: on a fresh subscription the observer replays
+        // finished flows with `observedAt` restamped to now, and the panel resolves live against
+        // durable by whichever is newer. See `flowStartedAtMs`.
+        this.bindFlow(flowId, sessionId, toolResults, flowStartedAtMs(flow, ts));
       })
       .catch((error) => {
         context.binding = false;
@@ -363,7 +361,8 @@ export class ClaudeLiveBackend implements AgentBackend {
     if (!context.binding) this.dropFlow(flowId);
   }
 
-  private bindFlow(flowId: string, sessionId: string, toolResults: ToolResultItem[], ts: number): void {
+  /** `startedMs` is when the request was sent, not when its flow was announced. */
+  private bindFlow(flowId: string, sessionId: string, toolResults: ToolResultItem[], startedMs: number): void {
     const context = this.flowContexts.get(flowId);
     if (!context) return;
     this.binds.set(flowId, sessionId);
@@ -373,7 +372,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     // previous assistant turn's tool results land. Publish them before the
     // response deltas so the conversation reads in order: tool result, then the
     // assistant's continuation.
-    if (toolResults.length > 0) this.publishToolResults(sessionId, flowId, toolResults, ts);
+    if (toolResults.length > 0) this.publishToolResults(sessionId, flowId, toolResults, startedMs);
     const pending = context.pending;
     context.pending = [];
     context.pendingBytes = 0;

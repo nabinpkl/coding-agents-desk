@@ -1,126 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
-
-const flush = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-interface FixtureServer {
-  url: URL;
-  stop(): void;
-}
-
-function startFixture(): FixtureServer {
-  const bodyFor = (reference: string): string => {
-    if (reference === "missing") return "not-an-identity";
-    if (reference === "subagent1") {
-      // A subagent's request: its parent's identity, plus the harness's billing token saying whose
-      // turn it really is. Both are what the wire carries.
-      return JSON.stringify({
-        system: [{
-          type: "text",
-          text: "x-anthropic-billing-header: cc_version=2.1.268.58f; cc_entrypoint=cli;"
-            + " cc_is_subagent=true; cc_prompt_id=2a5f44c0-0db0-4745-a365-df4dadab823b;",
-        }],
-        user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
-      });
-    }
-    if (reference === "summariser1") {
-      // A compaction summariser: the session's OWN identity, no subagent token, and a billing
-      // header with no `cc_prompt_id` because there is no prompt behind it. Measured on the wire,
-      // instruction and all -- the instruction is what separates it from the harness's other
-      // errands, which are equally not the session speaking but are over in a second.
-      return JSON.stringify({
-        system: [{
-          type: "text",
-          text: "x-anthropic-billing-header: cc_version=2.1.270.d34; cc_entrypoint=cli;"
-            + " cch=014d3; cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;",
-        }],
-        messages: [{
-          role: "user",
-          content: "Your task is to create a detailed summary of the conversation so far.",
-        }],
-        user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
-      });
-    }
-    if (reference === "tool1") {
-      return JSON.stringify({
-        user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-tool1" }),
-        messages: [
-          { role: "user", content: "head" },
-          { role: "assistant", content: [{ type: "tool_use", id: "toolu_9", name: "Bash", input: {} }] },
-          { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_9", content: "file.txt\nreadme.md" }] },
-        ],
-      });
-    }
-    return JSON.stringify({
-      user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: `sess-${reference}` }),
-    });
-  };
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname.startsWith("/v1/bodies/")) {
-        const reference = url.pathname.slice("/v1/bodies/".length);
-        return new Response(bodyFor(reference), { headers: { "content-type": "application/json" } });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-  // `server.port` is assigned after `serve` returns.
-  return {
-    url: new URL(`http://127.0.0.1:${(server as { port: number }).port}`),
-    stop: () => server.stop(true),
-  };
-}
-
-function flowEvent(
-  flowId: string,
-  path: string,
-  authority: string,
-  bodyRef?: string,
-  requestHeaders?: { name: string; value: string }[],
-): ObserverEvent {
-  return {
-    observedAt: new Date().toISOString(),
-    flowUpserted: {
-      flow: {
-        flowId,
-        protocol: "OBSERVED_PROTOCOL_SSE",
-        path,
-        authority,
-        ...(bodyRef ? { requestBody: { value: bodyRef } } : {}),
-        ...(requestHeaders ? { requestHeaders } : {}),
-      },
-    },
-  };
-}
-
-/** The beta list a 1M run actually sends, trimmed; the real one carries a dozen more entries. */
-const LONG_CONTEXT_BETAS = {
-  name: "anthropic-beta",
-  value: "claude-code-20250219,oauth-2025-04-20,context-1m-2025-08-07,interleaved-thinking-2025-05-14",
-};
-const ORDINARY_BETAS = {
-  name: "anthropic-beta",
-  value: "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
-};
-
-function delta(flowId: string, payload: unknown): ObserverEvent {
-  return {
-    observedAt: new Date().toISOString(),
-    streamDeltaObserved: {
-      flowId,
-      sequence: "1",
-      eventType: "message",
-      data: Buffer.from(JSON.stringify(payload), "utf8").toString("base64"),
-    },
-  };
-}
-
-function ended(flowId: string): ObserverEvent {
-  return { observedAt: new Date().toISOString(), streamEnded: { flowId } };
-}
+import {
+  delta,
+  ended,
+  flowEvent,
+  flush,
+  startFixture,
+  LONG_CONTEXT_BETAS,
+  ORDINARY_BETAS,
+  type FixtureServer,
+} from "@/live/fixtures/claudeLiveFixture";
 
 describe("ClaudeLiveBackend ingest", () => {
   let fixture: FixtureServer;
@@ -409,6 +299,38 @@ describe("ClaudeLiveBackend ingest", () => {
     expect(user.blocks[0]!.kind).toBe("tool_result");
     expect(user.blocks[0]!.callId).toBe("toolu_9");
     expect(user.blocks[0]!.preview).toBe("file.txt\nreadme.md");
+    await local.dispose();
+  });
+
+  test("a tool-result row is dated when its turn was sent, not when the flow was announced", async () => {
+    // The observer RESTAMPS `observedAt` on the flows it replays when a stream is created.
+    // Measured 2026-09-16: all 18 flows in an opening burst carried the stream's own open time
+    // while their own starts spanned the previous three hours, and six of them were completed
+    // `/v1/messages` turns that still pass this path's gates. Dated by the event, a turn from two
+    // minutes ago would republish as current -- and the panel resolves live against durable by
+    // whichever is newer, so the wrong one would win.
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    const startedAt = "2026-09-16T01:06:31.873Z";
+    local.acceptObserverEvent(
+      flowEvent("t2", "/v1/messages", "api.anthropic.com", "tool1", undefined, startedAt),
+    );
+    await flush(80);
+
+    const page = await local.page("sess-tool1", 0, 10, "nice");
+    expect(page.events[0]!.ts).toBe(Date.parse(startedAt));
+    await local.dispose();
+  });
+
+  test("a flow the observer reported no start for falls back to when it was seen", async () => {
+    // Being a few seconds out is the error this bounds, not one it introduces: a row with no
+    // timestamp at all would sort to the epoch.
+    const before = Date.now();
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("t3", "/v1/messages", "api.anthropic.com", "tool1"));
+    await flush(80);
+
+    const page = await local.page("sess-tool1", 0, 10, "nice");
+    expect(page.events[0]!.ts).toBeGreaterThanOrEqual(before);
     await local.dispose();
   });
 

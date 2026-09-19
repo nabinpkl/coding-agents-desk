@@ -243,13 +243,13 @@ export class CodexLiveBackend implements AgentBackend {
     if (this.disposed) return;
     const ts = observedAtMs(event);
     if (event.flowUpserted?.flow) {
-      this.acceptFlowUpserted(event.flowUpserted.flow, ts);
+      this.acceptFlowUpserted(event.flowUpserted.flow);
     }
     if (event.websocketMessageObserved) {
       this.acceptMessage(event.websocketMessageObserved, ts);
     }
     if (event.streamEnded) {
-      this.acceptStreamEnded(event.streamEnded.flowId, ts);
+      this.acceptStreamEnded(event.streamEnded.flowId);
     }
   }
 
@@ -259,7 +259,7 @@ export class CodexLiveBackend implements AgentBackend {
     path?: unknown;
     protocol?: unknown;
     requestHeaders?: unknown;
-  }, ts: number): void {
+  }): void {
     const flowId = flow.flowId;
     if (typeof flowId !== "string" || !flowId) return;
     if (this.binds.has(flowId) || this.flowContexts.has(flowId)) return;
@@ -287,7 +287,7 @@ export class CodexLiveBackend implements AgentBackend {
     this.applyPayload(sessionId, message.flowId, payload, ts);
   }
 
-  private acceptStreamEnded(flowId: unknown, ts: number): void {
+  private acceptStreamEnded(flowId: unknown): void {
     if (typeof flowId !== "string") return;
     const context = this.flowContexts.get(flowId);
     if (!context) return;

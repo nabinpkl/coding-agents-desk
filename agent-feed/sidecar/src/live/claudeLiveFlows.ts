@@ -64,3 +64,22 @@ export function observedAtMs(event: ObserverEvent): number {
   const parsed = typeof value === "string" ? Date.parse(value) : NaN;
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
+
+/**
+ * When the API began this flow, falling back to the given moment.
+ *
+ * `observedAt` is the right clock for a DELTA -- it is stamped as the delta streams, and measured
+ * 2026-09-16 across 1053 events it sat a median of 0ms and at most 3ms behind arrival. It is the
+ * wrong clock for anything derived from the flow itself, because the observer RESTAMPS it on the
+ * flows it replays when a stream is created: measured the same day, all 18 flows in an opening
+ * burst carried the stream's own open time while their own starts spanned the previous three
+ * hours, one of them having completed 178 seconds before the subscription existed.
+ *
+ * `usage/claudeLiveQuota.ts` parses the same field for the same reason and does not share this,
+ * because importing it there would close a cycle: `claudeNetworkSource` imports the quota module,
+ * and this module imports `claudeNetworkSource`.
+ */
+export function flowStartedAtMs(flow: { startedAt?: unknown }, fallbackMs: number): number {
+  const parsed = typeof flow.startedAt === "string" ? Date.parse(flow.startedAt) : NaN;
+  return Number.isFinite(parsed) ? parsed : fallbackMs;
+}
