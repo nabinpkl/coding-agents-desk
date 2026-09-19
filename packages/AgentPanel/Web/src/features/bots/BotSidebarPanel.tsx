@@ -1,4 +1,4 @@
-import { Bot, Check, EyeOff, LoaderCircle, Plus, ScanFace } from "lucide-react";
+import { Bot, EyeOff, LoaderCircle, Plus, ScanFace } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -22,7 +22,7 @@ import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
  * Bot that does not exist yet, and a colour there would be a promise about which one it will get.
  * An unranked Bot keeps its initials when faces are on for the same reason: no rank, no face.
  */
-export function BotAvatar({ bot, hue, rank, size = "size-10" }: {
+export function BotAvatar({ bot, hue, rank, size = "size-12" }: {
   bot: Pick<BotView, "name" | "iconUrl">;
   hue?: number;
   rank?: number;
@@ -256,7 +256,7 @@ export function BotSidebarPanel({
                   // The selected Bot no longer takes `bg-muted`. It is a utility, so it outranks
                   // the component layer this fill lives in and would repaint the row flat grey --
                   // exactly how an open session's row used to lose its colour.
-                  className={`flex min-h-16 items-center gap-3 border-l-2 px-3 py-2 ${
+                  className={`flex min-h-16 items-center gap-3 border-l-2 py-2 pr-3 pl-1 ${
                     hue !== undefined && onStrip !== false
                       ? "bot-surface bot-rail"
                       : "border-transparent"
@@ -264,14 +264,13 @@ export function BotSidebarPanel({
                   style={hue === undefined || onStrip === false ? undefined : botSurfaceStyle(hue)}
                 >
                   {canvas ? (
-                    // The avatar IS the control, and the badge on its corner is what it says. A
-                    // control of its own would be a second 40px column in a sidebar the reader has
-                    // usually dragged narrow, and the Bot's name is what loses those pixels.
+                    // The avatar IS the control. A control of its own would be a second 40px
+                    // column in a sidebar the reader has usually dragged narrow, and the Bot's
+                    // name is what loses those pixels.
                     //
-                    // The trade is discoverability: a face does not look like a checkbox, so the
-                    // cursor, the tooltip and the badge itself have to carry that. Acceptable
-                    // because the same toggle is on every card's own menu, which is where a reader
-                    // meets it first.
+                    // No badge on its corner: the row already says on or off through its colour
+                    // and dimming, and the same toggle is on every card's own menu, which is
+                    // where a reader meets it first.
                     <button
                       type="button"
                       onClick={() => canvas.onToggle(bot)}
@@ -287,24 +286,11 @@ export function BotSidebarPanel({
                       title={machineHidden
                         ? `${machineLabel ?? "This machine"} is hidden from the canvas. Show it above to bring ${bot.name} back.`
                         : onCanvas ? "On the canvas" : "Off the canvas"}
-                      // The ring on hover is what says this face is a control. Without it the
-                      // badge reads as decoration on a picture, and nothing else on the row admits
-                      // that clicking here does anything.
-                      className="relative shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary disabled:cursor-default disabled:hover:ring-0"
+                      // The ring on hover is what says this face is a control. Without it nothing
+                      // else on the row admits that clicking here does anything.
+                      className="shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary disabled:cursor-default disabled:hover:ring-0"
                     >
                       <BotAvatar bot={bot} hue={hue} rank={ranks.get(bot.botId)} />
-                      {/* Ringed in the row's own background so it reads as sitting ON the avatar
-                          rather than being part of the picture. */}
-                      <span
-                        aria-hidden
-                        className={`absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full ring-2 ring-card ${
-                          onStrip
-                            ? "bg-primary text-primary-foreground"
-                            : "border border-muted-foreground/60 bg-card"
-                        }`}
-                      >
-                        {onStrip ? <Check className="size-2.5" strokeWidth={3} /> : null}
-                      </span>
                     </button>
                   ) : (
                     <BotAvatar bot={bot} hue={hue} rank={ranks.get(bot.botId)} />
@@ -417,13 +403,13 @@ export function BotSidebarPanel({
                             type="button"
                             onClick={() => onSelectSession(bot, session)}
                             aria-current={active ? "page" : undefined}
-                            // `pl-6` where this was `pl-14`, which costs the title nothing: 24px of
-                            // padding plus the 24px mark and the 8px gap after it puts the text at
-                            // the same 56px it started at. The indent is now SPOKEN by the mark
+                            // `pl-2` where this was `pl-6`, which costs the title nothing: 8px of
+                            // padding plus the 32px mark and the 8px gap after it puts the text at
+                            // the same 48px the tightened layout starts at. The indent is now SPOKEN by the mark
                             // rather than by empty space, which is what lets a narrow sidebar carry
                             // one at all -- added to the old indent it would have taken 32px off
                             // every title in the roster.
-                            className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-6 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+                            className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-2 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
                           >
                             {/* The same mark the canvas card draws, and the only place this list
                                 says whether a session is live at all: the row had no activity on
@@ -475,7 +461,7 @@ export function BotSidebarPanel({
                       // Tokenised rather than `text-xs`, which is a size the reader's font settings
                       // cannot reach: the control would move every row in this list except the
                       // broken one. Chip tier, the same as the canvas draws a missing reference.
-                      <li key={attachedSessionKey(ref)} className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-14 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                      <li key={attachedSessionKey(ref)} className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-12 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
                         <span className="min-w-0 flex-1 truncate">{ref.sessionId}</span>
                         <SourceBadge source={ref.source} />
                         <span>missing</span>
@@ -488,7 +474,7 @@ export function BotSidebarPanel({
                   </ul>
                 ) : (
                   // Same size the canvas card says this in, and reachable from the font settings.
-                  <p className="pb-2 pr-3 pl-14 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">No sessions attached</p>
+                  <p className="pb-2 pr-3 pl-12 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">No sessions attached</p>
                 )}
               </li>
             );

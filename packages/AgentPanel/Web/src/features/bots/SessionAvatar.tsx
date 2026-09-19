@@ -21,8 +21,8 @@ import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
  * about the session before the session.
  *
  * So the session gets a face of its own, one size under the Bot's: the same containment the card
- * already draws, said in the one place a reader's eye starts. `size-6` against the Bot's `size-9`
- * on a card and `size-10` in the sidebar, which is small enough to read as belonging to the header
+ * already draws, said in the one place a reader's eye starts. `size-8` against the Bot's `size-11`
+ * on a card and `size-12` in the sidebar, which is small enough to read as belonging to the header
  * above it rather than competing with it.
  *
  * **On its own step of its Bot's colour, not on the Bot's.** The Bot's hue is what says whose
@@ -81,7 +81,7 @@ export function SessionAvatar({
     return (
       <BotFace
         rank={rank}
-        className={`size-6 shrink-0 ${activity === "live" ? "rounded-full ring-2 ring-green-500" : ""} ${className}`}
+        className={`size-8 shrink-0 ${activity === "live" ? "rounded-full ring-2 ring-green-500" : ""} ${className}`}
       />
     );
   }
@@ -91,7 +91,7 @@ export function SessionAvatar({
       // rings is said in words in the meta line under that. A screen reader that read this would
       // hear the session announced three times.
       aria-hidden
-      className={`flex size-6 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold ${
+      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold ${
         shaded
           ? "bot-session-accent text-foreground"
           : "border border-border bg-muted text-muted-foreground"

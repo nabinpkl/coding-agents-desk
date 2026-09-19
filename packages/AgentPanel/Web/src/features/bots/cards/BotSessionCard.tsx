@@ -286,7 +286,7 @@ export function BotSessionCard({
               // `cursor-pointer` rather than the header's `cursor-grab`, because unlike that header
               // this element's first job is opening the session; the grabbing cursor appears once a
               // press is actually being held, which is when it says something true.
-              className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
+              className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-1 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
             >
               {/* The face, not a dot. A dot said live or not live and nothing about WHICH session
                   this was, so a Bot's roster opened with a column of identical marks. */}

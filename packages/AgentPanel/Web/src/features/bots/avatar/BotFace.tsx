@@ -298,8 +298,8 @@ export function botFaceOf(rank: number): BotFaceShape {
 /**
  * A Bot's face, sized by its caller.
  *
- * It fills nothing on its own: the avatar is already sized in one place (`size-6` for a session,
- * `size-9` and `size-10` for a Bot) and a number here is a second place for those to disagree. It
+ * It fills nothing on its own: the avatar is already sized in one place (`size-8` for a session,
+ * `size-11` and `size-12` for a Bot) and a number here is a second place for those to disagree. It
  * stands alone rather than inside the initials' disc, whose circle would ring every head in the
  * shape the faces were drawn to replace.
  *

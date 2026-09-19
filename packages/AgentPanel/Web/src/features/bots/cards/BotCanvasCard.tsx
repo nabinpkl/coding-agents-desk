@@ -263,13 +263,13 @@ export function BotCanvasCard({
           // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
           // the same colour and so invisible; now that the card carries a hue, repainting the band
           // that holds the Bot's name would be the one part of the card not wearing it.
-          className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border px-3 py-2 select-none active:cursor-grabbing"
+          className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none active:cursor-grabbing"
           onPointerDown={grabHeader}
           onPointerMove={carryHeader}
           onPointerUp={dropHeader}
           onPointerCancel={dropHeader}
         >
-          <BotAvatar bot={bot} hue={hue} rank={rank} size="size-9" />
+          <BotAvatar bot={bot} hue={hue} rank={rank} size="size-11" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
               {bot.name}
@@ -344,13 +344,13 @@ export function BotCanvasCard({
             ref={roster}
             role="list"
             aria-label={`${bot.name} sessions`}
-            // The leading inset is the half that matters, and it is twice the other three on
-            // purpose. A session's rail sitting 8px inside the Bot's read as one thick striped
-            // edge rather than as a bar inside a card -- two rails of the same colour that close
-            // together are one rail, and the nesting they exist to show is the thing that goes
-            // missing. Twenty here, on top of the Bot's own six-pixel rail, leaves 26px of plain
-            // Bot surface before the first session's edge, which is enough for the emptiness
-            // itself to say one contains the other.
+            // The leading inset stays small on purpose. A session's rail sitting 8px inside
+            // the Bot's read as one thick striped edge rather than as a bar inside a card --
+            // two rails of the same colour that close together are one rail, and the nesting
+            // they exist to show is the thing that goes missing. Eight here, on top of the
+            // Bot's own six-pixel rail, leaves 14px of plain Bot surface before the first
+            // session's edge, which is enough for the emptiness itself to say one contains
+            // the other.
             //
             // The other three are ten, and they are not the same question. Nothing runs along
             // them, so all they have to do is show that the card sits ON the Bot rather than
@@ -366,7 +366,7 @@ export function BotCanvasCard({
             // The gap between sessions is the larger number rather than the inset's, because it
             // separates two cards that each have a rail, where the inset separates a card from an
             // edge.
-            className="flex items-start gap-4 p-2.5 pl-5"
+            className="flex items-start gap-4 p-2.5 pl-2"
           >
             {shown.map((session, index) => (
               <BotSessionCard
