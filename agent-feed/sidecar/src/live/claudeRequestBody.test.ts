@@ -197,6 +197,14 @@ test("isCompactionRequest picks the summariser out of the harness's other errand
   ))).toBe(false);
 });
 
+test("isCompactionRequest finds the instruction behind the context-window message a 1M model gets", () => {
+  // The harness appends this after the instruction on a 1M-context session, which is the size of
+  // context whose compaction runs long enough for the notice to matter.
+  const body = JSON.parse(summariser(SUMMARISE)) as { messages: unknown[] };
+  body.messages.push({ role: "system", content: "<total_tokens>14897832 tokens left</total_tokens>" });
+  expect(isCompactionRequest(JSON.stringify(body))).toBe(true);
+});
+
 test("isCompactionRequest never fires on a turn, however the conversation quotes it", () => {
   // The order is the safety. This is the only content-matched rule here, and the sentence it
   // matches lives in `messages`, which is the one part of the body a conversation can write into:

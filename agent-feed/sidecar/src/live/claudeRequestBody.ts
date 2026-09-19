@@ -318,7 +318,15 @@ export function isCompactionRequest(requestBody: string): boolean {
   return lastUserText(requestBody).includes(SUMMARISER_INSTRUCTION);
 }
 
-/** The final user message as one string, which is where the harness puts an errand's instruction. */
+/**
+ * The last USER message as one string, which is where the harness puts an errand's instruction.
+ *
+ * Not simply the last message. A session on a 1M-context model gets a `system` message after it
+ * carrying only `<total_tokens>...</total_tokens>`, so reading the final entry found no instruction
+ * on exactly the large contexts whose compactions take minutes. Measured 2026-09-15 on CLI 2.1.272:
+ * a 295k-token compaction on Opus ended in that message and was never announced, while the Haiku
+ * probes compacted that day were.
+ */
 function lastUserText(requestBody: string): string {
   let parsed: unknown;
   try {
@@ -328,12 +336,11 @@ function lastUserText(requestBody: string): string {
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
   const messages = (parsed as Record<string, unknown>).messages;
-  if (!Array.isArray(messages) || messages.length === 0) return "";
-  const last = messages[messages.length - 1];
-  if (!last || typeof last !== "object" || Array.isArray(last)) return "";
-  const message = last as Record<string, unknown>;
-  if (message.role !== "user") return "";
-  const content = message.content;
+  if (!Array.isArray(messages)) return "";
+  const last = messages.findLast((message: unknown) =>
+    Boolean(message) && typeof message === "object" && (message as Record<string, unknown>).role === "user");
+  if (last === undefined) return "";
+  const content = (last as Record<string, unknown>).content;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
