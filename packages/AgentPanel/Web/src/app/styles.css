@@ -88,6 +88,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-compaction-surface: var(--compaction-surface);
+  --color-compaction-border: var(--compaction-border);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -131,6 +133,16 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.625rem;
+  /* The summary a compaction leaves behind, under its banner and under the notice that streams it.
+     Amber because that notice's pulse is amber, and one hue for the whole event is what ties the
+     box to the banner rather than to the rows around it. Its own tokens rather than `--card`: a
+     Canvas session card tints every row with its Bot's hue, and a plain card box on that reads as
+     something pasted in from another page. Fixed rather than following the Bot's hue, because the
+     point is to differ from the rows. Light keeps the surface at a whisper and puts the chroma in
+     the border, for the reason the Bot tokens below give: `--muted-foreground` holds 4.5:1 here
+     and any more tint spends it. */
+  --compaction-surface: oklch(0.985 0.022 85);
+  --compaction-border: oklch(0.86 0.07 80);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -153,6 +165,8 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
+    --compaction-surface: oklch(0.26 0.035 75);
+    --compaction-border: oklch(0.45 0.08 75);
   }
 }
 

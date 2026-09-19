@@ -20,7 +20,8 @@ const CHIP_STYLE = { fontSize: "var(--agent-panel-fs-tile-chip, 12px)" };
  *
  * The chip opens the summary the context was replaced with, when the event carries one: it is what
  * the session remembers of everything above the banner, and the same text `CompactingNotice`
- * showed being written. Closed by default, because a compacted session is read for what came after.
+ * showed being written. Open by default: the summary is what a reader scrolling past the banner
+ * wants to see, and a closed chip hid it behind a click nobody knew to make.
  */
 export function CompactionRow({
   ev,
@@ -29,7 +30,7 @@ export function CompactionRow({
   ev: ActivityEvent;
   ctx: EventRowContext;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
   const summary = compactionSummary(ev);
   const { folded, hasRawJson } = partitionEventBlocks(ev);
@@ -71,7 +72,7 @@ export function CompactionRow({
         // push the rest of the thread a screen away from the banner it belongs to. Kept short so
         // the thread around the banner stays in view while it is open. Markdown because the
         // summariser writes numbered sections and nested lists.
-        <div className="mt-2 max-h-[16em] overflow-y-auto overscroll-contain rounded-md border border-border bg-card px-3 py-2 leading-(--agent-panel-prose-leading) text-foreground">
+        <div className="mt-2 max-h-[16em] overflow-y-auto overscroll-contain rounded-md border border-compaction-border bg-compaction-surface px-3 py-2 leading-(--agent-panel-prose-leading) text-foreground">
           <Markdown content={summary} />
         </div>
       ) : null}

@@ -78,7 +78,7 @@ export function CompactingNotice({ summary }: { summary: string }) {
             const box = event.currentTarget;
             following.current = box.scrollHeight - box.scrollTop - box.clientHeight <= FOLLOW_SLACK_PX;
           }}
-          className="pointer-events-auto max-h-[45%] min-h-0 overflow-y-auto overscroll-contain rounded-md border border-border bg-card px-3 py-2 shadow-sm"
+          className="pointer-events-auto max-h-[45%] min-h-0 overflow-y-auto overscroll-contain rounded-md border border-compaction-border bg-compaction-surface px-3 py-2 shadow-sm"
         >
           <p className="whitespace-pre-wrap break-words text-foreground">{summary}</p>
         </div>
