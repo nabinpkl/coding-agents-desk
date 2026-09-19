@@ -11,8 +11,9 @@ import { ChevronDown, EyeOff, Skull, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
-import { sessionInitials } from "@/features/bots/botSurface";
+import { botSessionFaceRank, botSessionStyle, sessionInitials } from "@/features/bots/botSurface";
 import { CLOSED_SESSION_WIDTH } from "@/features/bots/cards/botCanvasCards";
 import { TerminalTile } from "@/features/terminal/TerminalTile";
 import { terminalChildStyle } from "@/features/terminal/canvas/terminalSurface";
@@ -22,6 +23,7 @@ export function TerminalChildCard({
   feed,
   hue,
   step,
+  rank,
   solo,
   open,
   onToggle,
@@ -34,6 +36,8 @@ export function TerminalChildCard({
   hue: number | undefined;
   /** This session's step on that parent's ladder, ranked over the parent's full roster. */
   step: number | undefined;
+  /** Its parent's rank in the path order: this session's face base. */
+  rank: number | undefined;
   /** Whether this is its parent's only session, in which case it gets no rail. */
   solo: boolean;
   open: boolean;
@@ -50,6 +54,13 @@ export function TerminalChildCard({
 }) {
   const shaded = terminalChildStyle(hue, step);
   const railed = shaded !== undefined && !solo;
+  const faces = useBotFaces();
+  // Its own face rather than its parent's, so siblings never share one. Unshaded keeps its
+  // disc whatever the switch says -- a face with no hue in scope has no colour to take.
+  const faceRank = rank !== undefined && step !== undefined
+    ? botSessionFaceRank(rank, step)
+    : undefined;
+  const faced = faces && faceRank !== undefined && shaded !== undefined;
   const [confirming, setConfirming] = useState(false);
   const [killing, setKilling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,21 +134,28 @@ export function TerminalChildCard({
               aria-expanded={open}
               className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-1 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
             >
-              {/* The mark, not a dot: initials on this session's own step of its parent's
-                  colour, ringed while somebody is watching. Faces are the Bot canvas's answer
-                  to which-session; letters are this one's, because a tmux name already is one. */}
-              <span
-                aria-hidden
-                // The hue and the step ride down from the card's own style: `terminalChildStyle`
-                // publishes both or neither, so this disc never resolves half a colour.
-                className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold ${
-                  shaded
-                    ? "terminal-session-accent text-foreground"
-                    : "border border-border bg-muted text-muted-foreground"
-                } ${session.attachedClients > 0 ? "ring-2 ring-green-500" : ""}`}
-              >
-                {sessionInitials(session.name)}
-              </span>
+              {/* The mark: this session's own face while faces are on, its letters on its
+                  own step of its parent's colour otherwise -- a tmux name already is one. */}
+              {faced ? (
+                <BotFace
+                  rank={faceRank as number}
+                  className={`mt-0.5 size-8 shrink-0 ${session.attachedClients > 0 ? "rounded-full ring-2 ring-green-500" : ""}`}
+                  style={botSessionStyle(hue, step)}
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  // The hue and the step ride down from the card's own style: `terminalChildStyle`
+                  // publishes both or neither, so this disc never resolves half a colour.
+                  className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold ${
+                    shaded
+                      ? "terminal-session-accent text-foreground"
+                      : "border border-border bg-muted text-muted-foreground"
+                  } ${session.attachedClients > 0 ? "ring-2 ring-green-500" : ""}`}
+                >
+                  {sessionInitials(session.name)}
+                </span>
+              )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {session.name}

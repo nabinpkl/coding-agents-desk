@@ -11,17 +11,20 @@
 import { LoaderCircle, SquareTerminal } from "lucide-react";
 import { useRef } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
 import { TerminalParentCard } from "@/features/terminal/canvas/TerminalParentCard";
 import {
   parseTerminalChildKey,
   type TerminalGrouping,
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
+import { TERMINAL_ZOOM_STORAGE } from "@/features/terminal/canvas/terminalCanvasPreferences";
 import { useTerminalCanvasScroll } from "@/features/terminal/canvas/useTerminalCanvasScroll";
 
 export function TerminalCanvas({
   grouping,
   hues,
+  ranks,
   loading,
   error,
   machineErrors,
@@ -44,11 +47,14 @@ export function TerminalCanvas({
   onDismissAddError,
   orphanedError,
   onRefresh,
+  canvasZoom,
 }: {
   /** The whole roster, every machine, before hiding: ranks and counts read this, not the strip. */
   grouping: TerminalGrouping;
   /** Every parent's hue, by `machine:path`, computed over the whole roster above. */
   hues: ReadonlyMap<string, number>;
+  /** Every parent's rank in the path order, by key: the face each parent wears. */
+  ranks: ReadonlyMap<string, number>;
   loading: boolean;
   error: string | null;
   /** Machines that cannot be read, while others can. Said, not swallowed. */
@@ -89,8 +95,16 @@ export function TerminalCanvas({
   /** A failure no card can carry, because it is about no child or one not on the canvas. */
   orphanedError: string | null;
   onRefresh: () => void;
+  /**
+   * Draw the whole strip at once, small enough to see the arrangement, and pinch to move
+   * around it. A mode rather than a replacement, driven from the roster beside the strip --
+   * the same split the Bot canvas keeps, because a strip of cards as tall as their own
+   * rosters has no row to spare. See `useCanvasZoom`.
+   */
+  canvasZoom: { mode: boolean; room: number };
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const strip = useRef<HTMLUListElement | null>(null);
   const all = [...grouping.parents, ...grouping.residue];
   const standing = all.filter((parent) => !hiddenMachines.has(parent.machineId ?? ""));
   const drawn = standing.filter((parent) => !hiddenParents.has(parent.key));
@@ -99,8 +113,53 @@ export function TerminalCanvas({
     if (!mixed) return undefined;
     return machines.find((machine) => machine.key === (machineId ?? ""))?.label;
   };
-  const rememberScroll = useTerminalCanvasScroll(scroller, all.length);
+  // The whole strip drawn small, with pinch and press-to-a-card gestures. Off, nothing here
+  // renders and no transform exists in the tree, so the default strip keeps its own pointer
+  // arithmetic byte for byte. Its own storage keys, never the Bot canvas's.
+  const zoom = useCanvasZoom({
+    scroller, strip, on: canvasZoom.mode, room: canvasZoom.room, storage: TERMINAL_ZOOM_STORAGE,
+  });
+  // The stored offset is in content space, so it cannot be put back until the scale is known.
+  const rememberScroll = useTerminalCanvasScroll(scroller, all.length, {
+    scale: zoom.scale,
+    ready: !zoom.on || zoom.measured,
+    pad: zoom.pad,
+  });
   const hiddenKeys = [...hiddenParents].sort();
+
+  // Held in a const rather than written inline because the sizer below wraps it only while the
+  // zoom mode is drawing small, and JSX has no way to conditionally wrap an element in place.
+  const stripEl = (
+    <ul
+      ref={strip}
+      role="list"
+      aria-label="Terminal canvas"
+      style={zoom.stripStyle}
+      className="flex w-max items-start gap-3 p-3"
+    >
+      {drawn.map((parent) => (
+        <TerminalParentCard
+          key={parent.key}
+          group={parent}
+          feed={feedFor(parent.machineId)}
+          hue={hues.get(parent.key)}
+          rank={ranks.get(parent.key)}
+          {...(machineLabelOf(parent.machineId) ? { machineLabel: machineLabelOf(parent.machineId)! } : {})}
+          openChildren={openChildren}
+          onToggleChild={onToggleChild}
+          offStripChildren={offStripChildren}
+          onHideChild={onHideChild}
+          onShowHidden={() => onShowHiddenChildren(parent.key)}
+          onKillChild={onKillChild}
+          onHideParent={() => onHideParent(parent.key)}
+          adding={addingKeys.has(parent.key)}
+          addError={addErrors.get(parent.key) ?? null}
+          {...(parent.path ? { onAdd: () => onAddTerminal(parent) } : {})}
+          onDismissAddError={() => onDismissAddError(parent.key)}
+        />
+      ))}
+    </ul>
+  );
 
   if (loading || error !== null || all.length === 0) {
     return (
@@ -171,6 +230,7 @@ export function TerminalCanvas({
       <div
         ref={scroller}
         onScroll={rememberScroll}
+        style={zoom.scrollerStyle}
         className="mx-4 h-full min-h-0 flex-1 overflow-auto overscroll-contain"
       >
         {machineErrors.map(({ label, reason }) => (
@@ -202,28 +262,13 @@ export function TerminalCanvas({
             {orphanedError}
           </div>
         ) : null}
-        <ul role="list" aria-label="Terminal canvas" className="flex w-max items-start gap-3 p-3">
-          {drawn.map((parent) => (
-            <TerminalParentCard
-              key={parent.key}
-              group={parent}
-              feed={feedFor(parent.machineId)}
-              hue={hues.get(parent.key)}
-              {...(machineLabelOf(parent.machineId) ? { machineLabel: machineLabelOf(parent.machineId)! } : {})}
-              openChildren={openChildren}
-              onToggleChild={onToggleChild}
-              offStripChildren={offStripChildren}
-              onHideChild={onHideChild}
-              onShowHidden={() => onShowHiddenChildren(parent.key)}
-              onKillChild={onKillChild}
-              onHideParent={() => onHideParent(parent.key)}
-              adding={addingKeys.has(parent.key)}
-              addError={addErrors.get(parent.key) ?? null}
-              {...(parent.path ? { onAdd: () => onAddTerminal(parent) } : {})}
-              onDismissAddError={() => onDismissAddError(parent.key)}
-            />
-          ))}
-        </ul>
+        {/* The SIZER. A transform does not change `scrollWidth`, so without a box sized to
+            what is actually drawn the scroller keeps a range several times wider than its
+            contents. Always rendered, and `display: contents` while the mode is off -- so it
+            generates no box and the strip is laid out exactly as though it were still the
+            scroller's own child. Rendering it conditionally would remount every open tile
+            inside the strip, tearing down every live terminal on each toggle. */}
+        <div style={zoom.sizerStyle}>{stripEl}</div>
         {/* The way back for hidden parents. The Bot canvas leans on the sidebar roster for this;
             this canvas has no roster, so the strip ends with its own. Stale keys -- a directory
             no machine reports any more -- still list, because forgetting a hidden parent would put

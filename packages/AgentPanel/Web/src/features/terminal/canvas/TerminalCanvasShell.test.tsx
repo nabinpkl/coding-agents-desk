@@ -219,3 +219,32 @@ it("closes the roster to a rail and reopens it", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Show terminal list" }));
   expect(screen.getByRole("list", { name: "Terminal parents" })).toBeTruthy();
 });
+
+it("fits the whole strip from the roster, on its own storage keys", async () => {
+  const home = machineFeed([session("a", "/proj")], ["/proj"]);
+  render(<TerminalCanvasShell feed={home} machines={undefined} />);
+  await screen.findByRole("list", { name: "Terminal parents" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Fit the whole strip" }));
+  expect(localStorage.getItem("agent-panel.terminal-canvas.zoom-mode")).toBe("on");
+  // The Bot canvas keeps its own answer: one canvas's fit must never open the other drawn small.
+  expect(localStorage.getItem("agent-panel.bot-canvas.zoom-mode")).toBeNull();
+
+  // Room chips wake up with the mode, and persist under the terminal key too.
+  fireEvent.click(screen.getByRole("button", { name: "64" }));
+  expect(localStorage.getItem("agent-panel.terminal-canvas.room")).toBe("64");
+});
+
+it("wears faces on cards and rows once the switch is pressed", async () => {
+  const home = machineFeed([session("a", "/proj")], ["/proj"]);
+  const view = render(<TerminalCanvasShell feed={home} machines={undefined} />);
+  await screen.findByRole("list", { name: "Terminal parents" });
+  expect(view.container.querySelector("svg.bot-face")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Show session faces instead of initials" }));
+  // The parent's face on its card and in the roster, and the session's own on both.
+  await waitFor(() => expect(view.container.querySelectorAll("svg.bot-face").length).toBeGreaterThanOrEqual(4));
+
+  fireEvent.click(screen.getByRole("button", { name: "Show session initials instead of faces" }));
+  await waitFor(() => expect(view.container.querySelector("svg.bot-face")).toBeNull());
+});

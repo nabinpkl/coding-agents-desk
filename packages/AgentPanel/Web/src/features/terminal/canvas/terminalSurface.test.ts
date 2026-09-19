@@ -3,6 +3,7 @@ import {
   terminalChildSteps,
   terminalChildStyle,
   terminalParentHues,
+  terminalParentRanks,
   terminalParentStyle,
 } from "@/features/terminal/canvas/terminalSurface";
 
@@ -31,6 +32,17 @@ describe("terminal parent hues", () => {
   it("hands CSS only the hue, under the terminal's own property name", () => {
     expect(terminalParentStyle(120)).toEqual({ "--terminal-hue": "120.00" });
     expect(terminalParentStyle(undefined)).toBeUndefined();
+  });
+
+  it("ranks the same path order the hues colour by, so a face keeps its colour", () => {
+    const parents = [
+      { key: ":b", path: "/b" },
+      { key: ":a", path: "/a" },
+    ];
+    const ranks = terminalParentRanks(parents);
+    expect(ranks.get(":a")).toBe(0);
+    expect(ranks.get(":b")).toBe(1);
+    expect(ranks.get(":a")).not.toBe(ranks.get(":b"));
   });
 });
 

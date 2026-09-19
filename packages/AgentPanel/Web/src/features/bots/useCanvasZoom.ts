@@ -33,16 +33,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 /**
  * What the reader chose, remembered across reloads: whether the mode is on, and how far out.
  *
- * Here rather than in `botCanvasPreferences.ts`, which is the module AGENTS.md points at and is
- * eight lines from the 500-line cap -- and splitting it needs a new file in a directory this one
- * just took to its twelve-file ceiling. Kept together rather than split across the two files to
- * fit, because the mode and the scale are one answer and one authoritative home beats two. It is
- * the same shape the rest of the panel's storage has: validate on read, try/catch on both sides,
- * written from one effect rather than beside each thing that changes it.
- *
- * Both pass the test in AGENTS.md: they are how this reader arranged the panel, they cost real
- * gestures to re-establish, and neither is invisible -- the sidebar's toggle says which way the
- * mode is, and a canvas drawn at a third of its size is not something a reader can overlook.
+ * The store is a parameter so the terminal canvas can run this hook against its own keys;
+ * the Bot keys below stay the default, so every existing caller keeps meaning what it meant.
  */
 const ZOOM_MODE_KEY = "agent-panel.bot-canvas.zoom-mode";
 const ZOOM_SCALE_KEY = "agent-panel.bot-canvas.zoom-scale";
@@ -98,6 +90,21 @@ export function storeCanvasZoomScale(scale: number): void {
 function storable(scale: number): boolean {
   return Number.isFinite(scale) && scale >= MIN_CANVAS_ZOOM && scale <= 1;
 }
+
+/** Where this hook reads and writes the mode and the scale. The Bot keys are the default. */
+export interface CanvasZoomStorage {
+  loadMode: () => boolean;
+  storeMode: (on: boolean) => void;
+  loadScale: () => number;
+  storeScale: (scale: number) => void;
+}
+
+const BOT_ZOOM_STORAGE: CanvasZoomStorage = {
+  loadMode: loadCanvasZoomMode,
+  storeMode: storeCanvasZoomMode,
+  loadScale: loadCanvasZoomScale,
+  storeScale: storeCanvasZoomScale,
+};
 
 /** How far inside the scroller a card lands when a press zooms to it, so it is not flush. */
 const CARD_INSET = 12;
@@ -250,6 +257,7 @@ export function useCanvasZoom({
   strip,
   on,
   room,
+  storage = BOT_ZOOM_STORAGE,
 }: {
   scroller: React.RefObject<HTMLDivElement | null>;
   strip: React.RefObject<HTMLUListElement | null>;
@@ -260,8 +268,10 @@ export function useCanvasZoom({
    * the sizes are and why the smallest useful one is small.
    */
   room: number;
+  /** Where the mode and the scale persist. Defaults to the Bot canvas's keys. */
+  storage?: CanvasZoomStorage;
 }): CanvasZoom {
-  const [wanted, setWanted] = useState(loadCanvasZoomScale);
+  const [wanted, setWanted] = useState(storage.loadScale);
   const [content, setContent] = useState<Size>({ width: 0, height: 0 });
   const [viewport, setViewport] = useState<Size>({ width: 0, height: 0 });
   const measured = content.width > 0 && viewport.width > 0;
@@ -311,7 +321,7 @@ export function useCanvasZoom({
 
   // One write for the scale, from an effect on the value rather than beside each of the gestures
   // that move it, which is how one of them ends up forgotten.
-  useEffect(() => storeCanvasZoomScale(wanted), [wanted]);
+  useEffect(() => storage.storeScale(wanted), [wanted, storage]);
 
   useEffect(() => {
     if (!on) {

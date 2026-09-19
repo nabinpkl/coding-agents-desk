@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TerminalCanvas } from "@/features/terminal/canvas/TerminalCanvas";
 import { groupTerminalsByDirectory } from "@/features/terminal/canvas/terminalGroups";
-import { terminalParentHues } from "@/features/terminal/canvas/terminalSurface";
+import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
 
 let terminal: FakeTerminal;
 
@@ -75,9 +75,14 @@ function canvasProps(feed: SidecarDataSource, overrides: Record<string, unknown>
     ...grouping.parents.map((parent) => ({ key: parent.key, path: parent.path })),
     ...grouping.residue.map((parent) => ({ key: parent.key, path: parent.path })),
   ]);
+  const ranks = terminalParentRanks([
+    ...grouping.parents.map((parent) => ({ key: parent.key, path: parent.path })),
+    ...grouping.residue.map((parent) => ({ key: parent.key, path: parent.path })),
+  ]);
   return {
     grouping,
     hues,
+    ranks,
     loading: false,
     error: null,
     machineErrors: [],
@@ -100,6 +105,7 @@ function canvasProps(feed: SidecarDataSource, overrides: Record<string, unknown>
     onDismissAddError: vi.fn(),
     orphanedError: null,
     onRefresh: vi.fn(),
+    canvasZoom: { mode: false, room: 0 },
     ...overrides,
   };
 }

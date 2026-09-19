@@ -3,15 +3,17 @@
 // The Bot canvas's card with the Bot taken out. What is left is the shape both canvases share --
 // a tinted card, a rail down the leading edge, a header with a count and an add button, a roster
 // of rows that open downwards -- and what is gone is everything a Bot is besides a directory:
-// no avatar, no faces, no sizes to remember, no order to carry, no fork or rename. A parent card
-// is exactly as big as the sessions standing in it, in both directions, because nothing in it
-// states a size of its own.
+// no sizes to remember, no order to carry, no fork or rename. A parent card is exactly as big
+// as the sessions standing in it, in both directions, because nothing in it states a size of
+// its own.
 
 import { EyeOff, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
+import { botSurfaceStyle, sessionInitials } from "@/features/bots/botSurface";
 import { TerminalChildCard } from "@/features/terminal/canvas/TerminalChildCard";
 import { terminalChildKey, type TerminalParentGroup } from "@/features/terminal/canvas/terminalGroups";
 import { terminalChildSteps, terminalParentStyle } from "@/features/terminal/canvas/terminalSurface";
@@ -20,6 +22,7 @@ export function TerminalParentCard({
   group,
   feed,
   hue,
+  rank,
   machineLabel,
   openChildren,
   onToggleChild,
@@ -37,6 +40,8 @@ export function TerminalParentCard({
   feed: SidecarDataSource;
   /** This directory's place on the colour wheel, over the whole roster, not the strip. */
   hue: number | undefined;
+  /** This directory's rank in the path order: the face it wears, and its sessions' base. */
+  rank: number | undefined;
   /** The machine this directory is on, absent when the canvas is showing only one. */
   machineLabel?: string;
   /** Which children are open, as `machine:name`, owned above this card. */
@@ -77,6 +82,7 @@ export function TerminalParentCard({
     live > 0 ? `, ${live} watched` : ""
   }${hidden > 0 ? `, ${hidden} off the strip` : ""}`;
   const holdsOpen = shown.some((child) => openChildren.has(terminalChildKey(group.machineId, child.name)));
+  const faces = useBotFaces();
   // Brings this card into view when it BECOMES an open one -- the row that opened it may have
   // been nowhere near it -- and not when it mounts already open, which is the canvas coming back
   // to an arrangement rather than a reader opening something.
@@ -105,6 +111,22 @@ export function TerminalParentCard({
             sized by its contents at max-content, so the full path would set a width the sessions
             never asked for and `truncate` would never engage. */}
         <div className="flex w-0 min-w-full shrink-0 items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none">
+          {/* The mark, not a dot: this directory's own face while faces are on, its initials
+              on its own colour otherwise. */}
+          {faces && rank !== undefined ? (
+            <BotFace rank={rank} className="size-9 shrink-0" style={botSurfaceStyle(hue)} />
+          ) : (
+            <span
+              aria-hidden
+              className={`flex size-9 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold ${
+                hue !== undefined
+                  ? "terminal-surface text-foreground"
+                  : "border border-border bg-muted text-muted-foreground"
+              }`}
+            >
+              {sessionInitials(leaf)}
+            </span>
+          )}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
               {leaf}
@@ -180,6 +202,7 @@ export function TerminalParentCard({
                   feed={feed}
                   hue={hue}
                   step={steps.get(key)}
+                  rank={rank}
                   solo={group.children.length === 1}
                   open={openChildren.has(key)}
                   onToggle={() => onToggleChild(key)}

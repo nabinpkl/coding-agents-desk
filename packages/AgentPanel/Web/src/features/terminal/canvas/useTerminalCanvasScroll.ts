@@ -1,11 +1,11 @@
 // Opening the terminal strip where the reader left it, and keeping saying where that is.
 //
-// The Bot canvas's `useRememberedCanvasScroll` narrowed to what this strip needs: no zoom mode
-// reads it, so there is no scale and no pad -- the offset is pixels in the scroller, full stop.
-// That removes the readiness wait too: the restore fires once the strip has somewhere to scroll
-// to, which is when the listing has arrived and the effect re-runs on it. What stays is the
-// shape that made the Bot one work: a restore that holds while the strip is still growing under
-// it, a throttled write, and one final write on the way out.
+// The Bot canvas's `useRememberedCanvasScroll` narrowed to what this strip needs: the offset is
+// stored in CONTENT space so it keeps naming the same cards at any zoom scale, divided by the
+// scale on the way out and multiplied back on the way in -- which is why the restore waits for
+// the zoom to be measured before firing. What stays is the shape that made the Bot one work: a
+// restore that holds while the strip is still growing under it, a throttled write, and one final
+// write on the way out.
 //
 // Its own key rather than the Bot canvas's, because the two strips are different places: an
 // offset on one names nothing on the other, and sharing the store would land each canvas where
@@ -57,6 +57,18 @@ export function useTerminalCanvasScroll(
   scroller: React.RefObject<HTMLDivElement | null>,
   /** Whatever changing means the strip may have grown: re-checks the restore on it. */
   content: unknown,
+  /**
+   * What the strip is drawn at, and whether that is settled yet.
+   *
+   * With the zoom mode off the scale is 1 with no pad and the restore fires on the first layout
+   * with somewhere to scroll to; with it on, the restore waits for the strip and the panel to be
+   * measured, or an offset taken at one scale would land wherever it happens to point at another.
+   */
+  zoom: { scale: number; ready: boolean; pad: { left: number; top: number } } = {
+    scale: 1,
+    ready: true,
+    pad: { left: 0, top: 0 },
+  },
 ): () => void {
   const restored = useRef(false);
   const wanted = useRef<StripScroll | null>(null);
@@ -66,25 +78,32 @@ export function useTerminalCanvasScroll(
   const holding = useRef(false);
 
   useLayoutEffect(() => {
-    if (restored.current) return;
+    if (restored.current || !zoom.ready) return;
     const el = scroller.current;
     if (!el) return;
     wanted.current ??= loadStripScroll();
     const { left, top } = wanted.current;
-    if (left === 0 && top === 0) {
+    if (left === 0 && top === 0 && zoom.pad.left === 0 && zoom.pad.top === 0) {
       restored.current = true;
       return;
     }
-    if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) return;
+    if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) {
+      // Nothing to scroll yet -- unless the zoom mode has drawn the strip whole, in which case
+      // the canvas fits and always will at this scale. Leaving the restore pending there would
+      // fire it later, at the moment a pinch first gives the scroller some range.
+      if (zoom.scale < 1) restored.current = true;
+      return;
+    }
     restored.current = true;
-    el.scrollLeft = left;
-    el.scrollTop = top;
+    const asked = { left: left * zoom.scale + zoom.pad.left, top: top * zoom.scale + zoom.pad.top };
+    el.scrollLeft = asked.left;
+    el.scrollTop = asked.top;
     // Landing short is the strip not reaching that far YET -- tiles mount and measure after the
     // listing -- so the offset is held and re-applied until it does. No hold when it landed:
     // the strip only grows, so an offset that fits keeps fitting.
-    if (el.scrollLeft >= left - 1 && el.scrollTop >= top - 1) return;
+    if (el.scrollLeft >= asked.left - 1 && el.scrollTop >= asked.top - 1) return;
     holding.current = true;
-    const held = wanted.current;
+    const held = asked;
     let frame = requestAnimationFrame(function again() {
       el.scrollLeft = held.left;
       el.scrollTop = held.top;
@@ -106,20 +125,25 @@ export function useTerminalCanvasScroll(
       el.removeEventListener("touchstart", release);
       el.removeEventListener("pointerdown", release);
     };
-  }, [scroller, content]);
+  }, [scroller, content, zoom.ready, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   const remember = useCallback(() => {
     const el = scroller.current;
     // A hold is the restore still arriving rather than the reader moving: writing one of those
     // down is how the remembered place walks away from the reader a little further every visit.
     if (!el || !restored.current || holding.current) return;
-    latest.current = { left: el.scrollLeft, top: el.scrollTop };
+    // Back into content space on the way out, so a position taken while zoomed out still names
+    // the card it was taken over once the canvas is drawn at some other size.
+    latest.current = {
+      left: (el.scrollLeft - zoom.pad.left) / zoom.scale,
+      top: (el.scrollTop - zoom.pad.top) / zoom.scale,
+    };
     if (timer.current !== null) return;
     timer.current = setTimeout(() => {
       timer.current = null;
       if (latest.current) storeStripScroll(latest.current);
     }, SCROLL_SETTLE_MS);
-  }, [scroller]);
+  }, [scroller, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   useEffect(() => () => {
     if (timer.current !== null) clearTimeout(timer.current);

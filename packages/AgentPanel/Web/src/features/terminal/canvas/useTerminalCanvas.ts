@@ -30,11 +30,15 @@ import {
   loadHiddenTerminalParents,
   loadOffStripTerminalChildren,
   loadOpenTerminalChildren,
+  loadTerminalRoom,
+  loadTerminalZoomMode,
   storeHiddenTerminalParents,
   storeOffStripTerminalChildren,
   storeOpenTerminalChildren,
+  storeTerminalRoom,
+  storeTerminalZoomMode,
 } from "@/features/terminal/canvas/terminalCanvasPreferences";
-import { terminalParentHues } from "@/features/terminal/canvas/terminalSurface";
+import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
 
 /** One machine's tmux listing and workspace roots, as the last load left them. */
 interface MachineSnapshot {
@@ -137,13 +141,17 @@ export function useTerminalCanvas(
     [all, snapshots, roster.bots, roster.machineOf],
   );
   const grouping: TerminalGrouping = useMemo(() => groupTerminalsByDirectory(sources), [sources]);
-  const hues = useMemo(
-    () => terminalParentHues([
+  const identities = useMemo(
+    () => [
       ...grouping.parents.map((parent) => ({ key: parent.key, path: parent.path })),
       ...grouping.residue.map((parent) => ({ key: parent.key, path: parent.path })),
-    ]),
+    ],
     [grouping],
   );
+  const hues = useMemo(() => terminalParentHues(identities), [identities]);
+  // The face each parent wears is drawn from the same rank its colour is, so the two agree
+  // without either knowing about the other -- the same contract `botCanvasRanks` keeps.
+  const ranks = useMemo(() => terminalParentRanks(identities), [identities]);
 
   // Settled means every machine ANSWERED, not just that the roster is complete for the machines
   // seen so far. Pruning open keys against a partial listing drops the cards of a peer that is
@@ -173,6 +181,14 @@ export function useTerminalCanvas(
   useEffect(() => storeOffStripTerminalChildren(offStripChildren), [offStripChildren]);
   const [openChildren, setOpenChildren] = useState<ReadonlySet<string>>(loadOpenTerminalChildren);
   useEffect(() => storeOpenTerminalChildren(openChildren), [openChildren]);
+
+  // Drawn whole or drawn at its own size, and how much room the fitted canvas gets to be
+  // scrolled around in. The same arrangement the Bot canvas keeps, under this canvas's own
+  // keys -- one canvas's fit must never open the other one drawn small.
+  const [zoomMode, setZoomMode] = useState<boolean>(loadTerminalZoomMode);
+  useEffect(() => storeTerminalZoomMode(zoomMode), [zoomMode]);
+  const [zoomRoom, setZoomRoom] = useState<number>(loadTerminalRoom);
+  useEffect(() => storeTerminalRoom(zoomRoom), [zoomRoom]);
 
   // A stale open key opens nothing and says nothing about it, so unlike the hidden sets --
   // whose staleness the strip announces -- these are pruned once the listing is whole. Pruned
@@ -298,6 +314,7 @@ export function useTerminalCanvas(
     all,
     grouping,
     hues,
+    ranks,
     loading,
     error,
     machineErrors,
@@ -342,6 +359,10 @@ export function useTerminalCanvas(
     }),
     onKillChild,
     onSelectChild,
+    zoomMode,
+    onToggleZoomMode: () => setZoomMode((on) => !on),
+    zoomRoom,
+    onZoomRoom: (size: number) => setZoomRoom(size),
     addingKeys,
     addErrors,
     onAddTerminal,

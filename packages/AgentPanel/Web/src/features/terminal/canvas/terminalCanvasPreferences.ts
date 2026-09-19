@@ -9,14 +9,15 @@
  * refuses a tmux name outside `[A-Za-z0-9_.-]`, so a stored key with no colon, or with one in the
  * wrong place, was hand-edited and is dropped.
  *
- * What is NOT here, deliberately: sizes, order, and scroll. Tiles are fixed at 80x24 and never
- * claim, so a remembered size would be a number nothing reads; parents sort by path and children
- * by name, so an order would be an arrangement nothing offers; scroll is the strip's own business
- * in T3.
+ * Zoom and room ride beside them under their OWN keys, never the Bot canvas's: both canvases run
+ * `useCanvasZoom`, and one canvas's fit must never open the other one drawn small.
  *
  * Every read and write is wrapped in `try`/`catch`, because a private window and a container with
  * storage disabled both throw -- the house rule from `AGENTS.md`.
  */
+
+import { CANVAS_ROOM_STEPS } from "@/features/bots/botCanvasPreferences";
+import { MIN_CANVAS_ZOOM } from "@/features/bots/useCanvasZoom";
 
 const HIDDEN_PARENTS_KEY = "agent-panel.terminal-canvas.hidden-parents";
 const OFF_STRIP_CHILDREN_KEY = "agent-panel.terminal-canvas.off-strip-children";
@@ -85,4 +86,84 @@ export function loadOpenTerminalChildren(): ReadonlySet<string> {
 
 export function storeOpenTerminalChildren(keys: ReadonlySet<string>): void {
   storeKeySet(OPEN_CHILDREN_KEY, keys);
+}
+
+const TERMINAL_ZOOM_MODE_KEY = "agent-panel.terminal-canvas.zoom-mode";
+const TERMINAL_ZOOM_SCALE_KEY = "agent-panel.terminal-canvas.zoom-scale";
+
+export function loadTerminalZoomMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(TERMINAL_ZOOM_MODE_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function storeTerminalZoomMode(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(TERMINAL_ZOOM_MODE_KEY, "on");
+    else localStorage.removeItem(TERMINAL_ZOOM_MODE_KEY);
+  } catch {
+    // The canvas still zooms; it just opens at its own size next time.
+  }
+}
+
+/** Checked rather than cast, so a stale value opens the canvas at fit instead of unwinding. */
+export function loadTerminalZoomScale(): number {
+  if (typeof window === "undefined") return MIN_CANVAS_ZOOM;
+  try {
+    const raw = localStorage.getItem(TERMINAL_ZOOM_SCALE_KEY);
+    const parsed = raw === null ? NaN : Number(raw);
+    return Number.isFinite(parsed) && parsed >= MIN_CANVAS_ZOOM && parsed <= 1
+      ? parsed
+      : MIN_CANVAS_ZOOM;
+  } catch {
+    return MIN_CANVAS_ZOOM;
+  }
+}
+
+export function storeTerminalZoomScale(scale: number): void {
+  try {
+    if (Number.isFinite(scale) && scale >= MIN_CANVAS_ZOOM && scale <= 1) {
+      localStorage.setItem(TERMINAL_ZOOM_SCALE_KEY, String(scale));
+    } else localStorage.removeItem(TERMINAL_ZOOM_SCALE_KEY);
+  } catch {
+    // The canvas still zooms; it just opens at fit next time.
+  }
+}
+
+/** The `useCanvasZoom` store for this canvas: its own keys, never the Bot canvas's. */
+export const TERMINAL_ZOOM_STORAGE = {
+  loadMode: loadTerminalZoomMode,
+  storeMode: storeTerminalZoomMode,
+  loadScale: loadTerminalZoomScale,
+  storeScale: storeTerminalZoomScale,
+};
+
+const TERMINAL_ROOM_KEY = "agent-panel.terminal-canvas.room";
+
+/**
+ * How much room the fitted canvas is given to be scrolled around in. The same steps the Bot
+ * canvas offers -- the gutter is a property of the strip shape, not of whose cards stand on it --
+ * validated against that same list so the two cannot drift apart.
+ */
+export function loadTerminalRoom(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(TERMINAL_ROOM_KEY);
+    const parsed = raw === null ? 0 : Number(raw);
+    return CANVAS_ROOM_STEPS.includes(parsed) ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function storeTerminalRoom(size: number): void {
+  try {
+    if (size > 0 && CANVAS_ROOM_STEPS.includes(size)) localStorage.setItem(TERMINAL_ROOM_KEY, String(size));
+    else localStorage.removeItem(TERMINAL_ROOM_KEY);
+  } catch {
+    // The canvas still draws; it just has no room around it next time.
+  }
 }

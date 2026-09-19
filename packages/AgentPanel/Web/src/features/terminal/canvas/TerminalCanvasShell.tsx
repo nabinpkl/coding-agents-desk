@@ -13,6 +13,7 @@ import { PanelLeft } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { TerminalCanvas } from "@/features/terminal/canvas/TerminalCanvas";
+import { TerminalCanvasStatus } from "@/features/terminal/canvas/TerminalCanvasStatus";
 import { TerminalSidebarPanel } from "@/features/terminal/canvas/TerminalSidebarPanel";
 import { useTerminalCanvas } from "@/features/terminal/canvas/useTerminalCanvas";
 
@@ -32,6 +33,13 @@ export function TerminalCanvasShell({
   // and the list being open is chrome, which the sidebar's own open state already covers
   // on the feed surface.
   const [listOpen, setListOpen] = useState(true);
+  // What the status block counts: every parent standing, and of those the ones actually drawn.
+  // The same sets the strip reads, so the count and the cards cannot disagree.
+  const everyParent = [...shell.grouping.parents, ...shell.grouping.residue];
+  const drawnCount = everyParent.filter(
+    (parent) => !shell.hiddenMachines.has(parent.machineId ?? "")
+      && !shell.hiddenParents.has(parent.key),
+  ).length;
   return (
     <div className="relative flex h-full min-h-0">
       {listOpen ? (
@@ -48,9 +56,18 @@ export function TerminalCanvasShell({
           aria-label="Terminal list"
           className="absolute inset-y-0 left-0 z-20 flex w-[min(88vw,288px)] shrink-0 flex-col border-r border-border bg-card sm:static sm:w-72"
         >
+          {shell.loading || shell.error !== null ? null : (
+            <TerminalCanvasStatus
+              total={everyParent.length}
+              shown={drawnCount}
+              zoom={{ on: shell.zoomMode, onToggle: shell.onToggleZoomMode }}
+              room={{ size: shell.zoomRoom, onChange: shell.onZoomRoom }}
+            />
+          )}
           <TerminalSidebarPanel
             grouping={shell.grouping}
             hues={shell.hues}
+            ranks={shell.ranks}
             loading={shell.loading}
             error={shell.error}
             machineErrors={shell.machineErrors}
@@ -91,6 +108,7 @@ export function TerminalCanvasShell({
         <TerminalCanvas
           grouping={shell.grouping}
           hues={shell.hues}
+          ranks={shell.ranks}
           loading={shell.loading}
           error={shell.error}
           machineErrors={shell.machineErrors}
@@ -113,6 +131,7 @@ export function TerminalCanvasShell({
           onDismissAddError={shell.onDismissAddError}
           orphanedError={null}
           onRefresh={shell.onRefresh}
+          canvasZoom={{ mode: shell.zoomMode, room: shell.zoomRoom }}
         />
       </div>
     </div>

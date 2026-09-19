@@ -43,12 +43,32 @@ export function terminalParentHues(
   parents: readonly TerminalParentIdentity[],
 ): ReadonlyMap<string, number> {
   const hues = new Map<string, number>();
-  [...parents]
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.key < b.key ? -1 : 1))
-    .forEach((parent, index) => {
-      hues.set(parent.key, (BOT_HUE_OFFSET + index * BOT_HUE_STEP) % 360);
-    });
+  orderedParents(parents).forEach((parent, index) => {
+    hues.set(parent.key, (BOT_HUE_OFFSET + index * BOT_HUE_STEP) % 360);
+  });
   return hues;
+}
+
+/**
+ * Every parent's rank in the path order `terminalParentHues` colours by, by key.
+ *
+ * The face a parent wears is drawn from the same rank its colour is, which is what keeps the two
+ * agreeing without either knowing about the other -- the same contract `botCanvasRanks` keeps.
+ * One ordering, two readers, so this shares the sort rather than repeating it.
+ */
+export function terminalParentRanks(
+  parents: readonly TerminalParentIdentity[],
+): ReadonlyMap<string, number> {
+  const ranks = new Map<string, number>();
+  orderedParents(parents).forEach((parent, index) => {
+    ranks.set(parent.key, index);
+  });
+  return ranks;
+}
+
+function orderedParents(parents: readonly TerminalParentIdentity[]): TerminalParentIdentity[] {
+  return [...parents]
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.key < b.key ? -1 : 1));
 }
 
 /**

@@ -3,9 +3,15 @@ import {
   loadHiddenTerminalParents,
   loadOffStripTerminalChildren,
   loadOpenTerminalChildren,
+  loadTerminalRoom,
+  loadTerminalZoomMode,
+  loadTerminalZoomScale,
   storeHiddenTerminalParents,
   storeOffStripTerminalChildren,
   storeOpenTerminalChildren,
+  storeTerminalRoom,
+  storeTerminalZoomMode,
+  storeTerminalZoomScale,
 } from "@/features/terminal/canvas/terminalCanvasPreferences";
 
 describe("terminal canvas preferences", () => {
@@ -39,5 +45,28 @@ describe("terminal canvas preferences", () => {
     storeOpenTerminalChildren(new Set([":a"]));
     storeOpenTerminalChildren(new Set());
     expect(localStorage.getItem("agent-panel.terminal-canvas.open-children")).toBeNull();
+  });
+
+  it("keeps its own zoom and room keys, never the Bot canvas's", () => {
+    expect(loadTerminalZoomMode()).toBe(false);
+    expect(loadTerminalZoomScale()).toBe(0.02);
+    expect(loadTerminalRoom()).toBe(0);
+    storeTerminalZoomMode(true);
+    storeTerminalZoomScale(0.5);
+    storeTerminalRoom(64);
+    expect(loadTerminalZoomMode()).toBe(true);
+    expect(loadTerminalZoomScale()).toBe(0.5);
+    expect(loadTerminalRoom()).toBe(64);
+    expect(localStorage.getItem("agent-panel.terminal-canvas.zoom-mode")).toBe("on");
+    expect(localStorage.getItem("agent-panel.bot-canvas.zoom-mode")).toBeNull();
+    storeTerminalZoomMode(false);
+    expect(localStorage.getItem("agent-panel.terminal-canvas.zoom-mode")).toBeNull();
+  });
+
+  it("drops a hand-edited zoom scale and room back to the fit defaults", () => {
+    localStorage.setItem("agent-panel.terminal-canvas.zoom-scale", JSON.stringify("wide"));
+    localStorage.setItem("agent-panel.terminal-canvas.room", JSON.stringify(999));
+    expect(loadTerminalZoomScale()).toBe(0.02);
+    expect(loadTerminalRoom()).toBe(0);
   });
 });
