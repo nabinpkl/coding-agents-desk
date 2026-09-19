@@ -122,7 +122,7 @@ export function TokenMeter({
   /**
    * The sidecar to read this machine's rate limits from, or null where there is none to ask.
    */
-  feed?: Pick<SidecarDataSource, "fetchLimits"> | null;
+  feed?: Pick<SidecarDataSource, "subscribeLimits"> | null;
   /**
    * Which vendor's windows to show, or null to show every vendor's.
    *

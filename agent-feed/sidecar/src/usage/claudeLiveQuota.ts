@@ -63,6 +63,33 @@ export function noteRateLimitHeaders(headers: unknown, atMs: number): void {
   if (samples.length === 0) return;
   if (latest && latest.atMs > atMs) return;
   latest = { atMs, samples };
+  publish();
+}
+
+const listeners = new Set<() => void>();
+
+/**
+ * Hears about every reading this process accepts. Returns the unsubscribe.
+ *
+ * The seam that lets `/api/limits` push instead of being polled. The observer already delivers
+ * these headers the instant a response crosses the proxy, so the only thing missing was a way to
+ * say so; a reader on the far end learns a window moved in the same moment the sidecar does.
+ */
+export function onLiveQuotaChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** A listener that throws is reported and the rest still hear: one broken follower must not
+ *  silence the others. */
+function publish(): void {
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch (error) {
+      console.error("agent feed live quota listener failed", error);
+    }
+  }
 }
 
 /** Every window the last response reported, shortest first. Empty before the first one. */

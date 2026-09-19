@@ -34,7 +34,7 @@ import type {
   ParkRestoreReport,
   ParkStateResponse,
   ProjectSummary,
-  QuotaReport,
+  LimitsStreamMessage,
   SessionSummary,
   SidecarConfig,
   StartedSession,
@@ -371,14 +371,21 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
   }
 
   /**
-   * This machine's live rate-limit meters, with no history beside them.
+   * Follows this machine's live rate-limit meters. Returns unsubscribe.
    *
-   * A plain read rather than the stream above, because there is no slow half to wait for: the
-   * sidecar answers it from two small files, where `/api/usage` sweeps every transcript on the
-   * machine. A surface that wants the meters several times a session asks here.
+   * Endless, unlike `subscribeUsage` above, so there is nothing for the caller to detect the end
+   * of -- it carries a report on open and another whenever the meters move, until the reader goes
+   * away. Pushed rather than polled because the sidecar is already told: the proxy observer hands
+   * it the rate-limit headers as each Anthropic response comes back.
    */
-  async fetchLimits(): Promise<QuotaReport> {
-    return parse<QuotaReport>(await this.transport.request("GET", "/api/limits"));
+  subscribeLimits(handlers: {
+    onMessage: (message: LimitsStreamMessage) => void;
+    onError: (reason: string) => void;
+  }): () => void {
+    return this.transport.subscribe("/api/limits", {
+      onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as LimitsStreamMessage),
+      onError: (reason) => handlers.onError(reason),
+    });
   }
 
   /** The sidecar's process-global facts, read once so the panel knows what to offer. */

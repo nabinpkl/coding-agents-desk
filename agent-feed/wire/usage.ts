@@ -155,10 +155,26 @@ export interface VendorQuotas {
   quotas: UsageQuota[];
 }
 
-/** What `GET /api/limits` answers: every vendor's live meters, cheaply. */
+/** Every vendor's live meters, and nothing else. */
 export interface QuotaReport {
   vendors: VendorQuotas[];
 }
+
+/**
+ * What `GET /api/limits` streams: a report on open, and another whenever the meters move.
+ *
+ * A stream rather than a plain read because the sidecar already learns this by PUSH. Anthropic
+ * publishes the account's windows on every API response, and the proxy observer hands those
+ * headers over as each request comes back, so a reader that polled would be asking on a timer for
+ * something already known -- and would be at its most stale in the seconds after a turn is sent,
+ * which is exactly when somebody looks at it.
+ *
+ * Endless, unlike `UsageStreamMessage`: there is no finite piece of work to settle here, so the
+ * stream ends when the reader goes away and never says it is done.
+ */
+export type LimitsStreamMessage =
+  | { type: "report"; report: QuotaReport }
+  | { type: "error"; error: { code: string; message: string; retryable: boolean } };
 
 /**
  * What `GET /api/usage` streams.

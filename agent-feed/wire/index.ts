@@ -139,6 +139,7 @@ export type {
 } from "./summary.ts";
 
 export type {
+  LimitsStreamMessage,
   QuotaReport,
   UsageCoverage,
   UsageDay,
