@@ -324,7 +324,7 @@ export function orderBotsForCanvas<T extends { botId: string }>(bots: T[], order
 }
 
 /** The ids of `bots`, in the order they are standing in. What a reorder is applied to. */
-export function botCanvasOrderOf<T extends { botId: string }>(bots: T[]): string[] {
+export function botCanvasOrderOf<T extends { botId: string }>(bots: readonly T[]): string[] {
   return bots.map((bot) => bot.botId);
 }
 

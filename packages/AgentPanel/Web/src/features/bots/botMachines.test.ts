@@ -9,6 +9,7 @@
 import { describe, expect, test } from "vitest";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import {
+  botsOnShownMachines,
   indexBotMachines,
   indexSessionMachines,
   machineKey,
@@ -126,5 +127,31 @@ describe("machinesAreMixed", () => {
   test("one machine is not mixed, so nothing gets labelled with what the reader knows", () => {
     expect(machinesAreMixed([mac])).toBe(false);
     expect(machinesAreMixed([mac, oracle])).toBe(true);
+  });
+});
+
+describe("botsOnShownMachines", () => {
+  const keyOf = (botId: string): string | undefined =>
+    botId.startsWith("o-") ? "oracle" : botId.startsWith("m-") ? "mac" : undefined;
+
+  test("hides only the machines that are hidden", () => {
+    const bots = [bot("m-1"), bot("o-1"), bot("m-2")];
+    expect(botsOnShownMachines(bots, new Set(["oracle"]), keyOf).map((b) => b.botId))
+      .toEqual(["m-1", "m-2"]);
+  });
+
+  test("hands back the same array when nothing is hidden", () => {
+    // Identity, not equality: the canvas re-derives this every render, and a fresh array each time
+    // would be a new list for every consumer that memoises on it.
+    const bots = [bot("m-1")];
+    expect(botsOnShownMachines(bots, new Set(), keyOf)).toBe(bots);
+  });
+
+  test("keeps a Bot no machine claims, whatever is hidden", () => {
+    // Hiding a machine is a statement about that machine. Dropping an unplaceable Bot here would
+    // put it behind a control that never named it, with nothing to press to get it back.
+    const bots = [bot("stray")];
+    expect(botsOnShownMachines(bots, new Set(["oracle", "mac"]), keyOf).map((b) => b.botId))
+      .toEqual(["stray"]);
   });
 });

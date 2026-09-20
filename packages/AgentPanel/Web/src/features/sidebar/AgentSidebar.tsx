@@ -96,6 +96,7 @@ interface AgentSidebarProps {
    */
   canvasMachines: {
     total: number;
+    shown: number;
     machines: readonly { key: string; label: string }[];
     hidden: ReadonlySet<string>;
     countOf: (key: string) => number;
@@ -294,6 +295,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
               props.botsLoading || props.botsError ? null : (
                 <BotCanvasStatus
                   total={props.canvasMachines.total}
+                  shown={props.canvasMachines.shown}
                   machines={props.canvasMachines.machines}
                   hidden={props.canvasMachines.hidden}
                   countOf={props.canvasMachines.countOf}

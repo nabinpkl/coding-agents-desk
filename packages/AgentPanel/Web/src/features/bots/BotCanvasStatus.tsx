@@ -29,11 +29,20 @@ import { Monitor } from "lucide-react";
  * Each count is on its chip rather than in a tooltip because it is the answer to the question a
  * hidden machine raises. A chip with nothing behind it and a chip holding back six cards look
  * identical otherwise, and the second is the one a reader is trying to find. That is also why a
- * hidden machine's Bots stay inside `total`: both numbers count what is ON the canvas, not what is
- * on screen, so pressing a chip never changes either of them.
+ * hidden machine's Bots stay inside `total`: it counts what is ON the canvas, not what is on
+ * screen, so pressing a chip never changes it.
+ *
+ * `shown` is the other one, and it exists because hiding a machine was otherwise invisible. The
+ * strip simply came back one card short -- the choice is stored, so it survives a reload and comes
+ * back days later -- and the only thing saying so was a chip going grey, in a sidebar that closes.
+ * So the line says "7 of 8" rather than "8" while anything is held back, which puts the number
+ * directly above the control that would bring it back. The canvas keeps its own height: it is a
+ * horizontal strip whose cards are as tall as their rosters, and a band across it to say this
+ * would cost every card a row.
  */
 export function BotCanvasStatus({
   total,
+  shown,
   machines,
   hidden,
   countOf,
@@ -41,6 +50,11 @@ export function BotCanvasStatus({
 }: {
   /** Bots on the canvas, hidden machines included. The chips' counts sum to this. */
   total: number;
+  /**
+   * Of those, the ones a hidden machine is not holding back, which is the number of cards the
+   * strip is actually drawing. Equal to `total` whenever nothing is hidden.
+   */
+  shown: number;
   /** Every machine, in the canvas's own order. Empty means one machine: no chips. */
   machines: readonly { key: string; label: string }[];
   hidden: ReadonlySet<string>;
@@ -54,7 +68,13 @@ export function BotCanvasStatus({
         role="status"
         className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
       >
-        {total} {total === 1 ? "bot" : "bots"} on the canvas
+        {`${shown < total ? `${shown} of ${total}` : total} ${total === 1 ? "bot" : "bots"} on the canvas`}
+        {shown < total ? (
+          // The consequence rather than the setting: a reader who does not remember pressing a
+          // chip is looking for why a card is gone, and "3 hidden" is that sentence. Emphasised
+          // because the rest of this line is a count nobody is reading.
+          <span className="font-medium text-foreground">, {total - shown} hidden</span>
+        ) : null}
       </p>
       {machines.length === 0 ? null : (
         <div
@@ -64,19 +84,19 @@ export function BotCanvasStatus({
         >
           <Monitor className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           {machines.map(({ key, label }) => {
-            const shown = !hidden.has(key);
+            const on = !hidden.has(key);
             const count = countOf(key);
             return (
               <button
                 key={key}
                 type="button"
-                aria-pressed={shown}
-                title={shown
+                aria-pressed={on}
+                title={on
                   ? `Hide ${label}'s Bots from the canvas`
                   : `Show ${label}'s Bots on the canvas`}
                 onClick={() => onToggle(key)}
                 className={`flex min-h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-                  shown
+                  on
                     ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15"
                     : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
                 }`}

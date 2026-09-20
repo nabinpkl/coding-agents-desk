@@ -22,6 +22,7 @@ import {
   type CanvasScroll,
 } from "@/features/bots/botCanvasPreferences";
 import { botSurfaceStyle } from "@/features/bots/botSurface";
+import { botsOnShownMachines } from "@/features/bots/botMachines";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
@@ -350,13 +351,9 @@ function BotCanvasList({
   const arranged = orderBotsForCanvas(bots, order);
   // Hidden machines drop out HERE rather than upstream, because hiding one is a question about what
   // this strip shows and not about which Bots exist: the sidebar roster still lists every one, and
-  // the chip above still says how many each machine is holding back.
-  const standing = hiddenMachines.size === 0
-    ? arranged
-    : arranged.filter((bot) => {
-      const key = keyOfBot(bot.botId);
-      return key === undefined || !hiddenMachines.has(key);
-    });
+  // its chip still says how many each machine is holding back. Shared with the sidebar's status
+  // rather than written twice, because that status counts exactly these.
+  const standing = botsOnShownMachines(arranged, hiddenMachines, keyOfBot);
   const labelOf = (botId: string): string | undefined => {
     const key = keyOfBot(botId);
     return key === undefined ? undefined : machines.find((machine) => machine.key === key)?.label;

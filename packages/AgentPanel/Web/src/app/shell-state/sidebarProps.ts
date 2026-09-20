@@ -14,6 +14,7 @@ import type { useProjectInventory } from "@/app/shell-state/useProjectInventory"
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
+import { botsOnShownMachines } from "@/features/bots/botMachines";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 
@@ -78,8 +79,16 @@ export function sidebarProps({
     // Counted over the Bots ON the canvas rather than over the whole roster, and over all of them
     // rather than over the ones a shown machine is contributing: the number beside a hidden
     // machine's chip is what says how many cards pressing it would bring back.
+    //
+    // `shown` is the strip's own count, through the filter the strip itself draws with, so "7 of 8"
+    // can never name a canvas holding six.
     canvasMachines: {
       total: roster.canvasBots.length,
+      shown: botsOnShownMachines(
+        roster.canvasBots,
+        roster.hiddenMachines,
+        machines.keyOfBot,
+      ).length,
       machines: machines.chips,
       hidden: roster.hiddenMachines,
       countOf: (key: string) =>

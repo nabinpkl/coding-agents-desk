@@ -145,6 +145,30 @@ export function machinesAreMixed(machines: readonly BotMachine[]): boolean {
 }
 
 /**
+ * The Bots a hidden machine is not holding back.
+ *
+ * Shared rather than written twice, because two surfaces ask it and they have to agree: the canvas
+ * draws exactly these cards, and the sidebar's canvas status says how many of the Bots on the
+ * canvas they are. A copy of this filter in either place is how "7 of 8" comes to name a strip
+ * holding six.
+ *
+ * A Bot no roster claims has no machine key, and is SHOWN: hiding a machine is a statement about
+ * that machine, and an unplaceable Bot is not on it. Dropping it here would make it unreachable
+ * through a control that never named it.
+ */
+export function botsOnShownMachines<T extends { botId: string }>(
+  bots: readonly T[],
+  hidden: ReadonlySet<string>,
+  keyOfBot: (botId: string) => string | undefined,
+): readonly T[] {
+  if (hidden.size === 0) return bots;
+  return bots.filter((bot) => {
+    const key = keyOfBot(bot.botId);
+    return key === undefined || !hidden.has(key);
+  });
+}
+
+/**
  * Which sidecar each Bot command goes to.
  *
  * One object rather than a data source, because every command in the shell used to close over the
