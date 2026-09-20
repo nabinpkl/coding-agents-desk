@@ -19,6 +19,7 @@ function quota(label: string, usedPercent: number, sampledAt = Date.now()) {
     usedPercent,
     windowMinutes: label.startsWith("5") ? 300 : 10_080,
     resetsAt: Date.now() + 2 * 60 * 60 * 1000,
+    scope: null,
     planType: null,
     sampledAt,
   };
@@ -132,13 +133,75 @@ describe("the context readout's detail panel", () => {
     expect(feed.fetchLimits).toHaveBeenCalledTimes(1);
   });
 
-  it("stays out of the way until it is asked for", () => {
+  it("stays closed until it is asked for, though the meters are already on screen", async () => {
     const feed = feedWith([quota("5-hour limit", 41)]);
     render(<TokenMeter usage={USAGE} feed={feed} />);
 
+    // The chip is the readout now, so the meters ARE read at mount. What stays away is the panel.
+    expect(await screen.findByText("5h: 41%")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
-    // Nothing is read until a reader opens it: a canvas of eight cards would otherwise make eight
-    // identical reads at load for a number none of them is showing.
-    expect(feed.fetchLimits).not.toHaveBeenCalled();
+  });
+});
+
+describe("the limit chips in the composer footer", () => {
+  it("says the account's windows the way the CLI's status line does", async () => {
+    const feed = feedWith([quota("5-hour limit", 25), quota("Weekly limit", 51)]);
+    render(<TokenMeter usage={USAGE} feed={feed} />);
+
+    // Both windows, shortest first, without anything being opened: either can be the one that
+    // stops you, and which that is changes during a day.
+    expect(await screen.findByText("5h: 25%")).toBeInTheDocument();
+    expect(screen.getByText("7d: 51%")).toBeInTheDocument();
+  });
+
+  it("leaves the model-scoped weeklies to the popover", async () => {
+    // Claude publishes seven_day_opus beside its account-wide seven_day, and both would draw as
+    // "7d" here. Two chips of the same name at different numbers is a surface that looks broken.
+    const scoped = { ...quota("Weekly limit (Opus)", 77), scope: "Opus" };
+    render(<TokenMeter usage={USAGE} feed={feedWith([quota("Weekly limit", 51), scoped])} />);
+
+    expect(await screen.findByText("7d: 51%")).toBeInTheDocument();
+    expect(screen.queryByText("7d: 77%")).toBeNull();
+  });
+
+  it("shows nothing rather than a confident zero before the first reading", async () => {
+    const feed = feedWith([]);
+    render(<TokenMeter usage={USAGE} feed={feed} />);
+
+    // Waited for rather than asserted straight away: the read settles after the first paint, and
+    // the question here is what the chip shows once it HAS an answer and the answer is empty.
+    await waitFor(() => expect(feed.fetchLimits).toHaveBeenCalled());
+    expect(screen.queryByText(/^\d+[hd]: /)).toBeNull();
+  });
+
+  it("reads one meter for every card on the same machine", async () => {
+    // The limits are an account-wide fact and a canvas draws them on every open card. One data
+    // source per machine is what makes that one read instead of eight.
+    const feed = feedWith([quota("5-hour limit", 25)]);
+    render(
+      <>
+        <TokenMeter usage={USAGE} feed={feed} />
+        <TokenMeter usage={USAGE} feed={feed} />
+        <TokenMeter usage={USAGE} feed={feed} />
+      </>,
+    );
+
+    await waitFor(() => expect(screen.getAllByText("5h: 25%")).toHaveLength(3));
+    expect(feed.fetchLimits).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows only the session's own vendor, because both vendors meter five hours", async () => {
+    const feed = {
+      fetchLimits: vi.fn(async (): Promise<QuotaReport> => ({
+        vendors: [
+          { vendor: "codex", displayName: "Codex", quotas: [quota("5-hour limit", 88)] },
+          { vendor: "claude", displayName: "Claude", quotas: [quota("5-hour limit", 25)] },
+        ],
+      })),
+    };
+    render(<TokenMeter usage={USAGE} feed={feed} vendor="claude" />);
+
+    expect(await screen.findByText("5h: 25%")).toBeInTheDocument();
+    expect(screen.queryByText("5h: 88%")).toBeNull();
   });
 });

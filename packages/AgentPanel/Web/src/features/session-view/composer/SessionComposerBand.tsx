@@ -278,7 +278,11 @@ export function SessionComposerBand({
           ) : null}
           {usage ? (
             <div className="ml-auto">
-              <TokenMeter usage={usage} feed={feed} />
+              <TokenMeter
+                usage={usage}
+                feed={feed}
+                vendor={isCodex ? "codex" : isClaude ? "claude" : null}
+              />
             </div>
           ) : null}
         </div>

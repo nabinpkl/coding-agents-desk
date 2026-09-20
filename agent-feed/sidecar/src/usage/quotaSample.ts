@@ -37,6 +37,7 @@ export function describeQuota(sample: QuotaSample): UsageQuota {
     usedPercent: sample.usedPercent,
     windowMinutes: sample.windowMinutes,
     resetsAt: sample.resetsAtMs,
+    scope: sample.scope ?? null,
     planType: sample.planType,
     sampledAt: sample.atMs,
   };

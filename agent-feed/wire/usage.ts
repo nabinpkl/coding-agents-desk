@@ -81,6 +81,16 @@ export interface UsageQuota {
   windowMinutes: number;
   /** Epoch milliseconds. */
   resetsAt: number;
+  /**
+   * What this window meters, where a vendor meters more than one thing over the same window --
+   * Claude publishes an account-wide `seven_day` and a `seven_day_opus` beside it. Null for a
+   * window that covers everything, which is every window Codex publishes.
+   *
+   * Carried rather than left to the label, because two readers want different things from it: the
+   * popover spells it into the label, and the compact readout in the composer shows the
+   * account-wide windows ONLY, which it cannot select without being told which those are.
+   */
+  scope: string | null;
   planType: string | null;
   /**
    * Epoch milliseconds the vendor published this reading.

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import type { UsageQuota, UsageVendorId } from "@agentdesk/agent-feed-wire";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TokenMeterDetails } from "@/features/activity-feed/TokenMeterDetails";
-import { useLimits } from "@/features/usage/useLimits";
+import { useLimits, type LimitsState } from "@/features/usage/useLimits";
+import { formatAge, formatResetIn, formatWindow, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
 
 /** Fill fraction above which the meter reads as a warning rather than a fact. */
 const WARN_FRACTION = 0.75;
@@ -114,13 +116,21 @@ function CacheCountdown({ usage }: { usage: TokenUsage }) {
 export function TokenMeter({
   usage,
   feed = null,
+  vendor = null,
 }: {
   usage: TokenUsage | null;
   /**
    * The sidecar to read this machine's rate limits from, or null where there is none to ask.
-   * Only the detail panel uses it, and only once opened.
    */
   feed?: Pick<SidecarDataSource, "fetchLimits"> | null;
+  /**
+   * Which vendor's windows to show, or null to show every vendor's.
+   *
+   * Both vendors meter five hours, so a Claude card that also drew Codex's would put two chips
+   * reading `5h` at different numbers side by side -- and either could be read as the one about
+   * to stop you.
+   */
+  vendor?: UsageVendorId | null;
 }) {
   // Hooks before the early return, because a session whose occupancy has not arrived yet renders
   // nothing and then renders something, and a conditional hook would break on exactly that.
@@ -130,15 +140,8 @@ export function TokenMeter({
   // needs to read a number rather than glance at it.
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const limits = useLimits(feed);
+  const limits = useLimits(feed, vendor);
   const open = hovered || pinned;
-  // Deliberately `limits.load` rather than `limits`: the handle is a fresh object every render,
-  // so depending on it would re-run this on every render the panel is open -- which, against a
-  // sidecar answering an error, is a read per render rather than a read per open.
-  const loadLimits = limits.load;
-  useEffect(() => {
-    if (open) loadLimits();
-  }, [loadLimits, open]);
 
   if (!usage) return null;
 
@@ -175,6 +178,7 @@ export function TokenMeter({
     // clock's.
     <span className="flex shrink-0 items-center gap-2 px-1">
       <CacheCountdown usage={usage} />
+      <LimitChips quotas={accountWide(limits)} />
       <button
         ref={trigger}
         type="button"
@@ -232,7 +236,7 @@ export function TokenMeter({
       {open ? (
         <TokenMeterDetails
           usage={usage}
-          limits={limits.state}
+          limits={limits}
           trigger={trigger}
           onDismiss={() => {
             setPinned(false);
@@ -242,6 +246,68 @@ export function TokenMeter({
       ) : null}
     </span>
   );
+}
+
+/**
+ * The windows that meter EVERYTHING, which is what the composer has room to show.
+ *
+ * Claude publishes `seven_day_opus` and `seven_day_sonnet` beside its account-wide `seven_day`,
+ * and all three would render as `7d` here. The scoped ones are the popover's job, where there is a
+ * line each to name which model they cover.
+ */
+function accountWide(limits: LimitsState): UsageQuota[] {
+  if (limits.kind !== "ready") return [];
+  return limits.quotas.filter((quota) => quota.scope === null);
+}
+
+/**
+ * The account's limits as the CLI's status line says them: `5h: 25%  7d: 51%`.
+ *
+ * Beside the context count rather than inside the popover, because the two answer the same
+ * question at different scales and only one of them was ever visible. The context count is this
+ * turn; these are every session on this machine, and a reader who is about to start something long
+ * needs the one that is going to stop them without having to go looking for it.
+ *
+ * Nothing at all until a reading arrives: a chip reading `5h: 0%` before the first API response
+ * would be a confident wrong answer, where an absent chip is merely quiet.
+ */
+function LimitChips({ quotas }: { quotas: UsageQuota[] }) {
+  if (quotas.length === 0) return null;
+  const at = Date.now();
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      {quotas.map((quota) => {
+        // A reading whose own age has outrun its window cannot say when it resets -- that moment
+        // has usually passed -- so the title says how old it is and the chip goes quiet.
+        const stale = at - quota.sampledAt > STALE_QUOTA_MS;
+        return (
+          <span
+            key={`${quota.windowMinutes}:${quota.label}`}
+            title={`${quota.label}: ${quota.usedPercent}% used, ${
+              stale ? `read ${formatAge(quota.sampledAt, at)}` : `resets in ${formatResetIn(quota.resetsAt, at)}`
+            }`}
+            className={
+              "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums "
+              + chipTone(quota.usedPercent, stale)
+            }
+          >
+            {formatWindow(quota.windowMinutes)}: {quota.usedPercent}%
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * The same two thresholds the popover's bars use, so one window does not read as urgent in one
+ * place and ordinary in the other.
+ */
+function chipTone(usedPercent: number, stale: boolean): string {
+  if (stale) return "text-muted-foreground/50";
+  if (usedPercent >= 90) return "text-destructive";
+  if (usedPercent >= 75) return "text-amber-500";
+  return "text-muted-foreground";
 }
 
 /**

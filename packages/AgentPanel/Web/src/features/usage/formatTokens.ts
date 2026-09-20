@@ -70,3 +70,17 @@ export function formatAge(sampledAt: number, now: number): string {
 
 /** A quota reading older than this is reported by its age instead of by its reset. */
 export const STALE_QUOTA_MS = 60 * 60 * 1000;
+
+/**
+ * A quota window as the two or three glyphs the composer has room for: `5h`, `7d`, `30m`.
+ *
+ * The long form (`quotaLabel` in the sidecar, "5-hour limit") names a row in a popover that has a
+ * line to spend on it. This names a chip sitting next to the context count on a card that is
+ * already a narrow column, where "5-hour limit 25%" would push the count off the end.
+ */
+export function formatWindow(windowMinutes: number): string {
+  if (!Number.isFinite(windowMinutes) || windowMinutes <= 0) return "limit";
+  if (windowMinutes % (24 * 60) === 0) return `${windowMinutes / (24 * 60)}d`;
+  if (windowMinutes % 60 === 0) return `${windowMinutes / 60}h`;
+  return `${Math.round(windowMinutes)}m`;
+}

@@ -72,6 +72,7 @@ function report(): UsageReport {
         usedPercent: 13,
         windowMinutes: 10_080,
         resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
+        scope: null,
         planType: "prolite",
         sampledAt: TODAY,
       }],
@@ -159,6 +160,7 @@ function twoVendorReport(): UsageReport {
         // A reset already in the past, which is what a 45-hour-old reading has.
         resetsAt: Date.now() - 40 * 60 * 60 * 1000,
         windowMinutes: 300,
+        scope: null,
         planType: null,
         sampledAt: Date.now() - 45 * 60 * 60 * 1000,
       }],

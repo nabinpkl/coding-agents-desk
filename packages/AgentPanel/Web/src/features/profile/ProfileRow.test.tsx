@@ -65,6 +65,7 @@ function report(): UsageReport {
         usedPercent: 13,
         windowMinutes: 10_080,
         resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
+        scope: null,
         planType: "prolite",
         sampledAt: TODAY,
       }],

@@ -302,6 +302,7 @@
             "usedPercent": 13,
             "windowMinutes": 10080,
             "resetsAt": 1787801862000,
+            "scope": null,
             "planType": "prolite",
             "sampledAt": 1787795000000
           }

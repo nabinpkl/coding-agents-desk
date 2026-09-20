@@ -217,6 +217,7 @@ test("the quota is the newest reading across every session", async () => {
     usedPercent: 12,
     windowMinutes: 10_080,
     resetsAt: 1_787_801_862_000,
+    scope: null,
     planType: "prolite",
     sampledAt: Date.parse("2026-08-13T09:00:00.000Z"),
   }]);
@@ -369,6 +370,7 @@ test("every Claude window reaches the report, stamped with when it was taken", a
       usedPercent: 92,
       windowMinutes: 300,
       resetsAt: Date.parse("2026-09-06T10:30:00.000Z"),
+      scope: null,
       planType: null,
       sampledAt: 1_788_687_158_244,
     },
@@ -377,6 +379,7 @@ test("every Claude window reaches the report, stamped with when it was taken", a
       usedPercent: 36,
       windowMinutes: 10_080,
       resetsAt: Date.parse("2026-09-06T16:00:00.000Z"),
+      scope: null,
       planType: null,
       sampledAt: 1_788_687_158_244,
     },

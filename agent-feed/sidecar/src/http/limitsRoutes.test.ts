@@ -115,6 +115,7 @@ test("Codex's meter rides on the last sweep, because it is stamped on rollout re
         usedPercent: 22,
         windowMinutes: 10_080,
         resetsAt: 1_789_500_000_000,
+        scope: null,
         planType: "prolite",
         sampledAt: 1_789_000_000_000,
       }],
