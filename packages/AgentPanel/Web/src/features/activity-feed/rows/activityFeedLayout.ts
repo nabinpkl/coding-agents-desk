@@ -21,6 +21,21 @@ export interface PairedToolResult {
   /** The result event's own metadata, which travels into the tool call's
    *  Raw drawer because the event no longer gets a row of its own. */
   metadata: ActivityBlock[];
+  /** Indices, in the result's event, of the image blocks this result returned. */
+  images: number[];
+}
+
+/**
+ * Where the images one tool result returned sit in its event.
+ *
+ * Matched by `callId` rather than by position: one Claude line can answer several calls at once,
+ * and the adapter names each image by the call whose result carried it.
+ */
+function resultImages(ev: ActivityEvent, callId: string | undefined): number[] {
+  if (!callId) return [];
+  return ev.blocks.flatMap((block, index) =>
+    block.kind === "image" && block.callId === callId ? [index] : [],
+  );
 }
 
 /** Everything the feed needs to render one window of events. */
@@ -150,11 +165,15 @@ export function buildFeedLayout(
     // append Working Directory to nearly every Claude line, and excluding it
     // here left every Claude result stranded in its own row instead of nesting
     // under the call that produced it. Same trap as isCompactionEvent.
+    // An image one of those results returned is part of that result, not more than it: a Read of a
+    // screenshot is a result made of nothing else.
+    const resultCallIds = new Set(resultBlocks.flatMap(({ block }) => block.callId ? [block.callId] : []));
     const isResultOnly = event.blocks.every(
       (block) =>
         block.kind === "tool_result" ||
         block.kind === "raw" ||
-        block.kind === "metadata",
+        block.kind === "metadata" ||
+        (block.kind === "image" && block.callId !== undefined && resultCallIds.has(block.callId)),
     );
     const canPairEveryResult = resultBlocks.every(
       ({ block }) => block.callId && toolCallIds.has(block.callId),
@@ -173,6 +192,7 @@ export function buildFeedLayout(
         blockIndex,
         includesRawEvent: hasRawJson && isFirst,
         metadata: isFirst ? folded : [],
+        images: resultImages(event, block.callId),
       });
     });
   }
@@ -194,8 +214,9 @@ export function buildFeedLayout(
 
 /** How one event's blocks split between its visible body and its Raw drawer. */
 export interface EventBlockLayout {
-  /** Rendered in the event body, carrying each block's original index. */
-  inline: { block: ActivityBlock; index: number }[];
+  /** Rendered in the event body, carrying each block's original index. A tool result carries the
+   *  indices of the images it returned, which are not listed on their own. */
+  inline: { block: ActivityBlock; index: number; images?: number[] }[];
   /** Metadata moved into the collapsed Raw drawer. */
   folded: ActivityBlock[];
   /** The event carries a raw block, so Raw JSON nests inside that drawer. */
@@ -212,13 +233,24 @@ export function partitionEventBlocks(ev: ActivityEvent): EventBlockLayout {
   const hasContent = ev.blocks.some(
     (block) => block.kind !== "metadata" && block.kind !== "raw",
   );
-  const inline: { block: ActivityBlock; index: number }[] = [];
+  const inline: { block: ActivityBlock; index: number; images?: number[] }[] = [];
   const folded: ActivityBlock[] = [];
   let hasRawJson = false;
+  const resultCallIds = new Set(
+    ev.blocks.flatMap((block) => block.kind === "tool_result" && block.callId ? [block.callId] : []),
+  );
 
   ev.blocks.forEach((block, index) => {
     if (block.kind === "raw") {
       hasRawJson = true;
+      return;
+    }
+    // Drawn inside the result that returned it, the same as when that result pairs into its call.
+    if (block.kind === "image" && block.callId !== undefined && resultCallIds.has(block.callId)) {
+      return;
+    }
+    if (block.kind === "tool_result") {
+      inline.push({ block, index, images: resultImages(ev, block.callId) });
       return;
     }
     if (block.kind === "metadata" && hasContent) {

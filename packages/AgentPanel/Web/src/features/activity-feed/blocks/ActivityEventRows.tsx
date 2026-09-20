@@ -112,7 +112,7 @@ function EventBody({
   const { inline, folded, hasRawJson } = partitionEventBlocks(ev);
   return (
     <div className="space-y-[0.4em]">
-      {inline.map(({ block, index }) => (
+      {inline.map(({ block, index, images }) => (
         // Non-flow blocks are bordered boxes, which would sit UNDER the floated
         // heading rather than beside it. Clearing keeps them below it instead of
         // overlapping. Once content extends past the heading's height this is a
@@ -133,6 +133,7 @@ function EventBody({
             blockIndex={index}
             eventType={ev.type}
             phase={ev.phase}
+            resultImages={images}
           />
         </div>
       ))}

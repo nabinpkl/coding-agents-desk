@@ -11,6 +11,59 @@ const CWD = { kind: "metadata", label: "Working Directory", text: "/repo" } as c
 const NICE = { cluster: true, hideSystem: true } as const;
 
 describe("feed layout", () => {
+  it("carries the images each result returned into the call it answers", () => {
+    // One line answering two calls, each with a picture. Matched by call, not by position.
+    const events: ActivityEvent[] = [
+      {
+        index: 10,
+        ts: 1,
+        type: "assistant",
+        blocks: [
+          { kind: "tool_use", tool: "Read", callId: "call-1" },
+          { kind: "tool_use", tool: "Read", callId: "call-2" },
+        ],
+      },
+      {
+        index: 11,
+        ts: 2,
+        type: "user",
+        blocks: [
+          { kind: "tool_result", preview: "", callId: "call-1" },
+          { kind: "image", mediaType: "image/png", callId: "call-1" },
+          { kind: "tool_result", preview: "", callId: "call-2" },
+          { kind: "image", mediaType: "image/jpeg", callId: "call-2" },
+          CWD,
+          { kind: "raw" },
+        ],
+      },
+    ];
+
+    const layout = buildFeedLayout(events);
+    // The images do not make the result event more than its results, so it still folds away.
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([10]);
+    expect(layout.pairedToolResults.get("call-1")?.images).toEqual([1]);
+    expect(layout.pairedToolResults.get("call-2")?.images).toEqual([3]);
+  });
+
+  it("draws a result's images inside it when the result keeps a row of its own", () => {
+    const event: ActivityEvent = {
+      index: 11,
+      ts: 2,
+      type: "user",
+      blocks: [
+        { kind: "tool_result", preview: "", callId: "call-out-of-window" },
+        { kind: "image", mediaType: "image/png", callId: "call-out-of-window" },
+        { kind: "image", mediaType: "image/png" },
+      ],
+    };
+
+    // The second image answers no result here, so it stays a block of its own.
+    expect(partitionEventBlocks(event).inline.map(({ index, images }) => [index, images])).toEqual([
+      [0, [1]],
+      [2, undefined],
+    ]);
+  });
+
   it("pairs a result into its call even when the line carries metadata", () => {
     const events: ActivityEvent[] = [
       {

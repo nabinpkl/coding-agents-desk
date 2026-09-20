@@ -18,7 +18,8 @@ export interface ActivityBlock {
   // Set on image blocks, and the only thing they carry. The bytes stay in the transcript and are
   // served by `GET .../events/<n>/blocks/<b>/image`: one pasted screenshot is tens of kilobytes of
   // base64, and it used to ride every page and every reconnect as a Plain JSON card nobody could
-  // read.
+  // read. An image a tool returned sits right after its result and carries that result's
+  // `callId`, which is how the panel draws it inside the call rather than as a row of its own.
   mediaType?: string;
   label?: string;
   text?: string;

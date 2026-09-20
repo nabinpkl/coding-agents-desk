@@ -25,6 +25,44 @@ test('a pasted image becomes an image block, and its bytes stay out of the event
   expect(event!.humanTurn).toBe(true);
 });
 
+test('an image a tool returned follows its result, named by the same call', () => {
+  // A Read of a screenshot is a result made of nothing but the picture. Its preview used to say
+  // "image" and the picture itself was nowhere.
+  const data = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+  const event = claudeAdapter.processLine(userLine([
+    {
+      type: 'tool_result',
+      tool_use_id: 'toolu_read',
+      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }],
+    },
+  ]))?.event;
+
+  expect(event!.blocks.slice(0, 2)).toEqual([
+    { kind: 'tool_result', preview: '', callId: 'toolu_read' },
+    { kind: 'image', mediaType: 'image/png', callId: 'toolu_read' },
+  ]);
+  expect(JSON.stringify(event)).not.toContain(data);
+  expect(event!.humanTurn).toBeUndefined();
+});
+
+test('a screenshot beside text keeps the text as the result and the picture after it', () => {
+  const event = claudeAdapter.processLine(userLine([
+    {
+      type: 'tool_result',
+      tool_use_id: 'toolu_shot',
+      content: [
+        { type: 'text', text: 'Captured screenshot (1235x815, jpeg)' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4AAQ' } },
+      ],
+    },
+  ]))?.event;
+
+  expect(event!.blocks.slice(0, 2)).toEqual([
+    { kind: 'tool_result', preview: 'Captured screenshot (1235x815, jpeg)', callId: 'toolu_shot' },
+    { kind: 'image', mediaType: 'image/jpeg', callId: 'toolu_shot' },
+  ]);
+});
+
 test('an image in a type the panel cannot be served stays a Plain block', () => {
   // The media type becomes a response's content-type on the panel's origin, so an SVG does not
   // get to be an image block however it is labelled.

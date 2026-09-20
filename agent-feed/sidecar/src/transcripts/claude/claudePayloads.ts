@@ -176,6 +176,16 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
     } else if (t === 'tool_result') {
       let preview = '';
       const c = b.content;
+      const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id as string) : undefined;
+      const idPart = useId ? { callId: useId } : {};
+      const items = Array.isArray(c) ? c as Array<Record<string, unknown>> : [];
+      // A screenshot a tool took, or a picture Read opened. Each becomes an image block right after
+      // its result, named by the same call, for the reason a pasted one does: the bytes stay in the
+      // line and the event carries only what kind of image is there.
+      const returnedImages = items.flatMap((sub) => {
+        const returned = sub?.type === 'image' ? pastedImage(sub) : null;
+        return returned ? [returned] : [];
+      });
       if (typeof c === 'string') preview = c;
       else if (Array.isArray(c)) {
         for (const sub of c as Array<Record<string, unknown>>) {
@@ -187,8 +197,6 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
       }
       if (preview) {
         const PREVIEW_CAP = 16000;
-        const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id as string) : undefined;
-        const idPart = useId ? { callId: useId } : {};
         // Harness persisted the full output to a sidecar file. Mark the
         // block as truncated using the size hint in the envelope so the
         // Agent Panel can offer "Show full output" — extractBlockRaw will
@@ -233,15 +241,22 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
         // thread: every MCP call put a JSON envelope on screen as though it had been
         // typed by the reader, and the bar that names the current user turn read
         // "(no text)" instead of what they had actually written.
-        const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id as string) : undefined;
+        // Images it returned are not named here: they are drawn, so a line reading "image" above
+        // the picture would only repeat it.
+        const unshown = Array.isArray(c)
+          ? items.filter((sub) => !(sub?.type === 'image' && pastedImage(sub)))
+          : c;
         out.push({
           block: {
             kind: 'tool_result',
-            preview: nonTextResultPreview(b.content),
-            ...(useId ? { callId: useId } : {}),
+            preview: nonTextResultPreview(unshown),
+            ...idPart,
           },
           raw: stringifyForDisplay(b),
         });
+      }
+      for (const returned of returnedImages) {
+        out.push({ block: { kind: 'image', mediaType: returned.mediaType, ...idPart }, raw: returned.data });
       }
     } else if (image) {
       // A picture pasted into the prompt. Its bytes are the raw half, so `extractBlockRaw` hands

@@ -18,10 +18,13 @@ export function EventImageBlock({
   ctx,
   eventIndex,
   blockIndex,
+  alt = "Image from this message",
 }: {
   ctx: EventRowContext;
   eventIndex: number;
   blockIndex: number;
+  /** What the opened picture is, for a reader who cannot see it. */
+  alt?: string;
 }) {
   const dataSource = useDataSource();
   const [opened, setOpened] = useState(false);
@@ -61,7 +64,7 @@ export function EventImageBlock({
         <ImageLightbox
           title="Image"
           url={url}
-          alt="Image from this message"
+          alt={alt}
           onClose={() => setOpened(false)}
         />
       ) : null}

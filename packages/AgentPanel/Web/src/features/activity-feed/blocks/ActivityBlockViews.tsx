@@ -69,9 +69,12 @@ function ToolResultContent({
   result: PairedToolResult;
   ctx: EventRowContext;
 }) {
+  const hasImages = result.images.length > 0;
+  // A result that returned only a picture is not empty, and saying so above the picture would be
+  // the one false thing in the row.
   const content = result.block.preview ? (
     <ToolResultBlock block={result.block} />
-  ) : (
+  ) : hasImages ? null : (
     <LabeledTextBlock
       block={{ ...result.block, kind: "plain", label: "Tool Result", text: "(empty result)" }}
     />
@@ -80,6 +83,19 @@ function ToolResultContent({
   return (
     <div className="space-y-1.5">
       {content}
+      {hasImages ? (
+        <div className="flex flex-wrap gap-2">
+          {result.images.map((blockIndex) => (
+            <EventImageBlock
+              key={blockIndex}
+              ctx={ctx}
+              eventIndex={result.eventIndex}
+              blockIndex={blockIndex}
+              alt="Image this tool returned"
+            />
+          ))}
+        </div>
+      ) : null}
       {/* Named apart from the call's own drawer: this one is the result's
           source line, which sits in the same row once the two are paired. */}
       <RawDetails
@@ -95,7 +111,7 @@ function ToolResultContent({
 }
 
 export function Block({
-  b, ctx, eventIndex, blockIndex, eventType, phase,
+  b, ctx, eventIndex, blockIndex, eventType, phase, resultImages = [],
 }: {
   b: ActivityBlock;
   ctx: EventRowContext;
@@ -103,6 +119,8 @@ export function Block({
   blockIndex: number;
   eventType: ActivityEvent["type"];
   phase?: ActivityEvent["phase"];
+  /** On a tool result: where the images it returned sit in this event. */
+  resultImages?: number[];
 }) {
   // Call the hook unconditionally so a stream of revisions keeps one reveal
   // position: the model's own prose reveals progressively while streaming, and
@@ -241,6 +259,7 @@ export function Block({
           blockIndex,
           includesRawEvent: false,
           metadata: [],
+          images: resultImages,
         }}
         ctx={ctx}
       />
