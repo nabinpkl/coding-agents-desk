@@ -20,6 +20,10 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // refreshing one copy would race each other.
     gridEncoderSlots: join(root, "bin", "grid-encoder-slots"),
     panelTlsDirectory: join(root, "agent-panel", "tls"),
+    // Whether the reader last asked for edits to be applied as they land, or held until they say.
+    // Durable rather than in the dev server's memory, because a dev server restart is one of the
+    // things a reader is asking to be protected from when they choose to hold them.
+    panelPublishMode: join(root, "agent-panel", "publish-mode.json"),
     // The rendezvous board every sidecar announces itself on. Fixed under /Users/Shared, NOT the
     // per-user runtime root, because a panel in one login session has to read descriptors written
     // by a sidecar in another, and ~/Library is 0700. /Users/Shared is the one place every session

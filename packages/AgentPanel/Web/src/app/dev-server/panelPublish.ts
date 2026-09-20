@@ -92,6 +92,9 @@ export interface PublishGateIO {
    * asks for the page to stop changing under them is not asking about only one of those.
    */
   tell(command: UpdateMode | "apply"): void;
+  /** What the reader chose last time there was a server, and where this one records their choice. */
+  remembered(): UpdateMode;
+  remember(mode: UpdateMode): void;
 }
 
 /** Only these are held. A stylesheet cannot take a render down, and holding one would just delay it. */
@@ -110,8 +113,15 @@ export function createPublishGate(io: PublishGateIO) {
   /** Absolute path to why it will not parse, or null for a whole file waiting on the reader. */
   const held = new Map<string, string | null>();
 
-  /** Auto until somebody says otherwise: the dev loop's default is that an edit reaches the page. */
-  let mode: UpdateMode = "auto";
+  /**
+   * What the reader last chose, which outlives the server that was asked.
+   *
+   * A restart is one of the things somebody is asking to be protected from when they choose to hold
+   * updates, so forgetting on one would undo the request at the moment it was most wanted. Safe to
+   * carry because the strip says which mode is in force at rest, with nothing waiting: a mode that
+   * came back from yesterday is on screen rather than implied.
+   */
+  let mode: UpdateMode = io.remembered();
 
   const report = (): PublishReport => ({
     build: io.buildId(),
@@ -184,6 +194,7 @@ export function createPublishGate(io: PublishGateIO) {
     setMode(next: UpdateMode): void {
       if (next === mode) return;
       mode = next;
+      io.remember(next);
       io.tell(next);
       // Coming back to auto IS the "yes, now" the queue was waiting for, and `release` broadcasts
       // the emptied report itself.
@@ -230,6 +241,14 @@ export interface PanelPublishOptions {
   commandParam: string;
   /** Pass the reader's choice to every machine's own supervisor. */
   tell: (command: "auto" | "manual" | "apply") => void;
+  /**
+   * Where the reader's choice is kept between servers.
+   *
+   * Passed in rather than read here for the reason the rest of these are: this module is loaded by
+   * `vite.config.ts` before the panel's aliases exist, so it can import nothing of its own.
+   */
+  remembered: () => UpdateMode;
+  remember: (mode: UpdateMode) => void;
   /** The build id of the tree as it is right now. */
   buildId: () => string;
   /**
@@ -272,6 +291,8 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
     sidecars: options.supervisors,
     reload: () => server?.environments.client.hot.send({ type: "full-reload" }),
     tell: options.tell,
+    remembered: options.remembered,
+    remember: options.remember,
   });
 
   return {

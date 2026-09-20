@@ -21,6 +21,7 @@ import {
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
+import { readPublishMode, writePublishMode } from "./src/app/dev-server/publishMode";
 import {
   PANEL_BUILD_ROUTE,
   PANEL_COMMAND_PARAM,
@@ -391,6 +392,12 @@ export default defineConfig({
       // One switch for the panel and every sidecar behind it: what a reader means by manual is
       // "stop changing under me", not a preference held per process.
       tell: (command) => supervisorClient.tell(knownMachines(), command),
+      // Kept across dev server restarts, because a restart is one of the things a reader is asking
+      // to be protected from when they choose to hold updates. Each machine's supervisor still
+      // starts on auto and is told again by the reconcile above, so a machine whose panel is gone
+      // runs normally rather than staying frozen on the word of a process that is not there.
+      remembered: () => readPublishMode(runtimePaths().panelPublishMode),
+      remember: (mode) => writePublishMode(runtimePaths().panelPublishMode, mode),
     }),
     panelSessions(),
     vncBridge(),

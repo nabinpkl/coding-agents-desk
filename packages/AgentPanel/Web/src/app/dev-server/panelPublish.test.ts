@@ -20,14 +20,16 @@ import {
   parseFailure,
   type PublishReport,
   type SupervisorReport,
+  type UpdateMode,
 } from "@/app/dev-server/panelPublish";
 
 const PANEL = "/repo/packages/AgentPanel/Web/src";
 const MAIN = `${PANEL}/app/main.tsx`;
 
-function gateWith(sidecars: SupervisorReport[] = []) {
+function gateWith(sidecars: SupervisorReport[] = [], remembered: UpdateMode = "auto") {
   const reports: PublishReport[] = [];
   const told: string[] = [];
+  const kept: UpdateMode[] = [];
   let reloads = 0;
   const gate = createPublishGate({
     broadcast: (report) => reports.push(report),
@@ -37,8 +39,10 @@ function gateWith(sidecars: SupervisorReport[] = []) {
       reloads += 1;
     },
     tell: (command) => told.push(command),
+    remembered: () => remembered,
+    remember: (mode) => kept.push(mode),
   });
-  return { gate, reports, told, reloaded: () => reloads };
+  return { gate, reports, told, kept, reloaded: () => reloads };
 }
 
 describe("the publish gate", () => {
@@ -204,6 +208,25 @@ describe("holding updates for the reader", () => {
     const { gate, reports } = gateWith();
     gate.setMode("auto");
     expect(reports).toEqual([]);
+  });
+
+  // A restart is one of the things a reader is asking to be protected from when they choose to hold
+  // updates, so forgetting the choice on one would undo the request at the moment it was wanted
+  // most. Safe to carry because the strip says which mode is in force even with nothing waiting.
+  it("comes back in the mode the reader last chose, not the default", () => {
+    const { gate } = gateWith([], "manual");
+    expect(gate.report().mode).toBe("manual");
+    expect(gate.hold(MAIN, null)).toBe(true);
+  });
+
+  it("records each choice as it is made, and nothing else", () => {
+    const { gate, kept } = gateWith();
+    gate.setMode("manual");
+    gate.apply();
+    gate.setMode("manual");
+    expect(kept).toEqual(["manual"]);
+    gate.setMode("auto");
+    expect(kept).toEqual(["manual", "auto"]);
   });
 
   // One switch, both halves. The panel holds an HMR update; a supervisor holds a RESTART, which
