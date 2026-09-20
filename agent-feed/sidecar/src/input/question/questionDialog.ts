@@ -21,7 +21,7 @@
  *   <rule>
  *   <`Chat about this` row>
  *   <blank>
- *   <footer>             contains `Esc to cancel`
+ *   <footer>             contains `Esc to cancel`, possibly wrapped across two rows
  *
  * What varies inside it, and why each one is here rather than assumed away:
  *
@@ -55,6 +55,11 @@
  *   **The review screen has no footer and no closing rule**, so the anchor every other shape is
  *   found by is absent there. It is found by its own `Ready to submit your answers?` line.
  *
+ *   **The footer WRAPS, and the anchor goes with it.** Once the cursor reaches a free-text row
+ *   Claude adds `ctrl+g to edit in VS Code` to it, taking the line to 84 characters, so on an
+ *   80-column pane `Esc to cancel` lands split across two rows and no single line holds it. It is
+ *   therefore read as the run it belongs to rather than row by row; see `footerStart`.
+ *
  * The free-text row is always the LAST numbered row inside the box, after every option. Nothing
  * here asserts that on its own: the driver knows how many options the tool call carried and
  * refuses a dialog whose row count disagrees, so the assumption is checked on every use instead of
@@ -78,6 +83,8 @@ const ROW = /^(❯| ) (\d+)\. (.*)$/;
 const BOX = /^\[([ ✔])\]\s*(.*)$/;
 /** The inline button under a multi-select question's rows. It carries no number. */
 const BUTTON = /^(❯| ) {4}(Submit|Next)\s*$/;
+/** What every question screen's footer says, and the only thing that identifies one. */
+const FOOTER = "Esc to cancel";
 /** One tab: its state glyph and its label, up to the next glyph or the closing arrow. */
 const TAB = /([☐☒✔])\s+([^☐☒✔→]+)/g;
 
@@ -151,7 +158,7 @@ function reviewScreen(lines: readonly string[], ready: number): QuestionDialog |
 
 /** A question's own screen, found by the footer and bounded by the two rules above it. */
 function questionScreen(lines: readonly string[]): QuestionDialog | null {
-  const footer = lastIndex(lines, (line) => line.includes("Esc to cancel"));
+  const footer = footerStart(lines);
   if (footer < 0) return null;
   const closing = lastIndex(lines.slice(0, footer), (line) => RULE.test(line));
   if (closing < 0) return null;
@@ -252,6 +259,36 @@ export function otherRowIndex(dialog: QuestionDialog): number {
 /** Whether the free-text row is showing Claude's own prompt rather than somebody's words. */
 export function isPlaceholder(text: string): boolean {
   return (PLACEHOLDERS as readonly string[]).includes(text.trim());
+}
+
+/**
+ * Where the footer begins, or -1 when this screen has none.
+ *
+ * The footer is ONE logical line the pane may have broken across rows, so it is read as the run of
+ * non-blank lines it belongs to rather than row by row. Measured 2026-09-15 on an 80x24 pane: with
+ * the cursor on a free-text row the footer runs to 84 characters and `Esc to cancel` is split in
+ * two, so nothing on the screen contains it. The reader then answered null for a dialog plainly on
+ * the pane, and the driver read that as the question having moved on -- refusing after it had
+ * already ticked a box, while the panel reported that nothing had been sent. Every capture was
+ * taken at 120 columns, which is why the whole suite agreed with the parser.
+ *
+ * The run resets at a blank line and at a rule, neither of which a footer ever spans.
+ */
+function footerStart(lines: readonly string[]): number {
+  let run = "";
+  let start = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]!;
+    if (line.trim().length === 0 || RULE.test(line)) {
+      run = "";
+      start = -1;
+      continue;
+    }
+    run = run ? `${line.trim()} ${run}` : line.trim();
+    start = index;
+    if (run.includes(FOOTER)) return start;
+  }
+  return -1;
 }
 
 function lastIndex(lines: readonly string[], wanted: (line: string) => boolean): number {

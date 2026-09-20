@@ -144,3 +144,24 @@ function capture(name: string): string {
   if (!found) throw new Error(`no capture named ${name}`);
   return found.screen;
 }
+
+test("a footer wrapped across two rows still finds the dialog", () => {
+  // The failure this reader had on every 80-column pane: the footer is one logical line the pane
+  // broke in two, so nothing on screen contained the anchor and a dialog plainly up read as none.
+  // The driver took that for the question having moved on and refused -- after it had already
+  // ticked a box, while the panel said nothing was sent.
+  const wrapped = capture("multi-select mid-answer on an 80-column pane");
+  expect(wrapped.split("\n").some((line) => line.includes("Esc to cancel"))).toBe(false);
+
+  const dialog = questionDialog(pane(wrapped))!;
+  expect(dialog.question).toBe("Which days?");
+  expect(dialog.rows.find((row) => row.button)!.text).toBe("Next");
+  // The free-text row is where the cursor is, which is what put the `ctrl+g` hint in the footer.
+  expect(otherRowIndex(dialog)).toBe(3);
+  expect(dialog.rows[otherRowIndex(dialog)]!.cursor).toBe(true);
+
+  // Identical to the same screen with four more columns to draw that footer in.
+  const roomy = questionDialog(pane(wrapped.replace("· Esc\nto cancel", "· Esc to cancel")))!;
+  expect(dialog.rows.map((row) => row.text)).toEqual(roomy.rows.map((row) => row.text));
+  expect(dialog.tabs.map((tab) => tab.label)).toEqual(roomy.tabs.map((tab) => tab.label));
+});

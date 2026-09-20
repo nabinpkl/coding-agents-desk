@@ -1,5 +1,10 @@
-// Screens `tmux capture-pane -p` took off real 120x40 and 120x44 panes on 2026-09-11, from Claude
-// Code 2.1.268 running Haiku 4.5, kept verbatim from the dialog's opening rule to its footer.
+// Screens `tmux capture-pane -p` took off real panes, kept verbatim from the dialog's opening
+// rule to its footer: 120x40 and 120x44 on 2026-09-11 from Claude Code 2.1.268, and 80x24 on
+// 2026-09-15, both running Haiku 4.5.
+//
+// The width is part of the record. Every screen here was 120 columns wide until the last one,
+// and the footer fits on one row at 120 and does not at 80 -- so the parser agreed with every
+// capture in this file while failing on the pane sizes this repo actually runs.
 //
 // Its own module for the reason `rewindPickerCaptures.ts` gives: these are a RECORD of what the
 // renderer does, not a convenience for the parser. Every shape here differs from the others in a
@@ -197,5 +202,37 @@ export const CAPTURES: readonly QuestionCapture[] = [
     rows: [">1. Submit answers", " 2. Cancel"],
     multiSelect: false,
     review: true,
+  },
+  {
+    // An 80-column pane, mid-answer, and the screen that broke the reader: the cursor is on the
+    // free-text row, so Claude has added `ctrl+g to edit in VS Code` to the footer, taking it to 84
+    // characters -- and at this width `Esc to cancel` is split across two rows with no line holding
+    // it. Every other capture here is 120 columns wide, where that same footer fits on one row.
+    name: "multi-select mid-answer on an 80-column pane",
+    screen: [
+      "────────────────────────────────────────────────────────────────────────────────",
+      "\u2190  \u2612 Fruit  \u2612 Days  \u2610 Tone  \u2714 Submit  \u2192",
+      "",
+      "Which days?",
+      "",
+      "  1. [\u2714] Mon",
+      "  Monday",
+      "  2. [ ] Tue",
+      "  Tuesday",
+      "  3. [ ] Wed",
+      "  Wednesday",
+      "\u276f 4. [ ] Type something",
+      "     Next",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  5. Chat about this",
+      "",
+      "Enter to select \u00b7 Tab/Arrow keys to navigate \u00b7 ctrl+g to edit in VS Code \u00b7 Esc",
+      "to cancel",
+    ].join("\n"),
+    tabs: ["Fruit", "Days", "Tone", "Submit"],
+    question: "Which days?",
+    rows: [" 1. [\u2714] Mon", " 2. [ ] Tue", " 3. [ ] Wed", ">4. [ ] Type something"],
+    multiSelect: true,
+    review: false,
   },
 ];
