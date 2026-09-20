@@ -11,7 +11,10 @@
 //   - `streamDeltaObserved {flowId, sequence, eventType, data(base64)}` where
 //     `eventType` is already the Anthropic SSE event name and `data` is the
 //     base64 of the event JSON payload (possibly content-encoded),
-//   - `streamEnded {flowId}`.
+//   - `streamEnded {flowId}`,
+//   - `recordsDropped {firstMissingSequence, lastMissingSequence, droppedRecordCount}`
+//     when its own capture pipeline could not keep up, which is the one event here
+//     that says the mirror is now wrong rather than merely behind.
 
 import { config } from "@/config";
 
@@ -75,13 +78,38 @@ export interface ObserverWebSocketMessage {
   data?: unknown;
 }
 
+/**
+ * The observer saying IT lost records, before they ever reached this process.
+ *
+ * Not an error of ours and not recoverable from here: the gap is in what the capture pipeline
+ * kept, so the deltas it names are gone. It is modelled because the alternative is a live message
+ * that stops mid-sentence with nothing anywhere saying why -- the durable transcript fills the hole
+ * in seconds, and until then the only honest account of the difference is this event.
+ */
+export interface ObserverRecordsDropped {
+  sourceId?: unknown;
+  firstMissingSequence?: unknown;
+  lastMissingSequence?: unknown;
+  droppedRecordCount?: unknown;
+}
+
 export type ObserverEvent = {
   observedAt?: unknown;
   flowUpserted?: ObserverFlowUpserted;
   streamDeltaObserved?: ObserverDelta;
   websocketMessageObserved?: ObserverWebSocketMessage;
   streamEnded?: ObserverStreamEnded;
+  recordsDropped?: ObserverRecordsDropped;
 };
+
+/** One dropped-record report as a log line: how many, and which capture sequences are missing. */
+export function describeRecordsDropped(dropped: ObserverRecordsDropped): string {
+  const count = Number(dropped.droppedRecordCount);
+  const records = Number.isFinite(count) && count > 0 ? count : 1;
+  return `agent-feed-claude-live-observer-records-dropped: records=${records}`
+    + ` sequences=${String(dropped.firstMissingSequence ?? "?")}`
+    + `..${String(dropped.lastMissingSequence ?? "?")}`;
+}
 
 /** The observer filter: only Anthropic message streams, so we never parse anything else. */
 export const OBSERVER_SSE_FILTER: Record<string, unknown> = {

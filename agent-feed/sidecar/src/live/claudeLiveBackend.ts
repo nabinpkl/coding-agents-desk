@@ -32,6 +32,7 @@ import { fetchRequestMetadata, type ToolResultItem } from "@/live/claudeRequestB
 import {
   claudeLiveReconnectDelay,
   decodeDeltaData,
+  describeRecordsDropped,
   mapAnthropicStreamEvent,
   requestsLongContext,
   subscribeToObserver,
@@ -41,9 +42,10 @@ import {
 } from "@/live/claudeNetworkSource";
 import { CompactionWatch } from "@/live/claudeCompactionWatch";
 import {
+  bufferDelta,
   isMessageStream,
+  newFlowContext,
   observedAtMs,
-  MAX_PENDING_PER_FLOW,
   type FlowContext,
 } from "@/live/claudeLiveFlows";
 import { applyStreamEvent, publishMessage, toolResultBlocks } from "@/live/claudeLiveMessages";
@@ -253,6 +255,10 @@ export class ClaudeLiveBackend implements AgentBackend {
     if (event.streamEnded) {
       this.acceptStreamEnded(event.streamEnded.flowId);
     }
+    // The observer's capture pipeline fell behind and threw records away. Said out loud because it
+    // is the one cause of a live message stopping mid-sentence this process cannot otherwise see,
+    // and because it is not ours to fix from here.
+    if (event.recordsDropped) console.warn(describeRecordsDropped(event.recordsDropped));
   }
 
   private acceptFlowUpserted(flow: {
@@ -265,20 +271,26 @@ export class ClaudeLiveBackend implements AgentBackend {
   }, ts: number): void {
     const flowId = flow.flowId;
     if (typeof flowId !== "string" || !flowId) return;
-    if (this.binds.has(flowId) || this.flowContexts.has(flowId)) return;
+    if (this.binds.has(flowId)) return;
     if (!isMessageStream(flow)) return;
+    const context = this.flowContexts.get(flowId) ?? newFlowContext();
+    this.flowContexts.set(flowId, context);
+    if (context.binding) return;
+    const reference = flow.requestBody?.value;
+    if (typeof reference !== "string" || reference.length === 0) {
+      // The observer announces one flow more than once and does not always have the body retained
+      // by the first announcement. Wait for the announcement that carries it. Dropping here is what
+      // this used to do, and the later announcement was then refused for having a context already,
+      // so a bind that was one event away never happened and the turn went unmirrored.
+      return;
+    }
     // Read now rather than at bind time: the session id arrives from an async body fetch, and the
     // headers are on the flow in hand.
     const longContext = requestsLongContext(flow.requestHeaders);
-    const context: FlowContext = { sessionId: null, message: null, pending: [], ended: false };
-    this.flowContexts.set(flowId, context);
-    const reference = flow.requestBody?.value;
-    if (typeof reference !== "string" || reference.length === 0) {
-      this.scheduleFlowDrop(flowId);
-      return;
-    }
+    context.binding = true;
     void fetchRequestMetadata(this.endpoint, reference)
       .then(({ sessionId, toolResults, subagent, conversationTurn, compaction }) => {
+        context.binding = false;
         if (this.disposed) return;
         // Read before the context check below, because saying a session is compacting does not
         // need one. A flow buffers deltas while its body is being fetched and the buffer is
@@ -315,6 +327,7 @@ export class ClaudeLiveBackend implements AgentBackend {
         this.bindFlow(flowId, sessionId, toolResults, ts);
       })
       .catch((error) => {
+        context.binding = false;
         if (!this.disposed) this.lastError = error;
         this.scheduleFlowDrop(flowId);
       });
@@ -330,11 +343,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     }
     const context = this.flowContexts.get(delta.flowId);
     if (!context) return;
-    if (context.pending.length >= MAX_PENDING_PER_FLOW) {
-      this.dropFlow(delta.flowId);
-      return;
-    }
-    context.pending.push({ payload, ts });
+    bufferDelta(context, payload, ts);
   }
 
   private acceptStreamEnded(flowId: unknown): void {
@@ -350,7 +359,10 @@ export class ClaudeLiveBackend implements AgentBackend {
     // The body bind is still in flight: keep the context so the bind can flush
     // the buffered deltas, and drop once it completes.
     const context = this.flowContexts.get(flowId);
-    if (context) context.ended = true;
+    if (!context) return;
+    context.ended = true;
+    // Nothing is coming to flush it: only a body fetch can bind a flow, and none is running.
+    if (!context.binding) this.dropFlow(flowId);
   }
 
   private bindFlow(flowId: string, sessionId: string, toolResults: ToolResultItem[], ts: number): void {
@@ -366,6 +378,12 @@ export class ClaudeLiveBackend implements AgentBackend {
     if (toolResults.length > 0) this.publishToolResults(sessionId, flowId, toolResults, ts);
     const pending = context.pending;
     context.pending = [];
+    context.pendingBytes = 0;
+    if (context.lost > 0) {
+      console.warn(
+        `agent-feed-claude-live-flow-buffer-overrun: flow=${flowId} session=${sessionId} lost=${context.lost}`,
+      );
+    }
     for (const item of pending) this.applyPayload(sessionId, flowId, item.payload, item.ts);
     if (context.ended) {
       this.dropFlow(flowId);
@@ -402,7 +420,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     if (event === null) return;
     const context = this.flowContexts.get(flowId);
     if (!context) {
-      const created: FlowContext = { sessionId, message: null, pending: [], ended: false };
+      const created = newFlowContext(sessionId);
       this.flowContexts.set(flowId, created);
       this.applyEvent(sessionId, flowId, created, event, ts);
       return;
@@ -461,6 +479,9 @@ export class ClaudeLiveBackend implements AgentBackend {
 
   private scheduleFlowDrop(flowId: string): void {
     const timer = setTimeout(() => {
+      // A later announcement of the same flow may have bound it since. Dropping a bound flow is
+      // exactly how a live message stops mid-sentence and never completes.
+      if (this.binds.has(flowId)) return;
       this.dropFlow(flowId);
     }, 5_000);
     timer.unref?.();

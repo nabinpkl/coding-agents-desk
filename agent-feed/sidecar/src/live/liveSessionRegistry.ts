@@ -82,8 +82,12 @@ export class LiveSessionRegistry {
     if (!projection) {
       projection = new LiveAgentProjection();
       this.projections.set(sessionId, projection);
+      // Before the bound is enforced, so the session being created is the most recently active one
+      // rather than a session with no activity at all, which is what the bound evicts first.
+      this.touch(sessionId);
       this.enforceSessionBound();
       this.announceSessionLive(sessionId);
+      return projection;
     }
     this.touch(sessionId);
     return projection;
@@ -146,22 +150,21 @@ export class LiveSessionRegistry {
 
   private enforceSessionBound(): void {
     while (this.projections.size > this.options.maxSessions) {
+      // The least recently active session NOBODY is reading. Both halves matter: `release` deletes
+      // a session's entry rather than leaving a zero behind, so a pass that looked for a zero count
+      // found none and fell through to the oldest session whatever its readers -- and `dropSession`
+      // then refused to evict a session with a reader, leaving the size unchanged and this loop
+      // choosing the same victim forever.
       let victim: string | null = null;
-      for (const [sessionId, count] of this.subscriberCounts) {
-        if (count === 0) {
-          victim = sessionId;
-          break;
-        }
+      let oldest = Infinity;
+      for (const sessionId of this.projections.keys()) {
+        if ((this.subscriberCounts.get(sessionId) ?? 0) > 0) continue;
+        const lastEventAt = this.tracks.get(sessionId)?.lastEventAt ?? 0;
+        if (lastEventAt >= oldest) continue;
+        oldest = lastEventAt;
+        victim = sessionId;
       }
-      if (victim === null) {
-        let oldest = Infinity;
-        for (const [sessionId, track] of this.tracks) {
-          if (track.lastEventAt < oldest) {
-            oldest = track.lastEventAt;
-            victim = sessionId;
-          }
-        }
-      }
+      // Every projection has a reader: the bound gives way rather than evicting one of them.
       if (victim === null) break;
       this.dropSession(victim);
     }

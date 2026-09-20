@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
-import { MAX_PENDING_PER_FLOW } from "@/live/claudeLiveFlows";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
 
 const flush = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -285,14 +284,15 @@ describe("ClaudeLiveBackend ingest", () => {
     stop();
   });
 
-  test("a compaction is still announced when its flow overran the delta buffer", async () => {
-    // The buffer a flow keeps while its body is being fetched is capped, and a summariser writing
-    // a long summary overruns it: the flow is dropped, and the body's answer then arrived with no
-    // context to attach it to. The compaction is the one fact that does not need one.
+  test("a compaction is still announced when its flow streamed hard before the bind", async () => {
+    // A summariser's summary starts arriving before its own request body has been read back. The
+    // buffer holding those deltas used to stop at 200 and throw the whole flow away, taking the
+    // compaction with it. Kept as a test of the compaction rather than of the buffer: the
+    // compaction is the fact that needs no context at all.
     const seen: Array<[string, boolean]> = [];
     const stop = backend.onCompaction((id, active) => seen.push([id, active]));
     backend.acceptObserverEvent(flowEvent("sum3", "/v1/messages", "api.anthropic.com", "summariser1"));
-    for (let i = 0; i <= MAX_PENDING_PER_FLOW; i++) {
+    for (let i = 0; i < 400; i++) {
       backend.acceptObserverEvent(delta("sum3", {
         type: "content_block_delta",
         index: 0,
@@ -331,6 +331,46 @@ describe("ClaudeLiveBackend ingest", () => {
     await flush(80);
     const page = await local.page("sess-b2", 0, 10, "nice");
     expect(page.events[0]!.blocks[0]!.text).toBe("ok");
+    await local.dispose();
+  });
+
+  test("a whole turn that outruns its body fetch is mirrored, not thrown away", async () => {
+    // The buffer a flow keeps until its session id arrives used to stop at 200 deltas, about
+    // fifteen kilobytes, and a flow that reached it was deleted outright: a turn whose only sin
+    // was streaming fast appeared nowhere, with nothing logged. 400 is past that and nowhere near
+    // the byte bound that replaced it.
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("fast", "/v1/messages", "api.anthropic.com", "fast1"));
+    local.acceptObserverEvent(delta("fast", { type: "message_start", message: { id: "msg_fast" } }));
+    local.acceptObserverEvent(delta("fast", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    for (let i = 0; i < 400; i++) {
+      local.acceptObserverEvent(delta("fast", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "x" } }));
+    }
+    local.acceptObserverEvent(delta("fast", { type: "message_stop" }));
+    await flush(160);
+    const page = await local.page("sess-fast1", 0, 10, "nice");
+    expect(page.total).toBe(1);
+    expect(page.events[0]!.blocks[0]!.text).toBe("x".repeat(400));
+    expect(page.events[0]!.phase).toBe("complete");
+    await local.dispose();
+  });
+
+  test("a flow announced before its body was retained binds on the announcement that carries it", async () => {
+    // The observer announces one flow more than once and the first announcement does not always
+    // carry the body. That one used to create a context and schedule its drop, and the
+    // announcement that did carry the body was then refused for having a context already.
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("late", "/v1/messages", "api.anthropic.com"));
+    local.acceptObserverEvent(delta("late", { type: "message_start", message: { id: "msg_late" } }));
+    local.acceptObserverEvent(delta("late", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    local.acceptObserverEvent(delta("late", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "late" } }));
+    await flush(40);
+    local.acceptObserverEvent(flowEvent("late", "/v1/messages", "api.anthropic.com", "late1"));
+    local.acceptObserverEvent(delta("late", { type: "message_stop" }));
+    await flush(160);
+    const page = await local.page("sess-late1", 0, 10, "nice");
+    expect(page.total).toBe(1);
+    expect(page.events[0]!.blocks[0]!.text).toBe("late");
     await local.dispose();
   });
 
