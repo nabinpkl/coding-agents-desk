@@ -124,6 +124,9 @@ function renderBlock(block: ActivityBlock): string {
   if (block.kind === "tool_use") {
     return `  [called] ${clip(describeToolCall(block), limit)}`;
   }
+  // A compaction's text is the summary of everything BEFORE it. Handed to a turn summarizer it
+  // would read as this turn's work.
+  if (block.kind === "compaction") return "";
   const text = block.text ?? block.preview ?? block.summary ?? "";
   if (!text.trim()) return "";
   if (block.kind === "tool_result") {

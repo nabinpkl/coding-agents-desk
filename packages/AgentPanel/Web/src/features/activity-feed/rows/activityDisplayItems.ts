@@ -65,6 +65,16 @@ export function isCompactionEvent(ev: ActivityEvent): boolean {
     );
 }
 
+/**
+ * The summary a compaction replaced the context with, or null when the event carries none.
+ *
+ * Claude writes it on the second of a compaction's two records; Codex writes none.
+ */
+export function compactionSummary(ev: ActivityEvent): string | null {
+  const text = ev.blocks.find((block) => block.kind === "compaction")?.text?.trim();
+  return text ? text : null;
+}
+
 export function displayRole(ev: ActivityEvent): DisplayRole {
   if (ev.type === "system") return "system";
   if (ev.type === "reasoning") return "reasoning";

@@ -208,9 +208,13 @@ export function normalizedRecord(
   // `isCompactSummary: true` whose content is the summary that replaced
   // earlier turns in the model's view. Render as a single banner block so
   // the activity feed shows where the context was reset, instead of
-  // showing the full summary as user prose.
+  // showing the full summary as user prose. The summary rides the banner's
+  // block as its text, for a reader who opens the banner to see what the
+  // session now remembers.
   if (t === 'user' && ev.isCompactSummary === true) {
-    const rawBlocks = appendCommon([{ block: { kind: 'compaction' }, raw: null }]);
+    const summary = compactSummaryText(message.content);
+    const block: ActivityBlock = summary ? { kind: 'compaction', text: summary } : { kind: 'compaction' };
+    const rawBlocks = appendCommon([{ block, raw: null }]);
     return { result: { event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) }, turnClosed: false, ...(cwd ? { cwd } : {}) }, rawBlocks };
   }
 
@@ -259,6 +263,21 @@ export function normalizedRecord(
 
 /** Strips SGR colour codes, which is all the CLI's own output ever carries. */
 const SGR = /\u001b\[[0-9;]*m/g;
+
+/** A compaction's summary as the one string it was written as, or null when it holds no text. */
+function compactSummaryText(content: unknown): string | null {
+  if (typeof content === 'string') return content.trim() || null;
+  if (!Array.isArray(content)) return null;
+  const text = content
+    .flatMap((part) => {
+      if (!part || typeof part !== 'object') return [];
+      const record = part as Record<string, unknown>;
+      return record.type === 'text' && typeof record.text === 'string' ? [record.text] : [];
+    })
+    .join('\n')
+    .trim();
+  return text || null;
+}
 
 /**
  * A slash command's confirmation, as the one legible row it is.

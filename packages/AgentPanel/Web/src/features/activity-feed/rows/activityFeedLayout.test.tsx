@@ -201,18 +201,25 @@ describe("feed layout", () => {
     // Claude writes the `compact_boundary` and then a synthetic user message holding the summary
     // that replaced the context. Both normalize to a compaction block, and two banners in a row
     // would read as two compactions. The boundary is kept because it is the one carrying the
-    // metadata and the occupancy the meter moves on.
+    // metadata and the occupancy the meter moves on, and it takes the summary the second carries.
     const layout = buildFeedLayout(
       [
         { index: 60, ts: 2, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
-        { index: 61, ts: 1, type: "system", blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }] },
+        {
+          index: 61,
+          ts: 1,
+          type: "system",
+          blocks: [{ kind: "compaction", text: "Summary:\n1. Intent" }, CWD, { kind: "raw" }],
+        },
         { index: 62, ts: 3, type: "assistant", blocks: [{ kind: "text", text: "after" }] },
       ],
       NICE,
     );
 
     expect(layout.items.map((item) => item.kind)).toEqual(["compaction", "segment_event"]);
-    expect(leadEvent(layout.items[0]!).index).toBe(60);
+    const banner = leadEvent(layout.items[0]!);
+    expect(banner.index).toBe(60);
+    expect(banner.blocks[0]).toEqual({ kind: "compaction", text: "Summary:\n1. Intent" });
   });
 
   it("keeps a row per line in Raw, where fidelity is the point", () => {

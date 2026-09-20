@@ -105,6 +105,30 @@ test('claude compact boundaries and empty content remain visible', () => {
   expect(empty.blocks[0]).toMatchObject({ kind: 'plain', label: 'Plain' });
 });
 
+test('claude compact summaries keep the summary on their banner block', () => {
+  const written = expectRawLast(claudeAdapter.processLine(JSON.stringify({
+    type: 'user',
+    isCompactSummary: true,
+    message: { role: 'user', content: 'Summary:\n1. Primary Request\n' },
+  })));
+  expect(written.type).toBe('system');
+  expect(written.blocks[0]).toEqual({ kind: 'compaction', text: 'Summary:\n1. Primary Request' });
+
+  const parts = expectRawLast(claudeAdapter.processLine(JSON.stringify({
+    type: 'user',
+    isCompactSummary: true,
+    message: { role: 'user', content: [{ type: 'text', text: 'Summary:' }, { type: 'text', text: '1. Intent' }] },
+  })));
+  expect(parts.blocks[0]).toEqual({ kind: 'compaction', text: 'Summary:\n1. Intent' });
+
+  const empty = expectRawLast(claudeAdapter.processLine(JSON.stringify({
+    type: 'user',
+    isCompactSummary: true,
+    message: { role: 'user', content: '   ' },
+  })));
+  expect(empty.blocks[0]).toEqual({ kind: 'compaction' });
+});
+
 test('codex state records are visible while retaining lifecycle and usage updates', () => {
   const started = codexAdapter.processLine(JSON.stringify({
     timestamp: '2026-07-18T12:00:00.000Z',

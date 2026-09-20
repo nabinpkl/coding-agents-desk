@@ -1,0 +1,86 @@
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
+import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
+import { compactionSummary } from "@/features/activity-feed/rows/activityDisplayItems";
+import { partitionEventBlocks } from "@/features/activity-feed/rows/activityFeedLayout";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+
+const CHIP_CLASS =
+  "flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 font-mono uppercase tracking-wider text-foreground/70";
+const CHIP_STYLE = { fontSize: "var(--agent-panel-fs-tile-chip, 12px)" };
+
+/**
+ * Horizontal milestone banner that marks where the harness compacted the
+ * model's context. Sits between turn clusters so the viewer can see the reset
+ * point; the size the context dropped TO rides the same event as an occupancy
+ * report, so the token meter moves on this row rather than on the next turn.
+ *
+ * The chip opens the summary the context was replaced with, when the event carries one: it is what
+ * the session remembers of everything above the banner, and the same text `CompactingNotice`
+ * showed being written. Closed by default, because a compacted session is read for what came after.
+ */
+export function CompactionRow({
+  ev,
+  ctx,
+}: {
+  ev: ActivityEvent;
+  ctx: EventRowContext;
+}) {
+  const [open, setOpen] = useState(false);
+  const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
+  const summary = compactionSummary(ev);
+  const { folded, hasRawJson } = partitionEventBlocks(ev);
+  const label = (
+    <>
+      <span>Context compacted</span>
+      {when ? <span className="text-muted-foreground/70">{when}</span> : null}
+    </>
+  );
+  return (
+    <div
+      className={`${COLUMN_GUTTER_CLASS} py-[0.5em]`}
+      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
+    >
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <span className="h-px flex-1 bg-border" aria-hidden />
+        {summary ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            title={open ? "Hide the summary" : "Show the summary"}
+            onClick={() => setOpen((value) => !value)}
+            className={`${CHIP_CLASS} cursor-pointer outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80`}
+            style={CHIP_STYLE}
+          >
+            {label}
+            <ChevronDown
+              className={`size-3 transition-transform motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
+              aria-hidden
+            />
+          </button>
+        ) : (
+          <span className={CHIP_CLASS} style={CHIP_STYLE}>{label}</span>
+        )}
+        <span className="h-px flex-1 bg-border" aria-hidden />
+      </div>
+      {summary && open ? (
+        // Scrolls in its own box: a summary runs to tens of kilobytes, and a row that tall would
+        // push the rest of the thread a screen away from the banner it belongs to.
+        <div className="mt-2 max-h-[28em] overflow-y-auto overscroll-contain rounded-md border border-border bg-card px-3 py-2">
+          <p className="whitespace-pre-wrap break-words text-foreground">{summary}</p>
+        </div>
+      ) : null}
+      <div className="mt-1">
+        <RawDetails
+          metadata={folded}
+          session={ctx.session}
+          rawSource={ctx.rawSource}
+          eventIndex={ev.index}
+          includesRawJson={hasRawJson}
+        />
+      </div>
+    </div>
+  );
+}

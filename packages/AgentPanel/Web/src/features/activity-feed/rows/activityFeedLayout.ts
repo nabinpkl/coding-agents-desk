@@ -5,6 +5,7 @@
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import {
   buildActivityDisplayItems,
+  compactionSummary,
   displayRole,
   isCompactionEvent,
   isSkillActivation,
@@ -115,25 +116,41 @@ function projectIncrementalReasoning(events: ActivityEvent[]): ActivityEvent[] {
  * One banner per compaction, not two. A Claude compaction is TWO records -- the harness's
  * `compact_boundary`, which carries what the context dropped to, and the synthetic user message
  * holding the summary that replaced it -- and both normalize to a compaction block. The first is
- * kept because it is the one with the metadata on it. Raw still draws a row per line, which is
- * the fidelity guarantee Nice leans on.
+ * kept because it is the one with the metadata on it, and it takes the second's summary, which is
+ * what the banner opens to. Raw still draws a row per line, which is the fidelity guarantee Nice
+ * leans on.
  */
 function contentOnly(events: ActivityEvent[]): ActivityEvent[] {
   const kept: ActivityEvent[] = [];
-  let afterCompaction = false;
+  // Where in `kept` the current run of compaction records put its one banner.
+  let banner: number | null = null;
   for (const event of events) {
     if (isCompactionEvent(event)) {
-      if (!afterCompaction) kept.push(event);
-      afterCompaction = true;
+      if (banner === null) {
+        banner = kept.length;
+        kept.push(event);
+        continue;
+      }
+      const summary = compactionSummary(event);
+      if (summary !== null && compactionSummary(kept[banner]!) === null) {
+        kept[banner] = withCompactionSummary(kept[banner]!, summary);
+      }
       continue;
     }
     // A system line between the pair is dropped rather than rendered, so the two banners would
     // still land next to each other: it does not break the run.
     if (event.type === "system") continue;
-    afterCompaction = false;
+    banner = null;
     kept.push(event);
   }
   return kept;
+}
+
+function withCompactionSummary(event: ActivityEvent, summary: string): ActivityEvent {
+  return {
+    ...event,
+    blocks: event.blocks.map((block) => block.kind === "compaction" ? { ...block, text: summary } : block),
+  };
 }
 
 // Pair result-only events with their matching tool calls, so a call and its

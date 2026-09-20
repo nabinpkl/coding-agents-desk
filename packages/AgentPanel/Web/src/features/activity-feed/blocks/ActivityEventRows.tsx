@@ -32,6 +32,9 @@ import {
   showEventRoleLabel,
 } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
+// Re-exported: the feed reaches for every row through this module.
+export { CompactionRow } from "@/features/activity-feed/blocks/CompactionRow";
+
 // Re-exported: the feed and its tests reach for the role label through the rows.
 export {
   CacheBadge,
@@ -415,50 +418,6 @@ export function ClusterRow({
             {clusterLabel(events)}
           </span>
         </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Horizontal milestone banner that marks where the harness compacted the
- * model's context. Sits between turn clusters so the viewer can see the reset
- * point; the size the context dropped TO rides the same event as an occupancy
- * report, so the token meter moves on this row rather than on the next turn.
- */
-export function CompactionRow({
-  ev,
-  ctx,
-}: {
-  ev: ActivityEvent;
-  ctx: EventRowContext;
-}) {
-  const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
-  const { folded, hasRawJson } = partitionEventBlocks(ev);
-  return (
-    <div
-      className={`${COLUMN_GUTTER_CLASS} py-[0.5em]`}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-    >
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <span className="h-px flex-1 bg-border" aria-hidden />
-        <span
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 font-mono uppercase tracking-wider text-foreground/70"
-          style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
-        >
-          <span>Context compacted</span>
-          {when ? <span className="text-muted-foreground/70">{when}</span> : null}
-        </span>
-        <span className="h-px flex-1 bg-border" aria-hidden />
-      </div>
-      <div className="mt-1">
-        <RawDetails
-          metadata={folded}
-          session={ctx.session}
-          rawSource={ctx.rawSource}
-          eventIndex={ev.index}
-          includesRawJson={hasRawJson}
-        />
       </div>
     </div>
   );
