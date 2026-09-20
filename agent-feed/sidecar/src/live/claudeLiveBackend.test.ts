@@ -261,16 +261,16 @@ describe("ClaudeLiveBackend ingest", () => {
     // context being rewritten look exactly like a turn that finished.
     const seen: Array<[string, boolean]> = [];
     const stop = backend.onCompaction((id, active) => seen.push([id, active]));
-    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    expect(backend.compactionSummary(sessionId)).toBeNull();
 
     backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
     await flush(160);
-    expect(backend.sessionCompacting(sessionId)).toBe(true);
+    expect(backend.compactionSummary(sessionId)).not.toBeNull();
     expect(seen).toEqual([[sessionId, true]]);
 
     backend.acceptObserverEvent(ended("sum2"));
     await flush(40);
-    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    expect(backend.compactionSummary(sessionId)).toBeNull();
     expect(seen).toEqual([[sessionId, true], [sessionId, false]]);
 
     // The observer announces every flow twice, and the second announcement arrives with the end.
@@ -279,7 +279,7 @@ describe("ClaudeLiveBackend ingest", () => {
     // was over -- and the notice then stayed up until a fifteen-minute timer took it down.
     backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
     await flush(160);
-    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    expect(backend.compactionSummary(sessionId)).toBeNull();
     expect(seen).toEqual([[sessionId, true], [sessionId, false]]);
     stop();
   });
@@ -300,11 +300,12 @@ describe("ClaudeLiveBackend ingest", () => {
       }));
     }
     await flush(160);
-    expect(backend.sessionCompacting(sessionId)).toBe(true);
+    backend.acceptObserverEvent(delta("sum3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "!" } }));
+    expect(backend.compactionSummary(sessionId)).toBe(Array.from({ length: 400 }, (_, i) => `chunk ${i}`).join("") + "!");
     expect(seen).toEqual([[sessionId, true]]);
     backend.acceptObserverEvent(ended("sum3"));
     await flush(40);
-    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    expect(backend.compactionSummary(sessionId)).toBeNull();
     stop();
   });
 

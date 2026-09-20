@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -89,6 +89,33 @@ describe("compacting notice", () => {
     expect(await screen.findByText("Compacting the context")).toBeInTheDocument();
 
     act(() => transport.deliver("sid-compacting", { type: "compacting", active: false }));
+    expect(screen.queryByText("Compacting the context")).toBeNull();
+
+    view.unmount();
+    controlsHost.remove();
+  });
+
+  it("shows the summary being written under the notice, and lets the reader fold it away", async () => {
+    // It used to stream into the thread as a live row and sat on top of the compaction banner; it
+    // now streams under the notice instead, and goes when the compaction lands.
+    const { transport, view, controlsHost } = mount("sid-summary");
+    act(() => transport.deliver("sid-summary", { type: "compacting", active: true, summary: "Primary request" }));
+    expect(await screen.findByText("Primary request")).toBeInTheDocument();
+
+    act(() => transport.deliver("sid-summary", { type: "compaction-summary", text: " and intent", replace: false }));
+    expect(screen.getByText("Primary request and intent")).toBeInTheDocument();
+
+    // A retried summariser starts its summary from nothing.
+    act(() => transport.deliver("sid-summary", { type: "compaction-summary", text: "Retried", replace: true }));
+    expect(screen.getByText("Retried")).toBeInTheDocument();
+
+    const chip = screen.getByRole("button", { name: /Compacting the context/ });
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(chip);
+    expect(screen.queryByText("Retried")).toBeNull();
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+
+    act(() => transport.deliver("sid-summary", { type: "compacting", active: false }));
     expect(screen.queryByText("Compacting the context")).toBeNull();
 
     view.unmount();

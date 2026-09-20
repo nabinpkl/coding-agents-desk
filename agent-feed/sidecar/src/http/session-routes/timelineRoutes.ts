@@ -42,8 +42,11 @@ type UsageReportingBackend = AgentBackend & { sessionUsage(sessionId: string): T
  * backend with no live mirror has no way to see it happen.
  */
 type CompactionAnnouncingBackend = AgentBackend & {
-  sessionCompacting(sessionId: string): boolean;
+  compactionSummary(sessionId: string): string | null;
   onCompaction(listener: (sessionId: string, active: boolean) => void): () => void;
+  onCompactionSummary(
+    listener: (sessionId: string, text: string, replace: boolean) => void,
+  ): () => void;
 };
 
 /** A backend that announces when a session gains a live projection; most do not. */
@@ -245,21 +248,27 @@ function timelineStream(options: {
     /**
      * Says the context is being rewritten, for as long as that is happening.
      *
-     * The only state here that is published while nothing at all is arriving. A compaction adds no
+     * The only state here that is published while no row is arriving. A compaction adds no
      * transcript line until it lands and puts nothing in the tail, so a reader watching the thread
      * sees a session that stopped -- which is also what a finished turn looks like, for the two to
-     * four minutes it takes on a large context.
+     * four minutes it takes on a large context. The summary being written rides beside the thread
+     * in its own message, for the notice to draw under itself.
      */
     const followCompaction = (live: AgentBackend): void => {
       const announcing = live as CompactionAnnouncingBackend;
       if (typeof announcing.onCompaction !== "function") return;
-      if (typeof announcing.sessionCompacting === "function"
-        && announcing.sessionCompacting(sessionId)) {
-        emit({ type: "compacting", active: true });
-      }
+      const summary = typeof announcing.compactionSummary === "function"
+        ? announcing.compactionSummary(sessionId)
+        : null;
+      if (summary !== null) emit({ type: "compacting", active: true, summary });
       hold(announcing.onCompaction((live_id, active) => {
         if (live_id !== sessionId) return;
         emit({ type: "compacting", active });
+      }));
+      if (typeof announcing.onCompactionSummary !== "function") return;
+      hold(announcing.onCompactionSummary((live_id, text, replace) => {
+        if (live_id !== sessionId) return;
+        emit({ type: "compaction-summary", text, replace });
       }));
     };
 

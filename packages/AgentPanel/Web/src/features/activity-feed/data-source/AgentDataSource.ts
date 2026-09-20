@@ -62,10 +62,11 @@ export interface SessionEventsHandlers {
    *  it below the durable rows and hands it off when the durable transcript
    *  contains the same `messageId`. */
   onLiveTail?: (event: ActivityEvent | null) => void;
-  /** The harness is rewriting this session's context. True for the two to four minutes it takes,
-   *  during which the thread gains no rows and the live tail is empty: without this the reader
-   *  cannot tell a session being compacted from one that finished its turn. */
-  onCompacting?: (active: boolean) => void;
+  /** The harness is rewriting this session's context: the summary written so far while it is, and
+   *  null once it is not. It takes two to four minutes on a large context, during which the thread
+   *  gains no rows and the live tail is empty, so without this the reader cannot tell a session
+   *  being compacted from one that finished its turn. */
+  onCompacting?: (summary: string | null) => void;
   onOpen?: () => void;
   onError?: () => void;
 }

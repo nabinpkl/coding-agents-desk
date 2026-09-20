@@ -104,15 +104,21 @@ export interface TimelineEnvelope {
  *
  * `compacting` says the harness is rewriting this session's context right now. Its own message
  * rather than a field on the envelope, because it is the one thing here that is true of a session
- * while NOTHING is arriving: a compaction writes no transcript line until it lands and streams
- * nothing into the thread, so there is no envelope to hang it on. Sent when the stream opens if it
- * is already true, and again on each change; a sender that predates it never sends one, which
- * reads as false.
+ * while no row is arriving: a compaction writes no transcript line until it lands, so there is no
+ * envelope to hang it on. Sent when the stream opens if it is already true, carrying the summary
+ * written so far, and again on each change; a sender that predates it never sends one, which reads
+ * as false.
+ *
+ * `compaction-summary` is the summariser's text as it streams, beside the thread and never in it:
+ * appended to what `compacting` carried, or replacing it when `replace` is set, which is what a
+ * retried summariser does. None of it outlives the compaction; the summary that lands is in the
+ * transcript.
  */
 export type TimelineMessage =
   | { type: "timeline"; envelope: TimelineEnvelope }
   | { type: "tail"; event: ActivityEvent | null }
-  | { type: "compacting"; active: boolean }
+  | { type: "compacting"; active: boolean; summary?: string }
+  | { type: "compaction-summary"; text: string; replace: boolean }
   | { type: "ui"; event: AgentUiEvent }
   | { type: "error"; error: WireErrorPayload["error"] }
   | { type: "heartbeat" };

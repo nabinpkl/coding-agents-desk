@@ -10,7 +10,7 @@ import {
   type ActivityEvent,
   type TokenUsage,
 } from "@/features/activity-feed/useSessionEventsStream";
-import { CompactingNotice } from "@/features/activity-feed/blocks/ActivityEventRows";
+import { CompactingNotice } from "@/features/activity-feed/blocks/CompactingNotice";
 import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
 import {
   type DisplayItem,
@@ -120,7 +120,7 @@ export function ActivityFeed({
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const {
-    events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTails, compacting,
+    events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTails, compactionSummary,
   } = useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -446,7 +446,7 @@ export function ActivityFeed({
           ) : null}
         </div>
       ) : null}
-      {compacting ? <CompactingNotice /> : null}
+      {compactionSummary !== null ? <CompactingNotice summary={compactionSummary} /> : null}
       {!following ? (
         <button
           type="button"

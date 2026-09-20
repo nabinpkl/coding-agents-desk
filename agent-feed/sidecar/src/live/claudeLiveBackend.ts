@@ -302,7 +302,7 @@ export class ClaudeLiveBackend implements AgentBackend {
         // a flow whose end has already been seen, and the end is recorded whether or not the flow
         // was ever recognised.
         if (sessionId && !conversationTurn && compaction) {
-          this.compactions.begin(flowId, sessionId);
+          this.compactions.begin(flowId, sessionId, context.pending.map((item) => item.payload));
         }
         if (!this.flowContexts.has(flowId)) return;
         // A subagent's request carries its PARENT's session id, so binding it would mirror the
@@ -312,13 +312,9 @@ export class ClaudeLiveBackend implements AgentBackend {
         // to, and its lines still reach the panel the durable way, through the transcript the
         // harness writes at `<session>/subagents/agent-<id>.jsonl` and the route that serves it.
         //
-        // The harness's own errands go the same way and for the same reason. A compaction
-        // summariser and a composer suggestion are not the session speaking, and the summariser is
-        // the expensive one to get wrong: minutes of streamed summary landing on the compaction
-        // banner, so the row that says the context was reset is buried under prose nobody wrote.
-        //
-        // Dropped by the same path as a body with no identity at all, which is the honest
-        // comparison: in every case this flow is not something this mirror can place.
+        // The harness's own errands go the same way: a composer suggestion and a compaction
+        // summariser are not the session speaking. A summariser's text goes to the watch above
+        // instead, which keeps it beside the thread rather than on top of its compaction banner.
         if (!sessionId || subagent || !conversationTurn) {
           this.scheduleFlowDrop(flowId);
           return;
@@ -336,6 +332,8 @@ export class ClaudeLiveBackend implements AgentBackend {
   private acceptDelta(delta: { flowId?: unknown; data?: unknown }, ts: number): void {
     if (typeof delta.flowId !== "string" || typeof delta.data !== "string") return;
     const payload = decodeDeltaData(delta.data);
+    // A running compaction's summary is kept beside the thread, never bound into it.
+    if (this.compactions.append(delta.flowId, payload)) return;
     const sessionId = this.binds.get(delta.flowId);
     if (sessionId !== undefined) {
       this.applyPayload(sessionId, delta.flowId, payload, ts);
@@ -462,19 +460,23 @@ export class ClaudeLiveBackend implements AgentBackend {
     return this.sessions.onSessionLive(listener);
   }
 
-  /** Whether the harness is compacting this session's context right now. See `CompactionWatch`. */
-  sessionCompacting(sessionId: string): boolean {
-    return this.compactions.isCompacting(sessionId);
-  }
-
   /**
-   * Announces a session starting or finishing a compaction.
-   *
-   * Probed rather than required by its one caller, the same way `onSessionLive` is: a backend with
-   * no live mirror has no way to know, and only Claude's harness compacts.
+   * A session's compaction: whether one is running, and the summary it has written so far. Probed
+   * rather than required by their one caller, like `onSessionLive`: only Claude's harness compacts.
    */
   onCompaction(listener: (sessionId: string, active: boolean) => void): () => void {
     return this.compactions.onChange(listener);
+  }
+
+  /** Null when the session is not compacting. See `CompactionWatch`. */
+  compactionSummary(sessionId: string): string | null {
+    return this.compactions.summary(sessionId);
+  }
+
+  onCompactionSummary(
+    listener: (sessionId: string, text: string, replace: boolean) => void,
+  ): () => void {
+    return this.compactions.onSummary(listener);
   }
 
   private scheduleFlowDrop(flowId: string): void {

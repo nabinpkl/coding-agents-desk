@@ -44,9 +44,9 @@ export interface RequestMetadata {
    * This request is the errand that COMPACTS the session: the summariser reading the whole context
    * to write what replaces it.
    *
-   * Nothing is mirrored from it. It is here so a surface can say the session is busy for the two
-   * to four minutes it takes, which is otherwise indistinguishable from a thread nobody is typing
-   * into.
+   * Nothing from it is mirrored into the thread. It is here so a surface can say the session is
+   * busy for the two to four minutes it takes, and show the summary being written beside the thread
+   * rather than in it.
    */
   compaction: boolean;
 }

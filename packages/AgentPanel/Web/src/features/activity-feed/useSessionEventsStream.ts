@@ -207,10 +207,10 @@ export function useSessionEventsStream(
     snapshotCount: 0,
   });
   const [connected, setConnected] = useState(false);
-  // Not folded into `state`, because it is the one thing here that is not about events: it is true
+  // Not folded into `state`, because it is the one thing here that is not about events: it is set
   // precisely while none are arriving, and it survives no reconnect -- a stream that opens is told
   // afresh whether the context is being rewritten.
-  const [compacting, setCompacting] = useState(false);
+  const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const loadingOlderRef = useRef(false);
   const windowStartRef = useRef(0);
   const timelineEpochRef = useRef(0);
@@ -221,7 +221,7 @@ export function useSessionEventsStream(
     timelineEpochRef.current += 1;
     // Cleared on every open, not only on unsubscribe. The stream says afresh whether the context
     // is being rewritten, so a session swapped in behind a compacting one must not inherit it.
-    setCompacting(false);
+    setCompactionSummary(null);
     let cancelled = false;
     const pendingLive = new Map<number, ActivityEvent>();
     let seeded = false;
@@ -368,7 +368,7 @@ onEvent: (event) => {
             : new Set(current.mirroredMessages).add(event.messageId);
           return { ...current, liveRows, mirroredMessages };
         }),
-      onCompacting: (active) => setCompacting(active),
+      onCompacting: setCompactionSummary,
       onOpen: () => setConnected(true),
       onError: () => setConnected(false),
     });
@@ -495,6 +495,6 @@ onEvent: (event) => {
     runState: state.runState,
     queue: state.queue,
     liveTails,
-    compacting,
+    compactionSummary,
   };
 }

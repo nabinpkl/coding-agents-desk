@@ -50,6 +50,23 @@ function eventsPath(session: SessionReference, offset: number, limit: number): s
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events?offset=${offset}&limit=${limit}&mode=${session.mode}`;
 }
 
+/**
+ * What a compaction message leaves on screen: the summary written so far, or null when nothing is
+ * being compacted.
+ *
+ * Folded here rather than in the viewer because the stream sends the summary as appends, and this
+ * is the one layer that sees every message of the stream in order.
+ */
+function nextCompaction(
+  current: string | null,
+  message: Extract<TimelineMessage, { type: "compacting" | "compaction-summary" }>,
+): string | null {
+  if (message.type === "compacting") return message.active ? (message.summary ?? "") : null;
+  // More of a compaction this stream never heard start is not one to show.
+  if (current === null) return null;
+  return message.replace ? message.text : current + message.text;
+}
+
 export class SidecarTranscript extends SidecarRoutes {
   // ---------------------------------------------------------------------
   // Transcript
@@ -81,15 +98,27 @@ export class SidecarTranscript extends SidecarRoutes {
   ): () => void {
     const path = timelinePath(session);
     let heardAt = Date.now();
+    let compaction: string | null = null;
     const open = (): (() => void) =>
       this.transport.subscribe(path, {
         onOpen: () => {
           heardAt = Date.now();
+          // An opening stream says afresh whether a compaction is running, so one that ended while
+          // the connection was down must not stay on screen.
+          if (compaction !== null) {
+            compaction = null;
+            handlers.onCompacting?.(null);
+          }
           handlers.onOpen?.();
         },
         onMessage: (payload) => {
           heardAt = Date.now();
           const message = JSON.parse(payload) as TimelineMessage;
+          if (message.type === "compacting" || message.type === "compaction-summary") {
+            compaction = nextCompaction(compaction, message);
+            handlers.onCompacting?.(compaction);
+            return;
+          }
           this.deliver(message, handlers);
         },
         // An error before the stream ever opened and one after it was running are the same thing
@@ -200,9 +229,6 @@ export class SidecarTranscript extends SidecarRoutes {
       }
       case "tail":
         handlers.onLiveTail?.(message.event);
-        return;
-      case "compacting":
-        handlers.onCompacting?.(message.active);
         return;
       case "ui":
         this.uiListeners.forEach((listener) => listener(message.event));

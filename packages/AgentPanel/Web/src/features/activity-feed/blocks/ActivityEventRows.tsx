@@ -426,41 +426,6 @@ export function ClusterRow({
  * point; the size the context dropped TO rides the same event as an occupancy
  * report, so the token meter moves on this row rather than on the next turn.
  */
-/**
- * The context being rewritten, said while it is happening.
- *
- * Deliberately the same shape as the banner below it -- a chip between two hairlines -- because it
- * becomes that banner. A compaction takes two to four minutes on a large context, writes no
- * transcript line until it lands, and puts nothing in the live tail, so the thread simply stops.
- * That is also what a finished turn looks like, which is the confusion this removes.
- *
- * It is an overlay rather than a row: there is no event behind it, and a row in the virtual list
- * would have to be given an index in a numbering the transcript owns.
- */
-export function CompactingNotice() {
-  return (
-    <div
-      className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 pb-2 ${COLUMN_GUTTER_CLASS}`}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-    >
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <span className="h-px flex-1 bg-border" aria-hidden />
-        <span
-          role="status"
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 font-mono uppercase tracking-wider text-foreground/70 shadow-sm"
-          style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
-        >
-          {/* The one moving thing on a surface that is otherwise frozen, which is the whole point:
-              a still chip reads as a state somebody left behind. */}
-          <span className="size-1.5 animate-pulse rounded-full bg-amber-500" aria-hidden />
-          <span>Compacting the context</span>
-        </span>
-        <span className="h-px flex-1 bg-border" aria-hidden />
-      </div>
-    </div>
-  );
-}
-
 export function CompactionRow({
   ev,
   ctx,
