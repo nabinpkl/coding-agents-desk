@@ -9,7 +9,7 @@
 
 Before doing project work, read `FEATURE-MAP.md` first, then `PRD.md` and `SPEC.md` once. They are short on purpose.
 
-Four things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
+Five things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
 infer backwards from the shape of the tree:
 
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
@@ -43,6 +43,20 @@ infer backwards from the shape of the tree:
   removing it: `BotSidebarPanel` is the Canvas tab's roster too, rendered there with the `canvas`
   prop. What IS the tab's alone is `thread.openBotSession`: the Canvas roster opens a session with
   `roster.openSessionOnCanvas` instead.
+- **The current iteration is Canvas and its session cards; the sidebar's Sessions tab is dormant**
+  (recorded 2026-09-15, on the owner's word). Sessions are read, driven and judged on a Canvas
+  session card (`features/bots/cards/BotSessionCard.tsx`), at `?entry=feed&view=canvas`. The
+  Sessions tab (`AgentSidebarMode` `"sessions"`, its `ProjectSidebarItem` list) and the full-width
+  thread view it opens in the main column (`displayedThread` in `app/AgentPanelApp.tsx`) are still
+  wired in and still look current: a selected session renders there with its composer and its
+  whole transcript. Do not extend that view, do not treat a gap in it as a bug to fix, and **do not
+  verify a panel change there**. It is the easy page to reach -- seeding `agent-panel.selection`
+  lands on it -- and it is not what the owner is looking at: a card is a narrow column on the Bot's
+  hue-tinted `--session-view-*` surfaces, where the thread view is a wide one on plain `--card`, so
+  a width, a colour or a scroll judged in one says little about the other. What is NOT dormant is
+  `SessionView` and everything under it (`features/session-view/`, `features/activity-feed/`): the
+  card renders that same component, so a transcript change lands on the card too, and retiring the
+  tab means removing the tab and its main-column arm, not the view.
 
 # Repository layout
 
