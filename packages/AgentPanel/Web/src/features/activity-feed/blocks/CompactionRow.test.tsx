@@ -37,9 +37,13 @@ function renderRow(ev: ActivityEvent) {
 }
 
 describe("CompactionRow", () => {
-  it("shows the summary the context was replaced with, and folds it away", () => {
+  it("keeps the summary folded until the chip is pressed, and folds it away again", () => {
     renderRow(banner([{ kind: "compaction", text: "Summary:\n1. Primary Request" }, { kind: "raw" }]));
     const chip = screen.getByRole("button", { name: /Context compacted/ });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/Primary Request/)).toBeNull();
+
+    fireEvent.click(chip);
     expect(chip).toHaveAttribute("aria-expanded", "true");
     // Rendered as Markdown: the summariser's numbered sections arrive as a list, not as digits.
     expect(screen.getByRole("listitem")).toHaveTextContent("Primary Request");
@@ -47,9 +51,6 @@ describe("CompactionRow", () => {
     fireEvent.click(chip);
     expect(chip).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/Primary Request/)).toBeNull();
-
-    fireEvent.click(chip);
-    expect(screen.getByRole("listitem")).toHaveTextContent("Primary Request");
   });
 
   it("offers nothing to open when the compaction carries no summary", () => {

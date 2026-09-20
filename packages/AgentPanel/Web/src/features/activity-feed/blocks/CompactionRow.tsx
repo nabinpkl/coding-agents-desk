@@ -20,8 +20,9 @@ const CHIP_STYLE = { fontSize: "var(--agent-panel-fs-tile-chip, 12px)" };
  *
  * The chip opens the summary the context was replaced with, when the event carries one: it is what
  * the session remembers of everything above the banner, and the same text `CompactingNotice`
- * showed being written. Open by default: the summary is what a reader scrolling past the banner
- * wants to see, and a closed chip hid it behind a click nobody knew to make.
+ * showed being written. Closed by default: open, every banner spent a 16em box on text a reader
+ * scrolling a compacted session has usually already moved past, and the chevron on the chip says
+ * there is something to open.
  */
 export function CompactionRow({
   ev,
@@ -30,7 +31,7 @@ export function CompactionRow({
   ev: ActivityEvent;
   ctx: EventRowContext;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
   const summary = compactionSummary(ev);
   const { folded, hasRawJson } = partitionEventBlocks(ev);
