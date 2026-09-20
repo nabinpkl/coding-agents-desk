@@ -945,6 +945,22 @@ What this actually breaks, observed rather than imagined:
     `git update-index --cacheinfo 100644,<blob>,<path>`, and commit the INDEX (no pathspec, which
     would go back to the working tree and undo the whole exercise). The peer's line stays in the
     worktree for them. Done this way on 2026-09-08 for a `wire/index.ts` holding one line of each.
+  - **Committing the INDEX reopens exactly what the pathspec closed, so verify AFTER, not before.**
+    That is the gap in the bullet above: a hand-built entry can only be committed by index, and an
+    index commit takes whatever is staged at the instant it runs. Measured 2026-09-14, doing it by
+    the book: `git diff --cached --name-only` listed the thirteen files intended, and the commit a
+    few seconds later landed seventeen, having swept up four `workspace-ide/history/` renames a peer
+    staged in between. Checking harder beforehand does not help -- the window is however long you
+    take between the check and the commit, and it cannot be closed from here.
+    - So **read `git show --stat --name-only HEAD` before pushing**, every time you commit by
+      index. That check is not racy, because the commit already happened, and a commit that is
+      still local is free to unwind.
+    - The unwind: `git reset --soft HEAD~1`, then `git restore --staged` the paths that were not
+      yours (both halves of a rename), then commit again. Their WORKTREE is untouched by any of
+      that, which is what makes it safe; what they lose is the staging, and they have to `git add`
+      it back. Say so rather than leaving them to find it.
+    - Narrow the window while you are at it: build and stage the hand-made entries LAST, with the
+      commit as the next command. Everything else can be staged minutes earlier without cost.
   - `git add -A` and `git commit -a` remain out of the question for the older reason: they sweep up
     whoever is mid-edit in the worktree as well.
   - This is not hypothetical in either direction. On the same night, commit `9d286227` swept up THIS
