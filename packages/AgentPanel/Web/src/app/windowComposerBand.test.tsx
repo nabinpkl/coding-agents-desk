@@ -178,15 +178,15 @@ describe("Claude window composer field", () => {
       .toContain("px-[clamp(0.75rem,3%,1.5rem)]");
     // The resting height and padding are the load-bearing part of the redesign: a multi-line draft
     // must have room to breathe before it even begins to grow. `min-h-12` (a two-line resting field)
-    // and the `px-4 py-3` gutter are the contract; the auto-grow cap stops the field from chasing a
-    // wall of text forever.
+    // and the `pl-4 py-3` gutter are the contract (the right side holds the send); the auto-grow
+    // cap stops the field from chasing a wall of text forever.
     expect(field.className).toContain("min-h-12");
-    expect(field.className).toContain("px-4");
+    expect(field.className).toContain("pl-4");
     expect(field.className).toContain("py-3");
     expect(field.className).toContain("max-h-48");
     // The ring is on the box around the field rather than the field itself, because the box also
     // holds the images the composer is carrying and they are inside the same border.
-    expect(field.parentElement?.className).toContain("focus-within:ring-2");
+    expect(field.parentElement?.parentElement?.className).toContain("focus-within:ring-2");
     unmount();
   });
 

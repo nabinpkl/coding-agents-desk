@@ -208,12 +208,13 @@ describe("App shell", () => {
 
     const field = screen.getByRole("textbox", { name: "Message Pi" }) as HTMLTextAreaElement;
     expect(field.className).toContain("min-h-12");
-    expect(field.className).toContain("px-4");
+    // Left padding only: the right side holds the send, inside the same box.
+    expect(field.className).toContain("pl-4");
     expect(field.className).toContain("py-3");
     expect(field.className).toContain("max-h-48");
     // The ring is on the box around the field rather than the field itself, because the box also
-    // holds the images the composer is carrying and they are inside the same border.
-    expect(field.parentElement?.className).toContain("focus-within:ring-2");
+    // holds the images the composer is carrying and its send button, inside the same border.
+    expect(field.parentElement?.parentElement?.className).toContain("focus-within:ring-2");
     // No inline height: jsdom measures every box at zero, and writing that would collapse the field
     // to nothing. A degenerate measurement has to leave the utilities in charge.
     expect(field.style.height).toBe("");

@@ -91,6 +91,8 @@ export function SessionComposerBand({
   const question = questionMirror
     ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
     : null;
+  const fieldActions = actions.filter((action) => action.inField);
+  const rowActions = actions.filter((action) => !action.inField);
   return (
     <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
@@ -173,6 +175,7 @@ export function SessionComposerBand({
               disabled={editor.disabled}
             />
           ) : null}
+          <div className="flex items-end">
           <textarea
           ref={autoGrow}
           value={editor.value}
@@ -219,8 +222,12 @@ export function SessionComposerBand({
           placeholder={editor.placeholder}
           aria-label={editor.ariaLabel}
           disabled={editor.disabled}
-          className="max-h-48 min-h-12 w-full resize-none bg-transparent px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none"
+          className={`max-h-48 min-h-12 min-w-0 flex-1 resize-none bg-transparent py-3 pl-4 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none ${
+            fieldActions.length > 0 ? "pr-2" : "pr-4"
+          }`}
         />
+          {fieldActions.map(actionButton)}
+          </div>
         </div>
         {/* Offered only where there is a pane: a session without one has nothing to show. It sits
             beside the field rather than replacing anything, because the field never goes away --
@@ -247,19 +254,7 @@ export function SessionComposerBand({
           </button>
         ) : null}
         {/* Every one of these acts on the draft, so they go where the draft goes. */}
-        {actions.map((action) => (
-          <button
-            key={action.key}
-            type="button"
-            onClick={action.onClick}
-            disabled={action.disabled}
-            aria-label={action.ariaLabel}
-            title={action.title}
-            className={action.className}
-          >
-            {action.icon}
-          </button>
-        ))}
+        {rowActions.map(actionButton)}
       </div>
       {/* Under the whole row rather than inside the field's box, because it is not part of the
           text: it stands between the composer and the keyboard, which is where a thumb coming off
@@ -292,6 +287,22 @@ export function SessionComposerBand({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function actionButton(action: ComposerAction) {
+  return (
+    <button
+      key={action.key}
+      type="button"
+      onClick={action.onClick}
+      disabled={action.disabled}
+      aria-label={action.ariaLabel}
+      title={action.title}
+      className={action.className}
+    >
+      {action.icon}
+    </button>
   );
 }
 

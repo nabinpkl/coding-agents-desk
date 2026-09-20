@@ -89,7 +89,7 @@ import {
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 
-/** One action in the composer's action row, rendered in array order. */
+/** One action in the composer, rendered in array order: in the row beside the field, or inside it. */
 export type ComposerAction = {
   key: string;
   ariaLabel: string;
@@ -98,6 +98,8 @@ export type ComposerAction = {
   disabled: boolean;
   className: string;
   onClick: () => void;
+  /** Drawn inside the field at its trailing edge rather than in the row beside it: the send. */
+  inField?: boolean;
 };
 
 export function SessionComposer({

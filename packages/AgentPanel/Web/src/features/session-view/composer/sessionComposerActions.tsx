@@ -10,6 +10,13 @@ import type { ComposerAction } from "@/features/session-view/composer/SessionCom
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
 /**
+ * Every band's send, drawn small inside the field's own box at its trailing edge. Margins centre it
+ * on a one-line field (48px tall) and keep it pinned to the last line as the field grows.
+ */
+const SEND_IN_FIELD_CLASS =
+  "mb-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40";
+
+/**
  * One turn through a transport owned outside the panel's agent-session queue.
  *
  * Separate from `submit` rather than folded into it because the two do different things: this
@@ -67,17 +74,17 @@ if (m.windowBand) {
       ? "Fill and press Enter in Codex, sending the prompt now"
       : "Fill and press Enter in Claude, sending the prompt now",
     icon: m.windowComposer.pending ? (
-      <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
     ) : (
-      <CornerDownLeft className="size-4" aria-hidden />
+      <CornerDownLeft className="size-3.5" aria-hidden />
     ),
     disabled: !m.windowComposer.canSubmit || m.windowComposer.pending,
-    className:
-      "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+    className: SEND_IN_FIELD_CLASS,
+    inField: true,
     onClick: () => void m.windowComposer.submitWindow(),
   });
 } else if (m.tmuxBand) {
-  // Left of Send, because Send stays the rightmost thing a thumb reaches for.
+  // Beside the field rather than in it: the field's own trailing edge is Send's.
   actions.push({
     key: "attach-tmux-composer",
     ariaLabel: "Add an image to this session's composer",
@@ -95,13 +102,13 @@ if (m.windowBand) {
     ariaLabel: "Send in this session's terminal",
     title: "Press Return in this session's terminal, sending what its composer holds",
     icon: m.tmuxComposer.pending ? (
-      <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
     ) : (
-      <CornerDownLeft className="size-4" aria-hidden />
+      <CornerDownLeft className="size-3.5" aria-hidden />
     ),
     disabled: m.tmuxComposer.pending || !m.editorValue.trim(),
-    className:
-      "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+    className: SEND_IN_FIELD_CLASS,
+    inField: true,
     onClick: () => void m.tmuxComposer.submit(),
   });
 } else if (m.inboxBand || m.agentTerminalBand) {
@@ -112,13 +119,13 @@ if (m.windowBand) {
     ariaLabel: m.agentTerminalBand ? "Send through Agent Feed terminal" : "Send to the terminal session",
     title: m.agentTerminalBand ? "Send through the open Agent Feed terminal" : "Send to the terminal session",
     icon: m.deliveryPending ? (
-      <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
     ) : (
-      <Send className="size-4" aria-hidden />
+      <Send className="size-3.5" aria-hidden />
     ),
     disabled: m.unavailable || m.deliveryPending || !m.editorValue.trim(),
-    className:
-      "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+    className: SEND_IN_FIELD_CLASS,
+    inField: true,
     onClick: () => void submitOwnedTransport(m),
   });
 } else if (!m.unavailable) {
@@ -151,13 +158,13 @@ if (m.windowBand) {
     ariaLabel: m.running ? "Queue message" : "Send message",
     title: m.running ? "Queue message" : "Send message",
     icon: m.pending ? (
-      <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
     ) : (
-      <Send className="size-4" aria-hidden />
+      <Send className="size-3.5" aria-hidden />
     ),
     disabled: m.pending || !m.editorValue.trim(),
-    className:
-      "flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+    className: SEND_IN_FIELD_CLASS,
+    inField: true,
     onClick: () => void submitComposer(m, "next"),
   });
 }
