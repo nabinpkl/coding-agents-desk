@@ -60,14 +60,14 @@ function report(): UsageReport {
           byModel: [],
         },
       ],
-      quota: {
+      quotas: [{
         label: "Weekly limit",
         usedPercent: 13,
         windowMinutes: 10_080,
         resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
         planType: "prolite",
         sampledAt: TODAY,
-      },
+      }],
       coverage: { from: "2026-08-01", to: "2026-08-18", sessions: 977, unreadable: 0 },
       scannedAt: TODAY,
     }],

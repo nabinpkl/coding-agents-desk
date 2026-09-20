@@ -34,6 +34,7 @@ import type {
   ParkRestoreReport,
   ParkStateResponse,
   ProjectSummary,
+  QuotaReport,
   SessionSummary,
   SidecarConfig,
   StartedSession,
@@ -367,6 +368,17 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
       onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as UsageStreamMessage),
       onError: (reason) => handlers.onError(reason),
     });
+  }
+
+  /**
+   * This machine's live rate-limit meters, with no history beside them.
+   *
+   * A plain read rather than the stream above, because there is no slow half to wait for: the
+   * sidecar answers it from two small files, where `/api/usage` sweeps every transcript on the
+   * machine. A surface that wants the meters several times a session asks here.
+   */
+  async fetchLimits(): Promise<QuotaReport> {
+    return parse<QuotaReport>(await this.transport.request("GET", "/api/limits"));
   }
 
   /** The sidecar's process-global facts, read once so the panel knows what to offer. */

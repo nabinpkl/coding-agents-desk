@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw } from "lucide-react";
 import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import type { UsageQuota } from "@agentdesk/agent-feed-wire";
 import { UsageModal } from "@/features/usage/UsageModal";
 import type { UsageHandle } from "@/features/usage/useUsage";
 import { formatResetIn } from "@/features/usage/formatTokens";
@@ -302,7 +303,18 @@ function vendorNames(usage: UsageHandle): string {
   return named.length > 0 ? named.join(", ") : usage.vendors.join(", ");
 }
 
+/**
+ * The window closest to its limit, across every vendor.
+ *
+ * One line here and a list in the report, because this row is a summary: the reader gets the
+ * meter most likely to stop them, and the popover on the context readout is where all of them
+ * are shown side by side.
+ */
 function quotaOf(usage: UsageHandle) {
   if (usage.state.kind !== "ready") return null;
-  return usage.state.report.vendors.find((vendor) => vendor.quota)?.quota ?? null;
+  const quotas = usage.state.report.vendors.flatMap((vendor) => vendor.quotas);
+  return quotas.reduce<UsageQuota | null>(
+    (worst, quota) => (worst && worst.usedPercent >= quota.usedPercent ? worst : quota),
+    null,
+  );
 }

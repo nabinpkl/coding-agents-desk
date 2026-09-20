@@ -296,13 +296,16 @@
             ]
           }
         ],
-        "quota": {
-          "label": "Weekly limit",
-          "usedPercent": 13,
-          "windowMinutes": 10080,
-          "resetsAt": 1787801862000,
-          "planType": "prolite"
-        },
+        "quotas": [
+          {
+            "label": "Weekly limit",
+            "usedPercent": 13,
+            "windowMinutes": 10080,
+            "resetsAt": 1787801862000,
+            "planType": "prolite",
+            "sampledAt": 1787795000000
+          }
+        ],
         "coverage": {
           "from": "2026-08-13",
           "to": "2026-08-13",

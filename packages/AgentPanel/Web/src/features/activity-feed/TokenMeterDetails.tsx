@@ -1,0 +1,230 @@
+"use client";
+
+// What the context readout says when a reader asks it for more: the figures the compact meter
+// rounds away, and this machine's rate-limit meters beside them.
+//
+// The two belong on one surface because they answer one question asked twice. "How much room is
+// left" is the context window on this turn AND the five-hour window across every session running
+// on this machine, and the second one is invisible everywhere else in the panel -- it is not in
+// the transcript, and the CLI only shows it in its own status line.
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { UsageQuota } from "@agentdesk/agent-feed-wire";
+import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
+import type { LimitsState } from "@/features/usage/useLimits";
+import { formatAge, formatResetIn, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
+
+/** The gap this panel keeps between itself and the edge of the window. */
+const MARGIN = 8;
+/** The gap between the readout and the panel. */
+const GAP = 6;
+
+/** Where an open panel sits, in viewport coordinates, because it is positioned `fixed`. */
+interface Placement {
+  top: number;
+  left: number;
+}
+
+/**
+ * Above the readout by default, since the readout sits at the bottom of a card, and clamped on
+ * both axes so a card at any edge still gets a panel that is entirely on screen.
+ *
+ * Measured against the WINDOW rather than against anything it is in, and rendered into
+ * `document.body` for the reason `RowMenu` documents at length: every canvas card sets
+ * `overflow-hidden` to keep its content inside its rounded corners, so a panel drawn as a child
+ * of the composer is cut off at the card's edge no matter what its z-index says.
+ */
+function place(trigger: DOMRect, panel: DOMRect): Placement {
+  const viewportHeight = globalThis.innerHeight || 0;
+  const viewportWidth = globalThis.innerWidth || 0;
+  const above = trigger.top - MARGIN;
+  const below = viewportHeight - trigger.bottom - MARGIN;
+  const top = panel.height > above && below > above
+    ? trigger.bottom + GAP
+    : trigger.top - GAP - panel.height;
+  return {
+    top: Math.max(MARGIN, Math.min(top, viewportHeight - MARGIN - panel.height)),
+    left: Math.max(MARGIN, Math.min(trigger.right - panel.width, viewportWidth - MARGIN - panel.width)),
+  };
+}
+
+export function TokenMeterDetails({
+  usage,
+  limits,
+  trigger,
+  onDismiss,
+  now = Date.now,
+}: {
+  usage: TokenUsage;
+  limits: LimitsState;
+  trigger: React.RefObject<HTMLElement | null>;
+  onDismiss: () => void;
+  now?: () => number;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  /** Null until the layout pass has measured; the panel stays invisible until then. */
+  const [placement, setPlacement] = useState<Placement | null>(null);
+
+  const reposition = useCallback(() => {
+    const anchor = trigger.current;
+    const popup = panel.current;
+    if (!anchor || !popup) return;
+    setPlacement(place(anchor.getBoundingClientRect(), popup.getBoundingClientRect()));
+  }, [trigger]);
+
+  // Before paint, so the panel is placed in the same commit that opens it rather than appearing
+  // in the corner of the window for a frame.
+  useLayoutEffect(() => {
+    reposition();
+    // Every scroller, not just the page: `capture` is what hears a scroll event, which does not
+    // bubble. Without it the panel stays where the readout USED to be as soon as the canvas moves.
+    globalThis.addEventListener?.("scroll", reposition, true);
+    globalThis.addEventListener?.("resize", reposition);
+    return () => {
+      globalThis.removeEventListener?.("scroll", reposition, true);
+      globalThis.removeEventListener?.("resize", reposition);
+    };
+  }, [reposition]);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (panel.current?.contains(target) || trigger.current?.contains(target)) return;
+      onDismiss();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [onDismiss, trigger]);
+
+  return createPortal(
+    <div
+      ref={panel}
+      role="dialog"
+      aria-label="Context and limits"
+      // For anything that asks "is the pointer still inside me" with a DOM containment test: the
+      // React tree still has this panel inside the composer, so React's own enter/leave pairing
+      // is unaffected by the portal, but a raw `node.contains` is not.
+      data-portal-menu=""
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        onDismiss();
+      }}
+      style={{
+        top: placement?.top ?? 0,
+        left: placement?.left ?? 0,
+        visibility: placement ? undefined : "hidden",
+      }}
+      className="fixed z-50 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+    >
+      <ContextFigures usage={usage} now={now} />
+      <div className="mt-3 border-t border-border pt-2">
+        <Limits state={limits} now={now} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function ContextFigures({ usage, now }: { usage: TokenUsage; now: () => number }) {
+  const percent = usage.limit === null
+    ? null
+    : Math.round(Math.min(1, Math.max(0, usage.current / usage.limit)) * 100);
+  return (
+    <dl className="flex flex-col gap-1 text-xs">
+      <Figure label="Context">
+        {usage.current.toLocaleString()}
+        {usage.limit === null ? "" : ` / ${usage.limit.toLocaleString()}`}
+        {percent === null ? "" : ` (${percent}%)`}
+      </Figure>
+      {usage.model ? <Figure label="Model">{usage.model}</Figure> : null}
+      <Figure label="Prompt cache">{cacheText(usage, now())}</Figure>
+    </dl>
+  );
+}
+
+/**
+ * When re-reading this context stops being cheap.
+ *
+ * It is a 20x step and nothing else on the surface shows it: a cached context re-reads at 0.1x
+ * base input and an expired one rewrites at 2.0x, paid in full on the next message.
+ */
+function cacheText(usage: TokenUsage, at: number): string {
+  if (!usage.cacheTtlMs) return "not reported";
+  const remaining = usage.updatedAt + usage.cacheTtlMs - at;
+  if (remaining <= 0) return "expired, the next message rewrites it";
+  return `warm for ${Math.ceil(remaining / 60_000)} min`;
+}
+
+function Limits({ state, now }: { state: LimitsState; now: () => number }) {
+  if (state.kind === "error") {
+    return <p className="text-xs text-destructive">Limits unavailable: {state.message}</p>;
+  }
+  if (state.kind !== "ready") {
+    return <p className="text-xs text-muted-foreground">Reading limits...</p>;
+  }
+  if (state.quotas.length === 0) {
+    // The one thing a reader genuinely cannot work out from the surface: the meters are missing
+    // because nothing on this machine writes them down, not because they are at zero.
+    return (
+      <p className="text-xs text-muted-foreground">
+        No limit reading on this machine. Claude Code publishes its five-hour and weekly meters
+        only to its status line; `tools/claude-statusline-mirror.sh` is what leaves a copy behind.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      {state.quotas.map((quota) => (
+        <LimitRow key={`${quota.label}:${quota.windowMinutes}`} quota={quota} now={now} />
+      ))}
+    </div>
+  );
+}
+
+function LimitRow({ quota, now }: { quota: UsageQuota; now: () => number }) {
+  const at = now();
+  const stale = at - quota.sampledAt > STALE_QUOTA_MS;
+  return (
+    <div className="flex flex-col gap-0.5 text-xs">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-foreground">{quota.label}</span>
+        <span className="shrink-0 font-mono tabular-nums text-foreground">{quota.usedPercent}%</span>
+      </div>
+      <span className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <span
+          role="progressbar"
+          aria-label={`${quota.label}: ${quota.usedPercent}% used`}
+          aria-valuenow={quota.usedPercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          className={"block h-full rounded-full "
+            + (quota.usedPercent >= 90
+              ? "bg-destructive"
+              : quota.usedPercent >= 75
+                ? "bg-amber-500"
+                : "bg-foreground/60")}
+          style={{ width: `${Math.min(100, Math.max(0, quota.usedPercent))}%` }}
+        />
+      </span>
+      {/* A stale reading cannot answer "when does this clear" -- its reset has usually already
+          passed -- so it answers "how old is this" instead, which is the only true thing left to
+          say about it. */}
+      <span className="text-muted-foreground">
+        {stale
+          ? `reading ${formatAge(quota.sampledAt, at)}`
+          : `resets in ${formatResetIn(quota.resetsAt, at)}`}
+      </span>
+    </div>
+  );
+}
+
+function Figure({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate text-right font-mono tabular-nums text-foreground">{children}</dd>
+    </div>
+  );
+}

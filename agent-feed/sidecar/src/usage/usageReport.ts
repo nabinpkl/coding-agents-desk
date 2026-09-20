@@ -13,9 +13,11 @@
 import { stat } from "node:fs/promises";
 import { config } from "@/config";
 import type {
+  QuotaReport,
   UsageCoverage,
   UsageDay,
   UsageModelTotals,
+  UsageQuota,
   UsageReport,
   UsageVendorId,
   VendorUsage,
@@ -33,7 +35,7 @@ import {
   type ClaudeUsageRow,
 } from "@/usage/claudeUsage";
 import { claudeModelAlias } from "@/usage/claudeModels";
-import { readClaudeQuota } from "@/usage/claudeQuota";
+import { readClaudeQuotas } from "@/usage/claudeQuota";
 import {
   codexInstalled,
   findCodexSessionFiles,
@@ -62,6 +64,8 @@ export interface UsageVendorPaths {
   codexHome: string;
   claudeProjects: string;
   claudeConfig: string;
+  /** Where the statusline leaves Claude's live rate limits; see `config.claudeLimitsMirrorPath`. */
+  claudeLimitsMirror: string;
 }
 
 /**
@@ -139,8 +143,8 @@ export function createUsageScanner(options: UsageScannerOptions = {}): UsageScan
 
 function quotaMoved(previous: UsageReport, ...vendors: VendorUsage[]): boolean {
   return vendors.some((vendor) => {
-    const before = previous.vendors.find((entry) => entry.vendor === vendor.vendor)?.quota ?? null;
-    return JSON.stringify(before) !== JSON.stringify(vendor.quota);
+    const before = previous.vendors.find((entry) => entry.vendor === vendor.vendor)?.quotas ?? [];
+    return JSON.stringify(before) !== JSON.stringify(vendor.quotas);
   });
 }
 
@@ -174,7 +178,10 @@ async function scanCodexVendor(
       displayName: "Codex",
       installed: true,
       days,
-      quota: newest ? describeQuota(newest) : null,
+      // A list of one, because Codex publishes one window: its `rate_limits.primary`. The shape
+      // is the vendors' common denominator rather than Claude's, since a vendor that later
+      // publishes a second window should not need the wire changed to say so.
+      quotas: newest ? [describeQuota(newest)] : [],
       coverage: buildCoverage(days, files.length, swept.unreadable),
       scannedAt,
     },
@@ -219,7 +226,7 @@ async function scanClaudeVendor(
       displayName: "Claude",
       installed: true,
       days,
-      quota: await quotaOf(paths.claudeConfig),
+      quotas: await claudeQuotas(paths),
       coverage: buildCoverage(days, files.length, swept.unreadable),
       scannedAt,
     },
@@ -227,9 +234,33 @@ async function scanClaudeVendor(
   };
 }
 
-async function quotaOf(configPath: string) {
-  const sample = await readClaudeQuota(configPath);
-  return sample ? describeQuota(sample) : null;
+async function claudeQuotas(paths: UsageVendorPaths): Promise<UsageQuota[]> {
+  const samples = await readClaudeQuotas(paths.claudeConfig, paths.claudeLimitsMirror);
+  return samples.map(describeQuota);
+}
+
+/**
+ * Every vendor's live meters, without sweeping anything.
+ *
+ * What `/api/limits` answers, and the reason it can answer in milliseconds where the report it
+ * mirrors takes seconds on a cold cache. Claude's meters are re-read from their two small files
+ * on every call, because they are live and cheap. Codex's ride on the last completed sweep --
+ * they are stamped onto rollout records, so producing a fresh one means reading the rollouts
+ * again, and a popover is not worth gigabytes. A machine that has not swept yet therefore reports
+ * no Codex meter rather than a stale one.
+ */
+export async function readVendorQuotas(
+  options: Partial<UsageVendorPaths> = {},
+  swept: UsageReport | null = null,
+): Promise<QuotaReport> {
+  const paths = resolvePaths(options);
+  const codex = swept?.vendors.find((vendor) => vendor.vendor === "codex");
+  return {
+    vendors: [
+      { vendor: "codex", displayName: "Codex", quotas: codex?.quotas ?? [] },
+      { vendor: "claude", displayName: "Claude", quotas: await claudeQuotas(paths) },
+    ],
+  };
 }
 
 function addRow(totals: DayModelTotals, row: ClaudeUsageRow): void {
@@ -319,7 +350,7 @@ function uninstalled(vendor: UsageVendorId, displayName: string, scannedAt: numb
     displayName,
     installed: false,
     days: [],
-    quota: null,
+    quotas: [],
     coverage: { from: null, to: null, sessions: 0, unreadable: 0 },
     scannedAt,
   };
@@ -356,5 +387,6 @@ function resolvePaths(options: Partial<UsageVendorPaths>): UsageVendorPaths {
     codexHome: options.codexHome ?? config.codexHomeDirectory,
     claudeProjects: options.claudeProjects ?? config.claudeProjectsDirectory,
     claudeConfig: options.claudeConfig ?? config.claudeConfigPath,
+    claudeLimitsMirror: options.claudeLimitsMirror ?? config.claudeLimitsMirrorPath,
   };
 }

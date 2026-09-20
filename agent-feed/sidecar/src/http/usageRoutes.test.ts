@@ -20,7 +20,7 @@ function report(inputTokens: number): UsageReport {
           totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
         }],
       }],
-      quota: null,
+      quotas: [],
       coverage: { from: "2026-08-13", to: "2026-08-13", sessions: 1, unreadable: 0 },
       scannedAt: 1_750_000_000_000,
     }],

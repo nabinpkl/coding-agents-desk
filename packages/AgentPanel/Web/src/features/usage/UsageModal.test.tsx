@@ -67,14 +67,14 @@ function report(): UsageReport {
           byModel: [],
         },
       ],
-      quota: {
+      quotas: [{
         label: "Weekly limit",
         usedPercent: 13,
         windowMinutes: 10_080,
         resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
         planType: "prolite",
         sampledAt: TODAY,
-      },
+      }],
       coverage: { from: "2026-08-01", to: "2026-08-18", sessions: 977, unreadable: 0 },
       scannedAt: TODAY,
     }],
@@ -153,7 +153,7 @@ function twoVendorReport(): UsageReport {
       }],
       // Stamped against the wall clock, not the fixture's TODAY: the modal ages a quota against
       // the real `Date.now`, and a fixed stamp would make the assertion drift with the calendar.
-      quota: {
+      quotas: [{
         label: "5-hour limit",
         usedPercent: 92,
         // A reset already in the past, which is what a 45-hour-old reading has.
@@ -161,7 +161,7 @@ function twoVendorReport(): UsageReport {
         windowMinutes: 300,
         planType: null,
         sampledAt: Date.now() - 45 * 60 * 60 * 1000,
-      },
+      }],
       coverage: { from: "2026-05-16", to: "2026-08-17", sessions: 1_388, unreadable: 0 },
       scannedAt: TODAY,
     }],

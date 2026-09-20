@@ -6,7 +6,7 @@ import { formatCount, formatDay, formatPercent, formatTokens } from "@/features/
 import { UsageCalendar, UsageLegend } from "@/features/usage/UsageCalendar";
 import { DayDetail } from "@/features/usage/UsageDayDetail";
 import { TotalsRow } from "@/features/usage/UsageFigures";
-import { QuotaRow } from "@/features/usage/UsageQuotaRow";
+import { QuotaRows } from "@/features/usage/UsageQuotaRow";
 import {
   buildUsageGrid,
   cachedShare,
@@ -55,7 +55,7 @@ export function VendorPanel({
   return (
     <div className="flex flex-col gap-3" aria-busy={loading || undefined}>
       <TotalsRow label={`Last ${weeks} weeks`} totals={rangeTotals} withheld={loading} />
-      <QuotaRow quota={vendor?.quota ?? null} now={now} />
+      <QuotaRows quotas={vendor?.quotas ?? []} now={now} />
 
       {/* The day's figures sit ABOVE the grid and always in the same place, rather than floating
           beside the cell. A tooltip anchored to a 12px square has to be positioned, clipped against

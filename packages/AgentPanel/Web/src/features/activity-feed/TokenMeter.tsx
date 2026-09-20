@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { TokenMeterDetails } from "@/features/activity-feed/TokenMeterDetails";
+import { useLimits } from "@/features/usage/useLimits";
 
 /** Fill fraction above which the meter reads as a warning rather than a fact. */
 const WARN_FRACTION = 0.75;
@@ -34,7 +37,7 @@ const COMPACTION_PAYS_ABOVE = 200_000;
  * Both, rather than the tooltip alone: colour is the only other thing carrying this, and a reader
  * who cannot see the colour would otherwise have no way to the state at all.
  */
-const COSTLY_NOTE = " \u00b7 compacting now pays for itself within a turn";
+const COSTLY_NOTE = " · compacting now pays for itself within a turn";
 /** Minutes of cache left below which the countdown stops being a fact and starts
  *  being a warning. Ten because the thing it is warning about takes a minute or
  *  two to act on: compacting while warm is what makes the next message cheap. */
@@ -97,7 +100,8 @@ function CacheCountdown({ usage }: { usage: TokenUsage }) {
 }
 
 /**
- * Occupancy as a compact count, with a fill bar when the window is known.
+ * Occupancy as a compact count, with a fill bar when the window is known, and the figures behind
+ * both on hover or a click.
  *
  * This is why `token_count` records no longer take a transcript row of their own:
  * they are 19% of the rows in this project's largest Codex session, and every one
@@ -107,7 +111,35 @@ function CacheCountdown({ usage }: { usage: TokenUsage }) {
  * name to a window. When it is null the bar is omitted rather than guessed --
  * a fraction of an invented denominator reads as authoritative and is not.
  */
-export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
+export function TokenMeter({
+  usage,
+  feed = null,
+}: {
+  usage: TokenUsage | null;
+  /**
+   * The sidecar to read this machine's rate limits from, or null where there is none to ask.
+   * Only the detail panel uses it, and only once opened.
+   */
+  feed?: Pick<SidecarDataSource, "fetchLimits"> | null;
+}) {
+  // Hooks before the early return, because a session whose occupancy has not arrived yet renders
+  // nothing and then renders something, and a conditional hook would break on exactly that.
+  const trigger = useRef<HTMLButtonElement>(null);
+  // Two ways in, one state. Hover is the cheap look -- it opens and closes with the pointer --
+  // and a click pins the panel so it survives the pointer leaving, which is what a reader
+  // needs to read a number rather than glance at it.
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const limits = useLimits(feed);
+  const open = hovered || pinned;
+  // Deliberately `limits.load` rather than `limits`: the handle is a fresh object every render,
+  // so depending on it would re-run this on every render the panel is open -- which, against a
+  // sidecar answering an error, is a read per render rather than a read per open.
+  const loadLimits = limits.load;
+  useEffect(() => {
+    if (open) loadLimits();
+  }, [loadLimits, open]);
+
   if (!usage) return null;
 
   const compact = formatTokens(usage.current);
@@ -115,39 +147,23 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
   // window at all: what compacting saves is a property of the context's SIZE, not of how much room
   // is left beside it.
   const costly = usage.current >= COMPACTION_PAYS_ABOVE;
-  if (usage.limit === null) {
-    return (
-      <span className="flex shrink-0 items-center gap-2 px-1">
-        <CacheCountdown usage={usage} />
-        <span
-          title={`${usage.current.toLocaleString()} tokens in context${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
-          aria-label={`Context: ${usage.current.toLocaleString()} tokens`}
-          className={
-            "min-w-8 text-right font-mono text-(length:--agent-panel-fs-tile-chip,12px) tabular-nums "
-            + (costly ? "text-amber-500" : "text-muted-foreground")
-          }
-        >
-          {compact}
-        </span>
-      </span>
-    );
-  }
-
-  const fraction = Math.min(1, Math.max(0, usage.current / usage.limit));
-  const percent = Math.round(fraction * 100);
+  const fraction = usage.limit === null
+    ? null
+    : Math.min(1, Math.max(0, usage.current / usage.limit));
+  const percent = fraction === null ? null : Math.round(fraction * 100);
   const tone =
-    fraction >= CRITICAL_FRACTION
+    fraction !== null && fraction >= CRITICAL_FRACTION
       ? "text-destructive"
-      : fraction >= WARN_FRACTION || costly
+      : (fraction !== null && fraction >= WARN_FRACTION) || costly
         ? "text-amber-500"
         : "text-muted-foreground";
   // Deliberately not `costly`, unlike the count above it. The track is how FULL the window is, and
   // an amber track on a bar drawn at 30% says the window is nearly gone, which is not what the
   // cost line means. The count is the size, and the size is what compacting is about.
   const fill =
-    fraction >= CRITICAL_FRACTION
+    fraction !== null && fraction >= CRITICAL_FRACTION
       ? "bg-destructive"
-      : fraction >= WARN_FRACTION
+      : fraction !== null && fraction >= WARN_FRACTION
         ? "bg-amber-500"
         : "bg-muted-foreground/60";
 
@@ -159,15 +175,36 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
     // clock's.
     <span className="flex shrink-0 items-center gap-2 px-1">
       <CacheCountdown usage={usage} />
-      <span
-        title={`${usage.current.toLocaleString()} / ${usage.limit.toLocaleString()} tokens${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
-        className="flex flex-col items-end gap-[2px]"
+      <button
+        ref={trigger}
+        type="button"
+        aria-label="Context and limits"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setPinned((current) => !current)}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !open) return;
+          event.preventDefault();
+          setPinned(false);
+          setHovered(false);
+        }}
+        className="flex cursor-pointer flex-col items-end gap-[2px] rounded-sm outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10"
       >
         <span
+          title={`${usage.current.toLocaleString()}${
+            usage.limit === null ? "" : ` / ${usage.limit.toLocaleString()}`
+          } tokens${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
           className={
             "min-w-8 text-right font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
             tone
           }
+          {...(usage.limit === null
+            ? { "aria-label": `Context: ${usage.current.toLocaleString()} tokens` }
+            : {})}
         >
           {compact}
         </span>
@@ -176,20 +213,33 @@ export function TokenMeter({ usage }: { usage: TokenUsage | null }) {
             decorative div. Its width is the count's, fixed, so the two share an edge on both
             sides and the header does not reflow every time the count crosses a digit boundary --
             which on a live thread is every few seconds. */}
-        <span
-          role="progressbar"
-          aria-label={`Context: ${percent}% of ${usage.limit.toLocaleString()} tokens${costly ? COSTLY_NOTE : ""}`}
-          aria-valuenow={percent}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="h-[3px] w-full overflow-hidden rounded-full bg-muted"
-        >
+        {percent === null ? null : (
           <span
-            className={"block h-full rounded-full " + fill}
-            style={{ width: `${percent}%` }}
-          />
-        </span>
-      </span>
+            role="progressbar"
+            aria-label={`Context: ${percent}% of ${usage.limit!.toLocaleString()} tokens${costly ? COSTLY_NOTE : ""}`}
+            aria-valuenow={percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="h-[3px] w-full overflow-hidden rounded-full bg-muted"
+          >
+            <span
+              className={"block h-full rounded-full " + fill}
+              style={{ width: `${percent}%` }}
+            />
+          </span>
+        )}
+      </button>
+      {open ? (
+        <TokenMeterDetails
+          usage={usage}
+          limits={limits.state}
+          trigger={trigger}
+          onDismiss={() => {
+            setPinned(false);
+            setHovered(false);
+          }}
+        />
+      ) : null}
     </span>
   );
 }

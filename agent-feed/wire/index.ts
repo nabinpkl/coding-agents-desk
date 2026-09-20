@@ -139,6 +139,7 @@ export type {
 } from "./summary.ts";
 
 export type {
+  QuotaReport,
   UsageCoverage,
   UsageDay,
   UsageModelTotals,
@@ -147,6 +148,7 @@ export type {
   UsageStreamMessage,
   UsageTotals,
   UsageVendorId,
+  VendorQuotas,
   VendorUsage,
 } from "./usage.ts";
 

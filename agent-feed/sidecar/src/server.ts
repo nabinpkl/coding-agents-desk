@@ -29,6 +29,7 @@ import { createAgentTerminalRoutes } from "@/http/agentTerminalRoutes";
 import { createTmuxRoutes } from "@/http/tmuxRoutes";
 import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
+import { createLimitsRoutes } from "@/http/limitsRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
 import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
@@ -37,7 +38,7 @@ import { createWorkspaceStreamRoutes } from "@/http/workspace-routes/workspaceSt
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceService } from "@/workspace/workspaceService";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
-import { detectUsageVendors } from "@/usage/usageReport";
+import { createUsageScanner, detectUsageVendors } from "@/usage/usageReport";
 import { state } from "@/transcripts/transcriptState";
 import {
   getSnapshot,
@@ -131,6 +132,11 @@ void workspaceService.ready().catch((error: unknown) => {
   console.error("workspace service failed to start", error);
 });
 
+// One scanner for both usage routes, so the meters route can answer from whatever the last sweep
+// read instead of starting one of its own. Two scanners would also mean two in-flight sweeps of
+// the same gigabytes, since the coalescing that prevents that lives inside one of them.
+const usageScanner = createUsageScanner();
+
 const routes: RouteHandler[] = [
   // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
@@ -165,7 +171,10 @@ const routes: RouteHandler[] = [
   createEventImageRoutes(),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
   // here is only for readability.
-  createUsageRoutes(),
+  createUsageRoutes(usageScanner),
+  // The rate-limit meters on their own, for the surfaces that want the meter without the sweep
+  // behind it. Given the same scanner so Codex's meter comes from whatever the last sweep read.
+  createLimitsRoutes(usageScanner),
   createParkRoutes(),
   // Desktop and window reads through the standalone helper. Not under `/api/sessions/`, so its
   // position here is only for readability.

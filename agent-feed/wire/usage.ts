@@ -75,7 +75,7 @@ export interface UsageDay {
  * conclusion about whether a limit moved.
  */
 export interface UsageQuota {
-  /** Human label derived from the window, e.g. "Weekly limit". */
+  /** Human label derived from the window and what it covers, e.g. "Weekly limit (Opus)". */
   label: string;
   usedPercent: number;
   windowMinutes: number;
@@ -111,7 +111,17 @@ export interface VendorUsage {
   installed: boolean;
   /** Only days that have data, oldest first. The panel fills the empty days of its own grid. */
   days: UsageDay[];
-  quota: UsageQuota | null;
+  /**
+   * Every window this vendor publishes a reading for, shortest window first, empty when it
+   * publishes none.
+   *
+   * A list rather than the single most-used window it used to be, because the windows do not
+   * substitute for one another: Claude meters five hours and seven days at once, and a reader
+   * deciding whether to start something long needs the one that is about to stop them AND the one
+   * that is not. Which of the two that is changes during a day, so picking one here would have
+   * made the answer depend on when it was asked.
+   */
+  quotas: UsageQuota[];
   coverage: UsageCoverage;
   /** Epoch milliseconds this report was produced. */
   scannedAt: number;
@@ -119,6 +129,25 @@ export interface VendorUsage {
 
 export interface UsageReport {
   vendors: VendorUsage[];
+}
+
+/**
+ * One vendor's live rate-limit meters, with no history beside them.
+ *
+ * The same `UsageQuota` values `VendorUsage` carries, split out so they can be asked for on their
+ * own. Reading them costs one small file per vendor, where the report they ride on sweeps
+ * gigabytes -- so a surface that wants only the meters (the context readout's detail popover) can
+ * have them in milliseconds instead of opening the whole Usage sweep to get at one row.
+ */
+export interface VendorQuotas {
+  vendor: UsageVendorId;
+  displayName: string;
+  quotas: UsageQuota[];
+}
+
+/** What `GET /api/limits` answers: every vendor's live meters, cheaply. */
+export interface QuotaReport {
+  vendors: VendorQuotas[];
 }
 
 /**

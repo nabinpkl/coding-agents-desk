@@ -12,6 +12,7 @@ interface Fixture {
   // into a unit test and make its assertions depend on the machine it ran on.
   claudeProjects: string;
   claudeConfig: string;
+  claudeLimitsMirror: string;
   cachePath: string;
   write: (name: string, records: unknown[]) => Promise<string>;
 }
@@ -25,6 +26,7 @@ async function fixture(): Promise<Fixture> {
     codexHome: home,
     claudeProjects: join(root, "no-claude"),
     claudeConfig: join(root, "no-claude.json"),
+    claudeLimitsMirror: join(root, "no-mirror.json"),
     cachePath: join(root, "cache.json"),
     write: async (name, records) => {
       const path = join(day, name);
@@ -211,14 +213,14 @@ test("the quota is the newest reading across every session", async () => {
   ]);
 
   const report = await createUsageScanner(context).scan();
-  expect(report.vendors[0]!.quota).toEqual({
+  expect(report.vendors[0]!.quotas).toEqual([{
     label: "Weekly limit",
     usedPercent: 12,
     windowMinutes: 10_080,
     resetsAt: 1_787_801_862_000,
     planType: "prolite",
     sampledAt: Date.parse("2026-08-13T09:00:00.000Z"),
-  });
+  }]);
 });
 
 test("a five-hour window is named for what it is", async () => {
@@ -234,7 +236,7 @@ test("a five-hour window is named for what it is", async () => {
       },
     },
   ]);
-  expect((await createUsageScanner(context).scan()).vendors[0]!.quota?.label).toBe("5-hour limit");
+  expect((await createUsageScanner(context).scan()).vendors[0]!.quotas[0]?.label).toBe("5-hour limit");
 });
 
 test("concurrent readers share one sweep", async () => {
@@ -258,6 +260,7 @@ interface ClaudeFixture {
   codexHome: string;
   claudeProjects: string;
   claudeConfig: string;
+  claudeLimitsMirror: string;
   cachePath: string;
   write: (name: string, records: unknown[]) => Promise<string>;
 }
@@ -270,6 +273,7 @@ async function claudeFixture(): Promise<ClaudeFixture> {
     codexHome: join(root, "no-codex"),
     claudeProjects: join(root, "projects"),
     claudeConfig: join(root, "no-claude.json"),
+    claudeLimitsMirror: join(root, "no-mirror.json"),
     cachePath: join(root, "cache.json"),
     write: async (name, records) => {
       const path = join(slug, name);
@@ -341,28 +345,40 @@ test("one vendor's sweep does not evict the other's cache entries", async () => 
   expect(Object.keys(cache.sessions)).toHaveLength(1);
 });
 
-test("the Claude quota comes from the CLI's config, stamped with when it was taken", async () => {
+test("every Claude window reaches the report, stamped with when it was taken", async () => {
+  // `utilization` is a fraction in the CLI's own units, so 0.92 is the 92% window. Read as a
+  // percent it would render as 1%, which is the trap `claudeQuota.ts` exists to avoid.
   const context = await claudeFixture();
   await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
   await writeFile(context.claudeConfig, JSON.stringify({
     cachedUsageUtilization: {
       fetchedAtMs: 1_788_687_158_244,
       utilization: {
-        five_hour: { utilization: 92, resets_at: "2026-09-06T10:30:00.000Z" },
-        seven_day: { utilization: 36, resets_at: "2026-09-06T16:00:00.000Z" },
+        five_hour: { utilization: 0.92, resets_at: "2026-09-06T10:30:00.000Z" },
+        seven_day: { utilization: 0.36, resets_at: "2026-09-06T16:00:00.000Z" },
       },
     },
   }), "utf8");
 
   const report = await createUsageScanner(context).scan();
-  expect(report.vendors[1]!.quota).toEqual({
-    label: "5-hour limit",
-    usedPercent: 92,
-    windowMinutes: 300,
-    resetsAt: Date.parse("2026-09-06T10:30:00.000Z"),
-    planType: null,
-    sampledAt: 1_788_687_158_244,
-  });
+  expect(report.vendors[1]!.quotas).toEqual([
+    {
+      label: "5-hour limit",
+      usedPercent: 92,
+      windowMinutes: 300,
+      resetsAt: Date.parse("2026-09-06T10:30:00.000Z"),
+      planType: null,
+      sampledAt: 1_788_687_158_244,
+    },
+    {
+      label: "Weekly limit",
+      usedPercent: 36,
+      windowMinutes: 10_080,
+      resetsAt: Date.parse("2026-09-06T16:00:00.000Z"),
+      planType: null,
+      sampledAt: 1_788_687_158_244,
+    },
+  ]);
 });
 
 test("days carry the model id and the alias, not one instead of the other", async () => {
