@@ -433,6 +433,31 @@ it("comes back to the commit it was reading, with the row that opened the diff m
     .toHaveLength(1);
 });
 
+it("keeps the history up while the editor is in use, and drops it on a click elsewhere", async () => {
+  const transport = await mounted();
+  historyAnswers(transport);
+
+  fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
+  const popup = await screen.findByRole("dialog", { name: "Commit history" });
+  fireEvent.click(await within(popup).findByRole("button", { name: /teach the bar to look backwards/ }));
+  fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
+  const patch = await screen.findByLabelText("Diff of src/main.ts");
+
+  // Reading the patch is reading the commit, and so is being done with one of its files. Neither
+  // is the reader leaving the history behind, so neither dismisses it.
+  fireEvent.pointerDown(patch);
+  expect(screen.getByRole("dialog", { name: "Commit history" })).toBeInTheDocument();
+  const close = screen.getByRole("button", { name: "Close the diff of main.ts" });
+  fireEvent.pointerDown(close);
+  fireEvent.click(close);
+  await waitFor(() => expect(screen.queryByLabelText("Diff of src/main.ts")).not.toBeInTheDocument());
+  expect(screen.getByRole("dialog", { name: "Commit history" })).toBeInTheDocument();
+
+  // A pointer going somewhere else to work does: the reader is done looking back.
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Open README.md" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+});
+
 it("closes the history on Escape, and gives the button its focus back", async () => {
   const transport = await mounted();
   historyAnswers(transport);

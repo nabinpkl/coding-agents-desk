@@ -35,6 +35,9 @@ export function WorkspaceIdeSurface({
   // it at a file, and the editor draws it.
   const diff = useCommitDiffTab();
   const frame = useRef<HTMLDivElement | null>(null);
+  // The editor pane, handed to the status bar so its history popup can tell a pointer landing in
+  // the editor -- where the diff it opened is being read -- from one landing anywhere else.
+  const editor = useRef<HTMLDivElement | null>(null);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
 
@@ -215,7 +218,7 @@ export function WorkspaceIdeSurface({
           : null}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1">
+          <div ref={editor} className="min-h-0 flex-1">
             <EditorPane ide={ide} diff={diff} />
           </div>
           {preferences.terminalVisible
@@ -259,6 +262,7 @@ export function WorkspaceIdeSurface({
         client={ide.client}
         workspaceId={ide.workspaceId}
         terminalVisible={preferences.terminalVisible}
+        editor={editor}
         showingDiff={diff.target}
         onOpenDiff={diff.open}
         onShowSourceControl={showSourceControl}

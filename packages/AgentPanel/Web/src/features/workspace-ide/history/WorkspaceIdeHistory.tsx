@@ -12,14 +12,15 @@
 // every file list of fifty commits up front would read the whole repository to draw a list of
 // subjects.
 //
-// Clicking a file does not close this panel: a reader who has found the commit is usually reading
-// several of its files, and a panel that dismissed itself would make the second file cost the
-// whole journey again. What it costs is that the diff opens behind the panel -- on a phone,
-// entirely behind it -- so the row marks itself as the one the editor is showing.
+// Nothing done to the editor closes this panel: not clicking a file here, and not clicking in the
+// editor afterwards. A reader who has found the commit is usually reading several of its files,
+// and a panel that dismissed itself would make the second file cost the whole journey again. What
+// it costs is that the diff opens behind the panel -- on a phone, entirely behind it -- so the row
+// marks itself as the one the editor is showing.
 //
-// The reading position lives in `useCommitHistory`, on the status bar, so that closing this panel
-// deliberately -- Escape, or a click in the editor -- does not throw away the commit it was open
-// on either.
+// The reading position lives in `useCommitHistory`, on the status bar, so that dismissing this
+// panel deliberately -- Escape, or a click in the sidebar or the terminal -- does not throw away
+// the commit it was open on either.
 
 import { useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";

@@ -1,10 +1,10 @@
 // The history's reading position, kept outside the popup that draws it.
 //
-// The popup closes the moment a file is clicked, because the diff it opens is behind it. If the
-// state lived in the popup, that click would also throw away the log and the commit the reader had
-// expanded -- so comparing the second file of a commit would mean reopening, scrolling back, and
-// re-expanding, for every file. It lives on the status bar instead, which never unmounts, and the
-// popup is handed it.
+// The popup is unmounted every time it is dismissed -- Escape, or a pointer landing outside both
+// the status bar and the editor. If the state lived in it, each of those would also throw away the
+// log and the commit the reader had expanded, so coming back to a commit they were in the middle of
+// would mean scrolling and re-expanding every time. It lives on the status bar instead, which never
+// unmounts, and the popup is handed it.
 //
 // Nothing here is stored: which commit a reader had open is a position in a session, not an
 // arrangement of the panel, and a popup that reopened three days later on a commit that has since

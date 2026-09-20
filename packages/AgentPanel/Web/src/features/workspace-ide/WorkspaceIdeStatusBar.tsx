@@ -12,7 +12,7 @@
 // whatever nobody found a home for, and every addition costs the others their glanceability -- the
 // empty right end is the reminder of that rather than space waiting to be used.
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
 import { GitBranch, History, SquareTerminal } from "lucide-react";
 import type { WorkspaceCommit, WorkspaceCommitFile, WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
 import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";
@@ -45,6 +45,7 @@ export function WorkspaceIdeStatusBar({
   client,
   workspaceId,
   terminalVisible,
+  editor,
   showingDiff,
   onOpenDiff,
   onShowSourceControl,
@@ -55,6 +56,8 @@ export function WorkspaceIdeStatusBar({
   client: WorkspaceIdeClient;
   workspaceId: string | null;
   terminalVisible: boolean;
+  /** The editor pane, which counts as inside the history for the purpose of dismissing it. */
+  editor: RefObject<HTMLElement | null>;
   /** What the editor's diff tab is showing, so the history marks the row that put it there. */
   showingDiff: CommitDiffTarget | null;
   /** Opens one file of one commit in the editor, which is what clicking a history row does. */
@@ -69,9 +72,9 @@ export function WorkspaceIdeStatusBar({
   const bar = useRef<HTMLElement | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Opened once, and the log is kept from then on. The history's state sits here rather than in
-  // the popup because the popup closes on every file click; `useCommitHistory` says why. Until the
-  // first open there is nothing to read, so a reader who never asks for the history never pays a
-  // `git log` for it.
+  // the popup because the popup unmounts every time it is dismissed; `useCommitHistory` says why.
+  // Until the first open there is nothing to read, so a reader who never asks for the history never
+  // pays a `git log` for it.
   const [everOpened, setEverOpened] = useState(false);
   const history = useCommitHistory(client, workspaceId, everOpened);
 
@@ -81,7 +84,15 @@ export function WorkspaceIdeStatusBar({
     historyTrigger.current?.focus();
   }, []);
 
-  // Escape and a click anywhere else, which is what a reader expects of anything that popped up.
+  // Escape, and a pointer landing anywhere that is neither this bar nor the editor.
+  //
+  // The editor counts as inside because it is where what the history opened is READ: closing the
+  // diff's tab, scrolling the patch, going to a file tab and back are all part of reading one
+  // commit, and a panel that dismissed itself on any of them would have to be reopened, scrolled
+  // and re-expanded between every file. What does close it is a pointer going somewhere else to
+  // work -- the sidebar, the terminal, the roster -- which is a reader saying they are done
+  // looking back.
+  //
   // On `pointerdown` rather than `click`: a click that starts inside the popup and ends outside it
   // -- selecting a line of a diff and releasing past the edge -- is not a click elsewhere.
   useEffect(() => {
@@ -91,7 +102,11 @@ export function WorkspaceIdeStatusBar({
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && bar.current?.contains(target)) return;
+      const within = (region: HTMLElement | null) =>
+        target instanceof Node && region !== null && region.contains(target);
+      if (within(bar.current) || within(editor.current)) return;
+      // No focus returned here, unlike Escape: the pointer has already put focus where it landed,
+      // and taking it back to the bar would move the reader away from what they just clicked.
       setHistoryOpen(false);
     };
     document.addEventListener("keydown", onKeyDown);
@@ -100,7 +115,7 @@ export function WorkspaceIdeStatusBar({
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [historyOpen, closeHistory]);
+  }, [historyOpen, closeHistory, editor]);
   // No branch means either a directory git does not track or a detached HEAD: `branch
   // --show-current` answers empty for both, so there is nothing honest to print. An item that
   // said "no branch" over a plain directory would be reporting on git rather than on the project.
