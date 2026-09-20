@@ -54,12 +54,15 @@ export const ROLE_BORDER: Record<DisplayRole, string> = {
   system: "border-l-sky-500",
 };
 
-/** Nice keeps operational roles, but lets model prose and reasoning read as one response. */
+/**
+ * Nice lets model prose and reasoning read as one response, and leaves a tool call to its own chip
+ * (`Bash`, `Read`), which already says a tool ran and which one. Raw keeps every role label.
+ */
 export function showEventRoleLabel(
   mode: SessionReference["mode"],
   role: DisplayRole,
 ): boolean {
-  return mode === "raw" || (role !== "assistant" && role !== "reasoning");
+  return mode === "raw" || (role !== "assistant" && role !== "reasoning" && role !== "tool");
 }
 
 // `leading-none` is load-bearing, not cosmetic. The heading floats, and a float
@@ -117,6 +120,9 @@ export const COLUMN_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
  * The event index and timestamp moved into `title` and the Raw drawer. They
  * were spending permanent width on two values nobody scans by eye, and the
  * drawer already holds every other per-event fact.
+ *
+ * It can also draw nothing: an expanded tool row has a chevron of its own on the call's header,
+ * and a heading whose only content was a second one is not a heading. See `showChevron` below.
  */
 export function EventHeading({
   ev,
@@ -137,6 +143,22 @@ export function EventHeading({
 }) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : null;
   const intent = role === "tool" ? toolIntent(ev) : null;
+  const showIntent = !isCollapsed && intent !== null;
+  const showCacheBadge = showCacheHits && ev.cacheHit !== undefined;
+  /*
+   * A tool call draws its own chevron on its own header, one line under this one, and to the eye
+   * the two open the same thing. So an expanded tool row keeps ONE of them: this heading drops
+   * its chevron, and what is left -- the role chip in raw mode, the intent above the call --
+   * reads as the label it is rather than as a second control.
+   *
+   * Collapsed it keeps the chevron, because the call's own header is not on screen then and this
+   * is the only way back into the row.
+   */
+  const showChevron = isCollapsed || role !== "tool";
+  // And with the chevron gone there is often nothing left at all: a bare tool call in nice mode
+  // has no chip and no intent. An empty heading is not free -- it is a focus stop, a hover target
+  // and a float the first block has to clear -- so it is not drawn.
+  if (!showChevron && !showRole && !isLive && !showCacheBadge && !showIntent) return null;
   return (
     <button
       type="button"
@@ -157,13 +179,15 @@ export function EventHeading({
       // a 390px scroller; capped, 390.
       className="float-left mt-[0.15em] mr-[0.4em] flex max-w-full items-center gap-[0.2em] rounded-sm text-left transition-colors hover:bg-foreground/5"
     >
-      <ChevronRight
-        className={
-          "size-[1em] shrink-0 text-muted-foreground transition-transform " +
-          (isCollapsed ? "" : "rotate-90")
-        }
-        aria-hidden
-      />
+      {showChevron ? (
+        <ChevronRight
+          className={
+            "size-[1em] shrink-0 text-muted-foreground transition-transform " +
+            (isCollapsed ? "" : "rotate-90")
+          }
+          aria-hidden
+        />
+      ) : null}
       {showRole ? <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span> : null}
       {/* The ONLY thing a still-streaming row shows that a landed one does not.
           Inline and sub-chip sized, so when the transcript takes the message over
@@ -175,10 +199,10 @@ export function EventHeading({
           aria-hidden
         />
       ) : null}
-      {showCacheHits && ev.cacheHit ? <CacheBadge cacheHit={ev.cacheHit} /> : null}
-      {/* Why the tool ran, beside the chip that says a tool ran. Only when expanded: a collapsed
+      {showCacheBadge ? <CacheBadge cacheHit={ev.cacheHit!} /> : null}
+      {/* Why the tool ran, above the call that ran it. Only when expanded: a collapsed
           row already spends this space on its gist, and the heading is otherwise blank here. */}
-      {!isCollapsed && intent ? (
+      {showIntent ? (
         // Bounded, because this sits inside a float-left heading: an unbounded span would grow
         // the float to the width of a long description and push the body around it.
         <span className="ml-[0.35em] max-w-[36ch] truncate font-sans text-muted-foreground">

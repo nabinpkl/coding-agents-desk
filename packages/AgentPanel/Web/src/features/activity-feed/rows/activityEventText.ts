@@ -112,8 +112,8 @@ const SHELL_COMMAND_INPUT = new Map([
  * truncated command, precise and copyable in full one click away), the heading says WHY. Putting
  * the description on the row meant reading the intent and losing the command, or the reverse.
  *
- * The heading line is otherwise empty on an expanded tool event -- the chip, then nothing -- so
- * this costs no vertical space at all.
+ * The heading line holds nothing else on an expanded tool event but its chevron, and the call
+ * drops below it only when there is an intent to show, so this spends a line only on a reason.
  *
  * First description wins. An event with parallel tool calls has several, and a heading is one
  * line; the rest are still on their own rows.

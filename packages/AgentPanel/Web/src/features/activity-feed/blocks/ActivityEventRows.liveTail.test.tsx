@@ -122,14 +122,13 @@ describe("LiveTailRow", () => {
     expect(live.textContent).toContain("Bash");
     expect(live.textContent).toContain("cd /Users/dev");
     expect(live.textContent).not.toContain("→");
-    // Identical text, down to the role chip ("tool", because this event is a call
-    // with no prose): the live marker is a pulse and a label, so it adds nothing
+    // Identical text: the live marker is a pulse and a label, so it adds nothing
     // a reader has to re-read when the transcript takes the message over.
     expect(live.textContent).toBe(renderLanded(ev).container.textContent);
   });
 
-  // Thinking and calls with no prose is a `tool` row, whose heading carries the chip and the
-  // call's intent. The thinking used to wrap beside that heading and run into it.
+  // Thinking and calls with no prose is a `tool` row, whose heading carries the call's intent.
+  // The thinking used to wrap beside that heading and run into it.
   it("puts a tool row's thinking under its heading, not beside it", () => {
     const trace = "Checking the tree first";
     const deepest = (container: HTMLElement) =>

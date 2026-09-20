@@ -27,10 +27,8 @@ import type { SessionReference } from "@/features/activity-feed/data-source/Agen
 import { Block } from "@/features/activity-feed/blocks/ActivityBlockViews";
 import {
   CacheBadge,
-  CHIP_CLASS,
   EventHeading,
   COLUMN_GUTTER_CLASS,
-  ROLE_STYLES,
   showEventRoleLabel,
 } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
@@ -100,19 +98,26 @@ function EventBody({
   ev,
   ctx,
   besideHeading,
+  bareHeading,
 }: {
   ev: ActivityEvent;
   ctx: EventRowContext;
   /**
-   * Whether flowing text may sit beside the heading. Not on a tool row: its heading carries the
-   * chip and the call's intent, and thinking wrapped beside that ran straight into it.
+   * Whether flowing text may sit beside the heading. Not on a tool row that names the call's
+   * intent: thinking wrapped beside that ran straight into it.
    */
   besideHeading: boolean;
+  /**
+   * Whether the heading is only its chevron, so the first block sits beside it whatever it is. A
+   * bordered block does that as its own formatting context, which narrows it past the chevron
+   * rather than letting it run underneath.
+   */
+  bareHeading: boolean;
 }) {
   const { inline, folded, hasRawJson } = partitionEventBlocks(ev);
   return (
     <div className="space-y-[0.4em]">
-      {inline.map(({ block, index, images }) => (
+      {inline.map(({ block, index, images }, position) => (
         // Non-flow blocks are bordered boxes, which would sit UNDER the floated
         // heading rather than beside it. Clearing keeps them below it instead of
         // overlapping. Once content extends past the heading's height this is a
@@ -124,7 +129,11 @@ function EventBody({
         // caught up. The kind is stable in practice, so this remounts nothing.
         <div
           key={`${index}-${block.kind}`}
-          className={besideHeading && isFlowBlock(block) ? undefined : "clear-left"}
+          className={
+            besideHeading && isFlowBlock(block)
+              ? undefined
+              : bareHeading && position === 0 ? "flow-root" : "clear-left"
+          }
         >
           <Block
             b={block}
@@ -173,6 +182,10 @@ function EventRowShell({
   ctx: EventRowContext;
   isLive?: boolean;
 }) {
+  const showRole = showEventRoleLabel(ctx.session.mode, role);
+  // A heading with no chip and no intent has nothing for a block to run into: a tool row draws
+  // none at all, and anywhere else it is a lone chevron the first block sits beside.
+  const bareHeading = !showRole && !(role === "tool" && toolIntent(ev));
   return (
     <div className="flow-root">
       <EventHeading
@@ -182,13 +195,18 @@ function EventRowShell({
         onToggle={onToggle}
         showCacheHits={ctx.showCacheHits}
         isLive={isLive}
-        // Nice reads as one continuous agent response, so prose and reasoning
-        // do not repeat their role on every row. Raw keeps every role label.
-        showRole={showEventRoleLabel(ctx.session.mode, role)}
+        showRole={showRole}
       />
       {isCollapsed
         ? <CollapsedPreview ev={ev} />
-        : <EventBody ev={ev} ctx={ctx} besideHeading={role !== "tool"} />}
+        : (
+          <EventBody
+            ev={ev}
+            ctx={ctx}
+            besideHeading={role !== "tool" || bareHeading}
+            bareHeading={bareHeading}
+          />
+        )}
     </div>
   );
 }
@@ -393,7 +411,6 @@ export function ClusterRow({
             className="size-[1.1em] shrink-0 text-muted-foreground"
             aria-hidden
           />
-          <span className={CHIP_CLASS + ROLE_STYLES.tool}>tools</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {clusterLabel(events)}
           </span>

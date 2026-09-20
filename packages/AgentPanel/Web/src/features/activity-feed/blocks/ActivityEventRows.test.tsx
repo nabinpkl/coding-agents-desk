@@ -105,8 +105,12 @@ describe("event heading", () => {
     expect(raw.getByText("assistant")).toBeTruthy();
   });
 
-  it("keeps operational role labels in Nice", () => {
-    const row = renderRow(
+  it("leaves an expanded tool call to its own chip and its own chevron, and no second one", () => {
+    expect(showEventRoleLabel("nice", "tool")).toBe(false);
+    expect(showEventRoleLabel("nice", "user")).toBe(true);
+    expect(showEventRoleLabel("raw", "tool")).toBe(true);
+
+    const toolRow = (isCollapsed: boolean) => (
       <SegmentEventRow
         ev={event({
           type: "assistant",
@@ -115,12 +119,26 @@ describe("event heading", () => {
         ctx={NICE_CTX}
         isFirst
         isLast
-        isCollapsed={false}
+        isCollapsed={isCollapsed}
         onToggle={() => {}}
         isHighlighted={false}
-      />,
+      />
     );
-    expect(row.getByText("tool")).toBeTruthy();
+
+    const row = renderRow(toolRow(false));
+    expect(row.queryByText("tool")).toBeNull();
+    // One disclosure rather than two. The heading's chevron and the call's own sat next to each
+    // other and opened the same row to the eye, and in Nice the heading held nothing else.
+    expect(row.container.querySelectorAll("button[aria-expanded]")).toHaveLength(1);
+    expect(row.queryByLabelText("collapse event")).toBeNull();
+    // Nothing else is on the heading line, so the call does not drop below it.
+    expect(row.getByRole("button", { name: /Read file/ }).closest(".clear-left")).toBeNull();
+    row.unmount();
+
+    // Collapsed, the call's own header is not on screen, so the heading keeps the chevron that is
+    // the only way back into the row -- which is what a Fold all leaves a reader holding.
+    const folded = renderRow(toolRow(true));
+    expect(folded.getByLabelText("expand event")).toHaveAttribute("aria-expanded", "false");
   });
 
   it("separates Nice tool and text rows into tightly spaced cards", () => {
