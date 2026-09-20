@@ -35,6 +35,17 @@ const TIMELINE_ROUTE =
 /** A live backend additionally publishes session occupancy; most do not. */
 type UsageReportingBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
 
+/**
+ * A backend that knows when the harness is rewriting a session's context.
+ *
+ * Probed rather than required, like the two beside it. Only Claude's harness compacts, and a
+ * backend with no live mirror has no way to see it happen.
+ */
+type CompactionAnnouncingBackend = AgentBackend & {
+  sessionCompacting(sessionId: string): boolean;
+  onCompaction(listener: (sessionId: string, active: boolean) => void): () => void;
+};
+
 /** A backend that announces when a session gains a live projection; most do not. */
 type LiveAnnouncingBackend = AgentBackend & {
   onSessionLive(listener: (sessionId: string) => void): () => void;
@@ -231,6 +242,27 @@ function timelineStream(options: {
       hold(stop);
     };
 
+    /**
+     * Says the context is being rewritten, for as long as that is happening.
+     *
+     * The only state here that is published while nothing at all is arriving. A compaction adds no
+     * transcript line until it lands and puts nothing in the tail, so a reader watching the thread
+     * sees a session that stopped -- which is also what a finished turn looks like, for the two to
+     * four minutes it takes on a large context.
+     */
+    const followCompaction = (live: AgentBackend): void => {
+      const announcing = live as CompactionAnnouncingBackend;
+      if (typeof announcing.onCompaction !== "function") return;
+      if (typeof announcing.sessionCompacting === "function"
+        && announcing.sessionCompacting(sessionId)) {
+        emit({ type: "compacting", active: true });
+      }
+      hold(announcing.onCompaction((live_id, active) => {
+        if (live_id !== sessionId) return;
+        emit({ type: "compacting", active });
+      }));
+    };
+
     void (async () => {
       const window = await openingWindow(sessionId, mode, backend, transcript);
       if (cancelled) return;
@@ -287,6 +319,10 @@ function timelineStream(options: {
       if (backend) {
         if (options.streamsLive) await attachTail(backend);
         else awaitLiveCapability(backend);
+        // Not gated on `streamsLive`, unlike the tail: a session the mirror has never seen traffic
+        // for still has a context the harness can be rewriting, and that answer needs no
+        // projection to exist.
+        followCompaction(backend);
       }
       if (cancelled) return;
 

@@ -39,6 +39,7 @@ import {
   type ObserverEvent,
   type ObserverSubscription,
 } from "@/live/claudeNetworkSource";
+import { CompactionWatch } from "@/live/claudeCompactionWatch";
 import {
   isMessageStream,
   observedAtMs,
@@ -72,6 +73,7 @@ export class ClaudeLiveBackend implements AgentBackend {
   // which is the cheaper error -- the other way round shows a meter five times too full.
   private readonly longContextSessions = new Set<string>();
   private readonly flowContexts = new Map<string, FlowContext>();
+  private readonly compactions = new CompactionWatch();
   private subscription: ObserverSubscription | null = null;
   private abortController: AbortController | null = null;
   private disposed = false;
@@ -276,8 +278,21 @@ export class ClaudeLiveBackend implements AgentBackend {
       return;
     }
     void fetchRequestMetadata(this.endpoint, reference)
-      .then(({ sessionId, toolResults, subagent, conversationTurn }) => {
-        if (this.disposed || !this.flowContexts.has(flowId)) return;
+      .then(({ sessionId, toolResults, subagent, conversationTurn, compaction }) => {
+        if (this.disposed) return;
+        // Read before the context check below, because saying a session is compacting does not
+        // need one. A flow buffers deltas while its body is being fetched and the buffer is
+        // capped; a summariser streaming a large summary overruns it, the flow is dropped, and
+        // this callback then returned before reporting the one thing it still could. Measured on
+        // one probe session compacted twice: announced on the first run, silent on the second.
+        //
+        // Safe to call without knowing whether the stream is still open, because the watch refuses
+        // a flow whose end has already been seen, and the end is recorded whether or not the flow
+        // was ever recognised.
+        if (sessionId && !conversationTurn && compaction) {
+          this.compactions.begin(flowId, sessionId);
+        }
+        if (!this.flowContexts.has(flowId)) return;
         // A subagent's request carries its PARENT's session id, so binding it would mirror the
         // subagent's whole answer into the parent's live view -- text the parent never said,
         // streaming in while the parent sits blocked on the tool call that started it. Dropped
@@ -324,6 +339,7 @@ export class ClaudeLiveBackend implements AgentBackend {
 
   private acceptStreamEnded(flowId: unknown): void {
     if (typeof flowId !== "string") return;
+    this.compactions.end(flowId);
     const sessionId = this.binds.get(flowId);
     if (sessionId !== undefined) {
       this.finishMessage(sessionId, flowId);
@@ -426,6 +442,21 @@ export class ClaudeLiveBackend implements AgentBackend {
   /** See `LiveSessionRegistry.onSessionLive`. */
   onSessionLive(listener: (sessionId: string) => void): () => void {
     return this.sessions.onSessionLive(listener);
+  }
+
+  /** Whether the harness is compacting this session's context right now. See `CompactionWatch`. */
+  sessionCompacting(sessionId: string): boolean {
+    return this.compactions.isCompacting(sessionId);
+  }
+
+  /**
+   * Announces a session starting or finishing a compaction.
+   *
+   * Probed rather than required by its one caller, the same way `onSessionLive` is: a backend with
+   * no live mirror has no way to know, and only Claude's harness compacts.
+   */
+  onCompaction(listener: (sessionId: string, active: boolean) => void): () => void {
+    return this.compactions.onChange(listener);
   }
 
   private scheduleFlowDrop(flowId: string): void {

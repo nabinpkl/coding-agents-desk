@@ -5,6 +5,7 @@ import { expect, test } from 'bun:test';
 import {
   extractSessionId,
   extractToolResults,
+  isCompactionRequest,
   isConversationTurn,
   isSubagentRequest,
 } from "@/live/claudeRequestBody";
@@ -169,4 +170,40 @@ test("isConversationTurn ignores a prompt id that is only in the conversation", 
     }],
   });
   expect(isConversationTurn(body)).toBe(false);
+});
+
+/** The summariser's request: an errand, with the harness's own instruction as the last message. */
+function summariser(instruction: string, tail = " cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;"): string {
+  return JSON.stringify({
+    system: [{ type: "text", text: `x-anthropic-billing-header: cc_version=2.1.270.d34;${tail}` }],
+    messages: [
+      { role: "user", content: "do the thing" },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+      { role: "user", content: instruction },
+    ],
+    user_id: JSON.stringify({ session_id: "sess-one" }),
+  });
+}
+
+const SUMMARISE = "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\n"
+  + "Your task is to create a detailed summary of the conversation so far, paying close attention"
+  + " to the user's explicit requests and your previous actions.";
+
+test("isCompactionRequest picks the summariser out of the harness's other errands", () => {
+  expect(isCompactionRequest(summariser(SUMMARISE))).toBe(true);
+  // The composer's suggestion call is the other errand measured on the wire, and it is not this.
+  expect(isCompactionRequest(summariser(
+    "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]",
+  ))).toBe(false);
+});
+
+test("isCompactionRequest never fires on a turn, however the conversation quotes it", () => {
+  // The order is the safety. This is the only content-matched rule here, and the sentence it
+  // matches lives in `messages`, which is the one part of the body a conversation can write into:
+  // a session reading this file puts it in its own next request. That request carries a prompt id,
+  // so it is a turn before the sentence is ever looked at.
+  const turn = summariser(SUMMARISE, " cc_prompt_id=711e45f5-7a05-4be5-a922-cd31437e1707;");
+  expect(isConversationTurn(turn)).toBe(true);
+  expect(isCompactionRequest(turn)).toBe(false);
+  expect(isCompactionRequest("not json")).toBe(false);
 });

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
+import { MAX_PENDING_PER_FLOW } from "@/live/claudeLiveFlows";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
 
 const flush = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,12 +27,18 @@ function startFixture(): FixtureServer {
     }
     if (reference === "summariser1") {
       // A compaction summariser: the session's OWN identity, no subagent token, and a billing
-      // header with no `cc_prompt_id` because there is no prompt behind it. Measured on the wire.
+      // header with no `cc_prompt_id` because there is no prompt behind it. Measured on the wire,
+      // instruction and all -- the instruction is what separates it from the harness's other
+      // errands, which are equally not the session speaking but are over in a second.
       return JSON.stringify({
         system: [{
           type: "text",
           text: "x-anthropic-billing-header: cc_version=2.1.270.d34; cc_entrypoint=cli;"
             + " cch=014d3; cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;",
+        }],
+        messages: [{
+          role: "user",
+          content: "Your task is to create a detailed summary of the conversation so far.",
         }],
         user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
       });
@@ -247,6 +254,58 @@ describe("ClaudeLiveBackend ingest", () => {
     const after = await backend.page(sessionId, 0, 10, "nice");
     expect(after.total).toBe(before.total);
     expect(JSON.stringify(after.events)).not.toContain("continued from a previous conversation");
+  });
+
+  test("a compaction is announced while it runs and taken back when it ends", async () => {
+    // The silence is the problem being solved. A compaction adds no transcript line until it
+    // lands, and now streams nothing into the thread either, so two to four minutes of a large
+    // context being rewritten look exactly like a turn that finished.
+    const seen: Array<[string, boolean]> = [];
+    const stop = backend.onCompaction((id, active) => seen.push([id, active]));
+    expect(backend.sessionCompacting(sessionId)).toBe(false);
+
+    backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
+    await flush(160);
+    expect(backend.sessionCompacting(sessionId)).toBe(true);
+    expect(seen).toEqual([[sessionId, true]]);
+
+    backend.acceptObserverEvent(ended("sum2"));
+    await flush(40);
+    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    expect(seen).toEqual([[sessionId, true], [sessionId, false]]);
+
+    // The observer announces every flow twice, and the second announcement arrives with the end.
+    // A compaction's context is dropped seconds after it is recognised while the compaction runs
+    // for minutes, so that repeat re-read the body and started the same compaction again after it
+    // was over -- and the notice then stayed up until a fifteen-minute timer took it down.
+    backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
+    await flush(160);
+    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    expect(seen).toEqual([[sessionId, true], [sessionId, false]]);
+    stop();
+  });
+
+  test("a compaction is still announced when its flow overran the delta buffer", async () => {
+    // The buffer a flow keeps while its body is being fetched is capped, and a summariser writing
+    // a long summary overruns it: the flow is dropped, and the body's answer then arrived with no
+    // context to attach it to. The compaction is the one fact that does not need one.
+    const seen: Array<[string, boolean]> = [];
+    const stop = backend.onCompaction((id, active) => seen.push([id, active]));
+    backend.acceptObserverEvent(flowEvent("sum3", "/v1/messages", "api.anthropic.com", "summariser1"));
+    for (let i = 0; i <= MAX_PENDING_PER_FLOW; i++) {
+      backend.acceptObserverEvent(delta("sum3", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: `chunk ${i}` },
+      }));
+    }
+    await flush(160);
+    expect(backend.sessionCompacting(sessionId)).toBe(true);
+    expect(seen).toEqual([[sessionId, true]]);
+    backend.acceptObserverEvent(ended("sum3"));
+    await flush(40);
+    expect(backend.sessionCompacting(sessionId)).toBe(false);
+    stop();
   });
 
   test("unknown source session 404s on page", async () => {

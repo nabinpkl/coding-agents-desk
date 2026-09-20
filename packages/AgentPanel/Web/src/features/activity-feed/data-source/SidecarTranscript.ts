@@ -201,6 +201,9 @@ export class SidecarTranscript extends SidecarRoutes {
       case "tail":
         handlers.onLiveTail?.(message.event);
         return;
+      case "compacting":
+        handlers.onCompacting?.(message.active);
+        return;
       case "ui":
         this.uiListeners.forEach((listener) => listener(message.event));
         return;

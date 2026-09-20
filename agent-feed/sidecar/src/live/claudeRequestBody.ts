@@ -40,6 +40,15 @@ export interface RequestMetadata {
    * the harness's own errands run under the session's identity.
    */
   conversationTurn: boolean;
+  /**
+   * This request is the errand that COMPACTS the session: the summariser reading the whole context
+   * to write what replaces it.
+   *
+   * Nothing is mirrored from it. It is here so a surface can say the session is busy for the two
+   * to four minutes it takes, which is otherwise indistinguishable from a thread nobody is typing
+   * into.
+   */
+  compaction: boolean;
 }
 
 export interface ToolResultItem {
@@ -57,7 +66,13 @@ export async function fetchRequestMetadata(
     headers: { accept: "application/octet-stream" },
   });
   if (!response.ok) {
-    return { sessionId: null, toolResults: [], subagent: false, conversationTurn: true };
+    return {
+      sessionId: null,
+      toolResults: [],
+      subagent: false,
+      conversationTurn: true,
+      compaction: false,
+    };
   }
   const text = await response.text();
   return {
@@ -65,6 +80,7 @@ export async function fetchRequestMetadata(
     toolResults: extractToolResults(text),
     subagent: isSubagentRequest(text),
     conversationTurn: isConversationTurn(text),
+    compaction: isCompactionRequest(text),
   };
 }
 
@@ -273,4 +289,58 @@ function candidateIdentity(user: unknown): string | null {
     if (typeof nested.user_id === "string") return nested.user_id;
   }
   return null;
+}
+
+/**
+ * The one line of the summariser's instruction that names what it is for.
+ *
+ * Measured verbatim on 2026-09-14 from three captured compactions. Long enough to be this errand
+ * and nothing else, short enough to survive the surrounding wording being rewritten.
+ */
+const SUMMARISER_INSTRUCTION = "Your task is to create a detailed summary of the conversation";
+
+/**
+ * Whether a captured `/v1/messages` request is the errand that compacts a session.
+ *
+ * Read in this order, and the order is what makes it safe: a request is only tested for the
+ * instruction once it is already known NOT to be a turn. The instruction lives in `messages`, the
+ * one part of the body a conversation can write into -- a session reading this file quotes the
+ * sentence in its own next request -- and that request carries `cc_prompt_id`, so it never reaches
+ * the test below.
+ *
+ * Content-matched, unlike every other rule here, because nothing structural separates the
+ * summariser from the composer's suggestion call: both are errands, both stream under the
+ * session's own id, and both send the whole context. If the harness rewords this prompt the notice
+ * stops appearing, which is the silence that was there before it, rather than a wrong claim.
+ */
+export function isCompactionRequest(requestBody: string): boolean {
+  if (isConversationTurn(requestBody)) return false;
+  return lastUserText(requestBody).includes(SUMMARISER_INSTRUCTION);
+}
+
+/** The final user message as one string, which is where the harness puts an errand's instruction. */
+function lastUserText(requestBody: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(requestBody);
+  } catch {
+    return "";
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const messages = (parsed as Record<string, unknown>).messages;
+  if (!Array.isArray(messages) || messages.length === 0) return "";
+  const last = messages[messages.length - 1];
+  if (!last || typeof last !== "object" || Array.isArray(last)) return "";
+  const message = last as Record<string, unknown>;
+  if (message.role !== "user") return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const text = (part as Record<string, unknown>).text;
+      return typeof text === "string" ? text : "";
+    })
+    .join("\n");
 }
