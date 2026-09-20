@@ -154,7 +154,7 @@ function takeTheTree(reason: string): void {
     replaceSidecar(reason);
     return;
   }
-  leave(`${reason}, and one of them is this supervisor's own; leaving for a newer one`);
+  leave(`${reason}; one of them is this supervisor's own, so it is leaving for a newer one`);
 }
 
 function replaceSidecar(reason: string): void {
@@ -233,7 +233,15 @@ function noteChange(path: string): void {
   settle = setTimeout(() => {
     const batch = [...pending];
     pending.clear();
-    void Promise.all(batch.map(parsed)).then((changes) => gate.changed(changes));
+    void Promise.all(batch.map(parsed)).then((changes) => {
+      // The standing request is re-read HERE, not just on the timer below, because the timer is a
+      // second behind by construction and this is the moment the mode decides something. Measured
+      // 2026-09-15: a reader who chose manual and saved a file within the second got the restart
+      // they had just asked not to have, because the command was still in flight through the
+      // sidecar and onto the board when the batch was judged.
+      readRequest();
+      gate.changed(changes);
+    });
   }, SETTLE_MS);
 }
 
@@ -270,7 +278,7 @@ function leave(why: string): void {
   stopping = true;
   clearTimeout(settle);
   clearInterval(requests);
-  say(`${why}; stopping the sidecar`);
+  say(why);
   child?.kill();
   clearSupervisorDescriptor();
   // The child holds the port, so leaving before it is gone hands the next launch a bound port. It
@@ -281,9 +289,9 @@ function leave(why: string): void {
   void child?.exited.then(() => process.exit(0));
 }
 
-process.on("SIGTERM", () => leave("SIGTERM"));
-process.on("SIGINT", () => leave("SIGINT"));
-process.on("SIGHUP", () => leave("SIGHUP"));
+process.on("SIGTERM", () => leave("SIGTERM; stopping the sidecar"));
+process.on("SIGINT", () => leave("SIGINT; stopping the sidecar"));
+process.on("SIGHUP", () => leave("SIGHUP; stopping the sidecar"));
 
 say(`supervising ${SERVER}, and watching ${OWN.size} files of its own`);
 // A fresh supervisor is a fresh decision. Whatever a panel asked of the last one is forgotten here,
