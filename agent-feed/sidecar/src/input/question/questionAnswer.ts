@@ -51,7 +51,7 @@ import {
   type TmuxQuestionRefusal,
 } from "@agentdesk/agent-feed-wire";
 import {
-  captureTmuxPaneView,
+  captureTmuxQuestionView,
   hexSend,
   TmuxUnavailable,
   type TmuxPaneView,
@@ -100,7 +100,10 @@ export interface QuestionRuntime {
 
 const LIVE: QuestionRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),
-  screen: captureTmuxPaneView,
+  // The one reader here that looks above the screen, because a dialog is not bounded by the pane:
+  // four options with long descriptions push the opening rule, the tab row and the question itself
+  // into the scrollback, and all three are what a dialog is found by.
+  screen: captureTmuxQuestionView,
   send: hexSend,
 };
 

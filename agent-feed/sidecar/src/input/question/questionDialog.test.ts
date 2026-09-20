@@ -165,3 +165,21 @@ test("a footer wrapped across two rows still finds the dialog", () => {
   expect(dialog.rows.map((row) => row.text)).toEqual(roomy.rows.map((row) => row.text));
   expect(dialog.tabs.map((tab) => tab.label)).toEqual(roomy.tabs.map((tab) => tab.label));
 });
+
+test("a dialog taller than its pane is only readable with the scrollback", () => {
+  // Why the question driver captures above the screen. Claude draws a dialog in full and lets the
+  // terminal scroll, so a tall one keeps its footer and closing rule on the screen and puts the
+  // opening rule, the tab row and the question itself out of sight. Read from the screen alone
+  // there is no dialog, which the driver reports as the question no longer being open.
+  const whole = capture("a question taller than the pane");
+  const onScreen = whole.split("\n").slice(-24).join("\n");
+  expect(questionDialog(pane(onScreen))).toBeNull();
+
+  const dialog = questionDialog(pane(whole))!;
+  expect(dialog.question).toBe("Which rollout plan should we take for the new mirror behaviour?");
+  expect(dialog.tabs.map((tab) => tab.label)).toEqual(["Rollout"]);
+  // Four options and the free-text row, which is the last of them.
+  expect(dialog.rows).toHaveLength(5);
+  expect(otherRowIndex(dialog)).toBe(4);
+  expect(isPlaceholder(dialog.rows[4]!.text)).toBe(true);
+});

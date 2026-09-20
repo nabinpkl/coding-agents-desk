@@ -29,6 +29,40 @@ export function captureScreenArgs(session: string): string[] {
 }
 
 /**
+ * How far above the screen a question dialog may have started.
+ *
+ * Measured 2026-09-15 on an 80x24 pane: one question with four options and a fifty-word
+ * description on each began 40 rows above the top of the screen. Sixty leaves room for the
+ * tallest shape the tool allows and still costs one tmux call.
+ */
+export const QUESTION_HISTORY_LINES = 60;
+
+/**
+ * The scrollback AND the screen, for reading a dialog that does not fit in its pane.
+ *
+ * The only capture here that asks for both, and it exists because a question dialog is not
+ * bounded by the pane: Claude draws it in full and the terminal scrolls, so a tall one leaves its
+ * opening rule, tab row and question text above the screen. The reader needs all three -- it finds
+ * a dialog by its footer and then bounds it by the two rules above -- so read from the screen
+ * alone it saw no dialog at all, and the driver reported the question as no longer open.
+ *
+ * `-E -1` is deliberately absent, which is the whole difference from `captureHistoryArgs`: that
+ * one excludes the screen because a viewer is about to paint it, and this one is not painting
+ * anything.
+ *
+ * The cursor that comes back is still the SCREEN's, so it does not index into what this returns.
+ * Nothing reading a question uses it -- the dialog marks its own cursor row with `❯` -- and this
+ * is the reason not to reach for it here.
+ */
+export function captureQuestionViewArgs(session: string, lines: number): string[] {
+  return [
+    "display-message", "-p", "-t", session, "#{cursor_y} #{cursor_x}",
+    ";",
+    "capture-pane", "-p", "-e", "-S", `-${lines}`, "-t", session,
+  ];
+}
+
+/**
  * How tall that screen is, and where the cursor sits in it.
  *
  * The height says how many rows the viewer has to open. The cursor says where to leave it, which
@@ -85,7 +119,16 @@ export function capturePaneViewArgs(session: string): string[] {
  * somebody's session as if they had typed it.
  */
 export async function captureTmuxPaneView(session: string): Promise<TmuxPaneView> {
-  const result = await tmux(capturePaneViewArgs(session));
+  return readPaneView(capturePaneViewArgs(session));
+}
+
+/** The same reading, over a range that starts above the screen. See `captureQuestionViewArgs`. */
+export async function captureTmuxQuestionView(session: string): Promise<TmuxPaneView> {
+  return readPaneView(captureQuestionViewArgs(session, QUESTION_HISTORY_LINES));
+}
+
+async function readPaneView(args: string[]): Promise<TmuxPaneView> {
+  const result = await tmux(args);
   demand("pane view", result);
   const split = result.out.indexOf("\n");
   const where = (split === -1 ? result.out : result.out.slice(0, split)).trim().split(/\s+/);
