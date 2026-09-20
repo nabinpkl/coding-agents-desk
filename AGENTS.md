@@ -999,6 +999,43 @@ So:
   manager's `arguments`), pass the argv. The quoting question exists only where something insists
   on one string, which here is tmux and the shells it runs.
 
+### A session you spin up to PROBE is a throwaway, and the machinery is checked in
+
+`tools/throwaway-session.sh start|say|pane|stop <name>` is how you get a real Claude session to
+verify against. Written 2026-09-14, after three sessions in one evening each hand-rolled the same
+thing and each rediscovered the same traps.
+
+    id=$(tools/throwaway-session.sh start probe)     # prints the session uuid
+    tools/throwaway-session.sh say probe 'Reply with exactly the word: alder'
+    tools/throwaway-session.sh say probe /compact
+    tools/throwaway-session.sh pane probe
+    tools/throwaway-session.sh stop probe
+
+**Probe on the cheap model.** The default is Haiku at `--effort low`, and the reason is not
+frugality for its own sake: a probe session exists to produce transcript records and API flows, and
+nothing reads what it says. The run that prompted this script spent Opus on the word "acorn", three
+times. Override with `THROWAWAY_MODEL` when the probe is genuinely about a model's behaviour.
+
+Four things the script does that a hand-rolled one keeps not doing:
+
+- **The session id is CHOSEN, with `--session-id`, and printed.** Otherwise you find the transcript
+  afterwards by grepping `~/.claude/projects/` for the title you passed, which races every other
+  session starting in the same second. Three namespaces name one session and none converts to
+  another -- see the trap above -- so being handed the transcript uuid up front is most of the job.
+- **No tools, via `--disallowedTools`.** A script cannot answer a permission question: the prompt
+  appears in the pane and the probe hangs there until somebody looks. This is not sandboxing, it is
+  a session with nothing to ask about. `THROWAWAY_TOOLS` widens it, and then answering the pane is
+  yours.
+- **`say` chunks the text.** `tmux send-keys -l` drops a long string silently, which is already
+  written down two sections up; this is where it is implemented, once.
+- **Ready means the transcript file exists, not that the pane drew a prompt.** The prompt character
+  appears while plugins are still loading. Measured on this repo: ready in about one second, 59k of
+  context from the project's own `CLAUDE.md`, which is also why the default cwd is the repo -- a
+  probe about compaction needs a context worth compacting.
+
+It runs as the console user in tmux like everything else here, and it is a probe rather than a
+worker: give it no job that matters, and stop it when you are done.
+
 ## Running commands in the agent session
 
 - **Use the helper's `window-input` verb, not VNC typing.** `POST /api/window/input` with a Terminal
