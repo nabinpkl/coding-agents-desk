@@ -27,12 +27,16 @@ const MAIN = `${PANEL}/app/main.tsx`;
 
 function gateWith(sidecars: SupervisorReport[] = []) {
   const reports: PublishReport[] = [];
+  let reloads = 0;
   const gate = createPublishGate({
     broadcast: (report) => reports.push(report),
     buildId: () => "abc1234+",
     sidecars: () => sidecars,
+    reload: () => {
+      reloads += 1;
+    },
   });
-  return { gate, reports };
+  return { gate, reports, reloaded: () => reloads };
 }
 
 describe("the publish gate", () => {
@@ -104,6 +108,108 @@ describe("the publish gate", () => {
   it("says nothing at all when no machine is holding anything", () => {
     const { gate } = gateWith();
     expect(gate.report().sidecars).toEqual([]);
+  });
+});
+
+// The reader's own answer to the question the parser cannot answer for them: whether a file that IS
+// whole should arrive while they are in the middle of using the page. An update that parses is still
+// a remount, and a reader watching a session through an edit storm did not ask for one every few
+// seconds.
+describe("holding updates for the reader", () => {
+  it("starts on auto, because the dev loop's default is that an edit reaches the page", () => {
+    const { gate } = gateWith();
+    expect(gate.report().mode).toBe("auto");
+    expect(gate.hold(MAIN, null)).toBe(false);
+  });
+
+  it("holds a file that parses perfectly well once the reader has asked it to", () => {
+    const { gate } = gateWith();
+    gate.setMode("manual");
+    expect(gate.report().mode).toBe("manual");
+    expect(gate.hold(MAIN, null)).toBe(true);
+    expect(gate.report().held).toEqual(["main.tsx"]);
+    // Nothing is WRONG with it, which is the difference the row and the Apply button both read.
+    expect(gate.report().blocked).toBeNull();
+  });
+
+  it("says nothing new while the same whole file is saved again", () => {
+    const { gate, reports } = gateWith();
+    gate.setMode("manual");
+    gate.hold(MAIN, null);
+    const after = reports.length;
+    expect(gate.hold(MAIN, null)).toBe(true);
+    expect(reports.length).toBe(after);
+  });
+
+  // By a reload, because a withheld update is GONE rather than parked: Vite drops an update whose
+  // module list came back empty, so there is nothing kept anywhere to replay.
+  it("hands the queue over by reloading when the reader applies it", () => {
+    const { gate, reports, reloaded } = gateWith();
+    gate.setMode("manual");
+    gate.hold(MAIN, null);
+    expect(gate.apply()).toBe(true);
+    expect(reloaded()).toBe(1);
+    expect(gate.report().held).toEqual([]);
+    expect(reports.at(-1)?.held).toEqual([]);
+    // Applying is not the same as changing your mind about the mode.
+    expect(gate.report().mode).toBe("manual");
+  });
+
+  it("refuses to apply onto a half-written file, which is the page this gate exists to prevent", () => {
+    const { gate, reloaded } = gateWith();
+    gate.setMode("manual");
+    gate.hold(MAIN, null);
+    gate.hold(`${PANEL}/app/AppDialogs.tsx`, "Unexpected end of file");
+    expect(gate.apply()).toBe(false);
+    expect(reloaded()).toBe(0);
+    expect(gate.report().held).toEqual(["main.tsx", "AppDialogs.tsx"]);
+    expect(gate.report().blocked).toBe("AppDialogs.tsx: Unexpected end of file");
+  });
+
+  it("applies nothing, and reloads nobody, when the queue is empty", () => {
+    const { gate, reloaded } = gateWith();
+    gate.setMode("manual");
+    expect(gate.apply()).toBe(false);
+    expect(reloaded()).toBe(0);
+  });
+
+  it("takes the queue when the reader comes back to auto, since that is the yes it was waiting for", () => {
+    const { gate, reloaded } = gateWith();
+    gate.setMode("manual");
+    gate.hold(MAIN, null);
+    gate.setMode("auto");
+    expect(reloaded()).toBe(1);
+    expect(gate.report()).toMatchObject({ mode: "auto", held: [], blocked: null });
+  });
+
+  it("keeps holding a broken file through the switch back, and says so", () => {
+    const { gate, reloaded } = gateWith();
+    gate.setMode("manual");
+    gate.hold(MAIN, "Syntax Error");
+    gate.setMode("auto");
+    expect(reloaded()).toBe(0);
+    expect(gate.report()).toMatchObject({ mode: "auto", blocked: "main.tsx: Syntax Error" });
+  });
+
+  it("reloads nobody on the way into manual, and says which mode is in force", () => {
+    const { gate, reports, reloaded } = gateWith();
+    gate.setMode("manual");
+    expect(reloaded()).toBe(0);
+    expect(reports.at(-1)?.mode).toBe("manual");
+  });
+
+  it("says nothing at all when asked for the mode it is already in", () => {
+    const { gate, reports } = gateWith();
+    gate.setMode("auto");
+    expect(reports).toEqual([]);
+  });
+
+  // The half the mode deliberately does not widen: a style swap changes nothing a reader is in the
+  // middle of doing, so holding one would delay it for no one's benefit.
+  it("still never holds a stylesheet", () => {
+    const { gate } = gateWith();
+    gate.setMode("manual");
+    expect(gate.hold(`${PANEL}/app/styles.css`, null)).toBe(false);
   });
 });
 

@@ -27,14 +27,23 @@
 // holds a change back when the file does not parse (`app/dev-server/panelPublish.ts`), so a
 // connected page can be behind the tree on purpose. `held` is what it is sitting on and `blocked`
 // is why. Without them the gate would be indistinguishable from the panel quietly not updating,
-// which is the failure this module exists to prevent. `sidecar` is the same fact about the other
-// process, which gates its own restarts the same way.
+// which is the failure this module exists to prevent. `sidecars` is the same fact about the other
+// processes, which gate their own restarts the same way.
+//
+// And a fourth, which is the reader's own doing rather than the parser's: `mode` says whether a
+// change that parses reaches this page as it lands at all. That is a decision only the server can
+// carry out -- Vite's HMR client has no pause -- so this hook does not keep a copy of it. It reads
+// the server's answer and sends the reader's, which is why the only two functions here are commands
+// rather than state.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   PANEL_BUILD_ROUTE,
+  PANEL_COMMAND_PARAM,
   PANEL_PUBLISH_EVENT,
+  type PanelBuildCommand,
   type PanelBuildReport,
+  type PanelUpdateMode,
   type SidecarSupervisorReport,
 } from "@/features/profile/panelBuildRoute";
 
@@ -71,33 +80,54 @@ export function devServerHooks(candidate: unknown): DevServerHooks | undefined {
     : undefined;
 }
 
-export interface PanelBuild {
+/** Everything the dev server says about the tree this tab is running. */
+export interface PanelBuildState {
   /** What to show: the tree the dev server is serving, or the constant when there is no server. */
   id: string;
   /** Whether this page is still hearing from the dev server, and so whether `id` can be trusted. */
   connected: boolean;
+  /** Whether a change that parses reaches this page as it lands, or waits to be asked for. */
+  mode: PanelUpdateMode;
   /** File names the server is holding back from this page. Empty means the page is current. */
   held: string[];
-  /** Which held file will not parse, and why. */
+  /** Which held file will not parse, and why. Null when nothing held is broken. */
   blocked: string | null;
   /** Every machine whose own supervisor is holding its tree back. */
   sidecars: SidecarSupervisorReport[];
+}
+
+export interface PanelBuild extends PanelBuildState {
+  /**
+   * Whether there is a dev server behind this page at all.
+   *
+   * What the mode control keys off: a bundled panel has no updates to hold in the first place, so
+   * the question does not arise there rather than being unavailable there.
+   */
+  live: boolean;
+  /** Choose whether a change that parses reaches this page as it lands. Server-wide. */
+  setMode(mode: PanelUpdateMode): void;
+  /** Take what is waiting now, without leaving manual. Reloads, since a withheld update is gone. */
+  apply(): void;
 }
 
 /** What a page with no dev server behind it reports: a frozen bundle holds nothing back. */
 const NOT_SERVED = {
   id: PANEL_BUILD_ID,
   connected: true,
+  mode: "auto",
   held: [],
   blocked: null,
   sidecars: [],
-} satisfies PanelBuild;
+} satisfies PanelBuildState;
 
 /** A report is read off the wire, so each field is checked rather than cast. */
-function readReport(report: PanelBuildReport): Omit<PanelBuild, "connected"> {
+function readReport(report: PanelBuildReport): Omit<PanelBuildState, "connected"> {
   if (typeof report.build !== "string" || report.build === "") throw new Error("no build");
   return {
     id: report.build,
+    // Anything that is not the one word meaning "wait" is the ordinary loop: a report that lost
+    // this field should leave the panel updating, not silently stop showing the reader their edits.
+    mode: report.mode === "manual" ? "manual" : "auto",
     held: Array.isArray(report.held) ? report.held.filter((name) => typeof name === "string") : [],
     blocked: typeof report.blocked === "string" ? report.blocked : null,
     sidecars: readSidecars(report.sidecars),
@@ -117,6 +147,23 @@ function readSidecars(report: PanelBuildReport["sidecars"]): SidecarSupervisorRe
 }
 
 /**
+ * Ask the dev server what it is doing, having first told it something when `command` is given.
+ *
+ * One function for both because they answer with the same report: a command that changed the mode
+ * has already produced the state the row should show, so reading it again afterwards would be a
+ * second round trip to learn what the first one just said.
+ */
+function askServer(
+  command: PanelBuildCommand | null,
+  signal?: AbortSignal,
+): Promise<Omit<PanelBuildState, "connected">> {
+  const route = command ? `${PANEL_BUILD_ROUTE}?${PANEL_COMMAND_PARAM}=${command}` : PANEL_BUILD_ROUTE;
+  return fetch(route, { method: command ? "POST" : "GET", signal })
+    .then((answer) => (answer.ok ? answer.json() : Promise.reject(new Error(String(answer.status)))))
+    .then((report: PanelBuildReport) => readReport(report));
+}
+
+/**
  * The build this tab is running, kept current for as long as the page can hear the dev server.
  *
  * `connected` is true with no dev server at all: a bundled build cannot go stale against a server
@@ -128,7 +175,10 @@ function readSidecars(report: PanelBuildReport["sidecars"]): SidecarSupervisorRe
  * exists, so it is the one that most needs a test.
  */
 export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild {
-  const [build, setBuild] = useState<PanelBuild>(NOT_SERVED);
+  const [build, setBuild] = useState<PanelBuildState>(NOT_SERVED);
+  // Derived rather than stored: it is a fact about this page's own wiring, known before the first
+  // fetch, and a state that starts false would flicker the control off on every mount.
+  const live = devServerHooks(devServer) !== undefined;
 
   useEffect(() => {
     const hot = devServerHooks(devServer);
@@ -136,10 +186,9 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
 
     const aborter = new AbortController();
     const reread = () => {
-      fetch(PANEL_BUILD_ROUTE, { signal: aborter.signal })
-        .then((answer) => (answer.ok ? answer.json() : Promise.reject(new Error(String(answer.status)))))
-        .then((report: PanelBuildReport) => {
-          setBuild((current) => ({ ...current, ...readReport(report) }));
+      askServer(null, aborter.signal)
+        .then((fresh) => {
+          setBuild((current) => ({ ...current, ...fresh }));
         })
         .catch(() => {
           // A dev server that cannot say what the tree is gets `unknown`, not the constant this
@@ -182,5 +231,28 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
     };
   }, [devServer]);
 
-  return build;
+  const command = useCallback(
+    (action: PanelBuildCommand) => {
+      if (!devServerHooks(devServer)) return;
+      void askServer(action)
+        .then((fresh) => setBuild((current) => ({ ...current, ...fresh })))
+        // The server refused what the reader pressed. Read the state back rather than leave the row
+        // showing a mode nobody is in: a toggle that reports itself and is not obeyed is worse than
+        // no toggle, since it is the only thing on screen saying why the panel has stopped moving.
+        .catch(() =>
+          askServer(null)
+            .then((fresh) => setBuild((current) => ({ ...current, ...fresh })))
+            .catch(() => setBuild((current) => ({ ...current, id: "unknown" }))),
+        );
+    },
+    [devServer],
+  );
+
+  const setMode = useCallback((mode: PanelUpdateMode) => command(mode), [command]);
+  const apply = useCallback(() => command("apply"), [command]);
+
+  return useMemo(
+    () => ({ ...build, live, setMode, apply }),
+    [build, live, setMode, apply],
+  );
 }

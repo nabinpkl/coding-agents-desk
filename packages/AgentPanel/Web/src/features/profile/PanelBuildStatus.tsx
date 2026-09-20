@@ -7,9 +7,16 @@
 // is broken. This is the difference, said in the one place that is on screen in every surface, and
 // only when there is something to say -- at rest it renders nothing at all.
 //
-// There is no control here, because there is no decision to take: a file that parses is handed over
-// at once, and handing over one that does not would be asking for the broken page on purpose. What
-// clears this row is finishing the edit.
+// It gained a control when the reader gained a choice. While updates are applied as they land there
+// is nothing to decide, and a file that will not parse is not a decision either -- what clears that
+// is finishing the edit. Manual mode is the case with an action in it: whole files queue up, and
+// the only way to hand them over is a reload, because an update Vite was not allowed to send is
+// gone rather than parked. So the button says Apply and means "reload onto the tree as it is now",
+// and it is refused while anything in the queue is still half a file.
+//
+// The mode is also said out loud with nothing waiting, which is the one piece of standing text here
+// that earns its line: a panel that has stopped updating because the reader asked it to, an hour
+// ago, is indistinguishable from a broken one otherwise.
 //
 // It sits BELOW the profile trigger rather than inside it, since the trigger is a button.
 
@@ -17,17 +24,44 @@ import type { PanelBuild } from "@/features/profile/panelBuild";
 
 export function PanelBuildStatus({ build }: { build: PanelBuild }) {
   if (!build.connected) return null;
-  if (build.held.length === 0 && build.sidecars.length === 0) return null;
+  const manual = build.mode === "manual";
+  const waiting = build.held.length;
+  if (waiting === 0 && build.sidecars.length === 0 && !manual) return null;
 
-  const count = `${build.held.length} ${build.held.length === 1 ? "file" : "files"}`;
+  const count = `${waiting} ${waiting === 1 ? "file" : "files"}`;
   return (
     <div className="space-y-1 px-3 pb-1 text-[11px] leading-tight">
-      {build.held.length > 0 ? (
+      {manual || waiting > 0 ? (
         <div className="space-y-0.5">
-          <span className="text-amber-500">{count} held back</span>
+          <div className="flex items-center gap-2">
+            <span className={waiting > 0 ? "text-amber-500" : "text-muted-foreground"}>
+              {waiting === 0 ? "updates manual" : manual ? `${count} waiting` : `${count} held back`}
+            </span>
+            {manual && waiting > 0 ? (
+              <button
+                type="button"
+                onClick={build.apply}
+                disabled={build.blocked !== null}
+                title={
+                  build.blocked
+                    ? `Cannot apply yet: ${build.blocked}`
+                    : "Reload this panel, and every other surface, onto the tree as it is now."
+                }
+                className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px]
+                  font-medium transition-colors hover:bg-accent hover:text-accent-foreground
+                  active:bg-accent/80 focus-visible:outline-2 focus-visible:-outline-offset-2
+                  focus-visible:outline-primary disabled:cursor-not-allowed
+                  disabled:border-border/50 disabled:text-muted-foreground
+                  disabled:hover:bg-transparent"
+              >
+                Apply
+              </button>
+            ) : null}
+          </div>
           {/* Why, truncated rather than wrapped: the sidebar is narrow and the whole message is one
-              hover away. */}
-          <Reason text={build.blocked} fallback={build.held.join(", ")} />
+              hover away. With nothing broken this is the queue itself, which is what the reader is
+              deciding about. */}
+          {waiting > 0 ? <Reason text={build.blocked} fallback={build.held.join(", ")} /> : null}
         </div>
       ) : null}
 

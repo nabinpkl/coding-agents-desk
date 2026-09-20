@@ -5,8 +5,8 @@
  * both halves -- that the page is behind the tree, and why.
  */
 
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 import type { PanelBuild } from "@/features/profile/panelBuild";
 
@@ -14,9 +14,13 @@ function build(overrides: Partial<PanelBuild> = {}): PanelBuild {
   return {
     id: "7373cec+",
     connected: true,
+    live: true,
+    mode: "auto",
     held: [],
     blocked: null,
     sidecars: [],
+    setMode: vi.fn(),
+    apply: vi.fn(),
     ...overrides,
   };
 }
@@ -95,5 +99,53 @@ describe("held work in the sidebar", () => {
     );
     expect(screen.getByText("1 file held back")).toBeDefined();
     expect(screen.getByText("oracle sidecar held back")).toBeDefined();
+  });
+});
+
+// Manual mode is the case with a decision in it. A whole file is held because the reader asked for
+// it to be, so unlike a broken one there is something they can do about it, and unlike auto there
+// is something they need telling.
+describe("updates the reader is holding", () => {
+  it("says which mode is in force even with nothing waiting", () => {
+    // The hour-later case: a panel that stopped updating because somebody asked it to is
+    // indistinguishable from a broken one unless it says so.
+    render(<PanelBuildStatus build={build({ mode: "manual" })} />);
+    expect(screen.getByText("updates manual")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+  });
+
+  it("counts what is waiting and offers to take it", () => {
+    const apply = vi.fn();
+    render(
+      <PanelBuildStatus build={build({ mode: "manual", held: ["main.tsx", "panelBuild.ts"], apply })} />,
+    );
+    expect(screen.getByText("2 files waiting")).toBeDefined();
+    // Nothing is wrong with them, so the line under it is the queue itself.
+    expect(screen.getByText("main.tsx, panelBuild.ts")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to apply while one of them is half a file, and says which", () => {
+    // Applying reloads, and a reload onto a half-written file is the broken page the whole gate
+    // exists to prevent.
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          held: ["main.tsx"],
+          blocked: "main.tsx: Unexpected end of file (line 12)",
+        })}
+      />,
+    );
+    const apply = screen.getByRole("button", { name: "Apply" });
+    expect(apply).toBeDisabled();
+    expect(apply.title).toContain("Unexpected end of file");
+  });
+
+  it("leaves the automatic wording alone, where there is nothing to decide", () => {
+    render(<PanelBuildStatus build={build({ held: ["main.tsx"], blocked: "main.tsx: Syntax Error" })} />);
+    expect(screen.getByText("1 file held back")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
   });
 });

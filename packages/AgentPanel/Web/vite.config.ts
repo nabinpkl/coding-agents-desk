@@ -22,6 +22,7 @@ import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import {
   PANEL_BUILD_ROUTE,
+  PANEL_COMMAND_PARAM,
   PANEL_PUBLISH_EVENT,
 } from "./src/features/profile/panelBuildRoute";
 
@@ -430,6 +431,7 @@ export default defineConfig({
     panelPublish({
       buildRoute: PANEL_BUILD_ROUTE,
       event: PANEL_PUBLISH_EVENT,
+      commandParam: PANEL_COMMAND_PARAM,
       buildId: panelBuildId,
       // Filled by `panelSessions`, which already asks every sidecar it knows whether it is alive.
       // The publisher reports it because the panel's own held work is reported there, and a reader

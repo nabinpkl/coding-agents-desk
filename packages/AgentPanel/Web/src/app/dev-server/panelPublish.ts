@@ -21,6 +21,13 @@
 // What is deliberately NOT held: stylesheets and assets, which cannot break a render, and a full
 // page load, which still transforms whatever is on disk and still reports its own failure through
 // Vite's overlay. The gate covers the live update path, which is the one that interrupts somebody.
+//
+// The same gate takes the reader's own answer to a second question, which the parse cannot answer
+// for them: whether a file that IS whole should arrive while they are in the middle of using the
+// page. An update that parses is still a remount, and a reader watching a session through an edit
+// storm did not ask for one every few seconds. In `manual` the whole files queue with the broken
+// ones and the reader releases them, by a reload, which is the only honest release there is: an
+// update Vite was not allowed to send is gone rather than parked.
 
 import { basename } from "node:path";
 import { transformWithEsbuild, type HotUpdateOptions, type Plugin, type ViteDevServer } from "vite";
@@ -28,10 +35,20 @@ import { transformWithEsbuild, type HotUpdateOptions, type Plugin, type ViteDevS
 /** The shape the Profile row reads. Declared in `features/profile/panelBuildRoute.ts`. */
 export interface PublishReport {
   build: string;
+  mode: UpdateMode;
   held: string[];
   blocked: string | null;
   sidecars: SupervisorReport[];
 }
+
+/**
+ * Whether a change that parses is sent as it lands, or waits for the reader to ask.
+ *
+ * Declared here as well as in `features/profile/panelBuildRoute.ts` rather than imported from it,
+ * for the reason that module's own header gives: this one is loaded by `vite.config.ts` before the
+ * panel's aliases exist. `vite.config.ts` is where the two ends are wired together.
+ */
+export type UpdateMode = "auto" | "manual";
 
 /**
  * One machine's sidecar supervisor, as the dev server heard it.
@@ -55,6 +72,15 @@ export interface PublishGateIO {
   buildId(): string;
   /** What each machine's sidecar supervisor is doing, for every one still answering. */
   sidecars(): SupervisorReport[];
+  /**
+   * Put every open page on the tree as it is now.
+   *
+   * The only way to hand over an update that was withheld: Vite drops an update whose module list
+   * came back empty, so nothing is kept anywhere to replay. Every surface rather than the one whose
+   * reader pressed it, because the mode is the server's, and a phone left on the same panel would
+   * otherwise keep running code the Mac has moved past.
+   */
+  reload(): void;
 }
 
 /** Only these are held. A stylesheet cannot take a render down, and holding one would just delay it. */
@@ -70,13 +96,18 @@ const SUPERVISOR_POLL_MS = 2_000;
  * that decides whether a reader's panel keeps working.
  */
 export function createPublishGate(io: PublishGateIO) {
-  /** Absolute path to why it will not parse, for each file not handed over. */
-  const held = new Map<string, string>();
+  /** Absolute path to why it will not parse, or null for a whole file waiting on the reader. */
+  const held = new Map<string, string | null>();
+
+  /** Auto until somebody says otherwise: the dev loop's default is that an edit reaches the page. */
+  let mode: UpdateMode = "auto";
 
   const report = (): PublishReport => ({
     build: io.buildId(),
+    mode,
     held: [...held.keys()].map((file) => basename(file)),
-    // The first one still held, which is the one a reader can act on. Named by file, because the
+    // The first held file that will not parse, which is the one a reader can do something about
+    // and the one that decides whether the queue can be applied at all. Named by file, because the
     // row is one line wide and the path is the half that does not fit.
     blocked: firstReason(held),
     // Only the ones with something to say. A machine that is merely running is not news, and the
@@ -86,26 +117,60 @@ export function createPublishGate(io: PublishGateIO) {
 
   const broadcast = () => io.broadcast(report());
 
+  /**
+   * Hand over everything being held for the reader rather than for the parser.
+   *
+   * Refused while any held file will not parse, because a reload would land on exactly the broken
+   * page this gate exists to prevent. Nothing is said about that here: the row is already showing
+   * which file and why, and it is the same sentence either way.
+   */
+  const release = (): boolean => {
+    if (held.size === 0 || firstReason(held) !== null) return false;
+    held.clear();
+    broadcast();
+    io.reload();
+    return true;
+  };
+
   return {
     report,
 
     /**
      * Whether this file's update should be suppressed.
      *
-     * `failure` is why it would not parse, or null for a file that is whole. A file that parses is
-     * handed over immediately and clears any hold it had: the save that fixes a half-written file
-     * IS the update the reader is waiting for, so there is nothing left to replay afterwards.
+     * `failure` is why it would not parse, or null for a file that is whole. Under `auto` a file
+     * that parses is handed over immediately and clears any hold it had: the save that fixes a
+     * half-written file IS the update the reader is waiting for, so there is nothing left to replay
+     * afterwards. Under `manual` it joins the queue instead, recorded with no reason, which is what
+     * separates a file waiting on the reader from one waiting on its author.
      */
     hold(file: string, failure: string | null): boolean {
       if (!HELD_EXTENSIONS.test(file)) return false;
-      if (failure === null) {
+      if (failure === null && mode === "auto") {
         if (held.delete(file)) broadcast();
         return false;
       }
-      if (held.get(file) === failure) return true;
+      // `has` as well as `get`, because a whole file held by the mode is recorded as null and that
+      // is the value a missing key does NOT have: `undefined === null` is false.
+      if (held.has(file) && held.get(file) === failure) return true;
       held.set(file, failure);
       broadcast();
       return true;
+    },
+
+    /** Take what is waiting now, staying in whichever mode the reader chose. */
+    apply(): boolean {
+      return release();
+    },
+
+    /** Choose whether a change that parses is sent as it lands. */
+    setMode(next: UpdateMode): void {
+      if (next === mode) return;
+      mode = next;
+      // Coming back to auto IS the "yes, now" the queue was waiting for, and `release` broadcasts
+      // the emptied report itself.
+      if (next === "auto" && release()) return;
+      broadcast();
     },
 
     /** Say the current state again, for a change this gate did not itself make. */
@@ -115,9 +180,14 @@ export function createPublishGate(io: PublishGateIO) {
   };
 }
 
-/** The first file still held, said the way the row shows it. */
-function firstReason(held: Map<string, string>): string | null {
-  for (const [file, failure] of held) return `${basename(file)}: ${failure}`;
+/**
+ * The first file still held that will not PARSE, said the way the row shows it.
+ *
+ * Not simply the first held file: under manual the queue is mostly whole files, and this is what
+ * decides whether the reader is allowed to take them.
+ */
+function firstReason(held: Map<string, string | null>): string | null {
+  for (const [file, failure] of held) if (failure !== null) return `${basename(file)}: ${failure}`;
   return null;
 }
 
@@ -127,6 +197,8 @@ export interface PanelPublishOptions {
   buildRoute: string;
   /** The custom dev-server event each report is pushed on. */
   event: string;
+  /** The query parameter a POST to `buildRoute` carries its command in. */
+  commandParam: string;
   /** The build id of the tree as it is right now. */
   buildId: () => string;
   /**
@@ -167,6 +239,7 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
     broadcast: (report) => server?.environments.client.hot.send(options.event, report),
     buildId: options.buildId,
     sidecars: options.supervisors,
+    reload: () => server?.environments.client.hot.send({ type: "full-reload" }),
   });
 
   return {
@@ -200,8 +273,24 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
       dev.httpServer?.once("close", () => clearInterval(poll));
 
       dev.middlewares.use((request, response, next) => {
-        const path = (request.url ?? "").split("?")[0] ?? "";
-        if (path !== options.buildRoute) return next();
+        // The base is never used: `request.url` on a server is a path, and `URL` only insists on
+        // having something to resolve it against.
+        const asked = new URL(request.url ?? "/", "http://panel");
+        if (asked.pathname !== options.buildRoute) return next();
+
+        if (request.method === "POST") {
+          const command = asked.searchParams.get(options.commandParam);
+          if (command === "auto" || command === "manual") gate.setMode(command);
+          else if (command === "apply") gate.apply();
+          else {
+            // Answering 200 to a command this does not understand would leave a toggle reporting a
+            // mode nobody is in, which is the one failure a control like this must not have.
+            response.statusCode = 400;
+            response.end(`unknown ${options.buildRoute} command`);
+            return;
+          }
+        }
+
         response.statusCode = 200;
         response.setHeader("content-type", "application/json; charset=utf-8");
         response.setHeader("cache-control", "no-store");

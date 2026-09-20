@@ -16,6 +16,33 @@ export const PANEL_BUILD_ROUTE = "/@panel-build";
 export const PANEL_PUBLISH_EVENT = "panel:publish-state";
 
 /**
+ * Whether a change that parses reaches this page the moment it lands.
+ *
+ * `auto` is the dev loop as it has always been. `manual` is for reading the panel while somebody is
+ * editing it: a whole file is held back alongside the half-written ones and nothing on screen moves
+ * until the reader asks for it. The parse gate is the same in both, so a broken file is never
+ * handed over either way -- what the mode decides is only what happens to the GOOD ones.
+ *
+ * It lives on the dev server rather than in this page's storage, for the same reason the gate does:
+ * Vite's HMR client has no pause, so the only place an update can be sat on is before it is sent.
+ * One server then means one answer for every surface it serves, which is what a reader with the
+ * panel open on a phone and a Mac wants from a control they set once. It is forgotten when the
+ * server restarts, and the row says which mode is in force so that is visible rather than implied.
+ */
+export type PanelUpdateMode = "auto" | "manual";
+
+/** Setting the mode, or taking what is waiting without leaving manual. */
+export type PanelBuildCommand = PanelUpdateMode | "apply";
+
+/**
+ * How a command is sent: `POST <PANEL_BUILD_ROUTE>?action=manual`, answered with the new report.
+ *
+ * A query parameter rather than a body, because the dev server's middleware would otherwise have to
+ * read and bound one for a single word, and this carries nothing that does not belong in a URL.
+ */
+export const PANEL_COMMAND_PARAM = "action";
+
+/**
  * What the sidecar's own supervisor is holding back.
  *
  * The other half of the same idea, in a different process: the sidecar runs the working tree, so it
@@ -38,16 +65,25 @@ export interface SidecarSupervisorReport {
 export interface PanelBuildReport {
   /** Short commit, `+`-suffixed when the tree it was read from was not exactly that commit. */
   build: string;
+  /** Whether a change that parses is handed to this page at once, or waits to be asked for. */
+  mode: PanelUpdateMode;
   /**
    * File names changed on disk and NOT handed to this page yet, newest last.
    *
-   * Empty is the ordinary state, and the usual one: a file that parses is handed over at once, so
-   * anything in here is a file that is not yet a whole file. It is the fact that had nowhere to
-   * live before: a reader could not tell a panel that was
-   * current from one that had stopped being told.
+   * Empty is the ordinary state, and the usual one under `auto`: a file that parses is handed over
+   * at once, so anything in here is a file that is not yet a whole file. Under `manual` the whole
+   * ones queue here too, and the reader is the one who empties it. Either way it is the fact that
+   * had nowhere to live before: a reader could not tell a panel that was current from one that had
+   * stopped being told.
    */
   held: string[];
-  /** Which held file will not parse, and why. Null when nothing is held. */
+  /**
+   * Which held file will not parse, and why. Null when nothing held is broken.
+   *
+   * Not the same question as `held` being non-empty, since manual mode holds whole files too, and
+   * it is what decides whether the reader can apply them: a reload onto a half-written file is
+   * exactly the broken page this gate exists to prevent.
+   */
   blocked: string | null;
   /**
    * Every machine whose sidecar supervisor is holding its tree back. Empty is the ordinary state.

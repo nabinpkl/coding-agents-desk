@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronUp, CircleUser, Gauge, LayoutGrid } from "lucide-react";
+import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw } from "lucide-react";
 import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import { UsageModal } from "@/features/usage/UsageModal";
@@ -26,7 +26,18 @@ import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
  * measurement, no anchor positioning, and nothing to clip it, because the row sits outside the
  * project tree's scroller.
  */
-export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopParkHandle }) {
+export function ProfileRow({
+  usage,
+  park,
+  // The seam `panelBuild.ts` and the error boundary already use: `import.meta.hot` cannot be stood
+  // up under Vitest, and the live-updates control exists only when there is a dev server behind
+  // this page, so it is the half that most needs a test.
+  devServer = import.meta.hot,
+}: {
+  usage: UsageHandle;
+  park: DesktopParkHandle;
+  devServer?: unknown;
+}) {
   const [open, setOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [parkOpen, setParkOpen] = useState(false);
@@ -55,7 +66,7 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
   // whole project tree.
   useEffect(() => {
     if (!open) return;
-    menu.current?.querySelector<HTMLElement>("[role='menuitem']:not([aria-disabled='true'])")?.focus();
+    menu.current?.querySelector<HTMLElement>(`${MENU_ITEMS}:not([aria-disabled='true'])`)?.focus();
   }, [open]);
 
   const quota = quotaOf(usage);
@@ -63,7 +74,7 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
   // cannot change while the page is alive, and re-probing on every menu open
   // would be pretending otherwise.
   const media = useMemo(() => detectMediaCapabilities(), []);
-  const build = usePanelBuild();
+  const build = usePanelBuild(devServer);
 
   return (
     <div className="relative shrink-0 border-t border-border pb-[env(safe-area-inset-bottom)]">
@@ -84,7 +95,7 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
             if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
             event.preventDefault();
             const items = Array.from(
-              menu.current?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? [],
+              menu.current?.querySelectorAll<HTMLElement>(MENU_ITEMS) ?? [],
             ).filter((item) => item.getAttribute("aria-disabled") !== "true");
             if (items.length === 0) return;
             const index = items.indexOf(document.activeElement as HTMLElement);
@@ -140,6 +151,36 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
               <span className="shrink-0 text-xs text-muted-foreground">no yabai</span>
             ) : null}
           </button>
+          {/* Whether an edit reaches this page as it is saved. Only where there is a dev server to
+              hold anything: a bundled panel receives no updates at all, so the control would be
+              permanently dead rather than merely unavailable, which is the Desktop park case above.
+              It stays server-side -- see `panelBuildRoute.ts` -- so this is the same answer on every
+              surface, and the strip under the row is where it is said once the menu closes. */}
+          {build.live ? (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={build.mode === "auto"}
+              onClick={() => build.setMode(build.mode === "auto" ? "manual" : "auto")}
+              title={
+                build.mode === "auto"
+                  ? "Edits reach this page as they are saved. Switch to hold them until you ask."
+                  : "Edits are held until you apply them. Switch back to take each one as it lands."
+              }
+              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
+                transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80
+                focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2
+                focus-visible:outline-primary"
+            >
+              {build.mode === "auto" ? (
+                <RefreshCw className="size-4 shrink-0" aria-hidden />
+              ) : (
+                <Pause className="size-4 shrink-0" aria-hidden />
+              )}
+              <span className="min-w-0 flex-1 truncate">Live updates</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{build.mode}</span>
+            </button>
+          ) : null}
           {/* Identity, and not interactive. What makes this a profile menu rather than a button
               with a step in front of it. Both facts come from records the sidecar already parses;
               nothing here reads Codex's token store. */}
@@ -245,6 +286,9 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
     </div>
   );
 }
+
+/** Everything the arrow keys walk, which is two roles now that one of the entries is a toggle. */
+const MENU_ITEMS = "[role='menuitem'],[role='menuitemcheckbox']";
 
 function vendorNames(usage: UsageHandle): string {
   const named = usage.state.kind === "ready"

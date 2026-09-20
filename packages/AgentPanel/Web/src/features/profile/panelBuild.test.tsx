@@ -7,6 +7,7 @@ import {
 } from "@/features/profile/panelBuild";
 import {
   PANEL_BUILD_ROUTE,
+  PANEL_COMMAND_PARAM,
   PANEL_PUBLISH_EVENT,
   type PanelBuildReport,
 } from "@/features/profile/panelBuildRoute";
@@ -233,5 +234,107 @@ describe("work the dev server is holding", () => {
     expect(asked).toEqual([]);
     expect(result.current.held).toEqual([]);
     expect(result.current.sidecars).toEqual([]);
+  });
+});
+
+// Which of the two questions the reader gets to answer: not whether a broken file is sent, which is
+// never, but whether a whole one arrives while they are using the page.
+describe("choosing when updates arrive", () => {
+  it("has no say in a build with no dev server behind it", () => {
+    const { result } = renderHook(() => usePanelBuild(null));
+    expect(result.current.live).toBe(false);
+    expect(result.current.mode).toBe("auto");
+  });
+
+  it("knows it has one the moment it is wired to a server, before the first answer", async () => {
+    const server = devServer();
+    serveReport({ build: "7373cec" });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    // Derived rather than fetched: a state that started false would flicker the control off on
+    // every mount.
+    expect(result.current.live).toBe(true);
+    // Settle the mount read so its state lands inside the test rather than after it.
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+  });
+
+  it("reads the mode off the same report as everything else", async () => {
+    const server = devServer();
+    serveReport({ build: "7373cec", mode: "manual", held: ["main.tsx"] });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.mode).toBe("manual"));
+  });
+
+  it("reads a mode that is not one of the two as the ordinary loop", async () => {
+    // A report that lost this field should leave the panel updating, not silently stop showing the
+    // reader their own edits.
+    const server = devServer();
+    serveReport({ build: "7373cec", mode: "sometimes" as never });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    expect(result.current.mode).toBe("auto");
+  });
+
+  it("tells the server, and takes the answer rather than asking again", async () => {
+    const server = devServer();
+    const { asked } = serveReport({ build: "7373cec", mode: "manual" });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+
+    act(() => result.current.setMode("manual"));
+    await waitFor(() => expect(result.current.mode).toBe("manual"));
+    expect(asked.at(-1)).toEqual({
+      url: `${PANEL_BUILD_ROUTE}?${PANEL_COMMAND_PARAM}=manual`,
+      method: "POST",
+    });
+    // The mount read and the command, and nothing since: the command answers with the new state.
+    expect(asked).toHaveLength(2);
+  });
+
+  it("asks for what is waiting without leaving manual", async () => {
+    const server = devServer();
+    const { asked } = serveReport({ build: "7373cec", mode: "manual" });
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+
+    act(() => result.current.apply());
+    await waitFor(() =>
+      expect(asked.at(-1)).toEqual({
+        url: `${PANEL_BUILD_ROUTE}?${PANEL_COMMAND_PARAM}=apply`,
+        method: "POST",
+      }),
+    );
+  });
+
+  it("reads the state back when the server refuses the command", async () => {
+    // A toggle that reports itself and is not obeyed is worse than no toggle: it is the only thing
+    // on screen saying why the panel has stopped moving.
+    const server = devServer();
+    const asked: { url: string; method: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        asked.push({ url: String(input), method });
+        if (method === "POST") return new Response("no", { status: 400 });
+        return new Response(JSON.stringify({ build: "7373cec", mode: "auto" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const { result } = renderHook(() => usePanelBuild(server.hooks));
+    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+
+    act(() => result.current.setMode("manual"));
+    await waitFor(() => expect(asked).toHaveLength(3));
+    expect(asked.map((one) => one.method)).toEqual(["GET", "POST", "GET"]);
+    expect(result.current.mode).toBe("auto");
+  });
+
+  it("says nothing to a server that is not there", () => {
+    const { asked } = serveReport({ build: "should-not-be-asked" });
+    const { result } = renderHook(() => usePanelBuild(null));
+    act(() => result.current.setMode("manual"));
+    expect(asked).toEqual([]);
   });
 });
