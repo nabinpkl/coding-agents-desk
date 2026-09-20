@@ -71,6 +71,11 @@ export class FakeHttpTransport implements AgentHttpTransport {
     };
   }
 
+  /** A recognisable address rather than a loadable one: jsdom fetches no images. */
+  resourceUrl(path: string): string {
+    return `fake:${path}`;
+  }
+
   /** Delivers one message to the newest subscription whose path contains `match`. */
   deliver(match: string, payload: unknown): void {
     const subscription = this.find(match);

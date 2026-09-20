@@ -2,6 +2,7 @@
 // its summaries are written in, the blocks a message's content becomes, and what its
 // usage record says about tokens and the prompt cache.
 
+import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import { contextWindowFor } from "@/config";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import type { ActivityBlock, DeclaredModel, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -119,6 +120,24 @@ function nonTextResultPreview(content: unknown): string {
     .join('\n');
 }
 
+/**
+ * The media type and base64 bytes of an image content block, or null when it is not one the panel
+ * can be served.
+ *
+ * Only inline base64 in the API's own four types. The type is checked here, where the block is
+ * made, because it later becomes a response's content-type on the panel's origin; anything else
+ * stays a Plain block, whose Raw drawer still holds the whole record.
+ */
+function pastedImage(b: Record<string, unknown>): { mediaType: string; data: string } | null {
+  const source = b.source;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const { type, media_type: mediaType, data } = source as Record<string, unknown>;
+  if (type !== 'base64' || typeof data !== 'string' || data.length === 0) return null;
+  if (typeof mediaType !== 'string') return null;
+  if (!(COMPOSER_IMAGE_MEDIA_TYPES as readonly string[]).includes(mediaType)) return null;
+  return { mediaType, data };
+}
+
 export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
   if (typeof content === 'string') {
     return content.trim()
@@ -131,6 +150,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
   const out: NormalizedClaudeBlock[] = [];
   for (const b of content as Array<Record<string, unknown>>) {
     const t = b?.type;
+    const image = t === 'image' ? pastedImage(b) : null;
     if (t === 'text' && typeof b.text === 'string' && (b.text as string).trim()) {
       out.push({ block: { kind: 'text', text: b.text as string }, raw: b.text as string });
     } else if (t === 'thinking') {
@@ -223,6 +243,11 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
           raw: stringifyForDisplay(b),
         });
       }
+    } else if (image) {
+      // A picture pasted into the prompt. Its bytes are the raw half, so `extractBlockRaw` hands
+      // them to the image route and the event itself carries the media type alone. Before this it
+      // fell through to Plain: sixty-odd kilobytes of base64 JSON on every page, drawn as a card.
+      out.push({ block: { kind: 'image', mediaType: image.mediaType }, raw: image.data });
     } else {
       const serialized = stringifyForDisplay(b);
       out.push({ block: plainBlock(b), raw: serialized });

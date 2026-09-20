@@ -14,7 +14,12 @@ export type SourceId = 'claude' | 'codex' | 'pi';
 export type EventMode = 'raw' | 'nice';
 
 export interface ActivityBlock {
-  kind: 'text' | 'tool_use' | 'tool_result' | 'reasoning' | 'compaction' | 'metadata' | 'plain' | 'raw';
+  kind: 'text' | 'tool_use' | 'tool_result' | 'reasoning' | 'compaction' | 'metadata' | 'plain' | 'raw' | 'image';
+  // Set on image blocks, and the only thing they carry. The bytes stay in the transcript and are
+  // served by `GET .../events/<n>/blocks/<b>/image`: one pasted screenshot is tens of kilobytes of
+  // base64, and it used to ride every page and every reconnect as a Plain JSON card nobody could
+  // read.
+  mediaType?: string;
   label?: string;
   text?: string;
   tool?: string;

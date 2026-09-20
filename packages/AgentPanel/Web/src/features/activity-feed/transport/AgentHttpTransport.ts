@@ -56,6 +56,14 @@ export interface AgentHttpTransport {
 
   /** Follows a server-sent event stream. Returns unsubscribe. */
   subscribe(path: string, handlers: SubscribeHandlers): () => void;
+
+  /**
+   * An address the page itself can load, for a response that is not text: an `<img src>`.
+   *
+   * Absent where there is no such address. A relayed response arrives as text frames through the
+   * host, and nothing the browser loads on its own goes through that channel.
+   */
+  resourceUrl?(path: string): string;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,5 +345,9 @@ export class FetchHttpTransport implements AgentHttpTransport {
     source.onmessage = (event) => handlers.onMessage(event.data);
     source.onerror = () => handlers.onError("stream failed");
     return () => source.close();
+  }
+
+  resourceUrl(path: string): string {
+    return `${this.origin}${path}`;
   }
 }

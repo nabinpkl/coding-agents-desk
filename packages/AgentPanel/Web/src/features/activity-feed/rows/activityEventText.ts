@@ -71,6 +71,7 @@ export function eventPreview(ev: ActivityEvent): string {
     if (block.kind === "tool_use") { preview = block.summary || block.tool || ""; break; }
     if (block.kind === "tool_result" && block.preview) { preview = block.preview; break; }
     if (block.kind === "reasoning" && block.text) { preview = block.text; break; }
+    if (block.kind === "image") { preview = "Image"; break; }
     // A metadata or plain block IS the content of a harness state line -- the whole
     // event is one labelled dump. Scanning only the four kinds above made every such
     // row in the raw view read as a chip beside "(no content)", which is exactly the

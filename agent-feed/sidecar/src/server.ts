@@ -21,6 +21,7 @@ import { createWindowRoutes } from "@/http/windowRoutes";
 import { createWebrtcTileRoutes } from "@/http/tile-peer/webrtcTileRoutes";
 import type { RouteHandler } from "@/http/route";
 import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
+import { createEventImageRoutes } from "@/http/session-routes/eventImageRoutes";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 import { createTaskRoutes } from "@/http/session-routes/taskRoutes";
 import { createAgentTerminalRoutes } from "@/http/agentTerminalRoutes";
@@ -156,6 +157,8 @@ const routes: RouteHandler[] = [
   createTmuxQuestionRoutes({ answer: answerTmuxQuestion }),
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
+  // And `/events/<n>/blocks/<b>/image`, the picture behind an image block.
+  createEventImageRoutes(),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
   // here is only for readability.
   createUsageRoutes(),

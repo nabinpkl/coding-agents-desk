@@ -9,6 +9,7 @@ const KNOWN_BLOCK_KINDS = new Set<ActivityBlock["kind"]>([
   "metadata",
   "plain",
   "raw",
+  "image",
 ]);
 
 const KNOWN_EVENT_TYPES = new Set<ActivityEvent["type"]>([
@@ -58,6 +59,7 @@ export function normalizeActivityBlock(value: unknown): ActivityBlock {
     hiddenChars: typeof source.hiddenChars === "number" ? source.hiddenChars : undefined,
     hiddenLines: typeof source.hiddenLines === "number" ? source.hiddenLines : undefined,
     callId: optionalString(source.callId),
+    mediaType: optionalString(source.mediaType),
   };
 }
 

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
+import { ImageLightbox } from "@/features/image-viewer/ImageLightbox";
 
 /**
  * The images a terminal composer is holding, above the field and inside its border.
@@ -78,96 +79,28 @@ export function ComposerImageStrip({
         ))}
       </ul>
       {shown?.url ? (
-        <EnlargedComposerImage
-          id={shown.id}
+        <ImageLightbox
+          title={`Image #${shown.id}`}
           url={shown.url}
-          removable={!disabled}
-          onRemove={() => {
-            onRemove(shown.id);
-            setOpened(null);
-          }}
+          alt={`Image #${shown.id} in the composer`}
           onClose={() => setOpened(null)}
-        />
+        >
+          {/* Full width because it is the touch answer to the corner button: the reader got here
+              by tapping the picture, which is the large target. */}
+          {!disabled ? (
+            <button
+              type="button"
+              onClick={() => {
+                onRemove(shown.id);
+                setOpened(null);
+              }}
+              className="min-h-11 w-full touch-manipulation rounded-lg border border-border text-sm font-medium text-muted-foreground outline-none transition-colors hover:border-destructive hover:text-destructive focus-visible:ring-2 focus-visible:ring-primary active:bg-muted"
+            >
+              Remove from the composer
+            </button>
+          ) : null}
+        </ImageLightbox>
       ) : null}
     </>
-  );
-}
-
-/**
- * One image, as large as the viewport allows.
- *
- * A native `<dialog>` for the same reasons every other dialog in this panel is one: Escape and the
- * backdrop come with it, and it is the top layer rather than a z-index somebody has to keep
- * winning. The Remove here is full width because it is the touch answer to the corner button --
- * the reader got here by tapping the picture, which is the large target.
- */
-function EnlargedComposerImage({
-  id,
-  url,
-  removable,
-  onRemove,
-  onClose,
-}: {
-  id: number;
-  url: string;
-  removable: boolean;
-  onRemove: () => void;
-  onClose: () => void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, []);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      aria-label={`Image #${id}`}
-      className="fixed inset-0 z-60 m-0 h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-transparent p-4 text-foreground backdrop:bg-black/70 open:flex"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="flex max-h-full w-full max-w-2xl flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-2xl">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-            {`Image #${id}`}
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-        {/* Contained rather than cropped: this view exists to show what the picture actually is.
-            Bounded rather than given the rest of the dialog, because an image far smaller than the
-            screen would otherwise be blown up to fill it. */}
-        <img
-          src={url}
-          alt={`Image #${id} in the composer`}
-          className="max-h-[70dvh] w-full rounded-lg object-contain"
-        />
-        {removable ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="min-h-11 w-full touch-manipulation rounded-lg border border-border text-sm font-medium text-muted-foreground outline-none transition-colors hover:border-destructive hover:text-destructive focus-visible:ring-2 focus-visible:ring-primary active:bg-muted"
-          >
-            Remove from the composer
-          </button>
-        ) : null}
-      </div>
-    </dialog>
   );
 }

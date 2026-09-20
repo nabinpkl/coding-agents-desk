@@ -11,6 +11,7 @@ import { DiffBlock } from "@/features/activity-feed/blocks/DiffBlock";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
+import { EventImageBlock } from "@/features/activity-feed/blocks/EventImageBlock";
 import { shellCommand } from "@/features/activity-feed/rows/activityEventText";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/blocks/streamingText";
@@ -270,6 +271,9 @@ export function Block({
   }
   if (b.kind === "metadata" || b.kind === "plain") {
     return <LabeledTextBlock block={b} />;
+  }
+  if (b.kind === "image") {
+    return <EventImageBlock ctx={ctx} eventIndex={eventIndex} blockIndex={blockIndex} />;
   }
   // Raw blocks never reach here: partitionEventBlocks routes every one of them
   // into the event's Raw drawer. Compaction blocks render as a full-row banner

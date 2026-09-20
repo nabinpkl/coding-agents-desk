@@ -10,6 +10,32 @@ function userLine(content: unknown): string {
   });
 }
 
+test('a pasted image becomes an image block, and its bytes stay out of the event', () => {
+  // It used to fall through to Plain: the whole base64 payload, pretty-printed, on every page the
+  // row rode in. The bytes are still reachable, as the block's raw half.
+  const data = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+  const line = userLine([
+    { type: 'text', text: '[Image #3] what about this' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
+  ]);
+
+  const event = claudeAdapter.processLine(line)?.event;
+  expect(event!.blocks[1]).toEqual({ kind: 'image', mediaType: 'image/png' });
+  expect(JSON.stringify(event)).not.toContain(data);
+  expect(event!.humanTurn).toBe(true);
+});
+
+test('an image in a type the panel cannot be served stays a Plain block', () => {
+  // The media type becomes a response's content-type on the panel's origin, so an SVG does not
+  // get to be an image block however it is labelled.
+  const line = userLine([
+    { type: 'image', source: { type: 'base64', media_type: 'image/svg+xml', data: 'PHN2Zy8+' } },
+  ]);
+
+  const event = claudeAdapter.processLine(line)?.event;
+  expect(event!.blocks[0]!.kind).toBe('plain');
+});
+
 test('a tool result with no text is still that call\'s result, not the reader\'s turn', () => {
   // An MCP call answers with `tool_reference` items rather than text. Before this, the
   // envelope became a Plain block with no callId: nothing to pair it with its tool call,

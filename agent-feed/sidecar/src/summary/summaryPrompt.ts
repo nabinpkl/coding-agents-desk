@@ -34,6 +34,8 @@ const BLOCK_CHARS: Record<ActivityBlock["kind"], number> = {
   metadata: 200,
   plain: 1_000,
   raw: 200,
+  // An image block carries a media type and no text, so there is nothing of it to put in a prompt.
+  image: 0,
 };
 
 export interface SummaryPromptInput {

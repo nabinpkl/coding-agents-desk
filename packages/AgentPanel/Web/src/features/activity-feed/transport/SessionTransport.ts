@@ -25,6 +25,7 @@ export function sessionTransport(
   sessionId?: string,
 ): AgentHttpTransport {
   if (!sessionId) return base;
+  const resourceUrl = base.resourceUrl?.bind(base);
   return {
     request(method: string, path: string, options?: { body?: unknown; signal?: AbortSignal }): Promise<TransportResponse> {
       return base.request(method, sessionPath(sessionId, path), options);
@@ -32,5 +33,10 @@ export function sessionTransport(
     subscribe(path: string, handlers: SubscribeHandlers): () => void {
       return base.subscribe(sessionPath(sessionId, path), handlers);
     },
+    // Only where the base has one: a wrapper that invented an address would hand a relayed page a
+    // URL nothing answers.
+    ...(resourceUrl
+      ? { resourceUrl: (path: string) => resourceUrl(sessionPath(sessionId, path)) }
+      : {}),
   };
 }

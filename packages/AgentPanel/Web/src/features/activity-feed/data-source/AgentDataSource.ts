@@ -100,6 +100,16 @@ export interface AgentDataSource {
   ): Promise<string>;
 
   /**
+   * Where the page can load the picture behind one image block, or null where it cannot: a
+   * relayed transport has no address a browser loads by itself.
+   */
+  eventImageUrl(
+    session: SessionReference,
+    eventIndex: number,
+    blockIndex: number,
+  ): string | null;
+
+  /**
    * Follows the session's background tasks. Returns unsubscribe.
    *
    * Its own stream rather than a field on the session events, because the events stream remounts

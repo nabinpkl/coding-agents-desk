@@ -40,6 +40,14 @@ describe("sessionTransport", () => {
     expect(inner.subscribe).toHaveBeenCalledWith("/session/agent/api/stream", expect.anything());
   });
 
+  it("addresses a loadable resource at the named session too, and invents none the base lacks", () => {
+    const inner = { ...base(), resourceUrl: (path: string) => `https://panel${path}` };
+    expect(sessionTransport(inner, "agent").resourceUrl?.("/api/x/image")).toBe(
+      "https://panel/session/agent/api/x/image",
+    );
+    expect(sessionTransport(base(), "agent").resourceUrl).toBeUndefined();
+  });
+
   it("carries the options through untouched", async () => {
     const inner = base();
     const signal = new AbortController().signal;

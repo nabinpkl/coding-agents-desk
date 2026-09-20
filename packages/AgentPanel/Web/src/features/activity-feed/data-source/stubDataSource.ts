@@ -15,6 +15,7 @@ export function stubDataSource(overrides: Partial<AgentDataSource> = {}): AgentD
     fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
     subscribeSessionEvents: () => () => {},
     fetchRawEvent: async () => "",
+    eventImageUrl: () => null,
     subscribeBackgroundTasks: () => () => {},
     subscribeTaskOutput: () => () => {},
     subscribeSubagentTranscript: () => () => {},

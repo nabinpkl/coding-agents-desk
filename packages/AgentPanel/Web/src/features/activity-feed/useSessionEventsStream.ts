@@ -17,7 +17,10 @@ export interface ActivityBlock {
     | "compaction"
     | "metadata"
     | "plain"
-    | "raw";
+    | "raw"
+    | "image";
+  /** On an image block, and all it carries: the picture is fetched by address, not sent inline. */
+  mediaType?: string;
   label?: string;
   text?: string;
   tool?: string;

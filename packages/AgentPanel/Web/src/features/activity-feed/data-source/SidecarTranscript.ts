@@ -233,6 +233,16 @@ export class SidecarTranscript extends SidecarRoutes {
     return response.body;
   }
 
+  /**
+   * An address rather than a fetch, because the answer is the image's own bytes and this
+   * transport's responses are text. The browser loads it, and caches it by that address.
+   */
+  eventImageUrl(session: SessionReference, eventIndex: number, blockIndex: number): string | null {
+    return this.transport.resourceUrl?.(
+      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/image?mode=${session.mode}`,
+    ) ?? null;
+  }
+
   // ---------------------------------------------------------------------
   // Extension UI
   // ---------------------------------------------------------------------
