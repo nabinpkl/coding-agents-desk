@@ -88,4 +88,14 @@ export type TmuxQuestionOutcome =
      * of is not something a surface can put back.
      */
     keptText: { question: string; text: string }[];
+    /**
+     * Whether any key reached the pane before this refused.
+     *
+     * A refusal is not always a no-op, and saying it was is the failure this field exists to stop.
+     * The driver walks the dialog pressing as it goes, so a question that moves under it can refuse
+     * with one question already answered and a box already ticked in the terminal -- measured, and
+     * the panel said "nothing was sent" over the top of it. False means no key went out at all,
+     * which is the ordinary case: most refusals are decided before the first press.
+     */
+    sent: boolean;
   };

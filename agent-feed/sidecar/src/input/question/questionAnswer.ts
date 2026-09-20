@@ -118,16 +118,31 @@ export async function answerTmuxQuestion(
   answers: readonly TmuxQuestionAnswer[],
   runtime: QuestionRuntime = LIVE,
 ): Promise<TmuxQuestionOutcome> {
+  // Whether anything reached the pane, recorded by wrapping the one call that can do it rather
+  // than threaded through every function below. A refusal has to say this: the driver presses as
+  // it walks, so it can give up with answers already standing in the terminal.
+  let sent = false;
+  const watched: QuestionRuntime = {
+    ...runtime,
+    send: async (target, bytes) => {
+      sent = true;
+      await runtime.send(target, bytes);
+    },
+  };
   return inTurn(sessionId, async () => {
     try {
-      const pane = await runtime.pane(sessionId);
-      if (!pane) return refused("no-pane", answers);
-      const reason = await drive(pane, answers, runtime);
-      return reason === null ? { answered: true } : refused(reason, answers);
+      const pane = await watched.pane(sessionId);
+      if (!pane) return refused("no-pane", answers, sent);
+      const reason = await drive(pane, answers, watched);
+      return reason === null ? { answered: true } : refused(reason, answers, sent);
     } catch (error) {
       // No Escape on the way out, deliberately: see the header. A dialog left standing is one the
       // reader can still finish, and the words they typed here go back in the outcome.
-      return refused(error instanceof TmuxUnavailable ? "tmux-unavailable" : "no-pane", answers);
+      return refused(
+        error instanceof TmuxUnavailable ? "tmux-unavailable" : "no-pane",
+        answers,
+        sent,
+      );
     }
   });
 }
@@ -296,15 +311,15 @@ function sanitised(text: string): string {
  * Finishes the dialog, which for most calls means noticing it has already finished itself.
  *
  * A dialog of ONE single-select question draws no Submit tab at all and closes on the keystroke
- * that answers it -- measured, and it is the commonest shape there is. So an absent dialog here is
- * success rather than the `no-dialog` refusal it would be anywhere else in this module.
+ * that answers it -- measured, and it is the commonest shape there is. So a dialog that has gone
+ * is success here rather than the `no-dialog` refusal it would be anywhere else in this module.
  */
 async function submit(
   pane: string,
   answers: readonly TmuxQuestionAnswer[],
   runtime: QuestionRuntime,
 ): Promise<TmuxQuestionRefusal | null> {
-  if (questionDialog(await runtime.screen(pane)) === null) return null;
+  if (await dialogGone(pane, runtime)) return null;
   const review = await goTo(pane, answers, "review", runtime);
   if (!review) return "wrong-dialog";
   // Never a partial submit. An unanswered tab here means a press did not land, and sending it
@@ -314,10 +329,7 @@ async function submit(
   if (!row?.number) return "wrong-dialog";
 
   await send(pane, String(row.number), runtime);
-  // `poll` answers with the view that satisfied it, so a null here is the budget running out with
-  // the dialog still on the screen.
-  const gone = await poll(pane, runtime, (view) => questionDialog(view) === null);
-  return gone === null ? "still-open" : null;
+  return (await waitForDialogToGo(pane, runtime)) ? null : "still-open";
 }
 
 /**
@@ -436,14 +448,48 @@ async function poll(
   }
 }
 
+/**
+ * Whether the dialog has gone, as opposed to the screen being unreadable.
+ *
+ * Two reads rather than one, and that is the whole point. This module reads a dialog off a screen,
+ * so "not a dialog" is also what a pane caught mid-redraw says, and what an unfamiliar shape says
+ * -- and the caller treats this answer as SUCCESS. A screen that is merely between paints changes
+ * between two reads a poll interval apart; one with no dialog on it does not. So the second read
+ * has to agree, character for character, before anything is reported as answered.
+ */
+async function dialogGone(pane: string, runtime: QuestionRuntime): Promise<boolean> {
+  const first = await runtime.screen(pane);
+  if (questionDialog(first) !== null) return false;
+  await waiter(runtime)(REDRAW_POLL_MS);
+  const second = await runtime.screen(pane);
+  return second.screen === first.screen && questionDialog(second) === null;
+}
+
+/** The same question, asked until the redraw budget runs out. */
+async function waitForDialogToGo(pane: string, runtime: QuestionRuntime): Promise<boolean> {
+  const limit = runtime.redrawLimitMs ?? REDRAW_LIMIT_MS;
+  const started = Date.now();
+  for (;;) {
+    if (await dialogGone(pane, runtime)) return true;
+    if (Date.now() - started >= limit) return false;
+    await waiter(runtime)(REDRAW_POLL_MS);
+  }
+}
+
+function waiter(runtime: QuestionRuntime): (ms: number) => Promise<void> {
+  return runtime.wait ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+}
+
 /** A refusal, carrying back every word the reader typed so none of them is lost to it. */
 function refused(
   reason: TmuxQuestionRefusal,
   answers: readonly TmuxQuestionAnswer[],
+  sent: boolean,
 ): TmuxQuestionOutcome {
   return {
     answered: false,
     reason,
+    sent,
     keptText: answers
       .filter((answer) => answer.other.length > 0)
       .map((answer) => ({ question: answer.question, text: answer.other })),

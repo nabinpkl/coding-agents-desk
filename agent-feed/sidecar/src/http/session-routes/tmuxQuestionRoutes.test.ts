@@ -69,7 +69,12 @@ test("answers reach the driver with their labels intact", async () => {
 
 test("a refusal answers 200 so its kept text is not thrown away as a failed request", async () => {
   const { route } = routeWith({
-    answer: async () => ({ answered: false, reason: "no-dialog", keptText: [{ question: "Which colour?", text: "what I wrote" }] }),
+    answer: async () => ({
+      answered: false,
+      reason: "no-dialog",
+      sent: false,
+      keptText: [{ question: "Which colour?", text: "what I wrote" }],
+    }),
   });
   const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/question`, {
     answers: [{ question: "Which colour?", chosen: [], other: "what I wrote" }],
@@ -79,6 +84,9 @@ test("a refusal answers 200 so its kept text is not thrown away as a failed requ
   expect(await response!.json()).toEqual({
     answered: false,
     reason: "no-dialog",
+    // Passed through as the driver reported it: whether any key reached the pane is the caller's
+    // to say, and the route is not the place to decide it.
+    sent: false,
     keptText: [{ question: "Which colour?", text: "what I wrote" }],
   });
 });

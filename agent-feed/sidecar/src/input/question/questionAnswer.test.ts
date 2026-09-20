@@ -196,8 +196,59 @@ test("every refusal hands back the words the reader typed", async () => {
   expect(outcome).toEqual({
     answered: false,
     reason: "wrong-dialog",
+    sent: false,
     keptText: [{ question: "Which colour?", text: "the sentence I wrote" }],
   });
+});
+
+test("a screen this cannot read is a refusal, never a question reported as answered", async () => {
+  // The hazard `dialogGone` exists for. "No dialog here" is what an unreadable screen says too,
+  // and the caller reads it as the dialog having closed -- so a pane showing anything this module
+  // does not recognise used to come back as a successful answer nobody had given.
+  const pane = new QuestionPane([COLOUR]);
+  const { runtime } = driving(pane);
+  let reads = 0;
+  const garbled: QuestionRuntime = {
+    ...runtime,
+    // A pane mid-repaint: never the same twice, and never a dialog.
+    screen: async () => ({ screen: `partway through a repaint ${reads += 1}`, cursor: { row: 0, column: 0 } }),
+  };
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [pick("Which colour?", [[0, "ALPHA"]])],
+    garbled,
+  );
+
+  expect(outcome).toMatchObject({ answered: false, reason: "no-dialog", sent: false });
+});
+
+test("a refusal after keys have gone out says so, rather than that nothing was sent", async () => {
+  // Two questions, and the second one disappears under the driver after the first is answered.
+  // The first question's press has landed in the terminal by then, and the reader has to be told.
+  const pane = new QuestionPane([COLOUR, TOPPINGS]);
+  const { runtime } = driving(pane);
+  let answeredFirst = false;
+  const vanishing: QuestionRuntime = {
+    ...runtime,
+    screen: async () => {
+      const screen = pane.screen();
+      // Once the first question is answered the pane starts reporting a screen with no dialog on
+      // it, which is what somebody cancelling it at the keyboard would produce.
+      if (answeredFirst) return { screen: "the dialog has gone", cursor: { row: 0, column: 0 } };
+      return { screen, cursor: { row: 0, column: 0 } };
+    },
+    send: async (target, bytes) => {
+      await runtime.send(target, bytes);
+      if (pane.answerFor(0).length > 0) answeredFirst = true;
+    },
+  };
+  const outcome = await answerTmuxQuestion(session(), [
+    pick("Which colour?", [[0, "ALPHA"]]),
+    pick("Which toppings?", [[0, "DELTA"]]),
+  ], vanishing);
+
+  expect(outcome.answered).toBe(false);
+  expect(outcome).toMatchObject({ sent: true });
 });
 
 test("Escape is never sent, because it would destroy the dialog and the typed text with it", async () => {

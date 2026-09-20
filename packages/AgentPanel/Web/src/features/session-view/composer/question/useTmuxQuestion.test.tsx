@@ -203,6 +203,7 @@ describe("the tmux question mirror", () => {
     const answer = vi.fn<Answer>(async (_session, answers) => ({
       answered: false,
       reason: "no-dialog",
+      sent: false,
       keptText: answers
         .filter((entry) => entry.other.length > 0)
         .map((entry) => ({ question: entry.question, text: entry.other })),
@@ -218,7 +219,10 @@ describe("the tmux question mirror", () => {
 
     // The failure this whole shape exists to prevent: the reason is on screen AND the words are
     // still where they were typed, so nothing has to be rewritten to try again.
-    expect(screen.getByLabelText("Claude question")).toHaveTextContent("no longer open");
+    // What was observed, with no guess about why. The sentence this replaced offered "it may have
+    // been answered there", which was wrong both times a reader actually hit it.
+    expect(screen.getByLabelText("Claude question"))
+      .toHaveTextContent("the terminal is not showing this question, so nothing was sent");
     expect(screen.getByRole("checkbox", { name: "DELTA" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Submit answer" })).toBeEnabled();
     previous();
@@ -246,6 +250,29 @@ describe("the tmux question mirror", () => {
     expect(screen.getByLabelText(OTHER_TOPPINGS)).toHaveValue("my other");
     previous();
     expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("my answer");
+  });
+
+  it("says answers may already be in the terminal when keys had gone out", async () => {
+    // A refusal is not always a no-op. The driver presses as it walks, so it can give up with a
+    // question already answered in the pane -- and the reader has to be told that, not the
+    // opposite.
+    const answer = vi.fn<Answer>(async () => ({
+      answered: false,
+      reason: "wrong-dialog",
+      sent: true,
+      keptText: [],
+    }));
+    render(<Mirror question={CALL} answer={answer} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: "ALPHA" }));
+    next();
+    fireEvent.click(screen.getByRole("checkbox", { name: "DELTA" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
+    });
+
+    expect(screen.getByLabelText("Claude question"))
+      .toHaveTextContent("some of these answers may already have landed there");
   });
 
   it("starts a fresh draft when a new call arrives", () => {

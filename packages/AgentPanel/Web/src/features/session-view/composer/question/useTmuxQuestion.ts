@@ -35,23 +35,38 @@ export interface TmuxQuestionSender {
   ) => Promise<TmuxQuestionOutcome>;
 }
 
-/** What a refusal means, said the way the reader's own situation reads. */
-export function tmuxQuestionReasonText(reason: TmuxQuestionRefusal): string {
+/**
+ * What a refusal means, said the way the reader's own situation reads.
+ *
+ * Two rules, both learned by getting them wrong. It says what was OBSERVED and never why: the old
+ * `no-dialog` sentence offered "it may have been answered there", which was a guess presented as
+ * the cause and was false both times a reader hit it. And whether anything landed comes from
+ * `sent` rather than from the reason, because the driver presses as it walks: a refusal can leave
+ * a question answered and a box ticked in the terminal, and telling somebody nothing was sent is
+ * worse than telling them nothing.
+ */
+export function tmuxQuestionReasonText(reason: TmuxQuestionRefusal, sent: boolean): string {
+  const already = sent
+    ? ", and some of these answers may already have landed there"
+    : ", so nothing was sent";
   switch (reason) {
+    // Neither of these two can have pressed anything: there was nowhere to press.
     case "no-pane":
       return "this session is not running in a terminal this panel can reach";
     case "tmux-unavailable":
       return "tmux did not answer";
     case "no-dialog":
-      return "the question is no longer open in the terminal; it may have been answered there";
+      return `the terminal is not showing this question${already}`;
     case "wrong-dialog":
-      return "the terminal is showing a different question, so nothing was sent";
+      return `the terminal is showing a different question${already}`;
     case "wrong-option":
-      return "the options in the terminal do not match the ones here, so nothing was sent";
+      return `the options in the terminal do not match the ones here${already}`;
     case "pane-stalled":
-      return "the terminal stopped redrawing partway through; answer it there instead";
+      return `the terminal stopped redrawing partway through${already}`;
     case "still-open":
-      return "the question did not close, so it cannot be reported as answered";
+      // The one reason that always follows a full set of presses, so `already` would be redundant.
+      return "the question did not close, so it cannot be reported as answered; what you chose may"
+        + " already be standing in the terminal";
   }
 }
 
@@ -99,7 +114,7 @@ export function useTmuxQuestion(
     try {
       const outcome = await feed.answerTmuxQuestion(session, answers);
       if (outcome.answered) return;
-      setError(tmuxQuestionReasonText(outcome.reason));
+      setError(tmuxQuestionReasonText(outcome.reason, outcome.sent));
       // Nothing typed is dropped by a refusal. The draft already holds it; this writes the
       // sidecar's own copy back over it, so the two cannot quietly disagree about what was sent.
       setDrafts((current) =>
