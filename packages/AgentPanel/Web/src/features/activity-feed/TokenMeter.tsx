@@ -257,7 +257,12 @@ export function TokenMeter({
  */
 function accountWide(limits: LimitsState): UsageQuota[] {
   if (limits.kind !== "ready") return [];
-  return limits.quotas.filter((quota) => quota.scope === null);
+  // Absent counts as unscoped, not as "not account-wide". A strict `=== null` reads `undefined`
+  // as a scope and hides EVERY chip, which is what a sidecar that has not yet restarted onto the
+  // new field sends -- measured against the running one, which answers with no `scope` at all.
+  // The feature would then look broken rather than degraded, and silently: the surface has no way
+  // to say "I am hiding these because a field I wanted was missing".
+  return limits.quotas.filter((quota) => !quota.scope);
 }
 
 /**

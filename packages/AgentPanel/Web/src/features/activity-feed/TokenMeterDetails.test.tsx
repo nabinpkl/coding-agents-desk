@@ -190,6 +190,15 @@ describe("the limit chips in the composer footer", () => {
     expect(feed.fetchLimits).toHaveBeenCalledTimes(1);
   });
 
+  it("still draws a window whose reading carries no scope field at all", async () => {
+    // What a sidecar that has not restarted onto the new field sends. Read as a scope, `undefined`
+    // would hide every chip, so the feature would look broken rather than merely older.
+    const { scope: _scope, ...unscoped } = quota("5-hour limit", 40);
+    render(<TokenMeter usage={USAGE} feed={feedWith([unscoped as typeof unscoped & { scope: null }])} />);
+
+    expect(await screen.findByText("5h: 40%")).toBeInTheDocument();
+  });
+
   it("shows only the session's own vendor, because both vendors meter five hours", async () => {
     const feed = {
       fetchLimits: vi.fn(async (): Promise<QuotaReport> => ({
