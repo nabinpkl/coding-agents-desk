@@ -16,9 +16,9 @@ import type {
   WorkspaceCommitDiff,
   WorkspaceCommitFile,
 } from "@agentdesk/agent-feed-wire";
+import { CommitDiff } from "@/features/workspace-ide/CommitDiff";
 import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
 import { gitStatusTone, TONE_BADGE } from "@/features/workspace-ide/sidebar/gitTones";
-import { parsePatch, type PatchLine } from "@/features/workspace-ide/gitPatch";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
 
 /** How many commits arrive at a time, and how many each "Show more" adds. */
@@ -53,12 +53,15 @@ export function WorkspaceIdeHistory({
   id,
   client,
   workspaceId,
+  onOpenFile,
   onClose,
 }: {
   /** The popup's element id, so the control that opened it can point at it with `aria-controls`. */
   id: string;
   client: WorkspaceIdeClient;
   workspaceId: string;
+  /** Opens the path in the editor, at what it says today, beside the diff of what changed it. */
+  onOpenFile: (path: string) => void;
   onClose: () => void;
 }) {
   const panel = useRef<HTMLDivElement | null>(null);
@@ -129,6 +132,20 @@ export function WorkspaceIdeHistory({
     setOpenHash((current) => (current === hash ? null : hash));
   }, []);
 
+  /**
+   * One click, both halves of the question: what does this file say, and what did this commit do
+   * to it.
+   *
+   * The editor opens on the file as it is TODAY, which is the version a reader can act on -- and
+   * the one the diff is missing, since a patch is a fragment with no file around it. A file this
+   * commit deleted is not opened: there is nothing at that path to show, and asking for it would
+   * answer a refusal banner rather than a file.
+   */
+  const selectFile = useCallback((file: WorkspaceCommitFile) => {
+    setOpenPath((current) => (current === file.path ? null : file.path));
+    if (file.status !== "D") onOpenFile(file.path);
+  }, [onOpenFile]);
+
   const now = Date.now();
   return (
     <div
@@ -194,7 +211,7 @@ export function WorkspaceIdeHistory({
                     openPath={openPath}
                     diffs={diffs}
                     onToggle={() => toggleCommit(commit.hash)}
-                    onSelectPath={(path) => setOpenPath((current) => (current === path ? null : path))}
+                    onSelectFile={selectFile}
                   />
                 ))}
               </ul>
@@ -234,7 +251,7 @@ function Commit({
   openPath,
   diffs,
   onToggle,
-  onSelectPath,
+  onSelectFile,
 }: {
   commit: WorkspaceCommit;
   now: number;
@@ -243,7 +260,7 @@ function Commit({
   openPath: string | null;
   diffs: Record<string, WorkspaceCommitDiff>;
   onToggle: () => void;
-  onSelectPath: (path: string) => void;
+  onSelectFile: (file: WorkspaceCommitFile) => void;
 }) {
   const Chevron = expanded ? ChevronDown : ChevronRight;
   return (
@@ -294,7 +311,7 @@ function Commit({
                     file={file}
                     open={file.path === openPath}
                     diff={diffs[`${commit.hash}:${file.path}`]}
-                    onToggle={() => onSelectPath(file.path)}
+                    onToggle={() => onSelectFile(file)}
                   />
                 ))}
               </ul>
@@ -324,7 +341,13 @@ function ChangedFile({
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`${open ? "Hide" : "Show"} the diff for ${file.path}`}
+        // What the click does, in the order it does it. A deleted file is not opened, so its name
+        // says only what will happen: the diff is the whole of what is left of it.
+        aria-label={open
+          ? `Hide the diff for ${file.path}`
+          : file.status === "D"
+            ? `Show the diff for ${file.path}`
+            : `Open ${file.path} and show its diff`}
         title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
         onClick={onToggle}
         className={`${ROW} min-h-9 py-1 pl-8 text-xs`}
@@ -356,58 +379,9 @@ function ChangedFile({
             )}
         </span>
       </button>
-      {open ? (diff === undefined ? <Waiting label="Reading the diff…" /> : <Diff diff={diff} />) : null}
-    </li>
-  );
-}
-
-const LINE_TONE: Record<PatchLine["kind"], string> = {
-  hunk: "bg-muted text-muted-foreground",
-  added: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  removed: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
-  context: "text-foreground",
-  meta: "text-muted-foreground",
-};
-
-/**
- * The patch, one row per line, with both files' line numbers in the gutter.
- *
- * Scrolled horizontally on its own rather than wrapped: a wrapped diff line loses the alignment
- * that makes two versions comparable, and this panel is narrow enough that wrapping would be the
- * common case rather than the exception.
- */
-function Diff({ diff }: { diff: WorkspaceCommitDiff }) {
-  const lines = parsePatch(diff.patch);
-  return (
-    <div className="mx-2 mb-2 overflow-hidden rounded border border-border bg-background">
-      <div className="max-h-[260px] overflow-auto">
-        <pre className="m-0 w-max min-w-full p-0 font-mono text-[11px] leading-[18px]">
-          {lines.map((line, index) => (
-            // The index is the key because a patch is a list of lines rather than of entities:
-            // two identical lines are two rows, and nothing in it is reordered or removed.
-            <div key={index} className={`flex ${LINE_TONE[line.kind]}`}>
-              <span aria-hidden className="w-9 shrink-0 select-none px-1 text-right
-                text-muted-foreground/70"
-              >
-                {line.oldNumber ?? ""}
-              </span>
-              <span aria-hidden className="w-9 shrink-0 select-none px-1 text-right
-                text-muted-foreground/70"
-              >
-                {line.newNumber ?? ""}
-              </span>
-              <span className="whitespace-pre px-2">{line.text}</span>
-            </div>
-          ))}
-        </pre>
-      </div>
-      {diff.truncated
-        ? (
-          <p className="m-0 border-t border-border px-2 py-1 text-[11px] text-muted-foreground">
-            This diff was cut short. Read the rest in a terminal.
-          </p>
-        )
+      {open
+        ? (diff === undefined ? <Waiting label="Reading the diff…" /> : <CommitDiff diff={diff} />)
         : null}
-    </div>
+    </li>
   );
 }

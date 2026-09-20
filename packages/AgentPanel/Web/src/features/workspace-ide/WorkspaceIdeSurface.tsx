@@ -255,6 +255,7 @@ export function WorkspaceIdeSurface({
         client={ide.client}
         workspaceId={ide.workspaceId}
         terminalVisible={preferences.terminalVisible}
+        onOpenPath={ide.openPath}
         onShowSourceControl={showSourceControl}
         onToggleTerminal={() => ide.update({ terminalVisible: !preferences.terminalVisible })}
       />

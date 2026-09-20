@@ -74,6 +74,68 @@ export function parsePatch(patch: string): PatchLine[] {
 }
 
 /**
+ * Where one patch row's colours come from: which version of the file, and which line of it.
+ *
+ * Null for a hunk header and for git's own notes, which are not lines of either file and have no
+ * grammar to be read with.
+ */
+export type PatchPlace = { side: "old" | "new"; line: number } | null;
+
+export interface PatchSides {
+  /** The file as it was, in patch order: context and removed lines, one per line. */
+  oldCode: string;
+  /** The file as it became: context and added lines. */
+  newCode: string;
+  /** One entry per row of the patch, in the same order. */
+  places: PatchPlace[];
+}
+
+/**
+ * Split a patch back into the two versions of the file it describes.
+ *
+ * For syntax highlighting, which needs code rather than a diff. Highlighting the patch AS a patch
+ * is what shiki's `diff` grammar does, and it answers a different question: it colours the `+` and
+ * the `-`, which the tint already says, and leaves the code inside them grey.
+ *
+ * Each side is tokenized whole rather than line by line, because a grammar is stateful: a string
+ * that opens on one line and closes on the next is one token to a tokenizer and two unrelated
+ * fragments to a per-line one, which is how a diff ends up with half a file painted as a comment.
+ * Interleaving the two sides into one pass would do the same thing -- an added line and the
+ * removed line above it are two versions of one line, not two consecutive ones.
+ *
+ * What this cannot recover is the file above the hunk: a patch starts mid-file, so a block comment
+ * opened before it is invisible here. That is inherent to colouring a fragment, and it is why the
+ * result is a fragment's colours rather than the file's.
+ */
+export function patchSides(lines: readonly PatchLine[]): PatchSides {
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+  const places: PatchPlace[] = [];
+  for (const line of lines) {
+    if (line.kind === "removed") {
+      places.push({ side: "old", line: oldLines.length });
+      oldLines.push(line.text);
+      continue;
+    }
+    if (line.kind === "added") {
+      places.push({ side: "new", line: newLines.length });
+      newLines.push(line.text);
+      continue;
+    }
+    if (line.kind === "context") {
+      // In both files, and read from the new one: a context line is unchanged by definition, so
+      // either side gives the same colours, and the new side is the one a reader is looking at.
+      oldLines.push(line.text);
+      places.push({ side: "new", line: newLines.length });
+      newLines.push(line.text);
+      continue;
+    }
+    places.push(null);
+  }
+  return { oldCode: oldLines.join("\n"), newCode: newLines.join("\n"), places };
+}
+
+/**
  * A patch with no hunks: keep what git said about the file and drop what only repeats its path.
  *
  * `diff --git`, `index`, `---` and `+++` are the four lines that say nothing a reader of this panel

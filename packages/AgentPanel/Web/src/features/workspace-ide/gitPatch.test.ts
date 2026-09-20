@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parsePatch } from "@/features/workspace-ide/gitPatch";
+import { parsePatch, patchSides } from "@/features/workspace-ide/gitPatch";
 
 const PATCH = [
   "diff --git a/src/main.ts b/src/main.ts",
@@ -73,4 +73,27 @@ it("says the file ended without a newline instead of drawing the backslash", () 
 
 it("answers nothing for an empty patch, rather than one blank row", () => {
   expect(parsePatch("")).toEqual([]);
+});
+
+it("splits the rows back into the two files, so each is tokenized as code", () => {
+  const sides = patchSides(parsePatch(PATCH));
+  // Each side is the file as it stood, which is what a grammar can read. A single pass over the
+  // rows in patch order would have the old and the new spelling of one line as two consecutive
+  // lines of one file, and a tokenizer would carry state from one into the other.
+  expect(sides.oldCode).toBe("const first = 1;\nconst second = 2;\nreturn first;");
+  expect(sides.newCode).toBe("const first = 1;\nconst second = 3;\nconst third = 4;\nreturn first;");
+  expect(sides.places).toEqual([
+    null,
+    { side: "new", line: 0 },
+    { side: "old", line: 1 },
+    { side: "new", line: 1 },
+    { side: "new", line: 2 },
+    { side: "new", line: 3 },
+  ]);
+});
+
+it("places nothing for a patch that is all notes, which has no code to colour", () => {
+  const sides = patchSides(parsePatch("Binary files a/logo.png and b/logo.png differ\n"));
+  expect(sides.places).toEqual([null]);
+  expect(sides.oldCode).toBe("");
 });

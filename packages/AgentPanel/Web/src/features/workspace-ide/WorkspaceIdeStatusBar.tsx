@@ -43,6 +43,7 @@ export function WorkspaceIdeStatusBar({
   client,
   workspaceId,
   terminalVisible,
+  onOpenPath,
   onShowSourceControl,
   onToggleTerminal,
 }: {
@@ -51,6 +52,8 @@ export function WorkspaceIdeStatusBar({
   client: WorkspaceIdeClient;
   workspaceId: string | null;
   terminalVisible: boolean;
+  /** Opens a path in the editor, which is what clicking a file in the history does. */
+  onOpenPath: (path: string) => void;
   /** Reveals the sidebar on its source-control section, which is where the count resolves. */
   onShowSourceControl: () => void;
   onToggleTerminal: () => void;
@@ -182,6 +185,7 @@ export function WorkspaceIdeStatusBar({
             id={historyId}
             client={client}
             workspaceId={workspaceId}
+            onOpenFile={onOpenPath}
             onClose={closeHistory}
           />
         )

@@ -319,6 +319,24 @@ function historyAnswers(transport: FakeHttpTransport): void {
 it("pops the history up from the bar, and reads a commit down to its diff", async () => {
   const transport = await mounted();
   historyAnswers(transport);
+  transport.responses.set("POST /api/workspace/w-1/state", {
+    status: 200,
+    body: JSON.stringify({
+      state: { ...CLEAN_STATE, revision: 1, orderedOpenPaths: ["src/main.ts"] },
+    }),
+  });
+  transport.responses.set("GET /api/workspace/w-1/file?path=src%2Fmain.ts", {
+    status: 200,
+    body: JSON.stringify({
+      file: {
+        workspaceId: "w-1",
+        path: "src/main.ts",
+        kind: "text",
+        revision: "abc",
+        text: "export {};\nconst fresh = 2;\n",
+      },
+    }),
+  });
 
   fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
 
@@ -330,14 +348,27 @@ it("pops the history up from the bar, and reads a commit down to its diff", asyn
     .toBe(false);
 
   fireEvent.click(commit);
-  const file = await within(popup).findByRole("button", { name: "Show the diff for src/main.ts" });
+  const file = await within(popup).findByRole(
+    "button",
+    { name: "Open src/main.ts and show its diff" },
+  );
 
   fireEvent.click(file);
+  // One click answers both halves of the question: the diff says what this commit did, and the
+  // editor says what the file reads today, which is the version anybody can act on.
+  expect(await screen.findByRole("tab", { name: "Open main.ts" })).toBeInTheDocument();
   // The patch's own header is dropped -- it restates the row above it -- and the changed lines are
   // what is left, without the markers that classified them.
-  expect(await within(popup).findByText("const fresh = 2;")).toBeInTheDocument();
-  expect(within(popup).getByText("const old = 1;")).toBeInTheDocument();
-  expect(within(popup).queryByText(/diff --git/)).not.toBeInTheDocument();
+  const patch = await within(popup).findByLabelText("Diff of src/main.ts");
+  expect(patch.textContent).toContain("const fresh = 2;");
+  expect(patch.textContent).toContain("const old = 1;");
+  expect(patch.textContent).not.toContain("diff --git");
+
+  // And coloured by the panel's own highlighter rather than left grey: the lines are split into
+  // tokens carrying Shiki's two theme variables, which is what the editor paints a file with.
+  await waitFor(() => {
+    expect(patch.querySelector('span[style*="--shiki-light"]')).not.toBeNull();
+  });
 });
 
 it("closes the history on Escape, and gives the button its focus back", async () => {
