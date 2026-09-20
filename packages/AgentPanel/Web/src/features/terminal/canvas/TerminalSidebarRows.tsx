@@ -17,6 +17,7 @@ import {
 } from "@/features/bots/botSurface";
 import {
   terminalChildKey,
+  terminalSessionNameError,
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
 import {
@@ -40,6 +41,8 @@ export function TerminalSidebarParent({
   onKillChild,
   adding,
   addError,
+  suggestedName,
+  existingNames,
   onAdd,
   onDismissAddError,
 }: {
@@ -60,7 +63,11 @@ export function TerminalSidebarParent({
   onKillChild: (key: string) => Promise<void>;
   adding: boolean;
   addError: string | null;
-  onAdd?: () => void;
+  /** The offered name for the next shell here: `<dir>-<n>`, past every collision. */
+  suggestedName: string;
+  /** Every session standing on this machine: a name taken anywhere on it is a join. */
+  existingNames: readonly string[];
+  onAdd?: (session: string) => void;
   onDismissAddError: () => void;
 }) {
   const leaf = parent.path.split("/").filter(Boolean).at(-1) ?? "Other sessions";
@@ -74,6 +81,17 @@ export function TerminalSidebarParent({
   // states the one a reader can act on from here.
   const off = offStrip || machineHidden;
   const faces = useBotFaces();
+  // The same naming step the card asks, because this row starts shells too: prefilled with
+  // the offered default, typed over for a name of the reader's own.
+  const [naming, setNaming] = useState(false);
+  const [draft, setDraft] = useState(suggestedName);
+  const [formError, setFormError] = useState<string | null>(null);
+  const nameInputId = `terminal-name-row-${parent.key}`;
+  const openNaming = (): void => {
+    setDraft(suggestedName);
+    setFormError(null);
+    setNaming(true);
+  };
   return (
     <li className="border-b border-border/80">
       <div
@@ -114,10 +132,10 @@ export function TerminalSidebarParent({
             {live > 0 ? ` · ${live} watched` : ""}
           </span>
         </span>
-        {onAdd ? (
+        {onAdd && !naming ? (
           <button
             type="button"
-            onClick={onAdd}
+            onClick={openNaming}
             disabled={adding}
             aria-label={`Start a shell in ${leaf}`}
             title="Start a shell"
@@ -142,6 +160,73 @@ export function TerminalSidebarParent({
           {off ? <Eye className="size-4" aria-hidden /> : <EyeOff className="size-4" aria-hidden />}
         </button>
       </div>
+      {naming && onAdd ? (
+        <form
+          aria-label={`Name the new shell in ${leaf}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const invalid = terminalSessionNameError(draft, existingNames);
+            if (invalid) {
+              setFormError(invalid);
+              return;
+            }
+            setFormError(null);
+            setNaming(false);
+            onAdd(draft.trim());
+          }}
+          className="flex flex-col gap-2 border-t border-border px-3 py-2"
+        >
+          <label
+            htmlFor={nameInputId}
+            className="text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium text-muted-foreground"
+          >
+            Name the new shell
+          </label>
+          <input
+            id={nameInputId}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={64}
+            placeholder={suggestedName}
+            className="min-h-9 w-full rounded-lg border border-border bg-background px-2 py-1 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          />
+          {formError ? (
+            <p role="alert" className="text-(length:--agent-panel-fs-sidebar-chip,11px) text-destructive">
+              {formError}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={adding}
+              className="min-h-9 flex-1 cursor-pointer rounded-lg bg-primary px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50"
+            >
+              {adding ? "Starting…" : "Start"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(suggestedName);
+                setFormError(null);
+              }}
+              title={`Use the default name ${suggestedName}`}
+              className="min-h-9 cursor-pointer rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              Use default
+            </button>
+            <button
+              type="button"
+              onClick={() => setNaming(false)}
+              className="min-h-9 cursor-pointer rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
       {addError ? (
         <p
           role="alert"

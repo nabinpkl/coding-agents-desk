@@ -118,20 +118,57 @@ it("starts a shell in the parent's directory and opens it", async () => {
   // The card's own add button, not the roster's: both name the same leaf.
   const canvas = await screen.findByRole("list", { name: "Terminal canvas" });
   fireEvent.click(within(canvas).getByRole("button", { name: "Start a shell in proj" }));
-  // Minted, created as a login shell in that directory, and immediately released so the tile
+  // Offered under dir-plus-count -- one session stands, so the default steps past it -- and
+  // taken as offered with one press on Start.
+  const canvasScope = within(canvas);
+  expect((canvasScope.getByLabelText("Name the new shell") as HTMLInputElement).value).toBe("proj-2");
+  fireEvent.click(canvasScope.getByRole("button", { name: "Start" }));
+  // Created as a login shell in that directory, and immediately released so the tile
   // joining it does not fight the create for the pane's one pipe.
   await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux-new", session: expect.stringMatching(/^agentterm-[0-9a-f]{8}$/), directory: "/proj" },
-    80,
-    24,
+    { kind: "tmux-new", session: "proj-2", directory: "/proj" },
+    60,
+    30,
   ));
   expect(home.closeTerminal).toHaveBeenCalledWith("terminal-9", "detach");
   // The new session opens itself once the listing reports it -- no refresh pressed.
-  const minted = vi.mocked(home.openTerminal).mock.calls[0]![0] as { session: string };
   await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux", session: minted.session },
-    80,
-    24,
+    { kind: "tmux", session: "proj-2" },
+    60,
+    30,
+  ));
+});
+
+it("starts a shell from the roster under a typed name", async () => {
+  const sessions = [session("a", "/proj")];
+  const home = machineFeed(sessions, ["/proj"]);
+  vi.mocked(home.listTmuxSessions).mockImplementation(async () => [...sessions]);
+  vi.mocked(home.openTerminal).mockImplementation(async (context) => {
+    const target = context as { kind: string; session?: string; directory?: string };
+    if (target.kind === "tmux-new" && target.session && target.directory) {
+      sessions.push({ name: target.session, windows: 1, attachedClients: 0, path: target.directory });
+    }
+    return {
+      terminalId: "terminal-9",
+      ptySessionName: `agent-tmux-${target.session}`,
+      pid: 7,
+      columns: 80,
+      rows: 24,
+      mouseReporting: false,
+    };
+  });
+  render(<TerminalCanvasShell feed={home} machines={undefined} />);
+
+  // The roster's own naming form, not the card's: a typed name travels the same shell path.
+  const roster = await screen.findByRole("list", { name: "Terminal parents" });
+  const rosterScope = within(roster);
+  fireEvent.click(rosterScope.getByRole("button", { name: "Start a shell in proj" }));
+  fireEvent.change(rosterScope.getByLabelText("Name the new shell"), { target: { value: "my-shell" } });
+  fireEvent.click(rosterScope.getByRole("button", { name: "Start" }));
+  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
+    { kind: "tmux-new", session: "my-shell", directory: "/proj" },
+    60,
+    30,
   ));
 });
 
@@ -185,8 +222,8 @@ it("opens a session on the canvas from the roster", async () => {
   // Joining the standing session, the way opening from a card does.
   await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
     { kind: "tmux", session: "a" },
-    80,
-    24,
+    60,
+    30,
   ));
 });
 

@@ -3,18 +3,23 @@
 // The Bot canvas's session card one level down, minus everything a provider session has: no
 // transcript, no composer, no fork, no rename. What is open here is a viewer on a pane somebody
 // else is running -- `TerminalTile` -- so opening mounts it and closing unmounts it, and the
-// width is the tile's own 80 columns rather than anything remembered. Closing never ends the
+// width is the tile's own 60 columns rather than anything remembered. Closing never ends the
 // session; ending one is the menu's confirmed kill, which is the opposite actor and stays the
 // opposite path.
+//
+// An image dropped or attached here pastes the written file's absolute path as text. There is
+// no composer to find and none is looked for: the drop lands whether the tile is open or the
+// card is a closed row, because all it needs is the session name and its feed.
 
-import { ChevronDown, EyeOff, Skull, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
+import { ChevronDown, EyeOff, Paperclip, Skull, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MAXIMUM_COMPOSER_IMAGE_BYTES, type TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 import { botSessionFaceRank, botSessionStyle, sessionInitials } from "@/features/bots/botSurface";
 import { CLOSED_SESSION_WIDTH } from "@/features/bots/cards/botCanvasCards";
+import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { TerminalTile } from "@/features/terminal/TerminalTile";
 import { terminalChildStyle } from "@/features/terminal/canvas/terminalSurface";
 
@@ -29,6 +34,7 @@ export function TerminalChildCard({
   onToggle,
   onHide,
   onKill,
+  storageKey,
 }: {
   session: TmuxSessionSummary;
   feed: SidecarDataSource;
@@ -51,6 +57,8 @@ export function TerminalChildCard({
    * this card rather than travelling anywhere.
    */
   onKill: () => Promise<void>;
+  /** The child key (`machine:name`) the open tile remembers its grid under. */
+  storageKey: string;
 }) {
   const shaded = terminalChildStyle(hue, step);
   const railed = shaded !== undefined && !solo;
@@ -94,10 +102,39 @@ export function TerminalChildCard({
     );
   };
 
+  // Paste-path-as-text for every pane, open or closed: the sidecar writes the bytes where the
+  // pane's machine reads them and pastes the absolute path, which opencode reads through its
+  // own `read` tool and a shell holds as text. One file per request and awaited, because a
+  // program numbers or orders what arrives by arrival, the same reason the composer sends
+  // alone. The size gate mirrors the composer's message; whether it is an image is judged by
+  // the sidecar sniffing the bytes, never by what the browser called the file.
+  const acceptImageFiles = useCallback((files: readonly File[]): void => {
+    if (files.length === 0) return;
+    setError(null);
+    const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
+    if (sendable.length < files.length) {
+      setError(`An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`);
+    }
+    if (sendable.length === 0) return;
+    void (async () => {
+      try {
+        for (const file of sendable) await feed.dropTmuxSessionImage(session.name, file);
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+  }, [feed, session.name]);
+  // Always accepting, never a refusal line: unlike a composer box this needs no tile mounted
+  // and no program answering, only the session name, so there is no state in which it cannot
+  // take the file.
+  const drop = useFileDropTarget<HTMLDivElement>(acceptImageFiles);
+  const picker = useRef<HTMLInputElement | null>(null);
+
   const items: RowMenuItem[] = [];
   if (open) items.push({ label: "Close terminal", icon: X, onSelect: onToggle });
   // Below the close and above the kill, widening from arranging the view to ending the work.
   items.push({ label: "Take off strip", icon: EyeOff, onSelect: onHide });
+  items.push({ label: "Attach image…", icon: Paperclip, onSelect: () => picker.current?.click() });
   items.push({ label: "Kill session", icon: Skull, onSelect: () => setConfirming(true) });
 
   const watched = session.attachedClients > 0
@@ -125,6 +162,7 @@ export function TerminalChildCard({
           ...shaded,
           ...(railed ? { borderLeftWidth: 4 } : null),
         }}
+        {...drop.dropProps}
       >
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-start pr-1.5">
@@ -216,10 +254,33 @@ export function TerminalChildCard({
             // No landmark of its own: the tile below already names this session, and a section
             // inside a section under one name is a landmark that says nothing twice.
             <div className="min-h-0 border-t border-border">
-              <TerminalTile feed={feed} session={session} />
+              <TerminalTile feed={feed} session={session} storageKey={storageKey} onAttachImage={acceptImageFiles} />
             </div>
           ) : null}
         </div>
+        {/* Rendered wherever an image has somewhere to go: the menu's attach item clicks it,
+            and the picker has to exist before the reader can reach it. The MIME list guides;
+            what is actually taken is judged by the sidecar sniffing the bytes. Cleared so
+            picking the same file twice fires a second change. */}
+        <input
+          ref={picker}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          aria-label={`Attach an image to ${session.name}`}
+          className="hidden"
+          onChange={(event) => {
+            acceptImageFiles([...(event.currentTarget.files ?? [])]);
+            event.currentTarget.value = "";
+          }}
+        />
+        {/* Last child of the `relative` box above, so nothing paints over it: the same
+            placement the Bot session card gives it, for the same reason. */}
+        <FileDropOverlay
+          dragging={drop.dragging}
+          refusal={null}
+          message="Drop to paste the image path"
+        />
       </div>
     </li>
   );

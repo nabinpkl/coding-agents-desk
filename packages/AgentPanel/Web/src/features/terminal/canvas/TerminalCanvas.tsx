@@ -15,6 +15,7 @@ import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
 import { TerminalParentCard } from "@/features/terminal/canvas/TerminalParentCard";
 import {
   parseTerminalChildKey,
+  suggestTerminalSessionName,
   type TerminalGrouping,
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
@@ -89,8 +90,8 @@ export function TerminalCanvas({
   addingKeys: ReadonlySet<string>;
   /** Why a start failed, by `machine:path`. */
   addErrors: ReadonlyMap<string, string>;
-  /** Starts a shell in this parent's directory. */
-  onAddTerminal: (parent: TerminalParentGroup) => void;
+  /** Starts a shell in this parent's directory under the name the reader chose. */
+  onAddTerminal: (parent: TerminalParentGroup, session: string) => void;
   onDismissAddError: (parentKey: string) => void;
   /** A failure no card can carry, because it is about no child or one not on the canvas. */
   orphanedError: string | null;
@@ -116,8 +117,18 @@ export function TerminalCanvas({
   // The whole strip drawn small, with pinch and press-to-a-card gestures. Off, nothing here
   // renders and no transform exists in the tree, so the default strip keeps its own pointer
   // arithmetic byte for byte. Its own storage keys, never the Bot canvas's.
+  //
+  // `on` includes the strip being in the page, not just the mode: while the placeholder below
+  // shows, neither node exists, and an effect keyed on the refs alone never re-runs when they
+  // attach. Passing the bare mode left a mode restored as ON unmeasured at 1:1 forever, its
+  // stored scale intact but never drawn; the flip from false to true IS what measures the strip
+  // and attaches the gestures.
   const zoom = useCanvasZoom({
-    scroller, strip, on: canvasZoom.mode, room: canvasZoom.room, storage: TERMINAL_ZOOM_STORAGE,
+    scroller,
+    strip,
+    on: canvasZoom.mode && !loading && error === null && all.length > 0,
+    room: canvasZoom.room,
+    storage: TERMINAL_ZOOM_STORAGE,
   });
   // The stored offset is in content space, so it cannot be put back until the scale is known.
   const rememberScroll = useTerminalCanvasScroll(scroller, all.length, {
@@ -137,27 +148,36 @@ export function TerminalCanvas({
       style={zoom.stripStyle}
       className="flex w-max items-start gap-3 p-3"
     >
-      {drawn.map((parent) => (
-        <TerminalParentCard
-          key={parent.key}
-          group={parent}
-          feed={feedFor(parent.machineId)}
-          hue={hues.get(parent.key)}
-          rank={ranks.get(parent.key)}
-          {...(machineLabelOf(parent.machineId) ? { machineLabel: machineLabelOf(parent.machineId)! } : {})}
-          openChildren={openChildren}
-          onToggleChild={onToggleChild}
-          offStripChildren={offStripChildren}
-          onHideChild={onHideChild}
-          onShowHidden={() => onShowHiddenChildren(parent.key)}
-          onKillChild={onKillChild}
-          onHideParent={() => onHideParent(parent.key)}
-          adding={addingKeys.has(parent.key)}
-          addError={addErrors.get(parent.key) ?? null}
-          {...(parent.path ? { onAdd: () => onAddTerminal(parent) } : {})}
-          onDismissAddError={() => onDismissAddError(parent.key)}
-        />
-      ))}
+      {drawn.map((parent) => {
+        // Machine-wide, not just this card's: names are per-server, so the default must step
+        // over a name standing anywhere on this machine, not just in this directory.
+        const standing = all
+          .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
+          .flatMap((each) => each.children.map((child) => child.name));
+        return (
+          <TerminalParentCard
+            key={parent.key}
+            group={parent}
+            feed={feedFor(parent.machineId)}
+            hue={hues.get(parent.key)}
+            rank={ranks.get(parent.key)}
+            {...(machineLabelOf(parent.machineId) ? { machineLabel: machineLabelOf(parent.machineId)! } : {})}
+            openChildren={openChildren}
+            onToggleChild={onToggleChild}
+            offStripChildren={offStripChildren}
+            onHideChild={onHideChild}
+            onShowHidden={() => onShowHiddenChildren(parent.key)}
+            onKillChild={onKillChild}
+            onHideParent={() => onHideParent(parent.key)}
+            adding={addingKeys.has(parent.key)}
+            addError={addErrors.get(parent.key) ?? null}
+            suggestedName={suggestTerminalSessionName(parent.path, standing)}
+            existingNames={standing}
+            {...(parent.path ? { onAdd: (session: string) => onAddTerminal(parent, session) } : {})}
+            onDismissAddError={() => onDismissAddError(parent.key)}
+          />
+        );
+      })}
     </ul>
   );
 

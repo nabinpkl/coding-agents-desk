@@ -6,9 +6,10 @@
 
 import { LoaderCircle, ScanFace, SquareTerminal, X } from "lucide-react";
 import { setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
-import type {
-  TerminalGrouping,
-  TerminalParentGroup,
+import {
+  suggestTerminalSessionName,
+  type TerminalGrouping,
+  type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
 import { TerminalSidebarParent } from "@/features/terminal/canvas/TerminalSidebarRows";
 
@@ -66,8 +67,8 @@ export function TerminalSidebarPanel({
   onHideChild: (key: string) => void;
   /** Ends a child and everything running in it. A rejection renders on the row that asked. */
   onKillChild: (key: string) => Promise<void>;
-  /** Starts a shell in a parent's directory. */
-  onAddTerminal: (parent: TerminalParentGroup) => void;
+  /** Starts a shell in a parent's directory under the name the reader chose. */
+  onAddTerminal: (parent: TerminalParentGroup, session: string) => void;
   /** Parents with a start in flight, by `machine:path`. */
   addingKeys: ReadonlySet<string>;
   /** Why a start failed, by `machine:path`. */
@@ -168,7 +169,13 @@ export function TerminalSidebarPanel({
               </p>
             ))}
             <ul role="list" aria-label="Terminal parents">
-              {all.map((parent) => (
+              {all.map((parent) => {
+                // Machine-wide, the way the strip's cards read it: a default that collides
+                // anywhere on this server joins instead of starting.
+                const standing = all
+                  .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
+                  .flatMap((each) => each.children.map((child) => child.name));
+                return (
                 <TerminalSidebarParent
                   key={parent.key}
                   parent={parent}
@@ -193,10 +200,13 @@ export function TerminalSidebarPanel({
                   onKillChild={onKillChild}
                   adding={addingKeys.has(parent.key)}
                   addError={addErrors.get(parent.key) ?? null}
-                  {...(parent.path ? { onAdd: () => onAddTerminal(parent) } : {})}
+                  suggestedName={suggestTerminalSessionName(parent.path, standing)}
+                  existingNames={standing}
+                  {...(parent.path ? { onAdd: (session: string) => onAddTerminal(parent, session) } : {})}
                   onDismissAddError={() => onDismissAddError(parent.key)}
                 />
-              ))}
+                );
+              })}
             </ul>
           </>
         )}

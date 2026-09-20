@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { groupTerminalsByDirectory, mintTerminalSessionName, parseTerminalChildKey, terminalChildKey } from "@/features/terminal/canvas/terminalGroups";
+import {
+  groupTerminalsByDirectory,
+  mintTerminalSessionName,
+  parseTerminalChildKey,
+  suggestTerminalSessionName,
+  terminalChildKey,
+  terminalSessionNameError,
+} from "@/features/terminal/canvas/terminalGroups";
 
 function session(name: string, path: string) {
   return { name, windows: 1, attachedClients: 0, path };
@@ -85,5 +92,40 @@ describe("terminalChildKey", () => {
     expect(parseTerminalChildKey(":")).toBeNull();
     expect(parseTerminalChildKey("a:")).toBeNull();
     expect(parseTerminalChildKey("a:b:c")).toBeNull();
+  });
+});
+
+describe("suggestTerminalSessionName", () => {
+  it("offers the directory leaf plus one past the standing count", () => {
+    expect(suggestTerminalSessionName("/proj", [])).toBe("proj-1");
+    expect(suggestTerminalSessionName("/proj", ["a", "b"])).toBe("proj-3");
+  });
+
+  it("steps over a collision standing anywhere on the machine, not just this directory", () => {
+    expect(suggestTerminalSessionName("/proj", ["a", "proj-2", "proj-3"])).toBe("proj-4");
+  });
+
+  it("folds the leaf to tmux identifier characters, with a fallback for none", () => {
+    expect(suggestTerminalSessionName("/my project!", [])).toBe("my-project-1");
+    expect(suggestTerminalSessionName("/", [])).toBe("term-1");
+  });
+
+  it("stays a plain identifier inside the length limit", () => {
+    const name = suggestTerminalSessionName(`/${"a".repeat(100)}`, []);
+    expect(name).toMatch(/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/);
+    expect(name).toContain("-1");
+  });
+});
+
+describe("terminalSessionNameError", () => {
+  it("accepts a free plain identifier", () => {
+    expect(terminalSessionNameError("proj-4", ["a", "b"])).toBeNull();
+  });
+
+  it("refuses an empty name, a non-identifier, and a standing name", () => {
+    expect(terminalSessionNameError("   ", [])).toContain("default");
+    expect(terminalSessionNameError("has space", [])).toContain("Letters");
+    expect(terminalSessionNameError("a:b", [])).toContain("Letters");
+    expect(terminalSessionNameError("a", ["a", "b"])).toContain("already standing");
   });
 });

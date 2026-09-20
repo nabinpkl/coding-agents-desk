@@ -3458,4 +3458,4 @@ tailnet-apps port="8080":
     #!/usr/bin/env bash
     set -euo pipefail
     sh '{{justfile_directory()}}/tools/reclaim-port.sh' "tailnet apps page" '{{port}}'
-    exec python3 -m http.server '{{port}}' --directory '{{justfile_directory()}}/tools/tailnet-apps'
+    exec python3 '{{justfile_directory()}}/tools/tailnet-apps/serve.py' '{{port}}'

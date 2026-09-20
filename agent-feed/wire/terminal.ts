@@ -52,8 +52,9 @@ export interface SessionTmuxTerminalContext {
  * The deliberate exception to the rule below that every context names something that already
  * exists. It starts nothing but a login shell -- no agent, no resume, no command -- in a caller
  * directory the sidecar vouches for, so there is no transcript to fork and no second client to a
- * live one. The panel mints the name (`agentterm-<8hex>`), and a collision is a join: both the
- * sidecar's existence check and tmux's own `-A` land on the running session.
+ * live one. The panel offers `<dir>-<n>` past every standing name and the reader may keep or
+ * replace it, and a collision is a join: both the sidecar's existence check and tmux's own `-A`
+ * land on the running session.
  */
 export interface NewTmuxTerminalContext {
   kind: "tmux-new";
@@ -135,8 +136,8 @@ export interface AgentTerminalDescriptor {
    * arrives in the program as text.
    *
    * A property of the program as it stood when this terminal opened. A pane that enters or leaves
-   * fullscreen while somebody is watching is covered by the other half of the viewer's condition,
-   * which reads xterm's own buffer type and follows the live stream; see `attachCustomWheelEventHandler`.
+   * fullscreen while somebody is watching is learned from the live stream on top of it; see
+   * `terminalMouseMode` beside `attachCustomWheelEventHandler`.
    */
   mouseReporting: boolean;
 }

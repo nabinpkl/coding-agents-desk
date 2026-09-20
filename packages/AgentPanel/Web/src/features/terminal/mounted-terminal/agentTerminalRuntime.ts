@@ -6,6 +6,7 @@
 
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import type { Dimensions, AgentTerminalState } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
+import type { TerminalMouseMode } from "@/features/terminal/mounted-terminal/terminalMouseMode";
 
 export interface TerminalRuntime {
   readonly terminal: XtermTerminal;
@@ -14,6 +15,13 @@ export interface TerminalRuntime {
 
   /** Measured once, at the base size; everything after that is arithmetic. */
   baseCell: { width: number; height: number } | null;
+  /**
+   * What the program in the pane wants the mouse for, learned from the stream.
+   *
+   * Shared rather than copied because two readers need it: the wheel binding asks it on every
+   * event, and the stream re-asserts it into xterm after each checkpoint clears it.
+   */
+  mouseMode: TerminalMouseMode;
   /** Whether this viewer decides the pane's grid, or merely scales its type to fit. */
   ownsPaneShape: boolean;
   adoptsPaneShape: boolean;

@@ -90,9 +90,16 @@ export function useFileDropTarget<T extends HTMLElement>(
 export function FileDropOverlay({
   dragging,
   refusal,
+  message = "Drop to add to the composer",
 }: {
   dragging: boolean;
   refusal: string | null;
+  /**
+   * What the overlay says while accepting. The default names the composer because every other
+   * caller drops into one; a surface whose drop lands somewhere else -- a bare pane taking the
+   * path as text -- says where instead.
+   */
+  message?: string;
 }) {
   if (!dragging) return null;
   const accepting = refusal === null;
@@ -123,7 +130,7 @@ export function FileDropOverlay({
           accepting ? "text-foreground" : "text-muted-foreground"
         }`}
       >
-        {refusal ?? "Drop to add to the composer"}
+        {refusal ?? message}
       </span>
     </div>
   );

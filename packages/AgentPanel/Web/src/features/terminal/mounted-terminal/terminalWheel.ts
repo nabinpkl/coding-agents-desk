@@ -114,12 +114,13 @@ export function wheelCell(
  * agent's composer edits the line instead of moving a view.
  *
  * `mouseReporting` is read at the event rather than taken as a value, because it is learned when
- * the terminal opens and this is bound before that. Both halves of the alternate-screen condition
- * are load-bearing, and they fail safe in opposite directions. A pane that LEAVES fullscreen while
- * a card is open sends its own `ESC[?1049l` down the pipe, so the buffer type answers correctly
- * even while the descriptor still says the program takes mouse reports, and the wheel goes back to
- * scrolling this buffer. A pane that ENTERS fullscreen mid-view has a truthful buffer type and a
- * stale `false`, so its wheel does nothing -- which is where this started, not a new failure.
+ * the terminal opens and this is bound before that, and re-learned from every output chunk after
+ * it (see `terminalMouseMode`): a pane that ENTERS fullscreen mid-view sends its own `ESC[?1006h`
+ * down the pipe, so the flag is current by the first wheel. Both halves of the alternate-screen
+ * condition are load-bearing, and they fail safe in opposite directions. A pane that LEAVES
+ * fullscreen while a card is open sends its own `ESC[?1049l` down the pipe, so the buffer type
+ * answers correctly even while the descriptor still says the program takes mouse reports, and the
+ * wheel goes back to scrolling this buffer.
  */
 export function attachTerminalWheel(
   terminal: XtermTerminal,

@@ -125,6 +125,70 @@ export function terminalChildKey(machineId: string | undefined, session: string)
 }
 
 /**
+ * What tmux accepts as `-t <session>`, the same door the sidecar guards.
+ *
+ * Kept beside the suggester rather than only on the sidecar so the naming form can refuse a
+ * name before it travels: a rejection that arrives after the round trip still lands, as the
+ * shell's add error, but the form should not send what it can already see is wrong.
+ */
+const TMUX_SESSION_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
+
+export function isTerminalSessionNameValid(name: string): boolean {
+  return TMUX_SESSION_PATTERN.test(name);
+}
+
+/**
+ * The default name a shell this panel starts is offered under: `<dir>-<n>`.
+ *
+ * `<dir>` is the directory's leaf, folded to tmux identifier characters, and `<n>` starts at
+ * the standing session count plus one and walks up past every collision -- so the first shell
+ * in `agent-desk` beside two running sessions is offered as `agent-desk-3`, and a name taken
+ * since the listing arrived is stepped over rather than joined. Names are per-server, so the
+ * existing set must be the whole machine's listing, not just this directory's: offering a
+ * name that stands elsewhere would join that session instead of starting one here.
+ */
+export function suggestTerminalSessionName(
+  directoryPath: string,
+  existingNames: Iterable<string>,
+): string {
+  const leaf = directoryPath.split("/").filter(Boolean).at(-1) ?? "";
+  let slug = leaf
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^[^A-Za-z0-9_]+/, "")
+    .replace(/[-.]+$/, "");
+  if (!slug) slug = "term";
+  slug = slug.slice(0, 48);
+  const taken = new Set(existingNames);
+  let n = taken.size + 1;
+  if (n < 1) n = 1;
+  let candidate = `${slug}-${n}`;
+  while (taken.has(candidate) && n < 100000) {
+    n += 1;
+    candidate = `${slug}-${n}`;
+  }
+  return candidate.slice(0, 64);
+}
+
+/**
+ * Why a hand-typed session name cannot be started, or null when it can.
+ *
+ * The collision check reads the same machine-wide listing the suggestion does, for the same
+ * reason: a name standing anywhere on that server is a join, not a start.
+ */
+export function terminalSessionNameError(
+  name: string,
+  existingNames: Iterable<string>,
+): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Give the shell a name, or use the default.";
+  if (!isTerminalSessionNameValid(trimmed)) {
+    return "Letters, digits, _ , - and . only, starting with a letter, digit or _ .";
+  }
+  if (new Set(existingNames).has(trimmed)) return `${trimmed} is already standing -- pick another.`;
+  return null;
+}
+
+/**
  * A fresh tmux session name for a shell this panel starts.
  *
  * Minted rather than asked for, because the name is an address the listing reports back: a

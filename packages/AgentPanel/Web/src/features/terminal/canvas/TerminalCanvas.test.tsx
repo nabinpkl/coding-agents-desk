@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
 import { TerminalCanvas } from "@/features/terminal/canvas/TerminalCanvas";
 import { groupTerminalsByDirectory } from "@/features/terminal/canvas/terminalGroups";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
@@ -40,6 +41,13 @@ class FakeTerminal {
 }
 
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
+
+// Through to the real hook, recording its calls: the canvas under test passes the mode flag,
+// and what this pins is the value it passes while the strip is and is not in the page.
+vi.mock("@/features/bots/useCanvasZoom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/bots/useCanvasZoom")>();
+  return { ...actual, useCanvasZoom: vi.fn(actual.useCanvasZoom) };
+});
 
 function session(name: string, path: string, attachedClients = 0) {
   return { name, windows: 1, attachedClients, path };
@@ -143,7 +151,7 @@ it("opens a row's tile on its own tmux attach, and closes it back to a row", asy
 
   // Open from above: the tile mounts and attaches to the session it names.
   view.rerender(<TerminalCanvas {...props} openChildren={new Set([":a"])} />);
-  await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith({ kind: "tmux", session: "a" }, 80, 24));
+  await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith({ kind: "tmux", session: "a" }, 60, 30));
   expect(screen.getByLabelText("a terminal")).toBeTruthy();
 
   view.rerender(<TerminalCanvas {...props} openChildren={new Set()} />);
@@ -171,13 +179,43 @@ it("kills only through the confirmed menu, and reports the failure on the card",
   expect(await screen.findByRole("alert")).toHaveTextContent("tmux: no such session");
 });
 
-it("starts a shell from the parent that owns the directory", () => {
+it("starts a shell under the offered default, dir plus one past the count", () => {
+  const feed = feedFake();
+  const onAddTerminal = vi.fn();
+  render(<TerminalCanvas {...canvasProps(feed, { onAddTerminal })} />);
+
+  // Three sessions stand on this machine, so the offer steps past all of them.
+  fireEvent.click(screen.getByRole("button", { name: "Start a shell in proj" }));
+  expect((screen.getByLabelText("Name the new shell") as HTMLInputElement).value).toBe("proj-4");
+
+  // Accepting the default is one press: the parent and the offered name travel together.
+  fireEvent.click(screen.getByRole("button", { name: "Start" }));
+  expect(onAddTerminal).toHaveBeenCalledWith(expect.objectContaining({ path: "/proj" }), "proj-4");
+});
+
+it("lets the reader name the shell, restores the default, and refuses a collision", () => {
   const feed = feedFake();
   const onAddTerminal = vi.fn();
   render(<TerminalCanvas {...canvasProps(feed, { onAddTerminal })} />);
 
   fireEvent.click(screen.getByRole("button", { name: "Start a shell in proj" }));
-  expect(onAddTerminal).toHaveBeenCalledWith(expect.objectContaining({ path: "/proj" }));
+  const field = screen.getByLabelText("Name the new shell") as HTMLInputElement;
+  fireEvent.change(field, { target: { value: "my-shell" } });
+  fireEvent.click(screen.getByRole("button", { name: "Start" }));
+  expect(onAddTerminal).toHaveBeenCalledWith(expect.objectContaining({ path: "/proj" }), "my-shell");
+
+  // Typed over, then thought better of: Use default puts the offer back.
+  fireEvent.click(screen.getByRole("button", { name: "Start a shell in proj" }));
+  const reopened = screen.getByLabelText("Name the new shell") as HTMLInputElement;
+  fireEvent.change(reopened, { target: { value: "my-shell" } });
+  fireEvent.click(screen.getByRole("button", { name: "Use default" }));
+  expect((screen.getByLabelText("Name the new shell") as HTMLInputElement).value).toBe("proj-4");
+
+  // A name standing anywhere on this machine is a join, so the form refuses it outright.
+  fireEvent.change(screen.getByLabelText("Name the new shell"), { target: { value: "a" } });
+  fireEvent.click(screen.getByRole("button", { name: "Start" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("already standing");
+  expect(onAddTerminal).toHaveBeenCalledTimes(1);
 });
 
 it("hides a parent off the strip and brings it back from the strip's end", () => {
@@ -209,4 +247,75 @@ it("names hidden children in the parent and shows them back on one press", () =>
   expect(screen.queryByText("b")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Show 1 hidden session" }));
   expect(onShowHiddenChildren).toHaveBeenCalledWith(":/proj");
+});
+
+it("holds the zoom off until the strip mounts, so a restored mode measures", () => {
+  // A reload with the mode restored as ON shows the placeholder while the listing loads, so
+  // neither node the zoom measures exists yet. The hook measures on the flip of `on`, so the
+  // canvas passes the bare mode only once the strip is in the page -- passing it throughout
+  // left the canvas unmeasured at 1:1 forever, its stored scale intact but never drawn.
+  const feed = feedFake();
+  const zoomed = vi.mocked(useCanvasZoom);
+  zoomed.mockClear();
+  const props = canvasProps(feed, { loading: true, canvasZoom: { mode: true, room: 0 } });
+  const view = render(<TerminalCanvas {...props} />);
+  expect(zoomed.mock.calls.at(-1)?.[0].on).toBe(false);
+
+  // The listing lands and the strip mounts: the flip to true is what measures it.
+  view.rerender(<TerminalCanvas {...props} loading={false} />);
+  expect(zoomed.mock.calls.at(-1)?.[0].on).toBe(true);
+
+  // No strip, no mode either: an error shows the placeholder, not a measured canvas.
+  view.rerender(<TerminalCanvas {...props} loading={false} error="sidecar is down" />);
+  expect(zoomed.mock.calls.at(-1)?.[0].on).toBe(false);
+});
+
+it("drops an image onto a closed row and pastes its path through the session", async () => {
+  const dropTmuxSessionImage = vi.fn(async () => {});
+  const feed = feedFake({ dropTmuxSessionImage });
+  render(<TerminalCanvas {...canvasProps(feed)} />);
+
+  const row = screen.getByRole("button", { name: "a unattached · 1 window" });
+  // The overlay names the contract while the file is over the card: a path paste, not a
+  // composer, because this card has none.
+  fireEvent.dragOver(row, { dataTransfer: { files: [], types: ["Files"] } });
+  expect(screen.getByText("Drop to paste the image path")).toBeTruthy();
+
+  const file = new File(["png-bytes"], "shot.png", { type: "image/png" });
+  fireEvent.drop(row, { dataTransfer: { files: [file], types: ["Files"] } });
+  await waitFor(() => expect(dropTmuxSessionImage).toHaveBeenCalledWith("a", file));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("refuses an oversize image on the card and sends nothing", async () => {
+  const dropTmuxSessionImage = vi.fn(async () => {});
+  const feed = feedFake({ dropTmuxSessionImage });
+  render(<TerminalCanvas {...canvasProps(feed)} />);
+
+  const file = new File(["x".repeat(10 * 1024 * 1024 + 1)], "big.png", { type: "image/png" });
+  fireEvent.drop(
+    screen.getByRole("button", { name: "a unattached · 1 window" }),
+    { dataTransfer: { files: [file], types: ["Files"] } },
+  );
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.getByText("An image has to be under 10 MB.")).toBeTruthy();
+  expect(dropTmuxSessionImage).not.toHaveBeenCalled();
+});
+
+it("attaches through the menu picker, reporting a refusal on the card", async () => {
+  const dropTmuxSessionImage = vi.fn(async () => {
+    throw new Error("tmux: no such session");
+  });
+  const feed = feedFake({ dropTmuxSessionImage });
+  render(<TerminalCanvas {...canvasProps(feed)} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Actions for a terminal" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Attach image…" }));
+  const file = new File(["png-bytes"], "shot.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("Attach an image to a"), {
+    target: { files: [file] },
+  });
+  await waitFor(() => expect(dropTmuxSessionImage).toHaveBeenCalledWith("a", file));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.getByText("tmux: no such session")).toBeTruthy();
 });

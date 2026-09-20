@@ -5,6 +5,7 @@
 
 import type { AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
+import { mouseModeAssert } from "@/features/terminal/mounted-terminal/terminalMouseMode";
 
 export function createTerminalReceive(t: TerminalRuntime) {
   return (message: AgentTerminalStreamMessage): void => {
@@ -15,6 +16,12 @@ export function createTerminalReceive(t: TerminalRuntime) {
         t.enqueueWrite(() => {
           t.terminal.clear();
           t.terminal.reset();
+          // The reset cleared xterm's own mouse state along with everything else, while the
+          // program in the pane still has the mouse on: re-assert what the stream tracked, or
+          // touch and clicks degrade to arrows and selection until the program re-enables.
+          // Encoded because that is the terminal's other tongue, and the tests' fake speaks it.
+          const asserted = mouseModeAssert(t.mouseMode);
+          if (asserted) t.terminal.write(new TextEncoder().encode(asserted));
           t.terminal.resize(message.columns, message.rows);
           // A new grid is a new shape to fit the type to, and a new height for the pane to
           // want. Nothing else reports this: the mount has not moved.

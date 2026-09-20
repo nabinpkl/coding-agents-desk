@@ -53,8 +53,11 @@ function tmuxComposerPath(
  * character at a time, which for a few megabytes of screenshot is a string longer than the image
  * and a loop the main thread notices. The reader hands back a `data:` URL and the base64 is
  * everything after its comma.
+ *
+ * Shared with the terminal tiles, whose drops ride the same bytes to a bare tmux pane rather
+ * than to a Claude composer box.
  */
-function base64FromBlob(image: Blob): Promise<string> {
+export function base64FromBlob(image: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error ?? new Error("could not read the image"));

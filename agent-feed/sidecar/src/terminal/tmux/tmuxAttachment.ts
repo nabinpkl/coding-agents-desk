@@ -301,10 +301,20 @@ export class TmuxAttachments {
     if (closing) await closing;
     const existing = this.panes.get(session);
     if (existing) {
-      const connection = new TmuxSessionConnection(existing, this.runtime, (leaving) =>
-        this.releaseViewer(existing, leaving));
-      existing.viewers.add(connection);
-      return connection;
+      // A session killed and recreated under its old name is a NEW pane: the old pipe follows
+      // the dead one, so joining it shows a screen that never moves again. The pid tells them
+      // apart where the name cannot -- measured when a probe session recreated this way left
+      // every later viewer on a dead pipe with `pane_pipe` reading 0.
+      const geometry = await this.runtime.describe(session).catch(() => null);
+      if (geometry && geometry.pid === existing.pid) {
+        const connection = new TmuxSessionConnection(existing, this.runtime, (leaving) =>
+          this.releaseViewer(existing, leaving));
+        existing.viewers.add(connection);
+        return connection;
+      }
+      // Undescribable answers the same way: the fresh path below throws the real error, and a
+      // join here would hand over a pipe nobody is on the other end of.
+      await this.retirePane(existing);
     }
 
     const geometry = await this.runtime.describe(session);
@@ -342,14 +352,25 @@ export class TmuxAttachments {
   private releaseViewer(pane: SharedPane, leaving: TmuxSessionConnection): void {
     pane.viewers.delete(leaving);
     if (pane.viewers.size > 0) return;
-    this.panes.delete(pane.session);
     // Recorded rather than awaited: releasing is called from a viewer detaching, which cannot
     // block. `open` is what waits.
+    void this.retirePane(pane);
+  }
+
+  /**
+   * Drops a pane's pipe and forgets it, in an order a later open can wait behind.
+   *
+   * The map entry is only cleared when it still points here: a recreated session may already
+   * have replaced it, and deleting that would orphan a live pipe the same way joining a dead
+   * one orphaned its viewers.
+   */
+  private async retirePane(pane: SharedPane): Promise<void> {
+    if (this.panes.get(pane.session) === pane) this.panes.delete(pane.session);
     const closed = pane.stop().catch((error: unknown) => {
       console.error(`tmux pane ${pane.session} did not release its pipe`, asError(error));
     });
     this.closing.set(pane.session, closed);
-    void closed.finally(() => {
+    await closed.finally(() => {
       // Only if no later teardown has replaced it, or a slow close would clear a fast one's entry.
       if (this.closing.get(pane.session) === closed) this.closing.delete(pane.session);
     });

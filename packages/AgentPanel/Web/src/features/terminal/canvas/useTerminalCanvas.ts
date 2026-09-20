@@ -20,9 +20,9 @@ import { loadHiddenMachines, storeHiddenMachines } from "@/features/bots/botCanv
 import { useBots } from "@/features/bots/useBots";
 import {
   groupTerminalsByDirectory,
-  mintTerminalSessionName,
   parseTerminalChildKey,
   terminalChildKey,
+  terminalSessionNameError,
   type TerminalGrouping,
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
@@ -39,6 +39,7 @@ import {
   storeTerminalZoomMode,
 } from "@/features/terminal/canvas/terminalCanvasPreferences";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
+import { DEFAULT_TILE_GRID } from "@/features/terminal/terminalTileSize";
 
 /** One machine's tmux listing and workspace roots, as the last load left them. */
 interface MachineSnapshot {
@@ -219,8 +220,26 @@ export function useTerminalCanvas(
   const [addingKeys, setAddingKeys] = useState<ReadonlySet<string>>(new Set());
   const [addErrors, setAddErrors] = useState<ReadonlyMap<string, string>>(new Map());
 
-  const onAddTerminal = useCallback((parent: TerminalParentGroup) => {
-    const session = mintTerminalSessionName();
+  /**
+   * Starts a shell in this parent's directory under the name the reader chose.
+   *
+   * The name arrives from the card's or row's naming form, which offers
+   * `suggestTerminalSessionName` as the default and validates before sending. The check here
+   * is the backstop for a caller that skipped the form: a stale default that collided since
+   * the listing arrived would otherwise join that session instead of starting one here.
+   */
+  const onAddTerminal = useCallback((parent: TerminalParentGroup, session: string) => {
+    const name = session.trim();
+    // Machine-wide, not just this directory's: names are per-server, so a name standing
+    // anywhere on this machine is a join, wherever the form offered it from.
+    const standing = [...grouping.parents, ...grouping.residue]
+      .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
+      .flatMap((each) => each.children.map((child) => child.name));
+    const invalid = terminalSessionNameError(name, standing);
+    if (invalid) {
+      setAddErrors((previous) => new Map(previous).set(parent.key, invalid));
+      return;
+    }
     setAddingKeys((previous) => new Set(previous).add(parent.key));
     setAddErrors((previous) => {
       if (!previous.has(parent.key)) return previous;
@@ -235,16 +254,16 @@ export function useTerminalCanvas(
         // tile the canvas opens joins it the way it joins any other. Holding the attach would
         // steal the pane's one pipe from the tile that is about to open it.
         const descriptor = await target.openTerminal(
-          { kind: "tmux-new", session, directory: parent.path },
-          80,
-          24,
+          { kind: "tmux-new", session: name, directory: parent.path },
+          DEFAULT_TILE_GRID.columns,
+          DEFAULT_TILE_GRID.rows,
         );
         await target.closeTerminal(descriptor.terminalId, "detach");
         // Awaited rather than fired: the key below is opened only once the grouping holds it,
         // which is what keeps the prune from closing what was just opened.
         await reload(all, { on: true });
         refresh();
-        const key = terminalChildKey(parent.machineId, session);
+        const key = terminalChildKey(parent.machineId, name);
         setOpenChildren((previous) => {
           const next = new Set(previous).add(key);
           storeOpenTerminalChildren(next);
@@ -261,7 +280,7 @@ export function useTerminalCanvas(
         });
       }
     })();
-  }, [all, feedFor, refresh, reload]);
+  }, [all, feedFor, grouping, refresh, reload]);
 
   /**
    * Picks a child from the roster, the way the Bot sidebar opens a session on its canvas.

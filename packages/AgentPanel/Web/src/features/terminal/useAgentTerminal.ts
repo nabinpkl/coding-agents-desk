@@ -39,8 +39,17 @@ import type {
 } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalFit } from "@/features/terminal/mounted-terminal/agentTerminalFit";
 import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
+import type { TileGridRequest } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalReceive } from "@/features/terminal/mounted-terminal/agentTerminalStream";
 import { attachTerminalWheel } from "@/features/terminal/mounted-terminal/terminalWheel";
+import {
+  createTerminalMouseMode,
+  mouseModeAssert,
+  mouseModeReporting,
+  terminalBytesToText,
+  updateTerminalMouseMode,
+} from "@/features/terminal/mounted-terminal/terminalMouseMode";
+import { bindTouchFocus } from "@/features/terminal/mounted-terminal/terminalTouchFocus";
 import {
   BASE_FONT_SIZE,
   bytesFromBase64,
@@ -53,11 +62,11 @@ import {
   paddingOf,
   proposedDimensions,
   sizingKey,
-  TAP_SLOP_PX,
   TERMINAL_ZOOM,
   terminalTheme,
   WHEEL_LINES,
 } from "@/features/terminal/mounted-terminal/agentTerminalLayout";
+import { clampTileGrid } from "@/features/terminal/terminalTileSize";
 
 // Re-exported: the panes that mount a terminal import the hook, and these are what they
 // hand it or read from it.
@@ -121,6 +130,8 @@ export function useAgentTerminal(
   const refitRef = useRef<(() => void) | null>(null);
   // Set once the terminal is open. Chrome outside the terminal -- the key rail -- types through it.
   const sendRef = useRef<((data: string) => void) | null>(null);
+  // A tile's drag asks through here without reopening (sizing stays the effect's key).
+  const gridRef = useRef<TileGridRequest | null>(null);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -163,44 +174,21 @@ export function useAgentTerminal(
 
       // What the reader is scrolling back over is not always in this buffer: on the alternate
       // screen it belongs to the program, and the wheel is sent to it. See `attachTerminalWheel`.
-      let mouseReporting = false;
+      //
+      // Learned from the stream rather than only the descriptor, which is the mouse mode as
+      // it stood at open: a shell that later starts a fullscreen program keeps a stale `false`
+      // while xterm is live on alternate, and that wheel arm does nothing. The program's own
+      // `ESC[?1006h` arrives here first, so the mode is current by the first wheel or touch.
+      const mouseMode = createTerminalMouseMode(false);
       attachTerminalWheel(terminal, {
         scrollLines: WHEEL_LINES,
-        mouseReporting: () => mouseReporting,
+        mouseReporting: () => mouseModeReporting(mouseMode),
         send: (data) => sendRef.current?.(data),
       });
 
-      // A tap has to focus the terminal by hand, or a phone gets no keyboard.
-      //
-      // xterm focuses from `mousedown` (`bindMouse`'s requestFocus). On a touch device it also
-      // installs a Gesture on the screen element, and that Gesture calls `preventDefault()` on
-      // touchstart and touchend -- which is exactly what suppresses the browser's synthesized
-      // mouse events. So the mousedown that would have focused never arrives, nothing focuses the
-      // hidden textarea, and iOS has no focused field to raise a keyboard for. Measured against
-      // the vendored source rather than inferred from the symptom.
-      //
-      // Focused from the touch itself, for two reasons: it is on the mount, which bubbles before
-      // the document-level listener that stops propagation, and it runs synchronously inside the
-      // gesture, which is the condition iOS puts on showing the keyboard at all.
-      let touchOrigin: { x: number; y: number } | null = null;
-      const noteTouchStart = (event: TouchEvent): void => {
-        const touch = event.touches.length === 1 ? event.touches[0] : null;
-        touchOrigin = touch ? { x: touch.clientX, y: touch.clientY } : null;
-      };
-      // Only a tap, never a drag: a finger scrolling back over output has not asked to type, and
-      // a keyboard thrown up mid-scroll takes half the screen the reader was using.
-      const focusOnTap = (event: TouchEvent): void => {
-        const origin = touchOrigin;
-        touchOrigin = null;
-        const touch = event.changedTouches[0];
-        if (!origin || !touch) return;
-        const moved = Math.abs(touch.clientX - origin.x) > TAP_SLOP_PX
-          || Math.abs(touch.clientY - origin.y) > TAP_SLOP_PX;
-        if (moved) return;
-        terminal.focus();
-      };
-      mount.addEventListener("touchstart", noteTouchStart, { passive: true });
-      mount.addEventListener("touchend", focusOnTap);
+      // A tap focuses the terminal by hand, or a phone gets no keyboard. The why is with
+      // the binding; a drag is not a tap and must not raise one.
+      const unbindTouchFocus = bindTouchFocus(mount, () => terminal.focus());
 
       // Whether this terminal is the thing being typed into. The key rail is chrome for typing, so
       // it appears with the keyboard and leaves with it rather than standing there permanently.
@@ -239,8 +227,13 @@ export function useAgentTerminal(
         writes = writes.then(operation).catch(fail);
       };
       const write = (encoded: string): void => {
-        enqueueWrite(() => new Promise<void>((resolve) => terminal.write(bytesFromBase64(encoded), resolve)));
+        const bytes = bytesFromBase64(encoded);
+        updateTerminalMouseMode(mouseMode, terminalBytesToText(bytes));
+        enqueueWrite(() => new Promise<void>((resolve) => terminal.write(bytes, resolve)));
       };
+      // A tile's drag asks for a grid the mount never had, without the reopen a sizing
+      // change would cost. Null until the first drag; every other surface reports as before.
+      let wantedGrid: { columns: number; rows: number } | null = null;
       const publishViewport = (): void => {
         if (!descriptor || disposed || t.remoteClosed) return;
         // What this viewer's BOX would hold, which is what the far end resizes to. A viewer that
@@ -251,7 +244,7 @@ export function useAgentTerminal(
         // cell on screen is the one the answer should be in. `baseCell` is null only before the
         // first fit, when nothing has been scaled and the current cell IS the base one.
         const dimensions = sizing.kind === "fixed"
-          ? { columns: sizing.columns, rows: sizing.rows }
+          ? (wantedGrid ?? { columns: sizing.columns, rows: sizing.rows })
           : proposedDimensions(terminal, mount, t.ownsPaneShape ? null : t.baseCell);
         if (!dimensions) return;
         viewportSequence += 1;
@@ -269,6 +262,25 @@ export function useAgentTerminal(
       const scheduleViewport = (): void => {
         if (resizeTimer !== null) clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => publishViewport(), 120);
+      };
+      // A drag's grid without the reopen a sizing change would cost: the attachment stays
+      // and the pane takes the shape through the ordinary claim, refused while watched. A
+      // repeat of the grid in force sends nothing, which keeps pointermove out of tmux.
+      gridRef.current = {
+        resizeGrid: (columns, rows) => {
+          const grid = clampTileGrid({ columns, rows });
+          const current = wantedGrid
+            ?? (sizing.kind === "fixed" ? { columns: sizing.columns, rows: sizing.rows } : null);
+          if (current && current.columns === grid.columns && current.rows === grid.rows) return;
+          wantedGrid = grid;
+          publishViewport();
+        },
+        measureCell: () => {
+          const cell = terminal.dimensions?.css.cell;
+          return cell && cell.width > 0 && cell.height > 0
+            ? { width: cell.width, height: cell.height }
+            : null;
+        },
       };
       const finishRemote = (state: AgentTerminalState): void => {
         t.remoteClosed = true;
@@ -301,6 +313,7 @@ export function useAgentTerminal(
         paneAuthoritative,
         dimensions: null,
         moved: false,
+        mouseMode,
         enqueueWrite,
         write,
         scheduleViewport,
@@ -365,8 +378,14 @@ export function useAgentTerminal(
             return;
           }
           descriptor = opened;
-          mouseReporting = opened.mouseReporting;
+          mouseMode.any = opened.mouseReporting ? 1002 : null;
+          mouseMode.sgr = opened.mouseReporting ? 1006 : null;
           terminal.resize(opened.columns, opened.rows);
+          // History carries no mode escapes, so assert the tracked mode now or a running
+          // program leaves xterm believing the mouse is off: touch sends arrows, clicks select.
+          // Encoded because that is the terminal's other tongue, and the tests' fake speaks it.
+          const asserted = mouseModeAssert(mouseMode);
+          if (asserted) terminal.write(new TextEncoder().encode(asserted));
           // The grid a tmux attach ends up with comes from HERE, not from a checkpoint: the
           // history is imported rather than replayed, so `checkpointBegin` never arrives and this
           // is the only place the far end's shape is learned.
@@ -424,11 +443,11 @@ export function useAgentTerminal(
       teardown = () => {
         if (resizeTimer !== null) clearTimeout(resizeTimer);
         observer?.disconnect();
-        mount.removeEventListener("touchstart", noteTouchStart);
-        mount.removeEventListener("touchend", focusOnTap);
+        unbindTouchFocus();
         textarea?.removeEventListener("focus", noteFocus);
         textarea?.removeEventListener("blur", noteBlur);
         sendRef.current = null;
+        gridRef.current = null;
         input.dispose();
         binaryInput.dispose();
         appearance?.removeEventListener("change", updateTheme);
@@ -474,5 +493,7 @@ export function useAgentTerminal(
       sendRef.current?.(bytesForRailKey(key, held));
       setModifiers(releaseArmed);
     },
+    resizeGrid: (columns, rows) => gridRef.current?.resizeGrid(columns, rows),
+    measureCell: () => gridRef.current?.measureCell() ?? null,
   };
 }

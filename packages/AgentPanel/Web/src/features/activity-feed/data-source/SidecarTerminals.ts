@@ -9,11 +9,12 @@ import type {
   AgentTerminalDescriptor,
   AgentTerminalHistory,
   AgentTerminalViewport,
+  ComposerImageDrop,
   TmuxSessionSummary,
   WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
 import { expectEmpty, parse } from "@/features/activity-feed/data-source/sidecarRoutes";
-import { SidecarComposers } from "@/features/activity-feed/data-source/SidecarComposers";
+import { base64FromBlob, SidecarComposers } from "@/features/activity-feed/data-source/SidecarComposers";
 import { TerminalViewers, type TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
 
 export class SidecarTerminals extends SidecarComposers {
@@ -76,6 +77,24 @@ export class SidecarTerminals extends SidecarComposers {
     expectEmpty(await this.transport.request(
       "DELETE",
       `/api/tmux/sessions/${encodeURIComponent(session)}`,
+    ));
+  }
+
+  /**
+   * Drops an image onto a bare tmux pane as the absolute path of a file written for it.
+   *
+   * The terminal twin of the composer drop, minus the composer: no box is found, nothing is
+   * mirrored, and the pane's program decides what a pasted path means -- opencode reads it
+   * through its own `read` tool on the next turn, a shell holds it as text. The bytes ride
+   * base64 for the same reason they do there: the transport is JSON, so binary would be
+   * encoded regardless. Whether the file is an image is judged by the sidecar sniffing the
+   * bytes, never by what the browser called it.
+   */
+  async dropTmuxSessionImage(session: string, image: Blob): Promise<void> {
+    expectEmpty(await this.transport.request(
+      "POST",
+      `/api/tmux/sessions/${encodeURIComponent(session)}/image`,
+      { body: { data: await base64FromBlob(image) } satisfies ComposerImageDrop },
     ));
   }
 

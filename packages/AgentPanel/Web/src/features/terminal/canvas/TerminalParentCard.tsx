@@ -8,14 +8,18 @@
 // its own.
 
 import { EyeOff, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { botSurfaceStyle, sessionInitials } from "@/features/bots/botSurface";
 import { TerminalChildCard } from "@/features/terminal/canvas/TerminalChildCard";
-import { terminalChildKey, type TerminalParentGroup } from "@/features/terminal/canvas/terminalGroups";
+import {
+  terminalChildKey,
+  terminalSessionNameError,
+  type TerminalParentGroup,
+} from "@/features/terminal/canvas/terminalGroups";
 import { terminalChildSteps, terminalParentStyle } from "@/features/terminal/canvas/terminalSurface";
 
 export function TerminalParentCard({
@@ -33,6 +37,8 @@ export function TerminalParentCard({
   onHideParent,
   adding,
   addError,
+  suggestedName,
+  existingNames,
   onAdd,
   onDismissAddError,
 }: {
@@ -60,8 +66,12 @@ export function TerminalParentCard({
   adding: boolean;
   /** Why the last start failed, or null. Dismissed, not retried, from here. */
   addError: string | null;
-  /** Starts a shell in this directory. Absent on the residue group: no directory, no shell. */
-  onAdd?: () => void;
+  /** The offered name for the next shell here: `<dir>-<n>`, past every collision. */
+  suggestedName: string;
+  /** Every session standing on this machine: a name taken anywhere on it is a join. */
+  existingNames: readonly string[];
+  /** Starts a shell in this directory under the name the reader chose. Absent on the residue group: no directory, no shell. */
+  onAdd?: (session: string) => void;
   onDismissAddError: () => void;
 }) {
   const leaf = group.path.split("/").filter(Boolean).at(-1) ?? "Other sessions";
@@ -83,6 +93,19 @@ export function TerminalParentCard({
   }${hidden > 0 ? `, ${hidden} off the strip` : ""}`;
   const holdsOpen = shown.some((child) => openChildren.has(terminalChildKey(group.machineId, child.name)));
   const faces = useBotFaces();
+  // The naming step between + and the start: the input arrives prefilled with the offered
+  // default, so accepting it is one press, and typing over it names the shell whatever the
+  // reader wants. Kept local because the arrangement that persists is what is running, not
+  // a half-typed name in a form.
+  const [naming, setNaming] = useState(false);
+  const [draft, setDraft] = useState(suggestedName);
+  const [formError, setFormError] = useState<string | null>(null);
+  const nameInputId = `terminal-name-${group.key}`;
+  const openNaming = (): void => {
+    setDraft(suggestedName);
+    setFormError(null);
+    setNaming(true);
+  };
   // Brings this card into view when it BECOMES an open one -- the row that opened it may have
   // been nowhere near it -- and not when it mounts already open, which is the canvas coming back
   // to an arrangement rather than a reader opening something.
@@ -147,10 +170,10 @@ export function TerminalParentCard({
             <span aria-hidden>{shown.length}</span>
             <span className="sr-only">{counted}</span>
           </span>
-          {onAdd ? (
+          {onAdd && !naming ? (
             <button
               type="button"
-              onClick={onAdd}
+              onClick={openNaming}
               disabled={adding}
               aria-label={`Start a shell in ${leaf}`}
               title="Start a shell"
@@ -164,6 +187,76 @@ export function TerminalParentCard({
             items={[{ label: "Hide parent", icon: EyeOff, onSelect: onHideParent }]}
           />
         </div>
+
+        {naming && onAdd ? (
+          // The name is asked where the shell is started, before anything is running: a
+          // collision here would join that session instead of starting one in this directory.
+          <form
+            aria-label={`Name the new shell in ${leaf}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const invalid = terminalSessionNameError(draft, existingNames);
+              if (invalid) {
+                setFormError(invalid);
+                return;
+              }
+              setFormError(null);
+              setNaming(false);
+              onAdd(draft.trim());
+            }}
+            className="flex flex-col gap-2 border-b border-border px-3 py-2"
+          >
+            <label
+              htmlFor={nameInputId}
+              className="text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium text-muted-foreground"
+            >
+              Name the new shell
+            </label>
+            <input
+              id={nameInputId}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={64}
+              placeholder={suggestedName}
+              className="min-h-9 w-full rounded-lg border border-border bg-background px-2 py-1 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+            {formError ? (
+              <p role="alert" className="text-(length:--agent-panel-fs-sidebar-chip,11px) text-destructive">
+                {formError}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={adding}
+                className="min-h-9 flex-1 cursor-pointer rounded-lg bg-primary px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50"
+              >
+                {adding ? "Starting…" : "Start"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(suggestedName);
+                  setFormError(null);
+                }}
+                title={`Use the default name ${suggestedName}`}
+                className="min-h-9 cursor-pointer rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Use default
+              </button>
+              <button
+                type="button"
+                onClick={() => setNaming(false)}
+                className="min-h-9 cursor-pointer rounded-lg border border-border px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
 
         {addError ? (
           <p
@@ -208,6 +301,7 @@ export function TerminalParentCard({
                   onToggle={() => onToggleChild(key)}
                   onHide={() => onHideChild(key)}
                   onKill={() => onKillChild(key)}
+                  storageKey={key}
                 />
               );
             })}

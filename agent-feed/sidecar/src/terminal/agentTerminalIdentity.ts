@@ -54,8 +54,8 @@ export interface TerminalIdentity {
    * Only kinds whose name cannot be a typo carry it. A tmux target named by the panel is
    * somebody else's session and creating it would answer a typo with a new process; a
    * session-backed one is a session id the sidecar resolved to a pane name itself, and a
-   * `tmux-new` one is a fresh `agentterm-*` name the panel minted for this open, so there is
-   * nothing to mistype in either.
+   * `tmux-new` one is a name the panel offered past every standing session and refused to send
+   * colliding, so a typo lands on a refused name or a fresh one rather than on a neighbour.
    */
   createTmux: { cwd: string; command: string[] } | null;
   /**

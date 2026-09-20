@@ -461,6 +461,32 @@ test("a pipe that cannot be set fails the open instead of returning a dead termi
   expect(attachments.openPanes).toBe(0);
 });
 
+test("a session recreated under its name gets a fresh pipe rather than the dead one's", async () => {
+  // The panes are keyed by name, and a name outlives its process: killing a session and
+  // starting a new one under it leaves the old pipe following the dead pane, so a viewer
+  // joining by name shows the imported screen and then never moves again. Measured with a
+  // probe session recreated this way: every later open joined the dead entry and `pane_pipe`
+  // read 0. The pid tells the incarnations apart where the name cannot.
+  const { runtime: tmux, log, pane } = runtime();
+  const attachments = new TmuxAttachments(tmux);
+  const first = await attachments.open("rags", { columns: 80, rows: 24 });
+  expect(log.pipes).toBe(1);
+
+  pane.pid = 9999;
+  const second = await attachments.open("rags", { columns: 80, rows: 24 });
+  expect(log.pipes).toBe(2);
+  expect(log.stops).toBe(1);
+  expect(second.attachment.pid).toBe(9999);
+
+  // The first viewer keeps its frozen connection rather than being moved: it watched a
+  // process that is gone, and only a new join heals.
+  const seenByFirst = collect(first);
+  const seenBySecond = collect(second);
+  log.emit(new TextEncoder().encode("live"));
+  expect(seenByFirst).toHaveLength(0);
+  expect(seenBySecond).toHaveLength(1);
+});
+
 test("hex is two lowercase digits per byte, so tmux never sees a bare single digit", () => {
   expect(hexKeyArguments(new Uint8Array([0, 9, 15, 26, 255]))).toEqual(["00", "09", "0f", "1a", "ff"]);
 });
