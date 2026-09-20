@@ -13,6 +13,7 @@ import {
   paneGeometryArgs,
   parsePaneDescription,
   historyForTerminal,
+  fullBleedCapture,
   parseTmuxSessions,
   terminalHistoryPayload,
   TmuxUnavailable,
@@ -107,7 +108,7 @@ test("hands an alternate screen over as one, since there is no history to sit ab
     rows: 3,
     cursor: { row: 2, column: 6 },
     alternateScreen: true,
-  })).toBe("\u001b[?1049h\u001b[Htop\r\nmiddle\r\nbottom\u001b[3;7H");
+  })).toBe("\u001b[?1049h\u001b[H\u001b[0mtop\u001b[K\r\n\u001b[0mmiddle\u001b[K\r\n\u001b[0mbottom\u001b[K\u001b[3;7H");
 });
 
 test("opens exactly one screen of rows between the history and the screen", () => {
@@ -121,13 +122,13 @@ test("opens exactly one screen of rows between the history and the screen", () =
     cursor: { row: 0, column: 0 },
   });
   expect(payload)
-    .toBe("old one\r\nold two\r\n\r\n\r\n\u001b[Htop\r\nmiddle\r\nbottom\u001b[1;1H");
+    .toBe("\u001b[0mold one\u001b[K\r\n\u001b[0mold two\u001b[K\r\n\r\n\r\n\u001b[H\u001b[0mtop\u001b[K\r\n\u001b[0mmiddle\u001b[K\r\n\u001b[0mbottom\u001b[K\u001b[1;1H");
 });
 
 test("the rows it opens follow the pane's height, since that is what has to line up", () => {
   const opening = (rows: number): string =>
     terminalHistoryPayload({ scrollback: "one\n", screen: "s\n", rows, cursor: { row: 0, column: 0 } })
-      .slice("one\r\n".length, -"\u001b[Hs\u001b[1;1H".length);
+      .slice("\u001b[0mone\u001b[K\r\n".length, -"\u001b[H\u001b[0ms\u001b[K\u001b[1;1H".length);
   expect(opening(1)).toBe("");
   expect(opening(2)).toBe("\r\n");
   expect(opening(24)).toBe("\r\n".repeat(23));
@@ -135,7 +136,7 @@ test("the rows it opens follow the pane's height, since that is what has to line
 
 test("still opens a full screen when the pane has no scrollback at all", () => {
   expect(terminalHistoryPayload({ scrollback: "", screen: "only\n", rows: 2, cursor: { row: 0, column: 0 } }))
-    .toBe("\r\n\u001b[Honly\u001b[1;1H");
+    .toBe("\r\n\u001b[H\u001b[0monly\u001b[K\u001b[1;1H");
 });
 
 test("leaves the cursor where the pane's is, not where the screen text ran out", () => {
@@ -149,6 +150,44 @@ test("leaves the cursor where the pane's is, not where the screen text ran out",
     cursor: { row: 1, column: 4 },
   });
   expect(payload.endsWith("\u001b[2;5H")).toBe(true);
+});
+
+test("a trimmed row keeps its colours to the margin, which is what the trim took", () => {
+  // `capture-pane` trims trailing cells, so a row the program painted edge to edge arrives
+  // ending where its text ends -- often with a background still open, the spaces it covered
+  // trimmed away but the code that covered them kept. The erase fills exactly those cells
+  // back in, in that background, with no width to count and nothing that can wrap.
+  expect(fullBleedCapture("text\u001b[48;2;40;44;52m\n")).toBe("\u001b[0mtext\u001b[48;2;40;44;52m\u001b[K\r\n");
+});
+
+test("one row's trailing colours never smear into the next row's default cells", () => {
+  // Without the reset, the row above's still-open background would paint the plain indent
+  // below it -- grey where the pane holds the theme's own. Each row starts clean and sets
+  // whatever the capture says, which is the row's first cell either way.
+  expect(fullBleedCapture("top\u001b[48;2;40;44;52m\n   plain\n"))
+    .toBe("\u001b[0mtop\u001b[48;2;40;44;52m\u001b[K\r\n\u001b[0m   plain\u001b[K\r\n");
+});
+
+test("a row the trim emptied is filled from the card continuing below it", () => {
+  // A full-bleed background row trims to zero bytes -- not even its colours survive -- so
+  // there is nothing to continue. The next row that still has colours says what the gap
+  // was: its leading run is the background the whole width was painted.
+  expect(fullBleedCapture("top\u001b[48;2;1;2;3m\n\n\u001b[48;2;1;2;3mnext\n"))
+    .toBe("\u001b[0mtop\u001b[48;2;1;2;3m\u001b[K\r\n\u001b[48;2;1;2;3m\u001b[K\r\n\u001b[0m\u001b[48;2;1;2;3mnext\u001b[K\r\n");
+});
+
+test("a gap above default cells stays default rather than borrowing from above", () => {
+  // The row below starts with plain text, so its first cell is the theme's own -- and so
+  // is the gap. Bare inherits whatever the row above left, which the reset just made
+  // explicit, so nothing is emitted at all.
+  expect(fullBleedCapture("top\u001b[48;2;1;2;3m\n\nplain\n"))
+    .toBe("\u001b[0mtop\u001b[48;2;1;2;3m\u001b[K\r\n\r\n\u001b[0mplain\u001b[K\r\n");
+});
+
+test("rows past the last content stay the theme's own", () => {
+  // Nothing below has colours, so there is nothing to fill from. Bare, inheriting the
+  // reset row above -- which is the bottom of the screen staying default, not a gap to fix.
+  expect(fullBleedCapture("only\n\n")).toBe("\u001b[0monly\u001b[K\r\n\r\n");
 });
 
 test("asks about a session by exact name", () => {

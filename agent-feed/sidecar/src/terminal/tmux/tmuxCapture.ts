@@ -180,7 +180,10 @@ export function terminalHistoryPayload(
   // CUP is one-based, and addresses the screen -- which the opening rows below put exactly where
   // the pane's screen is.
   const home = `\u001b[${cursor.row + 1};${cursor.column + 1}H`;
-  const painted = historyForTerminal(screen.replace(/\n$/, ""));
+  // Full-bleed rather than verbatim: the capture trims every row's trailing cells, and a
+  // trimmed row written straight paints its card's colours only behind its text -- see
+  // `fullBleedCapture` for the measurement that bought this.
+  const painted = fullBleedCapture(screen.replace(/\n$/, ""));
   // An alternate screen has no history to sit above it, by definition: tmux keeps no scrollback for
   // one, and a fullscreen program redraws rather than scrolls. So the viewer is told to switch
   // buffers and handed the screen, and the two paragraphs of positioning below do not apply --
@@ -191,7 +194,7 @@ export function terminalHistoryPayload(
   // truthfully, the imported screen stays out of the scrollback the reader scrolls, and the wheel
   // can be forwarded to the program instead of moving an empty buffer. See `mouseReporting`.
   if (alternateScreen) return `\u001b[?1049h\u001b[H${painted}${home}`;
-  const history = historyForTerminal(scrollback);
+  const history = fullBleedCapture(scrollback);
   const opening = "\r\n".repeat(Math.max(0, rows - 1));
   return `${history}${opening}\u001b[H${painted}${home}`;
 }
@@ -238,6 +241,58 @@ export async function captureTmuxHistory(session: string, lines: number): Promis
  */
 export function historyForTerminal(captured: string): string {
   return captured.replace(/\r?\n/g, "\r\n");
+}
+
+/**
+ * One captured row's leading colours, for filling a row the capture emptied.
+ *
+ * Only SGR colour runs count, and only at the very start: what a row's first cell carries is
+ * what its whole width was painted with when the row is full-bleed, which is exactly the row
+ * a trim empties. Anything else at the start -- plain text, an OSC hyperlink -- says the row
+ * begins in the default colours, which is itself an answer.
+ */
+const LEADING_SGR_RUN = /^((?:\u001b\[[0-9;:]*m)+)/;
+
+function leadingSgrRun(line: string): string {
+  return line.match(LEADING_SGR_RUN)?.[1] ?? "";
+}
+
+/**
+ * A capture rewritten so every row paints its whole width, because `capture-pane` trims.
+ *
+ * Measured on a live opencode: every captured row shorter than the pane ends where its text
+ * ends, and rows the program painted edge to edge with background spaces come back as zero
+ * bytes -- not even their colours survive. Written straight into a terminal, the trimmed
+ * cells keep whatever the theme paints as default, so a grey card reads as grey text on
+ * black bands with a black fringe down its right edge. A resize hides it, not because the
+ * checkpoint paints different bytes, but because the SIGWINCH makes the program repaint
+ * live at full bleed behind it -- which is why a refresh, with no resize and no repaint,
+ * is where it shows.
+ *
+ * So each row is made self-contained and full-bleed: a reset first, so one row's trailing
+ * colours cannot smear into the next row's default cells, and an erase-to-end behind its
+ * text, which fills exactly to the margin in the row's own trailing colours with no width
+ * to count and nothing that can wrap. A row the trim emptied is filled from the next row
+ * that still has colours -- the card continuing below it -- and left bare where nothing
+ * below has any, which is the bottom of the screen staying the theme's own.
+ */
+export function fullBleedCapture(captured: string): string {
+  const lines = captured.split("\n");
+  return lines.map((line, index) => {
+    // A row with anything in it, colours included: a row the trim reduced to only its
+    // colours is still a row, and its own run still says what its width was painted.
+    if (line.length > 0) return `\u001b[0m${line}\u001b[K`;
+    for (let below = index + 1; below < lines.length; below += 1) {
+      const candidate = lines[below]!;
+      if (candidate.length === 0) continue;
+      const run = leadingSgrRun(candidate);
+      // A next row starting in the default colours says the gap is default too, and bare
+      // inherits whatever the row above left -- which the reset above just made explicit.
+      if (run === "") return "";
+      return `${run}\u001b[K`;
+    }
+    return "";
+  }).join("\r\n");
 }
 
 /**

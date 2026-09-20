@@ -22,6 +22,7 @@ export {
   captureTmuxPaneView,
   captureTmuxQuestionView,
   historyForTerminal,
+  fullBleedCapture,
   paneActivity,
   paneActivityArgs,
   paneGeometryArgs,
