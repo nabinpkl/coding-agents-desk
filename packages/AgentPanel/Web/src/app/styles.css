@@ -88,8 +88,6 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --color-compaction-surface: var(--compaction-surface);
-  --color-compaction-border: var(--compaction-border);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -133,16 +131,12 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.625rem;
-  /* The summary a compaction leaves behind, under its banner and under the notice that streams it.
-     Amber because that notice's pulse is amber, and one hue for the whole event is what ties the
-     box to the banner rather than to the rows around it. Its own tokens rather than `--card`: a
-     Canvas session card tints every row with its Bot's hue, and a plain card box on that reads as
-     something pasted in from another page. Fixed rather than following the Bot's hue, because the
-     point is to differ from the rows. Light keeps the surface at a whisper and puts the chroma in
-     the border, for the reason the Bot tokens below give: `--muted-foreground` holds 4.5:1 here
-     and any more tint spends it. */
-  --compaction-surface: oklch(0.985 0.022 85);
-  --compaction-border: oklch(0.86 0.07 80);
+  /* The ink for muted text inside a compaction's summary box, which sits one step off the rows
+     around it (`.session-view-compaction`). Light's `--muted-foreground` is 0.556 and holds only
+     4.5:1 on the rows themselves, so a step that is visible at all spends it; the ink moves
+     instead, the way `--bot-session-ink-l` does for a session card's caption. Dark has room and
+     keeps its own. */
+  --compaction-ink: oklch(0.5 0 0);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -165,8 +159,7 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
-    --compaction-surface: oklch(0.26 0.035 75);
-    --compaction-border: oklch(0.45 0.08 75);
+    --compaction-ink: oklch(0.708 0 0);
   }
 }
 
@@ -289,6 +282,15 @@
   --bot-session-row-c: 0.018;
   --bot-session-row-tool-l: 0.988;
   --bot-session-row-tool-c: 0.0125;
+  /* The box a compaction's summary sits in: the session's own hue one step down, so it belongs to
+     the card and still reads as a different thing from the rows. Darker is the only direction
+     light has, and it is paid for with `--compaction-ink`: over 72 hues muted text holds 5.23:1
+     and the box sits 0.030 dEok off the row surface, about what two adjacent sessions differ by.
+     The border carries the chroma, as the Bot border does. */
+  --bot-session-compaction-l: 0.965;
+  --bot-session-compaction-c: 0.035;
+  --bot-session-compaction-border-l: 0.840;
+  --bot-session-compaction-border-c: 0.080;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -377,6 +379,12 @@
     --bot-session-row-c: 0.090;
     --bot-session-row-tool-l: 0.249;
     --bot-session-row-tool-c: 0.090;
+    /* Below the rows (0.205) and the ground (0.220) rather than above them: a well rather than a
+       raised card, 0.047 dEok off the row surface over 72 hues, muted text at 7.24:1. */
+    --bot-session-compaction-l: 0.160;
+    --bot-session-compaction-c: 0.070;
+    --bot-session-compaction-border-l: 0.400;
+    --bot-session-compaction-border-c: 0.100;
   }
 }
 
@@ -479,6 +487,14 @@
       var(--bot-session-row-tool-l) var(--bot-session-row-tool-c)
       var(--bot-session-hue, var(--bot-hue))
     );
+    --session-view-compaction: oklch(
+      var(--bot-session-compaction-l) var(--bot-session-compaction-c)
+      var(--bot-session-hue, var(--bot-hue))
+    );
+    --session-view-compaction-border: oklch(
+      var(--bot-session-compaction-border-l) var(--bot-session-compaction-border-c)
+      var(--bot-session-hue, var(--bot-hue))
+    );
     /* The titlebar, which is the card's own fill and not a surface of its own. An open card lays
        this over the top of `background-color` below, so anything else here is the card changing
        colour the moment a reader opens it -- and it is the strip carrying the session's name, so
@@ -532,6 +548,15 @@
       --session-view-row-tool,
       color-mix(in oklab, var(--muted) 60%, transparent)
     );
+  }
+
+  /* A compaction's summary box, under its banner and under the notice that streams it. Resets the
+     muted ink for everything inside it, Markdown included, because the surface is a step darker
+     than the one that ink was chosen against. */
+  .session-view-compaction {
+    background-color: var(--session-view-compaction, var(--muted));
+    border-color: var(--session-view-compaction-border, var(--border));
+    --muted-foreground: var(--compaction-ink);
   }
 
   /* Caption ink that follows the surface it sits on. Everywhere but a shaded session card there

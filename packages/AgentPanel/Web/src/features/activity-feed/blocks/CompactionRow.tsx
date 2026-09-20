@@ -72,7 +72,7 @@ export function CompactionRow({
         // push the rest of the thread a screen away from the banner it belongs to. Kept short so
         // the thread around the banner stays in view while it is open. Markdown because the
         // summariser writes numbered sections and nested lists.
-        <div className="mt-2 max-h-[16em] overflow-y-auto overscroll-contain rounded-md border border-compaction-border bg-compaction-surface px-3 py-2 leading-(--agent-panel-prose-leading) text-foreground">
+        <div className="mt-2 max-h-[16em] overflow-y-auto overscroll-contain rounded-md border session-view-compaction px-3 py-2 leading-(--agent-panel-prose-leading) text-foreground">
           <Markdown content={summary} />
         </div>
       ) : null}
