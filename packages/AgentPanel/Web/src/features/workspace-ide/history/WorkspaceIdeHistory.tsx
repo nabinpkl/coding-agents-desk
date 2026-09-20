@@ -12,8 +12,14 @@
 // every file list of fifty commits up front would read the whole repository to draw a list of
 // subjects.
 //
-// The reading position lives in `useCommitHistory`, on the status bar, because clicking a file
-// closes this panel and a closed panel has no state.
+// Clicking a file does not close this panel: a reader who has found the commit is usually reading
+// several of its files, and a panel that dismissed itself would make the second file cost the
+// whole journey again. What it costs is that the diff opens behind the panel -- on a phone,
+// entirely behind it -- so the row marks itself as the one the editor is showing.
+//
+// The reading position lives in `useCommitHistory`, on the status bar, so that closing this panel
+// deliberately -- Escape, or a click in the editor -- does not throw away the commit it was open
+// on either.
 
 import { useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";
@@ -131,14 +137,7 @@ export function WorkspaceIdeHistory({
                     files={files[commit.hash]}
                     showing={showing?.hash === commit.hash ? showing.path : null}
                     onToggle={() => history.toggleCommit(commit.hash)}
-                    onSelectFile={(file) => {
-                      onOpenDiff(commit, file);
-                      // Out of the way: the diff it just opened is behind this panel, and on a
-                      // phone this panel IS the screen. Reopening comes back to this commit,
-                      // expanded, with the row still marked, because the position outlives the
-                      // panel that shows it.
-                      onClose();
-                    }}
+                    onSelectFile={(file) => onOpenDiff(commit, file)}
                   />
                 ))}
               </ul>

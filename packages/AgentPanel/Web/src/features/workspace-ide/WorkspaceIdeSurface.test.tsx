@@ -281,13 +281,25 @@ function historyAnswers(transport: FakeHttpTransport): void {
         detail: {
           workspaceId: "w-1",
           hash: "1111111111111111111111111111111111111111",
-          files: [{
-            path: "src/main.ts",
-            status: "M",
-            additions: 2,
-            deletions: 1,
-            previousPath: null,
-          }],
+          files: [
+            { path: "src/main.ts", status: "M", additions: 2, deletions: 1, previousPath: null },
+            { path: "README.md", status: "M", additions: 1, deletions: 0, previousPath: null },
+          ],
+        },
+      }),
+    },
+  );
+  transport.responses.set(
+    "GET /api/workspace/w-1/diff?hash=1111111111111111111111111111111111111111&path=README.md",
+    {
+      status: 200,
+      body: JSON.stringify({
+        diff: {
+          workspaceId: "w-1",
+          hash: "1111111111111111111111111111111111111111",
+          path: "README.md",
+          patch: ["@@ -1,1 +1,2 @@", " # Title", "+a second line", ""].join("\n"),
+          truncated: false,
         },
       }),
     },
@@ -316,7 +328,7 @@ function historyAnswers(transport: FakeHttpTransport): void {
   );
 }
 
-it("opens a commit's file as a diff in the editor, and gets out of the way", async () => {
+it("opens a commit's file as a diff in the editor, and stays open for the next one", async () => {
   const transport = await mounted();
   historyAnswers(transport);
 
@@ -330,9 +342,6 @@ it("opens a commit's file as a diff in the editor, and gets out of the way", asy
 
   fireEvent.click(commit);
   fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
-
-  // The panel closes itself: what it opened is behind it, and on a phone it IS the screen.
-  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
   // A tab of its own, named for the file and the commit rather than for the file alone, because
   // every other tab in that strip is a file.
@@ -351,6 +360,53 @@ it("opens a commit's file as a diff in the editor, and gets out of the way", asy
   await waitFor(() => {
     expect(patch.querySelector('span[style*="--shiki-light"]')).not.toBeNull();
   });
+
+  // The panel is still there, on the same commit, with the row it opened marked -- a reader who
+  // has found the commit is usually reading more than one of its files.
+  expect(within(popup).getByRole("button", { name: "Open the diff of src/main.ts" }))
+    .toHaveAttribute("aria-current", "true");
+  fireEvent.click(within(popup).getByRole("button", { name: "Open the diff of README.md" }));
+  expect(await screen.findByLabelText("Diff of README.md")).toBeInTheDocument();
+  // One diff tab, pointed somewhere else, rather than a strip of near-identical tabs.
+  expect(screen.getAllByRole("tab", { name: /^Show the diff of/ })).toHaveLength(1);
+});
+
+it("takes the reader from a diff to the file it is about, and keeps the diff on its tab", async () => {
+  const transport = await mounted();
+  historyAnswers(transport);
+  transport.responses.set("POST /api/workspace/w-1/state", {
+    status: 200,
+    body: JSON.stringify({
+      state: { ...CLEAN_STATE, revision: 1, orderedOpenPaths: ["src/main.ts"] },
+    }),
+  });
+  transport.responses.set("GET /api/workspace/w-1/file?path=src%2Fmain.ts", {
+    status: 200,
+    body: JSON.stringify({
+      file: {
+        workspaceId: "w-1",
+        path: "src/main.ts",
+        kind: "text",
+        revision: "abc",
+        text: "export {};\nconst fresh = 2;\n",
+      },
+    }),
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
+  const popup = await screen.findByRole("dialog", { name: "Commit history" });
+  fireEvent.click(await within(popup).findByRole("button", { name: /teach the bar to look backwards/ }));
+  fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
+  await screen.findByLabelText("Diff of src/main.ts");
+
+  // What the patch says changed, and then what the line says now: that is the order a reader asks
+  // the two questions in, so the diff carries the way through to the file.
+  fireEvent.click(screen.getByRole("button", { name: "Open src/main.ts" }));
+
+  expect(await screen.findByRole("tab", { name: "Open main.ts" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByLabelText("Diff of src/main.ts")).not.toBeInTheDocument());
+  // The comparison the reader came for is one click away again rather than gone.
+  expect(screen.getByRole("tab", { name: "Show the diff of main.ts in 1111111" })).toBeInTheDocument();
 });
 
 it("comes back to the commit it was reading, with the row that opened the diff marked", async () => {
@@ -361,16 +417,18 @@ it("comes back to the commit it was reading, with the row that opened the diff m
   const popup = await screen.findByRole("dialog", { name: "Commit history" });
   fireEvent.click(await within(popup).findByRole("button", { name: /teach the bar to look backwards/ }));
   fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await screen.findByLabelText("Diff of src/main.ts");
 
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
 
   // Still expanded, with no second read of the log or of the commit: the reading position lives on
-  // the status bar, so closing the panel does not throw it away. Without that, comparing the second
-  // file of a commit would mean reopening, scrolling back and re-expanding, every time.
+  // the status bar, so dismissing the panel does not throw it away. Without that, coming back to
+  // the commit a reader was in the middle of would mean scrolling and re-expanding every time.
   const reopened = await screen.findByRole("dialog", { name: "Commit history" });
-  const row = within(reopened).getByRole("button", { name: "Open the diff of src/main.ts" });
-  expect(row).toHaveAttribute("aria-current", "true");
+  expect(within(reopened).getByRole("button", { name: "Open the diff of src/main.ts" }))
+    .toHaveAttribute("aria-current", "true");
   expect(transport.requests.filter((request) => request.path.startsWith("/api/workspace/w-1/commits")))
     .toHaveLength(1);
 });

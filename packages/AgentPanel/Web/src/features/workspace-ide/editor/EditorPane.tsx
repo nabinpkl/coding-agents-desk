@@ -5,13 +5,18 @@
 // terminal toggle used to be here too and is now on the IDE's status bar, at the edge of the pane
 // it opens rather than three controls away and above it.
 
-import { Eye, PanelLeft, Pencil } from "lucide-react";
+import { Eye, FileCode2, PanelLeft, Pencil } from "lucide-react";
 import type { CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
 import { CommitDiffView } from "@/features/workspace-ide/history/CommitDiff";
 import type { WorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import { CodeEditor } from "@/features/workspace-ide/editor/CodeEditor";
 import { EditorTabs } from "@/features/workspace-ide/editor/EditorTabs";
 import { FilePreview } from "@/features/workspace-ide/editor/FilePreview";
+
+// `grid-flow-col` on the labelled variant below, because `CONTROL` is a grid and a grid stacks its
+// children: the icon sat on top of its own label in both of the controls that carry one, inside a
+// button 28px tall. One row, not two.
+const LABELLED = "w-auto grid-flow-col gap-1 px-2 text-xs";
 
 const CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-foreground"
   + " outline-none transition-colors hover:bg-muted/60 hover:text-foreground"
@@ -70,13 +75,37 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
             ? `${diff.target.path.split("/").filter(Boolean).join(" / ")} · ${diff.target.shortHash}`
             : (activePath ?? "").split("/").filter(Boolean).join(" / ")}
         </nav>
+        {/* The way out of a diff and into the file it is about, which is where a reader goes next
+            about half the time: the patch says what changed, and the question after that is what
+            the line says now. Absent for a file the commit deleted -- there is nothing at that
+            path to open, and the control would answer a refusal banner.
+
+            It leaves the diff on its tab rather than closing it, so the comparison a reader came
+            for is one click away again. */}
+        {diff.active && diff.target && diff.target.status !== "D"
+          ? (
+            <button
+              type="button"
+              aria-label={`Open ${diff.target.path}`}
+              onClick={() => {
+                const { path } = diff.target!;
+                diff.hide();
+                ide.openPath(path);
+              }}
+              className={`${CONTROL} ${LABELLED}`}
+            >
+              <FileCode2 className="size-3.5" />
+              Open file
+            </button>
+          )
+          : null}
         {file && !readOnlyKind && !diff.active
           ? (
             <button
               type="button"
               aria-label={preview ? "Edit file" : "Show file preview"}
               onClick={() => ide.togglePreview(file.path)}
-              className={`${CONTROL} w-auto gap-1 px-2 text-xs`}
+              className={`${CONTROL} ${LABELLED}`}
             >
               {preview ? <Pencil className="size-3.5" /> : <Eye className="size-3.5" />}
               {preview ? "Edit" : "Preview"}

@@ -50,6 +50,8 @@ export interface CommitDiffTarget {
   hash: string;
   shortHash: string;
   path: string;
+  /** The commit's `--name-status` letter for it, which says whether there is still a file there. */
+  status: string;
 }
 
 export interface CommitDiffTab {
@@ -83,7 +85,12 @@ export function useCommitDiffTab(): CommitDiffTab {
     target,
     active: active && target !== null,
     open: useCallback((commit: WorkspaceCommit, file: WorkspaceCommitFile) => {
-      setTarget({ hash: commit.hash, shortHash: commit.shortHash, path: file.path });
+      setTarget({
+        hash: commit.hash,
+        shortHash: commit.shortHash,
+        path: file.path,
+        status: file.status,
+      });
       setActive(true);
     }, []),
     show: useCallback(() => setActive(true), []),
