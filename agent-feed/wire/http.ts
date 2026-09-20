@@ -257,4 +257,30 @@ export interface SupervisorStatus {
   held: boolean;
   /** Which file will not parse, and why. Null when nothing is in the way. */
   blocked: string | null;
+  /**
+   * Whether it replaces the sidecar as soon as the tree parses, or waits to be asked.
+   *
+   * The second half of the same question the panel's own gate asks. A restart is not free to the
+   * reader: every stream the panel holds dies with the process, the desktop encoders go with it,
+   * and terminals re-import their scrollback. Measured on this machine 2026-09-15, three restarts
+   * inside 32 seconds during one editing burst.
+   */
+  mode: SupervisorMode;
+}
+
+/** Whether a supervisor acts on a change itself, or waits for the reader. */
+export type SupervisorMode = "auto" | "manual";
+
+/** Setting a supervisor's mode, or asking it to take the tree it is sitting on. */
+export type SupervisorCommand = SupervisorMode | "apply";
+
+/**
+ * What `POST /api/supervisor` carries.
+ *
+ * The sidecar cannot act on this itself: the supervisor is its PARENT, with no port and no way to
+ * be called. The sidecar leaves the request on the same board it reads the supervisor's state from
+ * and the supervisor picks it up, which is also what lets a panel on another machine set it.
+ */
+export interface SupervisorCommandRequest {
+  command: SupervisorCommand;
 }

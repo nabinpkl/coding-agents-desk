@@ -143,6 +143,7 @@ function readSidecars(report: PanelBuildReport["sidecars"]): SidecarSupervisorRe
       machine: typeof entry.machine === "string" ? entry.machine : "sidecar",
       held: entry.held === true,
       blocked: typeof entry.blocked === "string" ? entry.blocked : null,
+      mode: entry.mode === "manual" ? "manual" : "auto",
     }));
 }
 

@@ -27,6 +27,7 @@ const MAIN = `${PANEL}/app/main.tsx`;
 
 function gateWith(sidecars: SupervisorReport[] = []) {
   const reports: PublishReport[] = [];
+  const told: string[] = [];
   let reloads = 0;
   const gate = createPublishGate({
     broadcast: (report) => reports.push(report),
@@ -35,8 +36,9 @@ function gateWith(sidecars: SupervisorReport[] = []) {
     reload: () => {
       reloads += 1;
     },
+    tell: (command) => told.push(command),
   });
-  return { gate, reports, reloaded: () => reloads };
+  return { gate, reports, told, reloaded: () => reloads };
 }
 
 describe("the publish gate", () => {
@@ -89,18 +91,18 @@ describe("the publish gate", () => {
   // a reader looking at a feed with no new rows cannot otherwise tell it apart from a quiet session.
   it("carries what each machine's supervisor is holding", () => {
     const { gate } = gateWith([
-      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file" },
+      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto" },
     ]);
     expect(gate.report().sidecars).toEqual([
-      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file" },
+      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto" },
     ]);
   });
 
   // A machine that is merely running is not news, and every machine the panel can see answers.
   it("leaves out the machines that are running the tree they were given", () => {
     const { gate } = gateWith([
-      { machine: "dev", held: false, blocked: null },
-      { machine: "oracle", held: true, blocked: "half a file" },
+      { machine: "dev", held: false, blocked: null, mode: "auto" },
+      { machine: "oracle", held: true, blocked: "half a file", mode: "auto" },
     ]);
     expect(gate.report().sidecars.map((sidecar) => sidecar.machine)).toEqual(["oracle"]);
   });
@@ -202,6 +204,38 @@ describe("holding updates for the reader", () => {
     const { gate, reports } = gateWith();
     gate.setMode("auto");
     expect(reports).toEqual([]);
+  });
+
+  // One switch, both halves. The panel holds an HMR update; a supervisor holds a RESTART, which
+  // costs the reader more: every stream the panel is holding dies with the process. A reader asking
+  // for the page to stop changing under them is not asking about only one of those.
+  it("passes the reader's choice to every machine, not just this page", () => {
+    const { gate, told } = gateWith();
+    gate.setMode("manual");
+    expect(told).toEqual(["manual"]);
+    gate.apply();
+    expect(told).toEqual(["manual", "apply"]);
+    gate.setMode("auto");
+    expect(told).toEqual(["manual", "apply", "auto"]);
+  });
+
+  // A supervisor that restarted -- a host relaunch, a crash -- comes back on auto, and would then
+  // quietly start replacing its sidecar under a reader who asked for the opposite.
+  it("says it again to a machine that came back in the wrong mode", () => {
+    const machine = { machine: "oracle", held: false, blocked: null, mode: "auto" as const };
+    const { gate, told } = gateWith([machine]);
+    gate.setMode("manual");
+    gate.reconcile();
+    expect(told).toEqual(["manual", "manual"]);
+  });
+
+  it("says nothing to machines that already agree", () => {
+    const { gate, told } = gateWith([
+      { machine: "oracle", held: false, blocked: null, mode: "auto" },
+      { machine: "dev", held: true, blocked: null, mode: "auto" },
+    ]);
+    gate.reconcile();
+    expect(told).toEqual([]);
   });
 
   // The half the mode deliberately does not widen: a style swap changes nothing a reader is in the

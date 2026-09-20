@@ -20,6 +20,8 @@ import { dirname } from "node:path";
 import chokidar from "chokidar";
 import {
   clearSupervisorDescriptor,
+  clearSupervisorRequest,
+  readSupervisorRequest,
   writeSupervisorDescriptor,
 } from "@/sidecarRegistry";
 import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
@@ -55,6 +57,16 @@ const SETTLED_MS = 10_000;
 /** Matches the sidecar board's own heartbeat, and the panel ages this out at three misses. */
 const HEARTBEAT_MS = 5_000;
 
+/**
+ * How often the panel's standing request is re-read.
+ *
+ * A poll rather than a watcher, for two reasons. Under Bun every SECOND `fs.watch` on a path is
+ * inert, and this process already owns one on its source tree, so a second is a coin flip. And the
+ * file is a few bytes on local disk: a read a second is not a cost worth engineering around, while
+ * a second of lag on a button press is the most it can ever be.
+ */
+const REQUEST_POLL_MS = 1_000;
+
 function say(message: string): void {
   console.log(`[sidecar-supervisor] ${message}`);
 }
@@ -66,7 +78,7 @@ function say(message: string): void {
 // port, and it reads this back to answer `/api/config`. That is what carries a held sidecar to a
 // panel on ANOTHER machine, which cannot see this file at all.
 
-let published: SupervisorState = { held: false, blocked: null };
+let published: SupervisorState = { held: false, blocked: null, mode: "auto" };
 
 function publish(state: SupervisorState = published): void {
   published = state;
@@ -139,6 +151,24 @@ const gate = createSupervisorGate({
 });
 
 // ---------------------------------------------------------------------------
+// What the reader asked for
+//
+// The panel cannot call this process -- it has no port, and the panel is often on another machine
+// -- so it leaves the request with the sidecar, which writes it onto the same board this publishes
+// state to. Read here on a timer and handed to the gate, which is the only thing that decides.
+
+/** The last `apply` acted on, so a standing request is not re-applied every time it is read. */
+let appliedAt = 0;
+
+function readRequest(): void {
+  const request = readSupervisorRequest();
+  gate.setMode(request.mode);
+  if (request.apply <= appliedAt) return;
+  appliedAt = request.apply;
+  if (!gate.apply()) say("asked to take the tree, and there is nothing to take or it will not parse");
+}
+
+// ---------------------------------------------------------------------------
 // Watching, and reading whether a file is whole
 
 /**
@@ -195,6 +225,7 @@ function stop(signal: NodeJS.Signals): void {
   if (stopping) return;
   stopping = true;
   clearTimeout(settle);
+  clearInterval(requests);
   say(`${signal}; stopping the sidecar`);
   child?.kill();
   clearSupervisorDescriptor();
@@ -211,8 +242,13 @@ process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGHUP", () => stop("SIGHUP"));
 
 say(`supervising ${SERVER}`);
+// A fresh supervisor is a fresh decision. Whatever a panel asked of the last one is forgotten here,
+// so a request left over from yesterday cannot silently freeze this machine's sidecar.
+clearSupervisorRequest();
 publish();
 const heartbeat = setInterval(() => publish(), HEARTBEAT_MS);
 heartbeat.unref?.();
+const requests = setInterval(readRequest, REQUEST_POLL_MS);
+requests.unref?.();
 startSidecar();
 startWatching();

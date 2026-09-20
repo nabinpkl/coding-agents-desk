@@ -2,6 +2,7 @@ import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config";
 import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
+import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import {
   BYE_BYTES,
   jsonResponse,
@@ -131,6 +132,9 @@ void workspaceService.ready().catch((error: unknown) => {
 });
 
 const routes: RouteHandler[] = [
+  // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
+  // how a reader's answer gets back to it, since a supervisor has no port of its own.
+  createSupervisorRoutes(),
   createInventoryRoutes(describeAgentSession),
   createBotRoutes(botRegistry),
   createAgentTerminalRoutes(agentTerminals),

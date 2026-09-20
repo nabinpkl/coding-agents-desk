@@ -62,6 +62,8 @@ export interface SupervisorReport {
   machine: string;
   held: boolean;
   blocked: string | null;
+  /** Whether that machine takes a tree that parses at once, or waits to be asked. */
+  mode: UpdateMode;
 }
 
 /** Everything the gate does to the world, so its decisions can be tested without a dev server. */
@@ -81,6 +83,15 @@ export interface PublishGateIO {
    * otherwise keep running code the Mac has moved past.
    */
   reload(): void;
+  /**
+   * Pass the reader's choice on to every machine's supervisor.
+   *
+   * One switch covers both halves of the same question. The panel holds an HMR update; a supervisor
+   * holds a RESTART, which costs the reader more -- every stream the panel is holding dies with the
+   * process, the desktop encoders with it, and terminals re-import their scrollback. A reader who
+   * asks for the page to stop changing under them is not asking about only one of those.
+   */
+  tell(command: UpdateMode | "apply"): void;
 }
 
 /** Only these are held. A stylesheet cannot take a render down, and holding one would just delay it. */
@@ -158,19 +169,37 @@ export function createPublishGate(io: PublishGateIO) {
       return true;
     },
 
-    /** Take what is waiting now, staying in whichever mode the reader chose. */
+    /** What the reader last chose, which every machine is held to. */
+    mode(): UpdateMode {
+      return mode;
+    },
+
+    /** Take what is waiting now, here and on every machine, staying in the chosen mode. */
     apply(): boolean {
+      io.tell("apply");
       return release();
     },
 
-    /** Choose whether a change that parses is sent as it lands. */
+    /** Choose whether a change that parses is acted on as it lands, here and on every machine. */
     setMode(next: UpdateMode): void {
       if (next === mode) return;
       mode = next;
+      io.tell(next);
       // Coming back to auto IS the "yes, now" the queue was waiting for, and `release` broadcasts
       // the emptied report itself.
       if (next === "auto" && release()) return;
       broadcast();
+    },
+
+    /**
+     * Say it again to any machine that is not in the mode the reader chose.
+     *
+     * A supervisor that restarted -- a host relaunch, a crash -- comes back on auto, and would then
+     * quietly start replacing its sidecar under a reader who had asked for the opposite. Without
+     * this the one switch would be a claim rather than a fact.
+     */
+    reconcile(): void {
+      if (io.sidecars().some((sidecar) => sidecar.mode !== mode)) io.tell(mode);
     },
 
     /** Say the current state again, for a change this gate did not itself make. */
@@ -199,6 +228,8 @@ export interface PanelPublishOptions {
   event: string;
   /** The query parameter a POST to `buildRoute` carries its command in. */
   commandParam: string;
+  /** Pass the reader's choice to every machine's own supervisor. */
+  tell: (command: "auto" | "manual" | "apply") => void;
   /** The build id of the tree as it is right now. */
   buildId: () => string;
   /**
@@ -240,6 +271,7 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
     buildId: options.buildId,
     sidecars: options.supervisors,
     reload: () => server?.environments.client.hot.send({ type: "full-reload" }),
+    tell: options.tell,
   });
 
   return {
@@ -264,6 +296,7 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
       // Compared rather than sent, so a quiet machine costs one string comparison and no traffic.
       let last = "";
       const poll = setInterval(() => {
+        gate.reconcile();
         const now = JSON.stringify(gate.report().sidecars);
         if (now === last) return;
         last = now;

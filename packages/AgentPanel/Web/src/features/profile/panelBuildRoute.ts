@@ -56,10 +56,18 @@ export const PANEL_COMMAND_PARAM = "action";
 export interface SidecarSupervisorReport {
   /** The label the reader knows the machine by, which is how the row names it. */
   machine: string;
-  /** True when a file it watches will not parse, so the running sidecar is older than the tree. */
+  /** True when the tree it watches has moved on from the sidecar it is running. */
   held: boolean;
-  /** Which file, and what is wrong with it. */
+  /** Which file will not parse, and what is wrong with it. Null when nothing is broken. */
   blocked: string | null;
+  /**
+   * Whether that machine takes a tree that parses at once, or waits to be asked.
+   *
+   * Carried per machine rather than assumed from the panel's own, because a supervisor that
+   * restarted comes back on auto. The row reads it to tell a machine that is stuck on half a file
+   * from one that is simply waiting for the reader.
+   */
+  mode: PanelUpdateMode;
 }
 
 export interface PanelBuildReport {

@@ -63,7 +63,7 @@ describe("held work in the sidebar", () => {
     render(
       <PanelBuildStatus
         build={build({
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto" }],
         })}
       />,
     );
@@ -78,8 +78,8 @@ describe("held work in the sidebar", () => {
       <PanelBuildStatus
         build={build({
           sidecars: [
-            { machine: "dev", held: true, blocked: null },
-            { machine: "oracle", held: true, blocked: "half a file" },
+            { machine: "dev", held: true, blocked: null, mode: "auto" },
+            { machine: "oracle", held: true, blocked: "half a file", mode: "auto" },
           ],
         })}
       />,
@@ -93,7 +93,7 @@ describe("held work in the sidebar", () => {
       <PanelBuildStatus
         build={build({
           held: ["main.tsx"],
-          sidecars: [{ machine: "oracle", held: true, blocked: null }],
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "auto" }],
         })}
       />,
     );
@@ -147,5 +147,64 @@ describe("updates the reader is holding", () => {
     render(<PanelBuildStatus build={build({ held: ["main.tsx"], blocked: "main.tsx: Syntax Error" })} />);
     expect(screen.getByText("1 file held back")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+  });
+});
+
+// A machine has two ways of being behind and only one of them is the reader's doing. Its own mode
+// decides which, because a supervisor that restarted comes back on auto whatever this panel asked.
+describe("what a machine is waiting for", () => {
+  it("says a held machine is waiting when it is the reader it waits on", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual" }],
+        })}
+      />,
+    );
+    expect(screen.getByText("oracle sidecar waiting")).toBeDefined();
+    expect(screen.getByText("its tree moved; Apply takes it")).toBeDefined();
+  });
+
+  it("still says held back when the machine is stuck on half a file", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual" }],
+        })}
+      />,
+    );
+    expect(screen.getByText("oracle sidecar held back")).toBeDefined();
+    expect(screen.getByText(/Syntax Error/)).toBeDefined();
+  });
+
+  // The drift case: this panel is holding everything, that machine came back on auto and is
+  // restarting its sidecar again. Saying "waiting" there would be a claim about a thing not true.
+  it("does not call a machine waiting when it is not the one waiting", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "auto" }],
+        })}
+      />,
+    );
+    expect(screen.getByText("oracle sidecar held back")).toBeDefined();
+  });
+
+  it("offers Apply for a machine even when this page has nothing of its own waiting", () => {
+    const apply = vi.fn();
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          apply,
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual" }],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(apply).toHaveBeenCalledTimes(1);
   });
 });

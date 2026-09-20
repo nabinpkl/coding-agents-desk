@@ -151,11 +151,14 @@ export function ProfileRow({
               <span className="shrink-0 text-xs text-muted-foreground">no yabai</span>
             ) : null}
           </button>
-          {/* Whether an edit reaches this page as it is saved. Only where there is a dev server to
-              hold anything: a bundled panel receives no updates at all, so the control would be
-              permanently dead rather than merely unavailable, which is the Desktop park case above.
-              It stays server-side -- see `panelBuildRoute.ts` -- so this is the same answer on every
-              surface, and the strip under the row is where it is said once the menu closes. */}
+          {/* Whether an edit acts on anything the moment it is saved: this page's own modules, and
+              every machine's sidecar, which is the half that costs more -- a restart takes every
+              stream the panel is holding with it. One switch because "stop changing under me" is
+              one thought. Only where there is a dev server to hold anything: a bundled panel
+              receives no updates at all, so the control would be permanently dead rather than
+              merely unavailable, which is the Desktop park case above. It stays server-side -- see
+              `panelBuildRoute.ts` -- so this is the same answer on every surface, and the strip
+              under the row is where it is said once the menu closes. */}
           {build.live ? (
             <button
               type="button"
@@ -164,8 +167,10 @@ export function ProfileRow({
               onClick={() => build.setMode(build.mode === "auto" ? "manual" : "auto")}
               title={
                 build.mode === "auto"
-                  ? "Edits reach this page as they are saved. Switch to hold them until you ask."
-                  : "Edits are held until you apply them. Switch back to take each one as it lands."
+                  ? "Edits reach this page, and restart each machine's sidecar, as they are saved."
+                    + " Switch to hold them until you ask."
+                  : "Edits are held, here and on every machine, until you apply them. Switch back to"
+                    + " take each one as it lands."
               }
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
                 transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80

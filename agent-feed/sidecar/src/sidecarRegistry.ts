@@ -1,7 +1,11 @@
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import type { SupervisorStatus } from "@agentdesk/agent-feed-wire";
+import type {
+  SupervisorCommand,
+  SupervisorMode,
+  SupervisorStatus,
+} from "@agentdesk/agent-feed-wire";
 import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
 
@@ -148,5 +152,85 @@ export function readSupervisorDescriptor(dir?: string, now = Date.now()): Superv
   return {
     held: raw.held === true,
     blocked: typeof raw.blocked === "string" ? raw.blocked : null,
+    mode: raw.mode === "manual" ? "manual" : "auto",
   };
+}
+
+// ---------------------------------------------------------------------------
+// The other direction, which is the only one there is
+//
+// The supervisor is the sidecar's PARENT. It has no port, nothing listens on its behalf, and the
+// panel that wants to tell it something is often on another machine entirely. So the request goes
+// where the state already comes from: the sidecar writes it onto the board on the panel's behalf,
+// and the supervisor picks it up. One file, overwritten, rather than a queue -- the mode is a level
+// and the only edge is "take it now", which is carried as a stamp the supervisor compares.
+
+/** What the panel has asked of this machine's supervisor. */
+export interface SupervisorRequest {
+  /** The mode it should be in. */
+  readonly mode: SupervisorMode;
+  /** When the reader last asked it to take the tree. 0 when they never have. */
+  readonly apply: number;
+}
+
+const NOTHING_ASKED: SupervisorRequest = { mode: "auto", apply: 0 };
+
+/** `<registry>/<user>.supervisor.request.json`, beside the state it is answering. */
+export function supervisorRequestPath(dir = runtimePaths().sidecarRegistry): string {
+  return join(dir, `${userInfo().username}.supervisor.request.json`);
+}
+
+/**
+ * Record what the reader asked for, and answer with the standing request as it now reads.
+ *
+ * Merged rather than replaced, because the two halves are independent: choosing a mode must not
+ * forget that they pressed apply a moment ago, and pressing apply must not put them back on auto.
+ */
+export function requestSupervisor(command: SupervisorCommand, dir?: string): SupervisorRequest {
+  const current = readSupervisorRequest(dir);
+  const next: SupervisorRequest = command === "apply"
+    ? { ...current, apply: Date.now() }
+    : { ...current, mode: command };
+  const file = supervisorRequestPath(dir);
+  ensureCrossSessionDirectory(dirname(file));
+  const temporary = `${file}.${process.pid}.tmp`;
+  writeFileSync(temporary, JSON.stringify(next));
+  renameSync(temporary, file);
+  return next;
+}
+
+/**
+ * The standing request, or nothing asked.
+ *
+ * Not aged out, unlike the descriptor: this is a standing preference rather than a heartbeat, and a
+ * request that expired on a timer would put the sidecar back to restarting under a reader who had
+ * simply not touched the control for a while. What ends it is the supervisor starting again, which
+ * clears the file itself.
+ */
+export function readSupervisorRequest(dir?: string): SupervisorRequest {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(supervisorRequestPath(dir), "utf8")) as Record<string, unknown>;
+  } catch {
+    return NOTHING_ASKED;
+  }
+  return {
+    mode: raw.mode === "manual" ? "manual" : "auto",
+    apply: typeof raw.apply === "number" ? raw.apply : 0,
+  };
+}
+
+/**
+ * Forget what was asked, which a starting supervisor does before it reads anything.
+ *
+ * A fresh supervisor is a fresh decision: the panel's own mode resets when its dev server restarts,
+ * and a file left over from yesterday silently freezing this machine's sidecar is the failure that
+ * would be hardest to see.
+ */
+export function clearSupervisorRequest(dir?: string): void {
+  try {
+    rmSync(supervisorRequestPath(dir), { force: true });
+  } catch {
+    // Nothing read it yet either way; the supervisor's own mode is what decides.
+  }
 }

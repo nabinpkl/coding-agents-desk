@@ -37,7 +37,7 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
             <span className={waiting > 0 ? "text-amber-500" : "text-muted-foreground"}>
               {waiting === 0 ? "updates manual" : manual ? `${count} waiting` : `${count} held back`}
             </span>
-            {manual && waiting > 0 ? (
+            {manual && (waiting > 0 || build.sidecars.length > 0) ? (
               <button
                 type="button"
                 onClick={build.apply}
@@ -45,7 +45,8 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
                 title={
                   build.blocked
                     ? `Cannot apply yet: ${build.blocked}`
-                    : "Reload this panel, and every other surface, onto the tree as it is now."
+                    : "Reload every open surface, and restart every held sidecar, onto the tree as"
+                      + " it is now."
                 }
                 className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px]
                   font-medium transition-colors hover:bg-accent hover:text-accent-foreground
@@ -65,13 +66,27 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
         </div>
       ) : null}
 
-      {/* The same fact about the other processes, one per machine: a session on an ssh peer is
-          served by that peer's own sidecar and gated by that peer's own supervisor, and a reader
-          looking at its feed cannot otherwise tell a held sidecar from a session gone quiet. */}
+      {/* The same two facts about the other processes, one line per machine: a session on an ssh
+          peer is served by that peer's own sidecar and gated by that peer's own supervisor, and a
+          reader looking at its feed cannot otherwise tell a held sidecar from a session gone quiet.
+          Waiting and stuck are said differently because only one of them is the reader's doing --
+          and the machine's own mode decides which, since a supervisor that restarted comes back on
+          auto whatever this panel last asked for. */}
       {build.sidecars.map((sidecar) => (
         <div key={sidecar.machine} className="space-y-0.5">
-          <span className="text-amber-500">{sidecar.machine} sidecar held back</span>
-          <Reason text={sidecar.blocked} fallback="a file it watches will not parse" />
+          <span className="text-amber-500">
+            {sidecar.machine} sidecar {sidecar.blocked === null && sidecar.mode === "manual"
+              ? "waiting"
+              : "held back"}
+          </span>
+          <Reason
+            text={sidecar.blocked}
+            fallback={
+              sidecar.mode === "manual"
+                ? "its tree moved; Apply takes it"
+                : "a file it watches will not parse"
+            }
+          />
         </div>
       ))}
     </div>
