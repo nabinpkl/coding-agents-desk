@@ -4,25 +4,25 @@
 // editor answers what a file says now. This answers the other question a reader of a repository
 // asks constantly -- what landed, and what did it do -- without leaving the surface for a terminal.
 //
-// Three levels, each fetched only when it is asked for. The log is cheap and comes with the panel;
-// a commit's file list costs two `git show` passes and waits for the commit to be expanded; a
-// patch costs one more and waits for the file to be clicked. A panel that fetched every patch of
-// fifty commits up front would be megabytes to answer one question about one line.
+// A list rather than a reader: the log, and what one commit touched. The diff itself opens in the
+// editor behind this panel, which is where a patch is worth reading.
+//
+// Each level is fetched only when it is asked for. The log arrives with the panel; a commit's file
+// list costs two `git show` passes and waits for the commit to be expanded. A panel that fetched
+// every file list of fifty commits up front would read the whole repository to draw a list of
+// subjects.
+//
+// The reading position lives in `useCommitHistory`, on the status bar, because clicking a file
+// closes this panel and a closed panel has no state.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";
-import type {
-  WorkspaceCommit,
-  WorkspaceCommitDiff,
-  WorkspaceCommitFile,
-} from "@agentdesk/agent-feed-wire";
-import { CommitDiff } from "@/features/workspace-ide/CommitDiff";
+import type { WorkspaceCommit, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
+import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";
+import type { CommitHistory } from "@/features/workspace-ide/history/useCommitHistory";
+import { PAGE } from "@/features/workspace-ide/history/useCommitHistory";
 import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
 import { gitStatusTone, TONE_BADGE } from "@/features/workspace-ide/sidebar/gitTones";
-import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
-
-/** How many commits arrive at a time, and how many each "Show more" adds. */
-const PAGE = 50;
 
 const ROW = "flex w-full items-center gap-2 px-2 text-left outline-none transition-colors"
   + " hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
@@ -45,106 +45,27 @@ function age(committedAt: number, now: number): string {
   return new Date(committedAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 export function WorkspaceIdeHistory({
   id,
-  client,
-  workspaceId,
-  onOpenFile,
+  history,
+  showing,
+  onOpenDiff,
   onClose,
 }: {
   /** The popup's element id, so the control that opened it can point at it with `aria-controls`. */
   id: string;
-  client: WorkspaceIdeClient;
-  workspaceId: string;
-  /** Opens the path in the editor, at what it says today, beside the diff of what changed it. */
-  onOpenFile: (path: string) => void;
+  history: CommitHistory;
+  /** What the editor's diff tab is pointed at, so the row that put it there reads as current. */
+  showing: CommitDiffTarget | null;
+  onOpenDiff: (commit: WorkspaceCommit, file: WorkspaceCommitFile) => void;
   onClose: () => void;
 }) {
   const panel = useRef<HTMLDivElement | null>(null);
-  const [limit, setLimit] = useState(PAGE);
-  const [commits, setCommits] = useState<WorkspaceCommit[] | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  // One commit open at a time, and one file inside it. The popup is about a phone-screen tall, and
-  // two expanded commits mean the reader scrolls away from the one they were reading to reach the
-  // rest of it. An accordion is the version of this that fits.
-  const [openHash, setOpenHash] = useState<string | null>(null);
-  const [openPath, setOpenPath] = useState<string | null>(null);
-  // Cached by what identifies them, so collapsing and expanding the same commit is free and a
-  // second look at a diff does not re-read the repository.
-  const [files, setFiles] = useState<Record<string, WorkspaceCommitFile[]>>({});
-  const [diffs, setDiffs] = useState<Record<string, WorkspaceCommitDiff>>({});
+  const { commits, failure, limit, openHash, files } = history;
 
   // The panel takes focus when it opens: it is the thing the reader just asked for, and Escape has
   // to reach it from somewhere. The control that opened it takes focus back on close.
   useEffect(() => panel.current?.focus(), []);
-
-  useEffect(() => {
-    let live = true;
-    client.commits(workspaceId, limit)
-      .then((answer) => {
-        if (live) setCommits(answer.commits);
-      })
-      .catch((cause: unknown) => {
-        if (live) setFailure(`Could not read the history: ${message(cause)}`);
-      });
-    return () => {
-      live = false;
-    };
-  }, [client, workspaceId, limit]);
-
-  useEffect(() => {
-    if (openHash === null || files[openHash]) return;
-    let live = true;
-    client.commit(workspaceId, openHash)
-      .then((answer) => {
-        if (live) setFiles((current) => ({ ...current, [openHash]: answer.detail.files }));
-      })
-      .catch((cause: unknown) => {
-        if (live) setFailure(`Could not read that commit: ${message(cause)}`);
-      });
-    return () => {
-      live = false;
-    };
-  }, [client, workspaceId, openHash, files]);
-
-  const diffKey = openHash !== null && openPath !== null ? `${openHash}:${openPath}` : null;
-  useEffect(() => {
-    if (diffKey === null || openHash === null || openPath === null || diffs[diffKey]) return;
-    let live = true;
-    client.commitDiff(workspaceId, openHash, openPath)
-      .then((answer) => {
-        if (live) setDiffs((current) => ({ ...current, [diffKey]: answer.diff }));
-      })
-      .catch((cause: unknown) => {
-        if (live) setFailure(`Could not read that diff: ${message(cause)}`);
-      });
-    return () => {
-      live = false;
-    };
-  }, [client, workspaceId, diffKey, openHash, openPath, diffs]);
-
-  const toggleCommit = useCallback((hash: string) => {
-    setOpenPath(null);
-    setOpenHash((current) => (current === hash ? null : hash));
-  }, []);
-
-  /**
-   * One click, both halves of the question: what does this file say, and what did this commit do
-   * to it.
-   *
-   * The editor opens on the file as it is TODAY, which is the version a reader can act on -- and
-   * the one the diff is missing, since a patch is a fragment with no file around it. A file this
-   * commit deleted is not opened: there is nothing at that path to show, and asking for it would
-   * answer a refusal banner rather than a file.
-   */
-  const selectFile = useCallback((file: WorkspaceCommitFile) => {
-    setOpenPath((current) => (current === file.path ? null : file.path));
-    if (file.status !== "D") onOpenFile(file.path);
-  }, [onOpenFile]);
 
   const now = Date.now();
   return (
@@ -208,10 +129,16 @@ export function WorkspaceIdeHistory({
                     now={now}
                     expanded={commit.hash === openHash}
                     files={files[commit.hash]}
-                    openPath={openPath}
-                    diffs={diffs}
-                    onToggle={() => toggleCommit(commit.hash)}
-                    onSelectFile={selectFile}
+                    showing={showing?.hash === commit.hash ? showing.path : null}
+                    onToggle={() => history.toggleCommit(commit.hash)}
+                    onSelectFile={(file) => {
+                      onOpenDiff(commit, file);
+                      // Out of the way: the diff it just opened is behind this panel, and on a
+                      // phone this panel IS the screen. Reopening comes back to this commit,
+                      // expanded, with the row still marked, because the position outlives the
+                      // panel that shows it.
+                      onClose();
+                    }}
                   />
                 ))}
               </ul>
@@ -220,7 +147,7 @@ export function WorkspaceIdeHistory({
           ? (
             <button
               type="button"
-              onClick={() => setLimit((current) => current + PAGE)}
+              onClick={history.showMore}
               className="w-full px-2 py-2 text-center text-xs text-muted-foreground outline-none
                 transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2
                 focus-visible:ring-primary focus-visible:ring-inset"
@@ -248,8 +175,7 @@ function Commit({
   now,
   expanded,
   files,
-  openPath,
-  diffs,
+  showing,
   onToggle,
   onSelectFile,
 }: {
@@ -257,8 +183,8 @@ function Commit({
   now: number;
   expanded: boolean;
   files: WorkspaceCommitFile[] | undefined;
-  openPath: string | null;
-  diffs: Record<string, WorkspaceCommitDiff>;
+  /** The path of this commit's file that the editor is showing, if it is showing one. */
+  showing: string | null;
   onToggle: () => void;
   onSelectFile: (file: WorkspaceCommitFile) => void;
 }) {
@@ -309,9 +235,8 @@ function Commit({
                   <ChangedFile
                     key={file.path}
                     file={file}
-                    open={file.path === openPath}
-                    diff={diffs[`${commit.hash}:${file.path}`]}
-                    onToggle={() => onSelectFile(file)}
+                    showing={file.path === showing}
+                    onOpen={() => onSelectFile(file)}
                   />
                 ))}
               </ul>
@@ -323,14 +248,13 @@ function Commit({
 
 function ChangedFile({
   file,
-  open,
-  diff,
-  onToggle,
+  showing,
+  onOpen,
 }: {
   file: WorkspaceCommitFile;
-  open: boolean;
-  diff: WorkspaceCommitDiff | undefined;
-  onToggle: () => void;
+  /** Whether the editor's diff tab is on this file, which is what marks the row as current. */
+  showing: boolean;
+  onOpen: () => void;
 }) {
   const cut = file.path.lastIndexOf("/");
   const name = cut < 0 ? file.path : file.path.slice(cut + 1);
@@ -340,17 +264,13 @@ function ChangedFile({
     <li>
       <button
         type="button"
-        aria-expanded={open}
-        // What the click does, in the order it does it. A deleted file is not opened, so its name
-        // says only what will happen: the diff is the whole of what is left of it.
-        aria-label={open
-          ? `Hide the diff for ${file.path}`
-          : file.status === "D"
-            ? `Show the diff for ${file.path}`
-            : `Open ${file.path} and show its diff`}
+        // `aria-current`, not `aria-pressed`: the row does not hold the diff open, it is the row
+        // whose diff the editor happens to be showing, and clicking it again opens it again.
+        aria-current={showing ? "true" : undefined}
+        aria-label={`Open the diff of ${file.path}`}
         title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
-        onClick={onToggle}
-        className={`${ROW} min-h-9 py-1 pl-8 text-xs`}
+        onClick={onOpen}
+        className={`${ROW} min-h-9 py-1 pl-8 text-xs ${showing ? "bg-muted" : ""}`}
       >
         <span
           className={`grid h-[17px] min-w-[18px] shrink-0 place-items-center rounded px-1
@@ -379,9 +299,6 @@ function ChangedFile({
             )}
         </span>
       </button>
-      {open
-        ? (diff === undefined ? <Waiting label="Reading the diff…" /> : <CommitDiff diff={diff} />)
-        : null}
     </li>
   );
 }

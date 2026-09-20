@@ -316,50 +316,32 @@ function historyAnswers(transport: FakeHttpTransport): void {
   );
 }
 
-it("pops the history up from the bar, and reads a commit down to its diff", async () => {
+it("opens a commit's file as a diff in the editor, and gets out of the way", async () => {
   const transport = await mounted();
   historyAnswers(transport);
-  transport.responses.set("POST /api/workspace/w-1/state", {
-    status: 200,
-    body: JSON.stringify({
-      state: { ...CLEAN_STATE, revision: 1, orderedOpenPaths: ["src/main.ts"] },
-    }),
-  });
-  transport.responses.set("GET /api/workspace/w-1/file?path=src%2Fmain.ts", {
-    status: 200,
-    body: JSON.stringify({
-      file: {
-        workspaceId: "w-1",
-        path: "src/main.ts",
-        kind: "text",
-        revision: "abc",
-        text: "export {};\nconst fresh = 2;\n",
-      },
-    }),
-  });
 
   fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
-
   const popup = await screen.findByRole("dialog", { name: "Commit history" });
   const commit = await within(popup).findByRole("button", { name: /teach the bar to look backwards/ });
-  // Nothing is fetched below the log until it is asked for: a panel that read every commit's
-  // patch to draw a list of subjects would be megabytes to answer one question.
+  // Nothing below the log is fetched until it is asked for: a panel that read every commit's file
+  // list to draw a list of subjects would read the whole repository.
   expect(transport.requests.some((request) => request.path.startsWith("/api/workspace/w-1/commit?")))
     .toBe(false);
 
   fireEvent.click(commit);
-  const file = await within(popup).findByRole(
-    "button",
-    { name: "Open src/main.ts and show its diff" },
-  );
+  fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
 
-  fireEvent.click(file);
-  // One click answers both halves of the question: the diff says what this commit did, and the
-  // editor says what the file reads today, which is the version anybody can act on.
-  expect(await screen.findByRole("tab", { name: "Open main.ts" })).toBeInTheDocument();
-  // The patch's own header is dropped -- it restates the row above it -- and the changed lines are
+  // The panel closes itself: what it opened is behind it, and on a phone it IS the screen.
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+  // A tab of its own, named for the file and the commit rather than for the file alone, because
+  // every other tab in that strip is a file.
+  expect(await screen.findByRole("tab", { name: "Show the diff of main.ts in 1111111" }))
+    .toBeInTheDocument();
+
+  // The patch's own header is dropped -- it restates the tab above it -- and the changed lines are
   // what is left, without the markers that classified them.
-  const patch = await within(popup).findByLabelText("Diff of src/main.ts");
+  const patch = await screen.findByLabelText("Diff of src/main.ts");
   expect(patch.textContent).toContain("const fresh = 2;");
   expect(patch.textContent).toContain("const old = 1;");
   expect(patch.textContent).not.toContain("diff --git");
@@ -369,6 +351,28 @@ it("pops the history up from the bar, and reads a commit down to its diff", asyn
   await waitFor(() => {
     expect(patch.querySelector('span[style*="--shiki-light"]')).not.toBeNull();
   });
+});
+
+it("comes back to the commit it was reading, with the row that opened the diff marked", async () => {
+  const transport = await mounted();
+  historyAnswers(transport);
+
+  fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
+  const popup = await screen.findByRole("dialog", { name: "Commit history" });
+  fireEvent.click(await within(popup).findByRole("button", { name: /teach the bar to look backwards/ }));
+  fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+  fireEvent.click(screen.getByRole("button", { name: "Show git history" }));
+
+  // Still expanded, with no second read of the log or of the commit: the reading position lives on
+  // the status bar, so closing the panel does not throw it away. Without that, comparing the second
+  // file of a commit would mean reopening, scrolling back and re-expanding, every time.
+  const reopened = await screen.findByRole("dialog", { name: "Commit history" });
+  const row = within(reopened).getByRole("button", { name: "Open the diff of src/main.ts" });
+  expect(row).toHaveAttribute("aria-current", "true");
+  expect(transport.requests.filter((request) => request.path.startsWith("/api/workspace/w-1/commits")))
+    .toHaveLength(1);
 });
 
 it("closes the history on Escape, and gives the button its focus back", async () => {

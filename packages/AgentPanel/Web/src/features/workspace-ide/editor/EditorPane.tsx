@@ -1,10 +1,13 @@
-// The editor half: tabs, a breadcrumb, the conflict bar, and whatever the active file is.
+// The editor half: tabs, a breadcrumb, the conflict bar, and whatever the active tab is showing --
+// a file, or the diff of one file in one commit.
 //
 // The toolbar's controls are the ones that act on THIS pane or its neighbour to the left. The
 // terminal toggle used to be here too and is now on the IDE's status bar, at the edge of the pane
 // it opens rather than three controls away and above it.
 
 import { Eye, PanelLeft, Pencil } from "lucide-react";
+import type { CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
+import { CommitDiffView } from "@/features/workspace-ide/history/CommitDiff";
 import type { WorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import { CodeEditor } from "@/features/workspace-ide/editor/CodeEditor";
 import { EditorTabs } from "@/features/workspace-ide/editor/EditorTabs";
@@ -15,7 +18,7 @@ const CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-
   + " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
   + " aria-pressed:bg-muted aria-pressed:text-foreground";
 
-export function EditorPane({ ide }: { ide: WorkspaceIde }) {
+export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffTab }) {
   const { activePath, openFiles, visibleOpenPaths, preferences } = ide;
   const file = activePath ? openFiles[activePath] : undefined;
   // Which kinds open which way is `useWorkspaceIde`'s to answer, including the read-only ones, so
@@ -30,10 +33,18 @@ export function EditorPane({ ide }: { ide: WorkspaceIde }) {
       <EditorTabs
         paths={visibleOpenPaths}
         openFiles={openFiles}
-        activePath={activePath}
-        onSelect={ide.activate}
+        // No file tab is selected while the diff is showing. One tablist reporting two selected
+        // tabs is two accent bars to the eye and a contradiction to a screen reader.
+        activePath={diff.active ? null : activePath}
+        onSelect={(path) => {
+          // Selecting a file leaves the diff on its tab rather than closing it: a reader comparing
+          // a commit against what the file says now moves between the two, repeatedly.
+          diff.hide();
+          ide.activate(path);
+        }}
         onClose={ide.closePath}
         onReorder={ide.reorderTabs}
+        diff={diff}
       />
 
       <div className="flex min-h-[38px] shrink-0 items-center gap-1 border-b border-border
@@ -53,9 +64,13 @@ export function EditorPane({ ide }: { ide: WorkspaceIde }) {
           className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs
             text-muted-foreground"
         >
-          {(activePath ?? "").split("/").filter(Boolean).join(" / ")}
+          {/* The diff's own path, with the commit that changed it: the breadcrumb answers "what am
+              I looking at", and while the diff is showing that is not the active file. */}
+          {diff.active && diff.target
+            ? `${diff.target.path.split("/").filter(Boolean).join(" / ")} · ${diff.target.shortHash}`
+            : (activePath ?? "").split("/").filter(Boolean).join(" / ")}
         </nav>
-        {file && !readOnlyKind
+        {file && !readOnlyKind && !diff.active
           ? (
             <button
               type="button"
@@ -99,7 +114,18 @@ export function EditorPane({ ide }: { ide: WorkspaceIde }) {
         : null}
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
-        {file && ide.workspaceId
+        {diff.active && diff.target && ide.workspaceId
+          ? (
+            <CommitDiffView
+              // Keyed on what it shows, so pointing the tab at another file reads rather than
+              // redrawing the previous patch while the new one arrives.
+              key={`${diff.target.hash}:${diff.target.path}`}
+              client={ide.client}
+              workspaceId={ide.workspaceId}
+              target={diff.target}
+            />
+          )
+          : file && ide.workspaceId
           ? (preview
             ? <FilePreview file={file} />
             : (

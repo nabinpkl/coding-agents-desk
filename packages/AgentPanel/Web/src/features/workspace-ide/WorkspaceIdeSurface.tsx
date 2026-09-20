@@ -10,6 +10,7 @@ import { FolderPlus } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { EditorPane } from "@/features/workspace-ide/editor/EditorPane";
+import { useCommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
 import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
 import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
@@ -30,6 +31,9 @@ export function WorkspaceIdeSurface({
   feed: SidecarDataSource;
 }) {
   const ide = useWorkspaceIde(transport);
+  // The editor's diff tab. Owned here because two panes share it: the status bar's history points
+  // it at a file, and the editor draws it.
+  const diff = useCommitDiffTab();
   const frame = useRef<HTMLDivElement | null>(null);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -212,7 +216,7 @@ export function WorkspaceIdeSurface({
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1">
-            <EditorPane ide={ide} />
+            <EditorPane ide={ide} diff={diff} />
           </div>
           {preferences.terminalVisible
             ? (
@@ -255,7 +259,8 @@ export function WorkspaceIdeSurface({
         client={ide.client}
         workspaceId={ide.workspaceId}
         terminalVisible={preferences.terminalVisible}
-        onOpenPath={ide.openPath}
+        showingDiff={diff.target}
+        onOpenDiff={diff.open}
         onShowSourceControl={showSourceControl}
         onToggleTerminal={() => ide.update({ terminalVisible: !preferences.terminalVisible })}
       />

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parsePatch, patchSides } from "@/features/workspace-ide/gitPatch";
+import { parsePatch, patchSides } from "@/features/workspace-ide/history/gitPatch";
 
 const PATCH = [
   "diff --git a/src/main.ts b/src/main.ts",

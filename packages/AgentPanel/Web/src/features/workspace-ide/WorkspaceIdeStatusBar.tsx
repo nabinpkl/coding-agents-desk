@@ -14,8 +14,10 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { GitBranch, History, SquareTerminal } from "lucide-react";
-import type { WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
-import { WorkspaceIdeHistory } from "@/features/workspace-ide/WorkspaceIdeHistory";
+import type { WorkspaceCommit, WorkspaceCommitFile, WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
+import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";
+import { useCommitHistory } from "@/features/workspace-ide/history/useCommitHistory";
+import { WorkspaceIdeHistory } from "@/features/workspace-ide/history/WorkspaceIdeHistory";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
@@ -43,7 +45,8 @@ export function WorkspaceIdeStatusBar({
   client,
   workspaceId,
   terminalVisible,
-  onOpenPath,
+  showingDiff,
+  onOpenDiff,
   onShowSourceControl,
   onToggleTerminal,
 }: {
@@ -52,8 +55,10 @@ export function WorkspaceIdeStatusBar({
   client: WorkspaceIdeClient;
   workspaceId: string | null;
   terminalVisible: boolean;
-  /** Opens a path in the editor, which is what clicking a file in the history does. */
-  onOpenPath: (path: string) => void;
+  /** What the editor's diff tab is showing, so the history marks the row that put it there. */
+  showingDiff: CommitDiffTarget | null;
+  /** Opens one file of one commit in the editor, which is what clicking a history row does. */
+  onOpenDiff: (commit: WorkspaceCommit, file: WorkspaceCommitFile) => void;
   /** Reveals the sidebar on its source-control section, which is where the count resolves. */
   onShowSourceControl: () => void;
   onToggleTerminal: () => void;
@@ -63,6 +68,12 @@ export function WorkspaceIdeStatusBar({
   const historyTrigger = useRef<HTMLButtonElement | null>(null);
   const bar = useRef<HTMLElement | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Opened once, and the log is kept from then on. The history's state sits here rather than in
+  // the popup because the popup closes on every file click; `useCommitHistory` says why. Until the
+  // first open there is nothing to read, so a reader who never asks for the history never pays a
+  // `git log` for it.
+  const [everOpened, setEverOpened] = useState(false);
+  const history = useCommitHistory(client, workspaceId, everOpened);
 
   /** Close, and put focus back where it was, because a keyboard reader is standing on that button. */
   const closeHistory = useCallback(() => {
@@ -171,7 +182,11 @@ export function WorkspaceIdeStatusBar({
         aria-controls={historyOpen ? historyId : undefined}
         aria-pressed={historyOpen}
         title="History"
-        onClick={() => (historyOpen ? closeHistory() : setHistoryOpen(true))}
+        onClick={() => {
+          if (historyOpen) return closeHistory();
+          setEverOpened(true);
+          setHistoryOpen(true);
+        }}
         className={`${ITEM} px-3`}
       >
         <History aria-hidden className="size-4" />
@@ -183,9 +198,9 @@ export function WorkspaceIdeStatusBar({
         ? (
           <WorkspaceIdeHistory
             id={historyId}
-            client={client}
-            workspaceId={workspaceId}
-            onOpenFile={onOpenPath}
+            history={history}
+            showing={showingDiff}
+            onOpenDiff={onOpenDiff}
             onClose={closeHistory}
           />
         )
