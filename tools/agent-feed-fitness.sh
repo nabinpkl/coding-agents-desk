@@ -136,6 +136,13 @@ fi
 #    `src/types/` is one file, and both are a whole thing that happens to be small rather than the
 #    residue of a bad split. A check that failed every directory under three would fail five that
 #    are correct as they are. See AGENTS.md, "How long a file gets, and how flat a directory gets".
+#
+#    And the floor is asked of the cluster you are PROMOTING, never of the file that pushed the
+#    directory over. A full directory owes a split whatever is arriving: relieve it by moving three
+#    or more of the files already in it that belong together, and then the newcomer lands flat.
+#    Reading the floor the other way -- "a directory for my new thing would hold two files, so I
+#    will append it to an existing file instead" -- keeps both caps green while hiding a new idea
+#    inside a file named for a different one, which is the failure they exist to prevent.
 oversized_dirs="$(
     find packages/AgentPanel/Web/src agent-feed/sidecar/src -type d -print0 \
         | while IFS= read -r -d '' dir; do
@@ -151,8 +158,12 @@ oversized_dirs="$(
 if [ -n "$oversized_dirs" ]; then
     echo "agent-feed-fitness: these directories hold more than twelve source files:" >&2
     printf '%s\n' "$oversized_dirs" >&2
-    echo "agent-feed-fitness: cluster the ones that are about the same thing into sibling" >&2
-    echo "agent-feed-fitness: directories. A group of fewer than three is not a cluster." >&2
+    echo "agent-feed-fitness: cluster the files ALREADY THERE that are about the same thing into" >&2
+    echo "agent-feed-fitness: sibling directories, then put the new file flat. Three or more is a" >&2
+    echo "agent-feed-fitness: cluster, and that floor is asked of the group you are MOVING, never" >&2
+    echo "agent-feed-fitness: of the file that arrived. Do not append it to an existing file to" >&2
+    echo "agent-feed-fitness: dodge the count: that keeps both caps green and buries a new idea" >&2
+    echo "agent-feed-fitness: inside a file named for a different one." >&2
     exit 1
 fi
 

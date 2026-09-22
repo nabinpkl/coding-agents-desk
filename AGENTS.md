@@ -310,6 +310,19 @@ Two sentences close it:
   arrives as three or more related files IS a cluster and gets its own subdirectory on the spot;
   one or two files land flat, which is what flat is for.
 
+**The other exit is a subdirectory for the newcomer alone, and no gate catches it.** A
+subdirectory's files do not count toward its parent, so pushing the arriving file into one of its
+own leaves both caps green while the parent still sits at twelve, still owing its split, with the
+next arrival about to ask the same question. It is the same substitution as cramming: relieving the
+directory by moving the NEWCOMER instead of clustering what is already in it. Measured on the commit
+behind the proposal above, `8db3d9d5` (2026-09-18, "let Bots wear generated faces behind a
+remembered switch"): `features/bots/` stood at twelve, and that arc took both exits at once -- it
+appended to `botSurface.ts` AND created `features/bots/avatar/`, which holds one source file,
+`BotFace.tsx`. A subdirectory holding one file is a worse index than no subdirectory, which is the
+three-file floor read in the other direction, and `features/bots/` is still at twelve today. The fix
+is the one above rather than a different one: cluster the canvas files, and `BotFace.tsx` comes back
+flat beside `SessionAvatar.tsx`, which is where two files about a Bot's face belong.
+
 If no three of the twelve belong together, that is the finding rather than a licence to cram. Say so
 and stop: a dozen files with nothing in common is a feature boundary that is wrong, which is a
 larger change than the one you were making and the owner's call, not something to settle by hiding a

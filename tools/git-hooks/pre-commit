@@ -62,7 +62,8 @@ done <<< "$staged"
 #
 # The three-file floor is deliberately absent. It governs the moment you are splitting -- a group
 # of one or two is not a cluster -- and says nothing about a directory that is simply small, so
-# there is nothing here for a hook to refuse.
+# there is nothing here for a hook to refuse. It is also asked of the cluster you are PROMOTING out
+# of a full directory, never of the file whose arrival pushed it over.
 DIR_LIMIT=12
 oversized_dirs=""
 while IFS= read -r dir; do
@@ -102,9 +103,12 @@ fi
 if [ -n "$oversized_dirs" ]; then
     echo "pre-commit: this commit leaves these directories past the ${DIR_LIMIT}-file cap:" >&2
     printf '%s' "$oversized_dirs" >&2
-    echo "pre-commit: cluster the files that are about the same thing into sibling directories." >&2
-    echo "pre-commit: a flat list of fifty hides exactly what a two-thousand-line file hid, which" >&2
-    echo "pre-commit: is where one thing ends and the next begins. Fewer than three is not a cluster." >&2
+    echo "pre-commit: cluster the files ALREADY THERE that are about the same thing into sibling" >&2
+    echo "pre-commit: directories, then put the new file flat. A flat list of fifty hides exactly" >&2
+    echo "pre-commit: what a two-thousand-line file hid, which is where one thing ends and the next" >&2
+    echo "pre-commit: begins. Fewer than three is not a cluster -- asked of the group you are" >&2
+    echo "pre-commit: MOVING, never of the file that arrived. Appending it to an existing file to" >&2
+    echo "pre-commit: dodge the count keeps both caps green and buries the new idea." >&2
     status=1
 fi
 
