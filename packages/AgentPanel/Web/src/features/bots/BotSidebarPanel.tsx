@@ -236,42 +236,47 @@ export function BotSidebarPanel({
             return (
               <li
                 key={bot.botId}
-                // A GAP between Bots, where this carried a hairline. Every row here is a filled
-                // band in its own colour now, and a neutral line between two saturated blocks is
-                // not a divider, it is a seam nobody sees. Space separates what colour cannot.
-                className="mb-3 last:mb-0"
+                // ONE rail for the whole entry, header and sessions, and the only colour this
+                // roster paints. The rows themselves are the panel's own ground.
+                //
+                // They were filled bands until now, each in its own step of the Bot's colour, the
+                // same fills its cards wear on the canvas -- one fact stated twice, and the
+                // sidebar could not afford it. A card is a wide object a reader looks AT; a roster
+                // row is a name they look THROUGH, so a column of saturated bands beside the
+                // canvas reads as a second canvas rather than as its index. Colour is the
+                // canvas's to spend; what the roster owes is WHICH Bot, and a bar down the
+                // leading edge says that without taking the ground from under the text.
+                //
+                // Continuous rather than per-row, because a bar running the height of a header
+                // and its sessions is what makes them one entry -- the job the group gap and the
+                // indent were doing alone. The session rows keep no edge of their own: the old
+                // one was struck from `--bot-border` to ring a fill, and against the panel ground
+                // it measures 1.58:1 at the first step and 3.34:1 at the sixth, so it would read
+                // as some sessions having a border and others not.
+                //
+                // `border-l-2` where the card carries six: that ratio says which way the nesting
+                // goes among cards, and six pixels in a narrow sidebar argues with the name.
+                //
+                // Painted only while the Bot has a card: the colour is what having a card looks
+                // like, so off the strip the rail goes with it and the header dims under the
+                // crossed eye. The dimming stays on the header so it cannot reach the session
+                // rows, which answer that question one at a time.
+                className={`mb-3 border-l-2 pl-1 last:mb-0 ${
+                  hue !== undefined && onStrip !== false ? "bot-rail" : "border-transparent"
+                }`}
+                style={hue === undefined || onStrip === false ? undefined : botSurfaceStyle(hue)}
               >
                 <div
-                  // The same surface and rail its card wears on the canvas, so one Bot is one
-                  // colour in both places -- the rule its sessions already follow, one level up.
-                  //
-                  // `border-l-2` where the card carries six. That ratio exists to say which way
-                  // the nesting goes among cards on the strip, and there is no nesting to state
-                  // here; six pixels in a sidebar a reader has dragged narrow is a bar arguing
-                  // with the name beside it. The COLOUR is the half that has to match.
-                  //
-                  // Painted only while the Bot has a card, for the reason a session row is: the
-                  // colour is what having a card looks like. Off the strip it goes neutral and
-                  // dim under the same crossed eye. The dimming sits on this header rather than
-                  // on the whole entry so it cannot reach the session rows below, which carry
-                  // colours of their own and answer this question one at a time.
-                  //
-                  // The selected Bot no longer takes `bg-muted`. It is a utility, so it outranks
-                  // the component layer this fill lives in and would repaint the row flat grey --
-                  // exactly how an open session's row used to lose its colour.
-                  className={`flex min-h-16 items-center gap-3 border-b border-b-border/70 border-l-2 py-2 pr-3 pl-1 ${
-                    hue !== undefined && onStrip !== false
-                      ? "bot-surface bot-rail"
-                      : "border-transparent"
-                  } ${onStrip === false ? "opacity-55" : ""}`}
-                  style={hue === undefined || onStrip === false ? undefined : botSurfaceStyle(hue)}
+                  className={`flex min-h-16 items-center gap-3 border-b border-b-border/70 py-2 pr-3 ${
+                    onStrip === false ? "opacity-55" : ""
+                  }`}
                 >
                   {canvas ? (
                     // The avatar IS the control. A control of its own would be a second 40px
                     // column in a sidebar the reader has usually dragged narrow, and the Bot's
                     // name is what loses those pixels.
                     //
-                    // No badge on its corner: the row already says on or off through its colour
+                    // No badge on its corner: the entry already says on or off through its rail
                     // and dimming, and the same toggle is on every card's own menu, which is
                     // where a reader meets it first.
                     <button
@@ -360,9 +365,10 @@ export function BotSidebarPanel({
                     role="list"
                     aria-label={`${bot.name} sessions`}
                     // Children are INSET: the Bot runs the panel's full width and its sessions
-                    // start sixteen pixels in, so parent-to-child is a step rather than a line.
-                    // `gap-px` shows the ground between rows that would otherwise merge.
-                    className="flex flex-col gap-px pt-1 pl-4"
+                    // start sixteen pixels in from its rail, so parent-to-child is a step rather
+                    // than a line. Flush rather than gapped now that the rows are the panel's own
+                    // ground: a pixel of ground between two grounds separates nothing.
+                    className="flex flex-col pt-1 pl-4"
                   >
                     {bot.sessions.map((session) => {
                       const key = attachedSessionKey(session);
@@ -389,20 +395,19 @@ export function BotSidebarPanel({
                         // both.
                         <li
                           key={key}
-                          // The same fill and rail its card wears on the canvas, so one session is
-                          // one colour wherever it is drawn -- and ONLY while it is drawn in both
-                          // places. The colour is what a card looks like, so a row with no card
-                          // gives it up and goes neutral and dim, which leaves the coloured rows
-                          // reading as exactly the set standing on the strip.
+                          // No fill and no edge: this row is the panel's ground, and what it has
+                          // to say about colour it says on the face. The style stays, because that
+                          // is what publishes the session's hue and step for the face to read.
                           //
-                          // Whether that card is UNFOLDED is the face's to say rather than the
-                          // fill's. It was the fill's once: an open session took `bg-muted`, a
-                          // utility that outranks this layer, and the row a reader was most likely
-                          // looking at went flat grey while its card kept the session's colour.
-                          // `aria-current` carries it for a reader who sees neither.
-                          className={`flex items-center border-l-2 pr-1.5 ${
-                            shaded && !noCard ? "bot-session-edge bot-session-fill" : "border-transparent"
-                          } ${noCard ? "opacity-55" : ""}`}
+                          // It wore its card's fill until now, so one session was one colour
+                          // wherever it was drawn; the cost is in the entry's comment above. The
+                          // face keeps the half that IDENTIFIED the session, same hue and step at
+                          // rail strength, on 32px rather than a whole row.
+                          //
+                          // Whether the card is UNFOLDED is the face's to say through its eyes,
+                          // and whether there is one at all is the dimming's and the crossed
+                          // eye's. `aria-current` carries the first for a reader who sees neither.
+                          className={`flex items-center pr-1.5 ${noCard ? "opacity-55" : ""}`}
                           style={shaded}
                         >
                           <button

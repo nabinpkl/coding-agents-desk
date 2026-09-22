@@ -142,18 +142,24 @@ describe("BotSidebarPanel canvas rows", () => {
 /**
  * What a session row says about itself: which session it is, and whether it has a card.
  *
- * Both used to be spent on the same pixels. The row carried its Bot's colour as a 2px rail because
- * a background tint would have fought the dimming that meant "off the canvas", so the colour that
- * names a session was the one that gave way. The row takes the full fill now, and the two stopped
- * competing by being made one answer: a session is painted exactly when it has a card, and a row
- * without one goes neutral and dim under a mark that says so.
+ * The roster paints NO surfaces. A row wore its card's full fill for a while, which said both
+ * things at once and said them in the canvas's own material: two columns of saturated bands beside
+ * the canvas read as a second canvas rather than as an index of it. So the colour moved onto the
+ * 32px mark, where it still names the session, and the row is the panel's ground. Whether there is
+ * a card is what the mark's colour now answers alone: a session without one gives the mark up and
+ * dims under a badge that says why.
  */
 describe("BotSidebarPanel session rows", () => {
   const rowOf = (title: string) => screen.getByText(title).closest("li")!;
+  /** The session's mark, which is the only thing in the row that carries a colour. */
+  const markOf = (title: string) => rowOf(title).querySelector(".bot-session-accent");
 
-  it("paints a session row in its own colour rather than leaving it grey", () => {
+  it("keeps the row neutral and puts the session's colour on its mark", () => {
     panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
-    expect(rowOf("First session").className).toContain("bot-session-fill");
+    const row = rowOf("First session").className;
+    expect(row).not.toContain("bot-session-fill");
+    expect(row).not.toContain("bot-session-edge");
+    expect(markOf("First session")).not.toBeNull();
   });
 
   it("takes the colour off a session with no card, dims it, and says why", () => {
@@ -162,17 +168,15 @@ describe("BotSidebarPanel session rows", () => {
       machineHiddenBotIds: new Set(),
       detachedSessionKeys: new Set(["claude:s-2"]),
     });
-    const gone = rowOf("Second session").className;
-    expect(gone).not.toContain("bot-session-fill");
-    expect(gone).toContain("opacity-55");
-    // Dim alone reads as disabled, so the mark is what carries the meaning. Counted inside the
-    // session list: a Bot's own header wears the same mark, and the whole panel would count that.
+    expect(markOf("Second session")).toBeNull();
+    expect(rowOf("Second session").className).toContain("opacity-55");
+    // Dim alone reads as disabled, so the badge is what carries the meaning. Counted inside the
+    // session list: a Bot's own header wears the same badge, and the whole panel would count that.
     const rows = within(screen.getByRole("list", { name: "Work bot sessions" }));
     expect(rows.getAllByLabelText("Off the canvas")).toHaveLength(1);
     // Its neighbour still has a card, so it keeps both its colour and its full strength.
-    const kept = rowOf("First session").className;
-    expect(kept).toContain("bot-session-fill");
-    expect(kept).not.toContain("opacity-55");
+    expect(markOf("First session")).not.toBeNull();
+    expect(rowOf("First session").className).not.toContain("opacity-55");
   });
 
   it("says the same of every session when the whole Bot is off the strip", () => {
@@ -181,48 +185,51 @@ describe("BotSidebarPanel session rows", () => {
     panel({ detachedBotIds: new Set(["b-work"]), machineHiddenBotIds: new Set() });
     const rows = within(screen.getByRole("list", { name: "Work bot sessions" }));
     expect(rows.getAllByLabelText("Off the canvas")).toHaveLength(2);
-    expect(rowOf("First session").className).not.toContain("bot-session-fill");
+    expect(markOf("First session")).toBeNull();
     expect(rowOf("Second session").className).toContain("opacity-55");
   });
 });
 
 /**
- * A Bot row says the same things about itself that its sessions say, one level up: whose row this
- * is, in the colour its card wears on the canvas, and whether there is a card to match.
+ * A Bot entry says the same things its sessions say, one level up: whose entry this is, and
+ * whether there is a card to match.
+ *
+ * The rail is the whole of the first answer and it belongs to the ENTRY, not to the header row,
+ * because a bar running past the sessions too is what makes a Bot and its sessions one block. The
+ * header's fill went with the session fills, for the reason written above them.
  */
 describe("BotSidebarPanel bot rows", () => {
   /**
-   * The header strip of one Bot's entry, which is the part that carries the colour.
+   * The header strip of one Bot's entry, and the entry around it.
    *
    * Found through the Add-sessions button rather than the Bot's name, because these fixtures give
    * each Bot a directory named after it, so the name renders twice in one row -- once as the title
    * and once in the path line under it -- and matching on it finds both.
    */
-  const headerOf = (name: string) =>
-    screen.getByRole("button", { name: `Add sessions to ${name}` }).closest("div")!;
+  const addOf = (name: string) => screen.getByRole("button", { name: `Add sessions to ${name}` });
+  const headerOf = (name: string) => addOf(name).closest("div")!;
+  const entryOf = (name: string) => addOf(name).closest("li")!;
 
-  it("wears its card's surface while it has one", () => {
+  it("wears its Bot's rail, and no fill under it, while it has a card", () => {
     panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
-    expect(headerOf("Work bot").className).toContain("bot-surface");
-    // And the rail, which is the half the canvas reads a card's owner from.
-    expect(headerOf("Work bot").className).toContain("bot-rail");
+    expect(entryOf("Work bot").className).toContain("bot-rail");
+    expect(headerOf("Work bot").className).not.toContain("bot-surface");
   });
 
-  it("gives the colour up, dims and says so when it has no card", () => {
+  it("gives the rail up, dims and says so when it has no card", () => {
     panel({ detachedBotIds: new Set(["b-work"]), machineHiddenBotIds: new Set() });
+    expect(entryOf("Work bot").className).not.toContain("bot-rail");
     const header = headerOf("Work bot");
-    expect(header.className).not.toContain("bot-surface");
     expect(header.className).toContain("opacity-55");
     expect(within(header).getByLabelText("Off the canvas")).toBeInTheDocument();
   });
 
   it("says it the same way when a hidden machine is what is holding the card back", () => {
     // Two routes to having no card, one appearance. The control keeps the distinction, because
-    // only it can act on it; the colour and the mark are about what is on the strip.
+    // only it can act on it; the rail and the badge are about what is on the strip.
     panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set(["b-peer"]) });
-    const header = headerOf("Peer bot");
-    expect(header.className).not.toContain("bot-surface");
-    expect(within(header).getByLabelText("Off the canvas")).toBeInTheDocument();
+    expect(entryOf("Peer bot").className).not.toContain("bot-rail");
+    expect(within(headerOf("Peer bot")).getByLabelText("Off the canvas")).toBeInTheDocument();
   });
 });
 
