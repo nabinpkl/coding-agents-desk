@@ -1,8 +1,9 @@
 // The editable code surface.
 //
-// A textarea over a highlighted `<pre>`, both in the same monospace metrics and scrolled together.
-// The textarea is transparent apart from its caret and selection, so what the reader sees is the
-// highlighted layer and what they type into is a plain form control.
+// A textarea over a highlighted `<pre>`, beside a `<pre>` of line numbers, all three in the same
+// monospace metrics and scrolled together. The textarea is transparent apart from its caret and
+// selection, so what the reader sees is the highlighted layer and what they type into is a plain
+// form control.
 //
 // CodeMirror was the plan and is not here, because `bun add` cannot reach the npm registry from
 // this machine: every attempt fails TLS verification on a different package (`bun add` resolves
@@ -14,6 +15,13 @@
 // no multiple cursors, no folding, and no virtualisation, so a very large file lays out all of its
 // lines. What it keeps: highlighting, the browser's own undo, find, spellcheck-off, and a caret
 // that behaves the way every other text field on the machine does.
+//
+// Source does not wrap here, and that is what the gutter is built on. A numbered line has to be
+// ONE row for its number to sit beside it, and a soft-wrapped line is however many rows the pane
+// is narrow enough to make it -- so a gutter over wrapped text drifts further from the code with
+// every long line. It is also the panel's standing answer for source either way: `markdown.css`
+// scrolls code blocks rather than wrapping them because source is read by its indentation, and
+// `CommitDiff` scrolls its patch for the same reason.
 
 import { useEffect, useMemo, useRef } from "react";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
@@ -23,19 +31,24 @@ import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/mark
 // silently going grey again.
 import "@/features/activity-feed/markdown/markdown.css";
 
-/** Shared metrics, so the two layers agree character for character. */
-const LAYER = "m-0 p-3 font-mono text-[13px] leading-[1.55] whitespace-pre-wrap break-words";
+/** Shared metrics, so the three layers agree character for character. */
+const LAYER = "m-0 py-3 font-mono text-[13px] leading-[1.55] whitespace-pre";
+
+/** What the two code layers hold, once the gutter has taken the left edge. */
+const CODE = "pl-2 pr-3";
 
 /**
  * Shiki hands back its own `<pre class="shiki">`, which lands INSIDE the layer above.
  *
- * Left alone it keeps a `<pre>`'s own `white-space: pre` while the textarea over it wraps, so a
- * long line occupies one row in one layer and three in the other and the caret walks away from
- * the text. These push the outer layer's metrics onto it so the two stay character for character.
+ * Left alone it keeps its own background and font, and it is the element the horizontal scroll has
+ * to happen on, so these push the outer layer's metrics onto it and let it grow past the box.
  */
-const PAINTED = "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-pre-wrap"
-  + " [&_.shiki]:break-words [&_.shiki]:font-[inherit] [&_.shiki]:text-[length:inherit]"
-  + " [&_.shiki]:leading-[inherit]";
+const PAINTED = "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-pre"
+  + " [&_.shiki]:font-[inherit] [&_.shiki]:text-[length:inherit] [&_.shiki]:leading-[inherit]"
+  // As wide as its longest line rather than as wide as the box, so the layer it sits in has
+  // something to scroll. Left at the box's width its lines would overflow a child that is already
+  // the full width, and the outer layer would have no horizontal range to follow the textarea's.
+  + " [&_.shiki]:w-max [&_.shiki]:overflow-visible";
 
 export function CodeEditor({
   path,
@@ -53,6 +66,7 @@ export function CodeEditor({
   const { highlighter, lang } = useCodeHighlighting(path);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const painted = useRef<HTMLPreElement | null>(null);
+  const gutter = useRef<HTMLPreElement | null>(null);
 
   const html = useMemo(() => {
     if (!highlighter) return null;
@@ -65,16 +79,38 @@ export function CodeEditor({
     });
   }, [highlighter, lang, text]);
 
-  // Scroll the painted layer with the textarea rather than letting each scroll on its own, which
-  // is what makes the illusion hold once a file is longer than the pane.
+  // As many numbers as the textarea has lines, which is one fewer than the painted layer's spare
+  // row. Rebuilt only when the COUNT moves rather than on every keystroke: a ten-thousand-line
+  // file is a 50KB string, and typing inside a line does not change a single digit of it.
+  const lineCount = useMemo(() => text.split("\n").length, [text]);
+  const numbers = useMemo(
+    // The trailing newline is the gutter's own spare row, and it earns its place: the textarea
+    // carries a horizontal scrollbar that the gutter does not, so without it the textarea can
+    // scroll about a line further than the gutter can follow and the numbers part from the code
+    // at the very bottom of a long file.
+    () => `${Array.from({ length: lineCount }, (_, index) => index + 1).join("\n")}\n`,
+    [lineCount],
+  );
+  // `ch` is one character in this monospace face, so the digits fill the column exactly and it
+  // steps out by one character when a file passes a power of ten. The constant is the gutter's
+  // own padding.
+  const gutterWidth = `calc(${String(lineCount).length}ch + 1.25rem)`;
+
+  // Scroll the painted layer and the gutter with the textarea rather than letting each scroll on
+  // its own, which is what makes the illusion hold once a file is longer or wider than the pane.
+  // The gutter takes the vertical half only: it stays put while the code scrolls sideways, the
+  // way a gutter does everywhere else.
   useEffect(() => {
     const control = input.current;
     if (!control) return;
     const sync = () => {
       const layer = painted.current;
-      if (!layer) return;
-      layer.scrollTop = control.scrollTop;
-      layer.scrollLeft = control.scrollLeft;
+      if (layer) {
+        layer.scrollTop = control.scrollTop;
+        layer.scrollLeft = control.scrollLeft;
+      }
+      const numbered = gutter.current;
+      if (numbered) numbered.scrollTop = control.scrollTop;
     };
     control.addEventListener("scroll", sync);
     sync();
@@ -83,12 +119,25 @@ export function CodeEditor({
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-background">
+      {/* Hidden from the reading order and from the pointer: a screen reader meeting the textarea
+          should hear the file, not a column of integers, and a number is not something to click. */}
+      <pre
+        ref={gutter}
+        aria-hidden
+        style={{ width: gutterWidth }}
+        className={`${LAYER} pointer-events-none absolute inset-y-0 left-0 select-none
+          overflow-hidden border-r border-border/60 pl-3 pr-2 text-right
+          text-muted-foreground/70`}
+      >
+        {numbers}
+      </pre>
       {html
         ? (
           <pre
             ref={painted}
             aria-hidden
-            className={`${LAYER} ${PAINTED} pointer-events-none absolute inset-0
+            style={{ left: gutterWidth }}
+            className={`${LAYER} ${CODE} ${PAINTED} pointer-events-none absolute inset-y-0 right-0
               overflow-hidden`}
             dangerouslySetInnerHTML={{ __html: html }}
           />
@@ -99,8 +148,9 @@ export function CodeEditor({
           <pre
             ref={painted}
             aria-hidden
-            className={`${LAYER} pointer-events-none absolute inset-0 overflow-hidden
-              text-foreground`}
+            style={{ left: gutterWidth }}
+            className={`${LAYER} ${CODE} pointer-events-none absolute inset-y-0 right-0
+              overflow-hidden text-foreground`}
           >
             {`${text}\n`}
           </pre>
@@ -113,8 +163,12 @@ export function CodeEditor({
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
+        // The attribute rather than the CSS: `white-space` decides how the VALUE is painted, and
+        // only `wrap` decides whether the control soft-wraps it in the first place.
+        wrap="off"
         aria-label={`Edit ${path.split("/").pop() ?? path}`}
-        className={`${LAYER} absolute inset-0 h-full w-full resize-none overflow-auto border-0
+        style={{ left: gutterWidth }}
+        className={`${LAYER} ${CODE} absolute inset-y-0 right-0 resize-none overflow-auto border-0
           bg-transparent text-transparent caret-foreground outline-none
           selection:bg-primary/30`}
       />
