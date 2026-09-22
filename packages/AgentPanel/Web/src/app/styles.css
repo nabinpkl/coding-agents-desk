@@ -750,7 +750,12 @@
   }
 
   .bot-face-eyes--shut {
-    transform: scaleY(0.12);
+    /* 0.24 rather than the 0.12 this started at, measured at both sizes a face is drawn: an eye
+       scaled to 0.12 is a third of a pixel on a 32px mark, which antialiases to a hairline a
+       reader reads as an eye that has gone missing rather than one that has closed. A quarter
+       height is a lid at 32px and still plainly shut at 44, where anything above a third starts
+       reading as a squint instead. */
+    transform: scaleY(0.24);
   }
 
   /* A blink is the shut state held for a tenth of a second, which is why it is the same transform:
@@ -764,7 +769,7 @@
 
   @keyframes bot-face-blink {
     0%, 93%, 100% { transform: scaleY(1); }
-    95.5%, 96.5% { transform: scaleY(0.12); }
+    95.5%, 96.5% { transform: scaleY(0.24); }
   }
 
   /* Reduced motion keeps the STATE and drops the movement: eyes still shut when a card folds, they

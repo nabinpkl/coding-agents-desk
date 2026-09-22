@@ -11,9 +11,31 @@ import { render, screen } from "@testing-library/react";
 import { BOT_FACE_PAIRS, BotFace, botFaceOf } from "@/features/bots/avatar/BotFace";
 import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSurface";
 
+/**
+ * The points a head path actually visits, arcs included but their parameters excluded.
+ *
+ * Every head is written in absolute commands, which is what makes this readable at all: the
+ * numbers in an `M`, `L`, `C` or `Q` are coordinate pairs, and in an `A` only the last two are.
+ */
+function pointsOf(path: string): [number, number][] {
+  const points: [number, number][] = [];
+  for (const [, letter, body] of path.matchAll(/([MLCQAZ])([^MLCQAZ]*)/g)) {
+    const numbers = (body.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const pairs = letter === "A"
+      ? numbers.slice(5).reduce<number[]>((all, n, i) => (i % 7 < 2 ? [...all, n] : all), numbers.slice(5, 7))
+      : numbers;
+    if (letter === "A") {
+      for (let i = 5; i + 1 < numbers.length; i += 7) points.push([numbers[i]!, numbers[i + 1]!]);
+      continue;
+    }
+    for (let i = 0; i + 1 < pairs.length; i += 2) points.push([pairs[i]!, pairs[i + 1]!]);
+  }
+  return points;
+}
+
 const key = (rank: number): string => {
   const face = botFaceOf(rank);
-  return `${face.head}|${face.eyes.map((e) => `${e.cx}:${e.rx}:${e.ry}`).join(",")}`;
+  return `${face.head}|${face.top.join("+")}|${face.eyes.map((e) => `${e.cx}:${e.rx}:${e.ry}`).join(",")}`;
 };
 
 /**
@@ -36,12 +58,19 @@ describe("botFaceOf", () => {
     expect(new Set(ranks.map(key)).size).toBe(ranks.length);
   });
 
-  test("the set behind the permutation is a hundred distinct polygons", () => {
-    // 37 is coprime to 500, so the first five hundred ranks reach every pair: every head in the
+  test("the set behind the permutation is twenty-five distinct polygons", () => {
+    // 37 is coprime to 500, so the first five hundred ranks reach every face: every head in the
     // frozen set is drawn by some rank, and no two of them are the same string.
     const heads = new Set<string>();
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) heads.add(botFaceOf(rank).head);
-    expect(heads.size).toBe(100);
+    expect(heads.size).toBe(25);
+  });
+
+  test("every top is reached, and one of them is bare", () => {
+    const tops = new Set<string>();
+    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) tops.add(botFaceOf(rank).top.join("+"));
+    expect(tops.size).toBe(4);
+    expect(tops.has("")).toBe(true);
   });
 
   test("no session input reaches a Bot's drawing", () => {
@@ -55,19 +84,22 @@ describe("botFaceOf", () => {
   });
 
   test("every head stays inside the box it is drawn in", () => {
-    // A spoke past the viewport is clipped silently, which reads as a head with its edge sliced
-    // off. Sweep the realistic range plus deep ranks. Anchors are fitted to 2..30; curve controls
-    // may lean slightly past an anchor they bend toward, so the bound here is the viewport with
-    // a margin rather than the fitting box.
+    // A head past the viewport is clipped silently, which reads as an edge sliced off. Only the
+    // POINTS are checked: an arc carries its radii, its rotation and two flags before its endpoint,
+    // and reading those as coordinates is how a correct path fails a test. Whether an eye sits
+    // inside its head is a different question and not one jsdom can answer -- it has no SVG
+    // geometry -- so that one is settled against the real paths in a browser before they are
+    // frozen here.
     const ranks = realisticRanks();
     for (let extra = 0; extra < 2000; extra += 1) ranks.push(extra * 37);
     for (const rank of ranks) {
-      const numbers = botFaceOf(rank).head.match(/-?\d+(\.\d+)?/g) ?? [];
-      expect(numbers.length).toBeGreaterThan(0);
-      for (const raw of numbers) {
-        const n = Number(raw);
-        expect(n).toBeGreaterThanOrEqual(1);
-        expect(n).toBeLessThanOrEqual(31);
+      const points = pointsOf(botFaceOf(rank).head);
+      expect(points.length).toBeGreaterThan(0);
+      for (const [x, y] of points) {
+        expect(x).toBeGreaterThanOrEqual(1);
+        expect(x).toBeLessThanOrEqual(31);
+        expect(y).toBeGreaterThanOrEqual(1);
+        expect(y).toBeLessThanOrEqual(31);
       }
     }
   });
