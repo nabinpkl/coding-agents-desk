@@ -236,7 +236,10 @@ export function BotSidebarPanel({
             return (
               <li
                 key={bot.botId}
-                className="border-b border-border/80"
+                // A GAP between Bots, where this carried a hairline. Every row here is a filled
+                // band in its own colour now, and a neutral line between two saturated blocks is
+                // not a divider, it is a seam nobody sees. Space separates what colour cannot.
+                className="mb-3 last:mb-0"
               >
                 <div
                   // The same surface and rail its card wears on the canvas, so one Bot is one
@@ -256,7 +259,7 @@ export function BotSidebarPanel({
                   // The selected Bot no longer takes `bg-muted`. It is a utility, so it outranks
                   // the component layer this fill lives in and would repaint the row flat grey --
                   // exactly how an open session's row used to lose its colour.
-                  className={`flex min-h-16 items-center gap-3 border-l-2 py-2 pr-3 pl-1 ${
+                  className={`flex min-h-16 items-center gap-3 border-b border-b-border/70 border-l-2 py-2 pr-3 pl-1 ${
                     hue !== undefined && onStrip !== false
                       ? "bot-surface bot-rail"
                       : "border-transparent"
@@ -353,7 +356,14 @@ export function BotSidebarPanel({
                 </div>
 
                 {bot.sessions.length > 0 || bot.missingSessionRefs.length > 0 ? (
-                  <ul role="list" aria-label={`${bot.name} sessions`} className="pb-1">
+                  <ul
+                    role="list"
+                    aria-label={`${bot.name} sessions`}
+                    // Children are INSET: the Bot runs the panel's full width and its sessions
+                    // start sixteen pixels in, so parent-to-child is a step rather than a line.
+                    // `gap-px` shows the ground between rows that would otherwise merge.
+                    className="flex flex-col gap-px pt-1 pl-4"
+                  >
                     {bot.sessions.map((session) => {
                       const key = attachedSessionKey(session);
                       const active = selected && selectedSessionKeys.has(key);
