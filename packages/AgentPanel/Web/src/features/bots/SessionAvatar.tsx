@@ -43,6 +43,7 @@ export function SessionAvatar({
   activity,
   shaded,
   rank,
+  shut = false,
   className = "",
 }: {
   title: string;
@@ -72,6 +73,16 @@ export function SessionAvatar({
    * session has no transcript yet and no step on any ladder -- and those keep their initials.
    */
   rank?: number;
+  /**
+   * Whether this session's card is folded, which the face answers by closing its eyes.
+   *
+   * The roster had no way to say this at all. An open row used to take `bg-muted`, a utility that
+   * outranks the colour layer, so the one row a reader was most likely looking at was the one that
+   * lost its colour -- and folded state is not worth a colour it has to take from identity. Eyes
+   * are free: nothing else was using them. The initials fallback ignores it, because letters have
+   * no eyes to close and a second treatment for one fact is a second thing to learn.
+   */
+  shut?: boolean;
   className?: string;
 }) {
   const faces = useBotFaces();
@@ -81,6 +92,7 @@ export function SessionAvatar({
     return (
       <BotFace
         rank={rank}
+        shut={shut}
         className={`size-8 shrink-0 ${activity === "live" ? "rounded-full ring-2 ring-green-500" : ""} ${className}`}
       />
     );

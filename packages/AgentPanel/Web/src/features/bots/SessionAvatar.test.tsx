@@ -47,3 +47,24 @@ describe("SessionAvatar faces switch", () => {
     expect(container.querySelector(".bot-face")).toBeNull();
   });
 });
+
+describe("SessionAvatar fold", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setBotFaces(true);
+  });
+
+  it("shuts the face's eyes when its card is folded", () => {
+    const { container } = render(
+      <SessionAvatar title="First session" activity="cold" shaded rank={0} shut />,
+    );
+    expect(container.querySelector(".bot-face-eyes--shut")).not.toBeNull();
+  });
+
+  it("leaves them open when it is not", () => {
+    const { container } = render(
+      <SessionAvatar title="First session" activity="cold" shaded rank={0} />,
+    );
+    expect(container.querySelector(".bot-face-eyes--open")).not.toBeNull();
+  });
+});

@@ -48,15 +48,21 @@ function panel(canvas: {
   machineHiddenBotIds: ReadonlySet<string>;
   detachedSessionKeys?: ReadonlySet<string>;
   onToggle?: (bot: BotView) => void;
+  /** The sessions whose cards are unfolded, which is what the shell passes as the selection. */
+  openKeys?: ReadonlySet<string>;
 }) {
+  const open = canvas.openKeys ?? new Set<string>();
+  const openBots = [HOME, PEER, WORK]
+    .filter((each) => each.sessions.some((s) => open.has(`${s.source}:${s.sessionId}`)))
+    .map((each) => each.botId);
   return render(
     <BotSidebarPanel
       bots={[HOME, PEER, WORK]}
       machineLabels={LABELS}
       loading={false}
       error={null}
-      selectedBotIds={new Set()}
-      selectedSessionKeys={new Set()}
+      selectedBotIds={new Set(openBots)}
+      selectedSessionKeys={open}
       onSelectSession={() => undefined}
       onAddSession={() => undefined}
       onRenameSession={() => undefined}
@@ -259,5 +265,33 @@ describe("BotSidebarPanel faces switch", () => {
     unmount();
     const { container: next } = render(<BotAvatar bot={{ name: "Alpha Bot" }} hue={24} rank={0} />);
     expect(next.querySelector(".bot-face")).not.toBeNull();
+  });
+});
+
+describe("BotSidebarPanel folded sessions", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setBotFaces(true);
+  });
+
+  /** Both of Work bot's session rows, which is where a fold has to be readable. */
+  const rows = () => screen.getByRole("list", { name: "Work bot sessions" });
+
+  it("closes the eyes of a session whose card is folded", () => {
+    panel({
+      detachedBotIds: new Set(),
+      machineHiddenBotIds: new Set(),
+      openKeys: new Set(["claude:s-1"]),
+    });
+    // One open card and one folded, so the assertion is about the difference between two rows
+    // rather than about a count that an unrelated change could satisfy.
+    expect(rows().querySelectorAll(".bot-face-eyes--open")).toHaveLength(1);
+    expect(rows().querySelectorAll(".bot-face-eyes--shut")).toHaveLength(1);
+  });
+
+  it("closes every eye when nothing is open", () => {
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
+    expect(rows().querySelectorAll(".bot-face-eyes--open")).toHaveLength(0);
+    expect(rows().querySelectorAll(".bot-face-eyes--shut")).toHaveLength(2);
   });
 });

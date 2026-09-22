@@ -385,15 +385,11 @@ export function BotSidebarPanel({
                           // gives it up and goes neutral and dim, which leaves the coloured rows
                           // reading as exactly the set standing on the strip.
                           //
-                          // Nothing here says whether that card is unfolded, and it used to: an
-                          // open session took `bg-muted`, a utility, which outranks this layer and
-                          // painted the row `oklch(0.97 0 0)` -- flat grey -- while its card went
-                          // on wearing the session's colour. Measured on the live canvas, an open
-                          // "evals" card sat at `oklch(0.95 0.05 161.51)` against that grey. So the
-                          // one row a reader was most likely to be looking at was the one that had
-                          // dropped the colour, and folded state is not worth a colour it has to
-                          // take from identity. `aria-current` still carries it, where it costs
-                          // nothing to say.
+                          // Whether that card is UNFOLDED is the face's to say rather than the
+                          // fill's. It was the fill's once: an open session took `bg-muted`, a
+                          // utility that outranks this layer, and the row a reader was most likely
+                          // looking at went flat grey while its card kept the session's colour.
+                          // `aria-current` carries it for a reader who sees neither.
                           className={`flex items-center border-l-2 pr-1.5 ${
                             shaded && !noCard ? "bot-session-edge bot-session-fill" : "border-transparent"
                           } ${noCard ? "opacity-55" : ""}`}
@@ -420,6 +416,7 @@ export function BotSidebarPanel({
                               activity={session.activity}
                               shaded={Boolean(shaded) && !noCard}
                               rank={faceRank}
+                              shut={!active}
                             />
                             {/* `font-medium`, matching the same session's title on its canvas card.
                                 One object drawn at two weights in two places is drift, not

@@ -295,6 +295,10 @@ export function BotSessionCard({
                 activity={session.activity}
                 shaded={Boolean(shaded)}
                 rank={rank !== undefined && shade !== undefined ? botSessionFaceRank(rank, shade) : undefined}
+                // The same fact the chevron beside it states, said by the same face the roster
+                // draws: one session looks like one session in both places, which is the whole
+                // reason the row and the card share a mark at all.
+                shut={!open}
                 className="mt-0.5"
               />
               <span className="min-w-0 flex-1">
