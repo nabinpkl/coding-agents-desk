@@ -142,12 +142,13 @@ describe("BotSidebarPanel canvas rows", () => {
 /**
  * What a session row says about itself: which session it is, and whether it has a card.
  *
- * The roster paints NO surfaces. A row wore its card's full fill for a while, which said both
- * things at once and said them in the canvas's own material: two columns of saturated bands beside
- * the canvas read as a second canvas rather than as an index of it. So the colour moved onto the
- * 32px mark, where it still names the session, and the row is the panel's ground. Whether there is
- * a card is what the mark's colour now answers alone: a session without one gives the mark up and
- * dims under a badge that says why.
+ * A SESSION row paints no surface. It wore its card's full fill for a while, which said both
+ * things at once and said them in the canvas's own material: a column of saturated bands beside the
+ * canvas read as a second canvas rather than as an index of it. So the colour moved onto the 32px
+ * mark, where it still names the session, and the row is the panel's ground. Its Bot's header is
+ * the one band that kept a tint, at a strength a row could not carry; the describe below has the
+ * numbers. Whether there is a card is what the mark's colour answers here: a session without one
+ * gives the mark up and dims under a badge that says why.
  */
 describe("BotSidebarPanel session rows", () => {
   const rowOf = (title: string) => screen.getByText(title).closest("li")!;
@@ -194,9 +195,11 @@ describe("BotSidebarPanel session rows", () => {
  * A Bot entry says the same things its sessions say, one level up: whose entry this is, and
  * whether there is a card to match.
  *
- * The rail is the whole of the first answer and it belongs to the ENTRY, not to the header row,
- * because a bar running past the sessions too is what makes a Bot and its sessions one block. The
- * header's fill went with the session fills, for the reason written above them.
+ * Two pieces answer the first, at two strengths, and which sits where is the point. The RAIL is on
+ * the entry rather than the header, because a bar running past the sessions is what makes a Bot
+ * and its sessions one block. The card TINT is on the header alone: it is a whisper against this
+ * panel's ground where a session fill was not, so the parent can wear a band while its children
+ * stay a list. Both go when the card does.
  */
 describe("BotSidebarPanel bot rows", () => {
   /**
@@ -209,26 +212,32 @@ describe("BotSidebarPanel bot rows", () => {
   const addOf = (name: string) => screen.getByRole("button", { name: `Add sessions to ${name}` });
   const headerOf = (name: string) => addOf(name).closest("div")!;
   const entryOf = (name: string) => addOf(name).closest("li")!;
+  const rowOf = (title: string) => screen.getByText(title).closest("li")!;
 
-  it("wears its Bot's rail, and no fill under it, while it has a card", () => {
+  it("wears its Bot's rail on the entry and its card's tint on the header alone", () => {
     panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
     expect(entryOf("Work bot").className).toContain("bot-rail");
-    expect(headerOf("Work bot").className).not.toContain("bot-surface");
+    expect(headerOf("Work bot").className).toContain("bot-surface");
+    // And the sessions under it stay the panel's ground, which is the whole split.
+    expect(rowOf("First session").className).not.toContain("bot-surface");
   });
 
-  it("gives the rail up, dims and says so when it has no card", () => {
+  it("gives both up, dims and says so when it has no card", () => {
     panel({ detachedBotIds: new Set(["b-work"]), machineHiddenBotIds: new Set() });
     expect(entryOf("Work bot").className).not.toContain("bot-rail");
     const header = headerOf("Work bot");
+    expect(header.className).not.toContain("bot-surface");
     expect(header.className).toContain("opacity-55");
     expect(within(header).getByLabelText("Off the canvas")).toBeInTheDocument();
   });
 
   it("says it the same way when a hidden machine is what is holding the card back", () => {
     // Two routes to having no card, one appearance. The control keeps the distinction, because
-    // only it can act on it; the rail and the badge are about what is on the strip.
+    // only it can act on it; the rail, the tint and the badge are about what is on the strip.
     panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set(["b-peer"]) });
-    expect(entryOf("Peer bot").className).not.toContain("bot-rail");
+    const peer = entryOf("Peer bot").className;
+    expect(peer).not.toContain("bot-rail");
+    expect(headerOf("Peer bot").className).not.toContain("bot-surface");
     expect(within(headerOf("Peer bot")).getByLabelText("Off the canvas")).toBeInTheDocument();
   });
 });

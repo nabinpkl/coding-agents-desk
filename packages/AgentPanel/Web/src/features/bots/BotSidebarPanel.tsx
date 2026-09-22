@@ -236,40 +236,45 @@ export function BotSidebarPanel({
             return (
               <li
                 key={bot.botId}
-                // ONE rail for the whole entry, header and sessions, and the only colour this
-                // roster paints. The rows themselves are the panel's own ground.
+                // ONE rail for the whole entry, header and sessions, and the loudest colour this
+                // roster paints. Every row here was a filled band until recently, each session in
+                // its own step of the Bot's colour, the same fills its cards wear on the canvas --
+                // a column of saturated bands beside the thing they index, and the two competed. A
+                // card is a wide object a reader looks AT; a roster row is a name they look
+                // THROUGH, so the roster gives way. Colour at CARD strength is the canvas's to
+                // spend; what the roster owes is which Bot, which a bar down the leading edge
+                // says without taking the ground from under the text. The header keeps a whisper
+                // of it, for the reason written on it; the session rows keep none, and no edge of
+                // their own either -- theirs was struck from `--bot-border` to ring a fill, and
+                // against this ground it measures 1.58:1 at the first step and 3.34:1 at the
+                // sixth, which would read as some sessions having a border and others not.
                 //
-                // They were filled bands until now, each in its own step of the Bot's colour, the
-                // same fills its cards wear on the canvas -- one fact stated twice, and the
-                // sidebar could not afford it. A card is a wide object a reader looks AT; a roster
-                // row is a name they look THROUGH, so a column of saturated bands beside the
-                // canvas reads as a second canvas rather than as its index. Colour is the
-                // canvas's to spend; what the roster owes is WHICH Bot, and a bar down the
-                // leading edge says that without taking the ground from under the text.
+                // Continuous rather than per-row, because a bar running the height of a header and
+                // its sessions is what makes them one entry -- the job the group gap and the
+                // indent were doing alone. `border-l-2` where the card carries six: that ratio
+                // says which way the nesting goes among cards, and six pixels here argues with
+                // the name beside it.
                 //
-                // Continuous rather than per-row, because a bar running the height of a header
-                // and its sessions is what makes them one entry -- the job the group gap and the
-                // indent were doing alone. The session rows keep no edge of their own: the old
-                // one was struck from `--bot-border` to ring a fill, and against the panel ground
-                // it measures 1.58:1 at the first step and 3.34:1 at the sixth, so it would read
-                // as some sessions having a border and others not.
-                //
-                // `border-l-2` where the card carries six: that ratio says which way the nesting
-                // goes among cards, and six pixels in a narrow sidebar argues with the name.
-                //
-                // Painted only while the Bot has a card: the colour is what having a card looks
-                // like, so off the strip the rail goes with it and the header dims under the
-                // crossed eye. The dimming stays on the header so it cannot reach the session
-                // rows, which answer that question one at a time.
+                // Painted only while the Bot has a card, so off the strip the rail goes with it
+                // and the header dims under the crossed eye. The dimming stays on the header so
+                // it cannot reach the session rows, which answer that one at a time.
                 className={`mb-3 border-l-2 pl-1 last:mb-0 ${
                   hue !== undefined && onStrip !== false ? "bot-rail" : "border-transparent"
                 }`}
                 style={hue === undefined || onStrip === false ? undefined : botSurfaceStyle(hue)}
               >
                 <div
+                  // `bot-surface` is a WHISPER, which is why the header can wear it where the
+                  // session rows cannot wear theirs. Against the `--card` this panel paints it is
+                  // 0.9915 on 1.0 in light and 0.234 on 0.205 in dark, where a session fill was
+                  // 0.950 and 0.255: enough to say the parent is a band and its children a list,
+                  // not enough to read as a second canvas. The hairline stays anyway, since in
+                  // light that step is 0.0085 of lightness and not an edge. The condition repeats
+                  // the entry's rather than leaning on an unset `--bot-hue`, which would resolve
+                  // to transparent with nothing said about it.
                   className={`flex min-h-16 items-center gap-3 border-b border-b-border/70 py-2 pr-3 ${
-                    onStrip === false ? "opacity-55" : ""
-                  }`}
+                    hue !== undefined && onStrip !== false ? "bot-surface" : ""
+                  } ${onStrip === false ? "opacity-55" : ""}`}
                 >
                   {canvas ? (
                     // The avatar IS the control. A control of its own would be a second 40px
@@ -364,10 +369,9 @@ export function BotSidebarPanel({
                   <ul
                     role="list"
                     aria-label={`${bot.name} sessions`}
-                    // Children are INSET: the Bot runs the panel's full width and its sessions
-                    // start sixteen pixels in from its rail, so parent-to-child is a step rather
-                    // than a line. Flush rather than gapped now that the rows are the panel's own
-                    // ground: a pixel of ground between two grounds separates nothing.
+                    // Children are INSET: sessions start sixteen pixels in from the rail, so
+                    // parent-to-child is a step. Flush rather than gapped now that the rows are
+                    // the panel's ground: a pixel of ground between two grounds separates nothing.
                     className="flex flex-col pt-1 pl-4"
                   >
                     {bot.sessions.map((session) => {
@@ -396,13 +400,10 @@ export function BotSidebarPanel({
                         <li
                           key={key}
                           // No fill and no edge: this row is the panel's ground, and what it has
-                          // to say about colour it says on the face. The style stays, because that
-                          // is what publishes the session's hue and step for the face to read.
-                          //
-                          // It wore its card's fill until now, so one session was one colour
-                          // wherever it was drawn; the cost is in the entry's comment above. The
-                          // face keeps the half that IDENTIFIED the session, same hue and step at
-                          // rail strength, on 32px rather than a whole row.
+                          // to say about colour it says on the face -- same hue and step as the
+                          // fill it gave up, at rail strength, on 32px rather than a whole row.
+                          // The style stays, because that is what publishes the hue and the step
+                          // for the face to read.
                           //
                           // Whether the card is UNFOLDED is the face's to say through its eyes,
                           // and whether there is one at all is the dimming's and the crossed
