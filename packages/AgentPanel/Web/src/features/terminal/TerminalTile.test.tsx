@@ -229,3 +229,14 @@ it("attaches through the footer picker", async () => {
   fireEvent.change(picker!, { target: { files: [file] } });
   expect(onAttachImage).toHaveBeenCalledWith([file]);
 });
+
+it("keeps an oversized grid reachable by scrolling instead of clipping it", () => {
+  const feed = feedDouble();
+  localStorage.removeItem("agent-panel.terminal.tile-grid");
+  const view = render(<TerminalTile feed={feed} session={{ name: "tile-scroll" }} storageKey=":tile-scroll" onAttachImage={() => {}} />);
+  // The mount scrolls on both axes with a screen that never shrink-wraps away: a tile
+  // dragged past its card clips without this, and the cut-off columns are unreachable.
+  const mount = view.container.querySelector("section > div");
+  expect(mount?.className).toContain("overflow-auto");
+  expect(mount?.className).toContain("[&>.xterm]:shrink-0");
+});

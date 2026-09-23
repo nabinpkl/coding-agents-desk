@@ -206,7 +206,10 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
               : "unattached"}
         </span>
       </header>
-      <div ref={mountRef} className="p-1" />
+      {/* Scrolls instead of clipping: a tile dragged past its card keeps every column
+          reachable, the way a band does. The fit floors the type at its minimum first and
+          only then overflows, so this scrolls a large grid rather than shrinking it away. */}
+      <div ref={mountRef} className="min-h-0 min-w-0 overflow-auto p-1 [&>.xterm]:shrink-0" />
       {showsKeyRail ? (
         <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
       ) : null}
