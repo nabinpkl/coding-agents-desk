@@ -120,11 +120,13 @@ describe("a call that hands files to the reader", () => {
 
     const opened = screen.getAllByRole("button", { name: /^Open .+ larger$/ });
     expect(opened).toHaveLength(2);
-    // The call's own event and block, and one index per file: no path travels in the request.
-    expect(eventFileUrl.mock.calls.map((args) => args.slice(1))).toEqual([[7, 0, 0], [7, 0, 1]]);
+    // The call's own event and block, and one index per file: no path travels in the request,
+    // whichever part of the row is doing the asking.
+    expect(new Set(eventFileUrl.mock.calls.map((args) => args.slice(1).join(","))))
+      .toEqual(new Set(["7,0,0", "7,0,1"]));
   });
 
-  it("names a file it cannot draw rather than asking for it as a picture", () => {
+  it("links a file it cannot draw, rather than asking for it as a picture", () => {
     const eventFileUrl = vi.fn(() => "/file/report");
     const report = `${ROOT}/triage-report.md`;
     renderCall({
@@ -139,9 +141,24 @@ describe("a call that hands files to the reader", () => {
       },
     });
 
-    expect(screen.getByText("triage-report.md")).toBeDefined();
+    // A page or a report the reader was sent is something to OPEN, and its name was the only
+    // thing in the row: a path in a temp directory they cannot reach from a browser.
+    const link = screen.getByRole("link", { name: "triage-report.md" });
+    expect(link.getAttribute("href")).toBe("/file/report");
+    expect(link.getAttribute("target")).toBe("_blank");
+    // Nothing the opened page can use to act as this panel.
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+    // And still not a picture: nothing asks for it as one.
     expect(screen.queryByRole("button", { name: /^Open .+ larger$/ })).toBeNull();
-    expect(eventFileUrl).not.toHaveBeenCalled();
+  });
+
+  it("stays a plain name where the transport has no address a browser can load", () => {
+    // A relayed feed answers requests itself and has no URL to hand a new tab, so the row is
+    // what it was before: the name, and nothing pretending to be openable.
+    renderCall();
+
+    expect(screen.getByText("cull-ad-1-fit.png").tagName).toBe("DIV");
+    expect(screen.queryByRole("link", { name: "cull-ad-1-fit.png" })).toBeNull();
   });
 
   // The same reason a tool-returned picture rides its folded header: the picture is why the call

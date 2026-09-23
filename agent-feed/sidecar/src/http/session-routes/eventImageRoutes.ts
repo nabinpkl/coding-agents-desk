@@ -2,6 +2,9 @@
 // block, as the image itself. And `.../blocks/<b>/files/<k>?mode=`, which is the same question
 // asked of a file a call HANDED to the reader rather than one pasted into the transcript.
 //
+// The second one answers for any kind of file, not only a picture, because a reader who was sent
+// a page or a report was sent something to OPEN. That address is what the feed's row links to.
+//
 // An image block on the wire carries its media type and nothing else, so the page an event rides
 // in stays small whatever was pasted into it. This is where the picture comes from instead, read
 // back out of the transcript line on demand: an `<img>` asks for it only when the row is on screen.
@@ -13,9 +16,10 @@
 // `createSessionRoutes`, whose catch-all rejects unknown `/api/sessions/` paths.
 
 import { readFile, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { basename, extname, isAbsolute } from "node:path";
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import { imageMediaType } from "@/input/composerImages";
+import { isPictureName } from "@/transcripts/claude/claudeFiles";
 import {
   acquireIndex,
   RawEventTooLargeError,
@@ -44,6 +48,79 @@ const SERVABLE_MEDIA_TYPES: ReadonlySet<string> = new Set(COMPOSER_IMAGE_MEDIA_T
  * from a transcript rather than from a size this process chose.
  */
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
+
+/** How much of a file is read to decide whether it is text. */
+const TEXT_SAMPLE_BYTES = 64 * 1024;
+
+/**
+ * The types that carry script, and so cannot be served as this origin.
+ *
+ * Decided by NAME, which is the one place here an extension is trusted, because nothing in the
+ * bytes separates a page from a text file. The sandbox below is what makes being wrong cheap.
+ */
+const SCRIPTABLE: Readonly<Record<string, string>> = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".svg": "image/svg+xml",
+};
+
+/**
+ * A document in an opaque origin: its own script runs, and it is nobody as far as this origin is
+ * concerned, so it cannot read the panel's storage or call `/api` as the reader.
+ *
+ * Load-bearing rather than belt-and-braces. The panel's origin has NO authentication in front of
+ * it -- the tailnet is the boundary -- so a page served same-origin from a file on disk would be
+ * handed the whole sidecar API. `allow-same-origin` is the one thing deliberately absent.
+ */
+const SANDBOX = "sandbox allow-scripts allow-forms allow-popups";
+
+interface Served {
+  /** What the response says it is. */
+  type: string;
+  /** Whether a browser may render it in a tab, or should save it instead. */
+  inline: boolean;
+  /** Whether it carries script and has to land in an opaque origin. */
+  sandboxed: boolean;
+}
+
+/**
+ * How one handed-over file is served, or null where it must not be served at all.
+ *
+ * Read off the BYTES wherever the bytes can say, because the name came out of a transcript. A
+ * file that promises a picture and holds something else is the refusal: that is how an
+ * `id_rsa.png` would otherwise reach a reader's browser as whatever it turns out to be.
+ *
+ * Anything unrecognised is handed over as a download rather than rendered as a guess.
+ */
+export function servedAs(path: string, bytes: Buffer): Served | null {
+  const picture = imageMediaType(bytes);
+  if (picture) return { type: picture, inline: true, sandboxed: false };
+  if (isPictureName(path)) return null;
+  const extension = extname(path).toLowerCase();
+  const scriptable = SCRIPTABLE[extension];
+  if (scriptable) return { type: scriptable, inline: true, sandboxed: true };
+  if (extension === ".pdf" && bytes.subarray(0, 5).toString("latin1") === "%PDF-") {
+    return { type: "application/pdf", inline: true, sandboxed: false };
+  }
+  if (looksLikeText(bytes)) {
+    return { type: "text/plain; charset=utf-8", inline: true, sandboxed: false };
+  }
+  return { type: "application/octet-stream", inline: false, sandboxed: false };
+}
+
+function looksLikeText(bytes: Buffer): boolean {
+  const sample = bytes.subarray(0, TEXT_SAMPLE_BYTES);
+  if (sample.includes(0)) return false;
+  try {
+    // `stream: true` so a sample cut in the middle of a multi-byte character is not read as
+    // invalid; `fatal` so bytes that are genuinely not UTF-8 become a download rather than a
+    // page of replacement characters.
+    new TextDecoder("utf-8", { fatal: true }).decode(sample, { stream: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function eventImage(
   sessionId: string,
@@ -88,20 +165,19 @@ async function eventImage(
 /**
  * One file a tool call names, by its place in that call's list (`claudeFiles.ts` builds it).
  *
- * The pictures a session makes live on the machine the sidecar runs on rather than in the
- * transcript -- a render `SendUserFile` handed over, a chart a command just wrote -- so a feed
- * without this can only print their names, which is showing the reader the index of something
- * instead of the thing.
+ * The files a session makes live on the machine the sidecar runs on rather than in the
+ * transcript -- a render `SendUserFile` handed over, a page it wrote, a chart a command just
+ * wrote -- so a feed without this can only print their names, which is showing the reader the
+ * index of something instead of the thing.
  *
  * Addressed by POSITION IN THE TRANSCRIPT, never by a path in the request, and that is the whole
  * access rule: the bytes are served only where this session's own line at this event, this block
  * and this index already names that file. So the capability is the transcript, and the panel
  * cannot ask for anything the session did not name.
  *
- * Two more bounds on top. The content-type is SNIFFED from the bytes with the composer's own
- * reader rather than taken from the extension, so only a real PNG, JPEG, GIF or WebP is ever
- * served and the type always matches what is in the file. And a file larger than the cap answers
- * 413 rather than reading it into memory to hand over.
+ * Two more bounds on top. What the response says the file is comes from `servedAs`, which reads
+ * the bytes wherever the bytes can say and sandboxes the two types that carry script. And a file
+ * larger than the cap answers 413 rather than reading it into memory to hand over.
  */
 async function eventFile(
   sessionId: string,
@@ -134,18 +210,24 @@ async function eventFile(
       return jsonResponse({ error: "file is too large to show", byteCount: info.size }, 413);
     }
     const bytes = await readFile(path);
-    const mediaType = imageMediaType(bytes);
-    if (!mediaType) return jsonResponse({ error: "not a picture" }, 415);
-    return new Response(bytes, {
-      headers: {
-        "content-type": mediaType,
-        "x-content-type-options": "nosniff",
-        // Unlike a transcript line, the file on disk can be rewritten or swept away under a
-        // reader who is still scrolling, so this is cached for a while rather than forever.
-        "cache-control": "private, max-age=300",
-        "last-modified": new Date(info.mtimeMs).toUTCString(),
-      },
-    });
+    const served = servedAs(path, bytes);
+    if (!served) {
+      return jsonResponse({ error: "the bytes are not the picture the name promises" }, 415);
+    }
+    const headers: Record<string, string> = {
+      "content-type": served.type,
+      "x-content-type-options": "nosniff",
+      // So the tab, and a save from it, carry the name the reader knows the file by rather than
+      // the numbered address it was fetched from.
+      "content-disposition":
+        `${served.inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(basename(path))}`,
+      // Unlike a transcript line, the file on disk can be rewritten or swept away under a
+      // reader who is still scrolling, so this is cached for a while rather than forever.
+      "cache-control": "private, max-age=300",
+      "last-modified": new Date(info.mtimeMs).toUTCString(),
+    };
+    if (served.sandboxed) headers["content-security-policy"] = SANDBOX;
+    return new Response(bytes, { headers });
   } catch (error) {
     if (error instanceof RawEventTooLargeError) {
       return jsonResponse({ error: error.message, byteCount: error.byteCount }, 413);

@@ -1,6 +1,7 @@
 "use client";
 
 import { EventFileImage } from "@/features/activity-feed/blocks/EventImageBlock";
+import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityBlock } from "@/features/activity-feed/useSessionEventsStream";
 
@@ -57,12 +58,64 @@ export function SentFilesBlock({
                   name={name}
                 />
               ) : null}
-              <div className="truncate font-mono text-foreground/70">{name}</div>
+              <SentFileName
+                ctx={ctx}
+                eventIndex={eventIndex}
+                blockIndex={blockIndex}
+                fileIndex={fileIndex}
+                name={name}
+              />
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+/**
+ * A file's name, as a link to the file wherever there is one to make.
+ *
+ * A link and not a button, because the address IS the file: opening it in a tab, middle-clicking
+ * it, and saving it from there all work without this component knowing that any of them exist.
+ * A picture's thumbnail still opens the lightbox above it; this is the only way to reach the
+ * rest, which is everything `SendUserFile` hands over that is not a picture -- a page, a report,
+ * a log -- and which until now was a name in a temp directory and nothing else.
+ *
+ * `noreferrer` rather than only `noopener`: the sidecar serves a page into an opaque origin
+ * precisely so it cannot act as this panel, and handing it this origin's URL would be the one
+ * fact about the panel it could not otherwise have.
+ *
+ * Where the transport has no address a browser loads by itself -- a relayed feed, or a subagent's
+ * run, which counts its own lines -- it stays the plain name the row printed before.
+ */
+function SentFileName({
+  ctx,
+  eventIndex,
+  blockIndex,
+  fileIndex,
+  name,
+}: {
+  ctx: EventRowContext;
+  eventIndex: number;
+  blockIndex: number;
+  fileIndex: number;
+  name: string;
+}) {
+  const dataSource = useDataSource();
+  const url = ctx.rawSource === "addressable"
+    ? dataSource.eventFileUrl(ctx.session, eventIndex, blockIndex, fileIndex)
+    : null;
+  if (url === null) return <div className="truncate font-mono text-foreground/70">{name}</div>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="block truncate rounded-sm font-mono text-foreground underline decoration-foreground/30 underline-offset-2 outline-none transition-colors hover:text-primary hover:decoration-primary focus-visible:ring-2 focus-visible:ring-primary active:opacity-70"
+    >
+      {name}
+    </a>
   );
 }
 

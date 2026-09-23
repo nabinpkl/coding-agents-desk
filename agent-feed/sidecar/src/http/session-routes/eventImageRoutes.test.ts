@@ -144,7 +144,7 @@ test("serves nothing the transcript did not name, whatever the request asks for"
     .toBe(404);
 });
 
-test("refuses a file that is not a picture, rather than serving whatever it holds", async () => {
+test("refuses a file whose bytes are not the picture its name promises", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
   roots.push(root);
   const secret = join(root, "id_rsa.png");
@@ -159,6 +159,60 @@ test("refuses a file that is not a picture, rather than serving whatever it hold
     .toBe(404);
   expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/2?mode=nice`)).status)
     .toBe(404);
+});
+
+test("serves a page a call handed over, in an origin of its own", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
+  roots.push(root);
+  const page = join(root, "eye variants.html");
+  await writeFile(page, "<!doctype html><title>Ten eyes</title>\n");
+  await transcriptSendingFiles([page]);
+
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  // No `allow-same-origin`, which is the whole point: the panel's origin has no auth in front of
+  // it, so a page served AS the panel would be handed the sidecar's whole API.
+  expect(response.headers.get("content-security-policy")).toBe(
+    "sandbox allow-scripts allow-forms allow-popups",
+  );
+  // Rendered in the tab, under the name the reader knows it by, spaces and all.
+  expect(response.headers.get("content-disposition")).toBe(
+    "inline; filename*=UTF-8''eye%20variants.html",
+  );
+  expect(await response.text()).toContain("Ten eyes");
+});
+
+test("serves a text file as text, whatever it is called", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
+  roots.push(root);
+  const report = join(root, "run.log");
+  await writeFile(report, "1432 tests passed\n");
+  await transcriptSendingFiles([report]);
+
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(response.headers.get("content-security-policy")).toBeNull();
+  expect(await response.text()).toBe("1432 tests passed\n");
+});
+
+test("hands a file it cannot recognise over as a download rather than rendering a guess", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-feed-sent-"));
+  roots.push(root);
+  const blob = join(root, "trace.bin");
+  await writeFile(blob, Buffer.from([0x00, 0x01, 0xff, 0xfe, 0x00]));
+  await transcriptSendingFiles([blob]);
+
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("application/octet-stream");
+  expect(response.headers.get("content-disposition")).toBe(
+    "attachment; filename*=UTF-8''trace.bin",
+  );
 });
 
 test("refuses a relative path, which names a directory nobody agreed on", async () => {

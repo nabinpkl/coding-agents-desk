@@ -1122,6 +1122,20 @@ composer-paste-collapse-verify:
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/composer-paste-collapse-verify.mjs'
 
+# Checks a file a session handed over can actually be opened from the feed.
+# NOT in `just check`: it needs a live panel (`just host-run`) and a real handover in this
+# project's history, since Claude's own directory is read-only to us and there is nowhere to
+# seed one. Three of its assertions are outside the panel entirely -- the sidecar's answer, the
+# dev origin's proxy passing that answer's headers, and whether the opened page really lands in
+# an opaque origin, which is what keeps it from calling `/api` as the reader.
+sent-file-link-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      PANEL_PROJECT='{{justfile_directory()}}' \
+      node '{{justfile_directory()}}/chrome-test/sent-file-link-verify.mjs'
+
 # Checks the Bot canvas's zoom mode in a browser that lays pages out.
 # NOT in `just check`: it needs a live panel (`just host-run`) and the Bots on this machine.
 # The unit tests cannot see any of this -- jsdom measures nothing, so the hook never learns a size
