@@ -284,7 +284,7 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
           else return;
           event.preventDefault();
         }}
-        className="absolute top-1/2 right-0 flex h-12 w-4 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center bg-transparent text-muted-foreground/60 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+        className="absolute top-1/2 right-0 flex h-12 w-4 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center bg-muted/40 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       >
         <svg aria-hidden viewBox="0 0 8 16" className="h-4 w-2">
           <path d="M2 2 L2 14 M6 2 L6 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -313,7 +313,7 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
           else return;
           event.preventDefault();
         }}
-        className="absolute bottom-0 left-1/2 flex h-4 w-12 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center bg-transparent text-muted-foreground/60 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+        className="absolute bottom-0 left-1/2 flex h-4 w-12 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center bg-muted/40 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       >
         <svg aria-hidden viewBox="0 0 16 8" className="h-2 w-4">
           <path d="M2 2 L14 2 M2 6 L14 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -344,7 +344,7 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
           else return;
           event.preventDefault();
         }}
-        className="absolute right-0 bottom-0 size-6 cursor-nwse-resize touch-none rounded-tl bg-transparent text-muted-foreground/60 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+        className="absolute right-0 bottom-0 size-6 cursor-nwse-resize touch-none rounded-tl bg-muted/40 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       >
         <svg aria-hidden viewBox="0 0 16 16" className="size-4 translate-x-1 translate-y-1">
           <path d="M11 15 L15 11 L15 15 Z M7 15 L15 7 L15 9 L9 15 Z" fill="currentColor" />
