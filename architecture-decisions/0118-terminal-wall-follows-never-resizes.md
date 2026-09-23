@@ -50,3 +50,13 @@ session as before. The sidecar adopt path stays for panel-owned sessions.
 - `packages/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts`
 - `packages/AgentPanel/Web/src/features/terminal/mounted-terminal/agentTerminalTypes.ts`
 - `packages/AgentPanel/Web/src/features/terminal/TerminalTile.test.tsx`
+
+## Update 2026-09-23: the drag sizes the box, not a local grid
+
+The local-grid half above was wrong and is removed in the same arc's follow-up: a tile
+rendering the pane into a smaller grid baked wrap into xterm's buffer, where no scrollbar
+can undo it. The tile grid now stays the pane's shape always; what the reader arranges is
+the mount's box in CSS pixels (`tile-box` store), the fit scales the type to fill it, and
+past the type floor the mount scrolls. The drag-request module this decision added
+(`mounted-terminal/agentTerminalViewport.ts`) is deleted with it, and the hook's
+`resizeGrid` goes with it -- its only caller was the tile drag.

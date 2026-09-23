@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -6,36 +6,33 @@ import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import {
-  clampTileGrid,
+  clampTileBox,
+  loadTileBox,
   loadTileGrid,
-  storeTileGrid,
+  storeTileBox,
+  type TileBox,
   type TileGrid,
 } from "@/features/terminal/terminalTileSize";
 
 /**
- * One terminal in the wall, at a grid its reader chose.
+ * One terminal in the wall, at a box its reader chose.
  *
  * A pure viewer: it follows the pane and never resizes it. tmux has one window size for
  * everyone, so asking the pane for the tile's shape reflowed the session in its owner's
- * terminal. A drag resizes only the local terminal, and the tile re-snaps to the pane's
- * shape whenever the pane itself moves, so live work stays readable.
+ * terminal. The grid therefore stays the pane's shape -- always, which is also what keeps
+ * long lines from wrapping into rows no scrollbar can undo -- and what the reader arranges
+ * is the box: the fit scales the type to fill it, and past the type floor the mount scrolls
+ * instead of clipping, so every column stays reachable.
  *
- * Three handles share one drag: the corner grows both axes, the right edge grows columns
- * alone, and the bottom edge grows rows alone. Every handle persists through the same grid
+ * Three handles share one drag: the corner grows both axes, the right edge grows width
+ * alone, and the bottom edge grows height alone. Every handle persists through the same box
  * store, so a width-only or height-only drag is remembered per session like a diagonal one.
  */
 const GRID_STEP = 1;
 const GRID_FAST_STEP = 10;
 
-/**
- * How long a drag rests before the staged grid is asked for mid-drag. Short enough to feel
- * live, long enough that one continuous motion is a few reflows rather than one per pixel:
- * every ask resizes the pane and reflows the program inside it.
- */
-const DRAG_LIVE_MS = 150;
-
 /** Which axes a resize handle moves: the corner moves both, the edges move one. */
-type DragAxis = "both" | "columns" | "rows";
+type DragAxis = "both" | "width" | "height";
 
 export interface TerminalTileSession {
   name: string;
@@ -62,10 +59,10 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   const onState = useCallback((_context: AgentTerminalContext, next: AgentTerminalState) => {
     setState(next);
   }, []);
-  // Constant for this mount: the sizing is the effect's reopen key, so a drag must never change
-  // it -- the new grid travels through `resizeGrid` on the live attachment instead.
+  // Constant for this mount: the sizing is the effect's reopen key, and the box below is
+  // local presentation -- the grid stays the pane's shape either way.
   const [initialGrid] = useState<TileGrid>(() => loadTileGrid(storageKey));
-  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey, resizeGrid, measureGrid, measureCell } =
+  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey, measureCell } =
     useAgentTerminal({
       feed,
       context,
@@ -83,113 +80,100 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   // terminals nobody is typing into.
   const showsKeyRail = focused && softwareKeyboard;
 
-  // The grid the pane was last asked for. Drags accumulate from here rather than from the
-  // opening grid, so a second drag starts where the first left off.
-  const committed = useRef<TileGrid>(initialGrid);
-  const applyGrid = useCallback((grid: TileGrid, persist: boolean): TileGrid => {
-    const bounded = clampTileGrid(grid);
-    committed.current = bounded;
-    resizeGrid(bounded.columns, bounded.rows);
-    if (persist) storeTileGrid(storageKey, bounded);
+  // The box on screen, or null while unarranged: the mount shrink-wraps the screen until
+  // the reader gives it a size. Drags accumulate from here, so a second drag starts where
+  // the first left off; the pane's shape never enters it, which is what keeps the grid --
+  // and every long line in it -- whole.
+  const [box, setBox] = useState<TileBox | null>(() => loadTileBox(storageKey));
+  const applyBox = useCallback((next: TileBox, persist: boolean): TileBox => {
+    const bounded = clampTileBox(next);
+    setBox((previous) =>
+      previous && previous.width === bounded.width && previous.height === bounded.height
+        ? previous
+        : bounded);
+    if (persist) storeTileBox(storageKey, bounded);
     return bounded;
-  }, [resizeGrid, storageKey]);
+  }, [storageKey]);
 
-  // What the pane has not been asked for yet. A drag stages it behind the badge and the
-  // ask goes out on settle (a short debounce) and on release: the ask is local-only -- it
-  // resizes this tile's own terminal, never the pane -- but a fullscreen TUI still repaints
-  // itself on each one, measured as the flicker this drag used to ship with when every
-  // pixel asked. The badge is the per-pixel feedback while the tile itself follows on settle.
-  const pendingAsk = useRef<TileGrid | null>(null);
-  const flushAsk = useCallback((): void => {
-    const asked = pendingAsk.current;
-    pendingAsk.current = null;
-    if (asked) resizeGrid(asked.columns, asked.rows);
-  }, [resizeGrid]);
-
-  // The settle timer behind live resize. Each move restarts it; firing means the pointer
-  // rested, so the staged grid is asked for while the drag is still in flight.
-  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearLiveTimer = useCallback((): void => {
-    if (liveTimer.current !== null) {
-      clearTimeout(liveTimer.current);
-      liveTimer.current = null;
-    }
-  }, []);
-  const scheduleLive = useCallback((): void => {
-    clearLiveTimer();
-    liveTimer.current = setTimeout(() => {
-      liveTimer.current = null;
-      flushAsk();
-    }, DRAG_LIVE_MS);
-  }, [clearLiveTimer, flushAsk]);
-  useEffect(() => clearLiveTimer, [clearLiveTimer]);
-
-  // A drag in flight, or null. The tile's own box follows the pointer through the badge
-  // per pixel and takes the staged grid on settle; the pane is never asked, so a drag
-  // reflows only this view. The axis is which handle started it: the corner moves both,
-  // the edges move one.
-  const drag = useRef<{ startX: number; startY: number; start: TileGrid; axis: DragAxis } | null>(null);
-  const [dragGrid, setDragGrid] = useState<TileGrid | null>(null);
+  // A drag in flight, or null. The box follows the pointer per pixel through the badge;
+  // the pane is never asked, so a drag reflows only this view. The axis is which handle
+  // started it: the corner moves both, the edges move one.
+  const drag = useRef<{ startX: number; startY: number; start: TileBox; axis: DragAxis } | null>(null);
+  const [dragBox, setDragBox] = useState<TileBox | null>(null);
+  // The staged box, for release to persist: state above is the render, this is the record.
+  const stagedBox = useRef<TileBox | null>(null);
   // The footer picker's other half: the button clicks it, and the change hands the files to
   // the card's accept.
   const picker = useRef<HTMLInputElement | null>(null);
 
-  const gridFromPointer = useCallback((clientX: number, clientY: number): TileGrid | null => {
+  // The box the pointer is staging, in CSS pixels: the tile draws it live while the badge
+  // names it, and release persists it. Starts from the box on screen -- the arranged one,
+  // or the mount's own while unarranged -- so a drag never jumps.
+  const boxFromPointer = useCallback((clientX: number, clientY: number): TileBox | null => {
     const active = drag.current;
-    const cell = measureCell();
-    if (!active || !cell) return null;
-    return clampTileGrid({
-      columns: active.axis === "rows"
-        ? active.start.columns
-        : active.start.columns + Math.round((clientX - active.startX) / cell.width),
-      rows: active.axis === "columns"
-        ? active.start.rows
-        : active.start.rows + Math.round((clientY - active.startY) / cell.height),
+    if (!active) return null;
+    return clampTileBox({
+      width: active.axis === "height" ? active.start.width : active.start.width + (clientX - active.startX),
+      height: active.axis === "width" ? active.start.height : active.start.height + (clientY - active.startY),
     });
-  }, [measureCell]);
+  }, []);
+
+  const measureBox = useCallback((): TileBox | null => {
+    const mount = mountRef.current;
+    if (!mount) return null;
+    const rect = mount.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0
+      ? { width: rect.width, height: rect.height }
+      : null;
+  }, [mountRef]);
 
   const beginDrag = useCallback((clientX: number, clientY: number, axis: DragAxis): void => {
-    clearLiveTimer();
-    // From the grid on screen, not the last one stored: the pane's own moves snap the tile
-    // back through the checkpoint, and starting from a stale store would jump the box.
-    const live = measureGrid();
-    const start = live ?? committed.current;
-    committed.current = start;
+    // From the arranged box first: the pane never moves it, so state cannot go stale the
+    // way a grid store could. The live mount is only the start while never arranged.
+    const live = box ?? measureBox();
+    const start = live ?? { width: 0, height: 0 };
     drag.current = { startX: clientX, startY: clientY, start, axis };
-    setDragGrid(null);
-  }, [clearLiveTimer, measureGrid]);
+    stagedBox.current = null;
+    setDragBox(null);
+  }, [box, measureBox]);
 
   const moveDrag = useCallback((clientX: number, clientY: number): void => {
     if (!drag.current) return;
-    const grid = gridFromPointer(clientX, clientY);
-    if (!grid) return;
-    committed.current = grid;
-    pendingAsk.current = grid;
-    scheduleLive();
-    setDragGrid((previous) =>
-      previous && previous.columns === grid.columns && previous.rows === grid.rows
+    const staged = boxFromPointer(clientX, clientY);
+    if (!staged) return;
+    stagedBox.current = staged;
+    setBox(staged);
+    setDragBox((previous) =>
+      previous && previous.width === staged.width && previous.height === staged.height
         ? previous
-        : grid);
-  }, [gridFromPointer, scheduleLive]);
+        : staged);
+  }, [boxFromPointer]);
 
   const endDrag = useCallback((): void => {
     if (!drag.current) return;
     drag.current = null;
-    setDragGrid(null);
-    clearLiveTimer();
-    flushAsk();
-    storeTileGrid(storageKey, committed.current);
-  }, [clearLiveTimer, flushAsk, storageKey]);
+    setDragBox(null);
+    if (stagedBox.current) storeTileBox(storageKey, stagedBox.current);
+    stagedBox.current = null;
+  }, [storageKey]);
 
-  const nudgeGrid = useCallback((columns: number, rows: number): void => {
-    const live = measureGrid();
-    const from = live ?? committed.current;
-    committed.current = from;
-    applyGrid(
-      { columns: from.columns + columns, rows: from.rows + rows },
+  // A press moves the box by cells at the type on screen: one cell, or ten with shift.
+  // Without a measured cell there is no step to take, so the press is ignored.
+  const nudgeBox = useCallback((deltaWidth: number, deltaHeight: number): void => {
+    const from = box ?? measureBox();
+    if (!from) return;
+    applyBox(
+      { width: from.width + deltaWidth, height: from.height + deltaHeight },
       true,
     );
-  }, [applyGrid, measureGrid]);
+  }, [applyBox, box, measureBox]);
+
+  // One cell step at the type on screen, for the keyboard handlers below.
+  const nudgeCells = useCallback((columns: number, rows: number): void => {
+    const cell = measureCell();
+    if (!cell) return;
+    nudgeBox(columns * cell.width, rows * cell.height);
+  }, [measureCell, nudgeBox]);
 
   return (
     <section
@@ -209,7 +193,11 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
       {/* Scrolls instead of clipping: a tile dragged past its card keeps every column
           reachable, the way a band does. The fit floors the type at its minimum first and
           only then overflows, so this scrolls a large grid rather than shrinking it away. */}
-      <div ref={mountRef} className="min-h-0 min-w-0 overflow-auto p-1 [&>.xterm]:shrink-0" />
+      <div
+        ref={mountRef}
+        style={box ? { width: box.width, height: box.height } : undefined}
+        className="min-h-0 min-w-0 overflow-auto p-1 [&>.xterm]:shrink-0"
+      />
       {showsKeyRail ? (
         <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
       ) : null}
@@ -228,7 +216,7 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         </span>
         {/* The pane's own shape, live: the tile follows it and never asks for its own, so
             the source label is the far end's truth and the drag badge beside the handle is
-            the staged local grid. Falls back to the opening grid before the attach answers. */}
+            the staged box. Falls back to the opening grid before the attach answers. */}
         <button
           type="button"
           aria-label={`Attach an image to ${label}`}
@@ -259,19 +247,19 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
           title="Terminal size (columns × rows)"
           aria-label="Terminal size"
         >
-          {dragGrid
-            ? `${dragGrid.columns}×${dragGrid.rows}`
+          {dragBox
+            ? `${Math.round(dragBox.width)}×${Math.round(dragBox.height)}`
             : labels.source
               ? labels.source.replace("Source ", "")
               : `${initialGrid.columns}×${initialGrid.rows}`}
         </span>
       </footer>
-      {dragGrid ? (
+      {dragBox ? (
         <span
           aria-live="polite"
           className="pointer-events-none absolute right-7 bottom-7 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white"
         >
-          {dragGrid.columns}×{dragGrid.rows}
+          {Math.round(dragBox.width)}×{Math.round(dragBox.height)}
         </span>
       ) : null}
       <button
@@ -280,7 +268,7 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         title="Drag to resize width"
         onPointerDown={(event) => {
           if (event.pointerType === "mouse" && event.button !== 0) return;
-          beginDrag(event.clientX, event.clientY, "columns");
+          beginDrag(event.clientX, event.clientY, "width");
           try {
             event.currentTarget.setPointerCapture(event.pointerId);
           } catch {
@@ -292,8 +280,8 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         onPointerCancel={endDrag}
         onKeyDown={(event) => {
           const fast = event.shiftKey ? GRID_FAST_STEP : GRID_STEP;
-          if (event.key === "ArrowLeft") nudgeGrid(-fast, 0);
-          else if (event.key === "ArrowRight") nudgeGrid(fast, 0);
+          if (event.key === "ArrowLeft") nudgeCells(-fast, 0);
+          else if (event.key === "ArrowRight") nudgeCells(fast, 0);
           else return;
           event.preventDefault();
         }}
@@ -309,7 +297,7 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         title="Drag to resize height"
         onPointerDown={(event) => {
           if (event.pointerType === "mouse" && event.button !== 0) return;
-          beginDrag(event.clientX, event.clientY, "rows");
+          beginDrag(event.clientX, event.clientY, "height");
           try {
             event.currentTarget.setPointerCapture(event.pointerId);
           } catch {
@@ -321,8 +309,8 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         onPointerCancel={endDrag}
         onKeyDown={(event) => {
           const fast = event.shiftKey ? GRID_FAST_STEP : GRID_STEP;
-          if (event.key === "ArrowUp") nudgeGrid(0, -fast);
-          else if (event.key === "ArrowDown") nudgeGrid(0, fast);
+          if (event.key === "ArrowUp") nudgeCells(0, -fast);
+          else if (event.key === "ArrowDown") nudgeCells(0, fast);
           else return;
           event.preventDefault();
         }}
@@ -350,10 +338,10 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         onPointerCancel={endDrag}
         onKeyDown={(event) => {
           const fast = event.shiftKey ? GRID_FAST_STEP : GRID_STEP;
-          if (event.key === "ArrowLeft") nudgeGrid(-fast, 0);
-          else if (event.key === "ArrowRight") nudgeGrid(fast, 0);
-          else if (event.key === "ArrowUp") nudgeGrid(0, -fast);
-          else if (event.key === "ArrowDown") nudgeGrid(0, fast);
+          if (event.key === "ArrowLeft") nudgeCells(-fast, 0);
+          else if (event.key === "ArrowRight") nudgeCells(fast, 0);
+          else if (event.key === "ArrowUp") nudgeCells(0, -fast);
+          else if (event.key === "ArrowDown") nudgeCells(0, fast);
           else return;
           event.preventDefault();
         }}

@@ -39,9 +39,8 @@ import type {
 } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalFit } from "@/features/terminal/mounted-terminal/agentTerminalFit";
 import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
-import type { TileGridRequest } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
+import type { TileTerminalMeasure } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalReceive } from "@/features/terminal/mounted-terminal/agentTerminalStream";
-import { createTileViewportRequest } from "@/features/terminal/mounted-terminal/agentTerminalViewport";
 import { attachTerminalWheel } from "@/features/terminal/mounted-terminal/terminalWheel";
 import {
   createTerminalMouseMode,
@@ -132,7 +131,7 @@ export function useAgentTerminal(
   // Set once the terminal is open. Chrome outside the terminal -- the key rail -- types through it.
   const sendRef = useRef<((data: string) => void) | null>(null);
   // A tile's drag asks through here without reopening (sizing stays the effect's key).
-  const gridRef = useRef<TileGridRequest | null>(null);
+  const gridRef = useRef<TileTerminalMeasure | null>(null);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -235,22 +234,18 @@ export function useAgentTerminal(
       // Whether the far end owns the grid. True for tmux, where the pane is the size of record.
       // Whether this surface asks the pane to take its shape. Only a tmux pane has a shape to ask
       // about; an owned PTY is sized by whoever opened it and never reads this.
-      //
-      // Both sit above the viewport request because it takes them by value: the drag's local
-      // path and the report's claim are decided here, once, rather than read per call.
       const paneAuthoritative = isTmuxAttach(context);
       const adoptsPaneShape = !paneAuthoritative || paneShape === "adopt";
-      // What a tile's drag staged, read by the fixed-sizing report below. Lives in the
-      // request rather than here because that file owns the drag; null until the first one.
-      const tileRequest = createTileViewportRequest({
-        terminal,
-        t,
-        sizing,
-        adoptsPaneShape,
-        paneAuthoritative,
-        report: () => publishViewport(),
-      });
-      gridRef.current = tileRequest;
+      // The tile's only read into the live terminal: the cell its keyboard steps move by.
+      // Everything else a drag needs -- the box -- lives in the tile, not the attachment.
+      gridRef.current = {
+        measureCell: () => {
+          const cell = terminal.dimensions?.css.cell;
+          return cell && cell.width > 0 && cell.height > 0
+            ? { width: cell.width, height: cell.height }
+            : null;
+        },
+      };
       const publishViewport = (): void => {
         if (!descriptor || disposed || t.remoteClosed) return;
         // What this viewer's BOX would hold, which is what the far end resizes to. A viewer that
@@ -260,8 +255,12 @@ export function useAgentTerminal(
         // scaled anything -- its cell is the base one, or the size its reader asked for -- and the
         // cell on screen is the one the answer should be in. `baseCell` is null only before the
         // first fit, when nothing has been scaled and the current cell IS the base one.
-        const dimensions = sizing.kind === "fixed"
-          ? (tileRequest.currentGrid() ?? { columns: sizing.columns, rows: sizing.rows })
+        //
+        // A follower never sets the grid -- the box is the reader's, the grid the pane's -- so
+        // it always reports the box capacity, claim false, whatever the sizing kind.
+        const follower = paneAuthoritative && !adoptsPaneShape;
+        const dimensions = sizing.kind === "fixed" && !follower
+          ? { columns: sizing.columns, rows: sizing.rows }
           : proposedDimensions(terminal, mount, t.ownsPaneShape ? null : t.baseCell);
         if (!dimensions) return;
         viewportSequence += 1;
@@ -374,13 +373,6 @@ export function useAgentTerminal(
           mouseMode.any = opened.mouseReporting ? 1002 : null;
           mouseMode.sgr = opened.mouseReporting ? 1006 : null;
           terminal.resize(opened.columns, opened.rows);
-          // A follower rests at the reader's arranged grid: the open above learns the pane's
-          // shape, and this re-applies the box the tile stood at last visit -- locally and
-          // silently, with the scheduled first report carrying it. The pane's own moves still
-          // snap back through the checkpoint, so a tile tracks live work between rests.
-          if (paneAuthoritative && !adoptsPaneShape && sizing.kind === "fixed") {
-            tileRequest.restAt(sizing.columns, sizing.rows);
-          }
           // History carries no mode escapes, so assert the tracked mode now or a running
           // program leaves xterm believing the mouse is off: touch sends arrows, clicks select.
           // Encoded because that is the terminal's other tongue, and the tests' fake speaks it.
@@ -493,8 +485,6 @@ export function useAgentTerminal(
       sendRef.current?.(bytesForRailKey(key, held));
       setModifiers(releaseArmed);
     },
-    resizeGrid: (columns, rows) => gridRef.current?.resizeGrid(columns, rows),
-    measureGrid: () => gridRef.current?.measureGrid() ?? null,
     measureCell: () => gridRef.current?.measureCell() ?? null,
   };
 }

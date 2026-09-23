@@ -81,3 +81,82 @@ export function storeTileGrid(storageKey: string, grid: TileGrid): void {
     // The tile still resizes; it just opens at the default next time.
   }
 }
+
+/**
+ * The box a tile's mount is drawn at, in CSS pixels, remembered per session.
+ *
+ * The grid is the pane's shape now -- a follower never takes its own -- so what the reader
+ * arranges is the presentation: how much room the pane's screen gets. Null until arranged,
+ * and the mount shrink-wraps the screen while it stays null. Bounded like the grid above,
+ * for the same reason: a hand-edited value is dropped, never honoured.
+ */
+
+export interface TileBox {
+  width: number;
+  height: number;
+}
+
+const TILE_BOX_KEY = "agent-panel.terminal.tile-box";
+
+/** Small enough to still read at the type floor, large enough to stay a tile. */
+const TILE_BOX_BOUNDS = {
+  minWidth: 144,
+  maxWidth: 1600,
+  minHeight: 96,
+  maxHeight: 1200,
+};
+
+function isTileBox(value: unknown): value is TileBox {
+  if (typeof value !== "object" || value === null) return false;
+  const box = value as Record<string, unknown>;
+  return (
+    Number.isFinite(box["width"])
+    && Number.isFinite(box["height"])
+    && (box["width"] as number) >= TILE_BOX_BOUNDS.minWidth
+    && (box["width"] as number) <= TILE_BOX_BOUNDS.maxWidth
+    && (box["height"] as number) >= TILE_BOX_BOUNDS.minHeight
+    && (box["height"] as number) <= TILE_BOX_BOUNDS.maxHeight
+  );
+}
+
+/** The drag's ask, bounded before it reaches the screen or the store. */
+export function clampTileBox(box: TileBox): TileBox {
+  const width = Number.isFinite(box.width) ? box.width : TILE_BOX_BOUNDS.minWidth;
+  const height = Number.isFinite(box.height) ? box.height : TILE_BOX_BOUNDS.minHeight;
+  return {
+    width: Math.min(Math.max(Math.round(width), TILE_BOX_BOUNDS.minWidth), TILE_BOX_BOUNDS.maxWidth),
+    height: Math.min(Math.max(Math.round(height), TILE_BOX_BOUNDS.minHeight), TILE_BOX_BOUNDS.maxHeight),
+  };
+}
+
+function loadTileBoxes(): Record<string, TileBox> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(TILE_BOX_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const boxes: Record<string, TileBox> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (key.length > 0 && isTileBox(value)) boxes[key] = value;
+    }
+    return boxes;
+  } catch {
+    return {};
+  }
+}
+
+/** Null until the reader arranges one: the mount shrink-wraps the screen meanwhile. */
+export function loadTileBox(storageKey: string): TileBox | null {
+  return loadTileBoxes()[storageKey] ?? null;
+}
+
+export function storeTileBox(storageKey: string, box: TileBox): void {
+  try {
+    const boxes = loadTileBoxes();
+    boxes[storageKey] = clampTileBox(box);
+    localStorage.setItem(TILE_BOX_KEY, JSON.stringify(boxes));
+  } catch {
+    // The tile still holds its box; it just shrink-wraps next time.
+  }
+}

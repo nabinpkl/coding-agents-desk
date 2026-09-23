@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import type { AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TerminalTile } from "@/features/terminal/TerminalTile";
-import { loadTileGrid } from "@/features/terminal/terminalTileSize";
+import { loadTileBox } from "@/features/terminal/terminalTileSize";
 
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
@@ -54,160 +53,135 @@ function feedDouble() {
   };
 }
 
-it("opens at the remembered grid and asks for a new one from the handle", async () => {
+function tileBoxOf(container: HTMLElement): { width: number; height: number } | null {
+  const mount = container.querySelector("section > div") as HTMLElement | null;
+  const width = Number.parseFloat(mount?.style.width ?? "");
+  const height = Number.parseFloat(mount?.style.height ?? "");
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  return { width, height };
+}
+
+it("opens at the remembered grid and grows its own box from the handle", async () => {
   const feed = feedDouble();
   localStorage.setItem(
     "agent-panel.terminal.tile-grid",
     JSON.stringify({ ":tile-1": { columns: 100, rows: 30 } }),
   );
-  render(<TerminalTile feed={feed} session={{ name: "tile-1" }} storageKey=":tile-1" onAttachImage={() => {}} />);
+  localStorage.setItem(
+    "agent-panel.terminal.tile-box",
+    JSON.stringify({ ":tile-1": { width: 400, height: 300 } }),
+  );
+  const view = render(<TerminalTile feed={feed} session={{ name: "tile-1" }} storageKey=":tile-1" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith(
     { kind: "tmux", session: "tile-1" },
     100,
     30,
   ));
 
-  // The keyboard path: one press right asks for one more column and remembers it --
+  // The keyboard path: one press right widens the box by one cell and remembers it --
   // locally. The wall follows the pane and never claims its shape.
   fireEvent.keyDown(screen.getByRole("button", { name: "Resize tile-1 terminal" }), { key: "ArrowRight" });
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
-    "terminal-1",
-    expect.objectContaining({ columns: 101, rows: 30, claim: false }),
-  ));
-  expect(loadTileGrid(":tile-1")).toEqual({ columns: 101, rows: 30 });
+  expect(tileBoxOf(view.container)).toEqual({ width: 408, height: 300 });
+  expect(loadTileBox(":tile-1")).toEqual({ width: 408, height: 300 });
 });
 
-it("drags the corner into a new grid and remembers it on release", async () => {
+it("drags the corner into a new box and remembers it on release", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  render(<TerminalTile feed={feed} session={{ name: "tile-2" }} storageKey=":tile-2" onAttachImage={() => {}} />);
+  localStorage.setItem(
+    "agent-panel.terminal.tile-box",
+    JSON.stringify({ ":tile-2": { width: 400, height: 300 } }),
+  );
+  const view = render(<TerminalTile feed={feed} session={{ name: "tile-2" }} storageKey=":tile-2" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
-  // The open publishes the opening grid; what follows belongs to the drag alone.
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalled());
-  feed.updateTerminalViewport.mockClear();
 
   const handle = screen.getByRole("button", { name: "Resize tile-2 terminal" });
-  // Five cells right (40px at 8px) and two rows down (32px at 16px) from 60x30, in two
-  // moves: the moves stage the ask behind the badge, and the ask goes out on settle or
-  // release -- so synchronously after the moves nothing has been asked yet.
+  // Forty pixels right and thirty-two down, in two moves: the box follows per pixel
+  // while the badge names it, and nothing reaches the pane at any point.
   fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1, button: 0 });
   fireEvent.pointerMove(handle, { clientX: 20, clientY: 16, pointerId: 1 });
+  expect(tileBoxOf(view.container)).toEqual({ width: 420, height: 316 });
   fireEvent.pointerMove(handle, { clientX: 40, clientY: 32, pointerId: 1 });
-  // Nothing is asked for on the same tick: every ask reflows the program inside the pane,
-  // and a fullscreen TUI repaints itself on each one.
+  expect(tileBoxOf(view.container)).toEqual({ width: 440, height: 332 });
+  fireEvent.pointerUp(handle, { pointerId: 1 });
+  expect(loadTileBox(":tile-2")).toEqual({ width: 440, height: 332 });
   expect(feed.updateTerminalViewport).not.toHaveBeenCalled();
-  fireEvent.pointerUp(handle, { pointerId: 1 });
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledTimes(1));
-  expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
-    "terminal-1",
-    expect.objectContaining({ columns: 65, rows: 32, claim: false }),
-  );
-  expect(loadTileGrid(":tile-2")).toEqual({ columns: 65, rows: 32 });
 });
 
-it("asks mid-drag once the pointer settles, then again on release", async () => {
+it("ignores a drag without a matching axis and a press without a cell", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  render(<TerminalTile feed={feed} session={{ name: "tile-6" }} storageKey=":tile-6" onAttachImage={() => {}} />);
-  await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalled());
-  feed.updateTerminalViewport.mockClear();
-
-  const handle = screen.getByRole("button", { name: "Resize tile-6 terminal" });
-  fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1, button: 0 });
-  fireEvent.pointerMove(handle, { clientX: 40, clientY: 32, pointerId: 1 });
-  // The pointer rests: the staged grid is asked for while the drag is still in flight,
-  // so the tile itself follows the badge instead of waiting for release.
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledTimes(1), { timeout: 2000 });
-  expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
-    "terminal-1",
-    expect.objectContaining({ columns: 65, rows: 32 }),
-  );
-  // Moving again stages a new grid; release asks for it and remembers it.
-  fireEvent.pointerMove(handle, { clientX: 80, clientY: 32, pointerId: 1 });
-  fireEvent.pointerUp(handle, { pointerId: 1 });
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledTimes(2));
-  expect(feed.updateTerminalViewport).toHaveBeenLastCalledWith(
-    "terminal-1",
-    expect.objectContaining({ columns: 70, rows: 32 }),
-  );
-  expect(loadTileGrid(":tile-6")).toEqual({ columns: 70, rows: 32 });
-});
-
-it("ignores a drag that never crosses a cell", async () => {
-  const feed = feedDouble();
-  localStorage.removeItem("agent-panel.terminal.tile-grid");
+  localStorage.removeItem("agent-panel.terminal.tile-box");
   render(<TerminalTile feed={feed} session={{ name: "tile-3" }} storageKey=":tile-3" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
 
-  const handle = screen.getByRole("button", { name: "Resize tile-3 terminal" });
-  fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1, button: 0 });
-  // Two pixels: inside the cell, so nothing is asked for and nothing is stored.
-  fireEvent.pointerMove(handle, { clientX: 2, clientY: 2, pointerId: 1 });
-  fireEvent.pointerUp(handle, { pointerId: 1 });
+  // No arranged box and no measurable mount in jsdom: a keyboard press has no step and
+  // no start, so nothing is stored and nothing is asked for.
+  fireEvent.keyDown(screen.getByRole("button", { name: "Resize tile-3 terminal" }), { key: "ArrowRight" });
   expect(feed.updateTerminalViewport).not.toHaveBeenCalled();
-  expect(loadTileGrid(":tile-3")).toEqual({ columns: 60, rows: 30 });
+  expect(loadTileBox(":tile-3")).toBeNull();
 });
 
-it("drags the right edge into columns alone and remembers it", async () => {
+it("drags the right edge into width alone and remembers it", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  render(<TerminalTile feed={feed} session={{ name: "tile-4" }} storageKey=":tile-4" onAttachImage={() => {}} />);
+  localStorage.setItem(
+    "agent-panel.terminal.tile-box",
+    JSON.stringify({ ":tile-4": { width: 400, height: 300 } }),
+  );
+  const view = render(<TerminalTile feed={feed} session={{ name: "tile-4" }} storageKey=":tile-4" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalled());
-  feed.updateTerminalViewport.mockClear();
 
   const handle = screen.getByRole("button", { name: "Resize tile-4 terminal width" });
-  // Five cells right with two rows of vertical drift: only the columns follow.
+  // Forty pixels right with thirty-two of vertical drift: only the width follows.
   fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1, button: 0 });
   fireEvent.pointerMove(handle, { clientX: 40, clientY: 32, pointerId: 1 });
-  expect(feed.updateTerminalViewport).not.toHaveBeenCalled();
+  expect(tileBoxOf(view.container)).toEqual({ width: 440, height: 300 });
   fireEvent.pointerUp(handle, { pointerId: 1 });
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledTimes(1));
-  expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
-    "terminal-1",
-    expect.objectContaining({ columns: 65, rows: 30 }),
-  );
-  expect(loadTileGrid(":tile-4")).toEqual({ columns: 65, rows: 30 });
+  expect(loadTileBox(":tile-4")).toEqual({ width: 440, height: 300 });
+  expect(feed.updateTerminalViewport).not.toHaveBeenCalled();
 });
 
-it("drags the bottom edge into rows alone and remembers it", async () => {
+it("drags the bottom edge into height alone and remembers it", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  render(<TerminalTile feed={feed} session={{ name: "tile-5" }} storageKey=":tile-5" onAttachImage={() => {}} />);
+  localStorage.setItem(
+    "agent-panel.terminal.tile-box",
+    JSON.stringify({ ":tile-5": { width: 400, height: 300 } }),
+  );
+  const view = render(<TerminalTile feed={feed} session={{ name: "tile-5" }} storageKey=":tile-5" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalled());
-  feed.updateTerminalViewport.mockClear();
 
   const handle = screen.getByRole("button", { name: "Resize tile-5 terminal height" });
-  // Five columns of horizontal drift with two rows down: only the rows follow.
+  // Forty pixels of horizontal drift with thirty-two down: only the height follows.
   fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1, button: 0 });
   fireEvent.pointerMove(handle, { clientX: 40, clientY: 32, pointerId: 1 });
-  expect(feed.updateTerminalViewport).not.toHaveBeenCalled();
+  expect(tileBoxOf(view.container)).toEqual({ width: 400, height: 332 });
   fireEvent.pointerUp(handle, { pointerId: 1 });
-  await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledTimes(1));
-  expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
-    "terminal-1",
-    expect.objectContaining({ columns: 60, rows: 32 }),
-  );
-  expect(loadTileGrid(":tile-5")).toEqual({ columns: 60, rows: 32 });
+  expect(loadTileBox(":tile-5")).toEqual({ width: 400, height: 332 });
+  expect(feed.updateTerminalViewport).not.toHaveBeenCalled();
 });
 
 it("shows the pane's shape in the footer, live through a drag", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
+  localStorage.setItem(
+    "agent-panel.terminal.tile-box",
+    JSON.stringify({ ":tile-size": { width: 400, height: 300 } }),
+  );
   render(<TerminalTile feed={feed} session={{ name: "tile-size" }} storageKey=":tile-size" onAttachImage={() => {}} />);
   // Before the attach answers, the opening grid stands in.
   expect(screen.getByLabelText("Terminal size")).toHaveTextContent("60×30");
-  // The attach answers with the pane's shape, which is what the footer reads.
+  // The attach answers with the pane's shape, which is what the footer reads: the box
+  // is the reader's and the grid the pane's, and the two are different facts.
   await waitFor(() => expect(screen.getByLabelText("Terminal size")).toHaveTextContent("100×30"));
 
   const handle = screen.getByRole("button", { name: "Resize tile-size terminal" });
   fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1, button: 0 });
   fireEvent.pointerMove(handle, { clientX: 40, clientY: 32, pointerId: 1 });
-  // Five cells right and two rows down from the opening grid: the footer tracks the drag
-  // per pixel while the pane itself follows on settle.
-  expect(screen.getByLabelText("Terminal size")).toHaveTextContent("65×32");
+  // Forty pixels right and thirty-two down from the arranged box: the footer tracks the
+  // drag per pixel while the pane's shape stands behind it.
+  expect(screen.getByLabelText("Terminal size")).toHaveTextContent("440×332");
   fireEvent.pointerUp(handle, { pointerId: 1 });
 });
 
@@ -215,6 +189,7 @@ it("attaches through the footer picker", async () => {
   const feed = feedDouble();
   const onAttachImage = vi.fn();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
+  localStorage.removeItem("agent-panel.terminal.tile-box");
   const view = render(
     <TerminalTile feed={feed} session={{ name: "tile-7" }} storageKey=":tile-7" onAttachImage={onAttachImage} />,
   );
