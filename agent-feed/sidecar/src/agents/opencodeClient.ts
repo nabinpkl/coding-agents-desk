@@ -32,27 +32,47 @@ export function resetOpencodeClient(): void {
 }
 
 /**
- * One raw call to the serve, for the endpoints where the pinned SDK and the
- * running serve disagree on the body shape.
+ * Raw calls to the serve, for the endpoints where the pinned SDK and the
+ * running serve disagree.
  *
- * Today that is exactly one: `POST /api/session/{id}/prompt` takes a flat
+ * Today that is exactly two: `POST /api/session/{id}/prompt` takes a flat
  * `{ text, delivery }` on serve v2.0.10 while the SDK sends a nested
- * `{ prompt: { text } }`. Measured, not assumed. Everything else travels the
- * SDK, and this stays until a bumped SDK matches the serve again.
+ * `{ prompt: { text } }`, and `GET .../message` pages through `order` plus
+ * an opaque `cursor` the SDK's snapshot predates. Measured, not assumed.
+ * Everything else travels the SDK, and these stay until a bumped SDK
+ * matches the serve again.
  */
 export async function serveRequest(path: string, body: unknown): Promise<{ status: number; text: string }> {
+  const { response } = await serveCall("POST", path, body);
+  return { status: response.status, text: (await response.text()).slice(0, 500) };
+}
+
+/**
+ * A raw GET that keeps the whole body: history pages carry full tool
+ * outputs and run to megabytes, so unlike `serveRequest` nothing is sliced.
+ */
+export async function serveGet(path: string): Promise<{ status: number; text: string }> {
+  const { response } = await serveCall("GET", path);
+  return { status: response.status, text: await response.text() };
+}
+
+async function serveCall(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ response: Response }> {
   const password = config.opencodePassword;
   if (!password) throw new Error("opencode serve password is not configured");
   const url = new URL(path, config.opencodeServeUrl.toString().replace(/\/$/, ""));
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers: {
-      "content-type": "application/json",
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
       Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
     },
-    body: JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  return { status: response.status, text: (await response.text()).slice(0, 500) };
+  return { response };
 }
 
 /** True for the serve refusing the password rather than failing the call. */

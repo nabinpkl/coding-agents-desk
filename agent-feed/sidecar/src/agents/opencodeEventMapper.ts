@@ -45,13 +45,16 @@ export class OpencodeEventMapper {
   /**
    * Replaces the projection's rows with what the serve just answered.
    *
-   * Whole-list rather than incremental: the serve is the durable record and a
-   * refresh is one round trip, so there is no stream id to track and no delta
-   * to lose. The projection dedupes unchanged rows by content, so a refresh
-   * that changed nothing publishes nothing.
+   * The serve lists newest-first; the projection stores oldest-first, the
+   * same chronological order every other source keeps (and opencode's own
+   * timeline keeps a chronological array it appends live rows to). Insertion
+   * order IS display order here, so syncing newest-first would read each
+   * turn backwards, prompt after its reply. Updates stay where they are:
+   * upsert keeps a known id's position and only new ids append.
    */
   sync(messages: SessionMessage[]): OpencodeSyncResult {
-    for (const message of messages) {
+    const ordered = [...messages].sort((a, b) => messageTime(a) - messageTime(b));
+    for (const message of ordered) {
       const parsed = this.translate(message);
       if (!parsed) continue;
       this.projection.upsert({
@@ -60,7 +63,7 @@ export class OpencodeEventMapper {
         phase: parsed.phase,
       });
     }
-    const last = messages.at(-1);
+    const last = ordered.at(-1);
     return {
       lastTurnClosed: last === undefined || turnClosed(last),
       open: last !== undefined && !turnClosed(last),
@@ -173,8 +176,16 @@ export class OpencodeEventMapper {
             text: `${message.model.providerID}/${message.model.id}`,
           }],
         };
+      default:
+        // The serve also emits markers the SDK union does not name (`idle`):
+        // content-free, nothing to draw, skipped rather than rendered.
+        return null;
     }
   }
+}
+
+function messageTime(message: SessionMessage): number {
+  return message.time.created;
 }
 
 function turnClosed(message: SessionMessage): boolean {

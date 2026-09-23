@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { OpencodeAgentBackend } from "@/agents/opencodeAgentBackend";
 import {
@@ -30,20 +30,11 @@ function sessionInfo() {
   };
 }
 
-function fakeServe(recorded: Recorded, messages: Array<{ id: string; time: { created: number }; text: string; type: "user" }>) {
+function fakeServe(recorded: Recorded) {
   return {
     v2: {
       session: {
-        messages: async () => ({ data: { data: messages, cursor: {} } }),
         get: async () => ({ data: { data: sessionInfo() } }),
-        prompt: async (params: { sessionID: string; prompt?: { text: string }; delivery?: string }) => {
-          recorded.prompts.push({
-            sessionID: params.sessionID,
-            text: params.prompt?.text ?? "",
-            delivery: params.delivery ?? "",
-          });
-          return { data: {} };
-        },
         interrupt: async (params: { sessionID: string }) => {
           recorded.interrupts.push(params.sessionID);
           return { data: true };
@@ -75,18 +66,68 @@ function fakeServe(recorded: Recorded, messages: Array<{ id: string; time: { cre
   };
 }
 
+type FakeItem = { id: string; time: { created: number }; text: string; type: "user" };
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+/**
+ * Serves history pages and prompt receipts the way the serve does, so the
+ * backend's raw fetch paths run for real in tests. `items` is newest-first;
+ * the fake cursor is the last id of the page, which the backend passes back
+ * opaquely exactly like the serve's token.
+ */
+function installFetch(recorded: Recorded, items: FakeItem[]): void {
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const parsed = new URL(String(url));
+    if (parsed.pathname.endsWith("/prompt")) {
+      const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string };
+      recorded.prompts.push({
+        sessionID: parsed.pathname.split("/").at(-2) ?? "",
+        text: body.text ?? "",
+        delivery: body.delivery ?? "",
+      });
+      return Response.json({ data: {} });
+    }
+    if (parsed.pathname.endsWith("/message")) {
+      // The order rides the cursor, never the follow-up request -- the same
+      // contract the serve's opaque token keeps (`order`+`direction` inside).
+      // The fake cursor is `order:id` for readability; the backend passes it
+      // back opaquely either way.
+      const limit = Number(parsed.searchParams.get("limit") ?? 100);
+      const cursor = parsed.searchParams.get("cursor");
+      const cursorOrder = cursor?.split(":")[0];
+      const cursorId = cursor?.split(":").slice(1).join(":");
+      const order = cursorOrder ?? parsed.searchParams.get("order") ?? "desc";
+      const ordered = order === "asc" ? [...items].reverse() : items;
+      const at = cursorId ? ordered.findIndex((item) => item.id === cursorId) : -1;
+      const start = cursorId && at < 0 ? ordered.length : at + 1;
+      const page = ordered.slice(start, start + limit);
+      const rest = ordered.length - (start + page.length);
+      return Response.json({
+        data: page,
+        cursor: rest > 0 && page.length > 0 ? { next: `${order}:${page.at(-1)?.id}` } : {},
+      });
+    }
+    return realFetch(url, init);
+  }) as typeof fetch;
+}
+
 // Set by the fake stream generator on each subscribe; the test pushes one event.
 let pushToStream: ((value: unknown) => void) | null = null;
 
 function fixture() {
   pushToStream = null;
   const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  installFetch(recorded, [userItem("msg-u", "hello")]);
   const backend = new OpencodeAgentBackend({
     resolveSession: (sessionId) =>
       sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
     onSessionCreated() {},
     onCatalogChanged() {},
-    client: () => fakeServe(recorded, [userItem("msg-u", "hello")]) as unknown as OpencodeClient,
+    client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => 1000,
   });
   return { backend, recorded };
@@ -104,23 +145,13 @@ test("timeline serves nice mode only", async () => {
 
 test("send prompts the serve and repeats the receipt for a repeated request", async () => {
   const { backend, recorded } = fixture();
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string };
-    recorded.prompts.push({ sessionID: String(url).split("/").at(-2) ?? "", text: body.text ?? "", delivery: body.delivery ?? "" });
-    return new Response(JSON.stringify({ data: {} }), { status: 200 });
-  }) as typeof fetch;
-  try {
-    const first = await backend.send("s1", "r1", "go", "next");
-    const second = await backend.send("s1", "r1", "go", "next");
-    expect(first).toEqual(second);
-    expect(recorded.prompts).toEqual([{ sessionID: "s1", text: "go", delivery: "queue" }]);
-    const steered = await backend.send("s1", "r2", "turn", "steer");
-    expect(steered).toEqual({ requestId: "r2", delivery: "steer" });
-    expect(recorded.prompts[1]).toEqual({ sessionID: "s1", text: "turn", delivery: "steer" });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  const first = await backend.send("s1", "r1", "go", "next");
+  const second = await backend.send("s1", "r1", "go", "next");
+  expect(first).toEqual(second);
+  expect(recorded.prompts).toEqual([{ sessionID: "s1", text: "go", delivery: "queue" }]);
+  const steered = await backend.send("s1", "r2", "turn", "steer");
+  expect(steered).toEqual({ requestId: "r2", delivery: "steer" });
+  expect(recorded.prompts[1]).toEqual({ sessionID: "s1", text: "turn", delivery: "steer" });
   const receipt = await backend.abort("s1", "r3");
   expect(receipt).toEqual({ requestId: "r3", delivery: "abort" });
   expect(recorded.interrupts).toEqual(["s1"]);
@@ -160,13 +191,14 @@ test("a serve permission becomes a broker select and the answer becomes its repl
   await backend.dispose();
 });
 
-test("creating a session registers it through the serve", async () => {  const created: Array<{ sessionId: string; projectPath: string }> = [];
+test("creating a session registers it through the serve", async () => {
+  const created: Array<{ sessionId: string; projectPath: string }> = [];
   const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
   const backend = new OpencodeAgentBackend({
     resolveSession: () => undefined,
     onSessionCreated: (location) => created.push(location),
     onCatalogChanged() {},
-    client: () => fakeServe(recorded, [userItem("msg-u", "hello")]) as unknown as OpencodeClient,
+    client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => 1000,
   });
   const descriptor = await backend.createSession("r1", "/repo");
@@ -179,12 +211,14 @@ test("creating a session registers it through the serve", async () => {  const c
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
   const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  // Newest-first, the way the serve lists; the tail read picks up the push.
   const messages = [userItem("msg-u", "hello")];
+  installFetch(recorded, messages);
   const backend = new OpencodeAgentBackend({
     resolveSession: (sessionId) => sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
     onSessionCreated() {},
     onCatalogChanged() {},
-    client: () => fakeServe(recorded, messages) as unknown as OpencodeClient,
+    client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => now,
   });
   const first = await backend.page("s1", 0, 10, "nice");
@@ -198,5 +232,30 @@ test("opening a stale projection re-reads the serve", async () => {
   now += 11_000;
   const third = await backend.page("s1", 0, 10, "nice");
   expect(third.total).toBe(2);
+  await backend.dispose();
+});
+
+test("a long history walks every page and lands chronological", async () => {
+  const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  // Newest-first, the way the serve lists: msg-249 first, msg-0 last.
+  const all = Array.from({ length: 250 }, (_, i) => ({
+    id: `msg-${249 - i}`,
+    time: { created: (249 - i) * 10 },
+    text: `say ${249 - i}`,
+    type: "user" as const,
+  }));
+  const backend = new OpencodeAgentBackend({
+    resolveSession: (sessionId) => sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    onSessionCreated() {},
+    onCatalogChanged() {},
+    client: () => fakeServe(recorded) as unknown as OpencodeClient,
+    now: () => 1000,
+  });
+  installFetch(recorded, all);
+  const page = await backend.page("s1", 0, 300, "nice");
+  expect(page.total).toBe(250);
+  const ids = page.events.map((event) => event.id);
+  expect(ids[0]).toBe("opencode:msg-0");
+  expect(ids.at(-1)).toBe("opencode:msg-249");
   await backend.dispose();
 });

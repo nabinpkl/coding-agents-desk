@@ -40,6 +40,7 @@ import { AgentUiBroker } from "@/agents/agentUiBroker";
 import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { OpencodeEventMapper } from "@/agents/opencodeEventMapper";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencodeServeEvents";
+import { readOpencodeHistory, readOpencodeTail } from "@/agents/opencodeHistory";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 
@@ -318,7 +319,7 @@ export class OpencodeAgentBackend implements AgentBackend {
     if (owned.refreshQueued) return;
     owned.refreshQueued = true;
     try {
-      await this.refresh(sessionId);
+      await this.refresh(sessionId, false);
     } finally {
       owned.refreshQueued = false;
     }
@@ -341,36 +342,38 @@ export class OpencodeAgentBackend implements AgentBackend {
       disposed: false,
     };
     this.owned.set(sessionId, owned);
-    await this.refresh(sessionId);
+    await this.refresh(sessionId, true);
     return owned;
   }
 
   /**
    * Re-reads one session's messages and folds them into its projection.
    *
-   * The only read path, used for seed and live alike: a refresh is one round
-   * trip and the mapper upserts by message id, so concurrent refreshes and
-   * event bursts converge rather than interleave.
+   * The only read path, used for seed and live alike. A seed walks the whole
+   * history oldest-first; a live refresh reads only the latest page, because
+   * durable messages are immutable once completed and only the open tail can
+   * still move. The mapper upserts by message id either way, so concurrent
+   * refreshes and event bursts converge rather than interleave.
    */
-  private async refresh(sessionId: string): Promise<void> {
+  private async refresh(sessionId: string, full: boolean): Promise<void> {
     const owned = this.owned.get(sessionId);
     const client = this.serve();
     if (!owned || owned.disposed || !client) return;
     try {
       const [messages, info] = await Promise.all([
-        client.v2.session.messages({ sessionID: sessionId }),
+        full ? readOpencodeHistory(sessionId) : readOpencodeTail(sessionId),
         client.v2.session.get({ sessionID: sessionId }),
       ]);
       // The SDK resolves HTTP failures as `{ error }` rather than throwing
       // (throwOnError defaults to false), so an unchecked response reads as
       // an empty session: a thread that renders nothing with nothing in the
       // log. Fail loud here instead.
-      if (messages.error) throw new Error(`messages: ${describeServeError(messages.error)}`);
       if (info.error) throw new Error(`get: ${describeServeError(info.error)}`);
       const current = this.owned.get(sessionId);
       if (!current || current.disposed) return;
-      const result = current.mapper.sync(messages.data?.data ?? []);
-      const session = info.data?.data;      if (session?.tokens && session.model) {
+      const result = current.mapper.sync(messages);
+      const session = info.data?.data;
+      if (session?.tokens && session.model) {
         const tokens = session.tokens;
         current.usage = {
           current: tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write,
@@ -395,7 +398,7 @@ export class OpencodeAgentBackend implements AgentBackend {
     owned.refreshTimer = setTimeout(() => {
       if (owned.refreshTimer) {
         owned.refreshTimer = null;
-        void this.refresh(sessionId);
+        void this.refresh(sessionId, false);
       }
     }, REFRESH_COALESCE_MS);
     owned.refreshTimer.unref?.();

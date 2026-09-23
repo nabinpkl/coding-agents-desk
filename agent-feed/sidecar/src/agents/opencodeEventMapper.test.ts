@@ -38,6 +38,22 @@ test("a user message arrives as a human turn", () => {
   ]);
 });
 
+test("newest-first serve order lands chronological, prompt before its reply", () => {
+  const projection = new LiveAgentProjection();
+  const reply = assistant("msg-a2", [{ type: "text", id: "t2", text: "done" }], 400);
+  reply.time.created = 300;
+  const prompt = user("msg-u2", "do it");
+  prompt.time.created = 250;
+  const old = user("msg-u1", "hi");
+  // Serve order, newest first: the prompt must still read before its reply.
+  new OpencodeEventMapper(projection).sync([reply, prompt, old]);
+  expect(projection.page(0, 10).map((row) => row.id)).toEqual([
+    "opencode:msg-u1",
+    "opencode:msg-u2",
+    "opencode:msg-a2",
+  ]);
+});
+
 test("a finished turn carries text, thinking, and a paired tool call", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
