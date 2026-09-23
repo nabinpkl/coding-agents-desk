@@ -33,12 +33,12 @@ const PNG_BASE64 =
 
 test("reports the sessions a grid could attach to", async () => {
   const route = createTmuxRoutes(async () => [
-    { name: "canvas-fork", windows: 1, attachedClients: 0, path: "/projects/agent-desk" },
+    { name: "canvas-fork", windows: 1, attachedClients: 0, path: "/projects/agent-desk", windowList: [] },
   ]);
   const response = await call(route, "GET", "/api/tmux/sessions");
   expect(response?.status).toBe(200);
   expect(await response?.json()).toEqual({
-    sessions: [{ name: "canvas-fork", windows: 1, attachedClients: 0, path: "/projects/agent-desk" }],
+    sessions: [{ name: "canvas-fork", windows: 1, attachedClients: 0, path: "/projects/agent-desk", windowList: [] }],
   });
 });
 

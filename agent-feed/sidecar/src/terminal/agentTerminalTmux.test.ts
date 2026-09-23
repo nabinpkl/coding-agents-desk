@@ -72,6 +72,37 @@ test("attaches to a tmux session rather than resuming a CLI", async () => {
   expect(descriptor.ptySessionName).toBe("agent-tmux-canvas-fork");
 });
 
+test("attaches to a window or pane target, refusing anything wilder", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const mouseRestored: string[] = [];
+  const service = serviceWithTmux(
+    new AgentTerminalService(
+      "/unused/pty.sock",
+      () => undefined,
+      home,
+      { listSessions: async () => [], openSession: async () => { throw new Error("no PTY here"); } },
+      async () => "",
+      async (session) => { mouseRestored.push(session); },
+    ),
+    attached,
+  );
+
+  await service.open({ kind: "tmux", session: "canvas-fork:1" }, { columns: 120, rows: 40 });
+  await service.open({ kind: "tmux", session: "canvas-fork:1.2" }, { columns: 120, rows: 40 });
+  expect(attached).toEqual([
+    { session: "canvas-fork:1", columns: 120, rows: 40 },
+    { session: "canvas-fork:1.2", columns: 120, rows: 40 },
+  ]);
+  // `mouse` is a session option, so the restore strips the window and pane halves.
+  expect(mouseRestored).toEqual(["canvas-fork", "canvas-fork"]);
+  await expect(service.open({ kind: "tmux", session: "canvas-fork:1.x" }, { columns: 80, rows: 24 }))
+    .rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  await expect(service.open({ kind: "tmux", session: "../evil" }, { columns: 80, rows: 24 }))
+    .rejects.toBeInstanceOf(AgentTerminalInvalidError);
+});
+
 test("a viewer leaving a shared tmux attach never ends the session", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);

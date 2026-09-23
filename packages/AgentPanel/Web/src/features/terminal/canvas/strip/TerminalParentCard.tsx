@@ -14,7 +14,7 @@ import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { botSurfaceStyle, sessionInitials } from "@/features/bots/botSurface";
-import { TerminalChildCard } from "@/features/terminal/canvas/TerminalChildCard";
+import { TerminalChildCard } from "@/features/terminal/canvas/strip/TerminalChildCard";
 import {
   terminalChildKey,
   terminalSessionNameError,
@@ -293,6 +293,7 @@ export function TerminalParentCard({
                   key={key}
                   session={child}
                   feed={feed}
+                  machineId={group.machineId}
                   hue={hue}
                   step={steps.get(key)}
                   rank={rank}
@@ -302,6 +303,8 @@ export function TerminalParentCard({
                   onHide={() => onHideChild(key)}
                   onKill={() => onKillChild(key)}
                   storageKey={key}
+                  openKeys={openChildren}
+                  onToggleKey={onToggleChild}
                 />
               );
             })}

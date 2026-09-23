@@ -188,8 +188,10 @@ export type {
   AgentTerminalViewport,
   CloseAgentTerminalRequest,
   OpenAgentTerminalRequest,
+  TmuxPaneSummary,
   TmuxSessionSummary,
   TmuxTerminalContext,
+  TmuxWindowSummary,
   WorkspaceTerminalContext,
 } from "./terminal.ts";
 

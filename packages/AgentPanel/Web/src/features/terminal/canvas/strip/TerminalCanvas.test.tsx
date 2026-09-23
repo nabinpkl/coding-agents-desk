@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
-import { TerminalCanvas } from "@/features/terminal/canvas/TerminalCanvas";
+import { TerminalCanvas } from "@/features/terminal/canvas/strip/TerminalCanvas";
 import { groupTerminalsByDirectory } from "@/features/terminal/canvas/terminalGroups";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
 
@@ -50,7 +50,7 @@ vi.mock("@/features/bots/useCanvasZoom", async (importOriginal) => {
 });
 
 function session(name: string, path: string, attachedClients = 0) {
-  return { name, windows: 1, attachedClients, path };
+  return { name, windows: 1, attachedClients, path, windowList: [] };
 }
 
 function feedFake(overrides: Partial<SidecarDataSource> = {}) {
@@ -113,6 +113,8 @@ function canvasProps(feed: SidecarDataSource, overrides: Record<string, unknown>
     onDismissAddError: vi.fn(),
     orphanedError: null,
     onRefresh: vi.fn(),
+    activeOnly: false,
+    onToggleActiveOnly: vi.fn(),
     canvasZoom: { mode: false, room: 0 },
     ...overrides,
   };
@@ -318,4 +320,46 @@ it("attaches through the menu picker, reporting a refusal on the card", async ()
   await waitFor(() => expect(dropTmuxSessionImage).toHaveBeenCalledWith("a", file));
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.getByText("tmux: no such session")).toBeTruthy();
+});
+
+it("lists a multi-window session's windows with the active one marked, and opens one on its target", async () => {
+  const feed = feedFake();
+  const grouping = groupTerminalsByDirectory([{
+    machineLabel: "mac",
+    sessions: [{
+      name: "harbor",
+      windows: 4,
+      attachedClients: 0,
+      path: "/proj",
+      windowList: [
+        { index: 0, name: "zsh", active: false, panes: [{ index: 0, active: true, command: "zsh", path: "/proj" }] },
+        { index: 1, name: "backend", active: true, panes: [{ index: 0, active: true, command: "node", path: "/proj" }] },
+      ],
+    }],
+    workspaceRoots: [],
+    botDirs: [],
+  }]);
+  const props = canvasProps(feed, { grouping });
+  const view = render(<TerminalCanvas {...props} />);
+
+  // The active window says so; the idle one does not.
+  expect(screen.getByTitle("Open harbor:1 (active window)")).toBeTruthy();
+  expect(screen.getByTitle("Open harbor:0")).toBeTruthy();
+  // Single-pane windows stay flat: no pane rows, no expander.
+  expect(screen.queryByRole("list", { name: "harbor:1 panes" })).toBeNull();
+
+  // Opening from above mounts a tile attached at the window target, not the session.
+  view.rerender(<TerminalCanvas {...props} openChildren={new Set([":harbor:1"])} />);
+  await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith({ kind: "tmux", session: "harbor:1" }, 60, 30));
+  expect(screen.getByLabelText("harbor:1 terminal")).toBeTruthy();
+});
+
+it("flips the active-only arrangement from the strip's own chip", () => {
+  const feed = feedFake();
+  const onToggleActiveOnly = vi.fn();
+  render(<TerminalCanvas {...canvasProps(feed, { onToggleActiveOnly })} />);
+  const chip = screen.getByRole("button", { name: "Active only" });
+  expect(chip).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(chip);
+  expect(onToggleActiveOnly).toHaveBeenCalledTimes(1);
 });

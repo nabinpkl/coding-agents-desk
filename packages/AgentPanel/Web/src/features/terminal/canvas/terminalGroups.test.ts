@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   groupTerminalsByDirectory,
+  isTerminalChildKey,
   mintTerminalSessionName,
   parseTerminalChildKey,
   suggestTerminalSessionName,
   terminalChildKey,
+  terminalPaneKey,
   terminalSessionNameError,
+  terminalWindowKey,
+  tmuxTarget,
 } from "@/features/terminal/canvas/terminalGroups";
 
 function session(name: string, path: string) {
-  return { name, windows: 1, attachedClients: 0, path };
+  return { name, windows: 1, attachedClients: 0, path, windowList: [] };
 }
 
 describe("groupTerminalsByDirectory", () => {
@@ -86,12 +90,31 @@ describe("terminalChildKey", () => {
   });
 
   it("parses back what it built, and refuses what it could not have built", () => {
-    expect(parseTerminalChildKey(":a")).toEqual({ machineId: undefined, session: "a" });
-    expect(parseTerminalChildKey("peer:a")).toEqual({ machineId: "peer", session: "a" });
+    expect(parseTerminalChildKey(":a")).toEqual({ machineId: undefined, session: "a", target: "a" });
+    expect(parseTerminalChildKey("peer:a")).toEqual({ machineId: "peer", session: "a", target: "a" });
+    expect(parseTerminalChildKey(":harbor:1")).toEqual({
+      machineId: undefined, session: "harbor", window: 1, target: "harbor:1",
+    });
+    expect(parseTerminalChildKey("peer:harbor:1.2")).toEqual({
+      machineId: "peer", session: "harbor", window: 1, pane: 2, target: "harbor:1.2",
+    });
     expect(parseTerminalChildKey("no-colon")).toBeNull();
     expect(parseTerminalChildKey(":")).toBeNull();
     expect(parseTerminalChildKey("a:")).toBeNull();
-    expect(parseTerminalChildKey("a:b:c")).toBeNull();
+    expect(parseTerminalChildKey(":a:b:c")).toBeNull();
+    expect(parseTerminalChildKey(":a:1.x")).toBeNull();
+    expect(parseTerminalChildKey(":../evil")).toBeNull();
+  });
+
+  it("builds window and pane keys a session name cannot collide with", () => {
+    expect(terminalWindowKey(undefined, "harbor", 1)).toBe(":harbor:1");
+    expect(terminalPaneKey("peer", "harbor", 1, 2)).toBe("peer:harbor:1.2");
+    expect(tmuxTarget("harbor", 1)).toBe("harbor:1");
+    expect(tmuxTarget("harbor", 1, 2)).toBe("harbor:1.2");
+    expect(tmuxTarget("harbor")).toBe("harbor");
+    expect(() => tmuxTarget("has space", 1)).toThrow();
+    expect(isTerminalChildKey(":harbor:1.2")).toBe(true);
+    expect(isTerminalChildKey(":harbor:1.x")).toBe(false);
   });
 });
 

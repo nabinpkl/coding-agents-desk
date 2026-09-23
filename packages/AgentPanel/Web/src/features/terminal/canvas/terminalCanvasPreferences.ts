@@ -18,6 +18,7 @@
 
 import { CANVAS_ROOM_STEPS } from "@/features/bots/botCanvasPreferences";
 import { MIN_CANVAS_ZOOM } from "@/features/bots/useCanvasZoom";
+import { isTerminalChildKey } from "@/features/terminal/canvas/terminalGroups";
 
 const HIDDEN_PARENTS_KEY = "agent-panel.terminal-canvas.hidden-parents";
 const OFF_STRIP_CHILDREN_KEY = "agent-panel.terminal-canvas.off-strip-children";
@@ -54,14 +55,13 @@ function isParentKey(value: string): boolean {
 }
 
 /**
- * A child key is `machine:session`: exactly one colon and a non-empty session half. The machine
- * half may be empty -- that is the panel's own sidecar -- because the separator is still there.
- * The sidecar's name rule keeps colons out of both halves, so a second colon means hand-edited.
+ * A child key is `machine:session` with an optional `:window` or `:window.pane` suffix, judged
+ * by the same parse the canvas reads: the machine half may be empty -- that is the panel's own
+ * sidecar -- because the separator is still there. Each stored entry judged on its own, since
+ * the dangerous direction is a bad value hiding something.
  */
 function isChildKey(value: string): boolean {
-  const first = value.indexOf(":");
-  if (first < 0 || first + 1 >= value.length) return false;
-  return value.indexOf(":", first + 1) === -1;
+  return isTerminalChildKey(value);
 }
 
 export function loadHiddenTerminalParents(): ReadonlySet<string> {
@@ -142,7 +142,6 @@ export const TERMINAL_ZOOM_STORAGE = {
 };
 
 const TERMINAL_ROOM_KEY = "agent-panel.terminal-canvas.room";
-
 /**
  * How much room the fitted canvas is given to be scrolled around in. The same steps the Bot
  * canvas offers -- the gutter is a property of the strip shape, not of whose cards stand on it --
@@ -165,5 +164,30 @@ export function storeTerminalRoom(size: number): void {
     else localStorage.removeItem(TERMINAL_ROOM_KEY);
   } catch {
     // The canvas still draws; it just has no room around it next time.
+  }
+}
+
+const TERMINAL_ACTIVE_ONLY_KEY = "agent-panel.terminal-canvas.active-only";
+
+/**
+ * Whether the canvas shows only parents with tmux standing in them. Off by default: an empty
+ * parent is where a shell gets started, so hiding them is the reader's arrangement, not the
+ * canvas's. Remembered like the other arrangement, under its own key.
+ */
+export function loadTerminalActiveOnly(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(TERMINAL_ACTIVE_ONLY_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function storeTerminalActiveOnly(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(TERMINAL_ACTIVE_ONLY_KEY, "on");
+    else localStorage.removeItem(TERMINAL_ACTIVE_ONLY_KEY);
+  } catch {
+    // The canvas still filters; it just opens unfiltered next time.
   }
 }

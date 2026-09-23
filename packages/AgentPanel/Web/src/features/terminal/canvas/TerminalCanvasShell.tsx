@@ -12,7 +12,7 @@ import { useState } from "react";
 import { PanelLeft } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { BotMachine } from "@/features/bots/botMachines";
-import { TerminalCanvas } from "@/features/terminal/canvas/TerminalCanvas";
+import { TerminalCanvas } from "@/features/terminal/canvas/strip/TerminalCanvas";
 import { TerminalCanvasStatus } from "@/features/terminal/canvas/TerminalCanvasStatus";
 import { TerminalSidebarPanel } from "@/features/terminal/canvas/TerminalSidebarPanel";
 import { useTerminalCanvas } from "@/features/terminal/canvas/useTerminalCanvas";
@@ -87,6 +87,8 @@ export function TerminalCanvasShell({
             addErrors={shell.addErrors}
             onDismissAddError={shell.onDismissAddError}
             onRefresh={shell.onRefresh}
+            activeOnly={shell.activeOnly}
+            onToggleActiveOnly={shell.onToggleActiveOnly}
             onClose={() => setListOpen(false)}
           />
         </aside>
@@ -131,6 +133,8 @@ export function TerminalCanvasShell({
           onDismissAddError={shell.onDismissAddError}
           orphanedError={null}
           onRefresh={shell.onRefresh}
+          activeOnly={shell.activeOnly}
+          onToggleActiveOnly={shell.onToggleActiveOnly}
           canvasZoom={{ mode: shell.zoomMode, room: shell.zoomRoom }}
         />
       </div>

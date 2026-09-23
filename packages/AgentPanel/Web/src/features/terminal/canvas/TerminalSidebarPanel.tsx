@@ -36,6 +36,8 @@ export function TerminalSidebarPanel({
   addErrors,
   onDismissAddError,
   onRefresh,
+  activeOnly,
+  onToggleActiveOnly,
   onClose,
 }: {
   /** The whole roster, every machine, before hiding: the rows list this, not the strip. */
@@ -75,6 +77,9 @@ export function TerminalSidebarPanel({
   addErrors: ReadonlyMap<string, string>;
   onDismissAddError: (parentKey: string) => void;
   onRefresh: () => void;
+  /** Showing only parents with tmux standing in them, and the control that flips it. */
+  activeOnly: boolean;
+  onToggleActiveOnly: () => void;
   /** Hides this list, giving the strip the width back. */
   onClose: () => void;
 }) {
@@ -140,6 +145,21 @@ export function TerminalSidebarPanel({
           className="min-h-9 cursor-pointer rounded-md border border-border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
         >
           Refresh
+        </button>
+        <button
+          type="button"
+          onClick={onToggleActiveOnly}
+          aria-pressed={activeOnly}
+          title={activeOnly
+            ? "Show empty directories again: where a shell gets started"
+            : "Hide empty directories: only parents with tmux standing in them"}
+          className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+            activeOnly
+              ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
+              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+          }`}
+        >
+          Active only
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">

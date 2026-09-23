@@ -12,7 +12,7 @@ import { LoaderCircle, SquareTerminal } from "lucide-react";
 import { useRef } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
-import { TerminalParentCard } from "@/features/terminal/canvas/TerminalParentCard";
+import { TerminalParentCard } from "@/features/terminal/canvas/strip/TerminalParentCard";
 import {
   parseTerminalChildKey,
   suggestTerminalSessionName,
@@ -48,9 +48,10 @@ export function TerminalCanvas({
   onDismissAddError,
   orphanedError,
   onRefresh,
+  activeOnly,
+  onToggleActiveOnly,
   canvasZoom,
-}: {
-  /** The whole roster, every machine, before hiding: ranks and counts read this, not the strip. */
+}: {  /** The whole roster, every machine, before hiding: ranks and counts read this, not the strip. */
   grouping: TerminalGrouping;
   /** Every parent's hue, by `machine:path`, computed over the whole roster above. */
   hues: ReadonlyMap<string, number>;
@@ -96,6 +97,9 @@ export function TerminalCanvas({
   /** A failure no card can carry, because it is about no child or one not on the canvas. */
   orphanedError: string | null;
   onRefresh: () => void;
+  /** Showing only parents with tmux standing in them, and the control that flips it. */
+  activeOnly: boolean;
+  onToggleActiveOnly: () => void;
   /**
    * Draw the whole strip at once, small enough to see the arrangement, and pinch to move
    * around it. A mode rather than a replacement, driven from the roster beside the strip --
@@ -245,6 +249,21 @@ export function TerminalCanvas({
             className="min-h-9 cursor-pointer rounded-md border border-border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
           >
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={onToggleActiveOnly}
+            aria-pressed={activeOnly}
+            title={activeOnly
+              ? "Show empty directories again: where a shell gets started"
+              : "Hide empty directories: only parents with tmux standing in them"}
+            className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+              activeOnly
+                ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
+                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+            }`}
+          >
+            Active only
           </button>
         </div>
       <div

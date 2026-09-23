@@ -125,6 +125,37 @@ export function terminalChildKey(machineId: string | undefined, session: string)
 }
 
 /**
+ * What tmux will accept as `-t <target>`: `session`, `session:window` or `session:window.pane`.
+ *
+ * Built from validated pieces, never by concatenating caller text: the session keeps the
+ * sidecar's plain-identifier rule, and window and pane indexes are numbers. Session names
+ * cannot hold `:` or `.`, which is what keeps the suffixes unambiguous.
+ */
+export function tmuxTarget(session: string, window?: number, pane?: number): string {
+  if (!isTerminalSessionNameValid(session)) throw new Error(`not a tmux session: ${session}`);
+  if (window === undefined) return session;
+  if (!Number.isInteger(window) || window < 0) throw new Error(`not a tmux window: ${window}`);
+  if (pane === undefined) return `${session}:${window}`;
+  if (!Number.isInteger(pane) || pane < 0) throw new Error(`not a tmux pane: ${pane}`);
+  return `${session}:${window}.${pane}`;
+}
+
+/** An open key for one window: the machine, the session, and the window index. */
+export function terminalWindowKey(machineId: string | undefined, session: string, window: number): string {
+  return `${terminalChildKey(machineId, session)}:${window}`;
+}
+
+/** An open key for one pane: the machine, the session, and the `window.pane` pair. */
+export function terminalPaneKey(
+  machineId: string | undefined,
+  session: string,
+  window: number,
+  pane: number,
+): string {
+  return `${terminalChildKey(machineId, session)}:${window}.${pane}`;
+}
+
+/**
  * What tmux accepts as `-t <session>`, the same door the sidecar guards.
  *
  * Kept beside the suggester rather than only on the sidecar so the naming form can refuse a
@@ -203,14 +234,43 @@ export function mintTerminalSessionName(): string {
 }
 
 /**
- * The machine and session a child key names, or null for a hand-edited one.
+ * The machine and tmux target a child key names, or null for a hand-edited one.
  *
  * Split on the FIRST colon, because that is where `terminalChildKey` puts it: machine keys
- * never hold one, and the sidecar refuses a session name that does.
+ * never hold one, and the sidecar refuses a session name that does. What follows is the
+ * session, optionally suffixed with `:window` or `:window.pane` -- the same target tmux
+ * takes, so the key both identifies the tile and addresses what it opens.
  */
-export function parseTerminalChildKey(key: string): { machineId: string | undefined; session: string } | null {
+export function parseTerminalChildKey(key: string): {
+  machineId: string | undefined;
+  session: string;
+  window?: number;
+  pane?: number;
+  /** The tmux target this key opens: `session`, `session:window` or `session:window.pane`. */
+  target: string;
+} | null {
   const at = key.indexOf(":");
-  if (at < 0 || at + 1 >= key.length || key.indexOf(":", at + 1) !== -1) return null;
+  if (at < 0 || at + 1 >= key.length) return null;
   const machine = key.slice(0, at);
-  return { machineId: machine === "" ? undefined : machine, session: key.slice(at + 1) };
+  const rest = key.slice(at + 1);
+  const match = /^([A-Za-z0-9_][A-Za-z0-9_.-]{0,63})(?::(\d+)(?:\.(\d+))?)?$/.exec(rest);
+  if (!match) return null;
+  const [, session, window, pane] = match;
+  return {
+    machineId: machine === "" ? undefined : machine,
+    session: session!,
+    ...(window === undefined ? {} : { window: Number(window) }),
+    ...(pane === undefined ? {} : { pane: Number(pane) }),
+    target: rest,
+  };
+}
+
+/**
+ * Whether a stored string is a child key this canvas wrote: `machine:session` with an
+ * optional `:window` or `:window.pane` suffix. The machine half may be empty -- that is the
+ * panel's own sidecar -- because the separator is still there. Judged by the same parse the
+ * canvas reads, so validation and use cannot drift apart.
+ */
+export function isTerminalChildKey(value: string): boolean {
+  return parseTerminalChildKey(value) !== null;
 }

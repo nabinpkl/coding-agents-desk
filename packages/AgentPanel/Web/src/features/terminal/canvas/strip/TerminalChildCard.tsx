@@ -21,11 +21,14 @@ import { botSessionFaceRank, botSessionStyle, sessionInitials } from "@/features
 import { CLOSED_SESSION_WIDTH } from "@/features/bots/cards/botCanvasCards";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { TerminalTile } from "@/features/terminal/TerminalTile";
+import { parseTerminalChildKey } from "@/features/terminal/canvas/terminalGroups";
+import { TerminalWindowRows } from "@/features/terminal/canvas/TerminalWindowRows";
 import { terminalChildStyle } from "@/features/terminal/canvas/terminalSurface";
 
 export function TerminalChildCard({
   session,
   feed,
+  machineId,
   hue,
   step,
   rank,
@@ -35,9 +38,13 @@ export function TerminalChildCard({
   onHide,
   onKill,
   storageKey,
+  openKeys,
+  onToggleKey,
 }: {
   session: TmuxSessionSummary;
   feed: SidecarDataSource;
+  /** The machine this session stands on: window and pane keys are machine-scoped. */
+  machineId: string | undefined;
   /** Its parent's place on the colour wheel, or nothing where the roster has not ranked it. */
   hue: number | undefined;
   /** This session's step on that parent's ladder, ranked over the parent's full roster. */
@@ -59,6 +66,10 @@ export function TerminalChildCard({
   onKill: () => Promise<void>;
   /** The child key (`machine:name`) the open tile remembers its grid under. */
   storageKey: string;
+  /** Every open tile key on the canvas: the window and pane tiles below read their state here. */
+  openKeys: ReadonlySet<string>;
+  /** Flips one open key. The shell's child toggle already takes window and pane keys. */
+  onToggleKey: (key: string) => void;
 }) {
   const shaded = terminalChildStyle(hue, step);
   const railed = shaded !== undefined && !solo;
@@ -140,8 +151,7 @@ export function TerminalChildCard({
   const watched = session.attachedClients > 0
     ? `${session.attachedClients} watching`
     : "unattached";
-  return (
-    <li
+  return (    <li
       ref={card}
       className="shrink-0"
       // The Bot canvas's closed width, shared rather than repeated: a closed terminal row holds
@@ -257,6 +267,23 @@ export function TerminalChildCard({
               <TerminalTile feed={feed} session={session} storageKey={storageKey} onAttachImage={acceptImageFiles} />
             </div>
           ) : null}
+          <TerminalWindowRows
+            machineId={machineId}
+            session={session}
+            openKeys={openKeys}
+            onToggleKey={onToggleKey}
+          />
+          {windowTiles(machineId, session.name, openKeys).map(({ key, target }) => (
+            <div key={key} className="min-h-0 border-t border-border">
+              <TerminalTile
+                feed={feed}
+                session={session}
+                target={target}
+                storageKey={key}
+                onAttachImage={acceptImageFiles}
+              />
+            </div>
+          ))}
         </div>
         {/* Rendered wherever an image has somewhere to go: the menu's attach item clicks it,
             and the picker has to exist before the reader can reach it. The MIME list guides;
@@ -284,4 +311,28 @@ export function TerminalChildCard({
       </div>
     </li>
   );
+}
+
+/**
+ * The window and pane tiles standing open inside this session's card, in key order.
+ *
+ * Read off the canvas-wide open set rather than carried as state: the sidebar rows toggle the
+ * same keys, so a window opened from the roster draws its tile here without either surface
+ * knowing about the other. Session keys are skipped -- the session's own tile above owns those.
+ */
+function windowTiles(
+  machineId: string | undefined,
+  sessionName: string,
+  openKeys: ReadonlySet<string>,
+): Array<{ key: string; target: string }> {
+  const tiles: Array<{ key: string; target: string }> = [];
+  for (const key of [...openKeys].sort()) {
+    const parsed = parseTerminalChildKey(key);
+    if (!parsed) continue;
+    if ((parsed.machineId ?? "") !== (machineId ?? "")) continue;
+    if (parsed.session !== sessionName) continue;
+    if (parsed.window === undefined) continue;
+    tiles.push({ key, target: parsed.target });
+  }
+  return tiles;
 }

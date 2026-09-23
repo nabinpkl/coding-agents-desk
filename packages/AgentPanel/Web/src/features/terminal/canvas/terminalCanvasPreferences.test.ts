@@ -3,12 +3,14 @@ import {
   loadHiddenTerminalParents,
   loadOffStripTerminalChildren,
   loadOpenTerminalChildren,
+  loadTerminalActiveOnly,
   loadTerminalRoom,
   loadTerminalZoomMode,
   loadTerminalZoomScale,
   storeHiddenTerminalParents,
   storeOffStripTerminalChildren,
   storeOpenTerminalChildren,
+  storeTerminalActiveOnly,
   storeTerminalRoom,
   storeTerminalZoomMode,
   storeTerminalZoomScale,
@@ -33,8 +35,11 @@ describe("terminal canvas preferences", () => {
   });
 
   it("drops a hand-edited entry without costing the ones beside it", () => {
-    localStorage.setItem("agent-panel.terminal-canvas.off-strip-children", JSON.stringify([":a", "no-colon", "a:b:c", ":"]));
+    localStorage.setItem("agent-panel.terminal-canvas.off-strip-children", JSON.stringify([":a", "no-colon", ":a:1.x", ":"]));
     expect(loadOffStripTerminalChildren()).toEqual(new Set([":a"]));
+    // A second colon is a window key now, not hand-edited: sessions keep their own rows.
+    localStorage.setItem("agent-panel.terminal-canvas.open-children", JSON.stringify([":harbor:1", ":harbor:1.2"]));
+    expect(loadOpenTerminalChildren()).toEqual(new Set([":harbor:1", ":harbor:1.2"]));
     localStorage.setItem("agent-panel.terminal-canvas.open-children", JSON.stringify("not-an-array"));
     expect(loadOpenTerminalChildren()).toEqual(new Set());
     localStorage.setItem("agent-panel.terminal-canvas.hidden-parents", JSON.stringify(["", ":/proj"]));
@@ -68,5 +73,15 @@ describe("terminal canvas preferences", () => {
     localStorage.setItem("agent-panel.terminal-canvas.room", JSON.stringify(999));
     expect(loadTerminalZoomScale()).toBe(0.02);
     expect(loadTerminalRoom()).toBe(0);
+  });
+
+  it("opens showing everything, remembering only an explicit active-only choice", () => {
+    expect(loadTerminalActiveOnly()).toBe(false);
+    storeTerminalActiveOnly(true);
+    expect(loadTerminalActiveOnly()).toBe(true);
+    expect(localStorage.getItem("agent-panel.terminal-canvas.active-only")).toBe("on");
+    storeTerminalActiveOnly(false);
+    expect(loadTerminalActiveOnly()).toBe(false);
+    expect(localStorage.getItem("agent-panel.terminal-canvas.active-only")).toBeNull();
   });
 });

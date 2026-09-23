@@ -5,6 +5,7 @@ import {
   captureHistoryArgs,
   captureScreenArgs,
   hasSessionArgs,
+  parseTmuxPanes,
   parseTmuxSessionIdentities,
   renameSessionArgs,
   setSessionIdentityArgs,
@@ -15,6 +16,7 @@ import {
   historyForTerminal,
   fullBleedCapture,
   parseTmuxSessions,
+  parseTmuxWindows,
   terminalHistoryPayload,
   TmuxUnavailable,
 } from "@/terminal/tmux/tmuxSessions";
@@ -23,9 +25,71 @@ test("reads one session per line in the order tmux listed them", () => {
   expect(parseTmuxSessions(
     "canvas-fork|1|0|/Users/dev/projects/agent-desk\nkeyboard|3|2|/Users/dev/projects/other\n",
   )).toEqual([
-    { name: "canvas-fork", windows: 1, attachedClients: 0, path: "/Users/dev/projects/agent-desk" },
-    { name: "keyboard", windows: 3, attachedClients: 2, path: "/Users/dev/projects/other" },
+    { name: "canvas-fork", windows: 1, attachedClients: 0, path: "/Users/dev/projects/agent-desk", windowList: [] },
+    { name: "keyboard", windows: 3, attachedClients: 2, path: "/Users/dev/projects/other", windowList: [] },
   ]);
+});
+
+// Pipe separator the windows/panes queries split on, matching the sidecar format.
+const FS = "|";
+
+test("reads windows grouped by session, in index order", () => {
+  const out = [
+    `harbor${FS}3${FS}1${FS}ide`,
+    `harbor${FS}1${FS}0${FS}backend`,
+    `harbor${FS}0${FS}0${FS}zsh`,
+    `solo${FS}0${FS}1${FS}zsh`,
+  ].join("\n");
+  const bySession = parseTmuxWindows(out);
+  expect([...bySession.keys()]).toEqual(["harbor", "solo"]);
+  expect(bySession.get("harbor")).toEqual([
+    { index: 0, name: "zsh", active: false, panes: [] },
+    { index: 1, name: "backend", active: false, panes: [] },
+    { index: 3, name: "ide", active: true, panes: [] },
+  ]);
+});
+
+test("a window name holding the old separator survives, split from the end", () => {
+  const bySession = parseTmuxWindows(`harbor${FS}0${FS}1${FS}a|b`);
+  expect(bySession.get("harbor")).toEqual([{ index: 0, name: "a|b", active: true, panes: [] }]);
+});
+
+test("an unreadable window line is format drift and says so", () => {
+  expect(() => parseTmuxWindows(`harbor${FS}0${FS}1`)).toThrow(TmuxUnavailable);
+  expect(() => parseTmuxWindows(`harbor${FS}x${FS}1${FS}zsh`)).toThrow(TmuxUnavailable);
+  expect(parseTmuxWindows("")).toEqual(new Map());
+});
+
+test("reads panes grouped by session and window, in index order", () => {
+  const out = [
+    `harbor${FS}1${FS}2${FS}1${FS}2.1.280${FS}/Users/dev/work/harbor/.worktrees/verifier-backend`,
+    `harbor${FS}1${FS}0${FS}0${FS}2.1.280${FS}/Users/dev/work/harbor/.worktrees/implementor-backend`,
+    `harbor${FS}0${FS}0${FS}1${FS}zsh${FS}/Users/dev/projects/tmp1`,
+  ].join("\n");
+  const byWindow = parseTmuxPanes(out);
+  expect([...byWindow.keys()]).toEqual(["harbor 1", "harbor 0"]);
+  expect(byWindow.get("harbor 1")).toEqual([
+    { index: 0, active: false, command: "2.1.280", path: "/Users/dev/work/harbor/.worktrees/implementor-backend" },
+    { index: 2, active: true, command: "2.1.280", path: "/Users/dev/work/harbor/.worktrees/verifier-backend" },
+  ]);
+});
+
+test("a pane path holding pipes survives, split from the front", () => {
+  const byWindow = parseTmuxPanes(`harbor${FS}0${FS}0${FS}1${FS}zsh${FS}/tmp/a|b`);
+  expect(byWindow.get("harbor 0")).toEqual([{ index: 0, active: true, command: "zsh", path: "/tmp/a|b" }]);
+});
+
+test("a pipe inside the command stays contained to that one pane", () => {
+  // The command is the last controlled field before the free-form path, so a pipe in it
+  // moves the split: pinned here so the garble is a documented single-pane affair rather
+  // than a listing-wide misparse.
+  const byWindow = parseTmuxPanes(`harbor${FS}0${FS}0${FS}1${FS}a|b${FS}/tmp/x`);
+  expect(byWindow.get("harbor 0")).toEqual([{ index: 0, active: true, command: "a", path: "b|/tmp/x" }]);
+});
+
+test("an unreadable pane line is format drift and says so", () => {
+  expect(() => parseTmuxPanes(`harbor${FS}0${FS}0${FS}1${FS}zsh`)).toThrow(TmuxUnavailable);
+  expect(parseTmuxPanes("")).toEqual(new Map());
 });
 
 test("an empty listing is an empty machine, not a failure", () => {

@@ -43,6 +43,7 @@ import {
 import {
   identifyTerminal,
   liveTmuxSession,
+  tmuxTargetSession,
   type ResolvedAgentTerminalSession,
   type TerminalIdentity,
 } from "@/terminal/agentTerminalIdentity";
@@ -238,7 +239,9 @@ export class AgentTerminalService {
     // older build wrote here, so the session goes back to the owner's own setting; failing costs
     // that repair, not the terminal, so it is reported rather than thrown.
     if (identity.tmuxSession) {
-      this.restoreMouse(identity.tmuxSession).catch((error: unknown) => {
+      // Stripped to the session: `mouse` is a session option and the target may name a window
+      // or pane, which `set-option -t` would refuse for it.
+      this.restoreMouse(tmuxTargetSession(identity.tmuxSession)).catch((error: unknown) => {
         console.error("tmux mouse restore failed", error);
       });
     }

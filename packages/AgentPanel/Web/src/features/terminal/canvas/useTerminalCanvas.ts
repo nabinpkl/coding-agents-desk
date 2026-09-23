@@ -22,7 +22,9 @@ import {
   groupTerminalsByDirectory,
   parseTerminalChildKey,
   terminalChildKey,
+  terminalPaneKey,
   terminalSessionNameError,
+  terminalWindowKey,
   type TerminalGrouping,
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
@@ -30,11 +32,13 @@ import {
   loadHiddenTerminalParents,
   loadOffStripTerminalChildren,
   loadOpenTerminalChildren,
+  loadTerminalActiveOnly,
   loadTerminalRoom,
   loadTerminalZoomMode,
   storeHiddenTerminalParents,
   storeOffStripTerminalChildren,
   storeOpenTerminalChildren,
+  storeTerminalActiveOnly,
   storeTerminalRoom,
   storeTerminalZoomMode,
 } from "@/features/terminal/canvas/terminalCanvasPreferences";
@@ -142,6 +146,17 @@ export function useTerminalCanvas(
     [all, snapshots, roster.bots, roster.machineOf],
   );
   const grouping: TerminalGrouping = useMemo(() => groupTerminalsByDirectory(sources), [sources]);
+  const [activeOnly, setActiveOnly] = useState<boolean>(loadTerminalActiveOnly);
+  useEffect(() => storeTerminalActiveOnly(activeOnly), [activeOnly]);
+  // Active-only hides the empty parents -- workspace roots and Bot directories with nothing
+  // running in them -- while the hues and ranks below still read the whole roster, so toggling
+  // never repaints a face. Residue groups always stand: a pathless session is running work.
+  const visibleGrouping: TerminalGrouping = useMemo(() => activeOnly
+    ? {
+      parents: grouping.parents.filter((parent) => parent.children.length > 0),
+      residue: grouping.residue,
+    }
+    : grouping, [activeOnly, grouping]);
   const identities = useMemo(
     () => [
       ...grouping.parents.map((parent) => ({ key: parent.key, path: parent.path })),
@@ -200,7 +215,15 @@ export function useTerminalCanvas(
     if (!settled) return;
     const liveKeys = new Set<string>();
     for (const parent of [...grouping.parents, ...grouping.residue]) {
-      for (const child of parent.children) liveKeys.add(terminalChildKey(parent.machineId, child.name));
+      for (const child of parent.children) {
+        liveKeys.add(terminalChildKey(parent.machineId, child.name));
+        for (const window of child.windowList) {
+          liveKeys.add(terminalWindowKey(parent.machineId, child.name, window.index));
+          for (const pane of window.panes) {
+            liveKeys.add(terminalPaneKey(parent.machineId, child.name, window.index, pane.index));
+          }
+        }
+      }
     }
     const next = new Set(
       [...openChildren].filter((key) => parseTerminalChildKey(key) !== null && liveKeys.has(key)),
@@ -331,7 +354,7 @@ export function useTerminalCanvas(
 
   return {
     all,
-    grouping,
+    grouping: visibleGrouping,
     hues,
     ranks,
     loading,
@@ -378,6 +401,8 @@ export function useTerminalCanvas(
     }),
     onKillChild,
     onSelectChild,
+    activeOnly,
+    onToggleActiveOnly: () => setActiveOnly((on) => !on),
     zoomMode,
     onToggleZoomMode: () => setZoomMode((on) => !on),
     zoomRoom,

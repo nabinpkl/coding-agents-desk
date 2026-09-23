@@ -20,6 +20,7 @@ import {
   terminalSessionNameError,
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
+import { TerminalWindowRows } from "@/features/terminal/canvas/TerminalWindowRows";
 import {
   terminalChildSteps,
   terminalChildStyle,
@@ -254,6 +255,7 @@ export function TerminalSidebarParent({
               <TerminalSidebarChild
                 key={childKey}
                 session={child}
+                machineId={parent.machineId}
                 hue={hue}
                 step={step}
                 // Its own face rather than its parent's, so siblings never share one.
@@ -266,7 +268,9 @@ export function TerminalSidebarParent({
                 noCard={off || offStripChildren.has(childKey)}
                 offStripChild={offStripChildren.has(childKey)}
                 open={openChildren.has(childKey)}
+                openKeys={openChildren}
                 onSelect={() => onSelectChild(childKey)}
+                onSelectKey={(key) => onSelectChild(key)}
                 onHide={() => onHideChild(childKey)}
                 onShow={() => onSelectChild(childKey)}
                 onKill={() => onKillChild(childKey)}
@@ -285,18 +289,22 @@ export function TerminalSidebarParent({
 
 function TerminalSidebarChild({
   session,
+  machineId,
   hue,
   step,
   faceRank,
   noCard,
   offStripChild,
   open,
+  openKeys,
   onSelect,
+  onSelectKey,
   onHide,
   onShow,
   onKill,
 }: {
   session: TmuxSessionSummary;
+  machineId: string | undefined;
   hue: number | undefined;
   step: number | undefined;
   /** Which face this session wears, from its parent's rank and its own step. */
@@ -306,7 +314,11 @@ function TerminalSidebarChild({
   /** This child itself is off the strip (as opposed to its parent being off). */
   offStripChild: boolean;
   open: boolean;
+  /** Every open tile key: the window rows below toggle their own keys in this set. */
+  openKeys: ReadonlySet<string>;
   onSelect: () => void;
+  /** Opens a window or pane tile inside this session's card, returning hidden rows first. */
+  onSelectKey: (key: string) => void;
   onHide: () => void;
   onShow: () => void;
   onKill: () => Promise<void>;
@@ -402,6 +414,12 @@ function TerminalSidebarChild({
             </span>
           ) : null}
         </button>
+        <TerminalWindowRows
+          machineId={machineId}
+          session={session}
+          openKeys={openKeys}
+          onToggleKey={onSelectKey}
+        />
         {confirming ? (
           <div
             role="alertdialog"

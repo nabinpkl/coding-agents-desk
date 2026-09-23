@@ -36,7 +36,7 @@ class FakeTerminal {
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
 
 function session(name: string, path: string) {
-  return { name, windows: 1, attachedClients: 0, path };
+  return { name, windows: 1, attachedClients: 0, path, windowList: [] };
 }
 
 function machineFeed(sessions: unknown[], roots: string[] = [], bots: unknown[] = []) {
@@ -102,7 +102,7 @@ it("starts a shell in the parent's directory and opens it", async () => {
   vi.mocked(home.openTerminal).mockImplementation(async (context) => {
     const target = context as { kind: string; session?: string; directory?: string };
     if (target.kind === "tmux-new" && target.session && target.directory) {
-      sessions.push({ name: target.session, windows: 1, attachedClients: 0, path: target.directory });
+      sessions.push({ name: target.session, windows: 1, attachedClients: 0, path: target.directory, windowList: [] });
     }
     return {
       terminalId: "terminal-9",
@@ -146,7 +146,7 @@ it("starts a shell from the roster under a typed name", async () => {
   vi.mocked(home.openTerminal).mockImplementation(async (context) => {
     const target = context as { kind: string; session?: string; directory?: string };
     if (target.kind === "tmux-new" && target.session && target.directory) {
-      sessions.push({ name: target.session, windows: 1, attachedClients: 0, path: target.directory });
+      sessions.push({ name: target.session, windows: 1, attachedClients: 0, path: target.directory, windowList: [] });
     }
     return {
       terminalId: "terminal-9",

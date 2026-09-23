@@ -4,7 +4,7 @@
 // Identity is a session option rather than the name, so a session can be renamed to
 // something a person types at `tmux attach` without the panel losing it.
 
-import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
+import type { TmuxPaneSummary, TmuxSessionSummary, TmuxWindowSummary } from "@agentdesk/agent-feed-wire";
 import { noServerRunning, noSuchSession, TmuxUnavailable, tmux } from "@/terminal/tmux/tmuxCommand";
 
 /**
@@ -30,6 +30,7 @@ export function parseTmuxSessions(stdout: string): TmuxSessionSummary[] {
       windows: Number(windows) || 0,
       attachedClients: Number(attached) || 0,
       path,
+      windowList: [],
     });
   }
   return sessions;
@@ -207,10 +208,131 @@ function shellQuote(value: string): string {
 /** Empty when the server is not running, which is not a failure: nobody has started a session. */
 export async function listTmuxSessions(): Promise<TmuxSessionSummary[]> {
   const { out, err, code } = await tmux(["list-sessions", "-F", LIST_FORMAT]);
-  if (code === 0) return parseTmuxSessions(out);
-  // An empty machine is how tmux reports no server, and it exits non-zero saying so.
-  if (noServerRunning(err)) return [];
-  throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
+  if (code !== 0) {
+    // An empty machine is how tmux reports no server, and it exits non-zero saying so.
+    if (noServerRunning(err)) return [];
+    throw new TmuxUnavailable(`tmux list-sessions exited ${code}: ${err.trim() || out.trim()}`);
+  }
+  const sessions = parseTmuxSessions(out);
+  if (sessions.length === 0) return sessions;
+  // Windows and panes ride two more queries because one session row is no longer the whole
+  // story: a session with four windows shows one child and hides three. Both list across ALL
+  // sessions (`-a`) rather than one call per session, so a wall of sessions still costs three
+  // round trips, not three per session.
+  foldWindows(sessions, await listTmuxWindows());
+  return sessions;
+}
+
+/**
+ * Every window on the server, grouped by session, in index order.
+ *
+ * A server that died between the sessions query and this one reads as no windows rather than
+ * as a failed tab: the sessions just listed are a millisecond stale either way, and the next
+ * refresh retries. Anything else throws, the same as the sessions query.
+ */
+async function listTmuxWindows(): Promise<Map<string, TmuxWindowSummary[]>> {
+  const { out, err, code } = await tmux(["list-windows", "-a", "-F", WINDOWS_FORMAT]);
+  if (code !== 0) {
+    if (noServerRunning(err)) return new Map();
+    throw new TmuxUnavailable(`tmux list-windows exited ${code}: ${err.trim() || out.trim()}`);
+  }
+  const bySession = parseTmuxWindows(out);
+  const panes = await listTmuxPanes();
+  for (const [session, windows] of bySession) {
+    for (const window of windows) {
+      window.panes = panes.get(`${session} ${window.index}`) ?? [];
+    }
+  }
+  return bySession;
+}
+
+async function listTmuxPanes(): Promise<Map<string, TmuxPaneSummary[]>> {
+  const { out, err, code } = await tmux(["list-panes", "-a", "-F", PANES_FORMAT]);
+  if (code !== 0) {
+    if (noServerRunning(err)) return new Map();
+    throw new TmuxUnavailable(`tmux list-panes exited ${code}: ${err.trim() || out.trim()}`);
+  }
+  return parseTmuxPanes(out);
+}
+
+function foldWindows(sessions: TmuxSessionSummary[], bySession: Map<string, TmuxWindowSummary[]>): void {
+  for (const session of sessions) {
+    session.windowList = bySession.get(session.name) ?? [];
+  }
+}
+
+/**
+ * Field separator for the windows and panes queries.
+ *
+ * `|` the way the sessions query uses it, because control bytes are NOT an option: the
+ * sidecar runs locale-stripped and tmux in the C locale sanitizes control bytes in `-F`
+ * output to `_` (measured: a tab separator arrived underscored). A window NAME and a pane
+ * PATH can both hold a pipe, so the free-form fields ride LAST and join the remainder --
+ * fully robust for windows, and for panes everything past the command, which pins the one
+ * residual: a `|` inside a pane's command garbles that single pane's row rather than the
+ * listing. Splitting is positional throughout: the leading fields are all controlled.
+ */
+const SEP = "|";
+
+/** Session, index and active flag first; the free-form name last, never split. */
+const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_index}${SEP}#{window_active}${SEP}#{window_name}`;
+
+/** Session, window, pane, active flag, command first; the free-form path last, never split. */
+const PANES_FORMAT = `#{session_name}${SEP}#{window_index}${SEP}#{pane_index}${SEP}#{pane_active}${SEP}#{pane_current_command}${SEP}#{pane_current_path}`;
+
+function splitFields(line: string, count: number): string[] | null {
+  const fields = line.split(SEP);
+  if (fields.length < count) return null;
+  const head = fields.slice(0, count - 1);
+  head.push(fields.slice(count - 1).join(SEP));
+  return head;
+}
+
+export function parseTmuxWindows(stdout: string): Map<string, TmuxWindowSummary[]> {
+  const bySession = new Map<string, TmuxWindowSummary[]>();
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const fields = splitFields(line, 4);
+    // Same contract as the sessions parser: an unreadable line is format drift, said loudly.
+    if (!fields) throw new TmuxUnavailable(`tmux list-windows returned an unreadable line: ${line}`);
+    const [session, index, active, name] = fields as [string, string, string, string];
+    if (!session || !/^\d+$/.test(index) || (active !== "0" && active !== "1") || !name) {
+      throw new TmuxUnavailable(`tmux list-windows returned an unreadable line: ${line}`);
+    }
+    const list = bySession.get(session) ?? [];
+    list.push({
+      index: Number(index),
+      name,
+      active: active === "1",
+      panes: [],
+    });
+    bySession.set(session, list);
+  }
+  for (const list of bySession.values()) {
+    list.sort((a, b) => a.index - b.index);
+  }
+  return bySession;
+}
+
+export function parseTmuxPanes(stdout: string): Map<string, TmuxPaneSummary[]> {
+  const byWindow = new Map<string, TmuxPaneSummary[]>();
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const fields = splitFields(line, 6);
+    if (!fields) throw new TmuxUnavailable(`tmux list-panes returned an unreadable line: ${line}`);
+    const [session, window, pane, active, command, path] = fields as [string, string, string, string, string, string];
+    if (!session || !/^\d+$/.test(window) || !/^\d+$/.test(pane) || (active !== "0" && active !== "1")) {
+      throw new TmuxUnavailable(`tmux list-panes returned an unreadable line: ${line}`);
+    }
+    const key = `${session} ${window}`;
+    const list = byWindow.get(key) ?? [];
+    list.push({ index: Number(pane), active: active === "1", command, path });
+    byWindow.set(key, list);
+  }
+  for (const list of byWindow.values()) {
+    list.sort((a, b) => a.index - b.index);
+  }
+  return byWindow;
 }
 
 export function killSessionArgs(session: string): string[] {

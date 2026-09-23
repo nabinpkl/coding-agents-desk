@@ -44,16 +44,22 @@ export interface TerminalTileSession {
   attachedClients?: number;
 }
 
-export function TerminalTile({ feed, session, storageKey, onAttachImage }: {
+export function TerminalTile({ feed, session, target, storageKey, onAttachImage }: {
   feed: SidecarDataSource;
   session: TerminalTileSession;
-  /** The child key (`machine:name`) this grid is remembered under. */
+  /**
+   * The tmux target to attach to: the session, or one of its `window` / `window.pane` targets.
+   * Absent means the session, which lands on its active window's active pane.
+   */
+  target?: string;
+  /** The child key (`machine:name`, or with a window/pane suffix) this grid is remembered under. */
   storageKey: string;
   /** Sends picked files down the card's image accept: bytes to the sidecar, path into the pane. */
   onAttachImage: (files: readonly File[]) => void;
 }) {
   const [state, setState] = useState<AgentTerminalState | null>(null);
-  const context: AgentTerminalContext = { kind: "tmux", session: session.name };
+  const context: AgentTerminalContext = { kind: "tmux", session: target ?? session.name };
+  const label = target ?? session.name;
   const onState = useCallback((_context: AgentTerminalContext, next: AgentTerminalState) => {
     setState(next);
   }, []);
@@ -176,11 +182,11 @@ export function TerminalTile({ feed, session, storageKey, onAttachImage }: {
 
   return (
     <section
-      aria-label={`${session.name} terminal`}
+      aria-label={`${label} terminal`}
       className="relative flex w-fit flex-col overflow-hidden rounded border border-border bg-white dark:bg-[#0b0e14]"
     >
       <header className="flex min-h-6 shrink-0 items-center justify-between gap-2 border-b border-border px-2 font-mono text-[10px]">
-        <span className="truncate font-semibold">{session.name}</span>
+        <span className="truncate font-semibold">{label}</span>
         <span className="shrink-0 text-muted-foreground">
           {session.attachedClients === undefined
             ? ""
@@ -212,7 +218,7 @@ export function TerminalTile({ feed, session, storageKey, onAttachImage }: {
             resize refused while a human watches keeps showing the shape in force. */}
         <button
           type="button"
-          aria-label={`Attach an image to ${session.name}`}
+          aria-label={`Attach an image to ${label}`}
           title="Attach image"
           onClick={() => picker.current?.click()}
           className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/60 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
@@ -257,7 +263,7 @@ export function TerminalTile({ feed, session, storageKey, onAttachImage }: {
       ) : null}
       <button
         type="button"
-        aria-label={`Resize ${session.name} terminal width`}
+        aria-label={`Resize ${label} terminal width`}
         title="Drag to resize width"
         onPointerDown={(event) => {
           if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -286,7 +292,7 @@ export function TerminalTile({ feed, session, storageKey, onAttachImage }: {
       </button>
       <button
         type="button"
-        aria-label={`Resize ${session.name} terminal height`}
+        aria-label={`Resize ${label} terminal height`}
         title="Drag to resize height"
         onPointerDown={(event) => {
           if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -315,7 +321,7 @@ export function TerminalTile({ feed, session, storageKey, onAttachImage }: {
       </button>
       <button
         type="button"
-        aria-label={`Resize ${session.name} terminal`}
+        aria-label={`Resize ${label} terminal`}
         title="Drag to resize"
         onPointerDown={(event) => {
           if (event.pointerType === "mouse" && event.button !== 0) return;

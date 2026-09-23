@@ -128,7 +128,7 @@ export async function identifyTerminal(
  * descriptor carries it as the terminal's label on both backends.
  */
 function identifyTmux(deps: TerminalIdentityDeps, context: TmuxTerminalContext): TerminalIdentity {
-  const session = tmuxSessionName(context.session);
+  const session = tmuxTarget(context.session);
   return {
     ptySessionName: `agent-tmux-${session}`,
     tmuxSession: session,
@@ -170,7 +170,7 @@ async function identifyNewTmux(
 }
 
 /**
- * What tmux will accept as `-t <session>` on an argument vector this process builds.
+ * What tmux will accept as `-t <target>` on an argument vector this process builds.
  *
  * One check for both tmux kinds, because the danger is the same either way: a name that is not
  * a plain identifier is refused once, at the door, instead of at each call site.
@@ -180,6 +180,26 @@ function tmuxSessionName(session: string): string {
     throw new AgentTerminalInvalidError("tmux session name is not a plain identifier");
   }
   return session;
+}
+
+/**
+ * A session, window or pane to attach to: `session`, `session:window` or `session:window.pane`.
+ *
+ * The session half keeps the plain-identifier rule above, and the window and pane halves are
+ * numeric indexes, so the whole target is still built from validated pieces rather than a raw
+ * string reaching `-t`. Session names cannot hold `:` or `.`, which is what keeps the suffixes
+ * unambiguous. Only the attach path takes this: starting a session names one with `-s`, where
+ * a suffixed target would be a second session with a strange name rather than a window of one.
+ */
+export function tmuxTarget(target: string): string {
+  const match = /^([A-Za-z0-9_][A-Za-z0-9_.-]{0,63})(?::(\d+)(?:\.(\d+))?)?$/.exec(target);
+  if (!match) throw new AgentTerminalInvalidError("tmux target is not a session, window or pane");
+  return target;
+}
+
+/** The session half of an attach target, for verbs that only take a session. */
+export function tmuxTargetSession(target: string): string {
+  return tmuxTarget(target).split(":")[0]!;
 }
 
 /**

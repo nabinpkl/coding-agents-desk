@@ -1,3 +1,23 @@
+/** One tmux pane, as folded into its window by `GET /api/tmux/sessions`. */
+export interface TmuxPaneSummary {
+  index: number;
+  /** Whether this is the window's active pane, the one a viewer of the window reads. */
+  active: boolean;
+  /** What the pane is running, e.g. `zsh` or `node`. */
+  command: string;
+  /** The pane's working directory, for telling same-named panes apart. */
+  path: string;
+}
+
+/** One tmux window, as folded into its session by `GET /api/tmux/sessions`. */
+export interface TmuxWindowSummary {
+  index: number;
+  name: string;
+  /** Whether this is the session's active window, the one a session attach lands on. */
+  active: boolean;
+  panes: TmuxPaneSummary[];
+}
+
 /** One tmux session, as `GET /api/tmux/sessions` reports it. */
 export interface TmuxSessionSummary {
   name: string;
@@ -6,6 +26,8 @@ export interface TmuxSessionSummary {
   attachedClients: number;
   /** The session's working directory, which is the closest thing it has to a project. */
   path: string;
+  /** Every window standing in the session, by index. Empty when the listing predates windows. */
+  windowList: TmuxWindowSummary[];
 }
 
 /** A provider session whose CLI should be resumed inside the Agent Feed terminal. */
@@ -22,10 +44,14 @@ export interface AgentSessionTerminalContext {
  * The distinction is the point: resuming a session opens a second client to a transcript, while
  * attaching shows the process somebody is already running. tmux is what makes the second viewer
  * legal, so watching a live agent goes through here and not through the resume above.
+ *
+ * A window or pane target narrows the attach: `session`, `session:window` or
+ * `session:window.pane`, the same forms `tmux -t` takes. Session names cannot hold `:` or `.`,
+ * so the suffixes are unambiguous. A bare session lands on its active window's active pane.
  */
 export interface TmuxTerminalContext {
   kind: "tmux";
-  /** As `GET /api/tmux/sessions` names it. */
+  /** As `GET /api/tmux/sessions` names it, optionally suffixed with `:window` or `:window.pane`. */
   session: string;
 }
 
