@@ -12,7 +12,7 @@ import { describe, expect, test } from "vitest";
 const HEADS_IN_SET = 25;
 import { render, screen } from "@testing-library/react";
 import {
-  BOT_FACE_DRAWINGS, BOT_FACE_PAIRS, BotFace, botFaceOf, eyePath, shutEyePath,
+  BOT_FACE_DRAWINGS, BOT_FACE_PAIRS, BotFace, botFaceOf, eyePath, pupilPath, shutEyePath,
 } from "@/features/bots/avatar/BotFace";
 import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSurface";
 
@@ -140,78 +140,88 @@ describe("botFaceOf", () => {
 });
 
 /**
- * What an eye's outline has to keep doing, now that it carries the face's whole expression.
+ * What an eye has to keep doing, now that one drawing carries every face.
  *
- * The drawing is a taste question and was settled in a browser. Three things under it are not, and
- * each fails silently. A lid that stops riding up puts the open set back to the flat-bottomed holes
- * a reader called sad. A shut lid that stops arching puts the resting roster -- which is most of
- * it -- back to a column of bars. And the two forms have to stay ONE drawing, command for command,
- * or `styles.css` cannot transition between them and a fold swaps the eyes instead of closing them.
+ * The shapes are a taste question and were settled in a browser. Four things under them are not,
+ * and each fails silently. A white that stops being symmetric reads as rounded at one end and
+ * drawn out at the other. A pupil that leaves the white is a dark mark floating on a head. A lid
+ * whose arch flattens is the bar a reader called sad. And the shut form has to stand where the
+ * open one does, or a card folding looks like the eyes jumping rather than closing.
  */
 describe("eyePath", () => {
   const eyeOf = (rank: number) => botFaceOf(rank).eyes[0]!;
-  /** The lid's control point, which is the last pair before the path closes. */
+  const extentOf = (path: string) => {
+    const points = pointsOf(path);
+    return {
+      top: Math.min(...points.map(([, y]) => y)),
+      bottom: Math.max(...points.map(([, y]) => y)),
+      left: Math.min(...points.map(([x]) => x)),
+      right: Math.max(...points.map(([x]) => x)),
+    };
+  };
+  /** An arch's belly, which is the last control point before the path closes. */
   const bellyOf = (path: string) => Number(/C[\d.]+ (-?[\d.]+) /.exec(path)![1]);
-  const commandsOf = (path: string) => path.replace(/[^MLQCZ]/g, "");
 
-  test("the open lid rides up, and the shut one arches through the eye line", () => {
+  test("the white is symmetric about the eye line, top cap to bottom cap", () => {
+    // Both caps are the same curve mirrored, so the outline reaches exactly as far below the eye
+    // line as above it -- control points included, which makes this an assertion about the curves
+    // rather than about their endpoints.
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
       const eye = eyeOf(rank);
-      // Below the eye line but well short of a full half-height: an open eye, lifted.
-      expect(bellyOf(eyePath(eye))).toBeGreaterThan(eye.cy);
-      expect(bellyOf(eyePath(eye))).toBeLessThan(eye.cy + eye.ry);
-      // Above it: a closed lid, which is the whole difference between contented and switched off.
+      const { top, bottom, left, right } = extentOf(eyePath(eye));
+      expect(eye.cy - top).toBeCloseTo(bottom - eye.cy, 2);
+      expect(left).toBeCloseTo(eye.cx - eye.rx, 2);
+      expect(right).toBeCloseTo(eye.cx + eye.rx, 2);
+    }
+  });
+
+  test("the pupil arches, and stays inside the white it sits in", () => {
+    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
+      const eye = eyeOf(rank);
+      const white = extentOf(eyePath(eye));
+      const pupil = extentOf(pupilPath(eye));
+      // Ends down, middle up: the belly of the arch sits above the line its ends stand on.
+      expect(bellyOf(pupilPath(eye))).toBeLessThan(eye.cy + eye.ry * 0.42);
+      expect(pupil.left).toBeGreaterThan(white.left);
+      expect(pupil.right).toBeLessThan(white.right);
+      expect(pupil.top).toBeGreaterThan(white.top);
+      expect(pupil.bottom).toBeLessThan(white.bottom);
+    }
+  });
+
+  test("a shut eye is the lid alone, arching on the eye line", () => {
+    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
+      const eye = eyeOf(rank);
+      const shut = extentOf(shutEyePath(eye));
       expect(bellyOf(shutEyePath(eye))).toBeLessThan(eye.cy);
+      // Nothing hangs below the eye line: the lid stands ON it.
+      expect(shut.bottom).toBeCloseTo(eye.cy, 2);
+      expect(shut.top).toBeGreaterThan(extentOf(eyePath(eye)).top);
     }
   });
 
-  test("the open eye still reaches its own top and its own width", () => {
-    // The lift is the BOTTOM lid's. An eye that lost its height or its width would be a different
-    // eye, and the shapes are what say which session this is.
+  test("a shut eye stands on the white's own points, so folding closes rather than moves", () => {
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
       const eye = eyeOf(rank);
-      const points = pointsOf(eyePath(eye));
-      expect(Math.min(...points.map(([, y]) => y))).toBeCloseTo(eye.cy - eye.ry, 5);
-      expect(Math.min(...points.map(([x]) => x))).toBeCloseTo(eye.cx - eye.rx, 5);
-      expect(Math.max(...points.map(([x]) => x))).toBeCloseTo(eye.cx + eye.rx, 5);
-    }
-  });
-
-  test("a shut eye is plainly thinner than the open one, on the same stations", () => {
-    // Shut has to read as shut rather than as a squint, and it must not move: same width, same
-    // centre, a lower ceiling.
-    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
-      const eye = eyeOf(rank);
-      const openTop = Math.min(...pointsOf(eyePath(eye)).map(([, y]) => y));
-      const shutPoints = pointsOf(shutEyePath(eye));
-      expect(Math.min(...shutPoints.map(([, y]) => y))).toBeGreaterThan(openTop);
-      expect(Math.min(...shutPoints.map(([x]) => x))).toBeCloseTo(eye.cx - eye.rx, 5);
-      expect(Math.max(...shutPoints.map(([x]) => x))).toBeCloseTo(eye.cx + eye.rx, 5);
-    }
-  });
-
-  test("the two forms are the same path, so the lid can be transitioned closed", () => {
-    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
-      const eye = eyeOf(rank);
-      expect(commandsOf(shutEyePath(eye))).toBe(commandsOf(eyePath(eye)));
-      expect(pointsOf(shutEyePath(eye)).length).toBe(pointsOf(eyePath(eye)).length);
+      const open = extentOf(eyePath(eye));
+      const shut = extentOf(shutEyePath(eye));
+      expect(shut.left).toBeCloseTo(open.left, 2);
+      expect(shut.right).toBeCloseTo(open.right, 2);
     }
   });
 
   test("every face wears the one eye, sized by the head it sits in", () => {
     // One shape everywhere: what differs between two faces is the head and what stands on it, and
     // the eye only ever gives up width or height to the head it has to fit inside.
-    const shapes = new Set<string>();
+    const sizes = new Set<string>();
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
       const [left, right] = botFaceOf(rank).eyes;
       expect(botFaceOf(rank).eyes).toHaveLength(2);
       expect(left!.rx).toBe(right!.rx);
       expect(left!.ry).toBe(right!.ry);
-      // A capsule: the corner radius IS the half-width, at every size the head allows.
-      expect(left!.round).toBe(left!.rx);
-      shapes.add(`${left!.rx}:${left!.ry}`);
+      sizes.add(`${left!.rx}:${left!.ry}`);
     }
-    expect(shapes.size).toBeLessThanOrEqual(HEADS_IN_SET);
+    expect(sizes.size).toBeLessThanOrEqual(HEADS_IN_SET);
   });
 });
 
@@ -230,11 +240,16 @@ describe("BotFace", () => {
     // path now, so the class agreeing is not evidence that the eyes closed.
     const eye = botFaceOf(2).eyes[0]!;
     const { container, rerender } = render(<BotFace rank={2} />);
-    const socket = "path[fill='var(--bot-face-socket)']";
-    const path = () => container.querySelector(socket)!.getAttribute("d");
-    expect(path()).toBe(eyePath(eye));
+    const eyes = () => container.querySelector(".bot-face-eyes")!;
+    const drawn = (fill: string) =>
+      [...eyes().querySelectorAll(`path[fill='${fill}']`)].map((path) => path.getAttribute("d"));
+    expect(drawn("var(--bot-face-socket)")).toContain(eyePath(eye));
+    expect(drawn("currentColor")).toContain(pupilPath(eye));
     rerender(<BotFace rank={2} shut />);
-    expect(path()).toBe(shutEyePath(eye));
+    expect(drawn("var(--bot-face-socket)"))
+      .toEqual([shutEyePath(eye), shutEyePath(botFaceOf(2).eyes[1]!)]);
+    // Nothing dark is left: a shut eye is the lid, with no white and no pupil under it.
+    expect(drawn("currentColor")).toEqual([]);
   });
 
   test("two Bots on one screen do not blink together", () => {

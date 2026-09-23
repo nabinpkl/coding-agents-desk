@@ -739,22 +739,19 @@
     );
   }
 
-  /* Closing moves the LID, not the whole eye. `BotFace` writes both forms as the same sequence of
-     path commands, so the shut one interpolates from the open one and the close is a transition on
-     `d` rather than a swap. It used to be `scaleY(0.24)` on the group, which was a squash: curvature
-     scales with the shape, so a quarter of a four-unit eye is under a pixel and every closed eye
-     rendered as a flat bar. A bar across a mouthless face is a closed mouth, and a roster of resting
-     sessions is mostly closed eyes, so that one number is what made the set look glum.
+  /* Closing draws the lid instead of squashing the eye. It used to be `scaleY(0.24)` on the group,
+     which was a squash: curvature scales with the shape, so a quarter of a four-unit eye is under a
+     pixel and every closed eye rendered as a flat bar. A bar across a mouthless face is a closed
+     mouth, and a roster of resting sessions is mostly closed eyes, so that one number is what made
+     the set look glum. `BotFace` draws the shut lid as its own outline, and the swap is immediate:
+     the two forms are different shapes rather than one shape at two sizes, so there is nothing for
+     `transition: d` to interpolate between.
 
-     `fill-box` and the transform below are still the BLINK's: the default `view-box` origin would
-     scale the eyes about the middle of the 32x32 canvas and slide them up the head as they closed. */
+     `fill-box` and the transform below are the BLINK's: the default `view-box` origin would scale
+     the eyes about the middle of the 32x32 canvas and slide them up the head as they closed. */
   .bot-face-eyes {
     transform-box: fill-box;
     transform-origin: center;
-  }
-
-  .bot-face-eyes path {
-    transition: d 140ms ease;
   }
 
   /* A blink stays a squash, and it is the one place a squash is right: it is a movement rather than
@@ -774,10 +771,6 @@
      just arrive shut. A blink has nothing to say that the open eyes were not already saying, so it
      goes entirely. */
   @media (prefers-reduced-motion: reduce) {
-    .bot-face-eyes path {
-      transition: none;
-    }
-
     .bot-face-eyes--open {
       animation: none;
     }
