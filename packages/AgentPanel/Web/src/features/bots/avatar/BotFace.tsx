@@ -26,10 +26,10 @@
 //   its centre, and every top was checked to overlap the head it stands on.
 //
 // No mouth: at the size a session's mark is drawn a mouth is two or three pixels that every
-// variant would spend on looking the same. What carries the expression is the eye itself: it
-// arches, open and shut alike (`eyeArch`), and shutting brings the lid down over it. That arch
-// is what a resting roster is mostly made of, and it is the drawing a reader called sad back
-// when it was a flat bar.
+// variant would spend on looking the same. What carries the expression is the eye itself. Open,
+// it is a white with a dark pupil standing in the middle of it, the way an eye is built. Shut,
+// the lid comes down over it and ARCHES (`eyeArch`), which is what a resting roster is mostly
+// made of and the drawing a reader called sad back when it was a flat bar.
 //
 // Derived, never stored, for the reason `botSurface.ts` gives about colour: a face nobody chose is
 // not an arrangement of this reader's, so it is not storage, and it is not a record the sidecar
@@ -81,10 +81,13 @@ export function setBotFaces(on: boolean): void {
  * half-height an eye can take here before its outline leaves the head. Between them they are why
  * one eye can serve all twenty-five heads without ever hanging off an edge.
  *
- * `rise` is MEASURED rather than judged: the tallest half-height at which the white, the pupil
- * and the shut lid all kept their whole outline inside this head with a third of a unit to
- * spare, walked in steps of 0.15 in a browser against `isPointInFill`. They run from 3.75 on
- * the oval-wide head, whose chin is barely below the eye line, to 11.55 on the tall one.
+ * `rise` is MEASURED rather than judged: the tallest half-height at which the white and the shut
+ * lid both kept their whole outline inside this head with a third of a unit to spare, walked in
+ * steps of 0.15 in a browser against `isPointInFill`. They run from 3.75 on the star, whose
+ * points pinch its outline in to almost nothing above and below the eye line, to 11.55 on the
+ * tall one. The pupil is not
+ * measured with them because it is drawn strictly inside the white: a white that fits carries
+ * its pupil in with it.
  *
  * One head is under `EYE_RY` and wears a smaller eye for it; every other head wears the same
  * one. That is what the ceiling is for, and the failure it prevents -- an outline sliced off by
@@ -153,8 +156,8 @@ const n = (value: number): number => Number(value.toFixed(2));
 
 /**
  * Where an eye sits and how big it is: the centre of the white, its half-width and its
- * half-height. Everything inside it -- the pupil's width, how far down it starts, how high it
- * arches -- is a fraction of these, so a head that has to shrink an eye shrinks all of it.
+ * half-height. Everything inside it -- the pupil's radius, the arch of the shut lid -- is a
+ * fraction of these, so a head that has to shrink an eye shrinks all of it.
  */
 export interface Eye {
   cx: number;
@@ -173,23 +176,27 @@ const EYE_Y = 17;
 const BELLY = 4 / 3;
 
 /**
- * The PUPIL, as fractions of the white it sits in: how wide, how far below the eye line it
- * stands, how high it arches and how far its own lid rises.
+ * The PUPIL, as a fraction of the shorter half-axis of the white it sits in.
  *
  * An eye is two tones. The set had one for a long time -- the eye was a hole, the disc's own
  * colour showing through the head -- and a hole cannot be happy or anything else, which is how a
- * roster of them came to read as blank. Two tones give the eye a white to be an eye and a dark
- * part to have an expression, and the expression is an ARCH: ends down, middle up, which is what a
- * smile does to an eye and the one cue that survives at 32px, where a mouth is two pixels.
+ * roster of them came to read as blank.
+ *
+ * It is built the way an eye is built: the DARK part is a disc in the MIDDLE, and the white is
+ * what surrounds it and the larger of the two. The first attempt at two tones had that the other
+ * way round -- a wide dark arch standing low in the white, so the dark was the mass and the white
+ * a rim around its edges -- which is a brow or a squint rather than an eye looking at you.
+ *
+ * `0.6` of the shorter half-axis is what leaves white visible on every side at 32px, the size a
+ * session's mark is drawn: a fatter pupil closes the sides to a hairline and the eye reads as one
+ * dark blob again, a thinner one is a dot on a plate. The SHORTER axis, so the pupil stays round
+ * on a head whose `rise` has squeezed the white as well as on one that has not.
  *
  * The pupil takes `currentColor`, which is the head's own colour, and the white takes the disc's.
  * So the two tones are the two the face already had, and nothing here needs a token of its own or
  * a contrast measurement: what shows in an eye is either the head or the ground behind the face.
  */
-const PUPIL_WIDTH = 0.78;
-const PUPIL_BASE = 0.42;
-const PUPIL_CROWN = 0.72;
-const PUPIL_LIFT = 0.42;
+const PUPIL_SIZE = 0.6;
 
 /**
  * A SHUT eye: the lid down, and no white left under it.
@@ -201,10 +208,10 @@ const PUPIL_LIFT = 0.42;
  * eye stops reading as closed. A bar across a mouthless face is a closed mouth, which is why a
  * roster of resting sessions read as a column of glum faces.
  *
- * So a closed eye is the lid alone, drawn in the white's colour: the same arch the pupil makes,
- * on the same two points, with the eye gone from under it. That is a closed eye that is still
- * pleased about it, and at a glance down the roster it is the difference between a Bot resting
- * and a Bot switched off.
+ * So a closed eye is the lid alone, drawn in the white's colour: an arch standing on the two
+ * points the white's own sides stand on, with the eye gone from under it. That is a closed eye
+ * that is still pleased about it, and at a glance down the roster it is the difference between a
+ * Bot resting and a Bot switched off.
  */
 const SHUT_CROWN = 0.64;
 const SHUT_LIFT = 0.44;
@@ -213,9 +220,10 @@ const SHUT_LIFT = 0.44;
  * An arch: ends on its own baseline, a domed top, and a lid curving up underneath it.
  *
  * `crown` is how far the dome rises above the baseline and `lift` how far the lid follows it up,
- * so the difference between them is the arch's thickness. Both the pupil and the shut lid are
- * this shape at different settings, which is what makes a fold read as the lid coming down over
- * the same eye rather than as a second mark.
+ * so the difference between them is the arch's thickness. Only the shut lid is drawn with it --
+ * both parts of an open eye are the capsule below -- and it stands on the white's own stations,
+ * which is what makes a fold read as the lid coming down over the same eye rather than as a
+ * second mark.
  */
 function eyeArch(cx: number, baseline: number, rx: number, crown: number, lift: number): string {
   const left = cx - rx;
@@ -256,15 +264,18 @@ export function eyePath(eye: Eye): string {
   ].join("");
 }
 
-/** The dark part of an open eye, standing in the lower half of the white and arching up. */
+/**
+ * The dark part of an open eye: a round pupil on the white's own centre, with white left all
+ * around it.
+ *
+ * It is `eyePath` at one radius rather than a shape of its own, so the pupil is the white's
+ * outline scaled down and the two can never disagree about how they are rounded. Concentric and
+ * smaller on both axes is also why containment needs no measuring here: a white that is inside
+ * its head carries its pupil in with it.
+ */
 export function pupilPath(eye: Eye): string {
-  return eyeArch(
-    eye.cx,
-    eye.cy + eye.ry * PUPIL_BASE,
-    eye.rx * PUPIL_WIDTH,
-    eye.ry * PUPIL_CROWN,
-    eye.ry * PUPIL_LIFT,
-  );
+  const radius = n(Math.min(eye.rx, eye.ry) * PUPIL_SIZE);
+  return eyePath({ cx: eye.cx, cy: eye.cy, rx: radius, ry: radius });
 }
 
 /** A shut eye: the lid alone, on the eye line, in the white's own colour. */

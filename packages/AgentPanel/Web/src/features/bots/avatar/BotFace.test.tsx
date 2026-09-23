@@ -144,9 +144,10 @@ describe("botFaceOf", () => {
  *
  * The shapes are a taste question and were settled in a browser. Four things under them are not,
  * and each fails silently. A white that stops being symmetric reads as rounded at one end and
- * drawn out at the other. A pupil that leaves the white is a dark mark floating on a head. A lid
- * whose arch flattens is the bar a reader called sad. And the shut form has to stand where the
- * open one does, or a card folding looks like the eyes jumping rather than closing.
+ * drawn out at the other. A pupil that outgrows the white, or slides off its centre, stops being
+ * a pupil and becomes a dark mark with a rim around it. A lid whose arch flattens is the bar a
+ * reader called sad. And the shut form has to stand where the open one does, or a card folding
+ * looks like the eyes jumping rather than closing.
  */
 describe("eyePath", () => {
   const eyeOf = (rank: number) => botFaceOf(rank).eyes[0]!;
@@ -175,17 +176,27 @@ describe("eyePath", () => {
     }
   });
 
-  test("the pupil arches, and stays inside the white it sits in", () => {
+  test("the pupil is a disc in the middle, and the white around it is the larger part", () => {
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
       const eye = eyeOf(rank);
       const white = extentOf(eyePath(eye));
       const pupil = extentOf(pupilPath(eye));
-      // Ends down, middle up: the belly of the arch sits above the line its ends stand on.
-      expect(bellyOf(pupilPath(eye))).toBeLessThan(eye.cy + eye.ry * 0.42);
+      // In the middle: the pupil stands on the white's own centre in both directions, so no head
+      // in the set ends up with an eye looking off to one side or down.
+      expect((pupil.left + pupil.right) / 2).toBeCloseTo(eye.cx, 2);
+      expect((pupil.top + pupil.bottom) / 2).toBeCloseTo(eye.cy, 2);
+      // White left on every side of it. The extents here are the control-point hull rather than
+      // the drawn curve, which is the stricter of the two to keep inside.
       expect(pupil.left).toBeGreaterThan(white.left);
       expect(pupil.right).toBeLessThan(white.right);
       expect(pupil.top).toBeGreaterThan(white.top);
       expect(pupil.bottom).toBeLessThan(white.bottom);
+      // The white is MORE of the eye than the pupil is, which is the thing that makes it read as
+      // an eye rather than as a dark mark with a rim. A capsule is a rectangle plus a circle of
+      // its own half-width; the pupil is that circle at a fraction of the radius.
+      const radius = (pupil.right - pupil.left) / 2;
+      const whiteArea = 4 * eye.rx * (eye.ry - eye.rx) + Math.PI * eye.rx ** 2;
+      expect(Math.PI * radius ** 2).toBeLessThan(whiteArea / 2);
     }
   });
 
