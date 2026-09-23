@@ -7,9 +7,12 @@
 // face, so these tests count faces rather than cycle positions.
 
 import { describe, expect, test } from "vitest";
+
+/** Twenty-five heads, so at most twenty-five eye sizes: one per head, and often shared. */
+const HEADS_IN_SET = 25;
 import { render, screen } from "@testing-library/react";
 import {
-  BOT_FACE_PAIRS, BotFace, botFaceOf, eyePath, shutEyePath,
+  BOT_FACE_DRAWINGS, BOT_FACE_PAIRS, BotFace, botFaceOf, eyePath, shutEyePath,
 } from "@/features/bots/avatar/BotFace";
 import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSurface";
 
@@ -55,9 +58,25 @@ function realisticRanks(): number[] {
 }
 
 describe("botFaceOf", () => {
-  test("every face a realistic panel draws is a different drawing", () => {
-    const ranks = realisticRanks();
-    expect(new Set(ranks.map(key)).size).toBe(ranks.length);
+  test("no two Bots share a face, and no two sessions of one Bot do", () => {
+    // What a reader sees side by side. Faces repeat ACROSS families now that there is one eye
+    // shape -- a hundred drawings against two hundred and eighty ranks -- and these two are the
+    // pairs where a repeat would actually read as the same Bot twice.
+    const bots = [...Array(40).keys()];
+    expect(new Set(bots.map(key)).size).toBe(bots.length);
+    for (const bot of bots) {
+      const sessions = [...Array(6).keys()].map((step) => key(botSessionFaceRank(bot, step)));
+      expect(new Set(sessions).size).toBe(sessions.length);
+    }
+  });
+
+  test("the set holds a hundred drawings, which is the ceiling a roster shares", () => {
+    // Stated rather than implied: past a hundred entries two of them wear one face, and the way
+    // to raise it is more tops rather than more eyes.
+    const drawn = new Set<string>();
+    for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) drawn.add(key(rank));
+    expect(drawn.size).toBe(BOT_FACE_DRAWINGS);
+    expect(realisticRanks().length).toBeGreaterThan(BOT_FACE_DRAWINGS);
   });
 
   test("the set behind the permutation is twenty-five distinct polygons", () => {
@@ -75,9 +94,10 @@ describe("botFaceOf", () => {
     expect(tops.has("")).toBe(true);
   });
 
-  test("no session input reaches a Bot's drawing", () => {
-    // The sessions number from their own base, and the permutation is exact: what is pinned here
-    // is the numbering, which is what keeps the two apart before a single path is drawn.
+  test("no session input lands on a Bot's", () => {
+    // The two number from different places, so a Bot and a session never ask the permutation the
+    // same question. They can still come out with the same DRAWING, which the ceiling test above
+    // is about; this one is only that the inputs stay disjoint.
     for (let bot = 0; bot < 40; bot += 1) {
       expect(botSessionFaceRank(bot, 0)).toBeGreaterThanOrEqual(BOT_SESSION_FACE_BASE);
       expect(botSessionFaceRank(bot, 5)).toBeLessThan(BOT_FACE_PAIRS);
@@ -178,20 +198,20 @@ describe("eyePath", () => {
     }
   });
 
-  test("one head still wears five different eyes", () => {
-    // Asked PER HEAD, because an eye's width now comes from the head's span as well as its own
-    // shape: two heads sharing a span draw the same eye, and that is the point rather than a
-    // collision. What must not collapse is the five shapes ON ONE HEAD, which is the channel that
-    // says which session this is once the head has said whose.
-    const perHead = new Map<string, Set<string>>();
+  test("every face wears the one eye, sized by the head it sits in", () => {
+    // One shape everywhere: what differs between two faces is the head and what stands on it, and
+    // the eye only ever gives up width or height to the head it has to fit inside.
+    const shapes = new Set<string>();
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
-      const face = botFaceOf(rank);
-      const shapes = perHead.get(face.head) ?? new Set<string>();
-      shapes.add(eyePath({ ...face.eyes[0]!, cx: 16 }));
-      perHead.set(face.head, shapes);
+      const [left, right] = botFaceOf(rank).eyes;
+      expect(botFaceOf(rank).eyes).toHaveLength(2);
+      expect(left!.rx).toBe(right!.rx);
+      expect(left!.ry).toBe(right!.ry);
+      // A capsule: the corner radius IS the half-width, at every size the head allows.
+      expect(left!.round).toBe(left!.rx);
+      shapes.add(`${left!.rx}:${left!.ry}`);
     }
-    expect(perHead.size).toBe(25);
-    for (const shapes of perHead.values()) expect(shapes.size).toBe(5);
+    expect(shapes.size).toBeLessThanOrEqual(HEADS_IN_SET);
   });
 });
 
