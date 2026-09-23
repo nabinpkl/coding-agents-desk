@@ -286,6 +286,7 @@ describe("App shell", () => {
         "Fork session",
         "Fork from last message",
         "Fork from last compaction",
+        "Hand over to opencode",
         // One direction only: this is the first of the Bot's two sessions, so there is nowhere
         // earlier for it to go and the entry that would say so is absent rather than inert.
         "Move right",

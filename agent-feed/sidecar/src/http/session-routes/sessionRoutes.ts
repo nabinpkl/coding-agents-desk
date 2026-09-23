@@ -32,12 +32,12 @@ import {
   SessionRenameInvalidError,
   SessionRenameNotFoundError,
   SessionRenameUnavailableError,
-} from "@/transcripts/renameSession";
+} from "@/transcripts/session-ops/renameSession";
 import {
   forkClaudeSession,
   SessionForkInvalidError,
   SessionForkNotFoundError,
-} from "@/transcripts/forkSession";
+} from "@/transcripts/session-ops/forkSession";
 import { WorktreeError } from "@/git/worktree";
 import { errorResponse, jsonResponse } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";

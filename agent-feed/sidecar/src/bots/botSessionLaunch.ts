@@ -7,7 +7,7 @@
 
 import type { BotRecord, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
 import { WorktreeError } from "@/git/worktree";
-import { launchSession } from "@/transcripts/forkSession";
+import { launchSession } from "@/transcripts/session-ops/forkSession";
 import type { BotStore } from "@/bots/botStore";
 import type { NormalizedLaunch } from "@/bots/botCommands";
 import { sessionKey } from "@/bots/botIdempotency";

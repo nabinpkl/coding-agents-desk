@@ -1,4 +1,4 @@
-// The four dialogs the shell opens over everything else.
+// The five dialogs the shell opens over everything else.
 //
 // One component because they are one layer, not because they are alike: each is mounted
 // unconditionally and decides for itself whether it is showing, so this is the whole of what the
@@ -16,6 +16,7 @@ import type { BotMachine } from "@/features/bots/botMachines";
 import { BotCreatorDialog } from "@/features/bots/dialogs/BotCreatorDialog";
 import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog";
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
+import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 export function AppDialogs({
@@ -25,6 +26,7 @@ export function AppDialogs({
   botSessionPicker,
   createBot,
   forkRequest,
+  handoverRequest,
   machines,
   machineOfBot,
   forkTitlesInProject,
@@ -37,8 +39,10 @@ export function AppDialogs({
   setBotCreatorOpen,
   setBotSessionPickerId,
   setForkRequest,
+  setHandoverRequest,
   setRenamingSession,
   startFork,
+  startHandover,
   startNewSession,
 }: {
   attachBotSessions: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
@@ -47,6 +51,7 @@ export function AppDialogs({
   botSessionPicker: BotView | null;
   createBot: (command: Omit<AddBotCommand, "requestId">, machine: BotMachine) => Promise<void>;
   forkRequest: ForkRequest | null;
+  handoverRequest: HandoverRequest | null;
   forkTitlesInProject: string[];
   /** Every sidecar a Bot can be created on. See `botMachines.ts` for why the record stays there. */
   machines: readonly BotMachine[];
@@ -61,6 +66,7 @@ export function AppDialogs({
   setBotCreatorOpen: (open: boolean) => void;
   setBotSessionPickerId: (botId: string | null) => void;
   setForkRequest: (request: ForkRequest | null) => void;
+  setHandoverRequest: (request: HandoverRequest | null) => void;
   setRenamingSession: (session: SessionSummary | null) => void;
   startFork: (
     request: ForkRequest,
@@ -68,6 +74,7 @@ export function AppDialogs({
     brief: string,
     worktree: boolean,
   ) => Promise<void>;
+  startHandover: (request: HandoverRequest, message: string) => Promise<void>;
   startNewSession: (bot: BotView, title: string) => Promise<void>;
 }) {
   return (
@@ -95,6 +102,11 @@ export function AppDialogs({
           takenTitles={forkTitlesInProject}
           onClose={() => setForkRequest(null)}
           onFork={startFork}
+        />
+        <HandoverDialog
+          request={handoverRequest}
+          onClose={() => setHandoverRequest(null)}
+          onHandover={startHandover}
         />
         <BotSessionPickerDialog
           open={botSessionPicker !== null}

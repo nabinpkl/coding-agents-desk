@@ -44,6 +44,7 @@ export function BotCanvasCard({
   onForkSession,
   onForkFromLastMessage,
   onForkFromLastCompaction,
+  onHandoverToOpencode,
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
@@ -82,6 +83,8 @@ export function BotCanvasCard({
   onForkSession: (bot: BotView, session: SessionSummary) => void;
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
+  /** Opens the handover dialog for a Claude session. Absent as a capability elsewhere. */
+  onHandoverToOpencode: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -406,6 +409,11 @@ export function BotCanvasCard({
                 onForkFromLastCompaction={
                   session.source === "claude"
                     ? () => onForkFromLastCompaction(session, bot.environment.path)
+                    : undefined
+                }
+                onHandoverToOpencode={
+                  session.source === "claude"
+                    ? () => onHandoverToOpencode(bot, session)
                     : undefined
                 }
                 onRename={

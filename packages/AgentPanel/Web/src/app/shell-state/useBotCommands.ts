@@ -21,6 +21,7 @@ import type { BotFeeds, BotMachine } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
+import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 
 /**
  * The Bot a whole-session fork attaches to.
@@ -106,6 +107,52 @@ export function useBotCommands(
 
   /** The session whose fork is being named, if any. Nothing is started until it is confirmed. */
   const [forkRequest, setForkRequest] = useState<ForkRequest | null>(null);
+
+  /**
+   * The Claude session being handed to opencode, if any. Nothing is started until it is
+   * confirmed: the render reads the transcript at confirm time, so opening the dialog is free
+   * and confirming is what pays the one slow read.
+   */
+  const [handoverRequest, setHandoverRequest] = useState<HandoverRequest | null>(null);
+
+  /**
+   * Opens the handover dialog for a Bot's Claude session.
+   *
+   * Claude-only like the forks, and absent rather than inert elsewhere: the render reads Claude
+   * records, and Codex and opencode rows have nothing it can hand over.
+   */
+  const handoverToOpencode = useCallback((bot: BotView, session: SessionSummary) => {
+    if (session.source !== "claude") return;
+    setHandoverRequest({ botId: bot.botId, session, projectPath: bot.environment.path });
+  }, []);
+
+  /**
+   * Starts the opencode session, attaches it to the asking Bot, and opens its card.
+   *
+   * The dialog closes first for `startFork`'s reason: what follows takes one slow transcript
+   * read plus a model turn to start, and a modal held open across both is a wait with no
+   * progress to show. A failure lands on the canvas band named against the source session,
+   * which is still on screen holding the menu that asked.
+   */
+  const startHandover = useCallback(async (request: HandoverRequest, message: string) => {
+    setHandoverRequest(null);
+    setBotCommandError(null);
+    try {
+      const feed = feeds.forBot(request.botId);
+      const { session: started } = await feed.handoverToOpencode(request.session.sessionId, message);
+      await feed.addBotSessions(request.botId, {
+        sessionRefs: [{ source: "opencode", sessionId: started.sessionId }],
+      });
+      setCanvasOpenKeys((current) => new Set(current).add(`opencode:${started.sessionId}`));
+    } catch (error) {
+      setBotCommandError({
+        session: `claude:${request.session.sessionId}`,
+        message: `Could not hand over the session: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }, [feeds, setCanvasOpenKeys]);
 
   // Asks for a name rather than forking. Nothing is started here: the pane, the tmux session and
   // the `claude --fork-session` behind it all wait on the dialog being confirmed, because `-n` is
@@ -428,6 +475,10 @@ export function useBotCommands(
     newSessions,
     forkRequest,
     setForkRequest,
+    handoverRequest,
+    setHandoverRequest,
+    handoverToOpencode,
+    startHandover,
     renamingSession,
     setRenamingSession,
     forkSession,

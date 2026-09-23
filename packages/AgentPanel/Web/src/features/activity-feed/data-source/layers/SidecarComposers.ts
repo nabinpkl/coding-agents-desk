@@ -26,7 +26,7 @@ import type {
   WindowQuestionStatus,
 } from "@agentdesk/agent-feed-wire";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
-import { SidecarTranscript } from "@/features/activity-feed/data-source/SidecarTranscript";
+import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/SidecarTranscript";
 
 function cliInputPath(session: SessionAddress): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/input`;

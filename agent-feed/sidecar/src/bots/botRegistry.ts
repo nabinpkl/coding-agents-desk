@@ -16,7 +16,7 @@ import type {
   RetireBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import { LIVE_SESSION_LAUNCHER } from "@/transcripts/forkSession";
+import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
 import { directoryBelongsTo, worktreeOf } from "@/git/worktree";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import {

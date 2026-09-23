@@ -1,11 +1,13 @@
 import type { AgentBackend, AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
-import { canonicalProjectPath, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
+import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
+import { buildHandoverPrompt, renderHandover, SessionHandoverError } from "@/transcripts/sessionHandover";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
 
 const CREATE_ROUTE = "/api/agent-sessions";
+const HANDOVER_ROUTE = "/api/agent-sessions/opencode/handover";
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
 const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
 const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/stream$/;
@@ -23,6 +25,9 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
   return (request, url, server) => {
     if (request.method === "POST" && url.pathname === CREATE_ROUTE) {
       return createSession(request, resolveBackend);
+    }
+    if (request.method === "POST" && url.pathname === HANDOVER_ROUTE) {
+      return handoverSession(request, resolveBackend);
     }
     const message = MESSAGE_ROUTE.exec(url.pathname);
     if (request.method === "POST" && message) {
@@ -127,6 +132,52 @@ async function createSession(request: Request, resolveBackend: (id: string) => A
       return errorResponse("project-not-found", "projectPath is not in the discovered project catalog", 404, requestId);
     }
     return jsonResponse(await backend.createSession(requestId, projectPath), 201);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+/**
+ * Start an opencode session carrying a compacted Claude session's context.
+ *
+ * One route for create plus first prompt, because the panel must never strand a
+ * created-but-never-prompted session on a failure between two calls. Claude only: any
+ * other source is rejected rather than rendered by a rule written for Claude records.
+ */
+async function handoverSession(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+): Promise<Response> {
+  try {
+    const body = await jsonBody(request);
+    const requestId = requestIdentifier(body.requestId);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+    const message = typeof body.message === "string" ? body.message : "";
+    if (!requestId || !sessionId) {
+      return errorResponse("invalid-request", "requestId and sessionId are required", 400, requestId ?? undefined);
+    }
+    const source = findSession("claude", sessionId);
+    if (!source || !source.transcriptPath) {
+      return errorResponse("unknown-session", `claude session "${sessionId}" was not found`, 404, requestId);
+    }
+    const backend = resolveBackend("opencode");
+    if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404, requestId);
+    let handover;
+    try {
+      handover = await renderHandover(sessionId, source.transcriptPath);
+    } catch (error) {
+      if (error instanceof SessionHandoverError) {
+        return errorResponse("no-compaction-point", error.message, 404, requestId);
+      }
+      throw error;
+    }
+    const prompt = buildHandoverPrompt({ source: "claude", sessionId, handover, message });
+    const created = await backend.createSession(`${requestId}-create`, source.project);
+    await backend.send(created.sessionId, `${requestId}-send`, prompt, "next");
+    return jsonResponse({
+      session: created,
+      handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },
+    }, 201);
   } catch (error) {
     return routeError(error);
   }

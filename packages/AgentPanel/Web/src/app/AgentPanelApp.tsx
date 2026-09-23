@@ -237,18 +237,6 @@ export function App({ feed, host, machines, fill = false }: Props) {
   const [threadControlsHost, setThreadControlsHost] = useState<HTMLDivElement | null>(null);
   const [tasksHost, setTasksHost] = useState<HTMLDivElement | null>(null);
 
-
-
-
-
-
-
-
-
-
-
-
-
   /**
    * Everything a session needs that is not the session: built once and handed to whichever surface
    * is showing one. The thread view and the Bot canvas both render `SessionView`, and neither is
@@ -303,6 +291,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
           botSessionPicker={botSessionPicker}
           createBot={commands.createBot}
           forkRequest={commands.forkRequest}
+          handoverRequest={commands.handoverRequest}
           machines={shellMachines.all}
           machineOfBot={botsState.machineOf}
           forkTitlesInProject={forkTitlesInProject}
@@ -315,8 +304,10 @@ export function App({ feed, host, machines, fill = false }: Props) {
           setBotCreatorOpen={commands.setBotCreatorOpen}
           setBotSessionPickerId={commands.setBotSessionPickerId}
           setForkRequest={commands.setForkRequest}
+          setHandoverRequest={commands.setHandoverRequest}
           setRenamingSession={commands.setRenamingSession}
           startFork={commands.startFork}
+          startHandover={commands.startHandover}
           startNewSession={commands.startNewSession}
         />
         {chrome.usesModalSidebar ? (
@@ -456,6 +447,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 onForkSession={commands.forkSession}
                 onForkFromLastMessage={commands.forkFromLastMessage}
                 onForkFromLastCompaction={commands.forkFromLastCompaction}
+                onHandoverToOpencode={commands.handoverToOpencode}
                 onRenameSession={commands.setRenamingSession}
                 onDetachSession={commands.detachBotSession}
                 onReorderSessions={commands.reorderBotSessions}

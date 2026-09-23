@@ -7,9 +7,9 @@ import {
   SessionRenameInvalidError,
   SessionRenameNotFoundError,
   SessionRenameUnavailableError,
-} from "@/transcripts/renameSession";
-import { forkClaudeSession } from "@/transcripts/forkSession";
-import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+} from "@/transcripts/session-ops/renameSession";
+import { forkClaudeSession } from "@/transcripts/session-ops/forkSession";
+import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 

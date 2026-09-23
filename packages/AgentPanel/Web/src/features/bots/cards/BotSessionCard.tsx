@@ -57,6 +57,7 @@ export function BotSessionCard({
   onFork,
   onForkFromLastMessage,
   onForkFromLastCompaction,
+  onHandoverToOpencode,
   onRename,
   onDetach,
   onRemoveFromCanvas,
@@ -101,6 +102,8 @@ export function BotSessionCard({
   /** The same fork, starting just before the last thing a person said. Codex-absent likewise. */
   onForkFromLastMessage?: () => void;
   onForkFromLastCompaction?: () => void;
+  /** Hands this session's context since its newest compaction to a new opencode session. Claude-only. */
+  onHandoverToOpencode?: () => void;
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
   onDetach: () => void;
@@ -342,6 +345,7 @@ export function BotSessionCard({
                 onFork={onFork}
                 onForkFromLastMessage={onForkFromLastMessage}
                 onForkFromLastCompaction={onForkFromLastCompaction}
+                onHandoverToOpencode={onHandoverToOpencode}
                 onMoveEarlier={canMoveEarlier ? () => onMoveBySteps(-1) : undefined}
                 onMoveLater={canMoveLater ? () => onMoveBySteps(1) : undefined}
                 onDetach={onDetach}

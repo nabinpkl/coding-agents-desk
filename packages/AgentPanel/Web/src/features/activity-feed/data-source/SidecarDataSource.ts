@@ -13,7 +13,7 @@
  *
  * The class is one API split across files by what its methods are about: this file holds the
  * inventory, the Bots, session commands, usage, config and the Desktop park, and inherits the
- * terminals, the composers and the transcript from the layers under it. `sidecarRoutes.ts`
+ * agent sessions, the terminals, the composers and the transcript from the layers under it. `sidecarRoutes.ts`
  * explains why it is a chain rather than a facade.
  */
 
@@ -21,8 +21,6 @@ import type {
   ActivityEvent,
   AddBotCommand,
   AddBotSessionsCommand,
-  AgentCommandReceipt,
-  AgentSessionDescriptor,
   BotSessionsAdded,
   BotSnapshot,
   BotView,
@@ -46,7 +44,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
-import { SidecarTerminals } from "@/features/activity-feed/data-source/SidecarTerminals";
+import { SidecarAgentSessions } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 
 export { SidecarError, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 export type { TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
@@ -56,7 +54,7 @@ function summaryPath(session: SessionAddress): string {
 }
 
 /** The panel's data source when there is a sidecar behind the transport, which is always. */
-export class SidecarDataSource extends SidecarTerminals implements AgentDataSource {
+export class SidecarDataSource extends SidecarAgentSessions implements AgentDataSource {
 
   /**
    * The one config read, shared. Several features ask "what does this sidecar
@@ -322,35 +320,6 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
   // ---------------------------------------------------------------------
 
   /**
-   * Creates a session and answers with its descriptor, not a receipt.
-   *
-   * The caller opens the thread it just made, so a request id it would have to correlate against
-   * a later list refresh would be a race it has no way to win.
-   */
-  async createSession(projectPath: string, source = "pi"): Promise<AgentSessionDescriptor> {
-    return parse<AgentSessionDescriptor>(
-      await this.transport.request("POST", "/api/agent-sessions", {
-        body: { source, projectPath },
-      }),
-    );
-  }
-
-  async sendMessage(
-    session: SessionAddress,
-    text: string,
-    delivery: "next" | "steer",
-  ): Promise<AgentCommandReceipt> {
-    return parse<AgentCommandReceipt>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/messages`,
-        { body: { text, delivery } },
-      ),
-    );
-  }
-
-
-  /**
    * Digests one turn -- the window from the last user message to now -- and streams the work.
    *
    * Takes a `SessionAddress` rather than a `SessionReference` for the same reason the commands
@@ -468,30 +437,6 @@ export class SidecarDataSource extends SidecarTerminals implements AgentDataSour
   async restorePark(): Promise<ParkRestoreReport> {
     return parse<ParkRestoreReport>(
       await this.transport.request("POST", "/api/park/restore", { body: { confirm: true } }),
-    );
-  }
-
-  async abortSession(session: SessionAddress): Promise<AgentCommandReceipt> {
-    return parse<AgentCommandReceipt>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/abort`,
-        { body: {} },
-      ),
-    );
-  }
-
-  async respondToExtensionUI(
-    session: SessionAddress,
-    requestId: string,
-    value: unknown,
-  ): Promise<void> {
-    parse<unknown>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/ui/${encodeURIComponent(requestId)}`,
-        { body: { value } },
-      ),
     );
   }
 }

@@ -13,7 +13,7 @@ import type {
   RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
 import { disposalRefusal } from "@/git/sessionRetirement";
-import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import { sessionKey } from "@/bots/botIdempotency";
 import { BotInvalidError } from "@/bots/botTypes";
 

@@ -5,7 +5,7 @@
 // session launcher can all name these without importing the class that uses them.
 
 import type { BotSessionRef, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SessionLauncher } from "@/transcripts/forkSession";
+import type { SessionLauncher } from "@/transcripts/session-ops/forkSession";
 
 export type BotActor =
   | { kind: "user" }

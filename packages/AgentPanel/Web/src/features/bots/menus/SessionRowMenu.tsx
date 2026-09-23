@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowRightLeft,
   EyeOff,
   GitBranch,
   GitFork,
@@ -22,6 +23,7 @@ export function SessionRowMenu({
   onFork,
   onForkFromLastMessage,
   onForkFromLastCompaction,
+  onHandoverToOpencode,
   onMoveEarlier,
   onMoveLater,
   onDetach,
@@ -60,6 +62,15 @@ export function SessionRowMenu({
    * is already at it, which is what the plain fork above does.
    */
   onForkFromLastCompaction?: () => void;
+  /**
+   * Starts an opencode session carrying this session's context since its newest compaction.
+   *
+   * Below the forks because it leaves the provider: the three above stay inside Claude, this
+   * one hands the summarised context to another agent. Absent everywhere a fork is, plus on
+   * non-Claude rows -- the render reads Claude records, and opencode rows have no compaction
+   * to hand over.
+   */
+  onHandoverToOpencode?: () => void;
   /**
    * Moves this session one place earlier in its Bot's order, or later.
    *
@@ -100,6 +111,13 @@ export function SessionRowMenu({
       label: "Fork from last compaction",
       icon: Scissors,
       onSelect: onForkFromLastCompaction,
+    });
+  }
+  if (onHandoverToOpencode) {
+    items.push({
+      label: "Hand over to opencode",
+      icon: ArrowRightLeft,
+      onSelect: onHandoverToOpencode,
     });
   }
   // Above the removals and below the forks, which is the list widening from making something new,
