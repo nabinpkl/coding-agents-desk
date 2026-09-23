@@ -7,6 +7,7 @@
 import {
   type ComposerBox,
   composerPanes,
+  composerPastes,
   composerText,
   type TmuxComposerRuntime,
   type TmuxComposerWatchRuntime,
@@ -113,6 +114,7 @@ export function runtime(overrides: Partial<TmuxComposerRuntime> = {}): TmuxCompo
       sent.push(new TextDecoder().decode(bytes));
     },
     panes: composerPanes(),
+    pastes: composerPastes(),
     ...overrides,
   };
 }
@@ -152,6 +154,7 @@ export function watchable(initial: string[] = ["hello"]) {
       state.sent.push(new TextDecoder().decode(bytes));
     },
     panes: composerPanes(),
+    pastes: composerPastes(),
     watch: async (_pane, onOutput) => {
       state.watching = true;
       notify = onOutput;

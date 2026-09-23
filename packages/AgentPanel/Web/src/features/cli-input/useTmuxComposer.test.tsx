@@ -35,7 +35,7 @@ describe("tmux composer", () => {
     // asked them a question being told the session had no terminal.
     const feed = pane(
       "",
-      { text: null, hint: null, reason: "no-composer", exact: true, commands: [] },
+      { text: null, hint: null, reason: "no-composer", exact: true, commands: [], pastes: [] },
     );
     render(<Probe feed={feed} />);
     await settle();
@@ -44,7 +44,7 @@ describe("tmux composer", () => {
   });
 
   it("does not claim a pane for a session that has none", async () => {
-    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("paned").textContent).toBe("false");
@@ -213,7 +213,7 @@ describe("tmux composer", () => {
     const feed = pane("");
     render(<Probe feed={feed} />);
     await settle();
-    const dialog = { text: null, hint: null, reason: "no-composer" as const, exact: true, commands: [] };
+    const dialog = { text: null, hint: null, reason: "no-composer" as const, exact: true, commands: [], pastes: [] };
     feed.syncTmuxComposer = async () => dialog;
     await act(async () => feed.emit(dialog));
 
@@ -260,7 +260,7 @@ describe("tmux composer", () => {
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     await act(async () => {
-      feed.emit({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+      feed.emit({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
     });
     expect(screen.getByTestId("mirrored").textContent).toBe("true");
     expect(screen.getByTestId("reason").textContent).toBe("no-pane");
@@ -268,7 +268,7 @@ describe("tmux composer", () => {
   });
 
   it("never claims a session whose first word is that it has no pane", async () => {
-    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
@@ -288,7 +288,7 @@ describe("tmux composer", () => {
     // A placeholder because that is exactly what it is: shown in the empty box, taking no part in
     // the value, gone the moment the reader types. Pushing it would type Claude's own guess into
     // the session as if somebody had meant it.
-    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [] });
+    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [], pastes: [] });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("hint").textContent).toBe("stop adding the three suggestions");
@@ -306,7 +306,7 @@ describe("tmux composer", () => {
   it("accepts the suggestion by pressing Tab in the pane, not by typing its words", async () => {
     // What accepting means belongs to Claude. The pane redraws with the words in it and the
     // stream reports that, which is why nothing here guesses at the result.
-    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [] });
+    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [], pastes: [] });
     render(<Probe feed={feed} />);
     await settle();
     await act(async () => { screen.getByText("accept").click(); });
@@ -350,7 +350,7 @@ describe("tmux composer", () => {
     render(<Probe feed={feed} />);
     await settle();
     feed.syncTmuxComposer = async () => ({
-      text: null, hint: null, reason: "no-pane", exact: true, commands: [],
+      text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [],
     });
     await type("look at this");
     await press("drop");

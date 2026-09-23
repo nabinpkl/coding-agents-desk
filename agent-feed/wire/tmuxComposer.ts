@@ -53,6 +53,28 @@ export interface ComposerCommand {
 }
 
 /**
+ * One paste Claude has collapsed into a handle, as the box is holding it right now.
+ *
+ * Claude does not put a long paste in its prompt box: measured on a live pane against v2.1.263,
+ * a bracketed paste is literal at 800 characters and at three lines and collapsed at 801 and at
+ * four, and the text then lives in a table inside that process rather than on the screen. So a
+ * reading of the box can say a paste is there and cannot say what is in it.
+ *
+ * `held` is the difference between a paste the sidecar can still produce and one it never saw.
+ * The sidecar remembers what IT pasted, which covers every push the panel made -- so the words
+ * survive a reload of the panel, and are what the preview shows. A paste made at the keyboard
+ * leaves a handle nothing on this side has the text of, and that is reported rather than guessed.
+ */
+export interface ComposerPaste {
+  /** The handle exactly as it appears in `text`, which is how the panel finds it there. */
+  token: string;
+  /** The number Claude gave it. */
+  id: number;
+  /** Its shape when the sidecar is holding the text, null when nobody on this side is. */
+  held: { chars: number; lines: number } | null;
+}
+
+/**
  * What a session's tmux composer holds, or why it cannot be read.
  *
  * `text` is null exactly when `reason` is set. An empty composer is `""`, which is a different
@@ -104,6 +126,15 @@ export interface TmuxComposerState {
    * through a command.
    */
   commands: readonly ComposerCommand[];
+  /**
+   * The pastes the box is holding as handles, or empty when it holds none.
+   *
+   * `text` still carries each handle where it sits, because that IS what the box holds and a push
+   * that carries it back is what keeps the paste attached. This says which of them the sidecar
+   * can produce the words for, which is what the panel needs to offer a preview and to put a
+   * message back in the field after a reload.
+   */
+  pastes: readonly ComposerPaste[];
 }
 
 /**

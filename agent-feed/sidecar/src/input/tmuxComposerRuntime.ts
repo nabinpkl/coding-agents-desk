@@ -15,6 +15,11 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+import {
+  composerPastes,
+  pasteTokens,
+  type ComposerPasteStore,
+} from "@/input/composerPastes";
 import { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 import { questionDialog } from "@/input/question/questionDialog";
 import { questionStateFrom } from "@/input/question/questionMirrorState";
@@ -49,6 +54,13 @@ export interface TmuxComposerRuntime {
   questionScreen: (pane: string) => Promise<TmuxPaneView>;
   send: (pane: string, bytes: Uint8Array) => Promise<void>;
   panes: TmuxComposerPanes;
+  /**
+   * What the paste handles in each pane's box stand for, for the ones this side pasted.
+   *
+   * Process-wide for the same reason `panes` is: a push and the watch reading the same pane have
+   * to agree about what `[Pasted text #1]` means there, and two stores would be two answers.
+   */
+  pastes: ComposerPasteStore;
 }
 
 /** What watching additionally needs: a way to be told the pane wrote something. */
@@ -84,6 +96,7 @@ export const LIVE: TmuxComposerRuntime = {
   // One registry for the process, so a watch opened through the routes is visible to a push that
   // took the default runtime. Two would be two answers to one question.
   panes: composerPanes(),
+  pastes: composerPastes(),
 };
 
 /** The live runtime, given the pane signal only the terminal service can supply. */
@@ -261,7 +274,7 @@ export async function readQuestionAt(
 /** What the composer in `pane` is showing, or why it cannot be seen. */
 export async function readComposerAt(
   pane: string,
-  runtime: Pick<TmuxComposerRuntime, "screen">,
+  runtime: Pick<TmuxComposerRuntime, "screen"> & Partial<Pick<TmuxComposerRuntime, "pastes">>,
 ): Promise<TmuxComposerState> {
   let box: ComposerBox | null;
   try {
@@ -271,12 +284,23 @@ export async function readComposerAt(
     throw error;
   }
   if (!box) return unavailable("no-composer");
+  const text = composerText(box.rows);
   return {
-    text: composerText(box.rows),
+    text,
     hint: box.hint,
     reason: null,
     exact: box.exact && box.rows.length === 1,
     commands: box.commands,
+    // The handles stay in `text` where they sit, because that is what the box holds and pushing
+    // one back unchanged is what keeps the paste attached. This says only which of them this side
+    // can still produce the words for, and the words themselves are fetched when somebody asks --
+    // a reading goes out on every redraw, and carrying sixteen kilobytes on each of those to show
+    // a chip nobody has opened would be paying for the preview whether or not it is looked at.
+    pastes: pasteTokens(text).map(({ token, id }) => ({
+      token,
+      id,
+      held: runtime.pastes?.heldFor(pane, token) ?? null,
+    })),
   };
 }
 
@@ -293,5 +317,5 @@ export async function readComposerAt(
  */
 
 export function unavailable(reason: NonNullable<TmuxComposerState["reason"]>): TmuxComposerState {
-  return { text: null, hint: null, reason, exact: true, commands: [] };
+  return { text: null, hint: null, reason, exact: true, commands: [], pastes: [] };
 }

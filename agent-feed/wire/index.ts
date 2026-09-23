@@ -20,6 +20,7 @@ export type {
 export type {
   ComposerCommand,
   ComposerImageDrop,
+  ComposerPaste,
   ComposerKeyPress,
   ComposerImageMediaType,
   TmuxComposerEnvelope,

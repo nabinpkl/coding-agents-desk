@@ -121,6 +121,100 @@ try {
   const box2 = (await run('tmux', ['capture-pane', '-p', '-t', NAME])).stdout;
   check('the pane holds a handle and not the literal token text', /\[Pasted text #\d+/.test(box2)
     && !/❯\s*\[Pasted text #\d+\]\s*\[Pasted text/.test(box2));
+
+  // ---------------------------------------------------------------------------
+  // Typing stays cheap once the draft has collapsed
+  // ---------------------------------------------------------------------------
+  //
+  // The handle NUMBER is the measurement. A push that re-pastes the whole message makes Claude
+  // collapse it again into a fresh handle, so a rising number is a whole message crossing the
+  // wire per keystroke -- measured that way before the sidecar remembered its pastes, three
+  // keystrokes producing `#25 #26 #27`. A handle that stays put is an append.
+  const handle = (screen) => /\[Pasted text #(\d+)/.exec(screen)?.[1] ?? null;
+  const wasHandle = handle(box2);
+  for (const tail of ['ab', 'abc', 'abcd']) {
+    await page.fill(FIELD, `${message}!${tail}`);
+    await page.waitForTimeout(1200);
+  }
+  await page.waitForTimeout(2000);
+  const nowHandle = handle((await run('tmux', ['capture-pane', '-p', '-t', NAME])).stdout);
+  check('three more keystrokes reuse the handle instead of re-pasting the message',
+    wasHandle !== null && nowHandle === wasHandle, `#${wasHandle} -> #${nowHandle}`);
+
+  // ---------------------------------------------------------------------------
+  // A paste made AT THE KEYBOARD, which is the other half of the chip
+  // ---------------------------------------------------------------------------
+  //
+  // Driven through tmux rather than through the panel, because that is the case the panel cannot
+  // produce for itself: the words go into Claude without this side ever seeing them, so the chip
+  // has to say it cannot open rather than offering an empty preview.
+  await page.fill(FIELD, '');
+  await page.waitForTimeout(2500);
+  const foreign = Array.from({ length: 6 }, (_, at) => `pasted in the terminal, line ${at}`).join('\n');
+  const hex = [...Buffer.from(`\u001b[200~${foreign}\u001b[201~`, 'utf8')]
+    .map((byte) => byte.toString(16).padStart(2, '0'));
+  await run('tmux', ['send-keys', '-H', '-t', NAME, ...hex]);
+  await page.waitForTimeout(3000);
+
+  const chip = await page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((el) => /^Open pasted text #/.test(el.getAttribute('aria-label') ?? ''));
+    const plain = [...document.querySelectorAll('span[title]')]
+      .find((el) => /^Pasted text #/.test(el.getAttribute('title') ?? ''));
+    return {
+      openable: button?.getAttribute('aria-label') ?? null,
+      unopenable: plain?.getAttribute('title') ?? null,
+    };
+  });
+  check('a paste made at the keyboard shows as a chip that says it cannot be opened',
+    chip.unopenable !== null && chip.openable === null,
+    JSON.stringify(chip));
+  // ---------------------------------------------------------------------------
+  // Recovery across a reload, which is what the sidecar's memory is FOR
+  // ---------------------------------------------------------------------------
+  //
+  // The case the panel cannot fix by itself. A Vite save, or a phone whose webview was discarded,
+  // throws away the draft; the message is still in the pane, as a handle standing for words that
+  // live inside Claude. Unless something on this side remembered what it pasted, there is nothing
+  // anywhere that can say what that handle means.
+  await page.fill(FIELD, '');
+  await page.waitForTimeout(2500);
+  const kept = 'recover this whole message. '.repeat(40);
+  await page.fill(FIELD, kept);
+  await page.waitForTimeout(4000);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(INBOX, { timeout: 60000 });
+  await page.focus(INBOX);
+  await page.waitForSelector(FIELD, { timeout: 60000 });
+  await page.waitForTimeout(3000);
+
+  const open = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('button')]
+      .find((b) => /^Open pasted text #/.test(b.getAttribute('aria-label') ?? ''));
+    if (el) el.click();
+    return el?.getAttribute('aria-label') ?? null;
+  });
+  check('the message comes back as a chip the panel can open', open !== null, String(open));
+
+  await page.waitForTimeout(2000);
+  const previewed = await page.evaluate(() => {
+    const pre = document.querySelector('dialog pre');
+    return pre ? pre.textContent : null;
+  });
+  check('opening it shows the words that were written before the reload',
+    previewed === kept, previewed === null ? 'no preview' : `${previewed.length} chars`);
+
+  // And putting them back is what makes it recovery rather than only a record: the reader gets an
+  // editable copy of their own message in the field they lost it from.
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('dialog button')]
+      .find((b) => (b.textContent ?? '').includes('Put back in the field'));
+    el?.click();
+  });
+  await page.waitForTimeout(2000);
+  check('putting it back fills the field with the message again',
+    (await page.inputValue(FIELD)) === kept);
 } finally {
   clearTimeout(watchdog);
   await teardown();

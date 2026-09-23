@@ -23,7 +23,7 @@ import {
   typed,
   watchable,
 } from "@/input/tmuxComposerHarness";
-import { keystrokesFor } from "@/input/tmuxComposer";
+import { composerPastes, keystrokesFor } from "@/input/tmuxComposer";
 
 test("sends nothing when the box already reads that way", () => {
   expect(keystrokesFor(held(["already there"]), "already there")).toBe("");
@@ -127,4 +127,59 @@ test("goes to the end before editing, because a backspace bites wherever the cur
   for (const endOfLine of ["\u001b[F", "\u001bOF"]) {
     expect(keystrokesFor(held(["one", "two"]), "something else").startsWith(endOfLine)).toBe(false);
   }
+});
+
+test("appends one keystroke to a collapsed paste instead of re-pasting the message", () => {
+  // The cost this exists to remove. Claude does not put a long paste in its box, it puts a handle
+  // there: measured on a live pane, literal at 800 characters and collapsed at 801. So once a
+  // draft crosses that, the box reads `[Pasted text #1]` and the draft reads nine hundred
+  // characters, which share no prefix at all -- and every further keystroke fell to the
+  // correction path, one backspace and a whole re-paste. Measured before this existed: three
+  // keystrokes against a 900-character draft produced three fresh handles, `#25 #26 #27`.
+  const words = "zebra ".repeat(150);
+  const store = composerPastes();
+  store.bind("pane-1", "[Pasted text #1]", words);
+  const pasted = (token: string) => store.textFor("pane-1", token);
+
+  expect(keystrokesFor(held(["[Pasted text #1]"]), `${words}!`, pasted))
+    .toBe(`${END}${OPEN}!${CLOSE}`);
+  // And the push that changes nothing sends nothing, which is the commonest outcome of all: the
+  // panel pushes after a debounce and the previous push has usually already landed.
+  expect(keystrokesFor(held(["[Pasted text #1]"]), words, pasted)).toBe("");
+});
+
+test("matches a draft that carries the handle against the box that is holding it", () => {
+  // The other direction, and it is what stops the paste being destroyed. A panel that adopted
+  // `[Pasted text #1]` into its field pushes that text back; without reading through the handle
+  // the box and the draft disagree, so the correction path retypes the CHARACTERS of the token
+  // over the paste it stands for -- which detaches it in the pane and loses the words for good.
+  const store = composerPastes();
+  store.bind("pane-1", "[Pasted text #1]", "zebra ".repeat(150));
+  const pasted = (token: string) => store.textFor("pane-1", token);
+
+  expect(keystrokesFor(held(["[Pasted text #1]"]), "[Pasted text #1]", pasted)).toBe("");
+  expect(keystrokesFor(held(["[Pasted text #1]"]), "[Pasted text #1] and this", pasted))
+    .toBe(`${END}${OPEN} and this${CLOSE}`);
+});
+
+test("rubs out a whole handle when the edit reaches inside the paste", () => {
+  // The one case that still costs a full push, and it cannot cost less: Claude offers no way to
+  // change the inside of a handle, and one backspace takes the whole thing. So the presses are
+  // counted on the SCREEN text -- one for the handle -- and the message goes back whole.
+  const words = "zebra ".repeat(150);
+  const store = composerPastes();
+  store.bind("pane-1", "[Pasted text #1]", words);
+  const pasted = (token: string) => store.textFor("pane-1", token);
+  const shorter = words.slice(0, -10);
+
+  expect(keystrokesFor(held(["[Pasted text #1]"]), shorter, pasted))
+    .toBe(`${END}${BACKSPACE}${OPEN}${shorter}${CLOSE}`);
+});
+
+test("leaves a paste it did not make alone, handle and all", () => {
+  // Somebody pasted at the keyboard. Nothing on this side has those words, so the handle is not
+  // expanded and not retyped: appending after it is still one keystroke, which is all that can
+  // honestly be offered.
+  expect(keystrokesFor(held(["[Pasted text #9 +38 lines]"]), "[Pasted text #9 +38 lines] hi"))
+    .toBe(`${END}${OPEN} hi${CLOSE}`);
 });

@@ -17,6 +17,7 @@ import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { List, Paperclip } from "lucide-react";
 import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
+import { ComposerPasteStrip } from "@/features/cli-input/ComposerPasteStrip";
 import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
@@ -176,6 +177,15 @@ export function SessionComposerBand({
             <ComposerImageStrip
               images={editor.images}
               onRemove={editor.onRemoveImage}
+              disabled={editor.disabled}
+            />
+          ) : null}
+          {editor.pastes && editor.onPreviewPaste && editor.onExpandPaste && editor.onRemovePaste ? (
+            <ComposerPasteStrip
+              pastes={editor.pastes}
+              onPreview={editor.onPreviewPaste}
+              onExpand={editor.onExpandPaste}
+              onRemove={editor.onRemovePaste}
               disabled={editor.disabled}
             />
           ) : null}

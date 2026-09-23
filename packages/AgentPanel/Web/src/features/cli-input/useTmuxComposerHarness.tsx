@@ -13,7 +13,7 @@ import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 export const SESSION: SessionAddress = { source: "claude", sessionId: "s1" };
 
 export function holding(text: string, wrapped = false, hint: string | null = null): TmuxComposerState {
-  return { text, hint, reason: null, exact: !wrapped, commands: [] };
+  return { text, hint, reason: null, exact: !wrapped, commands: [], pastes: [] };
 }
 
 /**
@@ -71,7 +71,7 @@ export function pane(initial = "", opening?: TmuxComposerState) {
     },
     acceptTmuxComposerHint: async (): Promise<TmuxComposerState> => {
       feed.accepts += 1;
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     },
     /** Every rail press, so a test can ask what reached the pane and what was held when it did. */
     keys: [] as { key: RailKey; modifiers: RailModifiers }[],
@@ -81,14 +81,28 @@ export function pane(initial = "", opening?: TmuxComposerState) {
       modifiers: RailModifiers,
     ): Promise<TmuxComposerState> => {
       feed.keys.push({ key, modifiers });
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+    },
+    /**
+     * What the sidecar is holding for each handle, so a test can make a chip openable or not.
+     *
+     * Keyed by the handle itself rather than by its number, because Claude writes two spellings
+     * for the same paste -- `[Pasted text #1]` and `[Pasted text #1 +38 lines]` -- and only the
+     * box says which one it used.
+     */
+    held: new Map<string, string>(),
+    /** Every handle a preview was asked for, so a test can say the fetch happened once. */
+    previewed: [] as string[],
+    readTmuxComposerPaste: async (_session: SessionAddress, token: string) => {
+      feed.previewed.push(token);
+      return feed.held.get(token) ?? null;
     },
     dropTmuxComposerImage: async (
       _session: SessionAddress,
       image: Blob,
     ): Promise<TmuxComposerState> => {
       feed.drops.push(image.size);
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     },
   };
   return feed;
@@ -121,6 +135,11 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
       <button type="button" onClick={() => composer.pressKey("escape")}>escape</button>
       <button type="button" onClick={() => composer.pressKey("left")}>left</button>
       <button type="button" onClick={() => composer.remove(7)}>remove</button>
+      <span data-testid="pastes">
+        {composer.pastes.map((p) => `${p.token}:${p.held ? `${p.held.lines}L${p.held.chars}C` : "unheld"}`).join(" ")}
+      </span>
+      <button type="button" onClick={() => void composer.expandPaste("[Pasted text #1]")}>expand</button>
+      <button type="button" onClick={() => composer.removePaste("[Pasted text #1]")}>unpaste</button>
       <span data-testid="commands">
         {composer.commands.map((c) => `${c.selected ? ">" : ""}${c.name}`).join(" ")}
       </span>

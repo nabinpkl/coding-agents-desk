@@ -63,7 +63,7 @@ function isRailKey(value: unknown): value is RailKey {
 }
 
 const COMPOSER_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/key|\/stream)?$/i;
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/key|\/stream|\/paste\/[^/]+)?$/i;
 
 /** The composer, injected, so the route's address shape can be pinned without a tmux server. */
 export interface TmuxComposerDependencies {
@@ -95,6 +95,19 @@ export interface TmuxComposerDependencies {
     key: RailKey,
     held: RailModifiers,
   ) => Promise<TmuxComposerState>;
+  /**
+   * The text one `[Pasted text #N]` handle stands for, or null when this side is not holding it.
+   *
+   * Fetched rather than carried on the stream, and that is the reason it is a route at all. A
+   * reading goes out on every redraw of the box; a paste is up to the composer's 16 KiB ceiling
+   * and does not change once it is made. Sending it on each reading would pay for a preview on
+   * every keystroke whether or not anybody ever opened it.
+   *
+   * Null for a paste somebody made AT THE KEYBOARD, which is not an error: Claude keeps that text
+   * inside its own process and the sidecar never saw it. The panel says so rather than showing an
+   * empty preview, because "nothing here" and "not ours to show" are different facts.
+   */
+  paste: (sessionId: string, token: string) => Promise<string | null>;
 }
 
 /**
@@ -116,6 +129,12 @@ export function liveTmuxComposerDependencies(
     drop: async (sessionId, image, mediaType) =>
       dropTmuxComposerImage(sessionId, await writeComposerImage(image, mediaType), runtime),
     key: (sessionId, key, held) => pressTmuxComposerKey(sessionId, key, held, runtime),
+    paste: async (sessionId, token) => {
+      // Resolved through the same held pane the pushes use, so a fetch never costs the session
+      // lookup a live watch has already paid for.
+      const pane = runtime.panes.get(sessionId) ?? await runtime.pane(sessionId);
+      return pane === null ? null : runtime.pastes.textFor(pane, token);
+    },
   };
 }
 
@@ -153,9 +172,35 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
         });
       });
     }
+    if (action?.startsWith("/paste/")) {
+      if (request.method !== "GET") return undefined;
+      return readPaste(composer, sessionId, decodeURIComponent(action.slice("/paste/".length)));
+    }
     if (request.method === "POST") return sync(composer, request, sessionId);
     return undefined;
   };
+}
+
+/**
+ * Hands back the words behind one paste handle, so the panel can show them.
+ *
+ * The handle is taken verbatim from the reading the panel is holding rather than rebuilt from a
+ * number, because the two spellings Claude uses -- `[Pasted text #1]` and `[Pasted text #1 +38
+ * lines]` -- are different keys for the same paste and only the box says which one it wrote.
+ *
+ * A handle nobody is holding is a 200 with `text: null`, not a 404. It is a fact about this paste
+ * rather than a missing address, and the panel draws a chip either way: one that opens, and one
+ * that says the words are inside Claude.
+ */
+async function readPaste(
+  composer: TmuxComposerDependencies,
+  sessionId: string,
+  token: string,
+): Promise<Response> {
+  if (token.length === 0 || token.length > 64) {
+    return errorResponse("invalid-token", "that is not a paste handle", 400);
+  }
+  return jsonResponse({ token, text: await composer.paste(sessionId, token) });
 }
 
 /**

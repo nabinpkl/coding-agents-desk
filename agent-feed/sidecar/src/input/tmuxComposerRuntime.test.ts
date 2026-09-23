@@ -38,13 +38,13 @@ test("reports tmux itself being gone as its own reason, rather than as an empty 
     screen: async () => { throw new TmuxUnavailable("no server running"); },
   });
   expect(await readComposerAt("agentdesk-1", tmux))
-    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [] });
+    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [], pastes: [] });
 });
 
 test("marks a multi-row reading as wrapped, so the panel knows not to trust it exactly", async () => {
   const tmux = runtime({ screen: async () => screenWith(["alpha bravo", "charlie"]) });
   expect(await readComposerAt("agentdesk-1", tmux))
-    .toEqual({ text: "alpha bravo charlie", hint: null, reason: null, exact: false, commands: [] });
+    .toEqual({ text: "alpha bravo charlie", hint: null, reason: null, exact: false, commands: [], pastes: [] });
 });
 
 test("re-reads the screen before every push, rather than trusting the caller's view of it", async () => {
@@ -124,7 +124,7 @@ test("a push into a session with no pane sends nothing, and never reaches for a 
     },
   });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
   expect(tmux.sent).toEqual([]);
   expect(asked).toBe(false);
 });
@@ -137,7 +137,7 @@ test("accepting the hint presses Tab, and guesses nothing about what lands", asy
     screen: async () => { throw new Error("accepting must not read the screen"); },
   });
   expect(await acceptTmuxComposerHint("session", tmux))
-    .toEqual({ text: null, hint: null, reason: null, exact: true, commands: [] });
+    .toEqual({ text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] });
   expect(tmux.sent).toEqual(["\t"]);
 });
 
@@ -146,7 +146,7 @@ test("submitting presses Return, and needs no screen to do it", async () => {
     screen: async () => { throw new Error("submit must not read the screen"); },
   });
   expect(await submitTmuxComposer("session", tmux))
-    .toEqual({ text: "", hint: null, reason: null, exact: true, commands: [] });
+    .toEqual({ text: "", hint: null, reason: null, exact: true, commands: [], pastes: [] });
   expect(tmux.sent).toEqual(["\r"]);
 });
 
@@ -155,7 +155,7 @@ test("a dropped image is pasted as its path alone, which is what a terminal drop
   // looking at a file path, so the path cannot ride along with anything else.
   const tmux = runtime({ screen: async () => screenWith([""]) });
   expect(await dropTmuxComposerImage("session", "/tmp/a-b/c.png", tmux))
-    .toEqual({ text: null, hint: null, reason: null, exact: true, commands: [] });
+    .toEqual({ text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] });
   expect(tmux.sent).toEqual([`${OPEN}/tmp/a-b/c.png${CLOSE}`]);
 });
 
@@ -170,7 +170,7 @@ test("separates the path from text already in the box, with a space outside the 
 test("a drop into a session with no pane pastes nothing and says why", async () => {
   const tmux = runtime({ panes: composerPanes(), pane: async () => null });
   expect(await dropTmuxComposerImage("session", "/tmp/x.png", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
   expect(tmux.sent).toEqual([]);
 });
 
@@ -210,4 +210,43 @@ test("reports tmux being gone as its own reason rather than as a busy composer",
 
   expect(await renameTmuxSession("s1", "New name", tmux))
     .toEqual({ renamed: false, reason: "tmux-unavailable" });
+});
+
+test("learns what the handle Claude answered with stands for, and types cheaply after", async () => {
+  // The one moment this can be learned. Claude collapses a long paste as it takes it and never
+  // says so -- the text goes into a table inside that process and the box gets a handle -- so the
+  // side that did the pasting is the only side that ever holds both halves.
+  const words = "zebra ".repeat(150);
+  let rows = [""];
+  const sent: string[] = [];
+  const tmux = runtime({
+    screen: async () => screenWith(rows),
+    // A real pane collapses the paste. This one does the same thing to the same input, which is
+    // what makes the test about the binding rather than about the threshold.
+    send: async (_pane, bytes) => {
+      const keys = new TextDecoder().decode(bytes);
+      sent.push(keys);
+      const text = typed(keys);
+      rows = [text.length > 800 ? "[Pasted text #1]" : text];
+    },
+  });
+
+  await syncTmuxComposer("session", words, tmux);
+  expect(rows).toEqual(["[Pasted text #1]"]);
+  expect(tmux.pastes.textFor("agentdesk-1", "[Pasted text #1]")).toBe(words);
+
+  // And the next keystroke is now a keystroke. Without the binding this pushed the whole message
+  // again, because a handle and the words it stands for share no prefix.
+  const sentSoFar = sent.length;
+  await syncTmuxComposer("session", `${words}!`, tmux);
+  expect(sent.slice(sentSoFar)).toEqual([`${END}${OPEN}!${CLOSE}`]);
+});
+
+test("binds nothing when the box gained no handle, so a wrong guess is never pasted back", async () => {
+  // Told apart by the handle being NEW rather than by the push having been long enough to
+  // collapse. Claude's threshold is Claude's and could move; "the box gained a handle and we are
+  // the ones who just pasted" stays true whatever the number is.
+  const tmux = runtime({ screen: async () => screenWith(["short"]) });
+  await syncTmuxComposer("session", "short and then some", tmux);
+  expect(tmux.pastes.textFor("agentdesk-1", "[Pasted text #1]")).toBeNull();
 });

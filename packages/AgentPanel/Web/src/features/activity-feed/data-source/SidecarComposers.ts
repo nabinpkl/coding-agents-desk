@@ -41,7 +41,7 @@ function cliInputPath(session: SessionAddress): string {
  */
 function tmuxComposerPath(
   session: SessionAddress,
-  action: "" | "/submit" | "/accept" | "/image" | "/key" | "/stream" = "",
+  action: "" | "/submit" | "/accept" | "/image" | "/key" | "/stream" | `/paste/${string}` = "",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
 }
@@ -309,6 +309,27 @@ export class SidecarComposers extends SidecarTranscript {
         body: { data: await base64FromBlob(image) } satisfies ComposerImageDrop,
       }),
     );
+  }
+
+  /**
+   * The words behind one `[Pasted text #N]` handle, or null when nobody on this side holds them.
+   *
+   * Fetched rather than carried on the stream, and that is why it is a request at all. A reading
+   * goes out on every redraw of the box; a paste runs to the composer's 16 KiB ceiling and does
+   * not change once it is made, so carrying it on each reading would pay for a preview on every
+   * keystroke whether or not anybody ever opened one.
+   *
+   * Null is an answer rather than a failure: Claude keeps the text of a paste made AT THAT
+   * KEYBOARD inside its own process, so the sidecar can only produce the ones it pasted itself.
+   */
+  async readTmuxComposerPaste(session: SessionAddress, token: string): Promise<string | null> {
+    const answer = await parse<{ text: string | null }>(
+      await this.transport.request(
+        "GET",
+        tmuxComposerPath(session, `/paste/${encodeURIComponent(token)}`),
+      ),
+    );
+    return typeof answer.text === "string" ? answer.text : null;
   }
 
   /**

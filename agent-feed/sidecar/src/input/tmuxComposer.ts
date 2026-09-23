@@ -87,11 +87,13 @@ import { hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 import {
   CARRIAGE_RETURN,
+  insertedText,
   keystrokesFor,
   paste,
   sendEdit,
   TAB,
 } from "@/input/composerKeystrokes";
+import { pasteTokens } from "@/input/composerPastes";
 import { composerPanes, inTurn, settle } from "@/input/tmuxComposerPanes";
 import {
   COALESCE_MS,
@@ -106,6 +108,12 @@ import {
 // parts below are how the composer is built rather than what it offers.
 export { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 export { keystrokesFor, MAXIMUM_COMPOSER_BYTES } from "@/input/composerKeystrokes";
+export {
+  composerPastes,
+  meaning,
+  pasteTokens,
+  type ComposerPasteStore,
+} from "@/input/composerPastes";
 export { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 export {
   liveTmuxComposerRuntime,
@@ -127,16 +135,18 @@ export async function syncTmuxComposer(
       if (!pane) return unavailable("no-pane");
       const box = composerBox(await runtime.screen(pane));
       if (!box) return unavailable("no-composer");
-      const keys = keystrokesFor(box, desired);
+      const before = composerText(box.rows);
+      const keys = keystrokesFor(box, desired, (token) => runtime.pastes.textFor(pane, token));
       if (keys.length > 0) {
         await sendEdit(pane, keys, runtime);
-        await settle(pane, composerText(box.rows), runtime);
+        await settle(pane, before, runtime);
+        await bindNewPaste(pane, before, insertedText(keys), runtime);
       }
       // No hint and no menu: whatever Claude was offering, the box now holds what was asked
       // for instead, and the menu under it is redrawn from that. An empty push is the one case
       // where a suggestion comes back, and a push beginning `/` opens a menu -- the watcher
       // reports both a moment later, which is the only reading that is not a guess.
-      return { text: desired, hint: null, reason: null, exact: true, commands: [] };
+      return { text: desired, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }
@@ -176,11 +186,48 @@ export async function dropTmuxComposerImage(
       // differently. Waiting for that is what stops the next push diffing against a box that
       // still shows the moment before the drop.
       await settle(pane, composerText(box.rows), runtime);
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }
   });
+}
+
+/**
+ * Remembers what the handle Claude just answered with stands for, when it answered with one.
+ *
+ * The one moment this can be learned. Claude collapses a paste as it takes it and never says so:
+ * the text goes into a table inside that process, the box gets `[Pasted text #7]`, and nothing
+ * afterwards connects the two. The side that did the pasting is the only side that ever holds
+ * both halves, and only for as long as this call.
+ *
+ * Told apart by the handle being NEW rather than by the push having been long enough to collapse.
+ * The threshold is Claude's and could move under us -- measured at 801 characters and four lines
+ * today -- where "the box gained a handle it did not have, and we are the ones who just pasted"
+ * stays true whatever the number is.
+ *
+ * Silent when the reading fails or when more than one handle appeared. A binding that might be
+ * wrong is worse than none: a wrong one is pasted back into somebody's session as though it were
+ * their words, where a missing one costs a re-paste and a preview that says it is not held.
+ */
+async function bindNewPaste(
+  pane: string,
+  before: string,
+  inserted: string,
+  runtime: TmuxComposerRuntime,
+): Promise<void> {
+  if (inserted.length === 0) return;
+  const had = new Set(pasteTokens(before).map((found) => found.token));
+  let after: ComposerBox | null;
+  try {
+    after = composerBox(await runtime.screen(pane));
+  } catch {
+    return;
+  }
+  if (!after) return;
+  const fresh = pasteTokens(composerText(after.rows)).filter((found) => !had.has(found.token));
+  if (fresh.length !== 1) return;
+  runtime.pastes.bind(pane, fresh[0]!.token, inserted);
 }
 
 /**
@@ -255,7 +302,7 @@ export async function submitTmuxComposer(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, exact: true, commands: [] }, runtime);
+  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, exact: true, commands: [], pastes: [] }, runtime);
 }
 
 /**
@@ -271,7 +318,7 @@ export async function acceptTmuxComposerHint(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, TAB, { text: null, hint: null, reason: null, exact: true, commands: [] }, runtime);
+  return press(sessionId, TAB, { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] }, runtime);
 }
 
 /**
@@ -298,7 +345,7 @@ export async function pressTmuxComposerKey(
   return press(
     sessionId,
     bytesForRailKey(key, held),
-    { text: null, hint: null, reason: null, exact: true, commands: [] },
+    { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] },
     runtime,
   );
 }

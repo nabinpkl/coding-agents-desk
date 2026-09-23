@@ -8,7 +8,7 @@ import {
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const server = { timeout() {} } as never;
 
-const HOLDING: TmuxComposerState = { text: "hello", hint: null, reason: null, exact: true, commands: [] };
+const HOLDING: TmuxComposerState = { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [] };
 
 function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const synced: string[] = [];
@@ -17,6 +17,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const accepted: string[] = [];
   const dropped: { bytes: number; mediaType: string }[] = [];
   const pressed: { key: string; modifiers: RailModifiers }[] = [];
+  const previewed: string[] = [];
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
@@ -25,28 +26,33 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
     },
     sync: async (_sessionId, text) => {
       synced.push(text);
-      return { text, hint: null, reason: null, exact: true, commands: [] };
+      return { text, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     },
     submit: async (sessionId) => {
       submitted.push(sessionId);
-      return { text: "", hint: null, reason: null, exact: true, commands: [] };
+      return { text: "", hint: null, reason: null, exact: true, commands: [], pastes: [] };
     },
     accept: async (sessionId) => {
       accepted.push(sessionId);
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     },
     drop: async (_sessionId, image, mediaType) => {
       dropped.push({ bytes: image.length, mediaType });
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     },
     key: async (_sessionId, key, modifiers) => {
       pressed.push({ key, modifiers });
-      return { text: null, hint: null, reason: null, exact: true, commands: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+    },
+    paste: async (_sessionId, token) => {
+      previewed.push(token);
+      return token === "[Pasted text #1]" ? "the words behind it" : null;
     },
     ...overrides,
   };
   return {
     route: createTmuxComposerRoutes(composer),
+    previewed,
     synced,
     submitted,
     watched,
@@ -142,13 +148,13 @@ test("a session with no pane answers 200 with the reason, not an error status", 
   // The panel renders this beside the field. A 4xx would be indistinguishable from a request it
   // got wrong, which is a different thing to tell the reader.
   const { route } = routeWith({
-    sync: async () => ({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] }),
+    sync: async () => ({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] }),
   });
   const response = await call(
     route, "POST", `/api/sessions/claude/${SESSION}/composer`, { text: "hello" },
   );
   expect(response?.status).toBe(200);
-  expect(await response!.json()).toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [] });
+  expect(await response!.json()).toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
 });
 
 test("submitting is its own address, and so is accepting the hint", async () => {

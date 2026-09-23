@@ -6,6 +6,7 @@
 
 import { hexSend, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { ATTACHMENT, composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+import { meaning } from "@/input/composerPastes";
 import type { TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";
 
 /** Kill to the start of the visual row. One per row is what empties the box. */
@@ -84,22 +85,42 @@ const REDRAW_POLL_MS = 5;
  * Inserted text is always a bracketed paste. Claude reads a paste literally, where a bare `/` or
  * `@` at the head of an empty composer opens a menu that then eats what follows it.
  */
-export function keystrokesFor(box: ComposerBox, desired: string): string {
+export function keystrokesFor(
+  box: ComposerBox,
+  desired: string,
+  pasted: (token: string) => string | null = () => null,
+): string {
   const { rows } = box;
   const current = composerText(rows);
+  // Both sides read through their paste handles, which is what keeps typing cheap once a draft
+  // has grown past the length Claude collapses. `[Pasted text #1]` and the nine hundred
+  // characters it stands for share no prefix at all, so without this every further keystroke fell
+  // to the correction path below and re-pasted the whole message; through their meaning they
+  // share all but the last character, and one keystroke costs one keystroke. It also settles the
+  // other direction: a desired text that CARRIES a handle -- a draft the panel adopted from the
+  // pane -- now matches the box that is holding it, rather than retyping the characters of its
+  // name over the paste it stands for.
+  const held = meaning(current, pasted);
+  const wanted = meaning(desired, pasted);
   // A box that is only a lower bound cannot be edited incrementally at all: an append would land
   // after whitespace nobody can see, and a backspace count taken from the visible text would rub
   // out one character too few. The clear below needs none of that -- Ctrl+U kills a whole visual
   // row whatever is in it, whether or not the text in it was read correctly.
   if (!box.exact) return END + KILL_ROW.repeat(box.clearPresses) + paste(desired);
-  if (current === desired) return "";
+  if (held === wanted) return "";
   // Every branch below is written as though the text ends at the cursor. Going to the end is what
   // makes that so, and it is free when the cursor is already there.
-  if (current.length > 0 && desired.startsWith(current)) {
-    return END + paste(desired.slice(current.length));
+  if (held.length > 0 && wanted.startsWith(held)) {
+    return END + paste(wanted.slice(held.length));
   }
   // A single row is known exactly, so a correction rubs out only what diverged -- which keeps a
   // backspace in the panel costing a backspace in the pane rather than a whole retype.
+  //
+  // Counted on the SCREEN text rather than on the meaning, because that is what the presses act
+  // on: a handle goes in one press whatever it stands for, so an edit that reaches into a
+  // collapsed paste rubs the whole thing out and re-pastes. There is no smaller edit available --
+  // Claude offers no way to change the inside of a handle -- so this is the one case that still
+  // costs a full push, and it is an edit inside the pasted region rather than typing after it.
   if (rows.length === 1) {
     const shared = sharedPrefix(current, desired);
     const removed = backspacesFor(current.slice(shared));
@@ -178,6 +199,24 @@ export async function waitFor(
     const box = composerBox(view);
     if (box && done(composerText(box.rows))) return;
   }
+}
+
+/**
+ * The text `keys` will insert, which is what a handle Claude then answers with stands for.
+ *
+ * Read back off the computed keystrokes rather than passed alongside them, because what reaches
+ * the box is what the branches above decided to send: an append inserts a suffix and a correction
+ * inserts the whole message, and binding a handle to the wrong one of those would be binding it
+ * to text that is not in it.
+ */
+export function insertedText(keys: string): string {
+  const at = keys.indexOf(PASTE_START);
+  if (at === -1) return "";
+  const end = keys.indexOf(PASTE_END, at);
+  if (end === -1) return "";
+  // Back through the escape guard `paste` applies, so what is remembered is the text the reader
+  // has rather than the one the pane was given.
+  return keys.slice(at + PASTE_START.length, end).replaceAll("\u241b", "\u001b");
 }
 
 /** Nothing to insert sends nothing: an empty bracketed paste still makes Claude redraw the box. */

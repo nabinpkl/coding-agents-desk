@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
   type ComposerCommand,
+  type ComposerPaste,
   type RailKey,
   type RailModifier,
   type TmuxComposerState,
@@ -30,6 +31,7 @@ import {
   type ComposerImage,
   type TmuxComposerHandle,
 } from "@/features/cli-input/tmuxComposerHandle";
+import { useComposerAttachments } from "@/features/cli-input/useComposerAttachments";
 
 // Re-exported: the hook is the address its surface already imports, and these are what
 // it hands back. The declarations live in `tmuxComposerHandle.ts`.
@@ -74,6 +76,7 @@ export function useTmuxComposer(
     | "acceptTmuxComposerHint"
     | "dropTmuxComposerImage"
     | "pressTmuxComposerKey"
+    | "readTmuxComposerPaste"
   >,
   session: SessionAddress,
   active: boolean,
@@ -89,22 +92,8 @@ export function useTmuxComposer(
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [images, setImages] = useState<readonly ComposerImage[]>([]);
   const [commands, setCommands] = useState<readonly ComposerCommand[]>([]);
-
   const draftRef = useRef("");
-  /**
-   * The picture for each image number, and the pictures still waiting for one.
-   *
-   * Refs rather than state because the pairing is a sequence, not a render: an upload finishes,
-   * and some readings later a number appears in the box that was not there before. That number is
-   * the one Claude gave the image just sent, which is the only way this side can learn it -- the
-   * sidecar cannot say, because reading the box straight after a paste catches it mid-redraw.
-   */
-  const previews = useRef(new Map<number, string>());
-  const awaiting = useRef<Blob[]>([]);
-  /** What the strip was last told to show, so typing beside it does not re-render it. */
-  const shown = useRef("");
   /** An edit that has not been seen in the pane yet. Guards the read from overwriting it. */
   const edited = useRef(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,43 +114,20 @@ export function useTmuxComposer(
   }, [setBoth]);
 
   /**
-   * Keeps the strip agreeing with the tokens in the field.
+   * What the box is carrying that is not editable text: the images, and the collapsed pastes.
    *
-   * Run off the DRAFT rather than off the reading, so it is right in both directions: a new number
-   * arrives when the pane redraws, and a token vanishes the moment somebody backspaces one out of
-   * the field, before the pane has been told.
+   * Given `change` rather than `setBoth`, so removing an attachment or putting a paste's words
+   * back counts as an unsent edit and the debounce below carries it to the pane. That is the whole
+   * of how either reaches the session: there is no second way in.
    */
-  useEffect(() => {
-    const ids = composerImageIds(draft);
-    for (const id of ids) {
-      if (previews.current.has(id)) continue;
-      const blob = awaiting.current.shift();
-      if (blob === undefined) break;
-      previews.current.set(id, URL.createObjectURL(blob));
-    }
-    for (const [id, url] of [...previews.current]) {
-      if (ids.includes(id)) continue;
-      URL.revokeObjectURL(url);
-      previews.current.delete(id);
-    }
-    // Cleared when the box is: a submitted turn takes its images with it, and a picture still
-    // waiting for a number it will never get would be handed to the next image dropped.
-    if (ids.length === 0) awaiting.current = [];
-    const next = ids.map((id) => ({ id, url: previews.current.get(id) ?? null }));
-    // Only when it actually moved. This runs on every keystroke, and a fresh array each time
-    // would re-render the strip for each letter typed beside it.
-    const signature = next.map((image) => `${image.id}:${image.url}`).join(" ");
-    if (signature === shown.current) return;
-    shown.current = signature;
-    setImages(next);
-  }, [draft]);
-
-  // Every preview is an object URL, which the document holds until it is told otherwise.
-  const forget = previews.current;
-  useEffect(() => () => {
-    for (const url of forget.values()) URL.revokeObjectURL(url);
-    forget.clear();
-  }, [forget]);
+  const attachments = useComposerAttachments({
+    feed,
+    session: sessionRef,
+    draft,
+    draftRef,
+    edit: change,
+    report: setError,
+  });
 
   /**
    * One push at a time, with whatever was typed during it folded into the next one.
@@ -210,6 +176,7 @@ export function useTmuxComposer(
     }
   }, [feed]);
 
+  const observePastes = attachments.observe;
   const receive = useCallback((next: TmuxComposerState) => {
     setState(next);
     // Only ever from the stream. A push answers with what it ASKED the box to hold, and it cannot
@@ -220,6 +187,7 @@ export function useTmuxComposer(
     // Checked for its shape rather than taken on the type's word, for the same reason `text` is
     // below: a sidecar that does not know this field sends a message without it.
     setCommands(Array.isArray(next.commands) ? next.commands : []);
+    observePastes(next);
     // Checked for the shape it is documented in rather than for `text !== null`, because the two
     // differ exactly where it matters: a message that carries neither field -- a sidecar that does
     // not know this route, a proxy that swallowed the body -- has an `undefined` text, which is
@@ -242,7 +210,7 @@ export function useTmuxComposer(
     // is the last copy of those words, so it keeps them. See `holdsFreshPaste`.
     if (draftRef.current.length > 0 && holdsFreshPaste(next.text, draftRef.current)) return;
     setBoth(next.text);
-  }, [setBoth]);
+  }, [observePastes, setBoth]);
 
   // Everything resets on the session, including the draft: a draft belongs to the thread it was
   // written for, and carrying it across would type it into a different session's pane.
@@ -361,6 +329,7 @@ export function useTmuxComposer(
    * -- Claude replaces the path with its own `[Image #N]` -- so the reading has to win, and it
    * would not against a guard that says the field is newer.
    */
+  const { queue } = attachments;
   const drop = useCallback(async (files: readonly Blob[]) => {
     if (files.length === 0) return;
     if (pushTimer.current) {
@@ -392,7 +361,7 @@ export function useTmuxComposer(
         if (after.reason !== null) return;
         // Only once the pane has it. A picture queued for an image that never landed would be
         // shown beside the next one that did.
-        awaiting.current.push(file);
+        queue(file);
       }
       edited.current = false;
     } catch (failure) {
@@ -400,19 +369,7 @@ export function useTmuxComposer(
     } finally {
       setPending(false);
     }
-  }, [feed]);
-
-  const remove = useCallback((id: number) => {
-    // One space either side goes with the token, and one comes back when it had both. That is
-    // what keeps "alpha [Image #1] omega" reading as "alpha omega" while a token at the head of
-    // the box does not leave the text starting with a space.
-    const gone = draftRef.current.replace(
-      new RegExp(` ?\\[Image #${id}\\] ?`),
-      (taken) => (taken.startsWith(" ") && taken.endsWith(" ") ? " " : ""),
-    );
-    edited.current = true;
-    setBoth(gone);
-  }, [setBoth]);
+  }, [feed, queue]);
 
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
@@ -475,13 +432,17 @@ export function useTmuxComposer(
     submit,
     accept,
     drop,
-    images,
-    remove,
+    images: attachments.images,
+    remove: attachments.removeImage,
     modifiers,
     toggleModifier,
     pressKey,
     commands,
     chooseCommand,
+    pastes: attachments.pastes,
+    previewPaste: attachments.previewPaste,
+    expandPaste: attachments.expandPaste,
+    removePaste: attachments.removePaste,
     pending,
     error,
     onBlur,

@@ -33,6 +33,7 @@ describe("the commands a session offers", () => {
           { name: "/recap", description: "Generate a one-line session recap now", selected: true },
           { name: "/rename", description: "Rename the current conversation", selected: false },
         ],
+        pastes: [],
       });
     });
     expect(screen.getByTestId("commands").textContent).toBe(">/recap /rename");
@@ -57,6 +58,7 @@ describe("the commands a session offers", () => {
         reason: null,
         exact: true,
         commands: [{ name: "/recap", description: "one line", selected: true }],
+        pastes: [],
       });
     });
     await type("/rec");
@@ -99,7 +101,7 @@ describe("the commands a session offers", () => {
         hint: null,
         reason: null,
         exact: false,
-        commands: [],
+        commands: [], pastes: [],
       });
     });
     expect(screen.getByTestId("draft").textContent).toBe("/rename ");

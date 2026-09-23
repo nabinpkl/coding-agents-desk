@@ -161,3 +161,101 @@ describe("the images a composer is holding", () => {
     expect(draft()).toBe("");
   });
 });
+
+describe("pasted text", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("shows a chip for a handle the field is carrying, with what the sidecar holds", async () => {
+    // Claude keeps a long paste in its own process and leaves `[Pasted text #N]` in the box. The
+    // strip is where an attachment belongs; the field is for text a reader can edit, and a handle
+    // is not that -- one backspace takes the whole paste.
+    const feed = pane("");
+    feed.held.set("[Pasted text #1]", "one\ntwo\nthree");
+    render(<Probe feed={feed} />);
+    await settle();
+
+    await act(async () => {
+      feed.emit({
+        text: "[Pasted text #1]",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [],
+        pastes: [{ token: "[Pasted text #1]", id: 1, held: { chars: 13, lines: 3 } }],
+      });
+    });
+    expect(screen.getByTestId("pastes").textContent).toBe("[Pasted text #1]:3L13C");
+  });
+
+  it("says a paste made at the keyboard is not one it can open", async () => {
+    // Different from an empty preview, and the difference is what a reader deciding whether to
+    // send can act on: the words exist, they are just inside Claude.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => {
+      feed.emit({
+        text: "[Pasted text #9 +38 lines]",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [],
+        pastes: [{ token: "[Pasted text #9 +38 lines]", id: 9, held: null }],
+      });
+    });
+    expect(screen.getByTestId("pastes").textContent).toBe("[Pasted text #9 +38 lines]:unheld");
+  });
+
+  it("puts the words back in the field, which is how a reloaded panel recovers a message", async () => {
+    // The recovery this exists for. A reader whose panel reloaded mid-message comes back to an
+    // empty field and a box holding a handle: the message is in the pane and in the sidecar, and
+    // nowhere they can change it.
+    const feed = pane("");
+    feed.held.set("[Pasted text #1]", "the whole message again");
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => {
+      feed.emit({
+        text: "[Pasted text #1]",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [],
+        pastes: [{ token: "[Pasted text #1]", id: 1, held: { chars: 23, lines: 1 } }],
+      });
+    });
+    expect(draft()).toBe("[Pasted text #1]");
+
+    await press("expand");
+    expect(feed.previewed).toEqual(["[Pasted text #1]"]);
+    expect(draft()).toBe("the whole message again");
+    // And the pane is brought up to date with it, because the field is now the newer copy.
+    await settle(200);
+    expect(feed.pushes.at(-1)).toBe("the whole message again");
+  });
+
+  it("drops the chip the moment the handle leaves the field", async () => {
+    // Run off the DRAFT rather than off the reading, the way the image strip is, so removing one
+    // shows before the pane has been told.
+    const feed = pane("");
+    feed.held.set("[Pasted text #1]", "words");
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => {
+      feed.emit({
+        text: "[Pasted text #1] tail",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [],
+        pastes: [{ token: "[Pasted text #1]", id: 1, held: { chars: 5, lines: 1 } }],
+      });
+    });
+    expect(screen.getByTestId("pastes").textContent).toBe("[Pasted text #1]:1L5C");
+
+    await press("unpaste");
+    expect(screen.getByTestId("pastes").textContent).toBe("");
+    expect(draft()).toBe("tail");
+  });
+});

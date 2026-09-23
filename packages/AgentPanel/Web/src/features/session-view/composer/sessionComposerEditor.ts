@@ -3,6 +3,7 @@
 
 import type {
   ComposerCommand,
+  ComposerPaste,
   RailKey,
   RailModifier,
 } from "@agentdesk/agent-feed-wire";
@@ -42,6 +43,22 @@ export interface ComposerEditor {
   onFiles?: (files: readonly File[]) => void;
   /** The images the composer is holding, shown above the text the way the box holds them. */
   images?: readonly ComposerImage[];
+  /**
+   * The pastes the composer is holding as handles, shown beside the images and for one reason.
+   *
+   * Claude does not put a long paste in its box; it puts `[Pasted text #N]` there and keeps the
+   * words in its own process. That is an attachment rather than editable text -- one backspace
+   * takes the whole paste -- so it belongs where the other attachments are and not in the field.
+   * Only the mirrored terminal band has any, because it is the only field whose other end
+   * collapses what it is given.
+   */
+  pastes?: readonly ComposerPaste[];
+  /** The words behind one handle, when the sidecar is still holding them. */
+  onPreviewPaste?: (token: string) => Promise<string | null>;
+  /** Puts one paste's words back in the field, which is how a collapsed message is recovered. */
+  onExpandPaste?: (token: string) => Promise<void>;
+  /** Takes one paste back out, which is deleting its handle from the text. */
+  onRemovePaste?: (token: string) => void;
   /** Takes one of them back out, which is deleting its token from the text. */
   onRemoveImage?: (id: number) => void;
   /**
@@ -116,6 +133,10 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
       onFiles: (files) => void m.tmuxComposer.drop(files),
       images: m.tmuxComposer.images,
       onRemoveImage: m.tmuxComposer.remove,
+      pastes: m.tmuxComposer.pastes,
+      onPreviewPaste: m.tmuxComposer.previewPaste,
+      onExpandPaste: m.tmuxComposer.expandPaste,
+      onRemovePaste: m.tmuxComposer.removePaste,
       rail: {
         modifiers: m.tmuxComposer.modifiers,
         onModifier: m.tmuxComposer.toggleModifier,

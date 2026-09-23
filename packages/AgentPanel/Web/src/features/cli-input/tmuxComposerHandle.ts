@@ -6,6 +6,7 @@
 
 import type {
   ComposerCommand,
+  ComposerPaste,
   RailKey,
   RailModifier,
   TmuxComposerState,
@@ -54,6 +55,11 @@ const PASTED_TOKEN = /\[Pasted text #\d+(?: \+\d+ lines)?\]/g;
  */
 export function holdsFreshPaste(reading: string, draft: string): boolean {
   return [...reading.matchAll(PASTED_TOKEN)].some((match) => !draft.includes(match[0]));
+}
+
+/** Every paste handle in `text`, in the order the composer holds them. */
+export function composerPasteTokens(text: string): string[] {
+  return [...text.matchAll(PASTED_TOKEN)].map((match) => match[0]);
 }
 
 /** One image in the box: the number Claude gave it, and a picture of it when this panel has one. */
@@ -137,6 +143,41 @@ export interface TmuxComposerHandle {
    * ordinary push carries it, so there is no second way into the pane.
    */
   remove: (id: number) => void;
+  /**
+   * The pastes the composer is holding as handles, for the chips above the field.
+   *
+   * Claude does not put a long paste in its box, it puts `[Pasted text #N]` there and keeps the
+   * text inside its own process. Shown as a chip rather than left in the field as that literal
+   * string, for the reason the images beside them are: the field holds what the reader can edit,
+   * and a handle is not editable text -- one backspace takes the whole paste.
+   *
+   * `held` is what separates a chip that opens from one that cannot. The sidecar remembers the
+   * text of every paste IT made, which covers everything pushed from this field; a paste somebody
+   * made at that keyboard leaves a handle nothing on this side has the words of.
+   */
+  pastes: readonly ComposerPaste[];
+  /**
+   * The words behind one handle, or null when nobody on this side is holding them.
+   *
+   * Fetched when a reader opens the chip rather than carried on the stream: a reading goes out on
+   * every redraw of the box, and a paste runs to the composer's whole 16 KiB ceiling.
+   */
+  previewPaste: (token: string) => Promise<string | null>;
+  /**
+   * Replaces one handle in the field with the words it stands for.
+   *
+   * What makes a collapsed message recoverable rather than only readable: a reader whose panel
+   * reloaded comes back to a field that is empty and a box that is holding their message, and
+   * this is how they get it somewhere they can edit it.
+   */
+  expandPaste: (token: string) => Promise<void>;
+  /**
+   * Takes one paste back out of the composer, by its handle.
+   *
+   * The same act as removing an image and by the same route: the handle is deleted from the text
+   * and the ordinary push carries it, so there is no second way into somebody's pane.
+   */
+  removePaste: (token: string) => void;
   /**
    * The key rail's latched modifiers, and the two ways to drive it.
    *
