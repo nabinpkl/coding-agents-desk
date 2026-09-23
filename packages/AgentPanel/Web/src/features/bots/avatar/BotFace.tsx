@@ -28,8 +28,8 @@
 // No mouth: at the size a session's mark is drawn a mouth is two or three pixels that every
 // variant would spend on looking the same. What carries the expression is the eye itself. Open,
 // it is a white with a dark pupil standing in the middle of it, the way an eye is built. Shut,
-// the lid comes down over it and ARCHES (`eyeArch`), which is what a resting roster is mostly
-// made of and the drawing a reader called sad back when it was a flat bar.
+// it is a level lid across the same two points, which is most of what a resting roster is made
+// of.
 //
 // Derived, never stored, for the reason `botSurface.ts` gives about colour: a face nobody chose is
 // not an arrangement of this reader's, so it is not storage, and it is not a record the sidecar
@@ -192,54 +192,32 @@ const BELLY = 4 / 3;
  * dark blob again, a thinner one is a dot on a plate. The SHORTER axis, so the pupil stays round
  * on a head whose `rise` has squeezed the white as well as on one that has not.
  *
- * The pupil takes `currentColor`, which is the head's own colour, and the white takes the disc's.
- * So the two tones are the two the face already had, and nothing here needs a token of its own or
- * a contrast measurement: what shows in an eye is either the head or the ground behind the face.
+ * The white is `--bot-face-white` and the pupil `--bot-face-ink`, two tones the EYE owns rather
+ * than two borrowed from the head's colour ladder. Borrowing them is what put the parts the wrong
+ * way round on one theme and the right way round on the other; `styles.css` carries the reason at
+ * length, beside the numbers.
  */
 const PUPIL_SIZE = 0.6;
 
 /**
- * A SHUT eye: the lid down, and no white left under it.
+ * A SHUT eye: a level lid, as thick as this fraction of the white's half-width.
  *
  * Shut is where the roster spends most of its time -- every session without a card on the canvas
- * draws one -- so it is the drawing a reader actually sees. It used to be the open eye squashed to
- * a quarter of its height, and measured at 24px at four squash factors a squashed eye is a flat
- * bar at every one of them: curvature scales with the shape and is under a pixel long before the
- * eye stops reading as closed. A bar across a mouthless face is a closed mouth, which is why a
- * roster of resting sessions read as a column of glum faces.
+ * draws one -- so it is the drawing a reader actually sees. It is LEVEL, on the owner's call: an
+ * arch here is a smile, and a session that is merely not open has nothing to smile about. What a
+ * fold has to say is "closed", and a level lid says that and nothing else.
  *
- * So a closed eye is the lid alone, drawn in the white's colour: an arch standing on the two
- * points the white's own sides stand on, with the eye gone from under it. That is a closed eye
- * that is still pleased about it, and at a glance down the roster it is the difference between a
- * Bot resting and a Bot switched off.
- */
-const SHUT_CROWN = 0.64;
-const SHUT_LIFT = 0.44;
-
-/**
- * An arch: ends on its own baseline, a domed top, and a lid curving up underneath it.
+ * The bar this replaced was a different thing with the same silhouette, and the difference is why
+ * that one failed. It was the open eye under `scaleY(0.24)`, and measured at 24px at four squash
+ * factors a squashed capsule is a sliver at every one of them: curvature scales with the shape, so
+ * the ends round off to nothing long before the eye stops reading as open, and what is left is a
+ * hairline of ink with no thickness to it. This lid is DRAWN: a fixed thickness with round ends,
+ * standing on the white's own two sides, so it reads as a lid rather than as a scratch.
  *
- * `crown` is how far the dome rises above the baseline and `lift` how far the lid follows it up,
- * so the difference between them is the arch's thickness. Only the shut lid is drawn with it --
- * both parts of an open eye are the capsule below -- and it stands on the white's own stations,
- * which is what makes a fold read as the lid coming down over the same eye rather than as a
- * second mark.
+ * Drawn in the pupil's ink, because a lid has no white behind it to be seen against -- only the
+ * head, and the ink is the tone that stands off a head in both themes.
  */
-function eyeArch(cx: number, baseline: number, rx: number, crown: number, lift: number): string {
-  const left = cx - rx;
-  const right = cx + rx;
-  const top = baseline - crown;
-  const cap = Math.min(rx, crown);
-  const belly = n(baseline - lift * BELLY);
-  return [
-    `M${n(left)} ${n(baseline)}L${n(left)} ${n(top + cap)}`,
-    `Q${n(left)} ${n(top)} ${n(left + cap)} ${n(top)}`,
-    `L${n(right - cap)} ${n(top)}`,
-    `Q${n(right)} ${n(top)} ${n(right)} ${n(top + cap)}`,
-    `L${n(right)} ${n(baseline)}`,
-    `C${n(right)} ${belly} ${n(left)} ${belly} ${n(left)} ${n(baseline)}Z`,
-  ].join("");
-}
+const SHUT_THICK = 0.22;
 
 /**
  * The WHITE of an open eye: a capsule, drawn as two cubic caps facing each other.
@@ -278,9 +256,27 @@ export function pupilPath(eye: Eye): string {
   return eyePath({ cx: eye.cx, cy: eye.cy, rx: radius, ry: radius });
 }
 
-/** A shut eye: the lid alone, on the eye line, in the white's own colour. */
+/**
+ * A shut eye: a level bar across the eye line, with the round ends the white has.
+ *
+ * The same capsule as the white, lying down instead of standing: straight along the top and the
+ * bottom, a half-circle at each end, and its ends land exactly where the white's sides are, so a
+ * fold closes the eye where it stood rather than moving it.
+ */
 export function shutEyePath(eye: Eye): string {
-  return eyeArch(eye.cx, eye.cy, eye.rx, eye.ry * SHUT_CROWN, eye.ry * SHUT_LIFT);
+  const half = n(eye.rx * SHUT_THICK);
+  const left = n(eye.cx - eye.rx + half);
+  const right = n(eye.cx + eye.rx - half);
+  const top = n(eye.cy - half);
+  const bottom = n(eye.cy + half);
+  const reach = n(half * BELLY);
+  return [
+    `M${left} ${top}L${right} ${top}`,
+    `C${n(right + reach)} ${top} ${n(right + reach)} ${bottom} ${right} ${bottom}`,
+    `L${left} ${bottom}`,
+    `C${n(left - reach)} ${bottom} ${n(left - reach)} ${top} ${left} ${top}`,
+    "Z",
+  ].join("");
 }
 
 /**
@@ -383,11 +379,10 @@ export function botFaceOf(rank: number): BotFaceShape {
  * stands alone rather than inside the initials' disc, whose circle would ring every head in the
  * shape the faces were drawn to replace.
  *
- * The head takes `currentColor` and the white of an eye takes the disc's own fill, so the white is
- * a hole rather than ink and the pupil inside it is the head coming back through. That is what
- * keeps the contrast honest at every hue without measuring anything: the only two colours on the
- * face are the head's and the disc's, and `styles.css` puts the head on the rail's lightness,
- * which is the furthest thing on the ladder from the disc it sits on.
+ * The head takes `currentColor` and the eye takes its own two tones, `--bot-face-white` and
+ * `--bot-face-ink`. The head follows the theme and the eye does not, which is the whole of it: a
+ * white that follows the theme is the head's own colour on one of them, and an eye whose white is
+ * its head is not an eye. `styles.css` holds the lightnesses and what happens without them.
  *
  * **Shut is the state, not a different face.** The head, the eye stations and the widths do not
  * move; only the lid comes down, which is what closing IS. A blink is a squash of the open eye
@@ -422,11 +417,11 @@ export function BotFace({ rank, shut = false, className = "", style }: {
         style={{ "--bot-face-blink-delay": `-${((rank * 1.37) % 7).toFixed(2)}s` } as CSSProperties}
       >
         {face.eyes.map((eye) => (shut ? (
-          <path key={`${eye.cx}-${eye.cy}`} d={shutEyePath(eye)} fill="var(--bot-face-socket)" />
+          <path key={`${eye.cx}-${eye.cy}`} d={shutEyePath(eye)} fill="var(--bot-face-ink)" />
         ) : (
           <g key={`${eye.cx}-${eye.cy}`}>
-            <path d={eyePath(eye)} fill="var(--bot-face-socket)" />
-            <path d={pupilPath(eye)} fill="currentColor" />
+            <path d={eyePath(eye)} fill="var(--bot-face-white)" />
+            <path d={pupilPath(eye)} fill="var(--bot-face-ink)" />
           </g>
         )))}
       </g>

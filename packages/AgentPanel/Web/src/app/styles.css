@@ -719,24 +719,31 @@
     border-left-color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--terminal-hue));
   }
 
-  /* A generated face, on the rail's own colour.
+  /* A generated face: the head on the rail's own colour, and an eye with two tones of its own.
 
-     The rail is the saturated end of this hue's ladder and the accent disc under the face is the
-     pale end, so the head reads against its disc at every hue without a contrast measurement per
-     part: light puts 0.620 of lightness against 0.860, dark 0.720 against 0.380. The eyes are not
-     ink at all -- they take the disc's fill, so what shows through an eye is exactly what is
-     behind the face, and the two can never disagree about the colour of the thing between them.
+     The rail is the saturated end of this hue's ladder, which is what separates a head from the
+     panel behind it at every hue without a contrast measurement: 0.620 of lightness on light,
+     0.720 on dark.
 
-     The session hue with the Bot's as its fallback, and the step defaulting to zero, so one class
-     serves a Bot's 40px avatar and one of its sessions' 24px marks. `botSessionStyle` publishes
-     both or neither, which is why the step needs a default here and the hue does not. */
+     The EYE does not ride that ladder, because an eye is not a themed surface. Its white is a
+     white and its pupil is near-black, the same two in both themes, carrying just enough of the
+     Bot's hue to belong to the face. Taking them from the ladder instead is what made the eye
+     swap its parts between themes: the light theme drew a pale eye with a dark pupil, and the
+     dark theme drew the negative of that -- a dark eye with a pale disc in the middle -- because
+     the head IS the light tone there. Both were the same two paths, and only one of them looked
+     like an eye.
+
+     Fixed against the head rather than against the panel, so the numbers that matter are 0.97 and
+     0.25 against 0.620 and 0.720: the white stands off the head in either theme and the pupil
+     stands off the white by more than half the scale.
+
+     The session hue with the Bot's as its fallback, so one class serves a Bot's 40px avatar and
+     one of its sessions' 24px marks. The eye takes the hue and not the session step: a step walks
+     the ladder, and a white that walks anywhere stops being a white. */
   .bot-face {
     color: oklch(var(--bot-rail-l) var(--bot-rail-c) var(--bot-session-hue, var(--bot-hue)));
-    --bot-face-socket: oklch(
-      calc(var(--bot-accent-l) + var(--bot-session-step, 0) * var(--bot-session-accent-dl))
-      calc(var(--bot-accent-c) + var(--bot-session-step, 0) * var(--bot-session-accent-dc))
-      var(--bot-session-hue, var(--bot-hue))
-    );
+    --bot-face-white: oklch(0.97 0.03 var(--bot-session-hue, var(--bot-hue)));
+    --bot-face-ink: oklch(0.25 0.05 var(--bot-session-hue, var(--bot-hue)));
   }
 
   /* Closing draws the lid instead of squashing the eye. It used to be `scaleY(0.24)` on the group,

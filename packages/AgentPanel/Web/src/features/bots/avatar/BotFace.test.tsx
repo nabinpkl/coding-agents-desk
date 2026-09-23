@@ -145,9 +145,9 @@ describe("botFaceOf", () => {
  * The shapes are a taste question and were settled in a browser. Four things under them are not,
  * and each fails silently. A white that stops being symmetric reads as rounded at one end and
  * drawn out at the other. A pupil that outgrows the white, or slides off its centre, stops being
- * a pupil and becomes a dark mark with a rim around it. A lid whose arch flattens is the bar a
- * reader called sad. And the shut form has to stand where the open one does, or a card folding
- * looks like the eyes jumping rather than closing.
+ * a pupil and becomes a dark mark with a rim around it. A lid that thickens stops reading as
+ * closed and starts reading as a band of ink. And the shut form has to stand where the open one
+ * does, or a card folding looks like the eyes jumping rather than closing.
  */
 describe("eyePath", () => {
   const eyeOf = (rank: number) => botFaceOf(rank).eyes[0]!;
@@ -160,9 +160,6 @@ describe("eyePath", () => {
       right: Math.max(...points.map(([x]) => x)),
     };
   };
-  /** An arch's belly, which is the last control point before the path closes. */
-  const bellyOf = (path: string) => Number(/C[\d.]+ (-?[\d.]+) /.exec(path)![1]);
-
   test("the white is symmetric about the eye line, top cap to bottom cap", () => {
     // Both caps are the same curve mirrored, so the outline reaches exactly as far below the eye
     // line as above it -- control points included, which makes this an assertion about the curves
@@ -200,14 +197,16 @@ describe("eyePath", () => {
     }
   });
 
-  test("a shut eye is the lid alone, arching on the eye line", () => {
+  test("a shut eye is a level lid, centred on the eye line and far thinner than the eye", () => {
     for (let rank = 0; rank < BOT_FACE_PAIRS; rank += 1) {
       const eye = eyeOf(rank);
       const shut = extentOf(shutEyePath(eye));
-      expect(bellyOf(shutEyePath(eye))).toBeLessThan(eye.cy);
-      // Nothing hangs below the eye line: the lid stands ON it.
-      expect(shut.bottom).toBeCloseTo(eye.cy, 2);
-      expect(shut.top).toBeGreaterThan(extentOf(eyePath(eye)).top);
+      // Level: as far above the eye line as below it, so no head wears a lid that sits high or
+      // low on one side of its own eye.
+      expect(eye.cy - shut.top).toBeCloseTo(shut.bottom - eye.cy, 2);
+      // Thin enough to be a lid rather than a band: a closed eye reads closed because almost all
+      // of the open eye's height is gone, not because the shape changed.
+      expect(shut.bottom - shut.top).toBeLessThan(eye.ry / 2);
     }
   });
 
@@ -216,8 +215,11 @@ describe("eyePath", () => {
       const eye = eyeOf(rank);
       const open = extentOf(eyePath(eye));
       const shut = extentOf(shutEyePath(eye));
-      expect(shut.left).toBeCloseTo(open.left, 2);
-      expect(shut.right).toBeCloseTo(open.right, 2);
+      // Within a third of a unit rather than exactly: these extents are the control-point hull,
+      // and the lid's round ends are cubics whose controls sit a third of the cap radius past the
+      // point the curve actually reaches. The drawn ends land on the white's sides.
+      expect(Math.abs(shut.left - open.left)).toBeLessThan(0.34);
+      expect(Math.abs(shut.right - open.right)).toBeLessThan(0.34);
     }
   });
 
@@ -254,13 +256,13 @@ describe("BotFace", () => {
     const eyes = () => container.querySelector(".bot-face-eyes")!;
     const drawn = (fill: string) =>
       [...eyes().querySelectorAll(`path[fill='${fill}']`)].map((path) => path.getAttribute("d"));
-    expect(drawn("var(--bot-face-socket)")).toContain(eyePath(eye));
-    expect(drawn("currentColor")).toContain(pupilPath(eye));
+    expect(drawn("var(--bot-face-white)")).toContain(eyePath(eye));
+    expect(drawn("var(--bot-face-ink)")).toContain(pupilPath(eye));
     rerender(<BotFace rank={2} shut />);
-    expect(drawn("var(--bot-face-socket)"))
+    expect(drawn("var(--bot-face-ink)"))
       .toEqual([shutEyePath(eye), shutEyePath(botFaceOf(2).eyes[1]!)]);
-    // Nothing dark is left: a shut eye is the lid, with no white and no pupil under it.
-    expect(drawn("currentColor")).toEqual([]);
+    // No white is left: a shut eye is the lid, with nothing open under it.
+    expect(drawn("var(--bot-face-white)")).toEqual([]);
   });
 
   test("two Bots on one screen do not blink together", () => {
