@@ -244,8 +244,12 @@ function errorText(error: unknown): string {
 }
 
 /** Caps long output with the same footer shape the transcript adapters use. */
-function capText(text: string): { text: string; preview?: string; hiddenChars?: number; hiddenLines?: number } {
-  if (text.length <= TOOL_OUTPUT_CAP) return { text };
+function capText(text: string): { text: string; preview: string; hiddenChars?: number; hiddenLines?: number } {
+  // `preview` is always set, not just past the cap: the panel renders a
+  // tool result from `preview`, so a result with only `text` reads as
+  // "(empty result)" no matter how much output it holds. Measured in the
+  // panel against a shell call that returned two lines.
+  if (text.length <= TOOL_OUTPUT_CAP) return { text, preview: text };
   const kept = text.slice(0, TOOL_OUTPUT_CAP);
   const hidden = text.slice(TOOL_OUTPUT_CAP);
   return {

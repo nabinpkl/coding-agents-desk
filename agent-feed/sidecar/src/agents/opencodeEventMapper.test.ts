@@ -71,7 +71,7 @@ test("a finished turn carries text, thinking, and a paired tool call", () => {
         summary: "shell",
         files: undefined,
       },
-      { kind: "tool_result", callId: "c1", text: "ok" },
+      { kind: "tool_result", callId: "c1", text: "ok", preview: "ok" },
     ],
   }));
 });
@@ -94,6 +94,32 @@ test("a re-sync that changed nothing publishes nothing", () => {
   const first = projection.page(0, 10)[0]!;
   mapper.sync(items);
   expect(projection.page(0, 10)[0]).toBe(first);
+});
+
+test("short tool results carry a preview, which is what the panel renders", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [
+      {
+        type: "tool",
+        id: "c1",
+        name: "shell",
+        state: {
+          status: "completed",
+          input: { command: "echo hi" },
+          content: [{ type: "text", text: "hi\n" }],
+          structured: {},
+        },
+        time: { created: 1, ran: 2, completed: 3 },
+      },
+    ], 300),
+  ]);
+  const result = projection.page(0, 10)[0]!.blocks.at(-1)!;
+  expect(result.kind).toBe("tool_result");
+  if (result.kind === "tool_result") {
+    // Without `preview` the panel reads the block as "(empty result)".
+    expect(result.preview).toBe("hi\n");
+  }
 });
 
 test("long tool output is capped with a footer", () => {
