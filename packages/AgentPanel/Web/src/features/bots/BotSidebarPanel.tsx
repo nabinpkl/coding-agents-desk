@@ -236,45 +236,36 @@ export function BotSidebarPanel({
             return (
               <li
                 key={bot.botId}
-                // ONE rail for the whole entry, header and sessions, and the loudest colour this
-                // roster paints. Every row here was a filled band until recently, each session in
-                // its own step of the Bot's colour, the same fills its cards wear on the canvas --
-                // a column of saturated bands beside the thing they index, and the two competed. A
-                // card is a wide object a reader looks AT; a roster row is a name they look
-                // THROUGH, so the roster gives way. Colour at CARD strength is the canvas's to
-                // spend; what the roster owes is which Bot, which a bar down the leading edge
-                // says without taking the ground from under the text. The header keeps a whisper
-                // of it, for the reason written on it; the session rows keep none, and no edge of
-                // their own either -- theirs was struck from `--bot-border` to ring a fill, and
-                // against this ground it measures 1.58:1 at the first step and 3.34:1 at the
-                // sixth, which would read as some sessions having a border and others not.
+                // The OUTER rail, running the height of the header and every session under it,
+                // which is what makes them one entry. Nothing here has a background: structure is
+                // rails, an indent and a hairline, and colour at fill strength is the canvas's.
                 //
-                // Continuous rather than per-row, because a bar running the height of a header and
-                // its sessions is what makes them one entry -- the job the group gap and the
-                // indent were doing alone. `border-l-2` where the card carries six: that ratio
-                // says which way the nesting goes among cards, and six pixels here argues with
-                // the name beside it.
+                // Every row here was a filled band until recently, each session in its own step of
+                // the Bot's colour, the same fills its cards wear on the canvas -- a column of
+                // saturated bands beside the thing they index, and the two competed. A card is a
+                // wide object a reader looks AT; a roster row is a name they look THROUGH, so the
+                // roster gives way. A bar down the leading edge says which Bot without taking the
+                // ground from under the text, and each session repeats it one indent in, in the
+                // same hue, so the nesting is two bars rather than two fills.
                 //
-                // Painted only while the Bot has a card, so off the strip the rail goes with it
-                // and the header dims under the crossed eye. The dimming stays on the header so
-                // it cannot reach the session rows, which answer that one at a time.
+                // `border-l-2` where the card carries six: that ratio says which way the nesting
+                // goes among cards, and six pixels here argues with the name beside it. Painted
+                // only while the Bot has a card, so off the strip the rail goes with it
+                // and the header dims under the crossed eye. The dimming stays here so it cannot
+                // reach the session rows, which answer that one at a time.
                 className={`mb-3 border-l-2 pl-1 last:mb-0 ${
                   hue !== undefined && onStrip !== false ? "bot-rail" : "border-transparent"
                 }`}
                 style={hue === undefined || onStrip === false ? undefined : botSurfaceStyle(hue)}
               >
                 <div
-                  // `bot-surface` is a WHISPER, which is why the header can wear it where the
-                  // session rows cannot wear theirs. Against the `--card` this panel paints it is
-                  // 0.9915 on 1.0 in light and 0.234 on 0.205 in dark, where a session fill was
-                  // 0.950 and 0.255: enough to say the parent is a band and its children a list,
-                  // not enough to read as a second canvas. The hairline stays anyway, since in
-                  // light that step is 0.0085 of lightness and not an edge. The condition repeats
-                  // the entry's rather than leaning on an unset `--bot-hue`, which would resolve
-                  // to transparent with nothing said about it.
+                  // No surface. The header wore its card's tint for one commit on the argument
+                  // that a whisper distinguishes a parent band from a list of children; the
+                  // sidebar does not want a background colour at all, at any strength, so the
+                  // hairline and the rails carry the structure and nothing here is painted.
                   className={`flex min-h-16 items-center gap-3 border-b border-b-border/70 py-2 pr-3 ${
-                    hue !== undefined && onStrip !== false ? "bot-surface" : ""
-                  } ${onStrip === false ? "opacity-55" : ""}`}
+                    onStrip === false ? "opacity-55" : ""
+                  }`}
                 >
                   {canvas ? (
                     // The avatar IS the control. A control of its own would be a second 40px
@@ -399,16 +390,26 @@ export function BotSidebarPanel({
                         // both.
                         <li
                           key={key}
-                          // No fill and no edge: this row is the panel's ground, and what it has
-                          // to say about colour it says on the face -- same hue and step as the
-                          // fill it gave up, at rail strength, on 32px rather than a whole row.
-                          // The style stays, because that is what publishes the hue and the step
-                          // for the face to read.
+                          // A bar where the child starts, one indent inside its Bot's, and the
+                          // only thing this row paints. `bot-rail`, so the Bot's hue and NOT this
+                          // session's: the rule beside `BOT_SESSION_HUE_SPACING` in
+                          // `botSurface.ts`, and the reason that constant can be as wide as it is.
+                          // Neighbouring sessions sit sixty degrees apart around the WHOLE circle,
+                          // so a rail on `--bot-session-hue` turns the one channel that answers
+                          // whose Bot this is into six unrelated colours. Measured before it was
+                          // believed. Which session is the face's to say, on that turned hue.
+                          //
+                          // Not `bot-session-edge`, the laddered border this row wore under a fill:
+                          // struck from `--bot-border` to ring one, on bare ground it measures
+                          // 1.58:1 at the first step and 3.34:1 at the sixth, so half a list would
+                          // have looked unbordered.
                           //
                           // Whether the card is UNFOLDED is the face's to say through its eyes,
                           // and whether there is one at all is the dimming's and the crossed
                           // eye's. `aria-current` carries the first for a reader who sees neither.
-                          className={`flex items-center pr-1.5 ${noCard ? "opacity-55" : ""}`}
+                          className={`flex items-center border-l-2 pr-1.5 ${
+                            shaded && !noCard ? "bot-rail" : "border-transparent"
+                          } ${noCard ? "opacity-55" : ""}`}
                           style={shaded}
                         >
                           <button
