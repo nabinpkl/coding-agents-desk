@@ -739,29 +739,27 @@
     );
   }
 
-  /* Closing is a squash rather than a second drawing, so the face stays the same face: what a
-     reader recognises is the head and the eye shape, and both survive the transform. `fill-box`
-     because the default `view-box` origin would scale the eyes about the middle of the 32x32
-     canvas and slide them up the head as they closed. */
+  /* Closing moves the LID, not the whole eye. `BotFace` writes both forms as the same sequence of
+     path commands, so the shut one interpolates from the open one and the close is a transition on
+     `d` rather than a swap. It used to be `scaleY(0.24)` on the group, which was a squash: curvature
+     scales with the shape, so a quarter of a four-unit eye is under a pixel and every closed eye
+     rendered as a flat bar. A bar across a mouthless face is a closed mouth, and a roster of resting
+     sessions is mostly closed eyes, so that one number is what made the set look glum.
+
+     `fill-box` and the transform below are still the BLINK's: the default `view-box` origin would
+     scale the eyes about the middle of the 32x32 canvas and slide them up the head as they closed. */
   .bot-face-eyes {
     transform-box: fill-box;
     transform-origin: center;
-    transition: transform 140ms ease;
   }
 
-  .bot-face-eyes--shut {
-    /* 0.24 rather than the 0.12 this started at, measured at both sizes a face is drawn: an eye
-       scaled to 0.12 is a third of a pixel on a 32px mark, which antialiases to a hairline a
-       reader reads as an eye that has gone missing rather than one that has closed. A quarter
-       height is a lid at 32px and still plainly shut at 44, where anything above a third starts
-       reading as a squint instead. */
-    transform: scaleY(0.24);
+  .bot-face-eyes path {
+    transition: d 140ms ease;
   }
 
-  /* A blink is the shut state held for a tenth of a second, which is why it is the same transform:
-     one movement to learn, and the closed eyes of a folded card read as the face having settled
-     rather than as a different mark. Seven seconds because a blink a reader notices twice is a
-     blink they start watching for. */
+  /* A blink stays a squash, and it is the one place a squash is right: it is a movement rather than
+     a pose, it lasts a tenth of a second, and an arching lid drawn over 100ms is a drawing nobody
+     sees. Seven seconds because a blink a reader notices twice is a blink they start watching for. */
   .bot-face-eyes--open {
     animation: bot-face-blink 7s ease-in-out infinite;
     animation-delay: var(--bot-face-blink-delay, 0s);
@@ -776,7 +774,7 @@
      just arrive shut. A blink has nothing to say that the open eyes were not already saying, so it
      goes entirely. */
   @media (prefers-reduced-motion: reduce) {
-    .bot-face-eyes {
+    .bot-face-eyes path {
       transition: none;
     }
 
