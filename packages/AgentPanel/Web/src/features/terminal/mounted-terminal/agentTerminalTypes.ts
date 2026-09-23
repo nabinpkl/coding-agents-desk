@@ -29,10 +29,13 @@ export interface AgentTerminal {
   /** Whether this terminal is what the keyboard is typing into. */
   focused: boolean;
   /**
-   * Asks the far end for this grid without reopening; repeats of the grid in force send
-   * nothing. The pane still decides: a session somebody is attached to keeps its shape.
+   * Asks for this grid without reopening; repeats of the grid in force send
+   * nothing. A follower asks only its own view: the pane keeps its shape and
+   * the local terminal takes the grid instead.
    */
   resizeGrid: (columns: number, rows: number) => void;
+  /** The grid on screen now, or null before the terminal exists. */
+  measureGrid: () => { columns: number; rows: number } | null;
   /** The cell on screen now, or null before the first measure. */
   measureCell: () => { width: number; height: number } | null;
   modifiers: Record<RailModifier, ModifierState>;
@@ -79,5 +82,6 @@ export interface Dimensions {
 /** What a tile's drag asks through without reopening the attachment. */
 export interface TileGridRequest {
   resizeGrid: (columns: number, rows: number) => void;
+  measureGrid: () => { columns: number; rows: number } | null;
   measureCell: () => { width: number; height: number } | null;
 }

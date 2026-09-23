@@ -67,11 +67,12 @@ it("opens at the remembered grid and asks for a new one from the handle", async 
     30,
   ));
 
-  // The keyboard path: one press right asks for one more column and remembers it.
+  // The keyboard path: one press right asks for one more column and remembers it --
+  // locally. The wall follows the pane and never claims its shape.
   fireEvent.keyDown(screen.getByRole("button", { name: "Resize tile-1 terminal" }), { key: "ArrowRight" });
   await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
     "terminal-1",
-    expect.objectContaining({ columns: 101, rows: 30 }),
+    expect.objectContaining({ columns: 101, rows: 30, claim: false }),
   ));
   expect(loadTileGrid(":tile-1")).toEqual({ columns: 101, rows: 30 });
 });
@@ -99,7 +100,7 @@ it("drags the corner into a new grid and remembers it on release", async () => {
   await waitFor(() => expect(feed.updateTerminalViewport).toHaveBeenCalledTimes(1));
   expect(feed.updateTerminalViewport).toHaveBeenCalledWith(
     "terminal-1",
-    expect.objectContaining({ columns: 65, rows: 32 }),
+    expect.objectContaining({ columns: 65, rows: 32, claim: false }),
   );
   expect(loadTileGrid(":tile-2")).toEqual({ columns: 65, rows: 32 });
 });

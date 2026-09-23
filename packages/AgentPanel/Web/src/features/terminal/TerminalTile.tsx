@@ -15,11 +15,10 @@ import {
 /**
  * One terminal in the wall, at a grid its reader chose.
  *
- * Sixty columns until dragged, because that is what the programs inside a tmux session are
- * written for -- and because a tile that measured itself on every layout would push its own
- * size onto the PTY, and through it onto whatever terminal the user has the same tmux session
- * open in. A drag asks the pane for a new shape through the ordinary viewport claim instead,
- * which the sidecar refuses while a human is attached; the tile then stays where it was.
+ * A pure viewer: it follows the pane and never resizes it. tmux has one window size for
+ * everyone, so asking the pane for the tile's shape reflowed the session in its owner's
+ * terminal. A drag resizes only the local terminal, and the tile re-snaps to the pane's
+ * shape whenever the pane itself moves, so live work stays readable.
  *
  * Three handles share one drag: the corner grows both axes, the right edge grows columns
  * alone, and the bottom edge grows rows alone. Every handle persists through the same grid
@@ -66,11 +65,14 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   // Constant for this mount: the sizing is the effect's reopen key, so a drag must never change
   // it -- the new grid travels through `resizeGrid` on the live attachment instead.
   const [initialGrid] = useState<TileGrid>(() => loadTileGrid(storageKey));
-  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey, resizeGrid, measureCell } =
+  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey, resizeGrid, measureGrid, measureCell } =
     useAgentTerminal({
       feed,
       context,
       sizing: { kind: "fixed", columns: initialGrid.columns, rows: initialGrid.rows },
+      // Follow, never claim: this tile is a look at somebody else's session, and claiming
+      // would set the tmux window's one shared size to whatever box this tile holds.
+      paneShape: "follow",
       onState,
     });
   // Read once per tile rather than at import: a browser does not grow a software keyboard part way
@@ -93,10 +95,10 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   }, [resizeGrid, storageKey]);
 
   // What the pane has not been asked for yet. A drag stages it behind the badge and the
-  // ask goes out on settle (a short debounce) and on release: every ask resizes the pane,
-  // which reflows the program inside it, and a fullscreen TUI repaints itself on each one --
-  // measured as the flicker this drag used to ship with when every pixel asked. The badge is
-  // the per-pixel feedback while the tile itself follows on settle.
+  // ask goes out on settle (a short debounce) and on release: the ask is local-only -- it
+  // resizes this tile's own terminal, never the pane -- but a fullscreen TUI still repaints
+  // itself on each one, measured as the flicker this drag used to ship with when every
+  // pixel asked. The badge is the per-pixel feedback while the tile itself follows on settle.
   const pendingAsk = useRef<TileGrid | null>(null);
   const flushAsk = useCallback((): void => {
     const asked = pendingAsk.current;
@@ -122,9 +124,10 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   }, [clearLiveTimer, flushAsk]);
   useEffect(() => clearLiveTimer, [clearLiveTimer]);
 
-  // A drag in flight, or null. The tile's own box does not grow until the pane takes the shape
-  // and the checkpoint repaints it, so the badge beside the handle is the live feedback. The
-  // axis is which handle started it: the corner moves both, the edges move one.
+  // A drag in flight, or null. The tile's own box follows the pointer through the badge
+  // per pixel and takes the staged grid on settle; the pane is never asked, so a drag
+  // reflows only this view. The axis is which handle started it: the corner moves both,
+  // the edges move one.
   const drag = useRef<{ startX: number; startY: number; start: TileGrid; axis: DragAxis } | null>(null);
   const [dragGrid, setDragGrid] = useState<TileGrid | null>(null);
   // The footer picker's other half: the button clicks it, and the change hands the files to
@@ -147,9 +150,14 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
 
   const beginDrag = useCallback((clientX: number, clientY: number, axis: DragAxis): void => {
     clearLiveTimer();
-    drag.current = { startX: clientX, startY: clientY, start: committed.current, axis };
+    // From the grid on screen, not the last one stored: the pane's own moves snap the tile
+    // back through the checkpoint, and starting from a stale store would jump the box.
+    const live = measureGrid();
+    const start = live ?? committed.current;
+    committed.current = start;
+    drag.current = { startX: clientX, startY: clientY, start, axis };
     setDragGrid(null);
-  }, [clearLiveTimer]);
+  }, [clearLiveTimer, measureGrid]);
 
   const moveDrag = useCallback((clientX: number, clientY: number): void => {
     if (!drag.current) return;
@@ -174,11 +182,14 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   }, [clearLiveTimer, flushAsk, storageKey]);
 
   const nudgeGrid = useCallback((columns: number, rows: number): void => {
+    const live = measureGrid();
+    const from = live ?? committed.current;
+    committed.current = from;
     applyGrid(
-      { columns: committed.current.columns + columns, rows: committed.current.rows + rows },
+      { columns: from.columns + columns, rows: from.rows + rows },
       true,
     );
-  }, [applyGrid]);
+  }, [applyGrid, measureGrid]);
 
   return (
     <section
@@ -212,10 +223,9 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
                 ? "attached"
                 : labels.sync}
         </span>
-        {/* The pane's own shape, live through a drag: the badge tracks the pointer per pixel
-            while this tracks what was asked, falling back to the opening grid before the
-            attach answers. The source label is the far end's truth rather than the ask, so a
-            resize refused while a human watches keeps showing the shape in force. */}
+        {/* The pane's own shape, live: the tile follows it and never asks for its own, so
+            the source label is the far end's truth and the drag badge beside the handle is
+            the staged local grid. Falls back to the opening grid before the attach answers. */}
         <button
           type="button"
           aria-label={`Attach an image to ${label}`}
