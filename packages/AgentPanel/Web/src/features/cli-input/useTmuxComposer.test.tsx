@@ -145,6 +145,46 @@ describe("tmux composer", () => {
     expect(draft()).toBe("something the reader typed");
   });
 
+  it("keeps a long message when Claude collapses the push into a pasted-text token", async () => {
+    // Measured on a live pane (v2.1.263): a bracketed paste of more than 800 characters, or of
+    // more than three lines, is replaced in the box by `[Pasted text #N]`. The panel's own pushes
+    // cross that line the moment somebody writes a real message, so the reading that comes back
+    // names a handle to words that now live only inside Claude.
+    //
+    // Adopting it was the whole of the bug. The field showed `[Pasted text #1]` in place of the
+    // message still being written, and the next keystroke pushed that token back as literal text,
+    // which detaches the paste in the pane -- so the message existed nowhere at all.
+    const message = "zebra ".repeat(150);
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await type(message);
+    await settle(200);
+    expect(feed.pushes.at(-1)).toBe(message);
+
+    await act(async () => { feed.emit(holding("[Pasted text #1]")); });
+    expect(draft()).toBe(message);
+
+    // And it stays the reader's words through the next keystroke, which is what the pane is
+    // brought back into agreement with.
+    await type(`${message}!`);
+    await settle(200);
+    expect(feed.pushes.at(-1)).toBe(`${message}!`);
+  });
+
+  it("adopts a pasted-text token the field is already carrying", async () => {
+    // The guard above is about a token the draft does NOT hold, because that one can only be
+    // standing in for the draft itself. A token already in the field came from the pane in the
+    // first place, and an edit beside it is an ordinary two-way reading.
+    const feed = pane("[Pasted text #3 +38 lines]");
+    render(<Probe feed={feed} />);
+    await settle();
+    expect(draft()).toBe("[Pasted text #3 +38 lines]");
+
+    await act(async () => { feed.emit(holding("[Pasted text #3 +38 lines] and this too")); });
+    expect(draft()).toBe("[Pasted text #3 +38 lines] and this too");
+  });
+
   it("brings the pane up to date before pressing Return, so half a sentence is never sent", async () => {
     const feed = pane("");
     render(<Probe feed={feed} />);

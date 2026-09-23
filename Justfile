@@ -1109,6 +1109,19 @@ panel-scroll-memory-verify:
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/panel-scroll-memory-verify.mjs'
 
+# Checks a long message survives Claude collapsing it into a `[Pasted text #N]` handle.
+# NOT in `just check`: it needs a live panel (`just host-run`) and it starts its own throwaway
+# Claude session to type into, because it drives the composer it is testing.
+# The unit test pins the reconciliation rule against a fake stream; both halves of what this
+# checks live outside the panel -- the collapse in the CLI's renderer, the reading in the sidecar.
+composer-paste-collapse-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      PANEL_PROJECT='{{justfile_directory()}}' \
+      node '{{justfile_directory()}}/chrome-test/composer-paste-collapse-verify.mjs'
+
 # Checks the Bot canvas's zoom mode in a browser that lays pages out.
 # NOT in `just check`: it needs a live panel (`just host-run`) and the Bots on this machine.
 # The unit tests cannot see any of this -- jsdom measures nothing, so the hook never learns a size

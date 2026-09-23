@@ -26,6 +26,7 @@ import type {
 const PUSH_DEBOUNCE_MS = 90;
 import {
   composerImageIds,
+  holdsFreshPaste,
   type ComposerImage,
   type TmuxComposerHandle,
 } from "@/features/cli-input/tmuxComposerHandle";
@@ -233,6 +234,13 @@ export function useTmuxComposer(
     // trusted to the character may only fill a field that has nothing to lose.
     if (edited.current) return;
     if (!next.exact && draftRef.current.length > 0) return;
+    // A paste this panel has not been carrying is Claude collapsing the push this field just
+    // made, and the words are gone from the reading rather than late to it. Adopting it hands
+    // the reader a `[Pasted text #1]` they cannot read and cannot edit, in place of the message
+    // they are still writing -- and then pushes that token back as literal text on the next
+    // keystroke, which detaches the paste in the pane and loses the message for good. The field
+    // is the last copy of those words, so it keeps them. See `holdsFreshPaste`.
+    if (draftRef.current.length > 0 && holdsFreshPaste(next.text, draftRef.current)) return;
     setBoth(next.text);
   }, [setBoth]);
 

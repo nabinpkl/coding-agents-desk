@@ -29,6 +29,33 @@ export function composerImageIds(text: string): number[] {
   return [...text.matchAll(IMAGE_TOKEN)].map((match) => Number(match[1]));
 }
 
+/**
+ * The token Claude leaves where it collapsed a long paste, which is a HANDLE and not the words.
+ *
+ * Measured on a live pane, v2.1.263: a bracketed paste of more than 800 characters, or of more
+ * than three lines, is replaced in the box by `[Pasted text #1]` -- `+N lines` on the multi-line
+ * kind -- and the text itself moves into a table inside that process. Claude expands it again on
+ * submit, and a single backspace deletes the whole thing.
+ *
+ * It matters here because the panel's own pushes cross that line. A reader writing a long message
+ * into the field sends it, Claude collapses it, and the reading that comes back names a handle to
+ * words this side can no longer read. See `holdsFreshPaste`.
+ */
+const PASTED_TOKEN = /\[Pasted text #\d+(?: \+\d+ lines)?\]/g;
+
+/**
+ * Whether `reading` names a paste that `draft` does not, which means the words are not in it.
+ *
+ * The question a reading has to answer before it may fill the field is whether it carries MORE
+ * than the draft does, and a pasted-text token carries strictly less: it stands for text that
+ * lives only inside Claude. A token the draft already holds is one this panel has been carrying
+ * all along and can push back unchanged; a token it does not hold is new, and the only thing it
+ * can be standing in for is the text the field is holding right now.
+ */
+export function holdsFreshPaste(reading: string, draft: string): boolean {
+  return [...reading.matchAll(PASTED_TOKEN)].some((match) => !draft.includes(match[0]));
+}
+
 /** One image in the box: the number Claude gave it, and a picture of it when this panel has one. */
 export interface ComposerImage {
   id: number;
