@@ -3,7 +3,7 @@
 // One spawn helper for the whole terminal path, so a missing binary is one error with one
 // message rather than a different silence per caller.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 
 export class TmuxUnavailable extends Error {
   constructor(message: string) {

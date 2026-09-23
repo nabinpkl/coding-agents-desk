@@ -1,0 +1,123 @@
+import { expect, test } from "bun:test";
+import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import { LiveAgentProjection } from "@/agents/liveAgentProjection";
+import { OpencodeEventMapper } from "@/agents/opencodeEventMapper";
+
+function user(id: string, text: string): SessionMessage {
+  return { id, time: { created: 100 }, text, type: "user" };
+}
+
+function assistant(
+  id: string,
+  content: SessionMessage extends never ? never : Extract<SessionMessage, { type: "assistant" }>["content"],
+  completed: number | undefined,
+): SessionMessage {
+  return {
+    id,
+    time: completed === undefined ? { created: 200 } : { created: 200, completed },
+    type: "assistant",
+    agent: "build",
+    model: { id: "m", providerID: "p" },
+    content,
+  };
+}
+
+test("a user message arrives as a human turn", () => {
+  const projection = new LiveAgentProjection();
+  const result = new OpencodeEventMapper(projection).sync([user("msg-u", "hello")]);
+  expect(result.lastTurnClosed).toBe(true);
+  expect(result.open).toBe(false);
+  expect(projection.page(0, 10)).toEqual([
+    expect.objectContaining({
+      id: "opencode:msg-u",
+      type: "user",
+      humanTurn: true,
+      phase: "complete",
+      blocks: [{ kind: "text", text: "hello" }],
+    }),
+  ]);
+});
+
+test("a finished turn carries text, thinking, and a paired tool call", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    user("msg-u", "run it"),
+    assistant("msg-a", [
+      { type: "text", id: "t1", text: "on it" },
+      { type: "reasoning", id: "r1", text: "" },
+      {
+        type: "tool",
+        id: "c1",
+        name: "shell",
+        state: { status: "completed", input: { command: "ls" }, content: [{ type: "text", text: "ok" }], structured: {} },
+        time: { created: 1, ran: 2, completed: 3 },
+      },
+    ], 300),
+  ]);
+  const rows = projection.page(0, 10);
+  expect(rows[1]).toEqual(expect.objectContaining({
+    id: "opencode:msg-a",
+    type: "assistant",
+    phase: "complete",
+    blocks: [
+      { kind: "text", text: "on it" },
+      // Encrypted thinking is present-but-empty, never dropped.
+      { kind: "reasoning", text: "" },
+      {
+        kind: "tool_use",
+        tool: "shell",
+        callId: "c1",
+        input: { command: "ls" },
+        summary: "shell",
+        files: undefined,
+      },
+      { kind: "tool_result", callId: "c1", text: "ok" },
+    ],
+  }));
+});
+
+test("an unfinished assistant message streams", () => {
+  const projection = new LiveAgentProjection();
+  const result = new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [{ type: "text", id: "t1", text: "working" }], undefined),
+  ]);
+  expect(result.open).toBe(true);
+  expect(result.lastTurnClosed).toBe(false);
+  expect(projection.page(0, 10)[0]).toEqual(expect.objectContaining({ phase: "streaming" }));
+});
+
+test("a re-sync that changed nothing publishes nothing", () => {
+  const projection = new LiveAgentProjection();
+  const mapper = new OpencodeEventMapper(projection);
+  const items = [user("msg-u", "hello")];
+  mapper.sync(items);
+  const first = projection.page(0, 10)[0]!;
+  mapper.sync(items);
+  expect(projection.page(0, 10)[0]).toBe(first);
+});
+
+test("long tool output is capped with a footer", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [
+      {
+        type: "tool",
+        id: "c1",
+        name: "shell",
+        state: {
+          status: "completed",
+          input: {},
+          content: [{ type: "text", text: `${"x".repeat(9000)}\nline2\nline3` }],
+          structured: {},
+        },
+        time: { created: 1, ran: 2, completed: 3 },
+      },
+    ], 300),
+  ]);
+  const result = projection.page(0, 10)[0]!.blocks.at(-1)!;
+  expect(result.kind).toBe("tool_result");
+  if (result.kind === "tool_result") {
+    expect(result.hiddenChars).toBeGreaterThan(0);
+    expect(result.hiddenLines).toBe(2);
+  }
+});

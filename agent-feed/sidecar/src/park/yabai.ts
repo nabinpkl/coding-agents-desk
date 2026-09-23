@@ -12,7 +12,7 @@
 // its middle rungs silently, so pin the version and treat the ordering as a
 // contract this file depends on rather than an incidental detail.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { Rect } from "@/park/ladder";
 
 export interface YabaiWindow {

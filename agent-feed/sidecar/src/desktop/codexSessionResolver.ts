@@ -1,7 +1,7 @@
 import type { DesktopAuditSnapshot, WindowInputReason, WindowTarget } from "@agentdesk/agent-feed-wire";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { ProcessRow } from "@/desktop/claudeSessionResolver";
 
 /**

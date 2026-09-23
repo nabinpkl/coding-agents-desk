@@ -23,7 +23,7 @@
 // available; deleting it was not.
 
 import type { BackgroundTaskSnapshot } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { backgroundTaskSnapshot } from "@/tasks/backgroundTasks";
 import {
   type CommandRunner,

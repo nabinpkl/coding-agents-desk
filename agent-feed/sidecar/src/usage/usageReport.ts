@@ -11,7 +11,7 @@
 // wide enough to hold both would be the two functions with an interface stretched over them.
 
 import { stat } from "node:fs/promises";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type {
   QuotaReport,
   UsageCoverage,

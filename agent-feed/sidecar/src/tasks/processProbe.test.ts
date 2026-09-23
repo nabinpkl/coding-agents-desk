@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import {
   type CommandRunner,
   isInsideTaskRoot,

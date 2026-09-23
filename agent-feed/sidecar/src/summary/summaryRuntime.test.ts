@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import {
   createSummaryRunner,
   SUMMARY_TOOLS,

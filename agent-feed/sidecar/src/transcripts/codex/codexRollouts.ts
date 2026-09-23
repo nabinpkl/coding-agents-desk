@@ -4,7 +4,7 @@
 import { basename, join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { turnClosedFor } from "@/transcripts/codex/codexPayloads";
 
 const CODEX_HOME = config.codexHomeDirectory;

@@ -2,7 +2,7 @@
 // runs behind, walking descendants, and taking one snapshot per tick.
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import {
   busiestDescendant,
   type CommandRunner,

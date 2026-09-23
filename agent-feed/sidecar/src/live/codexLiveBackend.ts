@@ -11,7 +11,7 @@
 // id agent-feed keys codex threads by, which is what makes the mirror land on
 // the right row.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type {
   AgentBackend,
   AgentCommandReceipt,

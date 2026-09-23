@@ -8,7 +8,7 @@
 // session last resolved to.
 
 import type { DesktopAuditSnapshot, WindowInputReason, WindowTarget } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { ProcessRow } from "@/desktop/claudeSessionResolver";
 import type { RendererReviver } from "@/desktop/rendererReviver";
 import {

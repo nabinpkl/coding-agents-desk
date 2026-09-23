@@ -7,7 +7,7 @@
 import { existsSync } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import type { Session, SourceId } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";

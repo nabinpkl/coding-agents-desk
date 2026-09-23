@@ -9,7 +9,7 @@
 
 import { basename } from "node:path";
 import type { BackgroundTaskSnapshot, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { backgroundTasks } from "@/tasks/backgroundTaskCoordinator";
 import { readTerminalMarker } from "@/tasks/backgroundTasks";
 import {

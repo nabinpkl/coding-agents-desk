@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { contextWindowIn } from "@/contextWindows";
+import { contextWindowIn } from "@/config/contextWindows";
 
 const TABLE = {
   "claude-opus": 200_000,

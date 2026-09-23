@@ -29,7 +29,7 @@ import type {
   CliInputStatus,
   CliInputUnavailableReason,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { CommandRunner } from "@/tasks/processProbe";
 import { currentProcessTable, runCommand } from "@/tasks/processProbe";
 import { parseRegistryProcStart, startTimesAgree } from "@/tasks/processStartTime";

@@ -1,6 +1,6 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { Session } from "@/transcripts/transcriptTypes";
 import type { PiSessionLocation } from "@/agents/piAgentBackend";
 
@@ -90,6 +90,9 @@ export async function readPiSessionCandidate(
 }
 
 export function piLocation(session: Session): PiSessionLocation {
+  // Pi records always carry their JSONL path; a record without one is a catalog
+  // bug, and resolving it into a location would aim the runtime at nothing.
+  if (!session.transcriptPath) throw new Error(`Pi session "${session.sessionId}" has no transcript path`);
   return {
     sessionId: session.sessionId,
     projectPath: session.project,

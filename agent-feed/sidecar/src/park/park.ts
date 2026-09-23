@@ -17,7 +17,7 @@
 // switch Desktops constantly, and a park that chases the active Space would
 // scatter its own pile. It parks where it started and stays there.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { type LadderPlan, plan as planLadder, type Rect } from "@/park/ladder";
 import {
   clearManifest,

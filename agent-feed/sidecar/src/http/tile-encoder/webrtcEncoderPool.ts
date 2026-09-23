@@ -13,7 +13,7 @@ import type {
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
 import { basename } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { controlHelper } from "@/desktop/controlHelper";
 import { acquireEncoderSlot } from "@/desktop/encoderSlots";
 import { helperBinary } from "@/desktop/helperBinary";

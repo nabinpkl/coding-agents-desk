@@ -29,7 +29,7 @@ import type {
   SummaryResult,
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { AgentRunState } from "@agentdesk/agent-feed-wire";
 import {
   buildSummaryPrompt,

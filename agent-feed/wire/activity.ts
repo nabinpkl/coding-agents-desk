@@ -4,7 +4,7 @@
 // into these shapes, and everything above the adapter -- event index, catalog, HTTP/SSE, the Agent
 // Panel -- consumes only these.
 
-export type SourceId = 'claude' | 'codex' | 'pi';
+export type SourceId = 'claude' | 'codex' | 'pi' | 'opencode';
 
 // Which view of a transcript an index, count, page or stream addresses.
 //   raw  -- every line, in file order. The fidelity guarantee.

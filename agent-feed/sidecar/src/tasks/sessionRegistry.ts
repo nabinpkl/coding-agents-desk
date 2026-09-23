@@ -12,7 +12,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ClaudeSessionEntrypoint } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { ProcessRow } from "@/tasks/processProbe";
 import { parseRegistryProcStart, startTimesAgree } from "@/tasks/processStartTime";
 

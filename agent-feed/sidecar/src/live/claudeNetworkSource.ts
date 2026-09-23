@@ -16,7 +16,7 @@
 //     when its own capture pipeline could not keep up, which is the one event here
 //     that says the mirror is now wrong rather than merely behind.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { noteRateLimitHeaders, readingTimeMs } from "@/usage/claudeLiveQuota";
 
 export interface ObserverFlow {

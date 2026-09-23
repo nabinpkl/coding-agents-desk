@@ -102,7 +102,7 @@ export function useFeedRows({
     () => buildFeedLayout(events, {
       cluster: mode === "nice",
       hideSystem: mode === "nice",
-      incrementalReasoning: mode === "nice" && source === "codex",
+      incrementalReasoning: mode === "nice" && (source === "codex" || source === "opencode"),
       foldedClusters,
     }),
     [events, mode, source, foldedClusters],

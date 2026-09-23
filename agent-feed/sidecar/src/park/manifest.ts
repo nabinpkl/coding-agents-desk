@@ -21,7 +21,7 @@
 import { open, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { Rect } from "@/park/ladder";
 
 export const PARK_MANIFEST_VERSION = 1;

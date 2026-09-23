@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { assembleSnapshot, type SnapshotSources } from "@/tasks/backgroundTasks";
 import { parseProcessTable } from "@/tasks/processProbe";
 import type { MonitorIdentity, TaskIdentity } from "@/tasks/taskIdentity";

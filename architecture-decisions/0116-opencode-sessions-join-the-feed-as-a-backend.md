@@ -1,0 +1,39 @@
+---
+status: accepted
+date: 2026-09-22
+---
+
+# Opencode sessions join the feed as a backend, not a transcript
+
+## Context and Problem Statement
+
+Opencode runs its sessions behind `opencode serve`, which owns a SQLite store and a typed HTTP plus SSE API. The feed already has two shapes for sessions: transcript adapters that parse one JSONL line (`SourceAdapter.processLine`), and provider backends that serve pages and subscriptions (`AgentBackend`). Opencode had to land behind one of them, with its web UI, TUI, and serve untouched.
+
+## Decision Drivers
+
+- No second copy of a store the serve already owns: rows read from SQLite would drift from the serve the moment either side changed.
+- The serve's first-party JS SDK (`@opencode-ai/sdk`) already covers list, messages, prompt, abort, fork, permissions, and the event stream, so hand-rolled HTTP would be a second client to maintain.
+- The serve password must never enter the panel; it stays in the sidecar like every other backend secret.
+- Thinking blocks stream as a real lifecycle but carry empty text when the provider encrypts them; the feed must show that as thinking, not as nothing.
+
+## Considered Options
+
+- **Option A**: A transcript adapter that reads the serve's SQLite and synthesizes JSONL lines.
+- **Option B**: An `AgentBackend` over the SDK client, with the catalog listing sessions off the serve.
+- **Option C**: Embedding the serve's web UI beside the feed.
+
+## Decision Outcome
+
+Chose **Option B** because the backend seam already serves non-transcript sources end to end (the timeline route falls through to `backend.page` plus `backend.subscribe` for anything without a transcript adapter), which answers the drift driver that kills Option A: the serve stays the durable record and the sidecar keeps only a projection. Option C was rejected because the serve UI is a separate SolidJS app, not importable components, and an iframe would split composer, meter, and canvas integration.
+
+### Consequences
+
+- Good, because catalog, timeline, composer send/steer/abort, and permission/question mirrors all work with no panel feature code: they key off capabilities and the shared timeline path.
+- Good, because live updates cost one shared serve event stream per sidecar, fanned out per session, with each event collapsing into a coalesced message re-read: no stream id to track, no delta to lose.
+- Bad, because indices are backend-owned and renumber, so reconnects re-page (`stableIndices: false`) like Pi rather than resuming like transcripts.
+- Bad, because the generated SDK snapshots one OpenAPI revision; a serve upgrade can drift it, which the live contract probe guards.
+- Neutral, because `Session.transcriptPath` is now optional: backend-owned records omit it and every transcript-only reader answers not-found for them.
+
+### Confirmation
+
+`opencodeAgentBackend.test.ts` and `opencodeEventMapper.test.ts` pin translation and commands against a fake serve; `opencodeCatalog.test.ts` pins listing, pruning, and the unconfigured case; the panel renders an opencode thread in debug Chrome against the live serve.

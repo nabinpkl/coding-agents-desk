@@ -9,7 +9,7 @@
 // `session_id` carried in each captured request body -- the same id agent-feed
 // keys claude sessions by, which is what makes the mirror land on the right row.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type {
   AgentBackend,
   AgentCommandReceipt,

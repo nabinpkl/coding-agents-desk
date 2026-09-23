@@ -204,7 +204,9 @@ export async function forkClaudeSession(
   const worktree = normalizeWorktree(command.worktree);
 
   const source = findSession("claude", sessionId);
-  if (!source) throw new SessionForkNotFoundError(`session claude:${sessionId} is not in the catalog`);
+  if (!source || !source.transcriptPath) {
+    throw new SessionForkNotFoundError(`session claude:${sessionId} is not in the catalog`);
+  }
 
   // Resolved BEFORE anything is started, so a request naming a row that is not a message is
   // refused rather than answered with a running fork holding the whole conversation.

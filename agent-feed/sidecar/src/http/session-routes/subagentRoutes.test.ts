@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "bun";
-import { config } from "@/config";
+import { config } from "@/config/config";
 
 // `config` is `as const`, so its fields are readonly to a reader and still assignable at runtime.
 // Pointing it at a scratch directory is the only way to exercise the path derivation without

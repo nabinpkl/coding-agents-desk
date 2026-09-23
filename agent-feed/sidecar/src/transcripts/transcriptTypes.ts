@@ -27,7 +27,7 @@ export type {
   TokenUsage,
 } from "@agentdesk/agent-feed-wire";
 
-export type TranscriptSourceId = Exclude<SourceId, 'pi'>;
+export type TranscriptSourceId = Exclude<SourceId, 'pi' | 'opencode'>;
 
 // What a bounded metadata read yields about a session, without reading its body.
 //
@@ -140,11 +140,14 @@ export interface LineResult {
 //
 // Local, not wire: `transcriptPath` is a path on the host's disk, and the
 // catalog projects this into a `SessionSummary` before anything is published.
+// Absent for backends that serve their own data over an API instead of a file
+// (opencode): no transcript reader may be asked for such a session, and the
+// timeline route never does -- it resolves backends before transcripts.
 export interface Session {
   sessionId: string;
   source: SourceId;
   project: string;
-  transcriptPath: string;
+  transcriptPath?: string;
   lastEventAt: number;
   // Codex carries a title in SQLite, Pi in its header line, Claude in the bounded
   // header read's two edges (`aiTitle` / `customTitle`).

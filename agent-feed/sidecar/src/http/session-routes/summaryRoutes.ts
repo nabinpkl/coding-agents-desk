@@ -19,7 +19,7 @@ import type {
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentBackend } from "@/agents/agentBackend";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import {
   createSummaryRunner,
   SummaryUnconfiguredError,

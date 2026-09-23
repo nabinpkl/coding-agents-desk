@@ -5,8 +5,8 @@
 // about the session, and how a finished or half-finished message is published to the
 // projection a reader is subscribed to.
 
-import { contextWindowFor } from "@/config";
-import { longContextModelId } from "@/contextWindows";
+import { contextWindowFor } from "@/config/config";
+import { longContextModelId } from "@/config/contextWindows";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";

@@ -143,7 +143,7 @@ export function normalizeSessionRef(value: unknown): BotSessionRef {
   }
   const ref = value as Partial<BotSessionRef>;
   if (
-    (ref.source !== "claude" && ref.source !== "codex" && ref.source !== "pi")
+    (ref.source !== "claude" && ref.source !== "codex" && ref.source !== "pi" && ref.source !== "opencode")
     || typeof ref.sessionId !== "string"
     || !/^[A-Za-z0-9._:-]{1,128}$/.test(ref.sessionId)
   ) {

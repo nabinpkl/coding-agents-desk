@@ -1,6 +1,6 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import {
@@ -52,9 +52,13 @@ import {
   registerPiSession,
   resolvePiSession,
   notifyPiSessionChanged,
+  registerOpencodeSession,
+  resolveOpencodeSession,
+  scheduleOpencodeReconcile,
 } from "@/transcripts/catalog/transcriptCatalog";
 import { AgentBackendRegistry } from "@/agents/agentBackend";
 import { PiAgentBackend } from "@/agents/piAgentBackend";
+import { OpencodeAgentBackend } from "@/agents/opencodeAgentBackend";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { BotStore } from "@/bots/botStore";
@@ -112,6 +116,15 @@ backends.register(new PiAgentBackend({
     await botRegistry.botAllowedToAdd({ source, sessionId })
       ? [createAddBotTool(botRegistry, { source, sessionId })]
       : [],
+}));
+// Opencode sessions are owned by the serve on this machine, not by files the
+// catalog watches: the backend reads them over the SDK client while the
+// catalog reconciler lists them, the same split Pi keeps between runtime and
+// registry. No password crosses this boundary -- the client holder keeps it.
+backends.register(new OpencodeAgentBackend({
+  resolveSession: resolveOpencodeSession,
+  onSessionCreated: registerOpencodeSession,
+  onCatalogChanged: scheduleOpencodeReconcile,
 }));
 // Read-only live mirror of Claude Code traffic observed through proxy-agent.
 // Registered unconditionally so its routes answer with a precise "unknown

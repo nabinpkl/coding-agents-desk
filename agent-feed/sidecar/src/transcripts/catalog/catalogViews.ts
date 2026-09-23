@@ -6,13 +6,14 @@
 // that N subscribers would otherwise each recompute on every change.
 
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { basename, relative } from "node:path";
 import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,
 } from "@/agents/agentBackend";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
+import { OPENCODE_AGENT_CAPABILITIES } from "@/agents/opencodeAgentBackend";
 import { state } from "@/transcripts/transcriptState";
 import { compactTitle } from "@/transcripts/catalog/catalogRecords";
 import type { Bin, Session, SourceId } from "@/transcripts/transcriptTypes";
@@ -85,7 +86,7 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
       project = {
         projectPath: session.project,
         displayName: basename(session.project),
-        sourceCounts: { claude: 0, codex: 0 },
+        sourceCounts: { claude: 0, codex: 0, opencode: 0 },
         sessionCount: 0,
         lastEventAt: 0,
       };
@@ -128,6 +129,7 @@ export function sessionCapabilities(
 ): AgentSessionCapabilities {
   const descriptor = resolveAgentSession?.(source, sessionId);
   if (source === "pi") return descriptor?.capabilities ?? PI_AGENT_CAPABILITIES;
+  if (source === "opencode") return descriptor?.capabilities ?? OPENCODE_AGENT_CAPABILITIES;
   return descriptor?.capabilities.canStreamLive
     ? { ...TRANSCRIPT_CAPABILITIES, canStreamLive: true }
     : TRANSCRIPT_CAPABILITIES;
@@ -182,9 +184,11 @@ function summaryActivity(
   session: Session,
   live: AgentSessionDescriptor | undefined,
 ): Bin {
-  // Pi takes its backend's word outright, including a non-live answer: the backend is
-  // the session's owner, not an observer of it.
-  if (session.source === "pi") return live?.activity ?? computeActivity(session.lastEventAt, true);
+  // Pi and opencode take their backend's word outright, including a non-live
+  // answer: the backend is the session's owner, not an observer of it.
+  if (session.source === "pi" || session.source === "opencode") {
+    return live?.activity ?? computeActivity(session.lastEventAt, true);
+  }
   // For the transcript sources a live backend can only promote a row, never demote
   // one, because a backend that has not heard of a session says nothing about it
   // rather than saying it is idle.

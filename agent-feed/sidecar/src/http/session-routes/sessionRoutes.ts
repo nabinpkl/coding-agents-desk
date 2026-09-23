@@ -127,13 +127,14 @@ export async function readTranscriptPage(
   mode: EventMode,
 ): Promise<EventsPage | null> {
   const session = findSession(source, sessionId);
-  if (!session) return null;
+  if (!session || !session.transcriptPath) return null;
+  const transcriptPath = session.transcriptPath;
   acquireIndex(source, sessionId);
   try {
     const events = await readEvents(
       source,
       sessionId,
-      session.transcriptPath,
+      transcriptPath,
       offset,
       limit,
       mode,
@@ -173,13 +174,14 @@ async function rawEvent(
   mode: EventMode,
 ): Promise<Response> {
   const session = findSession(source, sessionId);
-  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  if (!session || !session.transcriptPath) return jsonResponse({ error: "session not found" }, 404);
+  const transcriptPath = session.transcriptPath;
   acquireIndex(source, sessionId);
   try {
     const raw = await readEventRaw(
       source,
       sessionId,
-      session.transcriptPath,
+      transcriptPath,
       eventIndex,
       mode,
     );
@@ -225,7 +227,8 @@ export function subscribeTranscriptTimeline(
   },
 ): (() => void) | null {
   const session = findSession(source, sessionId);
-  if (!session) return null;
+  if (!session || !session.transcriptPath) return null;
+  const transcriptPath = session.transcriptPath;
   let cancelled = false;
   let unsubscribeEvents: (() => void) | null = null;
   const fail = (error: unknown): void => {
@@ -257,9 +260,9 @@ export function subscribeTranscriptTimeline(
   // The follow and the index reference are one thing here: the index is what this
   // reads and the follow is what keeps it current, and both are shared with every
   // other reader of the same transcript.
-  const unfollow = followTranscript(source, sessionId, session.transcriptPath, fail);
+  const unfollow = followTranscript(source, sessionId, transcriptPath, fail);
   void (async () => {
-    await ensureIndexed(source, sessionId, session.transcriptPath);
+    await ensureIndexed(source, sessionId, transcriptPath);
     if (cancelled) {
       discardIndexIfUnused(source, sessionId);
       return;
@@ -291,7 +294,7 @@ export function subscribeTranscriptTimeline(
       const backfill = await readEvents(
         source,
         sessionId,
-        session.transcriptPath,
+        transcriptPath,
         after,
         total - after,
         mode,
@@ -302,7 +305,7 @@ export function subscribeTranscriptTimeline(
       }
       for (const event of backfill) follower.offer(event);
     }
-    await syncIndex(source, sessionId, session.transcriptPath);
+    await syncIndex(source, sessionId, transcriptPath);
     if (cancelled) discardIndexIfUnused(source, sessionId);
   })().catch((error) => {
     if (cancelled) {

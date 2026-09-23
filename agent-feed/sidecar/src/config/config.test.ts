@@ -10,8 +10,8 @@ test("sidecar helper discovery agrees with deployment for default and overridden
     if (override) env.AGENTDESK_RUNTIME_ROOT = override;
     const child = Bun.spawn([
       process.execPath, "-e",
-      'import { config } from "./src/config.ts"; process.stdout.write(config.gridEncoderPath);',
-    ], { cwd: join(import.meta.dir, ".."), env, stdout: "pipe", stderr: "pipe" });
+      'import { config } from "./src/config/config.ts"; process.stdout.write(config.gridEncoderPath);',
+    ], { cwd: join(import.meta.dir, "..", ".."), env, stdout: "pipe", stderr: "pipe" });
     const [exitCode, output, errors] = await Promise.all([
       child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
     ]);

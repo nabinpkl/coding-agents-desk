@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { codexAdapter, resolveStateDbPath } from "@/transcripts/codex/codexTranscript";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";

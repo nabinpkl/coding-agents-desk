@@ -52,7 +52,7 @@ async function eventImage(
   mode: "raw" | "nice",
 ): Promise<Response> {
   const session = findSession("claude", sessionId);
-  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  if (!session || !session.transcriptPath) return jsonResponse({ error: "session not found" }, 404);
   acquireIndex("claude", sessionId);
   try {
     const line = await readEventRaw("claude", sessionId, session.transcriptPath, eventIndex, mode);
@@ -111,7 +111,7 @@ async function eventFile(
   mode: "raw" | "nice",
 ): Promise<Response> {
   const session = findSession("claude", sessionId);
-  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  if (!session || !session.transcriptPath) return jsonResponse({ error: "session not found" }, 404);
   acquireIndex("claude", sessionId);
   try {
     const line = await readEventRaw("claude", sessionId, session.transcriptPath, eventIndex, mode);

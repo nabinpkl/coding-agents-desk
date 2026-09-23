@@ -9,7 +9,7 @@ import chokidar from "chokidar";
 import { watchTree, watchTreeEntries } from "@/transcripts/catalog/watchTree";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { state } from "@/transcripts/transcriptState";
 import type { SourceId } from "@/transcripts/transcriptTypes";
 import {
@@ -33,6 +33,10 @@ import {
   stopCodexReconcile,
 } from "@/transcripts/catalog/codexCatalog";
 import { reconcilePi } from "@/transcripts/catalog/piCatalog";
+import {
+  reconcileOpencode,
+  stopOpencodeReconcile,
+} from "@/transcripts/catalog/opencodeCatalog";
 
 // Re-exported because the catalog is one subsystem with one address: nineteen callers
 // already import it, and the parts below are how it is built rather than what it offers.
@@ -50,6 +54,12 @@ export { canonicalProjectPath, isClaudeSessionCandidate } from "@/transcripts/ca
 export { refreshClaudeSession, resolveClaudeProject } from "@/transcripts/catalog/claudeCatalog";
 export { readCodexThreadRows, refreshCodexRollout } from "@/transcripts/catalog/codexCatalog";
 export { notifyPiSessionChanged, registerPiSession, resolvePiSession } from "@/transcripts/catalog/piCatalog";
+export {
+  notifyOpencodeSessionChanged,
+  registerOpencodeSession,
+  resolveOpencodeSession,
+  scheduleOpencodeReconcile,
+} from "@/transcripts/catalog/opencodeCatalog";
 export {
   projectSummaries,
   sessionCapabilities,
@@ -179,6 +189,7 @@ function reconcileAllSources(): Promise<void[]> {
     reconcileSource("claude", reconcileClaude),
     reconcileSource("codex", reconcileCodex),
     reconcileSource("pi", reconcilePi),
+    reconcileSource("opencode", reconcileOpencode),
   ]);
 }
 
@@ -205,6 +216,7 @@ export async function startCatalog(): Promise<void> {
 export async function stopCatalog(): Promise<void> {
   resetCatalogBroadcast();
   stopCodexReconcile();
+  stopOpencodeReconcile();
   if (piReconcileTimer) {
     clearTimeout(piReconcileTimer);
     piReconcileTimer = null;

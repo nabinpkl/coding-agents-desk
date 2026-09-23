@@ -11,6 +11,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "0.83.0",
     "@earendil-works/pi-coding-agent": "0.83.0",
+    "@opencode-ai/sdk": "1.18.31",
     "chokidar": "^5.0.0",
     "protobufjs": "7.6.5",
     "werift": "^0.24.4"

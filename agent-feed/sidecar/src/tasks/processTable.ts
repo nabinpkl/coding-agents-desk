@@ -5,7 +5,7 @@
 // different commands: this one names what is running, `processProbe.ts` names which task
 // it belongs to and where its output goes.
 
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { parseProcessLstart } from "@/tasks/processStartTime";
 import { PS_BINARY, runCommand, type CommandRunner } from "@/tasks/commandRunner";
 

@@ -1,7 +1,7 @@
 // What one observed websocket message does to the rows a codex turn is building,
 // and what a finished response reports about tokens.
 
-import { contextWindowFor } from "@/config";
+import { contextWindowFor } from "@/config/config";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import type { EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
 import type { CodexMessageEvent } from "@/live/codexNetworkSource";

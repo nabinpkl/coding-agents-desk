@@ -27,7 +27,7 @@ export const LAST_COMPACTION_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\
  */
 export async function lastMessageResponse(sessionId: string): Promise<Response> {
   const session = findSession("claude", sessionId);
-  if (!session) return errorResponse("session-not-found", "no such session", 404);
+  if (!session || !session.transcriptPath) return errorResponse("session-not-found", "no such session", 404);
   const message = await lastHumanMessage(sessionId, session.transcriptPath);
   // 404 rather than an empty body. "Nobody has written one" and "here is one that says nothing"
   // are different answers, and a caller that could not tell them apart would open a fork dialog
@@ -48,7 +48,7 @@ export async function lastMessageResponse(sessionId: string): Promise<Response> 
  */
 export async function lastCompactionResponse(sessionId: string): Promise<Response> {
   const session = findSession("claude", sessionId);
-  if (!session) return errorResponse("session-not-found", "no such session", 404);
+  if (!session || !session.transcriptPath) return errorResponse("session-not-found", "no such session", 404);
   const message = await lastCompactionMessage(sessionId, session.transcriptPath);
   if (!message) {
     return errorResponse(

@@ -3,7 +3,7 @@
 // usage record says about tokens and the prompt cache.
 
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
-import { contextWindowFor } from "@/config";
+import { contextWindowFor } from "@/config/config";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
 import type { ActivityBlock, DeclaredModel, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";

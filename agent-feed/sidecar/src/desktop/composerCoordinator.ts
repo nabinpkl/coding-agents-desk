@@ -1,5 +1,5 @@
 import type { WindowTarget } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { liveProcessRows, type ProcessRow } from "@/desktop/claudeSessionResolver";
 import { type ControlHelper, controlHelper } from "@/desktop/controlHelper";
 import { createRendererReviver, type RendererReviver } from "@/desktop/rendererReviver";

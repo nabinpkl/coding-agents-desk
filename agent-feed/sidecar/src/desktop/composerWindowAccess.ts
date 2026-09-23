@@ -8,7 +8,7 @@
 // TypeScript rather than in the helper.
 
 import type { DesktopAuditSnapshot, WindowTarget } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { ControlHelperError, type ControlHelper } from "@/desktop/controlHelper";
 import { asReason, ComposerError, logComposer, type WindowSource } from "@/desktop/composerTypes";
 

@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 function session(
-  source: "claude" | "codex" | "pi",
+  source: "claude" | "codex" | "pi" | "opencode",
   sessionId: string,
   project: string,
   lastEventAt: number,
@@ -69,7 +69,7 @@ describe("transcript catalog identity", () => {
     expect(projects).toEqual([{
       projectPath: "/repo",
       displayName: "repo",
-      sourceCounts: { claude: 1, codex: 1 },
+      sourceCounts: { claude: 1, codex: 1, opencode: 0 },
       sessionCount: 2,
       lastEventAt: 20,
     }]);
@@ -134,7 +134,9 @@ describe("transcript catalog identity", () => {
     observe(session("codex", "22222222-2222-2222-2222-222222222222", project, 1_000, {
       firstPrompt: "fix the flaky test",
     }));
-    expect(await Bun.file(titled.transcriptPath).exists()).toBeFalse();
+    const transcriptPath = titled.transcriptPath;
+    if (!transcriptPath) throw new Error("test session lost its transcript path");
+    expect(await Bun.file(transcriptPath).exists()).toBeFalse();
 
     const summaries = sessionSummaries(project);
 

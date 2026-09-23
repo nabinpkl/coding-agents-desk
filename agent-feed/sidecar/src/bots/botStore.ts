@@ -34,7 +34,7 @@ function isOptionalString(value: unknown): boolean {
 
 function isSessionRef(value: unknown): boolean {
   return isRecord(value)
-    && (value.source === "claude" || value.source === "codex" || value.source === "pi")
+    && (value.source === "claude" || value.source === "codex" || value.source === "pi" || value.source === "opencode")
     && typeof value.sessionId === "string";
 }
 

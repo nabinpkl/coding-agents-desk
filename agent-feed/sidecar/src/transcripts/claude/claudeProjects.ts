@@ -4,7 +4,7 @@
 
 import { open } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { Header } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackgroundTaskSnapshot } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { createBackgroundTaskCoordinator } from "@/tasks/backgroundTaskCoordinator";
 import { type CommandRunner, resetProcessTableCache } from "@/tasks/processProbe";
 

@@ -5,7 +5,7 @@
 
 import { realpath, stat } from "node:fs/promises";
 import { basename, relative } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { Session, SourceId } from "@/transcripts/transcriptTypes";
 import {
   CLAUDE_SESSION_PATTERN,
@@ -42,7 +42,7 @@ export function makeSession(
   source: SourceId,
   sessionId: string,
   project: string,
-  transcriptPath: string,
+  transcriptPath: string | undefined,
   lastEventAt: number,
   metadata: {
     title?: string;

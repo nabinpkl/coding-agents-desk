@@ -20,7 +20,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "werift";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { controlHelper } from "@/desktop/controlHelper";
 import { helperBinary, missingHelperMessage } from "@/desktop/helperBinary";
 import { jsonResponse } from "@/http/httpResponses";

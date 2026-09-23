@@ -22,7 +22,7 @@ import type {
   ParkPlanResponse,
   ParkStateResponse,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { packFromTopLeft, usableArea } from "@/park/grid";
 import { plan as planLadder } from "@/park/ladder";
 import { park, restore } from "@/park/park";

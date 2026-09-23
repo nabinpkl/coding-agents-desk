@@ -27,7 +27,7 @@ import { state } from "@/transcripts/transcriptState";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import fixture from "@repo/agent-feed/wire/contract-fixture.json";
 
 // Each body, named as the type it claims to be.

@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { config } from "@/config";
+import { config } from "@/config/config";
 
 /**
  * Installed helper location and generation, shared by capture pools and control.

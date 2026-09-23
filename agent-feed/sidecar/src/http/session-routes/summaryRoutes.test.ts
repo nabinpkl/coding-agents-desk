@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { SummaryRunInput, SummaryRunner } from "@/summary/summaryRuntime";
 import { state } from "@/transcripts/transcriptState";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";

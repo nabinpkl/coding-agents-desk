@@ -3,31 +3,22 @@ import { join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import {
+  opencodeIdleMs,
+  opencodeReconcileMs,
+  opencodeServeUrl,
+  readOpencodePassword,
+} from "@/config/configOpencode";
+import { readyThresholdMs, staleThresholdMs } from "@/config/configRecency";
+import {
   booleanEnvironment,
   directoryEnvironment,
   integerEnvironment,
   urlEnvironment,
-} from "@/configEnvironment";
-import { contextWindowEnvironment, contextWindowIn } from "@/contextWindows";
-import { tmuxBinary, yabaiBinary } from "@/configBinaries";
+} from "@/config/configEnvironment";
+import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
+import { tmuxBinary, yabaiBinary } from "@/config/configBinaries";
 
 const userHomeDirectory = homedir();
-const staleThresholdMs = integerEnvironment(
-  "AGENT_FEED_STALE_THRESHOLD_MS",
-  2 * 60 * 60 * 1000,
-  60 * 1000,
-  7 * 24 * 60 * 60 * 1000,
-);
-const readyThresholdMs = integerEnvironment(
-  "AGENT_FEED_READY_THRESHOLD_MS",
-  5 * 60 * 1000,
-  1000,
-  60 * 60 * 1000,
-);
-
-if (readyThresholdMs >= staleThresholdMs) {
-  throw new Error("AGENT_FEED_READY_THRESHOLD_MS must be less than AGENT_FEED_STALE_THRESHOLD_MS");
-}
 
 // The turn summarizer's model credential, taken out of the environment before Pi constructs tools
 // whose child processes inherit process.env. Pi is handed this key directly
@@ -114,6 +105,12 @@ export const config = {
     1,
     1024,
   ),
+  opencodeServeUrl: opencodeServeUrl(),
+  // Null means the opencode source stays unregistered: an unauthenticated
+  // serve is a loud log line at reconcile, never a crash.
+  opencodePassword: readOpencodePassword(),
+  opencodeReconcileMs: opencodeReconcileMs(),
+  opencodeIdleMs: opencodeIdleMs(),
   discoveryRescanMs: integerEnvironment(
     "AGENT_FEED_DISCOVERY_RESCAN_MS",
     60_000,

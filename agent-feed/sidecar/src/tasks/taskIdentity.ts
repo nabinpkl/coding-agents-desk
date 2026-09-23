@@ -13,7 +13,7 @@
 import { open, stat } from "node:fs/promises";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { isInsideTaskRoot } from "@/tasks/processProbe";
 import {
   type AgentLaunch,

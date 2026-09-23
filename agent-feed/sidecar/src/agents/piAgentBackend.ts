@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import type { EventMode } from "@/transcripts/transcriptTypes";
 import {
   type AgentBackend,

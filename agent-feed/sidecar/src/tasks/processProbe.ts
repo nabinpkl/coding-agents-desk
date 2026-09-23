@@ -19,7 +19,7 @@
 // empty -- the shape other tools render as "No output yet". Walking the shell's DESCENDANTS and
 // reading their fd 1 finds the file the work is really being written to.
 import { realpathSync } from "node:fs";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import { LSOF_BINARY, type CommandRunner } from "@/tasks/commandRunner";
 import {
   busiestDescendant,

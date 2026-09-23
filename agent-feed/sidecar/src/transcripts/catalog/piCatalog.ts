@@ -48,6 +48,11 @@ export function notifyPiSessionChanged(sessionId: string): void {
   // consumer to re-derive with a `stat` of its own each time it renders the session.
   // Pi's own watcher rescans on a timer, so this is what keeps the record honest in
   // between: an agent event moves the file before that rescan runs.
+  // Pi records always carry their JSONL path; without one there is nothing to stat.
+  if (!session.transcriptPath) {
+    scheduleBroadcast();
+    return;
+  }
   void stat(session.transcriptPath)
     .then((metadata) => {
       const current = state.sessions.get(key);

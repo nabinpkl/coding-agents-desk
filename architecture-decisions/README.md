@@ -145,3 +145,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0112 | Navigate Desktops through the Web control channel | accepted | 2026-08-27 |
 | ADR-0113 | Install the local runtime outside disposable build output | accepted | 2026-08-28 |
 | ADR-0114 | Keep the panel's remembered UI state in one store, and persist only what a reader arranged | proposed | 2026-09-07 |
+| ADR-0115 | Serve the workspace IDE from the Agent Panel and the sidecar | accepted | 2026-09-10 |
+| ADR-0116 | Opencode sessions join the feed as a backend, not a transcript | accepted | 2026-09-22 |

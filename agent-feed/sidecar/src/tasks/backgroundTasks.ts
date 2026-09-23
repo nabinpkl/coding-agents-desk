@@ -16,7 +16,7 @@ import type {
   RunningBackgroundTask,
   TaskActivity,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config";
+import { config } from "@/config/config";
 import {
   busiestDescendant,
   isInsideTaskRoot,
