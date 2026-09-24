@@ -1,40 +1,35 @@
+# agentdesk-annotator tasks. Server runs TypeScript directly on Node 24.
+
 default:
   @just --list
 
-check:
-  #!/bin/sh
-  set -eu
-  python3 -c "import json; json.load(open('manifest.json')); print('manifest ok')"
-  node --check format.js && echo "format.js ok"
-  node --check content.js && echo "content.js ok"
-  node --check background.js && echo "background.js ok"
-  node --check popup.js && echo "popup.js ok"
-  python3 -m py_compile build-stamp.py && echo "build-stamp.py ok"
-  node --check store.js && echo "store.js ok"
-  node --check mcp-server.js && echo "mcp-server.js ok"
-  node test/brief.test.js
-  node test/store.test.js
-  node test/mcp-http.test.js
+# Typecheck, unit and integration tests, extension build.
+check: typecheck test build-extension
 
-mcp:
-  node mcp-server.js
+typecheck:
+  npx tsc -p tsconfig.json
+  npx tsc -p extension/tsconfig.json
 
-install-daemon:
-  #!/bin/sh
-  set -eu
-  mkdir -p ~/Library/LaunchAgents
-  ln -sf "$PWD/com.annotate-export.bridge.plist" ~/Library/LaunchAgents/com.annotate-export.bridge.plist
-  launchctl bootout "gui/$(id -u)/com.annotate-export.bridge" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.annotate-export.bridge.plist
-  echo "daemon installed"
+test:
+  node --test "server/test/**/*.test.ts"
 
-dev:
-  @echo "Load unpacked via chrome://extensions -> Developer mode -> select dist/."
+# Bundle the extension into extension/dist (load unpacked from there).
+build-extension:
+  node extension/build.ts
 
-pack:
-  #!/bin/sh
-  set -eu
-  mkdir -p dist
-  cp manifest.json background.js format.js content.js styles.css popup.html popup.js dist/
-  python3 build-stamp.py
-  echo "dist/ packed (stamp auto-baked, no manual bump needed)"
+# End-to-end through the live Cloudflare edge with the annotator-e2e service token.
+e2e env="~/.config/agentdesk-annotator/e2e.env":
+  set -a && . {{env}} && set +a && node --test "e2e/**/*.test.ts"
+
+# Deploy main to oracle: pull, rebuild, restart, then run the edge e2e there.
+deploy:
+  ssh oracle 'cd ~/apps/agentdesk-annotator && git pull --ff-only && cd deploy && docker compose up -d --build && docker compose ps'
+  ssh oracle 'cd ~/apps/agentdesk-annotator && npm ci --silent && set -a && . deploy/.env && set +a && node --test "e2e/**/*.test.ts"'
+
+# Tail production logs on oracle.
+logs:
+  ssh oracle 'cd ~/apps/agentdesk-annotator/deploy && docker compose logs -f --tail 100 server'
+
+# Consistent SQLite snapshot into the data volume's backups/ directory.
+backup:
+  ssh oracle 'cd ~/apps/agentdesk-annotator/deploy && docker compose exec -T server node server/src/backup.ts'
