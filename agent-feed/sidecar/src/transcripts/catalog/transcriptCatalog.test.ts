@@ -265,6 +265,19 @@ describe("transcript catalog identity", () => {
       await reconcileClaude();
       expect(state.sessions.get(key)?.project).toBe(repo);
 
+      // A transcript that reads fine and names a directory that is gone is the other answer,
+      // and it still drops: that is news about the session rather than about the read.
+      const removed = join(repo, "worktree");
+      await mkdir(removed, { recursive: true });
+      await writeFile(transcript, `${JSON.stringify({ type: "user", cwd: removed })}\n`);
+      await refreshClaudeSession(transcript);
+      expect(state.sessions.get(key)?.project).toBe(await realpath(removed));
+      await rm(removed, { recursive: true });
+      await refreshClaudeSession(transcript);
+      expect(state.sessions.has(key)).toBe(false);
+
+      await writeFile(transcript, `${JSON.stringify({ type: "user", cwd: repo })}\n`);
+      await refreshClaudeSession(transcript);
       await rm(transcript);
       await refreshClaudeSession(transcript);
       expect(state.sessions.has(key)).toBe(false);

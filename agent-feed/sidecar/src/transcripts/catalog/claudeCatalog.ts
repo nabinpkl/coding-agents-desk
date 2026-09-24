@@ -82,17 +82,19 @@ export async function resolveClaudeProject(
  *
  * A file that is still on disk and did not read is a failed READ, not a session that ended, so
  * the record already held stands. This fires on every write a running agent makes, and answering
- * a failed read with a delete is how a working session vanished from the panel mid-turn: only
- * the file being gone removes it now.
+ * a failed read with a delete is how a working session vanished from the panel mid-turn.
+ *
+ * A transcript that reads fine and names a directory that is no longer there is a different
+ * answer, and it still drops: that one is news about the session rather than about the read.
  */
 export async function refreshClaudeSession(filePath: string): Promise<void> {
   if (!isClaudeSessionCandidate(filePath)) return;
   const sessionId = claudeAdapter.filePathToSessionId(filePath);
   if (!sessionId) return;
-  const session = await readClaudeCandidate(filePath);
+  const { session, readable } = await readClaudeCandidate(filePath);
   const key = sessionKey("claude", sessionId);
   if (session) state.sessions.set(key, session);
-  else if (!existsSync(filePath)) state.sessions.delete(key);
+  else if (readable || !existsSync(filePath)) state.sessions.delete(key);
   else {
     // Said out loud rather than swallowed: a transcript this reader cannot make a session out of
     // is the shape of bug that otherwise only shows as a row that never updates.
@@ -107,48 +109,68 @@ export async function refreshClaudeSession(filePath: string): Promise<void> {
   scheduleBroadcast();
 }
 
-async function readClaudeCandidate(filePath: string): Promise<Session | null> {
+/**
+ * One candidate read into a record, and, when there is none, whether the FILE was the problem.
+ *
+ * The two nulls are different news and the callers act on them differently. `readable` false is
+ * this reader failing on a file that is there -- a header it could make nothing of, a stat that
+ * threw -- and says nothing about the session. `readable` true with no session is the file
+ * answering plainly that the directory it names is gone.
+ */
+interface ClaudeCandidate {
+  session: Session | null;
+  readable: boolean;
+}
+
+async function readClaudeCandidate(filePath: string): Promise<ClaudeCandidate> {
   const sessionId = claudeAdapter.filePathToSessionId(filePath);
-  if (!sessionId || !isClaudeSessionCandidate(filePath)) return null;
+  if (!sessionId || !isClaudeSessionCandidate(filePath)) return { session: null, readable: true };
   const header = await claudeAdapter.readHeader(filePath);
-  if (!header?.cwd) return null;
+  if (!header?.cwd) return { session: null, readable: false };
   const project = await resolveClaudeProject(header.cwd, header.recentCwd);
-  if (!project) return null;
+  if (!project) return { session: null, readable: true };
   let metadata: Awaited<ReturnType<typeof stat>>;
   try {
     metadata = await stat(filePath);
   } catch {
-    return null;
+    return { session: null, readable: false };
   }
-  return makeSession("claude", sessionId, project, filePath, metadata.mtimeMs, {
+  const session = makeSession("claude", sessionId, project, filePath, metadata.mtimeMs, {
     title: header.title,
     gitBranch: header.gitBranch,
     entrypoint: header.entrypoint,
     lastTurnClosed: header.lastTurnClosed,
     firstPrompt: header.firstPrompt,
   });
+  return { session, readable: true };
 }
 
 export async function reconcileClaude(): Promise<void> {
   const startedAt = performance.now();
   const candidates = await enumerateClaudeCandidates();
-  const scanned = await Promise.all(candidates.map(readClaudeCandidate));
+  const scanned = await Promise.all(candidates.map(async (path) => ({
+    path,
+    ...await readClaudeCandidate(path),
+  })));
   const next = new Map(
-    scanned
-      .filter((session): session is Session => session !== null)
-      .map((session) => [sessionKey(session.source, session.sessionId), session]),
+    scanned.flatMap((read) =>
+      read.session ? [[sessionKey("claude", read.session.sessionId), read.session] as const] : []
+    ),
   );
-  // Deleted by what is on DISK rather than by what read, for the reason `refreshClaudeSession`
-  // gives: a candidate whose header does not resolve is a file this reader could not use, and
-  // dropping it here would undo that stickiness on the next sweep.
-  const onDisk = new Set(
-    candidates
-      .map((path) => claudeAdapter.filePathToSessionId(path))
+  // A candidate this reader could not make a session of keeps whatever record it already had,
+  // the same stickiness `refreshClaudeSession` has and for the same reason -- without it the
+  // next sweep would undo the one before it.
+  const unreadable = new Set(
+    scanned
+      .filter((read) => read.session === null && !read.readable)
+      .map((read) => claudeAdapter.filePathToSessionId(read.path))
       .filter((sessionId): sessionId is string => sessionId !== null)
       .map((sessionId) => sessionKey("claude", sessionId)),
   );
   for (const [key, session] of [...state.sessions]) {
-    if (session.source === "claude" && !onDisk.has(key)) state.sessions.delete(key);
+    if (session.source === "claude" && !next.has(key) && !unreadable.has(key)) {
+      state.sessions.delete(key);
+    }
   }
   for (const [key, session] of next) state.sessions.set(key, session);
   console.log(JSON.stringify({
@@ -157,6 +179,6 @@ export async function reconcileClaude(): Promise<void> {
     durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
     candidates: candidates.length,
     sessions: next.size,
-    unreadable: candidates.length - next.size,
+    unreadable: unreadable.size,
   }));
 }
