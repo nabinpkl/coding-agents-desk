@@ -84,6 +84,7 @@ export function liveDependencies(): RelayDependencies {
     claudeNotify,
     opencodePrompt,
     claudeStatus: (id) => cliInputStatus(id),
+    claudeRunning: async (id) => findSession("claude", id)?.lastTurnClosed === false,
     opencodeRunning,
     listSessions: (): ListedSession[] =>
       getSnapshot()

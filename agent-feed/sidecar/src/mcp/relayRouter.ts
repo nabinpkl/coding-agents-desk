@@ -42,6 +42,8 @@ export interface RelayDependencies {
   claudeNotify(sessionId: string, text: string): Promise<SendResult>;
   opencodePrompt(sessionId: string, text: string): Promise<SendResult>;
   claudeStatus(sessionId: string): Promise<CliInputStatus>;
+  /** True while the transcript shows an open turn. False when closed or unknown. */
+  claudeRunning(sessionId: string): Promise<boolean>;
   /** True while the serve reports the session running a turn right now. */
   opencodeRunning(sessionId: string): Promise<boolean>;
   listSessions(): ListedSession[];
@@ -86,7 +88,11 @@ export async function relayStatus(
 ): Promise<SessionStatus> {
   if (!validSessionId(sessionId)) return { found: false, source: null, detail: { reason: "invalid-session-id" } };
   if (deps.hasClaudeSession(sessionId)) {
-    return { found: true, source: "claude", detail: await deps.claudeStatus(sessionId) };
+    return {
+      found: true,
+      source: "claude",
+      detail: { ...(await deps.claudeStatus(sessionId)), running: await deps.claudeRunning(sessionId) },
+    };
   }
   if (deps.hasOpencodeSession(sessionId)) {
     return {
