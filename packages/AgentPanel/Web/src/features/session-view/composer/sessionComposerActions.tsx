@@ -159,30 +159,35 @@ if (m.windowBand) {
   }
   if (m.running && m.capabilities.canAbort) {
     actions.push({
-      key: "abort",
+      key: "send",
       ariaLabel: "Stop agent",
       title: "Stop agent",
-      icon: <Square className="size-3.5 fill-current" aria-hidden />,
+      icon: m.pending ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <Square className="size-3.5 fill-current" aria-hidden />
+      ),
       disabled: m.pending,
-      className:
-        "flex size-11 items-center justify-center rounded-xl text-destructive hover:bg-destructive/10 disabled:opacity-40",
+      className: SEND_IN_FIELD_CLASS,
+      placement: "field",
       onClick: () => void m.onAbort(),
     });
+  } else {
+    actions.push({
+      key: "send",
+      ariaLabel: m.running ? "Queue message" : "Send message",
+      title: m.running ? "Queue message" : "Send message",
+      icon: m.pending ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <Send className="size-3.5" aria-hidden />
+      ),
+      disabled: m.pending || !m.editorValue.trim(),
+      className: SEND_IN_FIELD_CLASS,
+      placement: "field",
+      onClick: () => void submitComposer(m, "next"),
+    });
   }
-  actions.push({
-    key: "send",
-    ariaLabel: m.running ? "Queue message" : "Send message",
-    title: m.running ? "Queue message" : "Send message",
-    icon: m.pending ? (
-      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-    ) : (
-      <Send className="size-3.5" aria-hidden />
-    ),
-    disabled: m.pending || !m.editorValue.trim(),
-    className: SEND_IN_FIELD_CLASS,
-    placement: "field",
-    onClick: () => void submitComposer(m, "next"),
-  });
 }
   return actions;
 }

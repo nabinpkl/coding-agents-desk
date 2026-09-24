@@ -159,7 +159,7 @@ describe("App shell", () => {
     expect(transport.requests.at(-1)).toEqual({
       method: "POST",
       path: "/api/agent-sessions/pi/pi-1/messages",
-      body: { text: "Inspect the repo", delivery: "next" },
+      body: { requestId: expect.any(String), text: "Inspect the repo", delivery: "next" },
     });
 
     // Prompts ride the thread's own stream, so they cannot outlive the thread that asked them.
