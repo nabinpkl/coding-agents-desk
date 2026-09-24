@@ -1,7 +1,7 @@
 import { LoaderCircle, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
-import { BotAvatar } from "@/features/bots/BotSidebarPanel";
+import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { type BotMachine } from "@/features/bots/botMachines";
 import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";

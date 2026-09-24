@@ -10,7 +10,7 @@ import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-fe
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { BotAvatar } from "@/features/bots/BotSidebarPanel";
+import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";

@@ -1,79 +1,62 @@
 import { Bot, EyeOff, LoaderCircle, Plus, ScanFace } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
-import { BotFace, setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
+import { setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { botCanvasHues, botCanvasRanks, botSessionFaceRank, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
-/**
- * A Bot's face: its picture, its generated face, or its initials on its own colour.
- *
- * The hue is the same one its card wears on the canvas, which is the whole reason it is here --
- * a colour that named a Bot in one surface and not in the other would be two facts to learn
- * instead of one. It arrives as a number rather than being derived from the Bot, because the
- * derivation ranks a Bot against the whole roster and this component is only ever given one.
- * The rank arrives beside it for the same reason, and is what draws the face: same ordering, so
- * the face agrees with the colour without either knowing about the other.
- *
- * Absent, the avatar is the neutral disc it has always been. That is the right answer, not a
- * fallback, wherever there is no roster to rank against: the Bot creator's live preview is of a
- * Bot that does not exist yet, and a colour there would be a promise about which one it will get.
- * An unranked Bot keeps its initials when faces are on for the same reason: no rank, no face.
- */
-export function BotAvatar({ bot, hue, rank, size = "size-12" }: {
-  bot: Pick<BotView, "name" | "iconUrl">;
-  hue?: number;
-  rank?: number;
-  size?: string;
-}) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [bot.iconUrl]);
-  const faces = useBotFaces();
-  const initials = bot.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "B";
-  if (bot.iconUrl && !failed) {
-    // An uploaded picture is the identity; painting a ring of our own around it would be a second
-    // opinion about who this is.
-    return (
-      <img
-        src={bot.iconUrl}
-        alt=""
-        className={`${size} shrink-0 rounded-full border border-border object-cover`}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  if (faces && rank !== undefined) {
-    // The face IS the avatar, not a picture inside one. It stands alone rather than in the
-    // initials' disc: a circle behind it would ring every head in the same shape the faces were
-    // drawn to replace, and the head's own outline is the identity. The hue still crosses on a
-    // style, because the face's CSS reads it for the head's colour and the eyes' sockets.
-    return <BotFace rank={rank} className={`${size} shrink-0`} style={botSurfaceStyle(hue)} />;
-  }
-  return (
-    <span
-      aria-hidden
-      // The border goes when the fill arrives. It was there to give `bg-muted` an edge -- a disc
-      // 1.09:1 against the light panel ground, which is to say almost none -- and a tinted fill at
-      // 1.48:1 is its own edge. Keeping both would ring a coloured disc in grey.
-      className={`${size} flex shrink-0 items-center justify-center rounded-full font-semibold text-foreground ${
-        hue === undefined ? "border border-border bg-muted" : "bot-accent"
-      }`}
-      style={botSurfaceStyle(hue)}
-    >
-      {initials}
-    </span>
-  );
-}
-
 function attachedSessionKey(session: BotSessionRef): string {
   return `${session.source}:${session.sessionId}`;
+}
+
+/**
+ * When a Bot was last doing anything: the newest event across its sessions, or its own creation.
+ *
+ * `createdAt` for a Bot with no sessions rather than zero, so a Bot made this morning and never
+ * used does not sink under one that has been quiet since last month. Both are milliseconds from
+ * the same clock (`Date.now` in the registry, the transcript's mtime in the catalog), so they
+ * compare directly.
+ */
+function lastActiveAt(bot: BotView): number {
+  return bot.sessions.reduce((newest, session) => Math.max(newest, session.lastEventAt), bot.createdAt);
+}
+
+/**
+ * The roster with the Bots that have no card at the bottom, least recently active last.
+ *
+ * This list is read while looking at the canvas, so the question it answers first is "which of
+ * these am I looking at". Interleaved, a Bot the reader took off months ago sits between two they
+ * are working in and pushes them down the panel; the dimming and the crossed eye said which was
+ * which but did nothing about where they were.
+ *
+ * Both ways of having no card sink together, because the row only has one thing to say: a Bot on
+ * a hidden machine is as absent from the strip as a detached one, and splitting them into three
+ * bands would be a second ordering to learn for a distinction the two controls already carry.
+ * The way back differs; where the row sits does not.
+ *
+ * Only the sunk group is sorted. The Bots WITH cards keep the order the roster arrived in, which
+ * is machine-first and stable -- resorting those by activity would move a card's row out from
+ * under the reader every time a session emitted an event.
+ */
+export function withOffCanvasLast(
+  bots: readonly BotView[],
+  offCanvas?: {
+    detachedBotIds: ReadonlySet<string>;
+    machineHiddenBotIds: ReadonlySet<string>;
+  },
+): readonly BotView[] {
+  // No canvas in the picture is not the same as nothing being off one: the Bots tab lists these
+  // same Bots with no strip to be on, and has nothing to sink.
+  if (!offCanvas) return bots;
+  const gone = (bot: BotView) =>
+    offCanvas.detachedBotIds.has(bot.botId) || offCanvas.machineHiddenBotIds.has(bot.botId);
+  return [
+    ...bots.filter((bot) => !gone(bot)),
+    ...bots.filter(gone).sort((a, b) => lastActiveAt(b) - lastActiveAt(a)),
+  ];
 }
 
 export function BotSidebarPanel({
@@ -167,6 +150,12 @@ export function BotSidebarPanel({
    */
   const hues = useMemo(() => botCanvasHues(bots), [bots]);
   const ranks = useMemo(() => botCanvasRanks(bots), [bots]);
+  // Colours and ranks come from the WHOLE roster and its own order, which is why they are derived
+  // from `bots` and not from this: where a row sits must not change what colour it wears.
+  const ordered = useMemo(
+    () => withOffCanvasLast(bots, canvas),
+    [bots, canvas?.detachedBotIds, canvas?.machineHiddenBotIds],
+  );
   const faces = useBotFaces();
   return (
     <div className="min-h-0">
@@ -211,7 +200,7 @@ export function BotSidebarPanel({
         </div>
       ) : (
         <ul role="list" aria-label="Bots">
-          {bots.map((bot) => {
+          {ordered.map((bot) => {
             const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
             const hue = hues.get(bot.botId);
             const selected = selectedBotIds.has(bot.botId);

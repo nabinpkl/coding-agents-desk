@@ -13,12 +13,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { BotAvatar, BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
+import { BotSidebarPanel, withOffCanvasLast } from "@/features/bots/BotSidebarPanel";
 import { setBotFaces } from "@/features/bots/avatar/BotFace";
 
-const bot = (botId: string, name: string): BotView => ({
+const bot = (botId: string, name: string, createdAt = 0): BotView => ({
   botId,
   name,
+  createdAt,
   sessionRefs: [],
   sessions: [],
   missingSessionRefs: [],
@@ -27,18 +28,18 @@ const bot = (botId: string, name: string): BotView => ({
   metadata: {},
 } as unknown as BotView);
 
-const HOME = bot("b-home", "Home bot");
-const PEER = bot("b-peer", "Peer bot");
+const HOME = bot("b-home", "Home bot", 100);
+const PEER = bot("b-peer", "Peer bot", 200);
 /** A Bot with sessions, which is what the rows below are about. */
 const WORK = {
-  ...bot("b-work", "Work bot"),
+  ...bot("b-work", "Work bot", 300),
   sessionRefs: [
     { source: "claude", sessionId: "s-1" },
     { source: "claude", sessionId: "s-2" },
   ],
   sessions: [
-    { source: "claude", sessionId: "s-1", title: "First session", activity: "cold" },
-    { source: "claude", sessionId: "s-2", title: "Second session", activity: "cold" },
+    { source: "claude", sessionId: "s-1", title: "First session", activity: "cold", lastEventAt: 400 },
+    { source: "claude", sessionId: "s-2", title: "Second session", activity: "cold", lastEventAt: 500 },
   ],
 } as unknown as BotView;
 const LABELS = new Map([["b-home", "dev"], ["b-peer", "oracle"]]);
@@ -244,44 +245,55 @@ describe("BotSidebarPanel bot rows", () => {
 });
 
 /**
- * The faces switch: initials until chosen, faces everywhere a rank reaches after.
+ * Where a Bot with no card sits.
  *
- * The avatar toggle in the header above this list is the switch's one control; what is pinned
- * here is what it changes. An unranked Bot keeps its initials whatever the switch says, because
- * the creator's preview is of a Bot that does not exist and ranking it would promise a face the
- * roster may not give it.
+ * The roster is read while looking at the canvas, so a Bot that was taken off it months ago
+ * sitting between two the reader is working in costs them the scan every time. Dimming said
+ * which was which and did nothing about where they were.
  */
-describe("BotSidebarPanel faces switch", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    setBotFaces(false);
+describe("BotSidebarPanel roster order", () => {
+  /** The Bot names in the order their rows stand in. */
+  const order = () => {
+    const text = screen.getByRole("list", { name: "Bots" }).textContent ?? "";
+    return ["Home bot", "Peer bot", "Work bot"].sort((a, b) => text.indexOf(a) - text.indexOf(b));
+  };
+
+  it("leaves the roster alone while every Bot has a card", () => {
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
+    expect(order()).toEqual(["Home bot", "Peer bot", "Work bot"]);
   });
 
-  it("a ranked Bot wears its initials until faces are chosen", () => {
-    const { container, rerender } = render(<BotAvatar bot={{ name: "Alpha Bot" }} hue={24} rank={0} />);
-    expect(container.textContent).toContain("AB");
-    expect(container.querySelector(".bot-face")).toBeNull();
-
-    setBotFaces(true);
-    rerender(<BotAvatar bot={{ name: "Alpha Bot" }} hue={24} rank={0} />);
-    expect(container.querySelector(".bot-face")).not.toBeNull();
-    expect(container.textContent).not.toContain("AB");
+  it("sinks a Bot the reader took off the canvas", () => {
+    panel({ detachedBotIds: new Set(["b-home"]), machineHiddenBotIds: new Set() });
+    expect(order()).toEqual(["Peer bot", "Work bot", "Home bot"]);
   });
 
-  it("a Bot with no rank keeps its initials when faces are on", () => {
-    setBotFaces(true);
-    const { container } = render(<BotAvatar bot={{ name: "New Bot" }} />);
-    expect(container.textContent).toContain("NB");
-    expect(container.querySelector(".bot-face")).toBeNull();
+  it("sinks a Bot whose machine is hidden the same way", () => {
+    // Two ways to have no card, one place the row goes: from here they read identically, and the
+    // controls that undo them are what differ.
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set(["b-peer"]) });
+    expect(order()).toEqual(["Home bot", "Work bot", "Peer bot"]);
   });
 
-  it("a press reaches avatars mounted after it", () => {
-    const { container, unmount } = render(<BotAvatar bot={{ name: "Alpha Bot" }} hue={24} rank={0} />);
-    expect(container.querySelector(".bot-face")).toBeNull();
-    setBotFaces(true);
-    unmount();
-    const { container: next } = render(<BotAvatar bot={{ name: "Alpha Bot" }} hue={24} rank={0} />);
-    expect(next.querySelector(".bot-face")).not.toBeNull();
+  it("puts the liveliest of the sunk Bots first", () => {
+    // Peer bot was created after Home bot and neither has a session, so it is the newer of two
+    // quiet Bots -- which is the only ordering either of them can offer.
+    panel({ detachedBotIds: new Set(["b-home", "b-peer"]), machineHiddenBotIds: new Set() });
+    expect(order()).toEqual(["Work bot", "Peer bot", "Home bot"]);
+  });
+
+  it("reads a Bot's liveliness from its newest session, not from when it was made", () => {
+    // Work bot is the oldest by creation and the newest by use. Sorting on `createdAt` alone
+    // would bury the one Bot here that has been doing anything.
+    expect(withOffCanvasLast([HOME, PEER, WORK], {
+      detachedBotIds: new Set(["b-home", "b-peer", "b-work"]),
+      machineHiddenBotIds: new Set(),
+    }).map((each) => each.name)).toEqual(["Work bot", "Peer bot", "Home bot"]);
+  });
+
+  it("has nothing to sink where there is no canvas to be off", () => {
+    // The Bots tab renders this same panel with no canvas at all.
+    expect(withOffCanvasLast([HOME, PEER, WORK])).toEqual([HOME, PEER, WORK]);
   });
 });
 
