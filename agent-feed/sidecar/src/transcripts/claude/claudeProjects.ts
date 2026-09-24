@@ -9,12 +9,21 @@ import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { Header } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 
-const PROJECTS_ROOT = config.claudeProjectsDirectory;
 const HEADER_EDGE_BYTES = 32 * 1024;
+/**
+ * How far past the head window the OPENING `cwd` is looked for, when the window has none.
+ *
+ * Measured across this machine's 1218 Claude transcripts: 280 are larger than the two edge
+ * windows and carry no `cwd` inside the head one, because a resumed session opens with
+ * `file-history-snapshot` records around 15 KB each and four of them outrun 32 KB. Every one of
+ * those 280 answers within 852 KB, median 96 KB, so a megabyte covers them with headroom -- and
+ * only a file that needs the scan pays for it, since it stops at the first `cwd` it sees.
+ */
+const OPENING_CWD_SCAN_BYTES = 1024 * 1024;
 
 export async function readSidecar(sidecarPath: string): Promise<string | null> {
   const abs = resolve(sidecarPath);
-  if (!abs.startsWith(PROJECTS_ROOT + '/')) return null;
+  if (!abs.startsWith(config.claudeProjectsDirectory + '/')) return null;
   try {
     return await Bun.file(abs).text();
   } catch {
@@ -94,6 +103,45 @@ export function promptFromOversizedRecord(text: string): string | undefined {
 }
 
 /**
+ * The first `cwd` after `from`, for a transcript whose opening records outrun the head window.
+ *
+ * Reads forward in the same 32 KB steps and stops at the first record that answers, so a file
+ * that opens with four oversized snapshots costs one extra read and a file that does not costs
+ * nothing. Lines are cut on the byte rather than on the decoded string: a chunk boundary can
+ * fall inside a multi-byte character, and decoding each half alone would lose the record it
+ * split.
+ */
+async function scanForOpeningCwd(
+  fh: Awaited<ReturnType<typeof open>>,
+  from: number,
+  size: number,
+): Promise<string | undefined> {
+  const stop = Math.min(size, from + OPENING_CWD_SCAN_BYTES);
+  let position = from;
+  let pending = Buffer.alloc(0);
+  while (position < stop) {
+    const buf = Buffer.alloc(Math.min(HEADER_EDGE_BYTES, stop - position));
+    const { bytesRead } = await fh.read(buf, 0, buf.length, position);
+    if (!bytesRead) return undefined;
+    position += bytesRead;
+    const window = Buffer.concat([pending, buf.subarray(0, bytesRead)]);
+    let start = 0;
+    for (let br = window.indexOf(0x0a); br !== -1; br = window.indexOf(0x0a, start)) {
+      const line = window.toString('utf-8', start, br);
+      start = br + 1;
+      if (line) {
+        try {
+          const ev = JSON.parse(line) as Record<string, unknown>;
+          if (ev && typeof ev === 'object' && typeof ev.cwd === 'string') return ev.cwd;
+        } catch { /* a line this scan cannot read is one it does not need */ }
+      }
+    }
+    pending = window.subarray(start);
+  }
+  return undefined;
+}
+
+/**
  * What the catalog knows about a session without reading its body: the two 32 KB
  * edges, and everything the session list needs pulled out of them.
  *
@@ -147,8 +195,11 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         // Two different questions, and they had one answer between them until a `cd` proved
         // otherwise. `cwd` is where the session OPENED, which is its project; `recentCwd` is
         // wherever the agent's shell has wandered to since, which is not.
+        // `cwd` from the HEAD only. The tail's is wherever the agent's shell has wandered to,
+        // and taking it is how a live session gets filed under one of its own subfolders --
+        // which a Bot, holding only sessions in its own checkout, then reports as missing.
         if (typeof ev.cwd === 'string') {
-          out.cwd ??= ev.cwd;
+          if (isHead) out.cwd ??= ev.cwd;
           out.recentCwd = ev.cwd;
         }
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
@@ -172,6 +223,13 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         out.firstPrompt = promptFromOversizedRecord(window);
       }
     }
+    // A head window with no `cwd` in it is not a session without a project, and answering as
+    // though it were deleted a working session from the catalog every time its last record was
+    // larger than the tail window. Read forward for it instead: this is identity rather than
+    // something a row displays, so it is the one fact worth leaving the two windows for.
+    if (!out.cwd && ranges.length > 1) {
+      out.cwd = await scanForOpeningCwd(fh, HEADER_EDGE_BYTES, metadata.size);
+    }
     out.title = customTitle ?? aiTitle;
     return out.cwd ? out : null;
   } finally {
@@ -181,9 +239,9 @@ export async function readHeader(filePath: string): Promise<Header | null> {
 
 export function filePathToSessionId(p: string): string | null {
   if (!p.endsWith('.jsonl')) return null;
-  // Require the path to be under PROJECTS_ROOT so the watcher does not claim
+  // Require the path to be under the projects root so the watcher does not claim
   // a Codex rollout that happens to live at <something>/foo.jsonl.
-  if (!p.startsWith(PROJECTS_ROOT)) return null;
+  if (!p.startsWith(config.claudeProjectsDirectory)) return null;
   const sid = basename(p, '.jsonl');
   if (sid.startsWith('_')) return null;
   return sid;

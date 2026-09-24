@@ -79,6 +79,11 @@ export async function resolveClaudeProject(
  *
  * A path that is not a Claude transcript is a no-op rather than an error, because the watcher
  * hands this every file under the projects directory.
+ *
+ * A file that is still on disk and did not read is a failed READ, not a session that ended, so
+ * the record already held stands. This fires on every write a running agent makes, and answering
+ * a failed read with a delete is how a working session vanished from the panel mid-turn: only
+ * the file being gone removes it now.
  */
 export async function refreshClaudeSession(filePath: string): Promise<void> {
   if (!isClaudeSessionCandidate(filePath)) return;
@@ -87,7 +92,18 @@ export async function refreshClaudeSession(filePath: string): Promise<void> {
   const session = await readClaudeCandidate(filePath);
   const key = sessionKey("claude", sessionId);
   if (session) state.sessions.set(key, session);
-  else state.sessions.delete(key);
+  else if (!existsSync(filePath)) state.sessions.delete(key);
+  else {
+    // Said out loud rather than swallowed: a transcript this reader cannot make a session out of
+    // is the shape of bug that otherwise only shows as a row that never updates.
+    console.log(JSON.stringify({
+      event: "agent-feed-catalog-unreadable",
+      source: "claude",
+      sessionId,
+      held: state.sessions.has(key),
+    }));
+    return;
+  }
   scheduleBroadcast();
 }
 
@@ -122,8 +138,17 @@ export async function reconcileClaude(): Promise<void> {
       .filter((session): session is Session => session !== null)
       .map((session) => [sessionKey(session.source, session.sessionId), session]),
   );
+  // Deleted by what is on DISK rather than by what read, for the reason `refreshClaudeSession`
+  // gives: a candidate whose header does not resolve is a file this reader could not use, and
+  // dropping it here would undo that stickiness on the next sweep.
+  const onDisk = new Set(
+    candidates
+      .map((path) => claudeAdapter.filePathToSessionId(path))
+      .filter((sessionId): sessionId is string => sessionId !== null)
+      .map((sessionId) => sessionKey("claude", sessionId)),
+  );
   for (const [key, session] of [...state.sessions]) {
-    if (session.source === "claude" && !next.has(key)) state.sessions.delete(key);
+    if (session.source === "claude" && !onDisk.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
   console.log(JSON.stringify({
@@ -132,5 +157,6 @@ export async function reconcileClaude(): Promise<void> {
     durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
     candidates: candidates.length,
     sessions: next.size,
+    unreadable: candidates.length - next.size,
   }));
 }

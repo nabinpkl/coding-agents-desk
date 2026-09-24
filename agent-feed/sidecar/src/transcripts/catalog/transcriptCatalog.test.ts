@@ -14,6 +14,8 @@ import {
   subscribeCatalog,
   stopCatalog,
 } from "@/transcripts/catalog/transcriptCatalog";
+import { reconcileClaude, refreshClaudeSession } from "@/transcripts/catalog/claudeCatalog";
+import { config } from "@/config/config";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
@@ -233,6 +235,42 @@ describe("transcript catalog identity", () => {
       recentCwd: wandered,
       title: "Renamed project",
     });
+  });
+
+  test("a transcript that stops reading keeps its session until the file is gone", async () => {
+    // The vanish this guards: `refreshClaudeSession` fires on every write a running agent makes,
+    // and a header that comes back with nothing is a read this reader could not use rather than a
+    // session that ended. Answering it with a delete took a working session off the panel
+    // mid-turn, over and over, for as long as its writes were larger than the tail window.
+    const projects = await mkdtemp(join(tmpdir(), "agent-feed-projects-"));
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "agent-feed-repo-")));
+    temporaryDirectories.push(projects, repo);
+    const slug = join(projects, "-repo");
+    await mkdir(slug, { recursive: true });
+    const sessionId = "33333333-3333-3333-3333-333333333333";
+    const key = sessionKey("claude", sessionId);
+    const transcript = join(slug, `${sessionId}.jsonl`);
+    const mutableConfig = config as unknown as { claudeProjectsDirectory: string };
+    const previousProjects = config.claudeProjectsDirectory;
+    mutableConfig.claudeProjectsDirectory = projects;
+    try {
+      await writeFile(transcript, `${JSON.stringify({ type: "user", cwd: repo })}\n`);
+      await refreshClaudeSession(transcript);
+      expect(state.sessions.get(key)?.project).toBe(repo);
+
+      await writeFile(transcript, `${JSON.stringify({ type: "system", note: "no cwd" })}\n`);
+      await refreshClaudeSession(transcript);
+      expect(state.sessions.get(key)?.project).toBe(repo);
+      // And the sweep does not undo it: it deletes by what is on disk, not by what read.
+      await reconcileClaude();
+      expect(state.sessions.get(key)?.project).toBe(repo);
+
+      await rm(transcript);
+      await refreshClaudeSession(transcript);
+      expect(state.sessions.has(key)).toBe(false);
+    } finally {
+      mutableConfig.claudeProjectsDirectory = previousProjects;
+    }
   });
 
   describe("resolveClaudeProject", () => {

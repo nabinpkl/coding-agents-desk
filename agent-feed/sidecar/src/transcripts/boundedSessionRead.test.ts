@@ -2,11 +2,18 @@
 // not.
 //
 // Everything a session row renders comes from these two bounded reads: Claude's
-// `readHeader` (32 KB from each end, already performed to learn `cwd`) and
-// Codex's `readTail`. Listing a project must never read a transcript body, so
-// these tests pin both the facts the windows yield AND the fact that content
-// outside them is invisible -- the second half is the guarantee, and it is the
-// one a well-meaning "just scan a bit further" change would quietly remove.
+// `readHeader` (32 KB from each end) and Codex's `readTail`. Listing a project
+// must never read a transcript body, so these tests pin both the facts the
+// windows yield AND the fact that content outside them is invisible -- the
+// second half is the guarantee, and it is the one a well-meaning "just scan a
+// bit further" change would quietly remove.
+//
+// One fact is deliberately outside that guarantee, and the tests below say so:
+// `cwd`. It is the session's IDENTITY rather than something a row displays -- a
+// session with no `cwd` is not listed at all -- and a resumed transcript can open
+// with enough `file-history-snapshot` records to push it past the head window.
+// So `cwd`, and only `cwd`, is looked for forward of the window when the window
+// has none. Titles and prompts stay bounded.
 
 import { expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -34,6 +41,49 @@ const GAP = Array.from({ length: 100 }, () => filler());
 
 const userLine = (text: string) =>
   JSON.stringify({ type: 'user', cwd: CWD, message: { role: 'user', content: text } });
+
+// --- Claude: which directory the session belongs to ---
+
+/** Four of these and a resumed session's opening `cwd` is past the head window. */
+const SNAPSHOT = JSON.stringify({
+  type: 'file-history-snapshot',
+  pad: 'x'.repeat(15 * 1024),
+});
+
+test('the opening cwd is found past the head window rather than taken from the tail', async () => {
+  const path = await transcript('c.jsonl', [
+    JSON.stringify({ type: 'custom-title', customTitle: 'Resumed' }),
+    SNAPSHOT,
+    SNAPSHOT,
+    SNAPSHOT,
+    userLine('opening prompt'),
+    ...GAP,
+    JSON.stringify({ type: 'assistant', cwd: `${CWD}/packages/web` }),
+  ]);
+  const header = await claudeAdapter.readHeader(path);
+  // The tail's `cwd` is wherever the agent's shell wandered to. Taking it filed a live session
+  // under one of its own subfolders, and a Bot -- which holds only sessions in its own checkout
+  // -- then showed that row as missing while the session was working.
+  expect(header?.cwd).toBe(CWD);
+  expect(header?.recentCwd).toBe(`${CWD}/packages/web`);
+});
+
+test('a session still resolves while its last record is larger than the tail window', async () => {
+  const path = await transcript('c.jsonl', [
+    SNAPSHOT,
+    SNAPSHOT,
+    SNAPSHOT,
+    userLine('opening prompt'),
+    ...GAP,
+    // One record filling the whole tail window: the line is cut at both ends, nothing in that
+    // window parses, and the header used to come back null. Replaying one 14 MB transcript at
+    // each of its own 4770 write boundaries, 111 landed here and another 786 answered with a
+    // subdirectory the agent had cd'd into -- so at 19% of the moments the panel re-read that
+    // session, its row was missing or filed under a project that does not exist.
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'y'.repeat(40 * 1024) } }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.cwd).toBe(CWD);
+});
 
 // --- Claude: titles ---
 
