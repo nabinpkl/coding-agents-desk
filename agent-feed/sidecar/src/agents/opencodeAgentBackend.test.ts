@@ -8,6 +8,7 @@ import {
 
 interface Recorded {
   prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
+  ran: Array<{ sessionID: string; name: string; text: string }>;
   interrupts: string[];
   permissionReplies: Array<{ requestID: string; reply: string }>;
   created: string[];
@@ -82,6 +83,18 @@ afterEach(() => {
 function installFetch(recorded: Recorded, items: FakeItem[]): void {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const parsed = new URL(String(url));
+    if (parsed.pathname === "/api/command") {
+      return Response.json({ data: [{ name: "review", description: "review changes" }, { name: "lonely" }] });
+    }
+    if (parsed.pathname.endsWith("/command")) {
+      const body = JSON.parse(String(init?.body)) as { name?: string; text?: string };
+      recorded.ran.push({
+        sessionID: parsed.pathname.split("/").at(-2) ?? "",
+        name: body.name ?? "",
+        text: body.text ?? "",
+      });
+      return Response.json({ data: {} });
+    }
     if (parsed.pathname.endsWith("/prompt")) {
       const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string; files?: Array<{ uri: string; mime: string; name: string }> };
       recorded.prompts.push({
@@ -121,7 +134,7 @@ let pushToStream: ((value: unknown) => void) | null = null;
 
 function fixture() {
   pushToStream = null;
-  const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const backend = new OpencodeAgentBackend({
     resolveSession: (sessionId) =>
@@ -177,6 +190,21 @@ test("send stages image attachments as files the serve reads", async () => {
   await backend.dispose();
 });
 
+test("commands list from the serve and run natively with the draft as arguments", async () => {
+  const { backend, recorded } = fixture();
+  await expect(backend.listCommands()).resolves.toEqual([
+    { name: "review", description: "review changes" },
+    { name: "lonely" },
+  ]);
+  const receipt = await backend.runCommand("s1", "r-cmd", "review", "the last commit");
+  expect(receipt).toEqual({ requestId: "r-cmd", delivery: "immediate" });
+  expect(recorded.ran).toEqual([{ sessionID: "s1", name: "review", text: "the last commit" }]);
+  // A repeated request answers from the ledger without touching the serve again.
+  await backend.runCommand("s1", "r-cmd", "review", "the last commit");
+  expect(recorded.ran).toHaveLength(1);
+  await backend.dispose();
+});
+
 test("a serve permission becomes a broker select and the answer becomes its reply", async () => {
   const { backend, recorded } = fixture();
   const seen: Array<{ type: string; request?: { requestId: string; kind: string; options?: string[] } }> = [];
@@ -212,7 +240,7 @@ test("a serve permission becomes a broker select and the answer becomes its repl
 
 test("creating a session registers it through the serve", async () => {
   const created: Array<{ sessionId: string; projectPath: string }> = [];
-  const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
   const backend = new OpencodeAgentBackend({
     resolveSession: () => undefined,
     onSessionCreated: (location) => created.push(location),
@@ -229,7 +257,7 @@ test("creating a session registers it through the serve", async () => {
 
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
-  const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
   // Newest-first, the way the serve lists; the tail read picks up the push.
   const messages = [userItem("msg-u", "hello")];
   installFetch(recorded, messages);
@@ -255,7 +283,7 @@ test("opening a stale projection re-reads the serve", async () => {
 });
 
 test("a long history walks every page and lands chronological", async () => {
-  const recorded: Recorded = { prompts: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
   // Newest-first, the way the serve lists: msg-249 first, msg-0 last.
   const all = Array.from({ length: 250 }, (_, i) => ({
     id: `msg-${249 - i}`,

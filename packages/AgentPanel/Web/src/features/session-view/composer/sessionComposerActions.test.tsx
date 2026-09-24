@@ -118,3 +118,47 @@ describe("sending with held images", () => {
     expect(onSendMessage).toHaveBeenCalledWith("plain", "next", undefined);
   });
 });
+
+describe("sending a slash command", () => {
+  it("runs a listed command natively with the remainder as arguments", async () => {
+    const onRunCommand = vi.fn(async () => {});
+    const onSendMessage = vi.fn(async () => {});
+    const { result } = renderHook(() => useSendAttachments());
+    const setLocalDraft = vi.fn();
+    const m = model({
+      editorValue: "/review the last commit",
+      session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+      sendAttachments: result.current,
+      opencodeCommands: [{ name: "review", description: "review changes" }],
+      onRunCommand,
+      onSendMessage,
+      setLocalDraft,
+    } as Partial<ComposerModel>);
+    await act(async () => {
+      await submitComposer(m, "next");
+    });
+    expect(onRunCommand).toHaveBeenCalledWith("review", "the last commit");
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(setLocalDraft).toHaveBeenCalledWith("");
+  });
+
+  it("sends an unknown slash as text, which the serve reads literally", async () => {
+    const onRunCommand = vi.fn(async () => {});
+    const onSendMessage = vi.fn(async () => {});
+    const { result } = renderHook(() => useSendAttachments());
+    const m = model({
+      editorValue: "/nope nothing",
+      session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+      sendAttachments: result.current,
+      opencodeCommands: [{ name: "review" }],
+      onRunCommand,
+      onSendMessage,
+      setLocalDraft: vi.fn(),
+    } as Partial<ComposerModel>);
+    await act(async () => {
+      await submitComposer(m, "next");
+    });
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(onSendMessage).toHaveBeenCalledWith("/nope nothing", "next", undefined);
+  });
+});

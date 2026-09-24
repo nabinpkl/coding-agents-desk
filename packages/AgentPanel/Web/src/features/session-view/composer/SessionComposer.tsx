@@ -79,6 +79,7 @@ import {
 import type { AgentTerminalComposer, TerminalState } from "@/features/session-view/sessionTerminalTypes";
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
 import { useComposerFileDrop } from "@/features/session-view/composer/useComposerFileDrop";
+import { useOpencodeCommands } from "@/features/session-view/composer/useOpencodeCommands";
 import { useSendAttachments, type SendAttachment } from "@/features/session-view/composer/useSendAttachments";
 import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import { harnessName } from "@/features/session-view/SessionView";
@@ -123,6 +124,7 @@ export function SessionComposer({
   terminalHeightBasis,
   onFileDrop,
   onSendMessage,
+  onRunCommand,
   onAbort,
 }: {
   host: HostActionsClient;
@@ -177,6 +179,8 @@ export function SessionComposer({
    */
   onFileDrop: (drop: { accept: (files: readonly File[]) => void } | null) => void;
   onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
+  /** Runs a slash command natively; opencode-only, and the shell owns its pending state. */
+  onRunCommand: (name: string, args: string) => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
@@ -433,7 +437,9 @@ export function SessionComposer({
     isCodex,
     localDraft,
     onAbort,
+    onRunCommand,
     onSendMessage,
+    opencodeCommands: useOpencodeCommands(feed, isOpencode ? tmuxComposerSession : null),
     pending,
     queued,
     running,

@@ -45,6 +45,7 @@ import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream
 import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTasksPanel";
 import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
 import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTasks";
+import { useSessionCommands } from "@/features/session-view/useSessionCommands";
 import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
@@ -177,8 +178,7 @@ export function SessionView({
     [onForkFromMessage, projectPath, session, source],
   );
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
-  const [commandPending, setCommandPending] = useState(false);
-  const [commandError, setCommandError] = useState<string | null>(null);
+  const commands = useSessionCommands(feed, session);
   const [sessionState, setSessionState] = useState<AgentSessionControlState>({
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
@@ -317,34 +317,6 @@ export function SessionView({
     [],
   );
 
-  const sendPrompt = useCallback(async (text: string, delivery: "next" | "steer", files?: { data: string; mime: string; name: string }[]) => {
-    if (commandPending || !text.trim()) return;
-    setCommandPending(true);
-    setCommandError(null);
-    try {
-      await feed.sendMessage(session, text.trim(), delivery, files);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-      // Rethrow so the composer that owns the draft only clears it on success.
-      throw error;
-    } finally {
-      setCommandPending(false);
-    }
-  }, [commandPending, feed, session]);
-
-  const abortRun = useCallback(async () => {
-    if (commandPending) return;
-    setCommandPending(true);
-    setCommandError(null);
-    try {
-      await feed.abortSession(session);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-    } finally {
-      setCommandPending(false);
-    }
-  }, [commandPending, feed, session]);
-
   const tasksPanel = tasksPanelOpen ? (
     <BackgroundTasksPanel
       compact={compact}
@@ -429,13 +401,7 @@ export function SessionView({
         <ExtensionUISurface
           requests={extensionUI}
           onRespond={async (request, value) => {
-            setCommandError(null);
-            try {
-              await feed.respondToExtensionUI(session, request.requestId, value);
-            } catch (error) {
-              setCommandError(String((error as Error).message ?? error));
-              throw error;
-            }
+            await commands.respondToExtensionUI(request.requestId, value);
           }}
           onDismiss={(request) =>
             setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId))}
@@ -459,8 +425,8 @@ export function SessionView({
         session={session}
         state={sessionState}
         usage={sessionUsage}
-        pending={commandPending}
-        error={commandError ?? externalError}
+        pending={commands.commandPending}
+        error={commands.commandError ?? externalError}
         question={openQuestion}
         cliInput={cliInput}
         windowComposerClient={source === "codex" ? windowComposers.codex : windowComposers.claude}
@@ -478,8 +444,9 @@ export function SessionView({
           : null}
         terminalHeightBasis={column}
         onFileDrop={setFileDrop}
-        onSendMessage={sendPrompt}
-        onAbort={abortRun}
+        onSendMessage={commands.sendPrompt}
+        onRunCommand={commands.runSlashCommand}
+        onAbort={commands.abortRun}
       />
       {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
       {terminal.kind === "loading" || terminal.kind === "ready" ? (

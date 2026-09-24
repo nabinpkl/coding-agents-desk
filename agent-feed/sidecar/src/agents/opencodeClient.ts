@@ -35,10 +35,12 @@ export function resetOpencodeClient(): void {
  * Raw calls to the serve, for the endpoints where the pinned SDK and the
  * running serve disagree.
  *
- * Today that is exactly two: `POST /api/session/{id}/prompt` takes a flat
+ * Today that is exactly three: `POST /api/session/{id}/prompt` takes a flat
  * `{ text, delivery }` on serve v2.0.10 while the SDK sends a nested
- * `{ prompt: { text } }`, and `GET .../message` pages through `order` plus
- * an opaque `cursor` the SDK's snapshot predates. Measured, not assumed.
+ * `{ prompt: { text } }`, `GET .../message` pages through `order` plus
+ * an opaque `cursor` the SDK's snapshot predates, and `POST .../command`
+ * takes a flat `{ name, text }` while the SDK sends `{ command, arguments }`.
+ * Measured, not assumed.
  * Everything else travels the SDK, and these stay until a bumped SDK
  * matches the serve again.
  */

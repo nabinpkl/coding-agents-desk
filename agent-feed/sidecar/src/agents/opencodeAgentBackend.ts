@@ -19,8 +19,8 @@ import type {
   OpencodeClient,
 } from "@opencode-ai/sdk/v2/client";
 import { config } from "@/config/config";
-import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencodeClient";
-import { stageOpencodeAttachments } from "@/agents/opencodeAttachments";
+import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient, serveGet, serveRequest } from "@/agents/opencodeClient";
+import { stageOpencodeAttachments, listOpencodeServeCommands, type OpencodeSlashCommand } from "@/agents/opencodeServeCalls";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -248,6 +248,29 @@ export class OpencodeAgentBackend implements AgentBackend {
       const interrupted = await this.requireClient().v2.session.interrupt({ sessionID: sessionId });
       if (interrupted.error) throw new Error(`interrupt: ${describeServeError(interrupted.error)}`);
       return { requestId, delivery: "abort" };
+    });
+  }
+
+  /** What this serve offers after a slash; listing needs no session, only a live backend. */
+  async listCommands(): Promise<OpencodeSlashCommand[]> {
+    this.assertActive();
+    return listOpencodeServeCommands();
+  }
+
+  /** Runs one slash command natively: prompt text starting with `/name` reads literally (measured), so only this route expands the template. The flat `{ name, text }` shape is this serve's own -- the pinned SDK sends `{ command, arguments }` and is refused. */
+  async runCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt> {
+    const owned = await this.open(sessionId);
+    const signature = JSON.stringify({ type: "command", name, text });
+    return this.command(owned, requestId, signature, async () => {
+      const answered = await serveRequest(`/api/session/${sessionId}/command`, { name, text });
+      if (answered.status === 401) {
+        resetOpencodeClient();
+        throw new Error(`command: unauthorized (${answered.status})`);
+      }
+      if (answered.status < 200 || answered.status >= 300) {
+        throw new Error(`command: serve answered ${answered.status} ${answered.text}`);
+      }
+      return { requestId, delivery: owned.projection.runState === "idle" ? "immediate" : "followUp" };
     });
   }
 

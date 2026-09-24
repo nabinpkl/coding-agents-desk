@@ -8,6 +8,7 @@
 import { CornerDownLeft, LoaderCircle, Paperclip, Send, Square } from "lucide-react";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
 
 /**
  * Every band's send, drawn small inside the field's own box at its trailing edge. Margins centre it
@@ -62,6 +63,21 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
   if (m.inboxBand || m.agentTerminalBand) return await submitOwnedTransport(m);
   if (m.pending || !m.editorValue.trim()) return;
   const text = m.editorValue.trim();
+  // A listed slash command runs natively rather than sending: the serve reads "/name args"
+  // as literal text (measured), so only the command route expands the template. Held images
+  // stay out of it -- that route takes none -- and ride the next ordinary send instead.
+  const slash = m.session.source === "opencode" && m.sendAttachments.images.length === 0
+    ? parseOpencodeCommand(m.opencodeCommands, text)
+    : null;
+  if (slash) {
+    try {
+      await m.onRunCommand(slash.name, slash.args);
+      m.setLocalDraft("");
+    } catch {
+      // Same contract as a send: the caption carries the reason, the draft survives.
+    }
+    return;
+  }
   try {
     // Images ride the same request as the text: a turn cannot be amended after it is queued,
     // so holding them for a second call would strand them. Read at send time rather than held,

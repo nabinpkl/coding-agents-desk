@@ -271,3 +271,48 @@ test("a handover answers 404 when opencode is not registered", async () => {
     await unseedHandoverSession(HANDOVER_ID, root);
   }
 });
+
+test("opencode commands list from the backend and run with the draft as arguments", async () => {
+  const ran: { sessionId: string; name: string; text: string }[] = [];
+  const base = fakeBackend();
+  const route = createAgentRoutes((id) => id === "opencode" ? {
+    ...base,
+    id: "opencode",
+    listCommands: async () => [{ name: "review", description: "review changes" }],
+    runCommand: async (sessionId: string, requestId: string, name: string, text: string) => {
+      ran.push({ sessionId, name, text });
+      return { requestId, delivery: "followUp" as const };
+    },
+  } : undefined);
+
+  const list = new Request("http://localhost/api/agent-sessions/opencode/commands", { method: "GET" });
+  const listed = await route(list, new URL(list.url), server);
+  expect(listed?.status).toBe(200);
+  expect(await listed?.json()).toEqual({ commands: [{ name: "review", description: "review changes" }] });
+
+  const run = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "c1", name: "review", text: "the last commit" }),
+  });
+  const answered = await route(run, new URL(run.url), server);
+  expect(answered?.status).toBe(202);
+  expect(await answered?.json()).toEqual({ requestId: "c1", delivery: "followUp" });
+  expect(ran).toEqual([{ sessionId: "s1", name: "review", text: "the last commit" }]);
+
+  const nameless = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "c2", text: "the last commit" }),
+  });
+  expect((await route(nameless, new URL(nameless.url), server))?.status).toBe(400);
+});
+
+test("opencode command routes answer 404 without the backend", async () => {
+  const route = createAgentRoutes(() => undefined);
+  const list = new Request("http://localhost/api/agent-sessions/opencode/commands", { method: "GET" });
+  expect((await route(list, new URL(list.url), server))?.status).toBe(404);
+  const run = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "c1", name: "review", text: "" }),
+  });
+  expect((await route(run, new URL(run.url), server))?.status).toBe(404);
+});

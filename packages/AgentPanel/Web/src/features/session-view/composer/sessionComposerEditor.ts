@@ -13,6 +13,7 @@ import { cliInputReasonText } from "@/features/cli-input/useCliInput";
 import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
 import { harnessName } from "@/features/session-view/SessionView";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import { opencodeCommandRows } from "@/features/session-view/composer/useOpencodeCommands";
 
 export interface ComposerEditor {
   value: string;
@@ -76,6 +77,12 @@ export interface ComposerEditor {
   commands?: {
     shown: readonly ComposerCommand[];
     onChoose: (name: string) => void;
+    /**
+     * Whether Return takes the selected row. Set only where the panel owns the list: the
+     * tmux menu belongs to the pane, which eats Return itself, while the opencode list is
+     * drawn by the band and would otherwise send the half-typed name as text.
+     */
+    chooseOnEnter?: boolean;
   };
 }
 
@@ -195,6 +202,11 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
           onFiles: m.sendAttachments.attach,
           images: m.sendAttachments.images,
           onRemoveImage: m.sendAttachments.remove,
+          commands: {
+            shown: opencodeCommandRows(m.opencodeCommands, m.localDraft),
+            onChoose: (name: string) => m.setLocalDraft(`${name} `),
+            chooseOnEnter: true,
+          },
         }
         : {}),
     }

@@ -227,6 +227,16 @@ export function SessionComposerBand({
               !event.shiftKey &&
               !event.nativeEvent.isComposing
             ) {
+              // A panel-owned command list eats Return first: without this the half-typed name
+              // sends as text. The pane's own menu is untouched -- it never sets chooseOnEnter,
+              // because the pane eats Return itself.
+              if (editor.commands?.chooseOnEnter && editor.commands.shown.length > 0) {
+                event.preventDefault();
+                const selected = editor.commands.shown.find((command) => command.selected)
+                  ?? editor.commands.shown[0];
+                if (selected) editor.commands.onChoose(selected.name);
+                return;
+              }
               event.preventDefault();
               void submitComposer(model, "next");
             }

@@ -11,6 +11,7 @@ import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { CliInputHandle } from "@/features/cli-input/useCliInput";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useSendAttachments";
+import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 
@@ -44,6 +45,10 @@ export interface ComposerModel {
   localDraft: string;
   onAbort: () => void | Promise<void>;
   onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
+  /** Runs a slash command natively; opencode-only, unset everywhere else. */
+  onRunCommand: (name: string, args: string) => Promise<void>;
+  /** What an opencode session offers after a slash; empty on every other source. */
+  opencodeCommands: readonly OpencodeSlashCommand[];
   pending: boolean;
   queued: number;
   running: boolean;

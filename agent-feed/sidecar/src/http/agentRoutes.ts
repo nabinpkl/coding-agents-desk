@@ -1,4 +1,4 @@
-import type { AgentBackend, AgentMessageAttachment, AgentMessageDelivery } from "@/agents/agentBackend";
+import type { AgentBackend, AgentCommandReceipt, AgentMessageAttachment, AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import { buildHandoverPrompt, renderHandover, SessionHandoverError } from "@/transcripts/sessionHandover";
@@ -8,6 +8,8 @@ import type { RouteHandler } from "@/http/route";
 
 const CREATE_ROUTE = "/api/agent-sessions";
 const HANDOVER_ROUTE = "/api/agent-sessions/opencode/handover";
+const OPENCODE_COMMANDS_ROUTE = "/api/agent-sessions/opencode/commands";
+const OPENCODE_RUN_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/command$/;
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
 const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
 const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/stream$/;
@@ -32,6 +34,13 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     }
     if (request.method === "POST" && url.pathname === HANDOVER_ROUTE) {
       return handoverSession(request, resolveBackend);
+    }
+    if (request.method === "GET" && url.pathname === OPENCODE_COMMANDS_ROUTE) {
+      return listOpencodeCommands(resolveBackend);
+    }
+    const runCommand = OPENCODE_RUN_ROUTE.exec(url.pathname);
+    if (request.method === "POST" && runCommand) {
+      return runOpencodeCommand(request, resolveBackend, runCommand[1]!);
     }
     const message = MESSAGE_ROUTE.exec(url.pathname);
     if (request.method === "POST" && message) {
@@ -185,6 +194,38 @@ async function handoverSession(
   } catch (error) {
     return routeError(error);
   }
+}
+
+/** The opencode-only backend surface these routes need; resolved by id, like the handover. */
+interface OpencodeCommandBackend {
+  listCommands(): Promise<Array<{ name: string; description?: string }>>;
+  runCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt>;
+}
+
+async function listOpencodeCommands(resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
+  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
+  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
+  try {
+    return jsonResponse({ commands: await backend.listCommands() });
+  } catch (error) { return routeError(error); }
+}
+
+async function runOpencodeCommand(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
+  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
+  try {
+    const body = await jsonBody(request);
+    const requestId = requestIdentifier(body.requestId);
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const text = typeof body.text === "string" ? body.text : "";
+    if (!requestId || !name) {
+      return errorResponse("invalid-request", "requestId and name are required", 400, requestId ?? undefined);
+    }
+    if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) {
+      return errorResponse("command-too-large", "command arguments exceed 256 KiB", 413, requestId);
+    }
+    return jsonResponse(await backend.runCommand(sessionId, requestId, name, text), 202);
+  } catch (error) { return routeError(error); }
 }
 
 async function sendMessage(

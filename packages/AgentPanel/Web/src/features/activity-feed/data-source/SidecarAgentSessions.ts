@@ -78,6 +78,34 @@ export class SidecarAgentSessions extends SidecarTerminals {
     );
   }
 
+  /**
+   * What an opencode session offers after a slash: built-ins plus its custom commands.
+   *
+   * Read when the composer opens rather than on every keystroke: the list is one small GET
+   * and the draft filters it locally, so typing never waits on the sidecar.
+   */
+  async listOpencodeCommands(): Promise<{ name: string; description?: string }[]> {
+    return parse<{ commands: { name: string; description?: string }[] }>(
+      await this.transport.request("GET", "/api/agent-sessions/opencode/commands"),
+    ).commands;
+  }
+
+  /**
+   * Runs one slash command natively, with the draft's remainder as its arguments.
+   *
+   * Separate from `sendMessage` because the serve treats prompt text starting with `/name`
+   * as literal text (measured) -- only this route expands the template.
+   */
+  async runOpencodeCommand(sessionId: string, name: string, text: string): Promise<AgentCommandReceipt> {
+    return parse<AgentCommandReceipt>(
+      await this.transport.request(
+        "POST",
+        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/command`,
+        { body: { requestId: crypto.randomUUID(), name, text } },
+      ),
+    );
+  }
+
   async respondToExtensionUI(
     session: SessionAddress,
     requestId: string,
