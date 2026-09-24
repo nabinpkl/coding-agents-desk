@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agent-relay": {
+      "command": "bun",
+      "args": ["agent-feed/sidecar/src/mcpMain.ts"],
+      "description": "Cross-session relay for Claude Code and opencode sessions. send arrives as the session's own user turn, notify as a gated FYI."
+    }
+  }
+}

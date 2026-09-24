@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "bun build --compile src/server.ts --outfile dist/agent-feed-sidecar",
+    "build:mcp": "bun build --compile src/mcpMain.ts --outfile dist/agent-feed-relay-mcp",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.83.0",
     "@earendil-works/pi-coding-agent": "0.83.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@opencode-ai/sdk": "1.18.31",
     "chokidar": "^5.0.0",
     "protobufjs": "7.6.5",
