@@ -147,3 +147,6 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0114 | Keep the panel's remembered UI state in one store, and persist only what a reader arranged | proposed | 2026-09-07 |
 | ADR-0115 | Serve the workspace IDE from the Agent Panel and the sidecar | accepted | 2026-09-10 |
 | ADR-0116 | Opencode sessions join the feed as a backend, not a transcript | accepted | 2026-09-22 |
+| ADR-0117 | Terminals list windows and panes, addressed the way tmux addresses them | accepted | 2026-09-23 |
+| ADR-0118 | Terminal wall tiles follow the pane and never resize it | accepted | 2026-09-23 |
+| ADR-0119 | Claude sessions hand over to opencode as one rendered prompt | accepted | 2026-09-23 |

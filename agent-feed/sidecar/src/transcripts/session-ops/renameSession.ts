@@ -19,7 +19,7 @@ import { renameTmuxSession } from "@/input/tmuxComposer";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
-import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 
 export class SessionRenameInvalidError extends Error {}
 export class SessionRenameNotFoundError extends Error {}

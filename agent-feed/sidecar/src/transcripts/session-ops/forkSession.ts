@@ -23,14 +23,14 @@ import {
   startClaudeSession,
   startForkedClaudeSession,
 } from "@/terminal/claudeSessionLaunch";
-import { LIVE_FORK_REWINDER } from "@/transcripts/forkRewind";
+import { LIVE_FORK_REWINDER } from "@/transcripts/session-ops/forkRewind";
 import {
   anchorAtLine,
   lineFromEventId,
   MessageAnchorError,
   type MessageAnchor,
 } from "@/transcripts/messageAnchor";
-import { sessionTitleRefusal } from "@/transcripts/sessionTitle";
+import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 
 /**

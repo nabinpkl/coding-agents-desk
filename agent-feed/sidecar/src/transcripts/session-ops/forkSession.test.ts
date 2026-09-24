@@ -19,7 +19,7 @@ import {
   SessionForkNotFoundError,
   type ForkRewinder,
   type SessionLauncher,
-} from "@/transcripts/forkSession";
+} from "@/transcripts/session-ops/forkSession";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
