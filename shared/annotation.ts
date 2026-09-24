@@ -1,10 +1,7 @@
 /* Wire types shared by the server and the extension. The zod schemas are the
  * single source; TypeScript types are inferred from them. */
 import * as z from "zod";
-
-export const TAGS = ["bug", "suggestion", "question"] as const;
-export const STATUSES = ["open", "resolved"] as const;
-export const ACTORS = ["user", "agent"] as const;
+import { ACTORS, SCREENSHOT_MIMES, STATUSES, TAGS } from "./vocab.ts";
 
 export const Tag = z.enum(TAGS);
 export const Status = z.enum(STATUSES);
@@ -56,7 +53,6 @@ export type NewAnnotation = z.infer<typeof NewAnnotation>;
 
 export const ReplyInput = z.object({ text: z.string().trim().min(1).max(10000) });
 
-export const SCREENSHOT_MIMES = ["image/jpeg", "image/png"] as const;
 export const ScreenshotUpload = z.object({
   mime: z.enum(SCREENSHOT_MIMES),
   dataBase64: z.base64().max(8 * 1024 * 1024),
