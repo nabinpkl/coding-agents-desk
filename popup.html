@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>
+body { font: 13px/1.4 sans-serif; width: 240px; padding: 12px; }
+button { width: 100%; margin: 4px 0; padding: 8px; }
+p { color: #555; }
+#build { color: #888; font-size: 11px; margin-top: 8px; }
+@media (prefers-color-scheme: dark) { body { background: #1e1e20; color: #f5f5f7; } p { color: #98989f; } }
+</style></head>
+<body>
+<button id="toggle">Toggle annotate (Alt+Shift+A)</button>
+<button id="copy">Copy Markdown brief</button>
+<p>Click a container on the page, write what is wrong, then paste the brief into your agent. No screenshots needed.</p>
+<div id="build"></div>
+<script src="build.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.annotate-export.bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/dev/.local/bin/node</string>
+    <string>/Users/dev/projects/tmp/annotate-export/mcp-server.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ANNOTATE_PORT</key>
+    <string>3847</string>
+    <key>ANNOTATE_DAEMON</key>
+    <string>1</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>/Users/dev/projects/tmp/annotate-export</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/dev/projects/tmp/annotate-export/bridge.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/dev/projects/tmp/annotate-export/bridge.log</string>
+</dict>
+</plist>

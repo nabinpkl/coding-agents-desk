@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentdesk-annotator": {
+      "command": "node",
+      "args": ["/ABS/PATH/annotate-export/mcp-server.js"],
+      "env": {
+        "ANNOTATE_PORT": "3847"
+      }
+    }
+  }
+}

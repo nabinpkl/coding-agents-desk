@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Annotate Export",
+  "version": "0.2.1",
+  "description": "Click a container, comment, export a Markdown brief for an agent.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
+  "action": {
+    "default_title": "Annotate Export",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "toggle-annotate": {
+      "suggested_key": {
+        "default": "Alt+Shift+A",
+        "mac": "Alt+Shift+A"
+      },
+      "description": "Toggle annotate mode"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["build.js", "format.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
