@@ -62,7 +62,7 @@ export class SidecarAgentSessions extends SidecarTerminals {
       await this.transport.request(
         "POST",
         `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/messages`,
-        { body: { text, delivery } },
+        { body: { requestId: crypto.randomUUID(), text, delivery } },
       ),
     );
   }
@@ -72,7 +72,7 @@ export class SidecarAgentSessions extends SidecarTerminals {
       await this.transport.request(
         "POST",
         `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/abort`,
-        { body: {} },
+        { body: { requestId: crypto.randomUUID() } },
       ),
     );
   }

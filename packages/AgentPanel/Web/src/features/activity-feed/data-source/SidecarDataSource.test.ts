@@ -252,7 +252,7 @@ describe("SidecarDataSource", () => {
     expect(transport.requests.at(-1)).toEqual({
       method: "POST",
       path: "/api/agent-sessions/claude/sid-1/messages",
-      body: { text: "stop that", delivery: "steer" },
+      body: { requestId: expect.any(String), text: "stop that", delivery: "steer" },
     });
     expect(receipt.delivery).toBe("steer");
   });
