@@ -12,6 +12,14 @@ export class NotFound extends Error {
   }
 }
 
+/** A request the service refuses on its own rules (as opposed to schema validation at the edge). */
+export class InvalidInput extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidInput";
+  }
+}
+
 export interface ElementsQuery {
   contains?: string;
   tag?: string;
@@ -78,7 +86,7 @@ export function createAnnotationService(store: AnnotationStore, clock: () => str
     },
 
     clearByUrl(url: string): number {
-      if (!url) throw new Error("url required");
+      if (!url) throw new InvalidInput("url required");
       return store.removeByUrl(url);
     },
 
