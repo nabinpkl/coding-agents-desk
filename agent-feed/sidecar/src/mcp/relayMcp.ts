@@ -13,7 +13,7 @@ import {
   submitTmuxComposer,
   syncTmuxComposer,
 } from "@/input/tmuxComposer";
-import { serveRequest } from "@/agents/opencodeClient";
+import { serveGet, serveRequest } from "@/agents/opencodeClient";
 import {
   findSession,
   getSnapshot,
@@ -59,6 +59,23 @@ async function opencodePrompt(sessionId: string, text: string): Promise<SendResu
   return { delivered: true, reason: null };
 }
 
+/** Exact busyness from the serve: only sessions running a turn right now. */
+async function opencodeRunning(sessionId: string): Promise<boolean> {
+  let answered: { status: number; text: string };
+  try {
+    answered = await serveGet("/api/session/active");
+  } catch {
+    return false;
+  }
+  if (answered.status < 200 || answered.status >= 300) return false;
+  try {
+    const data = (JSON.parse(answered.text) as { data?: unknown }).data;
+    return typeof data === "object" && data !== null && sessionId in data;
+  } catch {
+    return false;
+  }
+}
+
 export function liveDependencies(): RelayDependencies {
   return {
     hasClaudeSession: (id) => findSession("claude", id) !== undefined,
@@ -67,6 +84,7 @@ export function liveDependencies(): RelayDependencies {
     claudeNotify,
     opencodePrompt,
     claudeStatus: (id) => cliInputStatus(id),
+    opencodeRunning,
     listSessions: (): ListedSession[] =>
       getSnapshot()
         .filter((s) => s.source === "claude" || s.source === "opencode")

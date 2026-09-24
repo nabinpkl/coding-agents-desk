@@ -18,6 +18,7 @@ function deps(overrides: Partial<RelayDependencies> = {}): RelayDependencies {
     claudeNotify: async () => ({ delivered: true, reason: null }),
     opencodePrompt: async () => ({ delivered: true, reason: null }),
     claudeStatus: async () => ({ available: true, entrypoint: "cli", reason: null, tmuxSession: "t1" }),
+    opencodeRunning: async () => false,
     listSessions: () => [],
     ...overrides,
   };
@@ -85,6 +86,13 @@ describe("relay router", () => {
     const out = await relaySend(d, OPENCODE, "hi");
     expect(out.delivered).toBe(true);
     expect(prompted).toBe("hi");
+  });
+
+  test("opencode status reports running from the fake", async () => {
+    const busy = deps({ opencodeRunning: async () => true });
+    const idle = deps({ opencodeRunning: async () => false });
+    expect(((await relayStatus(busy, OPENCODE)).detail as { running: boolean }).running).toBe(true);
+    expect(((await relayStatus(idle, OPENCODE)).detail as { running: boolean }).running).toBe(false);
   });
 
   test("list passes through the catalog projection", () => {

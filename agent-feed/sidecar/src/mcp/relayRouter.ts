@@ -42,6 +42,8 @@ export interface RelayDependencies {
   claudeNotify(sessionId: string, text: string): Promise<SendResult>;
   opencodePrompt(sessionId: string, text: string): Promise<SendResult>;
   claudeStatus(sessionId: string): Promise<CliInputStatus>;
+  /** True while the serve reports the session running a turn right now. */
+  opencodeRunning(sessionId: string): Promise<boolean>;
   listSessions(): ListedSession[];
 }
 
@@ -87,7 +89,11 @@ export async function relayStatus(
     return { found: true, source: "claude", detail: await deps.claudeStatus(sessionId) };
   }
   if (deps.hasOpencodeSession(sessionId)) {
-    return { found: true, source: "opencode", detail: { reachable: true } };
+    return {
+      found: true,
+      source: "opencode",
+      detail: { reachable: true, running: await deps.opencodeRunning(sessionId) },
+    };
   }
   return { found: false, source: null, detail: { reason: "unknown-session" } };
 }
