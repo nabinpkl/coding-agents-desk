@@ -1,0 +1,29 @@
+{
+  "name": "agentdesk-annotator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server/src/main.ts",
+    "test": "node --test \"server/test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json && tsc -p extension/tsconfig.json",
+    "build:extension": "node extension/build.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "@modelcontextprotocol/server": "2.1.0",
+    "hono": "4.13.9",
+    "jose": "6.2.12",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.1.0",
+    "@types/chrome": "0.3.0",
+    "@types/node": "26.6.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
