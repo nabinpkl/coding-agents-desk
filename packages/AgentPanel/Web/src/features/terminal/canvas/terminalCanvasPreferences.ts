@@ -16,8 +16,8 @@
  * storage disabled both throw -- the house rule from `AGENTS.md`.
  */
 
-import { CANVAS_ROOM_STEPS } from "@/features/bots/botCanvasPreferences";
-import { MIN_CANVAS_ZOOM } from "@/features/bots/useCanvasZoom";
+import { CANVAS_ROOM_STEPS } from "@/features/bots/canvas/botCanvasPreferences";
+import { MIN_CANVAS_ZOOM } from "@/features/bots/canvas/useCanvasZoom";
 import { isTerminalChildKey } from "@/features/terminal/canvas/terminalGroups";
 
 const HIDDEN_PARENTS_KEY = "agent-panel.terminal-canvas.hidden-parents";

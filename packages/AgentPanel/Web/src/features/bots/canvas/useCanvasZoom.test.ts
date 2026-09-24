@@ -21,7 +21,7 @@ import {
   loadCanvasZoomScale,
   storeCanvasZoomMode,
   storeCanvasZoomScale,
-} from "@/features/bots/useCanvasZoom";
+} from "@/features/bots/canvas/useCanvasZoom";
 
 const MODE_KEY = "agent-panel.bot-canvas.zoom-mode";
 const SCALE_KEY = "agent-panel.bot-canvas.zoom-scale";

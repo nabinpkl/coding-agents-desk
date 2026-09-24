@@ -206,7 +206,7 @@ re-resolves them against the inventory, because a stored `SessionSummary` would 
 of truth that nothing refreshes.
 
 **How to write it, today.** Add a field to the nearest existing preferences module for that feature
-(`features/sidebar/sidebarPreferences.ts`, `features/bots/botCanvasPreferences.ts`,
+(`features/sidebar/sidebarPreferences.ts`, `features/bots/canvas/botCanvasPreferences.ts`,
 `features/sidebar/selectionStore.ts`) rather than starting a new one. Validate every field on the
 way in rather than casting -- a stale or hand-edited shape must fall back to the default, not become
 a lookup for something that cannot exist -- and wrap every read and write in `try`/`catch`, because
@@ -300,10 +300,12 @@ Two sentences close it:
 - **Cluster first, then place.** Being at twelve is the signal; the thirteenth file only delivers
   it. The directory owed a split before the newcomer existed, so relieve the DIRECTORY -- promote
   three or more of the files already in it that are about the same thing -- and then put the new
-  file flat, where it belongs, with room to spare. `features/bots/` has six about the canvas itself
+  file flat, where it belongs, with room to spare. `features/bots/` had six about the canvas itself
   (`BotCanvas.tsx`, `BotCanvasStatus.tsx`, `botCanvasPreferences.ts`, `useCanvasZoom.ts`,
-  `useMoveAlongStrip.ts`, `useRememberedCanvasScroll.ts`); moving three of them into `canvas/` puts
-  the directory at nine, and the file that started the question lands flat as the tenth.
+  `useMoveAlongStrip.ts`, `useRememberedCanvasScroll.ts`); all six went into `features/bots/canvas/`
+  on 2026-09-23, which left six flat and room for the roster files that were waiting on it. Done at
+  the moment the split was owed rather than as a refactor of its own, which is the only moment it is
+  nearly free: twenty importers, every one of them a one-line path change a typecheck confirms.
 - **The floor is asked of the cluster you are PROMOTING, never of the newcomer.** "A new
   subdirectory would hold only two files" is not a finding about the new file, it is a sign the
   clustering question got pointed at the wrong end of the directory. A newcomer that genuinely
@@ -319,9 +321,11 @@ behind the proposal above, `8db3d9d5` (2026-09-18, "let Bots wear generated face
 remembered switch"): `features/bots/` stood at twelve, and that arc took both exits at once -- it
 appended to `botSurface.ts` AND created `features/bots/avatar/`, which holds one source file,
 `BotFace.tsx`. A subdirectory holding one file is a worse index than no subdirectory, which is the
-three-file floor read in the other direction, and `features/bots/` is still at twelve today. The fix
-is the one above rather than a different one: cluster the canvas files, and `BotFace.tsx` comes back
-flat beside `SessionAvatar.tsx`, which is where two files about a Bot's face belong.
+three-file floor read in the other direction. Settled on 2026-09-23 by the fix above rather than by
+a different one: the canvas files were clustered, and `avatar/` stopped being a subdirectory for one
+newcomer when `BotAvatar.tsx` moved in beside `BotFace.tsx` -- the same two files about a Bot's face
+that would otherwise both be flat, which is why either answer was defensible and the one-file state
+was not.
 
 If no three of the twelve belong together, that is the finding rather than a licence to cram. Say so
 and stop: a dozen files with nothing in common is a feature boundary that is wrong, which is a

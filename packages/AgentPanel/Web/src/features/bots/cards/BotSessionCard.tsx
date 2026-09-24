@@ -13,7 +13,7 @@ import { SessionMeta } from "@/features/sidebar/SessionMeta";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
-import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
+import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
 

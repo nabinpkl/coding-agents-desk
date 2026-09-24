@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { machineKey, type BotMachine } from "@/features/bots/botMachines";
-import { loadHiddenMachines, storeHiddenMachines } from "@/features/bots/botCanvasPreferences";
+import { loadHiddenMachines, storeHiddenMachines } from "@/features/bots/canvas/botCanvasPreferences";
 import { useBots } from "@/features/bots/useBots";
 import {
   groupTerminalsByDirectory,

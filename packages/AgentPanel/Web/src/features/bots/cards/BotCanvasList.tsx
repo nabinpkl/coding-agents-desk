@@ -6,15 +6,15 @@ import {
   storeSessionCardSizes,
   type BotCardSize,
   type BotCardSizes,
-} from "@/features/bots/botCanvasPreferences";
+} from "@/features/bots/canvas/botCanvasPreferences";
 import { botsOnShownMachines } from "@/features/bots/botMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
 import { CanvasNotices } from "@/features/bots/cards/canvasNotices";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-import { useRememberedCanvasScroll } from "@/features/bots/useRememberedCanvasScroll";
-import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
-import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
+import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedCanvasScroll";
+import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
+import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 
 /**
  * The roster, with as many sessions open in it as the reader has opened.

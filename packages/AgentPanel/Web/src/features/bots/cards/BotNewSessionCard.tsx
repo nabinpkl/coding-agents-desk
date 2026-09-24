@@ -6,7 +6,7 @@ import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
-import type { BotCardSize } from "@/features/bots/botCanvasPreferences";
+import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 
 /** A session this panel started, before the catalog has ever heard of it. */
 export interface NewBotSession {

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
+import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { TerminalCanvas } from "@/features/terminal/canvas/strip/TerminalCanvas";
 import { groupTerminalsByDirectory } from "@/features/terminal/canvas/terminalGroups";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
@@ -44,8 +44,8 @@ vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
 
 // Through to the real hook, recording its calls: the canvas under test passes the mode flag,
 // and what this pins is the value it passes while the strip is and is not in the page.
-vi.mock("@/features/bots/useCanvasZoom", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/bots/useCanvasZoom")>();
+vi.mock("@/features/bots/canvas/useCanvasZoom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/bots/canvas/useCanvasZoom")>();
   return { ...actual, useCanvasZoom: vi.fn(actual.useCanvasZoom) };
 });
 

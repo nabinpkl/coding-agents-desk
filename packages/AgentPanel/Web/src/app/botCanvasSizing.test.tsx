@@ -8,7 +8,7 @@ import {
   DEFAULT_CARD_WIDTH,
   MAX_CARD_HEIGHT,
   MIN_CARD_HEIGHT,
-} from "@/features/bots/botCanvasPreferences";
+} from "@/features/bots/canvas/botCanvasPreferences";
 import {
   BOT_WITH_ONE_SESSION,
   FIXTURE_PROJECT_A,

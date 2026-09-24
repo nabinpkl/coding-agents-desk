@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { BotCanvasStatus } from "@/features/bots/BotCanvasStatus";
+import { BotCanvasStatus } from "@/features/bots/canvas/BotCanvasStatus";
 
 const MACHINES = [
   { key: "dev", label: "dev" },

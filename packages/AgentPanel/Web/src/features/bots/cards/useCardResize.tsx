@@ -7,8 +7,8 @@ import {
   clampCardHeight,
   clampCardWidth,
   type BotCardSize,
-} from "@/features/bots/botCanvasPreferences";
-import { effectiveScale } from "@/features/bots/useCanvasZoom";
+} from "@/features/bots/canvas/botCanvasPreferences";
+import { effectiveScale } from "@/features/bots/canvas/useCanvasZoom";
 
 /** How far one arrow key moves an edge. */
 const KEY_STEP = 24;

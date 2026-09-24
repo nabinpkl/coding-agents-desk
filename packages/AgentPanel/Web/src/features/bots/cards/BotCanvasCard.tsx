@@ -16,10 +16,10 @@ import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
-import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/botCanvasPreferences";
+import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
 import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
-import { useMoveAlongStrip } from "@/features/bots/useMoveAlongStrip";
+import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 
 export function BotCanvasCard({
   bot,

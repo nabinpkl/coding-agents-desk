@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
-import { effectiveScale } from "@/features/bots/useCanvasZoom";
+import { effectiveScale } from "@/features/bots/canvas/useCanvasZoom";
 
 /** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
 const EDGE_SCROLL_MARGIN = 56;

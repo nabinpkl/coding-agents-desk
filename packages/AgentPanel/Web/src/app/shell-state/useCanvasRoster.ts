@@ -24,8 +24,8 @@ import {
   storeDetachedBotIds,
   storeDetachedSessionKeys,
   storeHiddenMachines,
-} from "@/features/bots/botCanvasPreferences";
-import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/useCanvasZoom";
+} from "@/features/bots/canvas/botCanvasPreferences";
+import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/canvas/useCanvasZoom";
 
 export function useCanvasRoster(botsState: {
   bots: BotView[];

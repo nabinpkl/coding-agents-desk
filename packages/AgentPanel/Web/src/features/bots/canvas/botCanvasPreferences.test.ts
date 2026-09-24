@@ -27,7 +27,7 @@ import {
   storeDetachedSessionKeys,
   storeHiddenMachines,
   storeSessionCardSizes,
-} from "@/features/bots/botCanvasPreferences";
+} from "@/features/bots/canvas/botCanvasPreferences";
 
 const STORAGE_KEY = "agent-panel.bot-canvas.session-sizes";
 const OPEN_SESSIONS_STORAGE_KEY = "agent-panel.bot-canvas.open-session";

@@ -6,7 +6,7 @@
 // the strip rather than on the strip, because a strip of cards as tall as their own rosters has
 // no row to spare for chrome.
 import { Move, Scan } from "lucide-react";
-import { CANVAS_ROOM_STEPS } from "@/features/bots/botCanvasPreferences";
+import { CANVAS_ROOM_STEPS } from "@/features/bots/canvas/botCanvasPreferences";
 
 export function TerminalCanvasStatus({
   total,

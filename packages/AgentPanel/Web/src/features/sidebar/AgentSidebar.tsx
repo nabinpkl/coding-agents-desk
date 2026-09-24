@@ -15,7 +15,7 @@ import {
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "@/features/profile/ProfileRow";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
-import { BotCanvasStatus } from "@/features/bots/BotCanvasStatus";
+import { BotCanvasStatus } from "@/features/bots/canvas/BotCanvasStatus";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { UsageHandle } from "@/features/usage/useUsage";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";

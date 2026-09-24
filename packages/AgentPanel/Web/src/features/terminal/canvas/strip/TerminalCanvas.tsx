@@ -11,7 +11,7 @@
 import { LoaderCircle, SquareTerminal } from "lucide-react";
 import { useRef } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { useCanvasZoom } from "@/features/bots/useCanvasZoom";
+import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { TerminalParentCard } from "@/features/terminal/canvas/strip/TerminalParentCard";
 import {
   parseTerminalChildKey,

@@ -34,7 +34,7 @@ import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
 import { sidebarProps } from "@/app/shell-state/sidebarProps";
 import { storeSelection } from "@/features/sidebar/selectionStore";
-import { BotCanvas, type BotCommandError } from "@/features/bots/BotCanvas";
+import { BotCanvas, type BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { useBotMachines } from "@/app/shell-state/useBotMachines";

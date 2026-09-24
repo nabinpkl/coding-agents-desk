@@ -6,7 +6,7 @@
 // See `botCanvasPreferences.ts` for where the offset is actually stored.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { loadCanvasScroll, storeCanvasScroll, type CanvasScroll } from "@/features/bots/botCanvasPreferences";
+import { loadCanvasScroll, storeCanvasScroll, type CanvasScroll } from "@/features/bots/canvas/botCanvasPreferences";
 
 /**
  * The most often the canvas offset is written, and how long after the last scroll it is written

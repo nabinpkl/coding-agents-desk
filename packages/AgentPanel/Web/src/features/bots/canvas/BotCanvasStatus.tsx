@@ -1,5 +1,5 @@
 import { Monitor, Move, Scan } from "lucide-react";
-import { CANVAS_ROOM_STEPS } from "@/features/bots/botCanvasPreferences";
+import { CANVAS_ROOM_STEPS } from "@/features/bots/canvas/botCanvasPreferences";
 
 /**
  * What the canvas is holding, above the roster that decides it.

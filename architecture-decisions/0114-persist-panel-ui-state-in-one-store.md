@@ -13,7 +13,7 @@ discarded comes back the same way. Three different mechanisms now do that rememb
 kind of state — the address bar — was added on 2026-09-07 for the sidebar's view.
 
 - Hand-rolled `load*` / `store*` module pairs: `features/sidebar/selectionStore.ts`,
-  `features/sidebar/sidebarPreferences.ts`, `features/bots/botCanvasPreferences.ts`, and the
+  `features/sidebar/sidebarPreferences.ts`, `features/bots/canvas/botCanvasPreferences.ts`, and the
   session memory inside `app/BrowserSurfaces.tsx`. Each one re-implements the same four things — a
   storage key, a `try`/`catch`, per-field validation of a possibly stale shape, and a default.
 - `useSyncExternalStore` singletons: `features/terminal/terminalComposerPreference.ts`,
