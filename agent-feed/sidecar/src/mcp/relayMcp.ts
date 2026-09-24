@@ -104,7 +104,7 @@ function resultText(result: unknown): string {
 }
 
 export function createRelayMcpServer(deps: RelayDependencies = liveDependencies()): McpServer {
-  const server = new McpServer({ name: "agent-relay", version: "0.1.0" });
+  const server = new McpServer({ name: "agentdesk-relay", version: "0.1.0" });
 
   server.registerTool(
     "send",

@@ -10,6 +10,7 @@ import {
 import { createAgentRoutes } from "@/http/agentRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
 import { createCliInputRoutes } from "@/http/session-routes/cliInputRoutes";
+import { createRelayMcpHttpRoutes } from "@/mcp/relayHttpRoutes";
 import {
   createTmuxComposerRoutes,
   liveTmuxComposerDependencies,
@@ -208,6 +209,9 @@ const routes: RouteHandler[] = [
   createWorkspaceHistoryRoutes(workspaceService),
   createWorkspaceRoutes(workspaceService),
   createSessionRoutes(describeAgentSession),
+  // The relay as a URL instead of a file path: Streamable HTTP MCP on /mcp.
+  // Top level path, so position is readability only.
+  createRelayMcpHttpRoutes(),
 ];
 const SHUTDOWN_GRACE_MS = 500;
 
