@@ -5,7 +5,7 @@
 // before the first answer -- rather than drawn as a zero. A zero says "clean", and a Bot pointed at
 // a plain folder is not clean, it has nothing to be clean about.
 
-import { GitCompareArrows, TriangleAlert } from "lucide-react";
+import { GitBranch, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -51,7 +51,7 @@ export function BotGitButton({ bot, feed }: { bot: BotView; feed: SidecarDataSou
         className={`flex h-9 min-w-9 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-lg px-1.5 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70
           ${error ? "text-destructive" : "text-muted-foreground"}`}
       >
-        <GitCompareArrows className="size-4" aria-hidden />
+        <GitBranch className="size-4" aria-hidden />
         {count > 0 ? (
           <span aria-hidden className="text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium tabular-nums">
             {count}
