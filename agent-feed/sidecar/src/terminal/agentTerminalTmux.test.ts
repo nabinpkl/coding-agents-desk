@@ -11,6 +11,7 @@ import {
   liveTmuxSession,
   type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
+import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import {
@@ -300,4 +301,24 @@ test("a tmux-new open vouches for its name and its directory", async () => {
   }
   expect(fakes.created).toEqual([]);
   expect(attached).toEqual([]);
+});
+
+test("a machine shell on a machine with no PTY manager is a tmux session in the home", async () => {
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [], settled: [] };
+  const { service, home } = await sessionTmuxFixture(fakes, attached);
+
+  const descriptor = await service.open({ kind: "machine", via: "tmux" }, { columns: 100, rows: 30 });
+
+  // Started the first time, as a login shell in the home the workspace kinds refuse, and under
+  // the one name the panel ends it by.
+  expect(fakes.created).toEqual([{
+    session: MACHINE_SHELL_SESSION,
+    cwd: await realpath(home),
+    command: [],
+    columns: 100,
+    rows: 30,
+  }]);
+  expect(attached).toEqual([{ session: MACHINE_SHELL_SESSION, columns: 100, rows: 30 }]);
+  expect(descriptor.ptySessionName).toBe(`agent-tmux-${MACHINE_SHELL_SESSION}`);
 });

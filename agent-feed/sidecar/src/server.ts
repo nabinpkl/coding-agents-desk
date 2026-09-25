@@ -1,4 +1,5 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
+import { existsSync } from "node:fs";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
@@ -251,6 +252,10 @@ const server = Bun.serve<undefined>({
         // requests per surface, and an extra availability call fired on mount
         // loses that race and reads as "this machine cannot do it".
         parkAvailable: config.yabaiPath !== null,
+        // Whether a machine terminal can be a PTY session here, read per request like
+        // `usageVendors`: the socket is there while the host runs the PTY manager, and a peer runs
+        // the sidecar without that host, so its answer is tmux.
+        machineShell: existsSync(config.ptyManagerSocketPath) ? "pty" : "tmux",
         // Read per request, from the file this machine's supervisor heartbeats. It belongs on this
         // answer because the panel's dev server already asks every sidecar it knows for
         // `/api/config` on a timer to see whether it is alive, so a peer's held state crosses the

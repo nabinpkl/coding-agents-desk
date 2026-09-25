@@ -1,24 +1,24 @@
 // A login shell of the panel's own, drawn flush to whatever box it is given.
 //
 // Two places open one: the IDE's lower pane, in the workspace being browsed, and the tab bar's
-// machine terminal, in a machine's home. Both are PTY sessions nobody else is watching rather than
-// a tmux pane somebody started, so the grid follows the box and a keyboard with no Ctrl, Esc or
-// arrows gets the key rail. What differs is only what the shell is pointed at and where it says it
-// is, which is what the props carry.
+// machine terminal, in a machine's home. Both are shells nobody else is watching rather than a pane
+// somebody started, so the grid follows the box and a keyboard with no Ctrl, Esc or arrows gets the
+// key rail. What differs is what the shell is pointed at -- including, for a machine with no PTY
+// manager, a tmux session the context names -- and where it says it is, which the props carry.
 //
 // It holds no size of its own. Each caller already decides how big the box is -- the IDE with its
 // divider, the dialog with its frame -- and a second handle on the terminal inside it would be two
 // controls for one height, which is why `AgentTerminalPane` is not reused here despite rendering
 // the same hook.
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
-export function ShellTerminal({ feed, context, label, where }: {
+export function ShellTerminal({ feed, context, label, where, onState: reportState }: {
   feed: SidecarDataSource;
   /**
    * What the shell is pointed at. Must be stable by identity: the hook tears the terminal down and
@@ -29,14 +29,21 @@ export function ShellTerminal({ feed, context, label, where }: {
   label: string;
   /** Where the shell is, shown in the footer, because a shell's whole identity is where it is. */
   where: string;
+  /** What the hook reports, for a caller that acts on the shell rather than only showing it. */
+  onState?: (state: AgentTerminalState) => void;
 }) {
   // Kept here because the hook only REPORTS a failed open or an ended shell; its own status label
   // stays on "Opening terminal" forever, which is a sidecar with no PTY manager reading as a slow one.
   const [problem, setProblem] = useState<string | null>(null);
+  // Read through a ref so a caller's inline callback does not re-attach the terminal every render:
+  // the hook tears down and reopens whenever `onState` changes by identity.
+  const report = useRef(reportState);
+  report.current = reportState;
   const onState = useCallback((_context: AgentTerminalContext, state: AgentTerminalState) => {
     if (state.kind === "error") setProblem(state.message);
     else if (state.kind === "ended") setProblem("The shell exited");
     else setProblem(null);
+    report.current?.(state);
   }, []);
   const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
     feed,

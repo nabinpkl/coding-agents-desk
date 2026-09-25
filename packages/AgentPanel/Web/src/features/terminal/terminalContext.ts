@@ -13,7 +13,7 @@ export function terminalContextKey(context: AgentTerminalContext): string {
   if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
   if (context.kind === "workspace") return `workspace:${context.workspacePath}`;
   // One shell per machine, and the feed a terminal is opened through is what names the machine.
-  if (context.kind === "machine") return "machine";
+  if (context.kind === "machine") return `machine:${context.via}`;
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
@@ -50,5 +50,7 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
  * has a pane name the pane already exists.
  */
 export function isTmuxAttach(context: AgentTerminalContext): boolean {
-  return context.kind === "tmux" || context.kind === "session-tmux" || context.kind === "tmux-new";
+  return context.kind === "tmux" || context.kind === "session-tmux" || context.kind === "tmux-new"
+    // A machine with no PTY manager carries its shell in tmux, and says so on the context.
+    || (context.kind === "machine" && context.via === "tmux");
 }

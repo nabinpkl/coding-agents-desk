@@ -275,8 +275,8 @@ test("opens a machine shell in the home, under one name for the machine", async 
   };
   const service = new AgentTerminalService("/unused/pty.sock", () => undefined, home, pty);
 
-  const first = await service.open({ kind: "machine" }, { columns: 100, rows: 30 });
-  const second = await service.open({ kind: "machine" }, { columns: 100, rows: 30 });
+  const first = await service.open({ kind: "machine", via: "pty" }, { columns: 100, rows: 30 });
+  const second = await service.open({ kind: "machine", via: "pty" }, { columns: 100, rows: 30 });
 
   // The home itself, which the workspace kind refuses: the panel sent no path, so there is
   // nothing to vouch for, and the sidecar's own home is what "this machine" means.

@@ -111,7 +111,11 @@ function terminalContext(context: Record<string, unknown>): AgentTerminalContext
   }
   // A shell in this machine's home. Nothing to read: which home is the sidecar's to say, since it
   // is the machine the request reached.
-  if (kind === "machine") return { kind };
+  if (kind === "machine") {
+    const via = stringValue(context.via, "context.via");
+    if (via !== "pty" && via !== "tmux") throw new AgentTerminalInvalidError("context.via must be pty or tmux");
+    return { kind, via };
+  }
   // Nothing below creates anything. The two contexts that did -- a fork and a fresh session --
   // moved to the Bot that owns the directory they run in, so this resource is an attachment
   // capability again and asking for one twice is the same as asking once.

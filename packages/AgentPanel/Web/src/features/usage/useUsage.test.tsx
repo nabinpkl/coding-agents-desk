@@ -13,6 +13,7 @@ const config: SidecarConfig = {
   summaryModel: null,
   usageVendors: ["codex"],
   parkAvailable: false,
+  machineShell: "pty",
   supervisor: null,
 };
 

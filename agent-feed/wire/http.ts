@@ -12,6 +12,7 @@ import type {
   ProjectSummary,
   SessionSummary,
 } from "./session.ts";
+import type { MachineShellBackend } from "./terminal.ts";
 import type { UsageVendorId } from "./usage.ts";
 
 /**
@@ -236,6 +237,11 @@ export interface SidecarConfig {
   usageVendors: UsageVendorId[];
   /** Whether the Desktop park surface has a window manager to drive. */
   parkAvailable: boolean;
+  /**
+   * What a machine terminal opens on here: the PTY manager when this machine runs one, tmux when
+   * it does not. A peer runs the sidecar without the host that supervises the PTY manager.
+   */
+  machineShell: MachineShellBackend;
   /**
    * What this machine's sidecar supervisor is holding back, or null when nothing supervises it.
    *

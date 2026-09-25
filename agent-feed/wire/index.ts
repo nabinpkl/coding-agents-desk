@@ -188,6 +188,7 @@ export type {
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
   CloseAgentTerminalRequest,
+  MachineShellBackend,
   MachineTerminalContext,
   OpenAgentTerminalRequest,
   TmuxPaneSummary,
@@ -217,6 +218,7 @@ export type {
   WireStreamError,
 } from "./http.ts";
 export { TIMELINE_HEARTBEAT_MS } from "./http.ts";
+export { MACHINE_SHELL_SESSION } from "./terminal.ts";
 export * from "./desktopNavigation.ts";
 
 export type { RailKey, RailModifier, RailModifiers } from "./railKeys.ts";

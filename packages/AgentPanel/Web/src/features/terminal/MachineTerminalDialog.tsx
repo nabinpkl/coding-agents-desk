@@ -1,21 +1,28 @@
 // A shell on one machine, over whatever surface the reader is on.
 //
 // Opened from the terminal button beside each machine in the tab bar. It is the machine's own
-// login shell in its home directory -- a PTY session of the panel's, not a tmux pane -- so it is a
-// place to run a command on that machine without first finding a workspace or a session there.
+// login shell in its home directory, so it is a place to run a command on that machine without
+// first finding a workspace or a session there. What carries it is the machine's answer, not the
+// panel's guess: a PTY session where the machine runs the PTY manager, tmux where it does not
+// (`SidecarConfig.machineShell`), asked before the shell mounts because a tmux pane is viewed
+// differently from the first byte.
 //
-// Closing it detaches rather than ends: the PTY session outlives its viewer, so reopening the same
-// machine lands back in the shell that was left, with its history and its working directory.
+// Closing ENDS the shell, after asking. There is no hide: a shell left running behind a closed
+// dialog is one nobody can see and everybody pays for, so leaving means the work in it stops, and
+// the confirmation is where the reader decides that.
 
-import { X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { LoaderCircle, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
+import {
+  MACHINE_SHELL_SESSION,
+  type AgentTerminalDescriptor,
+  type AgentTerminalContext,
+  type MachineShellBackend,
+} from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { ShellTerminal } from "@/features/terminal/ShellTerminal";
-
-/** The one context this dialog opens, shared so the terminal never re-attaches on a render. */
-const MACHINE_SHELL: AgentTerminalContext = { kind: "machine" };
+import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 export interface MachineTerminalTarget {
   /** What the tab bar calls the machine. */
@@ -24,6 +31,8 @@ export interface MachineTerminalTarget {
   feed: SidecarDataSource;
 }
 
+type Phase = "open" | "confirming" | "ending";
+
 export function MachineTerminalDialog({ machine, onClose }: {
   machine: MachineTerminalTarget;
   onClose: () => void;
@@ -31,6 +40,12 @@ export function MachineTerminalDialog({ machine, onClose }: {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const opener = useRef<Element | null>(null);
+  const [via, setVia] = useState<MachineShellBackend | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>("open");
+  const descriptor = useRef<AgentTerminalDescriptor | null>(null);
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
 
   // Back to the button that opened it, so a keyboard reader is not dropped at the top of the page.
   useEffect(() => {
@@ -40,16 +55,71 @@ export function MachineTerminalDialog({ machine, onClose }: {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    machine.feed.fetchConfig()
+      .then((config) => {
+        if (!cancelled) setVia(config.machineShell);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setProblem(`Could not ask ${machine.label} how to open a shell: ${String((error as Error).message ?? error)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [machine]);
+
+  const context = useMemo<AgentTerminalContext | null>(
+    () => (via ? { kind: "machine", via } : null),
+    [via],
+  );
+
+  const onState = (state: AgentTerminalState): void => {
+    if (state.kind === "ready") descriptor.current = state.descriptor;
+    // The shell is gone, whether this dialog ended it or it exited on its own: nothing is left to
+    // show. While ending, this is the confirmation that it worked.
+    if (state.kind === "ended" && phaseRef.current === "ending") closeRef.current();
+    if (state.kind === "error" && phaseRef.current === "ending") closeRef.current();
+  };
+
+  const end = async (): Promise<void> => {
+    setPhase("ending");
+    setProblem(null);
+    try {
+      if (via === "tmux") {
+        // The owner's own verb for ending a tmux session. The viewer's goodbye never ends one.
+        // Closed on its answer rather than on the stream, because a tmux viewer is a pipe on the
+        // pane and hears nothing when the pane goes: measured on a peer, the session was gone and
+        // the dialog sat on "Ending" with no ended state ever arriving.
+        await machine.feed.killTmuxSession(MACHINE_SHELL_SESSION);
+        closeRef.current();
+      } else if (descriptor.current) {
+        await machine.feed.closeTerminal(descriptor.current.terminalId, "kill");
+      } else {
+        // Nothing opened, so nothing is running to end.
+        closeRef.current();
+      }
+    } catch (error) {
+      setProblem(`The shell did not end: ${String((error as Error).message ?? error)}`);
+      setPhase("open");
+    }
+  };
+
+  const askToEnd = (): void => {
+    if (phaseRef.current === "open") setPhase("confirming");
+  };
+
   // A portal and a plain overlay rather than `<dialog>` with `showModal`, and the reason is Escape.
   // A shell needs it -- vim, a pager, a readline edit -- and a modal dialog treats it as "close".
   // Cancelling that works once: Chrome's close watcher lets a page refuse the second Escape only
   // after a fresh user activation, so a reader pressing Escape twice in vim would lose the shell.
-  // Nothing here listens for Escape at all; the close button and the backdrop are the ways out.
+  // Nothing here listens for Escape at all; the end button and the backdrop are the ways out, and
+  // both ask first.
   return createPortal(
     <div
       className="fixed inset-0 z-60 flex items-stretch justify-center bg-black/45 sm:items-center sm:p-6"
       onClick={(event) => {
-        if (event.target === event.currentTarget) closeRef.current();
+        if (event.target === event.currentTarget) askToEnd();
       }}
     >
       <div
@@ -66,22 +136,57 @@ export function MachineTerminalDialog({ machine, onClose }: {
           >
             Terminal on {machine.label}
           </h2>
-          <button
-            type="button"
-            onClick={() => closeRef.current()}
-            aria-label={`Close the terminal on ${machine.label}`}
-            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
+          {phase === "open" ? (
+            <button
+              type="button"
+              onClick={askToEnd}
+              aria-label={`End the terminal on ${machine.label}`}
+              title="End this shell"
+              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          ) : (
+            <div role="group" aria-label="End this shell?" className="flex shrink-0 items-center gap-2">
+              <span className="text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                End the shell? Anything running in it stops.
+              </span>
+              <button
+                type="button"
+                onClick={() => setPhase("open")}
+                disabled={phase === "ending"}
+                className="min-h-8 cursor-pointer rounded-md px-3 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => void end()}
+                disabled={phase === "ending"}
+                className="flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md bg-destructive px-3 text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold text-white outline-none transition-colors hover:bg-destructive/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-destructive/80 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {phase === "ending" ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden /> : null}
+                {phase === "ending" ? "Ending…" : "End shell"}
+              </button>
+            </div>
+          )}
         </header>
+        {problem ? (
+          <p role="alert" className="shrink-0 border-b border-border px-3 py-1.5 text-xs text-destructive">
+            {problem}
+          </p>
+        ) : null}
         <div className="min-h-0 flex-1">
-          <ShellTerminal
-            feed={machine.feed}
-            context={MACHINE_SHELL}
-            label={`${machine.label} terminal`}
-            where={`~ on ${machine.label}`}
-          />
+          {context ? (
+            <ShellTerminal
+              feed={machine.feed}
+              context={context}
+              label={`${machine.label} terminal`}
+              where={`~ on ${machine.label}${via === "tmux" ? " (tmux)" : ""}`}
+              onState={onState}
+            />
+          ) : null}
         </div>
       </div>
     </div>,

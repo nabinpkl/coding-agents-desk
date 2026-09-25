@@ -10,6 +10,7 @@ const enabled: SidecarConfig = {
   summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
   usageVendors: ["codex"],
   parkAvailable: false,
+  machineShell: "pty",
   supervisor: null,
 };
 

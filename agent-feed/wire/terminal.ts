@@ -131,15 +131,30 @@ export interface WorkspaceTerminalContext {
  * button opens this on the machine beside it, which may be a peer the reader has never registered
  * a workspace on. It carries no path, because the panel does not know a peer's home and has no
  * business choosing one -- the sidecar answering the request is the machine, and its own home is
- * the answer.
+ * the answer. One shell per machine either way, so a second tab joins the first one's.
  *
- * A PTY session rather than tmux, for the reason the workspace kind is: nobody else is watching
- * this shell, so there is no pane to share and nothing to keep alive in a terminal app. It is still
- * one shell per machine, so a second tab joins the first one's rather than starting another.
+ * `via` is the machine's own answer, `SidecarConfig.machineShell`, carried back rather than decided
+ * here. A PTY session where the machine runs the PTY manager, for the reason the workspace kind is
+ * one: nobody else is watching this shell. A tmux session where it does not -- a peer runs the
+ * sidecar alone, and tmux is already there -- which is also why it is on the context rather than
+ * hidden behind it: a viewer of a tmux pane imports its history and leaves it differently, and
+ * decides both before the open answers (`isTmuxAttach`).
  */
 export interface MachineTerminalContext {
   kind: "machine";
+  via: MachineShellBackend;
 }
+
+/** What carries a machine's own shell: the PTY manager, or tmux where there is none. */
+export type MachineShellBackend = "pty" | "tmux";
+
+/**
+ * The one name a machine's shell goes by, as a PTY session or as a tmux session.
+ *
+ * Shared because both ends need it: the sidecar starts and joins the shell under it, and the panel
+ * ends a tmux-backed one by it through `DELETE /api/tmux/sessions/:name`.
+ */
+export const MACHINE_SHELL_SESSION = "agent-machine-shell";
 
 /** What a terminal is pointed at. */
 export type AgentTerminalContext =

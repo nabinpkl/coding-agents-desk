@@ -99,7 +99,7 @@ export function agentTerminalHarness() {
   async function sessionTmuxFixture(
     fakes: SessionTmuxFakes,
     attached: { session: string; columns: number; rows: number }[],
-  ): Promise<{ service: AgentTerminalService; project: string }> {
+  ): Promise<{ service: AgentTerminalService; home: string; project: string }> {
     const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
     roots.push(home);
     const project = join(home, "projects", "agent-desk");
@@ -114,6 +114,7 @@ export function agentTerminalHarness() {
     );
     return {
       service: serviceWithSessionTmux(serviceWithTmux(service, attached), fakes),
+      home,
       project,
     };
   }

@@ -239,9 +239,8 @@ export function BrowserSurfaces({
     }
   }, [desktopAvailable, surface]);
 
-  // Which machine's shell is open over the surface, if any. React state rather than stored: a
-  // reload closes it, and reopening lands back in the same shell because the PTY session outlives
-  // the viewer, so there is nothing a reader would have to re-establish.
+  // Which machine's shell is open over the surface, if any. React state rather than stored: the
+  // dialog ends its shell when it is closed, so a reload that forgets it forgets nothing running.
   const [terminalMachine, setTerminalMachine] = useState<MachineTerminalTarget | null>(null);
   const selectedLabel = sessions.find((session) => session.id === sessionId)?.label ?? "this machine";
 

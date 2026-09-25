@@ -15,11 +15,13 @@ import { relative, resolve } from "node:path";
 import type {
   AgentSessionTerminalContext,
   AgentTerminalContext,
+  MachineTerminalContext,
   NewTmuxTerminalContext,
   SessionTmuxTerminalContext,
   TmuxTerminalContext,
   WorkspaceTerminalContext,
 } from "@agentdesk/agent-feed-wire";
+import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
 import { findTmuxSessionByIdentity } from "@/terminal/tmux/tmuxSessions";
 import { currentProcessTable } from "@/tasks/processProbe";
@@ -112,7 +114,7 @@ export async function identifyTerminal(
   if (context.kind === "tmux-new") return identifyNewTmux(deps, context);
   if (context.kind === "session-tmux") return identifySessionTmux(deps, context);
   if (context.kind === "workspace") return identifyWorkspace(deps, context);
-  if (context.kind === "machine") return identifyMachine(deps);
+  if (context.kind === "machine") return identifyMachine(deps, context);
   return identifyAgentSession(deps, context);
 }
 
@@ -237,24 +239,31 @@ async function identifyWorkspace(
  *
  * The home is resolved rather than taken as given, so a symlinked home still lands the shell where
  * `cd ~` would. It does not go through `projectDirectory`, which refuses the home itself on purpose:
- * that check is about a path the panel SENT, and this kind sends none. One fixed PTY session name,
- * because there is one home per sidecar, so a second tab joins the shell the first one started.
+ * that check is about a path the panel SENT, and this kind sends none. One fixed name, because
+ * there is one home per sidecar, so a second tab joins the shell the first one started.
+ *
+ * `via` picks the backend the machine said it has (`SidecarConfig.machineShell`): a PTY session of
+ * our own, or a tmux session started here the first time and joined after that, the way a
+ * `tmux-new` target is. An empty command is the login shell on either.
  */
-async function identifyMachine(deps: TerminalIdentityDeps): Promise<TerminalIdentity> {
+async function identifyMachine(
+  deps: TerminalIdentityDeps,
+  context: MachineTerminalContext,
+): Promise<TerminalIdentity> {
   let home: string;
   try {
     home = await realpath(resolve(deps.userHomeDirectory));
   } catch {
     throw new AgentTerminalInvalidError("this machine's home directory does not exist");
   }
+  const tmux = context.via === "tmux";
   return {
-    ptySessionName: "agent-machine-shell",
-    tmuxSession: null,
+    ptySessionName: tmux ? `agent-tmux-${MACHINE_SHELL_SESSION}` : MACHINE_SHELL_SESSION,
+    tmuxSession: tmux ? MACHINE_SHELL_SESSION : null,
     cwd: home,
-    // Empty is the login shell itself, as it is for a workspace.
     command: [],
     refuseNew: null,
-    createTmux: null,
+    createTmux: tmux ? { cwd: home, command: [] } : null,
     stampSession: null,
   };
 }
