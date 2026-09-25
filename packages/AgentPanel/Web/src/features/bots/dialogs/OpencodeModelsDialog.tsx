@@ -7,8 +7,9 @@ import type { OpencodeModel } from "@/features/activity-feed/data-source/Sidecar
 /**
  * Picking an opencode session's model, with its context window and price beside each entry.
  *
- * An anchored menu inside the composer band, not a modal: it opens above the field at the
- * composer's own width, over the transcript, and closes on choose, Escape, or a click outside.
+ * An anchored menu inside the composer band, not a modal: it rises from the footer cluster
+ * that holds its switcher -- a narrow drop-up over the field and transcript -- and closes on
+ * choose, Escape, or a click outside.
  * The slash args arrive as the initial filter, so `/models spark` opens already narrowed.
  * Choosing switches through the sidecar; the new model lands on the session event like a
  * rename, which is what moves the meter without a second read.
@@ -80,7 +81,7 @@ export function OpencodeModelsDialog({
         onKeyDown={(event) => {
           if (event.key === "Escape" && !pendingName) onClose();
         }}
-        className="absolute inset-x-0 bottom-full z-50 mb-2 flex max-h-80 flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-3 text-foreground shadow-2xl"
+        className="absolute bottom-full left-0 z-50 mb-2 flex max-h-80 w-80 max-w-full flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-3 text-foreground shadow-2xl"
       >
         <input
           autoFocus

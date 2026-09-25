@@ -166,18 +166,7 @@ export function SessionComposerBand({
           onChoose={editor.commands.onChoose}
         />
       ) : null}
-      <div className="relative flex items-end gap-1.5">
-        {/* The models menu, anchored to the field it opens from: above it at the composer's own
-            width, over the transcript, rather than a modal in the middle of the card. */}
-        {modelsMenu ? (
-          <OpencodeModelsHost
-            feed={feed}
-            usage={usage}
-            initialFilter={modelsMenu.filter}
-            onClose={modelsMenu.onClose}
-            onSwitch={modelsMenu.onSwitch}
-          />
-        ) : null}
+      <div className="flex items-end gap-1.5">
         <div
           // The box is this wrapper rather than the field, so the images sit INSIDE it, above the
           // text, the way the composer they are mirroring holds them. The field keeps its own
@@ -286,7 +275,19 @@ export function SessionComposerBand({
           the left, the context meter on the right. They were a row of full-size buttons beside the
           field, which on a narrow card spent a third of the width the draft needed. */}
       {footerActions.length > 0 || terminalComposer || usage ? (
-        <div className="mt-1 flex items-center gap-0.5 px-1">
+        <div className="relative mt-1 flex items-center gap-0.5 px-1">
+          {/* The models menu, rising from the footer cluster that holds its switcher -- a narrow
+              drop-up at the footer's own left, over the field and transcript, rather than a modal
+              in the middle of the card or a full-width sheet above the field. */}
+          {modelsMenu ? (
+            <OpencodeModelsHost
+              feed={feed}
+              usage={usage}
+              initialFilter={modelsMenu.filter}
+              onClose={modelsMenu.onClose}
+              onSwitch={modelsMenu.onSwitch}
+            />
+          ) : null}
           {footerActions.filter((action) => action.key !== "switch-model").map(actionButton)}
           {/* Before the model switcher, not after it: the icon and the chooser read as one
               control, icon first. Splitting on the switch-model key leaves every band without
