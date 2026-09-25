@@ -5,11 +5,4 @@ data/
 .env
 deploy/.env
 extension/dist/
-dist/
-screenshots/
-annotations.json
-annotations.json.lock
-bridge.log
-mcp-server.pid
-__pycache__/
 .DS_Store
