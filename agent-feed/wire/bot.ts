@@ -47,6 +47,13 @@ export interface BotRecord {
   offCanvas?: boolean;
   /** This Bot's sessions taken off the canvas. Always a subset of `sessionRefs`; absent means none. */
   offCanvasSessionRefs?: BotSessionRef[];
+  /**
+   * Where this Bot stands on the canvas strip, left to right. A sort key rather than an index into
+   * one list, because the strip spans machines and each `bots.json` holds only its own Bots: the
+   * panel sorts every machine's Bots by it together. Absent until the reader first arranges the
+   * strip, and a Bot without one stands after every Bot with one.
+   */
+  canvasPosition?: number;
 }
 
 export interface BotView extends BotRecord {
@@ -198,7 +205,7 @@ export interface ReorderBotSessionsCommand {
 }
 
 /**
- * Puts a Bot, or some of its sessions, on or off the canvas.
+ * Puts a Bot, or some of its sessions, on or off the canvas, or stands it somewhere on the strip.
  *
  * A setting rather than an act, so no `requestId`: sending it twice lands the same state, and an
  * idempotency record per toggle would grow `bots.json` by one entry every click. Each field left
@@ -207,6 +214,8 @@ export interface ReorderBotSessionsCommand {
 export interface SetBotCanvasCommand {
   onCanvas?: boolean;
   sessions?: BotCanvasSessionChange[];
+  /** The Bot's new `canvasPosition`. A nonnegative integer. */
+  position?: number;
 }
 
 export interface BotCanvasSessionChange extends BotSessionRef {

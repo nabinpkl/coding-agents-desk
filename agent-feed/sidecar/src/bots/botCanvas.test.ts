@@ -85,3 +85,14 @@ test("is the authenticated user's alone", async () => {
     registry.setCanvas(botId, { onCanvas: false }, { kind: "agent", session: { source: "claude", sessionId: "x" } }),
   ).rejects.toBeInstanceOf(BotForbiddenError);
 });
+
+test("stands a Bot at a position on the strip, and refuses one that is not a place", async () => {
+  const { registry, botId } = await botWithTwo();
+  const placed = await registry.setCanvas(botId, { position: 3 }, { kind: "user" });
+  expect(placed.canvasPosition).toBe(3);
+  expect((await registry.snapshot()).bots[0]!.canvasPosition).toBe(3);
+  for (const position of [-1, 1.5, "2" as unknown as number]) {
+    await expect(registry.setCanvas(botId, { position }, { kind: "user" }))
+      .rejects.toBeInstanceOf(BotInvalidError);
+  }
+});

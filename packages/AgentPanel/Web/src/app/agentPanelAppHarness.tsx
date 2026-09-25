@@ -205,6 +205,7 @@ function applyCanvas(bot: BotView, command: SetBotCanvasCommand): BotView {
     ...rest,
     ...(stillOff ? { offCanvas: true } : {}),
     ...(refs.length > 0 ? { offCanvasSessionRefs: refs } : {}),
+    ...(command.position === undefined ? {} : { canvasPosition: command.position }),
   };
 }
 

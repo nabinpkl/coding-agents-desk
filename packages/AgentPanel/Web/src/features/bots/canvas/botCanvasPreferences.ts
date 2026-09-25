@@ -322,37 +322,20 @@ export function storeCanvasScroll(scroll: CanvasScroll): void {
 }
 
 /**
- * The order the Bots stand in on the canvas, left to right, as a list of their ids.
+ * The order the Bots stand in on the canvas, left to right, as a list of their ids, read off the
+ * records' `canvasPosition`.
  *
- * Remembered because it is arranged rather than derived: the roster arrives in whatever order the
- * sidecar resolved it, which is no order at all from the reader's side, and a strip you can put in
- * an order that forgets it the moment you reload is not an arrangement.
- *
- * Held as ids rather than as positions, because position is a consequence of order and the widths
- * beside it. Ids the canvas no longer knows are ignored on read rather than pruned on write, so a
- * Bot taken off the canvas and put back keeps the place it had.
+ * Not stored here: the position is on each Bot's record in its machine's `bots.json`, so every
+ * browser draws one strip. A sort key per Bot rather than one list, because the strip spans
+ * machines and no one `bots.json` holds them all. Stable, so Bots that share a position -- or have
+ * none, and stand after every Bot that does -- keep the order the roster arrived in.
  */
-const ORDER_STORAGE_KEY = "agent-panel.bot-canvas.order";
-
-export function loadBotCanvasOrder(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(ORDER_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is string => typeof id === "string");
-  } catch {
-    return [];
-  }
-}
-
-export function storeBotCanvasOrder(order: string[]): void {
-  try {
-    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(order));
-  } catch {
-    // The canvas stays usable on its in-memory order when storage is disabled.
-  }
+export function botCanvasPositionOrder(
+  bots: readonly { botId: string; canvasPosition?: number }[],
+): string[] {
+  return [...bots]
+    .sort((a, b) => (a.canvasPosition ?? Infinity) - (b.canvasPosition ?? Infinity))
+    .map((bot) => bot.botId);
 }
 
 /**

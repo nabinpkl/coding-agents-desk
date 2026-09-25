@@ -198,8 +198,8 @@ reader who had forgotten taking it off. That absence is no longer unseeable: the
 lists every Bot and every session either way, dims the ones that are off, and carries the control
 that puts them back, so both sets are now remembered -- and since 2026-09-24, on the owner's word,
 not in this browser: they are on each Bot's record in its machine's `bots.json` (`offCanvas`,
-`offCanvasSessionRefs`, set with `POST /api/bots/:id/canvas`), so the phone, the Mac and a peer's
-Bots all read one answer. A fact about a Bot that every surface should agree on is the sidecar's,
+`offCanvasSessionRefs`, and the strip's order as `canvasPosition`, all set with
+`POST /api/bots/:id/canvas`), so the phone, the Mac and a peer's Bots all read one answer. A fact about a Bot that every surface should agree on is the sidecar's,
 even when it is an arrangement. **Cheap to redo beats quietly wrong** still
 decides it -- what changed is that the panel stopped being quiet, not that the cost changed. The
 rule is about whether the reader can SEE what was kept, so re-ask that question of the surface as it

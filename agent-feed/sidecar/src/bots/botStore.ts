@@ -62,6 +62,10 @@ function isBotRecord(value: unknown): value is BotRecord {
     && Number.isFinite(value.createdAt)
     && (value.offCanvas === undefined || typeof value.offCanvas === "boolean")
     && (
+      value.canvasPosition === undefined
+      || (Number.isSafeInteger(value.canvasPosition) && Number(value.canvasPosition) >= 0)
+    )
+    && (
       value.offCanvasSessionRefs === undefined
       || (Array.isArray(value.offCanvasSessionRefs) && value.offCanvasSessionRefs.every(isSessionRef))
     )

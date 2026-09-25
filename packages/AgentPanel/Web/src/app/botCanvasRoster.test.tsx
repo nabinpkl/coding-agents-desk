@@ -345,7 +345,7 @@ describe("App shell", () => {
   });
 
   it("reorders the strip from a card's menu, and stands the Bots that way again after a reload", () => {
-    const { transport, unmount } = setup();
+    const { transport, unmount, bots } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
     const deliver = () => act(() => {
@@ -395,51 +395,26 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Move right" }));
 
     expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
-    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.order") ?? "[]")).toEqual([
-      "bot-2",
-      "bot-1",
+    // Written to each Bot's record, as positions, and nothing to this browser.
+    expect(transport.requests
+      .filter((request) => request.path.endsWith("/canvas"))
+      .map((request) => [request.path, request.body])).toEqual([
+      ["/api/bots/bot-2/canvas", { position: 0 }],
+      ["/api/bots/bot-1/canvas", { position: 1 }],
     ]);
+    expect(localStorage.getItem("agent-panel.bot-canvas.order")).toBeNull();
 
-    // The roster arriving again does not undo the arrangement: order is remembered, not derived
-    // from whatever sequence the sidecar happened to resolve.
-    deliver();
+    // The roster arriving again carries the order, so it stands.
+    const held = bots.latest()!;
+    act(() => transport.deliver("/api/bots/stream", held));
     expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
     unmount();
 
+    // A reload, which is a different browser as far as storage goes, is handed the same records.
     const second = setup();
     deliverProjects(second.transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
-    act(() => {
-      second.transport.deliver("/api/bots/stream", {
-        version: 2,
-        revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }, {
-          botId: "bot-2",
-          name: "Nightly Sweeper",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
-      });
-    });
+    act(() => second.transport.deliver("/api/bots/stream", held));
     expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
     second.unmount();
   });

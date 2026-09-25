@@ -7,9 +7,9 @@ import {
   MIN_CARD_HEIGHT,
   MIN_CARD_WIDTH,
   botCanvasOrderOf,
+  botCanvasPositionOrder,
   clampCardHeight,
   clampCardWidth,
-  loadBotCanvasOrder,
   loadCanvasOpenKeys,
   loadCanvasRoom,
   loadCanvasScroll,
@@ -17,7 +17,6 @@ import {
   loadSessionCardSizes,
   moveInOrder,
   orderBotsForCanvas,
-  storeBotCanvasOrder,
   storeCanvasOpenKeys,
   storeCanvasRoom,
   storeCanvasScroll,
@@ -106,13 +105,18 @@ describe("bot canvas order", () => {
   const bots = [{ botId: "a" }, { botId: "b" }, { botId: "c" }];
 
   it("leaves the roster alone until the canvas has been arranged", () => {
-    expect(loadBotCanvasOrder()).toEqual([]);
+    expect(botCanvasPositionOrder(bots)).toEqual(["a", "b", "c"]);
     expect(botCanvasOrderOf(orderBotsForCanvas(bots, []))).toEqual(["a", "b", "c"]);
   });
 
-  it("stands the arranged Bots in the order they were put in", () => {
-    storeBotCanvasOrder(["c", "a", "b"]);
-    expect(botCanvasOrderOf(orderBotsForCanvas(bots, loadBotCanvasOrder()))).toEqual(["c", "a", "b"]);
+  it("stands the Bots by the position on their records, across machines", () => {
+    const placed = [{ botId: "a", canvasPosition: 2 }, { botId: "b", canvasPosition: 0 }, { botId: "c", canvasPosition: 1 }];
+    expect(botCanvasPositionOrder(placed)).toEqual(["b", "c", "a"]);
+  });
+
+  it("puts a Bot with no position after every Bot with one, in the order it arrived", () => {
+    const placed = [{ botId: "a" }, { botId: "b", canvasPosition: 0 }, { botId: "c" }];
+    expect(botCanvasPositionOrder(placed)).toEqual(["b", "a", "c"]);
   });
 
   it("puts a Bot the arrangement has never seen at the end", () => {
@@ -121,15 +125,8 @@ describe("bot canvas order", () => {
   });
 
   it("ignores an id the canvas no longer knows rather than losing the rest", () => {
-    // Not pruned on write either, so a Bot taken off the canvas and put back keeps its place.
+    // A move held on screen can name a Bot whose machine has since dropped out of the roster.
     expect(botCanvasOrderOf(orderBotsForCanvas(bots, ["b", "gone", "a"]))).toEqual(["b", "a", "c"]);
-  });
-
-  it("refuses an order it cannot read", () => {
-    localStorage.setItem("agent-panel.bot-canvas.order", JSON.stringify({ a: 1 }));
-    expect(loadBotCanvasOrder()).toEqual([]);
-    localStorage.setItem("agent-panel.bot-canvas.order", JSON.stringify(["a", 7, "b"]));
-    expect(loadBotCanvasOrder()).toEqual(["a", "b"]);
   });
 
   it("lifts one entry out and puts it back where it was dropped", () => {

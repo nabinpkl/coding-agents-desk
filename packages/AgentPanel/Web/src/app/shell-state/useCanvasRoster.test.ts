@@ -61,11 +61,34 @@ describe("the canvas order both surfaces read", () => {
     expect(ids(result.current.canvasBots)).toEqual(["c", "a", "b"]);
   });
 
-  it("remembers the arrangement across a reload", () => {
-    const first = roster();
-    act(() => first.result.current.moveBot("c", "a"));
-    first.unmount();
-    expect(ids(roster().result.current.orderedBots)).toEqual(["c", "a", "b"]);
+  it("writes the new order to the records, and stands by them once they agree", () => {
+    const { result, rerender } = roster();
+    act(() => result.current.moveBot("c", "a"));
+    // Every Bot whose place changed, each to its own record. Nothing in this browser.
+    expect(sent).toEqual([
+      { botId: "c", command: { position: 0 } },
+      { botId: "a", command: { position: 1 } },
+      { botId: "b", command: { position: 2 } },
+    ]);
+    expect(localStorage.getItem("agent-panel.bot-canvas.order")).toBeNull();
+    // A reload is handed the records, and they alone say the order.
+    const placed = [
+      { ...bots[0]!, canvasPosition: 1 },
+      { ...bots[1]!, canvasPosition: 2 },
+      { ...bots[2]!, canvasPosition: 0 },
+    ];
+    rerender({ roster: placed });
+    expect(ids(result.current.orderedBots)).toEqual(["c", "a", "b"]);
+    expect(ids(roster(placed).result.current.orderedBots)).toEqual(["c", "a", "b"]);
+  });
+
+  it("lets go of a move whose write failed, so the strip shows what the records say", async () => {
+    answer = async () => { throw new Error("bot-store-failed"); };
+    const { result } = roster();
+    act(() => result.current.moveBot("c", "a"));
+    expect(ids(result.current.orderedBots)).toEqual(["c", "a", "b"]);
+    await waitFor(() => expect(ids(result.current.orderedBots)).toEqual(["a", "b", "c"]));
+    expect(result.current.canvasError?.message).toContain("bot-store-failed");
   });
 
   it("ignores a move naming a Bot the roster does not hold", () => {

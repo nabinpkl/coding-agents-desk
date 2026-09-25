@@ -5,10 +5,11 @@
 // sidebar's roster puts a Bot back, opens a card and lists them in that same order, and a picker
 // cannot drive state that lives inside the thing it is driving.
 //
-// Which Bots and sessions are ON the canvas is not the browser's to remember: it is on each Bot's
-// record in its machine's `bots.json` (`offCanvas`, `offCanvasSessionRefs`), read here off the
-// roster and changed with `setBotCanvas`. The rest is how this reader arranged this browser, and
-// `botCanvasPreferences` keeps it.
+// Which Bots and sessions are ON the canvas, and the order the Bots stand in, are not the browser's
+// to remember: they are on each Bot's record in its machine's `bots.json` (`offCanvas`,
+// `offCanvasSessionRefs`, `canvasPosition`), read here off the roster and changed with
+// `setBotCanvas`. The rest is how this reader arranged this browser, and `botCanvasPreferences`
+// keeps it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
@@ -16,13 +17,12 @@ import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import {
   botCanvasOrderOf,
-  loadBotCanvasOrder,
+  botCanvasPositionOrder,
   loadCanvasOpenKeys,
   loadCanvasRoom,
   loadHiddenMachines,
   moveInOrder,
   orderBotsForCanvas,
-  storeBotCanvasOrder,
   storeCanvasOpenKeys,
   storeCanvasRoom,
   storeHiddenMachines,
@@ -67,10 +67,11 @@ export function useCanvasRoster(
     botId: string,
     command: SetBotCanvasCommand,
     session: string | null = null,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     setCanvasError(null);
     try {
       await feeds.forBot(botId).setBotCanvas(botId, command);
+      return true;
     } catch (error) {
       const name = currentBots.current.find((bot) => bot.botId === botId)?.name ?? botId;
       setCanvasError({
@@ -79,6 +80,7 @@ export function useCanvasRoster(
           error instanceof Error ? error.message : String(error)
         }`,
       });
+      return false;
     }
   }, [feeds]);
   /** Puts a Bot back if it was off. What starting a session in it does, so the new card shows. */
@@ -149,13 +151,24 @@ export function useCanvasRoster(
    * roster. The sidebar's Canvas list is the same Bots, and while this lived inside the canvas that
    * list stayed in the order the machines answered in -- a Bot third on the strip and last in the
    * sidebar, which is two answers to one question.
+   *
+   * Read off the records' `canvasPosition`, which is what every browser reads. `pendingOrder` is a
+   * move the reader just made, held on screen while its writes travel -- one per Bot whose place
+   * changed, each to its own machine, so they land one at a time and the strip would otherwise
+   * shuffle through every intermediate order. It goes once the records agree, or a write fails.
    */
-  const [botOrder, setBotOrder] = useState<string[]>(loadBotCanvasOrder);
-  useEffect(() => storeBotCanvasOrder(botOrder), [botOrder]);
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
+  const recordOrder = useMemo(() => botCanvasPositionOrder(botsState.bots), [botsState.bots]);
+  useEffect(() => {
+    if (!pendingOrder) return;
+    const landed = botCanvasOrderOf(orderBotsForCanvas(botsState.bots, recordOrder));
+    const wanted = botCanvasOrderOf(orderBotsForCanvas(botsState.bots, pendingOrder));
+    if (landed.every((id, index) => id === wanted[index])) setPendingOrder(null);
+  }, [botsState.bots, recordOrder, pendingOrder]);
   /** Every Bot the panel can see, arranged. What the sidebar's roster lists. */
   const orderedBots = useMemo(
-    () => orderBotsForCanvas(botsState.bots, botOrder),
-    [botsState.bots, botOrder],
+    () => orderBotsForCanvas(botsState.bots, pendingOrder ?? recordOrder),
+    [botsState.bots, pendingOrder, recordOrder],
   );
   // Read through a ref so the move below keeps one identity for the life of the panel: it is handed
   // to the canvas, and a fresh callback on every roster snapshot would rebuild the strip's props.
@@ -169,14 +182,28 @@ export function useCanvasRoster(
    * written from those positions would hold only what was on screen, so a Bot put back would return
    * to the end rather than to its place, and the sidebar -- which lists every one of them -- would
    * disagree with the strip about where it belongs.
+   *
+   * Writes every Bot whose position is not already its index, which on the first arrangement is all
+   * of them, and later is the run between the two ends of the move.
    */
   const moveBot = useCallback((moved: string, target: string) => {
     const ids = botCanvasOrderOf(arranged.current);
     const next = moveInOrder(ids, ids.indexOf(moved), ids.indexOf(target));
     // `moveInOrder` hands back the same array when the move is a no-op, so this is an identity
     // check rather than a comparison of two fresh arrays.
-    if (next !== ids) setBotOrder(next);
-  }, []);
+    if (next === ids) return;
+    setPendingOrder(next);
+    const byId = new Map(arranged.current.map((bot) => [bot.botId, bot]));
+    const writes = next
+      .map((botId, position) => ({ botId, position }))
+      .filter(({ botId, position }) => byId.get(botId)?.canvasPosition !== position)
+      .map(({ botId, position }) => setBotCanvas(botId, { position }));
+    // A write that failed leaves the records in an order nobody chose, and says so; holding the
+    // wanted order over it would hide that until the next reload.
+    void Promise.all(writes).then((landed) => {
+      if (!landed.every(Boolean)) setPendingOrder(null);
+    });
+  }, [setBotCanvas]);
   const canvasBots = orderedBots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because

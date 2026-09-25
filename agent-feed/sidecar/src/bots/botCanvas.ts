@@ -1,4 +1,4 @@
-// Whether a Bot, and each of its sessions, stands on the panel's canvas.
+// Whether a Bot, and each of its sessions, stands on the panel's canvas, and where on the strip.
 //
 // On the record rather than in the browser, because a browser keeps it per origin and per profile:
 // a phone and the Mac disagreed about which Bots were showing, and a Bot on a peer had its state
@@ -18,6 +18,7 @@ const MAX_SESSION_CHANGES = 256;
 export interface NormalizedBotCanvas {
   onCanvas?: boolean;
   sessions: (BotSessionRef & { onCanvas: boolean })[];
+  position?: number;
 }
 
 export function normalizeBotCanvas(command: SetBotCanvasCommand): NormalizedBotCanvas {
@@ -33,10 +34,18 @@ export function normalizeBotCanvas(command: SetBotCanvasCommand): NormalizedBotC
     if (typeof onCanvas !== "boolean") throw new BotInvalidError("each session change needs onCanvas");
     return { ...normalizeSessionRef(change), onCanvas };
   });
-  if (command.onCanvas === undefined && sessions.length === 0) {
-    throw new BotInvalidError("onCanvas or sessions is required");
+  const position: unknown = command.position;
+  if (position !== undefined && !(Number.isSafeInteger(position) && Number(position) >= 0)) {
+    throw new BotInvalidError("position must be a nonnegative integer");
   }
-  return { ...(command.onCanvas === undefined ? {} : { onCanvas: command.onCanvas }), sessions };
+  if (command.onCanvas === undefined && sessions.length === 0 && position === undefined) {
+    throw new BotInvalidError("onCanvas, sessions or position is required");
+  }
+  return {
+    ...(command.onCanvas === undefined ? {} : { onCanvas: command.onCanvas }),
+    sessions,
+    ...(position === undefined ? {} : { position: position as number }),
+  };
 }
 
 /**
@@ -78,6 +87,7 @@ export function setBotCanvas(
     const { offCanvas: _dropped, ...rest } = updated;
     updated = command.onCanvas ? rest : { ...rest, offCanvas: true };
   }
+  if (command.position !== undefined) updated = { ...updated, canvasPosition: command.position };
 
   const bots = [...snapshot.bots];
   bots[index] = updated;
