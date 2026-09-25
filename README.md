@@ -11,17 +11,7 @@ Every client signs in with OAuth through Cloudflare Access. Only the owner's ema
 ## Connect a client
 
 - **claude.ai** (also Desktop and mobile): Settings, Connectors, Add custom connector, paste the URL above, then sign in with the emailed one-time code. Leave the OAuth client fields empty.
-- **Claude Code**:
-
-  ```bash
-  claude mcp add --transport http -s user agentdesk-annotator https://annotator.example.com/mcp
-  ```
-
-  ```bash
-  claude mcp login agentdesk-annotator
-  ```
-
-  On a machine without a browser, add `--no-browser` and open the printed URL elsewhere.
+- **Claude Code**: nothing to add. Claude Code signed in to the same claude.ai account loads the connector above automatically (`claude mcp list` shows `claude.ai AgentDesk Annotator`). Adding a local entry as well would duplicate every tool.
 - **OpenCode**:
 
   ```bash
@@ -29,8 +19,10 @@ Every client signs in with OAuth through Cloudflare Access. Only the owner's ema
   ```
 
   ```bash
-  opencode mcp auth agentdesk-annotator
+  cd ~ && opencode mcp auth agentdesk-annotator
   ```
+
+  Run the sign-in from the home directory: from a project folder OpenCode 2.0 reports the server as not found. It listens for the sign-in's return on a random local port, so on a machine without a browser, forward that port with `ssh -L PORT:127.0.0.1:PORT host` and open the printed URL on your own machine. After editing the config by hand, `opencode reload` makes the background service pick it up.
 
 ## Extension
 
