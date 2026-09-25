@@ -17,6 +17,10 @@ test:
 build-extension:
   node extension/build.ts
 
+# Rebuild on change and hot-reload the unpacked extension (dev only; run build-extension before shipping).
+watch-extension:
+  node extension/build.ts --watch
+
 # End-to-end through the live Cloudflare edge with the annotator-e2e service token.
 e2e env="~/.config/agentdesk-annotator/e2e.env":
   set -a && . {{env}} && set +a && node --test "e2e/**/*.test.ts"

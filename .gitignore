@@ -6,3 +6,4 @@ data/
 deploy/.env
 extension/dist/
 .DS_Store
+extension/dist-next/

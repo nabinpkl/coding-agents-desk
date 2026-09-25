@@ -36,13 +36,14 @@ Every client signs in with OAuth through Cloudflare Access. Only the owner's ema
 
 1. Build it with `just build-extension`, open `chrome://extensions`, turn on Developer mode, and choose Load unpacked with `extension/dist`. The manifest `key` pins the id to `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, which is the only extension redirect Access accepts.
 2. Open the popup and click Sign in.
-3. Toggle annotate mode from the popup or with `Alt+Shift+A`. Hover to highlight a container, click it, write the comment, pick a tag, and Save (`Cmd+Enter`). In Shot mode the element is captured before the form opens.
+3. Toggle annotate mode from the popup or with `Alt+Shift+A`. Hover to highlight a container, click it, write the comment, pick a tag, and Save (`Cmd+Enter`). In Shot mode the element is captured before the form opens. In Region mode, drag a rectangle over any part of the page, as with the macOS region screenshot; the area is captured and its page coordinates are stored with the annotation.
 4. In the list you can:
    - resolve or reopen an item;
    - reply to the agent;
    - take a screenshot;
    - delete an item;
    - click an item to scroll to its element.
+5. While changing the extension, run `just watch-extension` instead of reloading by hand. It rebuilds `extension/dist` on every source change and reloads the unpacked extension. Pages with the panel open reload too, unless the comment form has text. Edits to `manifest.json` need the watcher restarted. A watch build carries dev-only reload code and shows `dev` in the popup's build line, so run `just build-extension` before using it for real.
 
    Copy and Download export the open items as Markdown.
 

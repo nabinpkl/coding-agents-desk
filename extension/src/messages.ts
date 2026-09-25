@@ -21,7 +21,8 @@ export type BackgroundRequest =
   | { type: "sign-out" };
 
 /** Messages the popup and background send to a tab's content script. */
-export type TabMessage = { type: "toggle" } | { type: "auth-changed" };
+/** `dev-reload` is sent only by watch builds (src/dev/hot-reload-worker.ts). */
+export type TabMessage = { type: "toggle" } | { type: "auth-changed" } | { type: "dev-reload" };
 
 export function send<T>(req: BackgroundRequest): Promise<Result<T>> {
   return chrome.runtime.sendMessage(req).then(
