@@ -57,6 +57,24 @@ describe("OpencodeModelsDialog", () => {
     expect(onSwitch).toHaveBeenCalledWith(MODELS[1]);
   });
 
+  it("is an anchored menu, not a modal, and closes on Escape", () => {
+    const onClose = vi.fn();
+    render(
+      <OpencodeModelsDialog
+        models={MODELS}
+        current={null}
+        initialFilter=""
+        onClose={onClose}
+        onSwitch={async () => {}}
+      />,
+    );
+
+    const menu = screen.getByRole("dialog", { name: "Switch model" });
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(menu.className).toMatch(/absolute/);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
   it("renders nothing while the list loads, and closes a failed load", async () => {
     const onClose = vi.fn();
     const feed = { listOpencodeModels: async () => MODELS } as never;
@@ -69,7 +87,7 @@ describe("OpencodeModelsDialog", () => {
         onSwitch={async () => {}}
       />,
     );
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Switch model" })).toBeNull();
     rerender(
       <OpencodeModelsHost
         feed={feed}
@@ -79,6 +97,6 @@ describe("OpencodeModelsDialog", () => {
         onSwitch={async () => {}}
       />,
     );
-    expect(await screen.findByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Switch model" })).toBeTruthy();
   });
 });

@@ -23,6 +23,7 @@ import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
+import { OpencodeModelsHost, type OpencodeModelsMenu } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
@@ -40,6 +41,7 @@ export function SessionComposerBand({
   isClaude,
   isCodex,
   model,
+  modelsMenu,
   noteTerminalState,
   onPickFiles,
   questionMirror,
@@ -65,6 +67,8 @@ export function SessionComposerBand({
   isClaude: boolean;
   isCodex: boolean;
   model: ComposerModel;
+  /** The models menu the switcher button or `/models` opened, or null while closed. */
+  modelsMenu: OpencodeModelsMenu | null;
   noteTerminalState: () => void;
   /** The open question and the way to answer it, or null when there is none. */
   questionMirror: QuestionMirrorModel | null;
@@ -162,7 +166,18 @@ export function SessionComposerBand({
           onChoose={editor.commands.onChoose}
         />
       ) : null}
-      <div className="flex items-end gap-1.5">
+      <div className="relative flex items-end gap-1.5">
+        {/* The models menu, anchored to the field it opens from: above it at the composer's own
+            width, over the transcript, rather than a modal in the middle of the card. */}
+        {modelsMenu ? (
+          <OpencodeModelsHost
+            feed={feed}
+            usage={usage}
+            initialFilter={modelsMenu.filter}
+            onClose={modelsMenu.onClose}
+            onSwitch={modelsMenu.onSwitch}
+          />
+        ) : null}
         <div
           // The box is this wrapper rather than the field, so the images sit INSIDE it, above the
           // text, the way the composer they are mirroring holds them. The field keeps its own

@@ -69,6 +69,7 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import { terminalArrangement } from "@/features/session-view/composer/terminalArrangement";
+import type { OpencodeModelsMenu } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
@@ -126,6 +127,7 @@ export function SessionComposer({
   onSendMessage,
   onRunCommand,
   onOpenModels,
+  modelsMenu,
   onAbort,
 }: {
   host: HostActionsClient;
@@ -184,6 +186,7 @@ export function SessionComposer({
   onRunCommand: (name: string, args: string) => Promise<void>;
   /** Opens the model picker; opencode-only, and the shell owns its pending state. */
   onOpenModels: (filter: string) => void;
+  modelsMenu: OpencodeModelsMenu | null;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
@@ -480,6 +483,7 @@ export function SessionComposer({
       isClaude={isClaude}
       isCodex={isCodex}
       model={model}
+      modelsMenu={modelsMenu}
       noteTerminalState={noteTerminalState}
       questionMirror={questionMirror}
       sectionLabel={sectionLabel}

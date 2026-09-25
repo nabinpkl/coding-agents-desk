@@ -46,7 +46,6 @@ import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTask
 import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
 import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTasks";
 import { useSessionCommands } from "@/features/session-view/useSessionCommands";
-import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
@@ -454,17 +453,15 @@ export function SessionView({
         onSendMessage={commands.sendPrompt}
         onRunCommand={commands.runSlashCommand}
         onOpenModels={(filter) => setModelsDialog({ filter })}
+        modelsMenu={session.source === "opencode" && modelsDialog
+          ? {
+            filter: modelsDialog.filter,
+            onClose: () => setModelsDialog(null),
+            onSwitch: (providerID, modelID) => commands.switchModel(providerID, modelID),
+          }
+          : null}
         onAbort={commands.abortRun}
       />
-      {modelsDialog && session.source === "opencode" ? (
-        <OpencodeModelsHost
-          feed={feed}
-          usage={sessionUsage}
-          initialFilter={modelsDialog.filter}
-          onClose={() => setModelsDialog(null)}
-          onSwitch={(providerID, modelID) => commands.switchModel(providerID, modelID)}
-        />
-      ) : null}
       {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
       {terminal.kind === "loading" || terminal.kind === "ready" ? (
         <AgentTerminalPane feed={feed} context={terminal.context} onState={updateTerminalState} />

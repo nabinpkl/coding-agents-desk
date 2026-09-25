@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
@@ -7,11 +7,11 @@ import type { OpencodeModel } from "@/features/activity-feed/data-source/Sidecar
 /**
  * Picking an opencode session's model, with its context window and price beside each entry.
  *
- * App-level for `SessionRenameDialog`'s reason: the menu renders on the sidebar and on the
- * canvas, and the canvas one sits inside a card that scrolls sideways. The slash args arrive
- * as the initial filter, so `/models spark` opens already narrowed. Choosing switches
- * through the sidecar; the new model lands on the session event like a rename, which is
- * what moves the meter without a second read.
+ * An anchored menu inside the composer band, not a modal: it opens above the field at the
+ * composer's own width, over the transcript, and closes on choose, Escape, or a click outside.
+ * The slash args arrive as the initial filter, so `/models spark` opens already narrowed.
+ * Choosing switches through the sidecar; the new model lands on the session event like a
+ * rename, which is what moves the meter without a second read.
  */
 export function OpencodeModelsDialog({
   models,
@@ -24,12 +24,11 @@ export function OpencodeModelsDialog({
   models: readonly OpencodeModel[] | null;
   /** The session's current model as `providerID/modelID`, or null while unknown. */
   current: string | null;
-  /** The slash args the dialog was opened with, as its starting filter. */
+  /** The slash args the menu was opened with, as its starting filter. */
   initialFilter: string;
   onClose: () => void;
   onSwitch: (model: OpencodeModel) => Promise<void>;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [filter, setFilter] = useState("");
   const [pendingName, setPendingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,13 +39,6 @@ export function OpencodeModelsDialog({
     setPendingName(null);
     setError(null);
   }, [models, initialFilter]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !models || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [models]);
 
   const shown = useMemo(() => {
     if (!models) return [];
@@ -71,30 +63,27 @@ export function OpencodeModelsDialog({
     }
   };
 
-  const close = (event: FormEvent) => {
-    event.preventDefault();
-    if (!pendingName) onClose();
-  };
-
   return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby="opencode-models-title"
-      className="fixed inset-0 z-60 m-0 h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-transparent p-4 text-foreground backdrop:bg-black/45 open:flex"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pendingName) onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !pendingName) onClose();
-      }}
-    >
-      <form
-        onSubmit={close}
-        className="flex max-h-[80dvh] w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
+    <>
+      {/* Transparent, so the transcript shows through; it exists only to catch the click that
+          lands outside the menu. Inside the band's stacking context, so it covers the card. */}
+      <div
+        aria-hidden
+        className="fixed inset-0 z-40 cursor-default"
+        onClick={() => {
+          if (!pendingName) onClose();
+        }}
+      />
+      <div
+        role="dialog"
+        aria-label="Switch model"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !pendingName) onClose();
+        }}
+        className="absolute inset-x-0 bottom-full z-50 mb-2 flex max-h-80 flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-3 text-foreground shadow-2xl"
       >
-        <h2 id="opencode-models-title" className="text-base font-semibold">Switch model</h2>
         <input
+          autoFocus
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
           placeholder="Filter models…"
@@ -139,23 +128,25 @@ export function OpencodeModelsDialog({
           <p className="text-sm text-muted-foreground">No models match that filter.</p>
         ) : null}
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="submit"
-            disabled={pendingName !== null}
-            className="min-h-10 rounded-lg px-4 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </dialog>
+      </div>
+    </>
   );
 }
 
 /**
- * The dialog with its list: loads the models on open, marks the session's current one from
- * its usage, and closes on a successful switch. A failed list is a closed dialog rather than
+ * The models menu the composer's switcher button or `/models` opened: its starting filter and
+ * the ways to close it or switch through it. One object so the composer passes it through as
+ * a single prop.
+ */
+export interface OpencodeModelsMenu {
+  filter: string;
+  onClose: () => void;
+  onSwitch: (providerID: string, modelID: string) => Promise<void>;
+}
+
+/**
+ * The menu with its list: loads the models on open, marks the session's current one from
+ * its usage, and closes on a successful switch. A failed list is a closed menu rather than
  * an empty one -- an empty list reads as "this serve offers nothing", which is never true.
  */
 export function OpencodeModelsHost({
