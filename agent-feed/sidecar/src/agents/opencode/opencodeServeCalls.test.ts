@@ -7,7 +7,7 @@ const assistant = (output: number, read: number) => ({
 });
 
 describe("currentWindowTokens", () => {
-  it("reads the last finished assistant turn, not the session totals", () => {
+  it("reads the newest assistant message with tokens, not the session totals", () => {
     expect(
       currentWindowTokens([
         assistant(50, 1000),
@@ -17,8 +17,20 @@ describe("currentWindowTokens", () => {
     ).toBe(100 + 216 + 610929);
   });
 
-  it("skips turns with no output and reports nothing without one", () => {
-    expect(currentWindowTokens([{ type: "assistant", tokens: { input: 5, output: 0 } }])).toBeNull();
+  it("counts a running turn the TUI already shows, instead of holding the last finished one", () => {
+    expect(
+      currentWindowTokens([
+        assistant(50, 1000),
+        { type: "user" },
+        // Streaming: input and cache reads land before any output does.
+        { type: "assistant", tokens: { input: 629, output: 0, reasoning: 162, cache: { read: 219761, write: 0 } } },
+      ]),
+    ).toBe(629 + 0 + 162 + 219761);
+  });
+
+  it("reports nothing without a message carrying tokens", () => {
+    expect(currentWindowTokens([{ type: "assistant", tokens: null }])).toBeNull();
+    expect(currentWindowTokens([{ type: "assistant", tokens: { input: 0, output: 0 } }])).toBeNull();
     expect(currentWindowTokens([{ type: "user" }])).toBeNull();
     expect(currentWindowTokens([])).toBeNull();
   });
@@ -36,7 +48,7 @@ describe("lastCompletedCompactionIndex", () => {
     expect(currentWindowTokens(messages)).toBe(100 + 50 + 1000);
   });
 
-  it("blanks the gap: completed compaction with no finished turn after it", () => {
+  it("blanks the gap: completed compaction with no tokens reported after it", () => {
     expect(
       currentWindowTokens([assistant(216, 610929), { type: "user" }, completed]),
     ).toBeNull();

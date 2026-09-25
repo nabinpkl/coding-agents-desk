@@ -348,10 +348,10 @@ export class OpencodeSessionPool {
         const modelKey = `${session.model.providerID}/${session.model.id}`;
         // The window, not the odometer: session totals accumulate every turn's cache re-read
         // (measured 330M on a 1M window), while the meter answers what is in context now.
-        // A completed compaction with no finished turn after it blanks the meter until the
-        // next turn lands its own provider count -- the TUI's gap behavior, rather than
+        // A completed compaction with no turn reporting tokens after it blanks the meter until
+        // the next turn lands its own provider count -- the TUI's gap behavior, rather than
         // holding a pre-compaction number for a window that no longer exists. Otherwise
-        // keeps the previous reading when the batch holds no finished turn, and seeds from
+        // keeps the previous reading when the batch holds no turn with tokens, and seeds from
         // the totals only for a session that has never reported a window at all.
         const windowTokens = currentWindowTokens(messages);
         const totals = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;

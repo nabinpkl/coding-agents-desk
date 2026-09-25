@@ -34,12 +34,13 @@ export function lastCompletedCompactionIndex(
 }
 
 /**
- * The live window's occupancy from the last finished assistant turn past the
- * compaction boundary, TUI-identical: the TUI reads the last assistant message,
- * not the session totals, because the totals accumulate every turn's cache
- * re-read while the window holds only what is in it now. Null in the
- * post-compaction gap and when no turn has finished, both of which the TUI
- * draws as a blank meter rather than a stale number.
+ * The live window's occupancy from the newest assistant message past the compaction boundary
+ * that carries tokens, TUI-identical: the TUI reads the last assistant message with a tokens
+ * object, finished or still running, because the serve publishes the running turn's growing
+ * counts on it. Requiring finished output held the previous turn while the TUI climbed
+ * mid-turn (measured 193K held against 214.8K live). Null in the post-compaction gap and
+ * when no turn has reported tokens, both of which the TUI draws as a blank meter rather
+ * than a stale number.
  */
 export function currentWindowTokens(
   messages: readonly {
@@ -50,14 +51,16 @@ export function currentWindowTokens(
   }[],
 ): number | null {
   const boundary = lastCompletedCompactionIndex(messages);
+  const num = (value: unknown): number => (typeof value === "number" ? value : 0);
   for (let i = messages.length - 1; i > boundary; i -= 1) {
     const message = messages[i]!;
     if (message.type !== "assistant" && message.role !== "assistant") continue;
     const tokens = message.tokens;
-    const output = typeof tokens?.output === "number" ? tokens.output : 0;
-    if (output <= 0) continue;
-    const num = (value: unknown): number => (typeof value === "number" ? value : 0);
-    return num(tokens?.input) + output + num(tokens?.reasoning) + num(tokens?.cache?.read) + num(tokens?.cache?.write);
+    if (!tokens) continue;
+    const total =
+      num(tokens.input) + num(tokens.output) + num(tokens.reasoning) + num(tokens.cache?.read) + num(tokens.cache?.write);
+    if (total <= 0) continue;
+    return total;
   }
   return null;
 }
