@@ -249,3 +249,43 @@ test("refuses a workspace shell outside the user home", async () => {
   ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
   service.stop();
 });
+
+test("opens a machine shell in the home, under one name for the machine", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const canonicalHome = await realpath(home);
+  const opened: { sessionName: string; launch: { cwd: string; arguments: string[] } }[] = [];
+  const pty: AgentTerminalPtyClient = {
+    listSessions: async () => [],
+    openSession: async (options) => {
+      opened.push(options as (typeof opened)[number]);
+      return {
+        attachment: { sessionName: options.sessionName, pid: 7, columns: 100, rows: 30 },
+        onEnvelope: () => () => {},
+        onFailure: () => () => {},
+        requestCheckpoint() {},
+        sendInput() {},
+        sendBinaryInput() {},
+        updateViewerState() {},
+        detach() {},
+        kill() {},
+        closeTransport() {},
+      } as unknown as PtySessionConnection;
+    },
+  };
+  const service = new AgentTerminalService("/unused/pty.sock", () => undefined, home, pty);
+
+  const first = await service.open({ kind: "machine" }, { columns: 100, rows: 30 });
+  const second = await service.open({ kind: "machine" }, { columns: 100, rows: 30 });
+
+  // The home itself, which the workspace kind refuses: the panel sent no path, so there is
+  // nothing to vouch for, and the sidecar's own home is what "this machine" means.
+  expect(opened[0]).toMatchObject({
+    launch: { cwd: canonicalHome, executable: "/bin/zsh", arguments: ["-l"] },
+  });
+  // Not tmux: a PTY session of the panel's own, and one per machine so a second tab joins it.
+  expect(first.ptySessionName).toBe("agent-machine-shell");
+  expect(second.ptySessionName).toBe(first.ptySessionName);
+  expect(second.terminalId).not.toBe(first.terminalId);
+  service.stop();
+});

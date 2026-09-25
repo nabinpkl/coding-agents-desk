@@ -12,6 +12,8 @@ export function terminalContextKey(context: AgentTerminalContext): string {
   if (context.kind === "tmux-new") return `tmux-new:${context.session}:${context.directory}`;
   if (context.kind === "session-tmux") return `session-tmux:${context.source}:${context.sessionId}`;
   if (context.kind === "workspace") return `workspace:${context.workspacePath}`;
+  // One shell per machine, and the feed a terminal is opened through is what names the machine.
+  if (context.kind === "machine") return "machine";
   return `${context.source}:${context.projectPath}:${context.sessionId}`;
 }
 
@@ -31,6 +33,7 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
   // The directory, because that is the only thing this terminal is: a shell somewhere. The IDE
   // labels its own pane with the workspace's name, which this has no way to know.
   if (context.kind === "workspace") return context.workspacePath.split("/").pop() || "Workspace";
+  if (context.kind === "machine") return "Terminal";
   const provider = context.source === "claude" ? "Claude" : "Codex";
   return context.kind === "session-tmux" ? `${provider} session` : provider;
 }

@@ -124,13 +124,31 @@ export interface WorkspaceTerminalContext {
   workspacePath: string;
 }
 
+/**
+ * A login shell in the home directory of whichever machine answers, owned by whoever opened it.
+ *
+ * The workspace kind's sibling for a reader who has no workspace in mind: the tab bar's terminal
+ * button opens this on the machine beside it, which may be a peer the reader has never registered
+ * a workspace on. It carries no path, because the panel does not know a peer's home and has no
+ * business choosing one -- the sidecar answering the request is the machine, and its own home is
+ * the answer.
+ *
+ * A PTY session rather than tmux, for the reason the workspace kind is: nobody else is watching
+ * this shell, so there is no pane to share and nothing to keep alive in a terminal app. It is still
+ * one shell per machine, so a second tab joins the first one's rather than starting another.
+ */
+export interface MachineTerminalContext {
+  kind: "machine";
+}
+
 /** What a terminal is pointed at. */
 export type AgentTerminalContext =
   | AgentSessionTerminalContext
   | TmuxTerminalContext
   | SessionTmuxTerminalContext
   | NewTmuxTerminalContext
-  | WorkspaceTerminalContext;
+  | WorkspaceTerminalContext
+  | MachineTerminalContext;
 
 /** `POST /api/terminals` request. */
 export interface OpenAgentTerminalRequest {

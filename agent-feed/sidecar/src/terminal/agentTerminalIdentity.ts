@@ -1,6 +1,6 @@
 // What a terminal is pointed at, resolved once before anything is launched or joined.
 //
-// Four kinds of target arrive from the panel and they answer the same shape, which is what
+// Every kind of target that arrives from the panel answers the same shape, which is what
 // lets `open` stop caring which one it got. Everything that decides where a terminal lands --
 // which pane, which directory, which command, whether a new one may be started at all -- is
 // here; the service is what acts on the answer.
@@ -112,6 +112,7 @@ export async function identifyTerminal(
   if (context.kind === "tmux-new") return identifyNewTmux(deps, context);
   if (context.kind === "session-tmux") return identifySessionTmux(deps, context);
   if (context.kind === "workspace") return identifyWorkspace(deps, context);
+  if (context.kind === "machine") return identifyMachine(deps);
   return identifyAgentSession(deps, context);
 }
 
@@ -224,6 +225,34 @@ async function identifyWorkspace(
     command: [],
     // A workspace shell is meant to be opened from more than one tab, and starting it is the
     // whole point of opening one, so there is nothing to refuse.
+    refuseNew: null,
+    createTmux: null,
+    stampSession: null,
+  };
+}
+
+/**
+ * A login shell in this machine's home, for a reader who asked for the machine rather than a place
+ * on it.
+ *
+ * The home is resolved rather than taken as given, so a symlinked home still lands the shell where
+ * `cd ~` would. It does not go through `projectDirectory`, which refuses the home itself on purpose:
+ * that check is about a path the panel SENT, and this kind sends none. One fixed PTY session name,
+ * because there is one home per sidecar, so a second tab joins the shell the first one started.
+ */
+async function identifyMachine(deps: TerminalIdentityDeps): Promise<TerminalIdentity> {
+  let home: string;
+  try {
+    home = await realpath(resolve(deps.userHomeDirectory));
+  } catch {
+    throw new AgentTerminalInvalidError("this machine's home directory does not exist");
+  }
+  return {
+    ptySessionName: "agent-machine-shell",
+    tmuxSession: null,
+    cwd: home,
+    // Empty is the login shell itself, as it is for a workspace.
+    command: [],
     refuseNew: null,
     createTmux: null,
     stampSession: null,

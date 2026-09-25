@@ -1,8 +1,13 @@
+import { SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
+import {
+  MachineTerminalDialog,
+  type MachineTerminalTarget,
+} from "@/features/terminal/MachineTerminalDialog";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -234,6 +239,12 @@ export function BrowserSurfaces({
     }
   }, [desktopAvailable, surface]);
 
+  // Which machine's shell is open over the surface, if any. React state rather than stored: a
+  // reload closes it, and reopening lands back in the same shell because the PTY session outlives
+  // the viewer, so there is nothing a reader would have to re-establish.
+  const [terminalMachine, setTerminalMachine] = useState<MachineTerminalTarget | null>(null);
+  const selectedLabel = sessions.find((session) => session.id === sessionId)?.label ?? "this machine";
+
   function select(next: BrowserSurface): void {
     if (next === surface) return;
     remember(next);
@@ -287,24 +298,40 @@ export function BrowserSurfaces({
             className="ml-auto flex shrink-0 items-center gap-1 self-center"
           >
             {sessions.map((session) => (
-              <button
-                key={session.id ?? "default"}
-                type="button"
-                aria-pressed={session.id === sessionId}
-                title={`Point the session list, terminals, IDE and desktop at ${session.label}. The Bot canvas keeps showing every machine.`}
-                onClick={() => selectSession(session.id)}
-                className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-                  session.id === sessionId
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                }`}
-              >
-                {session.label}
-              </button>
+              <div key={session.id ?? "default"} className="flex shrink-0 items-center">
+                <button
+                  type="button"
+                  aria-pressed={session.id === sessionId}
+                  title={`Point the session list, terminals, IDE and desktop at ${session.label}. The Bot canvas keeps showing every machine.`}
+                  onClick={() => selectSession(session.id)}
+                  className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+                    session.id === sessionId
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  {session.label}
+                </button>
+                <MachineTerminalButton
+                  label={session.label}
+                  onOpen={() => setTerminalMachine({ label: session.label, feed: sourceFor(session.id) })}
+                />
+              </div>
             ))}
           </div>
-        ) : null}
+        ) : (
+          // No picker, so no row to sit beside: one button for the machine the panel is on.
+          <div className="ml-auto flex shrink-0 items-center self-center">
+            <MachineTerminalButton
+              label={selectedLabel}
+              onOpen={() => setTerminalMachine({ label: selectedLabel, feed: sessionFeed })}
+            />
+          </div>
+        )}
       </div>
+      {terminalMachine ? (
+        <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
+      ) : null}
       <div className="min-h-0 flex-1">
         {surface === "desktop" ? (
           // Keyed by session so a switch tears the old viewer down. Its WebRTC track, its encoder
@@ -347,5 +374,25 @@ export function BrowserSurfaces({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Opens a login shell on one machine, beside that machine's name in the tab bar.
+ *
+ * Its own button rather than an item in a menu, because it is one action with a glyph every
+ * terminal user reads on sight, and a menu would cost a second tap to reach the only thing in it.
+ */
+function MachineTerminalButton({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open a terminal on ${label}`}
+      title={`Open a terminal on ${label}`}
+      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
+    >
+      <SquareTerminal className="size-4" aria-hidden />
+    </button>
   );
 }

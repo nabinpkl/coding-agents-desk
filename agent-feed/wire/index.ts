@@ -188,6 +188,7 @@ export type {
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
   CloseAgentTerminalRequest,
+  MachineTerminalContext,
   OpenAgentTerminalRequest,
   TmuxPaneSummary,
   TmuxSessionSummary,
