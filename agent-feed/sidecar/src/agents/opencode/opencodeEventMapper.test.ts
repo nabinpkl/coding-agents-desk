@@ -93,6 +93,44 @@ test("a finished turn carries text, thinking, and a paired tool call", () => {
   }));
 });
 
+test("file, pattern, and web call summaries name what they acted on", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [
+      toolPart("r1", "read", { path: "/repo/FEATURE-MAP.md" }),
+      toolPart("r2", "edit", { path: "/repo/a.ts", oldString: "x", newString: "y" }),
+      toolPart("r3", "glob", { pattern: "**/TerminalTile*" }),
+      toolPart("r4", "grep", { pattern: "scroll", path: "/repo" }),
+      toolPart("r5", "webfetch", { url: "https://example.com/docs" }),
+    ], 300),
+  ]);
+  const summaries = projection.page(0, 10)[0]!.blocks
+    .filter((block) => block.kind === "tool_use")
+    .map((block) => (block as { summary?: string }).summary);
+  expect(summaries).toEqual([
+    "read FEATURE-MAP.md",
+    "edit a.ts",
+    "**/TerminalTile*",
+    'pattern "scroll"',
+    "webfetch https://example.com/docs",
+  ]);
+});
+
+type AssistantToolPart = Extract<
+  Extract<SessionMessage, { type: "assistant" }>["content"][number],
+  { type: "tool" }
+>;
+
+function toolPart(id: string, name: string, input: Record<string, unknown>): AssistantToolPart {
+  return {
+    type: "tool",
+    id,
+    name,
+    state: { status: "completed", input, content: [{ type: "text", text: "ok" }], structured: {} },
+    time: { created: 1, ran: 2, completed: 3 },
+  };
+}
+
 test("a shell call without a command falls back to the tool name", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([

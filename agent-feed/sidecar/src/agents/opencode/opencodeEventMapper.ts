@@ -212,32 +212,73 @@ function toolFiles(state: { status: string }): string[] | undefined {
   return names.length > 0 ? names : undefined;
 }
 
-// Input keys holding the command per shell-running tool, mirroring the panel's
-// `shellCommand` map: a header for one of these names the command, not the tool.
-const SHELL_COMMAND_INPUT: Record<string, string> = {
-  shell: "command",
-  bash: "command",
-  Bash: "command",
-  exec_command: "cmd",
-};
-
+// A tool call's summary names what it acted on, never just the tool: the chip already says
+// which tool ran, so `read read` spends the header repeating it instead of showing the file.
+// Same convention as Claude's `summarizeToolUse` -- shell calls carry the raw command, file
+// tools the basename, pattern tools the pattern -- so both sources read the same in one feed.
 function toolTitle(name: string, state: { status: string; input?: unknown }): string {
-  // A shell call's summary IS its command, the way Claude's Bash summary is: the chip already
-  // says which tool ran, so `shell shell` spends the header repeating it instead of showing
-  // `curl -s …`. Capped like every other summary; the header truncates to one line itself.
-  const inputKey = SHELL_COMMAND_INPUT[name];
-  if (inputKey !== undefined) {
-    const input = "input" in state ? (state as { input?: unknown }).input : undefined;
-    const command = input !== null && typeof input === "object"
-      ? (input as Record<string, unknown>)[inputKey]
-      : undefined;
-    if (typeof command === "string" && command.trim()) return command.trim().slice(0, 200);
-  }
+  const input = "input" in state ? (state as { input?: unknown }).input : undefined;
+  const fromInput = summarizeToolInput(
+    name,
+    input !== null && typeof input === "object" ? (input as Record<string, unknown>) : undefined,
+  );
+  if (fromInput) return fromInput;
   if ((state.status === "running" || state.status === "completed") && "title" in state) {
     const title = (state as { title?: unknown }).title;
     if (typeof title === "string" && title.length > 0) return `${name} · ${title}`;
   }
   return name;
+}
+
+function toolString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function summarizeToolInput(name: string, input: Record<string, unknown> | undefined): string | null {
+  if (!input) return null;
+  switch (name) {
+    case "shell":
+    case "bash":
+    case "Bash":
+    case "exec_command": {
+      const command = toolString(input["command"]) ?? toolString(input["cmd"]);
+      return command ? command.slice(0, 200) : null;
+    }
+    case "read":
+    case "edit":
+    case "write": {
+      const path = toolString(input["path"]) ?? toolString(input["file_path"]);
+      return path ? `${name} ${path.split("/").pop() ?? path}` : null;
+    }
+    case "glob":
+      return toolString(input["pattern"]);
+    case "grep": {
+      const pattern = toolString(input["pattern"]);
+      return pattern ? `pattern "${pattern}"` : null;
+    }
+    case "question": {
+      const questions = input["questions"];
+      const first = Array.isArray(questions) ? questions[0] : undefined;
+      const asked = first !== null && typeof first === "object"
+        ? toolString((first as Record<string, unknown>)["header"]) ??
+          toolString((first as Record<string, unknown>)["question"])
+        : null;
+      return asked ? `${name} ${asked.slice(0, 200)}` : null;
+    }
+    default: break;
+  }
+  // Distinctive keys before anything else, then any non-empty string of its own. `content`
+  // and diff bodies never win here: their tools match a case above, so this only serves
+  // tools with no rule of their own.
+  for (const key of ["url", "query", "pattern", "path", "file_path", "command", "cmd"]) {
+    const value = toolString(input[key]);
+    if (value) return `${name} ${value.slice(0, 200)}`;
+  }
+  for (const value of Object.values(input)) {
+    const text = toolString(value);
+    if (text) return `${name} ${text.slice(0, 200)}`;
+  }
+  return null;
 }
 
 function toolOutput(state: { status: string }): string {
