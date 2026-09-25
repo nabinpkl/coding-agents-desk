@@ -75,6 +75,11 @@ button[aria-busy="true"] { cursor: progress; }
 .text-btn { height: 26px; padding: 0 9px; border-color: var(--border); }
 .text-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .text-btn[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.modes { display: inline-flex; }
+.modes .text-btn { border-radius: 0; margin-left: -1px; }
+.modes .text-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
+.modes .text-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.modes .text-btn:focus-visible { position: relative; z-index: 1; }
 .primary { height: 28px; padding: 0 14px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 .primary:active:not(:disabled) { background: var(--accent); filter: brightness(0.94); }

@@ -2,12 +2,37 @@
  * through the background. The server is the only home for annotations; the
  * panel shows what it returns. Text the user typed stays in its field until
  * the server has accepted it. */
-import type { Annotation, NewAnnotation, Tag } from "../../../shared/annotation.ts";
+import type { Annotation, ElementMetadata, NewAnnotation, Tag } from "../../../shared/annotation.ts";
 import { buildBrief } from "../../../shared/brief.ts";
 import { send, type AuthStatus, type HttpMethod, type Result, type TabMessage } from "../messages.ts";
-import { captureElement, type Shot } from "./capture.ts";
-import { createPanel, HOST_ID, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
-import { describeElement, findBySelector, pickContainer } from "./picker.ts";
+import { captureElement, captureRegion, type Shot } from "./capture.ts";
+import { createPanel, HOST_ID, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
+import { describeElement, findBySelector, pickContainer, regionAnchor } from "./picker.ts";
+import { createRegionSelector, type RegionSelector } from "./region.ts";
+
+type Region = NonNullable<ElementMetadata["region"]>;
+
+/** Page (document) coordinates, so the region survives scrolling. */
+function toRegion(r: DOMRect): Region {
+  return { x: Math.round(r.left + window.scrollX), y: Math.round(r.top + window.scrollY), width: Math.round(r.width), height: Math.round(r.height) };
+}
+
+function toViewport(g: Region): DOMRect {
+  return new DOMRect(g.x - window.scrollX, g.y - window.scrollY, g.width, g.height);
+}
+
+/** Scrolls so the region is centred in the viewport where it fits, top-left aligned where it does not. */
+function scrollToRegion(g: Region): void {
+  window.scrollTo({
+    left: g.x - Math.max(0, (window.innerWidth - g.width) / 2),
+    top: g.y - Math.max(0, (window.innerHeight - g.height) / 2),
+    behavior: "instant",
+  });
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
 
 declare global {
   interface Window {
@@ -26,6 +51,9 @@ function main(): void {
   let hoverEl: Element | null = null;
   let pendingEl: Element | null = null;
   let pendingShot: Shot | null = null;
+  let pendingRegion: Region | null = null;
+  let regionSel: RegionSelector | null = null;
+  let capturing = false;
   let dim: HTMLDivElement | null = null;
   let box: HTMLDivElement | null = null;
 
@@ -34,7 +62,7 @@ function main(): void {
     statusDetail: string;
     serverLabel: string;
     items: Annotation[];
-    shotMode: boolean;
+    mode: CaptureMode;
     listOpen: boolean;
     signingIn: boolean;
     busy: Set<number>;
@@ -47,7 +75,7 @@ function main(): void {
     statusDetail: "",
     serverLabel: "",
     items: [],
-    shotMode: false,
+    mode: "element",
     listOpen: true,
     signingIn: false,
     busy: new Set(),
@@ -60,6 +88,7 @@ function main(): void {
   function render(): void {
     if (!panel) return;
     panel.render(state as PanelState);
+    syncRegionArm();
     drawMarkers();
     void send({ type: "badge", count: state.items.filter((a) => a.status === "open").length });
   }
@@ -121,16 +150,22 @@ function main(): void {
 
   // ----- form -----
 
-  function openForm(el: Element, shot: Shot | null): void {
+  function openForm(el: Element, shot: Shot | null, region: Region | null = null): void {
     pendingEl = el;
     pendingShot = shot;
-    panel?.openForm(describeElement(el).selector ?? "?", Boolean(shot));
+    pendingRegion = region;
+    const selector = describeElement(el).selector ?? "?";
+    const detail = region ? `${region.width} \u00d7 ${region.height} in ${selector}` : selector;
+    panel?.openForm(region ? "region" : "container", shot ? `${detail}  +  screenshot` : detail);
+    syncRegionArm();
   }
 
   function cancelForm(): void {
     pendingEl = null;
     pendingShot = null;
+    pendingRegion = null;
     panel?.closeForm();
+    syncRegionArm();
   }
 
   async function save(text: string, tag: Tag): Promise<void> {
@@ -139,7 +174,8 @@ function main(): void {
       panel.setFormError("Write what is wrong first.");
       return;
     }
-    const input: NewAnnotation = { url: location.href, title: document.title, text, tag, metadata: describeElement(pendingEl) };
+    const metadata: ElementMetadata = pendingRegion ? { ...describeElement(pendingEl), region: pendingRegion } : describeElement(pendingEl);
+    const input: NewAnnotation = { url: location.href, title: document.title, text, tag, metadata };
     panel.setFormBusy(true);
     panel.setFormError("");
     const created = await call<Annotation>("POST", "/api/v1/annotations", input);
@@ -191,8 +227,9 @@ function main(): void {
 
   function ensurePanel(): Panel {
     panel ??= createPanel({
-      toggleMode() {
-        state.shotMode = !state.shotMode;
+      setMode(mode) {
+        state.mode = mode;
+        hoverEl = null;
         render();
       },
       copy() {
@@ -240,6 +277,10 @@ function main(): void {
         void pull();
       },
       locate(a) {
+        if (a.metadata.region) {
+          flashRegion(a.metadata.region);
+          return;
+        }
         const el = findBySelector(a.metadata.selector);
         if (!(el instanceof HTMLElement)) return;
         el.scrollIntoView({ block: "center" });
@@ -282,14 +323,19 @@ function main(): void {
         }
       },
       async shoot(a) {
+        const region = a.metadata.region;
         const el = findBySelector(a.metadata.selector);
-        if (!el) {
+        if (!el && !region) {
           state.errors.set(a.id, "Element not found on this page anymore.");
           render();
           return;
         }
         try {
-          await uploadShot(a, await captureElement(el));
+          if (region) scrollToRegion(region);
+          const shot = region
+            ? await withoutOverlays(() => captureRegion(toViewport(region), el ?? document.body))
+            : await withoutOverlays(() => captureElement(el!));
+          await uploadShot(a, shot);
         } catch (e) {
           state.errors.set(a.id, e instanceof Error ? e.message : String(e));
           render();
@@ -319,9 +365,56 @@ function main(): void {
     document.documentElement.append(dim, box);
   }
 
+  /** Hides everything the annotator draws for two frames' worth of paint, so a capture shows only the page. */
+  async function withoutOverlays<T>(run: () => Promise<T>): Promise<T> {
+    capturing = true;
+    const host = panel?.host;
+    const hidden = [host, ...Array.from(document.querySelectorAll<HTMLElement>("[data-ax-marker]"))].filter((el): el is HTMLElement => Boolean(el));
+    for (const el of hidden) el.style.visibility = "hidden";
+    if (dim && box) dim.style.display = box.style.display = "none";
+    syncRegionArm();
+    try {
+      await nextFrame();
+      await nextFrame();
+      return await run();
+    } finally {
+      for (const el of hidden) el.style.visibility = "";
+      capturing = false;
+      syncRegionArm();
+    }
+  }
+
+  function syncRegionArm(): void {
+    const on = active && state.mode === "region" && !panel?.formOpen() && !capturing;
+    if (on) regionSel ??= createRegionSelector(onRegion);
+    regionSel?.arm(on);
+  }
+
+  function onRegion(rect: DOMRect): void {
+    const region = toRegion(rect);
+    const anchor = regionAnchor(rect);
+    withoutOverlays(() => captureRegion(rect, anchor)).then(
+      (shot) => openForm(anchor, shot, region),
+      (err: unknown) => {
+        openForm(anchor, null, region);
+        panel?.setFormError(`Screenshot failed, saving without it: ${err instanceof Error ? err.message : String(err)}`);
+      },
+    );
+  }
+
+  function flashRegion(g: Region): void {
+    scrollToRegion(g);
+    const r = toViewport(g);
+    const flash = document.createElement("div");
+    flash.setAttribute("data-ax-ui", "1");
+    flash.style.cssText = `position:fixed;z-index:2147483645;pointer-events:none;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;outline:2px solid #d32f2f;`;
+    document.documentElement.append(flash);
+    setTimeout(() => flash.remove(), 900);
+  }
+
   function paint(): void {
     if (dim && box) {
-      const show = active && !panel?.formOpen() && hoverEl && document.contains(hoverEl);
+      const show = active && state.mode !== "region" && !capturing && !panel?.formOpen() && hoverEl && document.contains(hoverEl);
       dim.style.display = show ? "block" : "none";
       box.style.display = show ? "block" : "none";
       if (show && hoverEl) {
@@ -338,9 +431,14 @@ function main(): void {
     const colors: Record<Tag, string> = { bug: "#d32f2f", suggestion: "#2e7d32", question: "#b7791f" };
     state.items.forEach((a, i) => {
       if (a.status !== "open") return;
-      const el = findBySelector(a.metadata.selector);
-      if (!el) return;
-      const r = el.getBoundingClientRect();
+      let r: DOMRect;
+      if (a.metadata.region) {
+        r = toViewport(a.metadata.region);
+      } else {
+        const el = findBySelector(a.metadata.selector);
+        if (!el) return;
+        r = el.getBoundingClientRect();
+      }
       const m = document.createElement("div");
       m.setAttribute("data-ax-marker", "1");
       m.setAttribute("data-ax-ui", "1");
@@ -351,20 +449,20 @@ function main(): void {
   }
 
   function onMove(e: MouseEvent): void {
-    if (!active || !(e.target instanceof Element) || inUI(e.target)) return;
+    if (!active || state.mode === "region" || !(e.target instanceof Element) || inUI(e.target)) return;
     hoverEl = pickContainer(e.target);
   }
 
   function onClick(e: MouseEvent): void {
-    if (!active || panel?.formOpen() || !(e.target instanceof Element) || inUI(e.target)) return;
+    if (!active || state.mode === "region" || panel?.formOpen() || !(e.target instanceof Element) || inUI(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
     const target = pickContainer(e.target);
-    if (!state.shotMode) {
+    if (state.mode === "element") {
       openForm(target, null);
       return;
     }
-    captureElement(target).then(
+    withoutOverlays(() => captureElement(target)).then(
       (shot) => openForm(target, shot),
       (err: unknown) => {
         openForm(target, null);
@@ -380,7 +478,8 @@ function main(): void {
       e.preventDefault();
       setActive(!active);
     } else if (e.key === "Escape" && active) {
-      if (panel?.formOpen()) cancelForm();
+      if (regionSel?.dragging()) regionSel.cancelDrag();
+      else if (panel?.formOpen()) cancelForm();
       else setActive(false);
     }
   }

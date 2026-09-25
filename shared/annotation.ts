@@ -17,7 +17,7 @@ export const BBox = z.object({
   height: z.number(),
 });
 
-/** What the picker records about the annotated container. */
+/** What the picker records about the annotated container, or the element containing a dragged region. */
 export const ElementMetadata = z.object({
   tagName: z.string().max(64).optional(),
   selector: z.string().max(2000).optional(),
@@ -26,6 +26,8 @@ export const ElementMetadata = z.object({
   text: z.string().max(500).optional(),
   component: z.string().max(500).optional(),
   bbox: BBox.optional(),
+  /** A dragged region, in document CSS pixels. Absent when a whole element was picked. */
+  region: BBox.optional(),
   styles: z.string().max(1000).optional(),
 });
 export type ElementMetadata = z.infer<typeof ElementMetadata>;

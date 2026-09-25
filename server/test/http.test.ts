@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { buildBrief } from "../../shared/brief.ts";
 import { SERVICE_TOKEN, startHarness, type Harness } from "./harness.ts";
 
 let h: Harness;
@@ -76,6 +77,20 @@ test("screenshot upload round-trips bytes and coverage summary", async () => {
   assert.equal(got.status, 200);
   assert.equal(got.headers.get("content-type"), "image/jpeg");
   assert.deepEqual(Buffer.from(await got.arrayBuffer()), bytes);
+});
+
+test("a dragged region round-trips in metadata and reaches the brief", async () => {
+  const region = { x: 40, y: 1200, width: 320, height: 180 };
+  const r = await h.fetch("/api/v1/annotations", {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ url: `${page}/region`, title: "Checkout", text: "Totals overlap", tag: "bug", metadata: { selector: "main", tagName: "MAIN", region } }),
+  });
+  assert.equal(r.status, 201);
+  const { id } = (await r.json()) as { id: number };
+  const got = (await (await h.fetch(`/api/v1/annotations?url=${encodeURIComponent(`${page}/region`)}`)).json()) as Array<{ id: number; metadata: { region?: unknown } }>;
+  assert.deepEqual(got.find((a) => a.id === id)?.metadata.region, region);
+  assert.match(buildBrief([{ text: "Totals overlap", tag: "bug", metadata: { region } }], { url: page, title: "" }), /\*\*Region:\*\* x=40 y=1200 w=320 h=180/);
 });
 
 test("validation errors are 400 with issues, not 500", async () => {

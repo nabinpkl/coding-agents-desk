@@ -78,6 +78,18 @@ export function describeElement(el: Element): ElementMetadata {
   };
 }
 
+/** Smallest page element whose box contains the whole region (viewport coordinates). */
+export function regionAnchor(rect: DOMRect): Element {
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const hit = document.elementsFromPoint(cx, cy).find((el) => !el.closest("[data-ax-ui]"));
+  for (let cur: Element | null = hit ?? null; cur && cur !== document.documentElement; cur = cur.parentElement) {
+    const r = cur.getBoundingClientRect();
+    if (r.left <= rect.left + 1 && r.top <= rect.top + 1 && r.right >= rect.right - 1 && r.bottom >= rect.bottom - 1) return cur;
+  }
+  return document.body;
+}
+
 export function findBySelector(selector: string | undefined): Element | null {
   if (!selector) return null;
   try {

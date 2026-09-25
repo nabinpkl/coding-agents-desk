@@ -9,12 +9,21 @@ import { PANEL_CSS } from "./styles.ts";
 
 export type ConnStatus = "unknown" | "connected" | "offline" | "signed-out";
 
+/** Element records the clicked container, Shot also screenshots it, Region screenshots a dragged rectangle. */
+export type CaptureMode = "element" | "shot" | "region";
+
+const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; title: string }> = [
+  { mode: "element", label: "Element", title: "Click a container to annotate it" },
+  { mode: "shot", label: "Shot", title: "Click a container to annotate and screenshot it" },
+  { mode: "region", label: "Region", title: "Drag a rectangle to annotate and screenshot it" },
+];
+
 export interface PanelState {
   status: ConnStatus;
   statusDetail: string;
   serverLabel: string;
   items: Annotation[];
-  shotMode: boolean;
+  mode: CaptureMode;
   listOpen: boolean;
   signingIn: boolean;
   busy: ReadonlySet<number>;
@@ -25,7 +34,7 @@ export interface PanelState {
 }
 
 export interface PanelHandlers {
-  toggleMode(): void;
+  setMode(mode: CaptureMode): void;
   copy(): void;
   download(): void;
   toggleList(): void;
@@ -89,7 +98,7 @@ export interface Panel {
   host: HTMLElement;
   render(state: PanelState): void;
   show(visible: boolean): void;
-  openForm(selector: string, shotArmed: boolean): void;
+  openForm(kind: "container" | "region", detail: string): void;
   setFormBusy(busy: boolean): void;
   setFormError(message: string): void;
   closeForm(): void;
@@ -113,12 +122,13 @@ export function createPanel(on: PanelHandlers): Panel {
   const tagSelect = h("select", { "aria-label": "Tag" }, ...TAGS.map((t) => h("option", { value: t }, t)));
   const selectorLine = h("div", { class: "selector" });
   const formError = h("div", { class: "form-error", role: "alert" });
+  const formTitle = h("span", {}, "Annotate container");
   const saveBtn = h("button", { class: "primary", type: "button" }, "Save");
   const cancelBtn = h("button", { class: "ghost", type: "button" }, "Cancel");
   const form = h(
     "div",
     { class: "form", role: "dialog", "aria-label": "Annotate container", hidden: true },
-    h("div", { class: "form-head" }, "Annotate container", iconButton("x", "Cancel", () => on.cancelForm())),
+    h("div", { class: "form-head" }, formTitle, iconButton("x", "Cancel", () => on.cancelForm())),
     selectorLine,
     textarea,
     h("div", { class: "form-row" }, tagSelect, h("span", { class: "spacer" }), cancelBtn, saveBtn),
@@ -149,7 +159,8 @@ export function createPanel(on: PanelHandlers): Panel {
       h("span", { class: "title" }, "Annotate"),
       h("span", { class: "count", title: `${openCount} open` }, String(openCount)),
       h("span", { class: "dot", "data-status": s.status, title: dotTitle, role: "status", "aria-label": dotTitle }),
-      textButton(s.shotMode ? "Shot" : "Element", on.toggleMode, { "aria-pressed": s.shotMode ? "true" : "false", title: "Capture mode: Element records the container, Shot also screenshots it" }),
+      h("span", { class: "modes", role: "group", "aria-label": "Capture mode" },
+        ...MODES.map((m) => textButton(m.label, () => on.setMode(m.mode), { "aria-pressed": s.mode === m.mode ? "true" : "false", title: m.title }))),
       h("span", { class: "sep" }),
       iconButton("copy", "Copy Markdown brief", on.copy, { disabled: s.items.length === 0 }),
       iconButton("download", "Download brief (.md)", on.download, { disabled: s.items.length === 0 }),
@@ -219,7 +230,7 @@ export function createPanel(on: PanelHandlers): Panel {
     } else if (s.status === "offline") {
       rows.push(h("div", { class: "banner" }, h("span", {}, `Server unreachable: ${s.statusDetail}`), textButton("Retry", on.retry)));
     }
-    if (s.items.length === 0 && s.status === "connected") rows.push(h("div", { class: "empty" }, "No annotations on this page yet. Click a container."));
+    if (s.items.length === 0 && s.status === "connected") rows.push(h("div", { class: "empty" }, s.mode === "region" ? "No annotations on this page yet. Drag over an area." : "No annotations on this page yet. Click a container."));
     s.items.forEach((a, i) => rows.push(renderItem(a, i, s)));
     list.replaceChildren(...rows);
   }
@@ -233,8 +244,10 @@ export function createPanel(on: PanelHandlers): Panel {
     show(visible) {
       dock.hidden = !visible;
     },
-    openForm(selector, shotArmed) {
-      selectorLine.textContent = shotArmed ? `${selector}  +  screenshot` : selector;
+    openForm(kind, detail) {
+      formTitle.textContent = kind === "region" ? "Annotate region" : "Annotate container";
+      textarea.placeholder = kind === "region" ? "What is wrong in this area?" : "What is wrong with this container?";
+      selectorLine.textContent = detail;
       formError.textContent = "";
       textarea.value = "";
       tagSelect.value = "bug";

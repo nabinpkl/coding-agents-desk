@@ -25,6 +25,10 @@ function one(a: BriefItem, i: number): string {
     const b = m.bbox;
     lines.push(`- **Box:** x=${b.x} y=${b.y} w=${b.width} h=${b.height}`);
   }
+  if (m.region) {
+    const g = m.region;
+    lines.push(`- **Region:** x=${g.x} y=${g.y} w=${g.width} h=${g.height} (page coordinates, inside the element above)`);
+  }
   if (m.styles) lines.push(`- **Styles:** \`${esc(m.styles)}\``);
   lines.push(`- **Tag:** \`${esc(a.tag)}\``);
   return lines.join("\n");
