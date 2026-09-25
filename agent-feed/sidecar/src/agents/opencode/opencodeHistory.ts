@@ -79,11 +79,18 @@ export async function readOpencodeHistory(
  * The session's latest page only: what a live refresh folds into a seeded
  * projection. One round trip; the mapper upserts by id, so concurrent
  * refreshes and event bursts converge rather than interleave.
+ *
+ * Newest-first off the wire, reversed to chronological before returning: every
+ * reader (the event mapper, the window anchor) takes oldest-first, the same
+ * order the seed walk returns, and a bare `limit` without `order` answers
+ * newest-first -- which once had the anchor reporting the page's oldest turn
+ * as the live window while the thread showed the newest.
  */
 export async function readOpencodeTail(
   sessionId: string,
+  get: (path: string) => Promise<{ status: number; text: string }> = serveGet,
 ): Promise<SessionMessage[]> {
-  const answered = await serveGet(`/api/session/${sessionId}/message?limit=${HISTORY_PAGE_LIMIT}`);
+  const answered = await get(`/api/session/${sessionId}/message?order=desc&limit=${HISTORY_PAGE_LIMIT}`);
   if (answered.status === 401) throw new Error(`messages: unauthorized (${answered.status})`);
   if (answered.status < 200 || answered.status >= 300) {
     throw new Error(`messages: serve answered ${answered.status} ${answered.text.slice(0, 200)}`);
@@ -95,5 +102,6 @@ export async function readOpencodeTail(
     throw new Error("messages: serve answered malformed JSON");
   }
   const data = (body as { data?: unknown }).data;
-  return Array.isArray(data) ? (data as SessionMessage[]) : [];
+  const messages = Array.isArray(data) ? (data as SessionMessage[]) : [];
+  return messages.reverse();
 }
