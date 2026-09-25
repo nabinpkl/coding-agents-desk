@@ -45,6 +45,26 @@ describe("feed layout", () => {
     expect(layout.pairedToolResults.get("call-2")?.images).toEqual([3]);
   });
 
+  it("folds a same-event tool result into its call so the output stays behind the disclosure", () => {
+    const event: ActivityEvent = {
+      index: 12,
+      ts: 1,
+      type: "assistant",
+      blocks: [
+        { kind: "tool_use", tool: "shell", summary: "git status", callId: "call-shell" },
+        { kind: "tool_result", preview: "On branch main", callId: "call-shell" },
+      ],
+    };
+
+    const layout = buildFeedLayout([event]);
+    const item = layout.items[0]!;
+    expect(item.kind).toBe("segment_event");
+    if (item.kind !== "segment_event") return;
+    expect(item.ev.blocks).toHaveLength(1);
+    expect(item.ev.blocks[0]?.kind).toBe("tool_use");
+    expect(layout.pairedToolResults.get("call-shell")?.block.preview).toBe("On branch main");
+  });
+
   it("draws a result's images inside it when the result keeps a row of its own", () => {
     const event: ActivityEvent = {
       index: 11,

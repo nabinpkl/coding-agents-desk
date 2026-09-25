@@ -153,6 +153,18 @@ describe("LiveTailRow", () => {
     expect(deepest(renderLive(thinkingRow).container)?.closest(".clear-left")).toBeNull();
   });
 
+  it("keeps a same-event tool result behind the call's collapsed disclosure", () => {
+    const ev = tail([
+      { kind: "tool_use", tool: "shell", summary: "git status", callId: "call-shell" },
+      { kind: "tool_result", preview: "On branch main", callId: "call-shell" },
+    ]);
+    ev.phase = "complete";
+
+    const live = renderLive(ev);
+    expect(live.container.textContent).not.toContain("On branch main");
+    expect(live.getByRole("button", { name: /git status/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("marks itself live without taking a row for the marker", () => {
     const ev = tail([{ kind: "text", text: "Working" }]);
     ev.phase = "complete";

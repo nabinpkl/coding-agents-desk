@@ -19,8 +19,10 @@ import {
 } from "@/features/activity-feed/rows/activityEventText";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import {
+  pairSameEventToolResults,
   type PairedToolResult,
   partitionEventBlocks,
+  withoutPairedToolResults,
 } from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityBlock, ActivityEvent, EventCacheHit } from "@/features/activity-feed/useSessionEventsStream";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
@@ -360,10 +362,18 @@ export function LiveTailRow({
   isCollapsed: boolean;
   onToggle: () => void;
 }) {
+  const sameEventResults = pairSameEventToolResults(ev);
+  const liveEvent = withoutPairedToolResults(ev, sameEventResults);
+  const liveContext = sameEventResults.size === 0
+    ? ctx
+    : {
+      ...ctx,
+      pairedToolResults: new Map([...ctx.pairedToolResults, ...sameEventResults]),
+    };
   return (
     <SegmentEventRow
-      ev={ev}
-      ctx={ctx}
+      ev={liveEvent}
+      ctx={liveContext}
       isFirst
       isLast
       isCollapsed={isCollapsed}

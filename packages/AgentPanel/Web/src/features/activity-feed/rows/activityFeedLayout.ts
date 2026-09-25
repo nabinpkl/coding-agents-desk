@@ -48,6 +48,52 @@ export interface PairedToolResult {
 }
 
 /**
+ * Pair the tool results carried beside their calls in one event.
+ *
+ * opencode's completed tool parts are one assistant event, unlike the separate
+ * call and result records used by the file-backed adapters. The live tail uses
+ * this same helper before the event reaches the durable feed layout, so the
+ * result behaves the same before and after handoff.
+ */
+export function pairSameEventToolResults(event: ActivityEvent): Map<string, PairedToolResult> {
+  const callIds = new Set(
+    event.blocks.flatMap((block) =>
+      block.kind === "tool_use" && block.callId ? [block.callId] : [],
+    ),
+  );
+  const results = new Map<string, PairedToolResult>();
+  event.blocks.forEach((block, blockIndex) => {
+    if (block.kind !== "tool_result" || block.callId === undefined || !callIds.has(block.callId)) return;
+    results.set(block.callId, {
+      block,
+      eventIndex: event.index,
+      blockIndex,
+      includesRawEvent: false,
+      metadata: [],
+      images: resultImages(event, block.callId),
+    });
+  });
+  return results;
+}
+
+/** Remove results paired into a call, and their images, from the event's visible body. */
+export function withoutPairedToolResults(
+  event: ActivityEvent,
+  pairedResults: ReadonlyMap<string, PairedToolResult>,
+): ActivityEvent {
+  if (pairedResults.size === 0) return event;
+  return {
+    ...event,
+    blocks: event.blocks.filter((block) => {
+      if (block.kind === "tool_result" || block.kind === "image") {
+        return block.callId === undefined || !pairedResults.has(block.callId);
+      }
+      return true;
+    }),
+  };
+}
+
+/**
  * Where the images one tool result returned sit in its event.
  *
  * Matched by `callId` rather than by position: one Claude line can answer several calls at once,
@@ -193,8 +239,10 @@ function withCompactionSummary(event: ActivityEvent, summary: string): ActivityE
 }
 
 // Pair result-only events with their matching tool calls, so a call and its
-// output read as one row. Mixed events stay independent: user prose or an
-// unmatched result must never be hidden inside someone else's row.
+// output read as one row. Also pair a result that arrived in the same event as
+// its call, which is how opencode's completed tool parts arrive. Mixed result
+// events stay independent: user prose or an unmatched result must never be
+// hidden inside someone else's row.
 export function buildFeedLayout(
   events: ActivityEvent[],
   options: DisplayItemOptions = {},
@@ -212,6 +260,7 @@ export function buildFeedLayout(
   );
   const pairedToolResults = new Map<string, PairedToolResult>();
   const pairedResultEventIds = new Set<number>();
+  const pairedResultCallIdsByEvent = new Map<number, Map<string, PairedToolResult>>();
 
   for (const event of visibleEvents) {
     const resultBlocks = event.blocks
@@ -234,23 +283,33 @@ export function buildFeedLayout(
     const canPairEveryResult = resultBlocks.every(
       ({ block }) => block.callId && toolCallIds.has(block.callId),
     );
-    if (!isResultOnly || resultBlocks.length === 0 || !canPairEveryResult) continue;
 
-    pairedResultEventIds.add(event.index);
-    const { folded, hasRawJson } = partitionEventBlocks(event);
-    resultBlocks.forEach(({ block, blockIndex }, resultIndex) => {
-      // Only the first result of an event carries the event-level raw line and
-      // metadata; the rest would just repeat them.
-      const isFirst = resultIndex === 0;
-      pairedToolResults.set(block.callId!, {
-        block,
-        eventIndex: event.index,
-        blockIndex,
-        includesRawEvent: hasRawJson && isFirst,
-        metadata: isFirst ? folded : [],
-        images: resultImages(event, block.callId),
+    if (isResultOnly && resultBlocks.length > 0 && canPairEveryResult) {
+      pairedResultEventIds.add(event.index);
+      const { folded, hasRawJson } = partitionEventBlocks(event);
+      resultBlocks.forEach(({ block, blockIndex }, resultIndex) => {
+        // Only the first result of an event carries the event-level raw line and
+        // metadata; the rest would just repeat them.
+        const isFirst = resultIndex === 0;
+        pairedToolResults.set(block.callId!, {
+          block,
+          eventIndex: event.index,
+          blockIndex,
+          includesRawEvent: hasRawJson && isFirst,
+          metadata: isFirst ? folded : [],
+          images: resultImages(event, block.callId),
+        });
       });
-    });
+      continue;
+    }
+
+    // opencode emits a completed tool call and its result as adjacent blocks in
+    // one assistant event. Pair those results here too, but leave a result that
+    // shares an event with unrelated prose alone: that text is its own row.
+    const sameEventResults = pairSameEventToolResults(event);
+    if (sameEventResults.size === 0) continue;
+    pairedResultCallIdsByEvent.set(event.index, sameEventResults);
+    for (const [callId, result] of sameEventResults) pairedToolResults.set(callId, result);
   }
 
   // A skill's body carries no `callId` -- the harness gives it none -- so it is found by
@@ -292,9 +351,9 @@ export function buildFeedLayout(
     pairedResultEventIds.add(body.index);
   }
 
-  const displayEvents = visibleEvents.filter(
-    (event) => !pairedResultEventIds.has(event.index),
-  );
+  const displayEvents = visibleEvents
+    .filter((event) => !pairedResultEventIds.has(event.index))
+    .map((event) => withoutPairedToolResults(event, pairedResultCallIdsByEvent.get(event.index) ?? new Map()));
   const { items, runLeads } = buildActivityDisplayItems(displayEvents, options);
   // Derived from the items rather than the events, so a member of a folded run does
   // not appear to own a collapse toggle it has no row to carry. Run leads are a list of
