@@ -166,6 +166,14 @@ describe("App shell", () => {
     ]);
     fireEvent.click(screen.getByText("Session Opencode 01"));
 
+    // The terminal icon stands before the model chooser, not after it.
+    const footerOrder = screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+    const terminalAt = footerOrder.indexOf("Show the terminal");
+    const modelAt = footerOrder.findIndex((label) => label?.startsWith("Switch model"));
+    expect(terminalAt).toBeGreaterThan(-1);
+    expect(modelAt).toBeGreaterThan(-1);
+    expect(terminalAt).toBeLessThan(modelAt);
+
     // Below the composer, through the header control: a shell in the session's directory.
     fireEvent.click(screen.getByRole("button", { name: "Open Opencode terminal" }));
     expect(terminalPaneMock.context).toEqual({

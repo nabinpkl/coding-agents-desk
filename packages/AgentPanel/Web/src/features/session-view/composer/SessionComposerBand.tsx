@@ -272,10 +272,10 @@ export function SessionComposerBand({
           field, which on a narrow card spent a third of the width the draft needed. */}
       {footerActions.length > 0 || terminalComposer || usage ? (
         <div className="mt-1 flex items-center gap-0.5 px-1">
-          {footerActions.map(actionButton)}
-          {/* Offered only where there is a pane: a session without one has nothing to show. The
-              field never goes away -- what it controls is whether the session's screen stands
-              above it. */}
+          {footerActions.filter((action) => action.key !== "switch-model").map(actionButton)}
+          {/* Before the model switcher, not after it: the icon and the chooser read as one
+              control, icon first. Splitting on the switch-model key leaves every band without
+              one -- Claude, Codex -- exactly as it was. */}
           {terminalComposer ? (
             <button
               type="button"
@@ -296,6 +296,7 @@ export function SessionComposerBand({
               <TerminalIcon className="size-3.5" aria-hidden />
             </button>
           ) : null}
+          {footerActions.filter((action) => action.key === "switch-model").map(actionButton)}
           {usage ? (
             <div className="ml-auto">
               <TokenMeter
