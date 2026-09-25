@@ -50,6 +50,26 @@ export function OpencodeModelsDialog({
     );
   }, [models, filter]);
 
+  // Grouped by provider, the session's own first and the rest alphabetical: seventy flat
+  // rows all shaped `name · provider/id` scan as one list, while sections answer "what else
+  // does THIS provider offer" first. Serve order holds inside a section.
+  const groups = useMemo(() => {
+    const byProvider = new Map<string, OpencodeModel[]>();
+    for (const model of shown) {
+      const list = byProvider.get(model.providerID);
+      if (list) list.push(model);
+      else byProvider.set(model.providerID, [model]);
+    }
+    const currentProvider = current?.split("/")[0];
+    return [...byProvider.entries()]
+      .sort(([a], [b]) => {
+        if (a === currentProvider) return -1;
+        if (b === currentProvider) return 1;
+        return a.localeCompare(b);
+      })
+      .map(([provider, entries]) => ({ provider, entries }));
+  }, [shown, current]);
+
   if (!models) return null;
 
   const choose = async (model: OpencodeModel) => {
@@ -92,38 +112,47 @@ export function OpencodeModelsDialog({
           className="min-h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
         <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain" role="listbox" aria-label="Models this serve offers">
-          {shown.map((model) => {
-            const key = `${model.providerID}/${model.modelID}`;
-            const isCurrent = current !== null && current === key;
-            const pending = pendingName === key;
-            return (
-              <li key={key}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isCurrent}
-                  disabled={pendingName !== null}
-                  onClick={() => void choose(model)}
-                  className="flex w-full cursor-pointer items-baseline gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring active:bg-accent disabled:cursor-not-allowed"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-sm text-foreground">
-                      {model.name}
-                      {isCurrent ? <span className="text-muted-foreground"> · current</span> : null}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {model.providerID}/{model.modelID}
-                      {model.contextLimit !== null ? ` · ${(model.contextLimit / 1048576).toFixed(model.contextLimit % 1048576 === 0 ? 0 : 1)}M context` : ""}
-                      {model.inputCost !== null && model.outputCost !== null
-                        ? ` · $${model.inputCost}/$${model.outputCost} per MTok`
-                        : ""}
-                    </span>
-                  </span>
-                  {pending ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : null}
-                </button>
-              </li>
-            );
-          })}
+          {groups.map(({ provider, entries }) => (
+            <li key={provider} role="presentation">
+              <div className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {provider} · {entries.length}
+              </div>
+              <ul role="group" aria-label={provider}>
+                {entries.map((model) => {
+                  const key = `${model.providerID}/${model.modelID}`;
+                  const isCurrent = current !== null && current === key;
+                  const pending = pendingName === key;
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={isCurrent}
+                        disabled={pendingName !== null}
+                        onClick={() => void choose(model)}
+                        className="flex w-full cursor-pointer items-baseline gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring active:bg-accent disabled:cursor-not-allowed"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-mono text-sm text-foreground">
+                            {model.name}
+                            {isCurrent ? <span className="text-muted-foreground"> · current</span> : null}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {model.modelID}
+                            {model.contextLimit !== null ? ` · ${(model.contextLimit / 1048576).toFixed(model.contextLimit % 1048576 === 0 ? 0 : 1)}M context` : ""}
+                            {model.inputCost !== null && model.outputCost !== null
+                              ? ` · $${model.inputCost}/$${model.outputCost} per MTok`
+                              : ""}
+                          </span>
+                        </span>
+                        {pending ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
         </ul>
         {shown.length === 0 ? (
           <p className="text-sm text-muted-foreground">No models match that filter.</p>

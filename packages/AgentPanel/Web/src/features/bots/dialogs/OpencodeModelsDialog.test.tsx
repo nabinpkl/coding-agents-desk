@@ -57,6 +57,22 @@ describe("OpencodeModelsDialog", () => {
     expect(onSwitch).toHaveBeenCalledWith(MODELS[1]);
   });
 
+  it("groups options by provider, the session's own first", () => {
+    render(
+      <OpencodeModelsDialog
+        models={MODELS}
+        current="other/tiny"
+        initialFilter=""
+        onClose={() => {}}
+        onSwitch={async () => {}}
+      />,
+    );
+
+    const groups = screen.getAllByRole("group");
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["other", "opencode-go"]);
+    expect(screen.getByRole("option", { name: /Tiny/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Muse Spark/ })).toBeTruthy();
+  });
   it("is an anchored menu, not a modal, and closes on Escape", () => {
     const onClose = vi.fn();
     render(
