@@ -22,7 +22,7 @@ function gitSha(): string {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(here, "manifest.json"), "utf8")) as { version: string; description: string; host_permissions: string[] };
-// Without host access Chrome sends a chrome-extension:// Origin, which Access refuses on OAuth endpoints.
+// The extension fetches both origins, and its Origin-stripping DNR rule needs host access to AUTH_ORIGIN.
 for (const origin of [SERVER_ORIGIN, AUTH_ORIGIN]) {
   if (!manifest.host_permissions.includes(`${origin}/*`)) throw new Error(`manifest.json host_permissions must include ${origin}/*`);
 }

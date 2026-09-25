@@ -39,7 +39,33 @@ export class Offline extends Error {
   }
 }
 
+/*
+ * Cloudflare Access refuses OAuth registration and token requests that carry
+ * a browser Origin it does not recognize ("Origin not allowed", "Client
+ * origin not allowed"), and it never accepts chrome-extension://. Chrome
+ * attaches that Origin to every POST from this service worker, host access
+ * or not (observed in Chromium 153: host access only drops it on GET). A
+ * session DNR rule removes Origin from this extension's own requests to the
+ * Access origin. initiatorDomains keeps it off requests made by web pages,
+ * so the protection stays intact for normal browsing. It is re-installed
+ * idempotently whenever the worker starts; session rules end with the
+ * browser session.
+ */
+const ORIGIN_RULE_ID = 1;
+const originRuleReady: Promise<void> = chrome.declarativeNetRequest.updateSessionRules({
+  removeRuleIds: [ORIGIN_RULE_ID],
+  addRules: [
+    {
+      id: ORIGIN_RULE_ID,
+      priority: 1,
+      action: { type: "modifyHeaders", requestHeaders: [{ header: "origin", operation: "remove" }] },
+      condition: { urlFilter: `|${AUTH_ORIGIN}/`, initiatorDomains: [chrome.runtime.id], resourceTypes: ["xmlhttprequest"] },
+    },
+  ],
+});
+
 async function netFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (url.startsWith(`${AUTH_ORIGIN}/`)) await originRuleReady;
   try {
     return await fetch(url, init);
   } catch (e) {

@@ -8,7 +8,8 @@
   "permissions": [
     "activeTab",
     "storage",
-    "identity"
+    "identity",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "https://annotator.example.com/*",
