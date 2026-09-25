@@ -40,7 +40,6 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--hint); }
 .status[data-state="signed-in"]::before { background: var(--ok); }
 .status[data-state="signed-out"]::before { background: var(--warn); }
-.status[data-state="no-permission"]::before { background: var(--danger); }
 .actions { display: grid; gap: 6px; }
 .auth { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .auth span { color: var(--ink-2); overflow-wrap: anywhere; }
@@ -48,7 +47,7 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; cursor: pointer; transition: background-color var(--dur), filter var(--dur); }
 button:hover:not(:disabled) { background: var(--surface-hover); }
 button:active:not(:disabled) { background: var(--surface-press); }
-button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 button:disabled { cursor: not-allowed; color: var(--hint); background: var(--surface-2); }
 button[aria-busy="true"] { cursor: progress; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
@@ -56,9 +55,6 @@ button.primary:hover:not(:disabled) { background: var(--accent); filter: brightn
 button.primary:active:not(:disabled) { background: var(--accent); filter: brightness(0.94); }
 button.primary:disabled { background: var(--surface-2); color: var(--hint); }
 
-details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; }
-form { display: flex; gap: 6px; margin-top: 8px; }
-input { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
 .error { margin: 0; color: var(--danger); font-size: 12px; }
 .error:empty { display: none; }
 footer { color: var(--hint); font-size: 11px; }

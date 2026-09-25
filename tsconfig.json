@@ -13,5 +13,5 @@
     "erasableSyntaxOnly": true,
     "skipLibCheck": true
   },
-  "include": ["shared", "server", "e2e", "extension/build.ts"]
+  "include": ["shared", "server", "e2e", "extension/*.ts"]
 }

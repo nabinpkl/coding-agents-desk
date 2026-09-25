@@ -28,6 +28,7 @@ server: auth/access-jwt → /mcp (MCP SDK) and /api/v1 (extension) → service �
 - Actor semantics: `/api/v1` acts as `user` and MCP tools act as `agent`. `resolvedBy` and replies depend on this.
 - A missing id throws `NotFound` (404 or an MCP tool error). Never return a silent null.
 - The server is the only home for annotations. The extension keeps no local copy. Text the user typed stays in its field until the server accepts it.
+- Every origin the extension calls must be in `manifest.json` `host_permissions`. The list lives in `extension/src/origins.ts` and the build enforces it. Without host access, Chrome sends `Origin: chrome-extension://<id>`, and Cloudflare Access refuses OAuth registration and token requests ("Origin not allowed"). With host access, Chrome sends no Origin.
 - Tool names stay `agentdesk-annotator_*`. Agents and prompts depend on them.
 - Migrations in `store/migrations.ts` are append-only.
 

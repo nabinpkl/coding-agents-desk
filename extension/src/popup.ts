@@ -1,6 +1,6 @@
-/* Toolbar popup: toggle the panel, copy the page brief, sign in or out, and
- * pick the server. Opening the sign-in window closes the popup; the
- * background finishes the flow on its own. */
+/* Toolbar popup: toggle the panel, copy the page brief, sign in or out.
+ * Opening the sign-in window closes the popup; the background finishes the
+ * flow on its own. */
 import type { Annotation } from "../../shared/annotation.ts";
 import { buildBrief } from "../../shared/brief.ts";
 import { send, type AuthStatus, type TabMessage } from "./messages.ts";
@@ -13,8 +13,6 @@ const authEl = $<HTMLDivElement>("auth");
 const errorEl = $<HTMLParagraphElement>("error");
 const toggleBtn = $<HTMLButtonElement>("toggle");
 const copyBtn = $<HTMLButtonElement>("copy");
-const serverForm = $<HTMLFormElement>("server-form");
-const serverInput = $<HTMLInputElement>("server-url");
 
 function showError(e: unknown): void {
   errorEl.textContent = e instanceof Error ? e.message : String(e);
@@ -26,33 +24,24 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
 }
 
 function renderAuth(s: AuthStatus): void {
-  const host = new URL(s.serverUrl).host;
-  serverInput.value = s.serverUrl;
-  const state = !s.hasPermission ? "no-permission" : s.signedIn ? "signed-in" : "signed-out";
-  statusEl.dataset.state = state;
-  statusEl.textContent = state === "signed-in" ? "Signed in" : state === "signed-out" ? "Signed out" : "No access";
+  statusEl.dataset.state = s.signedIn ? "signed-in" : "signed-out";
+  statusEl.textContent = s.signedIn ? "Signed in" : "Signed out";
+  const label = document.createElement("span");
+  label.textContent = new URL(s.serverUrl).host;
   const btn = document.createElement("button");
   btn.type = "button";
-  const label = document.createElement("span");
-  if (!s.hasPermission) {
-    label.textContent = `Chrome has not granted access to ${host}`;
-    btn.textContent = "Grant";
-    btn.addEventListener("click", () => void grantAndSave(s.serverUrl));
-  } else if (s.signedIn) {
-    label.textContent = host;
+  if (s.signedIn) {
     btn.textContent = "Sign out";
     btn.addEventListener("click", () => void run(btn, { type: "sign-out" }));
   } else {
-    label.textContent = host;
     btn.textContent = "Sign in";
     btn.className = "primary";
     btn.addEventListener("click", () => void run(btn, { type: "sign-in" }));
   }
   authEl.replaceChildren(label, btn);
-  const ready = s.hasPermission && s.signedIn;
-  copyBtn.disabled = !ready;
+  copyBtn.disabled = !s.signedIn;
   // One primary action at a time: sign in first, then annotate.
-  toggleBtn.className = ready ? "primary" : "";
+  toggleBtn.className = s.signedIn ? "primary" : "";
 }
 
 async function run(btn: HTMLButtonElement, req: { type: "sign-in" } | { type: "sign-out" }): Promise<void> {
@@ -66,20 +55,6 @@ async function run(btn: HTMLButtonElement, req: { type: "sign-in" } | { type: "s
     btn.disabled = false;
     btn.removeAttribute("aria-busy");
   }
-}
-
-async function grantAndSave(url: string): Promise<void> {
-  errorEl.textContent = "";
-  const origin = new URL(url).origin;
-  // permissions.request needs this popup's user gesture, so it cannot move to the background.
-  const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
-  if (!granted) {
-    showError(`Access to ${origin} was not granted.`);
-    return;
-  }
-  const res = await send<AuthStatus>({ type: "set-server-url", url: origin });
-  if (res.ok) renderAuth(res.data);
-  else showError(res.error);
 }
 
 toggleBtn.addEventListener("click", async () => {
@@ -115,15 +90,6 @@ copyBtn.addEventListener("click", async () => {
   setTimeout(() => {
     copyBtn.textContent = "Copy open items as Markdown";
   }, 1500);
-});
-
-serverForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  try {
-    void grantAndSave(new URL(serverInput.value).origin);
-  } catch {
-    showError("Enter a full URL, e.g. https://annotator.example.com");
-  }
 });
 
 $<HTMLElement>("build").textContent = `v${__BUILD__.version} · ${__BUILD__.sha} · ${__BUILD__.at}`;

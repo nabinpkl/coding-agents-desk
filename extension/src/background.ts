@@ -1,15 +1,15 @@
 /* MV3 service worker. Owns every call to the annotator server (with the OAuth
  * token attached), tab capture, the badge, and the toolbar toggle. */
-import { accessToken, isSignedIn, Offline, serverOrigin, setServerOrigin, signIn, signOut } from "./auth.ts";
+import { accessToken, isSignedIn, Offline, signIn, signOut } from "./auth.ts";
+import { SERVER_ORIGIN } from "./origins.ts";
 import type { AuthStatus, BackgroundRequest, HttpMethod, Result, TabMessage } from "./messages.ts";
 
 type Outcome = { kind: "response"; res: Response } | { kind: "signed-out" } | { kind: "offline"; error: string };
 
 /** Sends one authorized request; on 401 refreshes once and retries. */
 async function authorized(method: HttpMethod, path: string, body?: unknown): Promise<Outcome> {
-  const origin = await serverOrigin();
   const attempt = async (token: string): Promise<Response> =>
-    fetch(`${origin}${path}`, {
+    fetch(`${SERVER_ORIGIN}${path}`, {
       method,
       headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -66,12 +66,7 @@ async function screenshotDataUrl(id: number): Promise<Result<string>> {
 }
 
 async function authStatus(): Promise<AuthStatus> {
-  const origin = await serverOrigin();
-  return {
-    serverUrl: origin,
-    signedIn: await isSignedIn(),
-    hasPermission: await chrome.permissions.contains({ origins: [`${origin}/*`] }),
-  };
+  return { serverUrl: SERVER_ORIGIN, signedIn: await isSignedIn() };
 }
 
 async function broadcast(msg: TabMessage): Promise<void> {
@@ -105,10 +100,6 @@ async function handle(req: BackgroundRequest, sender: chrome.runtime.MessageSend
       return { ok: true, data: await authStatus() };
     case "sign-out":
       await signOut();
-      await broadcast({ type: "auth-changed" });
-      return { ok: true, data: await authStatus() };
-    case "set-server-url":
-      await setServerOrigin(req.url);
       await broadcast({ type: "auth-changed" });
       return { ok: true, data: await authStatus() };
   }

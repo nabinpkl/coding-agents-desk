@@ -3,11 +3,11 @@
  * OAuth: discovery and dynamic client registration happen at the edge, the
  * user signs in through chrome.identity.launchWebAuthFlow (PKCE S256), and
  * tokens live in chrome.storage.local, never in page context. */
+import { AUTH_ORIGIN, SERVER_ORIGIN } from "./origins.ts";
 
-export const DEFAULT_SERVER_URL = "https://annotator.example.com";
+const STORAGE_KEY = "auth";
 
 interface AsMetadata {
-  issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
   registration_endpoint?: string;
@@ -16,7 +16,6 @@ interface AsMetadata {
 interface AuthState {
   clientId: string;
   redirectUri: string;
-  metadata: AsMetadata;
   accessToken?: string;
   refreshToken?: string;
   /** Epoch ms; absent when the server did not say. */
@@ -40,34 +39,20 @@ export class Offline extends Error {
   }
 }
 
-export async function serverOrigin(): Promise<string> {
-  const { serverUrl } = await chrome.storage.local.get("serverUrl");
-  return new URL(typeof serverUrl === "string" && serverUrl ? serverUrl : DEFAULT_SERVER_URL).origin;
-}
-
-export async function setServerOrigin(url: string): Promise<string> {
-  const origin = new URL(url).origin;
-  await chrome.storage.local.set({ serverUrl: origin });
-  return origin;
-}
-
-const stateKey = (origin: string) => `auth:${origin}`;
-
-async function load(origin: string): Promise<AuthState | undefined> {
-  const got = await chrome.storage.local.get(stateKey(origin));
-  return got[stateKey(origin)] as AuthState | undefined;
-}
-
-async function save(origin: string, st: AuthState): Promise<void> {
-  await chrome.storage.local.set({ [stateKey(origin)]: st });
-}
-
 async function netFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch (e) {
     throw new Offline(e);
   }
+}
+
+async function load(): Promise<AuthState | undefined> {
+  return (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] as AuthState | undefined;
+}
+
+async function save(st: AuthState): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEY]: st });
 }
 
 function b64url(bytes: Uint8Array): string {
@@ -84,17 +69,33 @@ async function s256(verifier: string): Promise<string> {
   return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
 }
 
-async function discover(origin: string): Promise<AsMetadata> {
-  const res = await netFetch(`${origin}/.well-known/oauth-authorization-server`);
-  if (!res.ok) throw new Error(`authorization server metadata: HTTP ${res.status}`);
-  const m = (await res.json()) as AsMetadata;
-  if (!m.authorization_endpoint || !m.token_endpoint) throw new Error("authorization server metadata is incomplete");
-  return m;
+let metadata: AsMetadata | null = null;
+
+/** Endpoints outside AUTH_ORIGIN would be sent an extension Origin and refused; say so plainly. */
+function onAuthOrigin(url: string | undefined, name: string): string {
+  if (!url) throw new Error(`authorization server metadata has no ${name}`);
+  if (new URL(url).origin !== AUTH_ORIGIN) {
+    throw new Error(`${name} moved to ${new URL(url).origin}; update AUTH_ORIGIN and manifest host_permissions`);
+  }
+  return url;
 }
 
-async function register(meta: AsMetadata, redirectUri: string): Promise<string> {
-  if (!meta.registration_endpoint) throw new Error("authorization server does not support dynamic client registration");
-  const res = await netFetch(meta.registration_endpoint, {
+async function discover(): Promise<AsMetadata> {
+  if (metadata) return metadata;
+  const res = await netFetch(`${SERVER_ORIGIN}/.well-known/oauth-authorization-server`);
+  if (!res.ok) throw new Error(`authorization server metadata: HTTP ${res.status}`);
+  const m = (await res.json()) as AsMetadata;
+  metadata = {
+    authorization_endpoint: onAuthOrigin(m.authorization_endpoint, "authorization_endpoint"),
+    token_endpoint: onAuthOrigin(m.token_endpoint, "token_endpoint"),
+    registration_endpoint: onAuthOrigin(m.registration_endpoint, "registration_endpoint"),
+  };
+  return metadata;
+}
+
+async function register(redirectUri: string): Promise<string> {
+  const meta = await discover();
+  const res = await netFetch(meta.registration_endpoint!, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -116,11 +117,12 @@ interface TokenResponse {
   expires_in?: number;
 }
 
-async function tokenRequest(meta: AsMetadata, params: Record<string, string>): Promise<TokenResponse> {
+async function tokenRequest(clientId: string, params: Record<string, string>): Promise<TokenResponse> {
+  const meta = await discover();
   const res = await netFetch(meta.token_endpoint, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: new URLSearchParams(params).toString(),
+    body: new URLSearchParams({ client_id: clientId, resource: SERVER_ORIGIN, ...params }).toString(),
   });
   const body = (await res.json().catch(() => ({}))) as Partial<TokenResponse> & { error?: string; error_description?: string };
   if (!res.ok || !body.access_token) throw new OAuthError(body.error ?? `token HTTP ${res.status}`, body.error_description);
@@ -137,19 +139,18 @@ function withTokens(st: AuthState, t: TokenResponse): AuthState {
   };
 }
 
-/** Interactive sign-in. Registers a client for this extension on first use. */
+/** Interactive sign-in through Access (email one-time code). Registers a client on first use. */
 export async function signIn(): Promise<void> {
-  const origin = await serverOrigin();
   const redirectUri = chrome.identity.getRedirectURL();
-  let st = await load(origin);
+  let st = await load();
   if (!st || st.redirectUri !== redirectUri) {
-    const metadata = await discover(origin);
-    st = { clientId: await register(metadata, redirectUri), redirectUri, metadata };
-    await save(origin, st);
+    st = { clientId: await register(redirectUri), redirectUri };
+    await save(st);
   }
+  const meta = await discover();
   const verifier = randomToken(48);
   const state = randomToken(16);
-  const url = new URL(st.metadata.authorization_endpoint);
+  const url = new URL(meta.authorization_endpoint);
   url.search = new URLSearchParams({
     response_type: "code",
     client_id: st.clientId,
@@ -157,7 +158,7 @@ export async function signIn(): Promise<void> {
     code_challenge: await s256(verifier),
     code_challenge_method: "S256",
     state,
-    resource: origin,
+    resource: SERVER_ORIGIN,
   }).toString();
 
   const redirected = await chrome.identity.launchWebAuthFlow({ url: url.toString(), interactive: true });
@@ -170,39 +171,30 @@ export async function signIn(): Promise<void> {
   if (!code) throw new Error("sign-in returned no authorization code");
 
   try {
-    const tokens = await tokenRequest(st.metadata, {
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-      client_id: st.clientId,
-      code_verifier: verifier,
-      resource: origin,
-    });
-    await save(origin, withTokens(st, tokens));
+    await save(withTokens(st, await tokenRequest(st.clientId, { grant_type: "authorization_code", code, redirect_uri: redirectUri, code_verifier: verifier })));
   } catch (e) {
-    // A client the server no longer knows: forget it so the next attempt re-registers.
-    if (e instanceof OAuthError && e.code === "invalid_client") await chrome.storage.local.remove(stateKey(origin));
+    // A client Access no longer knows: forget it so the next attempt re-registers.
+    if (e instanceof OAuthError && e.code === "invalid_client") await chrome.storage.local.remove(STORAGE_KEY);
     throw e;
   }
 }
 
+/** Drops the tokens but keeps the registered client. */
 export async function signOut(): Promise<void> {
-  const origin = await serverOrigin();
-  const st = await load(origin);
-  if (st) await save(origin, { clientId: st.clientId, redirectUri: st.redirectUri, metadata: st.metadata });
+  const st = await load();
+  if (st) await save({ clientId: st.clientId, redirectUri: st.redirectUri });
 }
 
 let refreshing: Promise<string | null> | null = null;
 
-async function refresh(origin: string, st: AuthState): Promise<string | null> {
+async function refresh(st: AuthState): Promise<string | null> {
   if (!st.refreshToken) {
     await signOut();
     return null;
   }
   try {
-    const t = await tokenRequest(st.metadata, { grant_type: "refresh_token", refresh_token: st.refreshToken, client_id: st.clientId, resource: origin });
-    const next = withTokens(st, t);
-    await save(origin, next);
+    const next = withTokens(st, await tokenRequest(st.clientId, { grant_type: "refresh_token", refresh_token: st.refreshToken }));
+    await save(next);
     return next.accessToken ?? null;
   } catch (e) {
     if (e instanceof OAuthError) {
@@ -219,18 +211,16 @@ async function refresh(origin: string, st: AuthState): Promise<string | null> {
  * Throws Offline when the token endpoint cannot be reached.
  */
 export async function accessToken(force = false): Promise<string | null> {
-  const origin = await serverOrigin();
-  const st = await load(origin);
+  const st = await load();
   if (!st?.accessToken) return null;
   const fresh = st.expiresAt === undefined || Date.now() < st.expiresAt - 60_000;
   if (fresh && !force) return st.accessToken;
-  refreshing ??= refresh(origin, st).finally(() => {
+  refreshing ??= refresh(st).finally(() => {
     refreshing = null;
   });
   return refreshing;
 }
 
 export async function isSignedIn(): Promise<boolean> {
-  const st = await load(await serverOrigin());
-  return Boolean(st?.accessToken);
+  return Boolean((await load())?.accessToken);
 }

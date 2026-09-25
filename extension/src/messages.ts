@@ -9,7 +9,7 @@ export type FailureKind = "signed-out" | "offline" | "http";
 
 export type Result<T> = { ok: true; data: T } | { ok: false; kind: FailureKind; status?: number; error: string };
 
-export type AuthStatus = { serverUrl: string; signedIn: boolean; hasPermission: boolean };
+export type AuthStatus = { serverUrl: string; signedIn: boolean };
 
 export type BackgroundRequest =
   | { type: "api"; method: HttpMethod; path: string; body?: unknown }
@@ -18,8 +18,7 @@ export type BackgroundRequest =
   | { type: "badge"; count: number }
   | { type: "auth-status" }
   | { type: "sign-in" }
-  | { type: "sign-out" }
-  | { type: "set-server-url"; url: string };
+  | { type: "sign-out" };
 
 /** Messages the popup and background send to a tab's content script. */
 export type TabMessage = { type: "toggle" } | { type: "auth-changed" };

@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { build, type BuildOptions } from "esbuild";
+import { AUTH_ORIGIN, SERVER_ORIGIN } from "./src/origins.ts";
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 const src = path.join(here, "src");
@@ -20,7 +21,11 @@ function gitSha(): string {
   }
 }
 
-const manifest = JSON.parse(fs.readFileSync(path.join(here, "manifest.json"), "utf8")) as { version: string; description: string };
+const manifest = JSON.parse(fs.readFileSync(path.join(here, "manifest.json"), "utf8")) as { version: string; description: string; host_permissions: string[] };
+// Without host access Chrome sends a chrome-extension:// Origin, which Access refuses on OAuth endpoints.
+for (const origin of [SERVER_ORIGIN, AUTH_ORIGIN]) {
+  if (!manifest.host_permissions.includes(`${origin}/*`)) throw new Error(`manifest.json host_permissions must include ${origin}/*`);
+}
 const stamp = { version: manifest.version, sha: gitSha(), at: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC" };
 
 fs.rmSync(dist, { recursive: true, force: true });
