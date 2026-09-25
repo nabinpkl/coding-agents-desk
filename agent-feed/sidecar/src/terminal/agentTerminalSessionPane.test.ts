@@ -188,11 +188,11 @@ test("an opencode session starts a pane running the TUI in its own directory", a
   );
 
   // No harness CLI to resume under -- the serve owns the session -- so the pane runs the TUI
-  // itself where the reader picks the session up. A second open joins this pane by name.
+  // resumed directly onto the session. A second open joins this pane by name.
   expect(fakes.created).toEqual([{
     session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`,
     cwd: expect.stringContaining("projects/agent-desk"),
-    command: ["opencode"],
+    command: ["opencode", "--session", OPENCODE_SESSION_ID],
     columns: 100,
     rows: 30,
   }]);

@@ -422,9 +422,9 @@ async function identifySessionTmux(
   }
 
   // An opencode session has no harness CLI to resume under: its serve owns the session, so the
-  // pane runs the TUI itself in the session's own directory, where the reader picks the session
-  // up. Plain `opencode`, resolved through the login shell like `claude` is -- no absolute path,
-  // no flags.
+  // pane runs the TUI itself in the session's own directory, resumed directly onto the session
+  // (the follow-up ADR-0120 deferred). Plain `opencode`, resolved through the login shell like
+  // `claude` is -- no absolute path -- with `--session` mirroring `claude --resume`.
   if (context.source === "opencode") {
     const pane = opencodeSessionPaneName(sessionId);
     return {
@@ -433,7 +433,7 @@ async function identifySessionTmux(
       cwd: projectPath,
       command: [],
       refuseNew: null,
-      createTmux: { cwd: projectPath, command: ["opencode"] },
+      createTmux: { cwd: projectPath, command: ["opencode", "--session", sessionId] },
       stampSession: sessionId,
       nameFromTitle: session.title,
     };
