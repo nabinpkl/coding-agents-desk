@@ -34,6 +34,15 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/** The last capture mode picked, so the toolbar click lands ready to capture. */
+const MODE_KEY = "captureMode";
+const CAPTURE_MODES: readonly CaptureMode[] = ["element", "shot", "region"];
+
+async function lastMode(): Promise<CaptureMode> {
+  const v: unknown = (await chrome.storage.local.get(MODE_KEY))[MODE_KEY];
+  return CAPTURE_MODES.find((m) => m === v) ?? "element";
+}
+
 declare global {
   interface Window {
     __agentdeskAnnotatorLoaded?: boolean;
@@ -229,6 +238,7 @@ function main(): void {
     panel ??= createPanel({
       setMode(mode) {
         state.mode = mode;
+        void chrome.storage.local.set({ [MODE_KEY]: mode });
         hoverEl = null;
         render();
       },
@@ -272,6 +282,10 @@ function main(): void {
           return;
         }
         await pull();
+      },
+      async signOut() {
+        // The background broadcasts auth-changed, which pulls and shows the signed-out banner.
+        await send<AuthStatus>({ type: "sign-out" });
       },
       retry() {
         void pull();
@@ -507,7 +521,14 @@ function main(): void {
   window.addEventListener("scroll", () => active && drawMarkers(), { passive: true });
 
   chrome.runtime.onMessage.addListener((msg: TabMessage) => {
-    if (msg.type === "toggle") setActive(!active);
+    if (msg.type === "toggle") {
+      if (active) setActive(false);
+      else
+        void lastMode().then((mode) => {
+          state.mode = mode;
+          setActive(true);
+        });
+    }
     if (msg.type === "auth-changed" && active) void pull();
   });
 }

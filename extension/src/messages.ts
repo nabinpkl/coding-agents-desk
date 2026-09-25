@@ -1,4 +1,4 @@
-/* Message contract between the content script / popup and the background
+/* Message contract between the content script and the background
  * service worker. The background is the only code that talks to the server,
  * so the access token never enters page context. */
 
@@ -20,7 +20,7 @@ export type BackgroundRequest =
   | { type: "sign-in" }
   | { type: "sign-out" };
 
-/** Messages the popup and background send to a tab's content script. */
+/** Messages the background sends to a tab's content script. */
 /** `dev-reload` is sent only by watch builds (src/dev/hot-reload-worker.ts). */
 export type TabMessage = { type: "toggle" } | { type: "auth-changed" } | { type: "dev-reload" };
 

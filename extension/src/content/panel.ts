@@ -41,6 +41,7 @@ export interface PanelHandlers {
   clear(): void;
   close(): void;
   signIn(): void;
+  signOut(): void;
   retry(): void;
   locate(a: Annotation): void;
   resolve(a: Annotation): void;
@@ -53,6 +54,8 @@ export interface PanelHandlers {
   save(text: string, tag: Tag): void;
   cancelForm(): void;
 }
+
+declare const __BUILD__: { version: string; sha: string; at: string };
 
 export const HOST_ID = "__agentdesk_annotator_host";
 
@@ -156,7 +159,7 @@ export function createPanel(on: PanelHandlers): Panel {
       s.status === "connected" ? `Connected to ${s.serverLabel}` : s.status === "offline" ? `Offline: ${s.statusDetail}` : s.status === "signed-out" ? `Signed out of ${s.serverLabel}` : "Connecting";
     const openCount = s.items.filter((a) => a.status === "open").length;
     bar.replaceChildren(
-      h("span", { class: "title" }, "Annotate"),
+      h("span", { class: "title", title: `v${__BUILD__.version} · ${__BUILD__.sha} · ${__BUILD__.at}` }, "Annotate"),
       h("span", { class: "count", title: `${openCount} open` }, String(openCount)),
       h("span", { class: "dot", "data-status": s.status, title: dotTitle, role: "status", "aria-label": dotTitle }),
       h("span", { class: "modes", role: "group", "aria-label": "Capture mode" },
@@ -166,6 +169,7 @@ export function createPanel(on: PanelHandlers): Panel {
       iconButton("download", "Download brief (.md)", on.download, { disabled: s.items.length === 0 }),
       iconButton(s.listOpen ? "chevronUp" : "chevronDown", s.listOpen ? "Hide list" : "Show list", on.toggleList),
       iconButton("trash", "Clear this page's annotations", on.clear, { danger: true, disabled: s.items.length === 0 || s.status !== "connected" }),
+      ...(s.status === "connected" ? [iconButton("logOut", `Sign out of ${s.serverLabel}`, on.signOut)] : []),
       iconButton("x", "Turn off annotate mode", on.close),
     );
   }

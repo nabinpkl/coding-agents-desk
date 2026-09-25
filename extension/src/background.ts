@@ -113,13 +113,31 @@ chrome.runtime.onMessage.addListener((req: BackgroundRequest, sender, sendRespon
   return true;
 });
 
-async function toggleActiveTab(): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+/** The toolbar button and the shortcut both toggle the in-page panel; there is no popup. */
+async function toggleTab(tab: chrome.tabs.Tab | undefined): Promise<void> {
   if (tab?.id == null) return;
-  // Pages without the content script (chrome://, the Web Store) cannot be annotated.
-  await chrome.tabs.sendMessage(tab.id, { type: "toggle" } satisfies TabMessage).catch(() => undefined);
+  const toggle = { type: "toggle" } satisfies TabMessage;
+  try {
+    await chrome.tabs.sendMessage(tab.id, toggle);
+    return;
+  } catch {
+    // No content script yet: the tab was open before the extension loaded.
+  }
+  try {
+    // The click grants activeTab, which is enough to inject into this tab.
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["content.css"] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+    await chrome.tabs.sendMessage(tab.id, toggle);
+  } catch {
+    // chrome:// pages and the Web Store refuse extensions.
+    await chrome.action.setTitle({ tabId: tab.id, title: "This page cannot be annotated" });
+  }
 }
 
-chrome.commands.onCommand.addListener((command) => {
-  if (command === "toggle-annotate") void toggleActiveTab();
+chrome.action.onClicked.addListener((tab) => void toggleTab(tab));
+
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== "toggle-annotate") return;
+  if (tab) void toggleTab(tab);
+  else void chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => toggleTab(t));
 });

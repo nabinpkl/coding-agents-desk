@@ -17,7 +17,7 @@ server: auth/access-jwt → /mcp (MCP SDK) and /api/v1 (extension) → service �
 
 - `shared/`: wire types as zod schemas (`annotation.ts`), zod-free enum vocabularies (`vocab.ts`, safe for the page bundle), and the Markdown brief (`brief.ts`).
 - `server/src/`: `config.ts` (env, fails at boot), `store/` (node:sqlite, migrations, the only code that touches SQL), `service/annotations.ts` (use cases and invariants), `auth/access-jwt.ts`, `mcp/` (tools and endpoint), `http/` (Hono app and REST routes), `main.ts`, `backup.ts`.
-- `extension/`: MV3. `src/background.ts` is the only code that talks to the server; `src/auth.ts` is the OAuth client; `src/content/` is picker, capture, panel view, and controller; `src/popup.*`.
+- `extension/`: MV3. `src/background.ts` is the only code that talks to the server; `src/auth.ts` is the OAuth client; `src/content/` is picker, capture, panel view, and controller. There is no popup: the toolbar button toggles the in-page panel.
 - `deploy/`: Dockerfile, compose (server plus cloudflared), `.env.example`, `cloudflare.md` (resource ids, no secrets).
 - `e2e/`: suite against the live edge, authenticated with the `annotator-e2e` service token.
 
@@ -36,8 +36,8 @@ server: auth/access-jwt → /mcp (MCP SDK) and /api/v1 (extension) → service �
 ## Conventions
 
 - TypeScript on Node 24. The server runs `.ts` directly (type stripping), so use erasable syntax only: no enums, no parameter properties, no namespaces. Imports carry the `.ts` extension.
-- The extension is bundled by esbuild (`extension/build.ts`). Content and popup bundles are IIFE, the service worker is ESM. The content bundle must not import zod: take enums from `shared/vocab.ts`.
-- Panel and popup: colors are tokens in `styles.ts` / `popup.css`. Every button has hover, focus-visible, active, disabled, and busy states. Page and user text reaches the DOM only through `textContent`.
+- The extension is bundled by esbuild (`extension/build.ts`). The content bundle is IIFE, the service worker is ESM. The content bundle must not import zod: take enums from `shared/vocab.ts`.
+- Panel: colors are tokens in `styles.ts`. Every button has hover, focus-visible, active, disabled, and busy states. Page and user text reaches the DOM only through `textContent`.
 - Dependencies are pinned exactly. Vet any new one (recent release, human maintenance, adoption) before adding it.
 
 ## Commands

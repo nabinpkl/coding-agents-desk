@@ -1,5 +1,5 @@
 /* Bundles the extension into extension/dist and stamps the build identity
- * (version, git sha, time) into the popup footer and the manifest
+ * (version, git sha, time) into the panel title tooltip and the manifest
  * description shown on chrome://extensions. Run: node extension/build.ts
  *
  * --watch: rebuild on every source change and serve the latest build id on
@@ -62,13 +62,10 @@ async function buildOnce(buildId: string | null): Promise<string> {
   await Promise.all([
     // The service worker is declared "type": "module" in the manifest.
     build({ ...common, ...dev("hot-reload-worker.ts"), entryPoints: [path.join(src, "background.ts")], outfile: path.join(staging, "background.js"), format: "esm" }),
-    // Content scripts and the popup are classic scripts.
+    // Content scripts are classic scripts.
     build({ ...common, ...dev("hot-reload-content.ts"), entryPoints: [path.join(src, "content/index.ts")], outfile: path.join(staging, "content.js"), format: "iife" }),
-    build({ ...common, entryPoints: [path.join(src, "popup.ts")], outfile: path.join(staging, "popup.js"), format: "iife" }),
   ]);
 
-  fs.copyFileSync(path.join(src, "popup.html"), path.join(staging, "popup.html"));
-  fs.copyFileSync(path.join(src, "popup.css"), path.join(staging, "popup.css"));
   fs.copyFileSync(path.join(here, "content.css"), path.join(staging, "content.css"));
   fs.writeFileSync(
     path.join(staging, "manifest.json"),

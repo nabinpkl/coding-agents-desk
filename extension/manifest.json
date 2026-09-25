@@ -9,6 +9,7 @@
     "activeTab",
     "storage",
     "identity",
+    "scripting",
     "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
@@ -16,8 +17,7 @@
     "https://team.cloudflareaccess.com/*"
   ],
   "action": {
-    "default_title": "AgentDesk Annotator",
-    "default_popup": "popup.html"
+    "default_title": "Annotate this page"
   },
   "background": {
     "service_worker": "background.js",
