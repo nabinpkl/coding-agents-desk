@@ -84,12 +84,31 @@ test("a finished turn carries text, thinking, and a paired tool call", () => {
         tool: "shell",
         callId: "c1",
         input: { command: "ls" },
-        summary: "shell",
+        // The chip already says shell, so the summary carries the command.
+        summary: "ls",
         files: undefined,
       },
       { kind: "tool_result", callId: "c1", text: "ok", preview: "ok" },
     ],
   }));
+});
+
+test("a shell call without a command falls back to the tool name", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [
+      {
+        type: "tool",
+        id: "c1",
+        name: "shell",
+        state: { status: "completed", input: {}, content: [{ type: "text", text: "ok" }], structured: {} },
+        time: { created: 1, ran: 2, completed: 3 },
+      },
+    ], 300),
+  ]);
+  const call = projection.page(0, 10)[0]!.blocks[0]!;
+  expect(call.kind).toBe("tool_use");
+  if (call.kind === "tool_use") expect(call.summary).toBe("shell");
 });
 
 test("an unfinished assistant message streams", () => {

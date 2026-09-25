@@ -212,7 +212,27 @@ function toolFiles(state: { status: string }): string[] | undefined {
   return names.length > 0 ? names : undefined;
 }
 
-function toolTitle(name: string, state: { status: string }): string {
+// Input keys holding the command per shell-running tool, mirroring the panel's
+// `shellCommand` map: a header for one of these names the command, not the tool.
+const SHELL_COMMAND_INPUT: Record<string, string> = {
+  shell: "command",
+  bash: "command",
+  Bash: "command",
+  exec_command: "cmd",
+};
+
+function toolTitle(name: string, state: { status: string; input?: unknown }): string {
+  // A shell call's summary IS its command, the way Claude's Bash summary is: the chip already
+  // says which tool ran, so `shell shell` spends the header repeating it instead of showing
+  // `curl -s …`. Capped like every other summary; the header truncates to one line itself.
+  const inputKey = SHELL_COMMAND_INPUT[name];
+  if (inputKey !== undefined) {
+    const input = "input" in state ? (state as { input?: unknown }).input : undefined;
+    const command = input !== null && typeof input === "object"
+      ? (input as Record<string, unknown>)[inputKey]
+      : undefined;
+    if (typeof command === "string" && command.trim()) return command.trim().slice(0, 200);
+  }
   if ((state.status === "running" || state.status === "completed") && "title" in state) {
     const title = (state as { title?: unknown }).title;
     if (typeof title === "string" && title.length > 0) return `${name} · ${title}`;
