@@ -57,7 +57,7 @@ describe("OpencodeModelsDialog", () => {
     expect(onSwitch).toHaveBeenCalledWith(MODELS[1]);
   });
 
-  it("groups options by provider, the session's own first", () => {
+  it("groups options by provider, the session's own first and open", () => {
     render(
       <OpencodeModelsDialog
         models={MODELS}
@@ -69,9 +69,28 @@ describe("OpencodeModelsDialog", () => {
     );
 
     const groups = screen.getAllByRole("group");
-    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["other", "opencode-go"]);
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["other"]);
     expect(screen.getByRole("option", { name: /Tiny/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Muse Spark/ })).toBeNull();
+  });
+
+  it("collapses and expands a provider section", () => {
+    render(
+      <OpencodeModelsDialog
+        models={MODELS}
+        current="other/tiny"
+        initialFilter=""
+        onClose={() => {}}
+        onSwitch={async () => {}}
+      />,
+    );
+
+    const header = screen.getByRole("button", { name: /opencode-go · 1/ });
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(header);
     expect(screen.getByRole("option", { name: /Muse Spark/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /opencode-go · 1/ }));
+    expect(screen.queryByRole("option", { name: /Muse Spark/ })).toBeNull();
   });
   it("is an anchored menu, not a modal, and closes on Escape", () => {
     const onClose = vi.fn();
