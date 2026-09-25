@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { OpencodeAgentBackend } from "@/agents/opencodeAgentBackend";
+import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import {
   AgentModeUnsupportedError,
   AgentSessionNotFoundError,
@@ -9,6 +9,7 @@ import {
 interface Recorded {
   prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
   ran: Array<{ sessionID: string; name: string; text: string }>;
+  localOps: string[];
   interrupts: string[];
   permissionReplies: Array<{ requestID: string; reply: string }>;
   created: string[];
@@ -95,6 +96,14 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       });
       return Response.json({ data: {} });
     }
+    if (parsed.pathname.endsWith("/compact") || parsed.pathname.endsWith("/revert/stage") || parsed.pathname.endsWith("/revert/commit")) {
+      recorded.localOps.push(`${init?.method ?? "POST"} ${parsed.pathname.split("/").slice(-2).join("/")} ${String(init?.body)}`);
+      return Response.json({ data: {} });
+    }
+    if (parsed.pathname.endsWith("/s1") && init?.method === "PATCH") {
+      recorded.localOps.push(`PATCH session ${String(init?.body)}`);
+      return new Response(null, { status: 204 });
+    }
     if (parsed.pathname.endsWith("/prompt")) {
       const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string; files?: Array<{ uri: string; mime: string; name: string }> };
       recorded.prompts.push({
@@ -134,7 +143,7 @@ let pushToStream: ((value: unknown) => void) | null = null;
 
 function fixture() {
   pushToStream = null;
-  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const backend = new OpencodeAgentBackend({
     resolveSession: (sessionId) =>
@@ -195,6 +204,9 @@ test("commands list from the serve and run natively with the draft as arguments"
   await expect(backend.listCommands()).resolves.toEqual([
     { name: "review", description: "review changes" },
     { name: "lonely" },
+    { name: "compact", description: "Summarize this session to free context" },
+    { name: "undo", description: "Revert the last thing you said" },
+    { name: "rename", description: "Rename this session" },
   ]);
   const receipt = await backend.runCommand("s1", "r-cmd", "review", "the last commit");
   expect(receipt).toEqual({ requestId: "r-cmd", delivery: "immediate" });
@@ -202,6 +214,43 @@ test("commands list from the serve and run natively with the draft as arguments"
   // A repeated request answers from the ledger without touching the serve again.
   await backend.runCommand("s1", "r-cmd", "review", "the last commit");
   expect(recorded.ran).toHaveLength(1);
+  await backend.dispose();
+});
+
+test("local ops compact, undo and rename through their native endpoints", async () => {
+  const { backend, recorded } = fixture();
+  await backend.runLocalCommand("s1", "r-compact", "compact", "");
+  await backend.runLocalCommand("s1", "r-undo", "undo", "");
+  await backend.runLocalCommand("s1", "r-rename", "rename", "New title");
+  expect(recorded.localOps).toEqual([
+    'POST s1/compact {}',
+    expect.stringContaining('"messageID":"msg-u"'),
+    'POST revert/commit {}',
+    'PATCH session {"title":"New title"}',
+  ]);
+  await backend.dispose();
+});
+
+test("runCommand sorts local names natively and lists them with server commands", async () => {
+  const { backend, recorded } = fixture();
+  await backend.runCommand("s1", "r-l", "compact", "");
+  expect(recorded.localOps).toEqual(["POST s1/compact {}"]);
+  expect(recorded.ran).toHaveLength(0);
+  await expect(backend.listCommands()).resolves.toEqual([
+    { name: "review", description: "review changes" },
+    { name: "lonely" },
+    { name: "compact", description: "Summarize this session to free context" },
+    { name: "undo", description: "Revert the last thing you said" },
+    { name: "rename", description: "Rename this session" },
+  ]);
+  await backend.dispose();
+});
+
+test("local ops refuse an unknown name and an empty undo or rename", async () => {
+  const { backend, recorded } = fixture();
+  await expect(backend.runLocalCommand("s1", "r-x", "nope", "")).rejects.toThrow('unknown local command "nope"');
+  await expect(backend.runLocalCommand("s1", "r-t", "rename", "  ")).rejects.toThrow("rename needs a title");
+  expect(recorded.localOps).toHaveLength(0);
   await backend.dispose();
 });
 
@@ -240,7 +289,7 @@ test("a serve permission becomes a broker select and the answer becomes its repl
 
 test("creating a session registers it through the serve", async () => {
   const created: Array<{ sessionId: string; projectPath: string }> = [];
-  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   const backend = new OpencodeAgentBackend({
     resolveSession: () => undefined,
     onSessionCreated: (location) => created.push(location),
@@ -257,7 +306,7 @@ test("creating a session registers it through the serve", async () => {
 
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
-  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   // Newest-first, the way the serve lists; the tail read picks up the push.
   const messages = [userItem("msg-u", "hello")];
   installFetch(recorded, messages);
@@ -283,7 +332,7 @@ test("opening a stale projection re-reads the serve", async () => {
 });
 
 test("a long history walks every page and lands chronological", async () => {
-  const recorded: Recorded = { prompts: [], ran: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   // Newest-first, the way the serve lists: msg-249 first, msg-0 last.
   const all = Array.from({ length: 250 }, (_, i) => ({
     id: `msg-${249 - i}`,

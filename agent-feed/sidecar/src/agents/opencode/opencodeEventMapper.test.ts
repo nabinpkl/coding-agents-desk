@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import { OpencodeEventMapper } from "@/agents/opencodeEventMapper";
+import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 
 function user(id: string, text: string): SessionMessage {
   return { id, time: { created: 100 }, text, type: "user" };

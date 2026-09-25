@@ -13,7 +13,7 @@ import {
   submitTmuxComposer,
   syncTmuxComposer,
 } from "@/input/tmuxComposer";
-import { serveGet, serveRequest } from "@/agents/opencodeClient";
+import { serveGet, serveRequest } from "@/agents/opencode/opencodeClient";
 import {
   findSession,
   getSnapshot,

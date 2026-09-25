@@ -8,7 +8,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessageAttachment } from "@/agents/agentBackend";
-import { resetOpencodeClient, serveGet } from "@/agents/opencodeClient";
+import { resetOpencodeClient, serveGet, serveWrite } from "@/agents/opencode/opencodeClient";
+import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 
 /** One slash command the serve offers, as the composer picker shows it. */
 export interface OpencodeSlashCommand {
@@ -71,4 +72,51 @@ export async function listOpencodeServeCommands(): Promise<OpencodeSlashCommand[
       ? [{ name: entry.name, ...(typeof entry.description === "string" ? { description: entry.description } : {}) }]
       : [],
   );
+}
+
+/** Slash ops the TUI owns locally, answered here instead of by a server command. */
+export const LOCAL_OPENCODE_COMMANDS: readonly OpencodeSlashCommand[] = [
+  { name: "compact", description: "Summarize this session to free context" },
+  { name: "undo", description: "Revert the last thing you said" },
+  { name: "rename", description: "Rename this session" },
+];
+
+function checkLocalOp(path: string, status: number, text: string): void {
+  if (status === 401) {
+    resetOpencodeClient();
+    throw new Error(`${path}: unauthorized (${status})`);
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(`${path}: serve answered ${status} ${text.slice(0, 200)}`);
+  }
+}
+
+/** Summarizes the session in place; the compaction lands as a timeline event like any turn. */
+export async function compactOpencodeSession(sessionId: string): Promise<void> {
+  // An explicit empty object: the serve rejects a bodiless POST (measured 400).
+  const answered = await serveWrite("POST", `/api/session/${sessionId}/compact`, {});
+  checkLocalOp("compact", answered.status, answered.text);
+}
+
+/** The last thing the person said, which is what undo reverts. Null when nothing can. */
+export async function lastOpencodeUserMessage(sessionId: string): Promise<string | null> {
+  const tail = await readOpencodeTail(sessionId);
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    if (tail[i]?.type === "user") return tail[i]!.id;
+  }
+  return null;
+}
+
+/** Reverts the last user message: stage, then commit, the serve's own two-step. */
+export async function undoOpencodeSession(sessionId: string, messageId: string): Promise<void> {
+  const staged = await serveWrite("POST", `/api/session/${sessionId}/revert/stage`, { messageID: messageId });
+  checkLocalOp("revert stage", staged.status, staged.text);
+  const committed = await serveWrite("POST", `/api/session/${sessionId}/revert/commit`, {});
+  checkLocalOp("revert commit", committed.status, committed.text);
+}
+
+/** Renames the session; the new title arrives on the session event like any rename. */
+export async function renameOpencodeSession(sessionId: string, title: string): Promise<void> {
+  const answered = await serveWrite("PATCH", `/api/session/${sessionId}`, { title });
+  checkLocalOp("rename", answered.status, answered.text);
 }

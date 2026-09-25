@@ -58,6 +58,19 @@ export async function serveGet(path: string): Promise<{ status: number; text: st
   return { status: response.status, text: await response.text() };
 }
 
+/**
+ * Raw non-GET calls beyond `serveRequest`: the local session ops (compact, revert, rename)
+ * each need the status plus the whole small body, and PATCH has no other caller.
+ */
+export async function serveWrite(
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; text: string }> {
+  const { response } = await serveCall(method, path, body);
+  return { status: response.status, text: await response.text() };
+}
+
 async function serveCall(
   method: string,
   path: string,

@@ -13,7 +13,7 @@ import type {
   AgentSessionDescriptor,
 } from "@/agents/agentBackend";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
-import { OPENCODE_AGENT_CAPABILITIES } from "@/agents/opencodeAgentBackend";
+import { OPENCODE_AGENT_CAPABILITIES } from "@/agents/opencode/opencodeAgentBackend";
 import { state } from "@/transcripts/transcriptState";
 import { compactTitle } from "@/transcripts/catalog/catalogRecords";
 import type { Bin, Session, SourceId } from "@/transcripts/transcriptTypes";

@@ -7,7 +7,7 @@
 // projections plus commands are another.
 
 import type { OpencodeClient, V2Event } from "@opencode-ai/sdk/v2/client";
-import { describeServeError, isServeUnauthorized, resetOpencodeClient } from "@/agents/opencodeClient";
+import { describeServeError, isServeUnauthorized, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
 
 export type OpencodeRunState = "running" | "idle" | "error";

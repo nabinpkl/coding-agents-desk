@@ -288,6 +288,7 @@ test("opencode commands list from the backend and run with the draft as argument
   const list = new Request("http://localhost/api/agent-sessions/opencode/commands", { method: "GET" });
   const listed = await route(list, new URL(list.url), server);
   expect(listed?.status).toBe(200);
+  // The route publishes the backend's list verbatim; merging locals is the backend's job.
   expect(await listed?.json()).toEqual({ commands: [{ name: "review", description: "review changes" }] });
 
   const run = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
@@ -298,6 +299,15 @@ test("opencode commands list from the backend and run with the draft as argument
   expect(answered?.status).toBe(202);
   expect(await answered?.json()).toEqual({ requestId: "c1", delivery: "followUp" });
   expect(ran).toEqual([{ sessionId: "s1", name: "review", text: "the last commit" }]);
+
+  const local = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "c-local", name: "compact", text: "" }),
+  });
+  const localAnswered = await route(local, new URL(local.url), server);
+  expect(localAnswered?.status).toBe(202);
+  // Local names travel the same run route: the backend sorts them natively.
+  expect(ran.at(-1)).toEqual({ sessionId: "s1", name: "compact", text: "" });
 
   const nameless = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
     method: "POST",

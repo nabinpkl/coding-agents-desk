@@ -8,8 +8,8 @@
 
 import type { OpencodeClient, SessionV2Info } from "@opencode-ai/sdk/v2/client";
 import { config } from "@/config/config";
-import { describeServeError, opencodeClient, resetOpencodeClient } from "@/agents/opencodeClient";
-import type { OpencodeSessionLocation } from "@/agents/opencodeAgentBackend";
+import { describeServeError, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeSessionLocation } from "@/agents/opencode/opencodeAgentBackend";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import { broadcast, findSession, scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";

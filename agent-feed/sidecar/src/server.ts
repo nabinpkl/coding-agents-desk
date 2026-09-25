@@ -60,7 +60,7 @@ import {
 } from "@/transcripts/catalog/transcriptCatalog";
 import { AgentBackendRegistry } from "@/agents/agentBackend";
 import { PiAgentBackend } from "@/agents/piAgentBackend";
-import { OpencodeAgentBackend } from "@/agents/opencodeAgentBackend";
+import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { BotStore } from "@/bots/botStore";
