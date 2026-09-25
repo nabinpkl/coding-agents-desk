@@ -45,6 +45,7 @@ export type {
 export type {
   AddBotCommand,
   AddBotSessionsCommand,
+  BotCanvasSessionChange,
   BotCreatedBy,
   BotDirectoryEnvironment,
   BotGrant,
@@ -60,6 +61,7 @@ export type {
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
   RetiredBotSession,
+  SetBotCanvasCommand,
 } from "./bot.ts";
 
 export type {

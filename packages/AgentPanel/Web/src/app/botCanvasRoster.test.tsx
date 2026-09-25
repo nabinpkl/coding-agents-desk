@@ -78,10 +78,10 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("brings back the canvas the reader tidied, not the one the sidecar sends", async () => {
+  it("brings back the canvas the reader tidied, from the Bots' records rather than this browser", async () => {
     // Both removals used to be in-memory only, so every reload -- and a Vite save is a reload --
-    // undid the tidying and the reader arranged the canvas again. The absence is announced in the
-    // roster at both levels, which is what makes remembering it safe rather than merely convenient.
+    // undid the tidying. Then they were kept in this browser, so the phone and the Mac disagreed.
+    // They are on the Bot's record now, so a reload is handed them by the sidecar.
     const evalBot = {
       ...BOT_WITH_ONE_SESSION,
       botId: "bot-2",
@@ -89,20 +89,16 @@ describe("App shell", () => {
       sessionRefs: [],
       sessions: [],
     };
-    const deliver = (transport: FakeHttpTransport) => {
+    const deliver = (transport: FakeHttpTransport, snapshot: unknown) => {
       act(() => {
-        transport.deliver("/api/bots/stream", {
-          version: 2,
-          revision: 1,
-          bots: [BOT_WITH_ONE_SESSION, evalBot],
-        });
+        transport.deliver("/api/bots/stream", snapshot);
       });
     };
 
     const first = setup();
     deliverProjects(first.transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
-    deliver(first.transport);
+    deliver(first.transport, { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION, evalBot] });
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Eval Bot" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from canvas" }));
@@ -113,11 +109,18 @@ describe("App shell", () => {
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
     first.unmount();
 
-    // A reload: new app, same storage, and the bots arrive from the stream exactly as before.
+    // What the sidecar now holds, and nothing in this browser says so.
+    const held = first.bots.latest()!;
+    expect(held.bots.find((bot) => bot.botId === "bot-2")?.offCanvas).toBe(true);
+    expect(held.bots.find((bot) => bot.botId === "bot-1")?.offCanvasSessionRefs)
+      .toEqual([{ source: "claude", sessionId: "sid-claude-01" }]);
+    expect(Object.keys(localStorage).filter((key) => key.includes("off-canvas"))).toEqual([]);
+
+    // A reload: new app, and the bots arrive from the stream as the sidecar now holds them.
     const second = setup();
     deliverProjects(second.transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
-    deliver(second.transport);
+    deliver(second.transport, held);
 
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
     expect(canvas().queryByRole("button", { name: "Add sessions to Eval Bot" })).toBeNull();
@@ -129,9 +132,9 @@ describe("App shell", () => {
     fireEvent.click(roster().getByRole("button", { name: /^Session Claude 01/ }));
     expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
     expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
-    // Restoring writes as reliably as hiding did, so the next reload is not the old canvas again.
-    expect(localStorage.getItem("agent-panel.bot-canvas.off-canvas-bots")).toBeNull();
-    expect(localStorage.getItem("agent-panel.bot-canvas.off-canvas-sessions")).toBeNull();
+    // Restoring writes to the record as hiding did, so the next reload is not the old canvas again.
+    const restored = second.bots.latest()!;
+    expect(restored.bots.some((bot) => bot.offCanvas || bot.offCanvasSessionRefs)).toBe(false);
     second.unmount();
   });
 

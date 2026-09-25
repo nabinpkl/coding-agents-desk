@@ -15,6 +15,7 @@ import type {
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
   SessionSummary,
+  SetBotCanvasCommand,
 } from "@agentdesk/agent-feed-wire";
 import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
 import { directoryBelongsTo, worktreeOf } from "@/git/worktree";
@@ -31,6 +32,7 @@ import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } f
 import { BotSessionStarter } from "@/bots/botSessionLaunch";
 import { BotSessionRetirer, detachRefs } from "@/bots/botSessionRemoval";
 import { reorderRefs } from "@/bots/botSessionOrder";
+import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
 import {
   BotConflictError,
   BotForbiddenError,
@@ -347,6 +349,17 @@ export class BotRegistry {
     const record = await this.store.mutate((snapshot) =>
       reorderRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
     );
+    return this.viewRecord(record);
+  }
+
+  /** Puts this Bot, or some of its sessions, on or off the canvas. See `botCanvas.ts`. */
+  async setCanvas(botId: string, command: SetBotCanvasCommand, actor: BotActor): Promise<BotView> {
+    if (actor.kind !== "user") {
+      throw new BotForbiddenError("only the authenticated user may arrange the canvas");
+    }
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
+    const normalized = normalizeBotCanvas(command);
+    const record = await this.store.mutate((snapshot) => setBotCanvas(snapshot, botId, normalized));
     return this.viewRecord(record);
   }
 

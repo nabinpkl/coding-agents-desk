@@ -35,6 +35,7 @@ import type {
   ReorderBotSessionsCommand,
   LimitsStreamMessage,
   SessionSummary,
+  SetBotCanvasCommand,
   SidecarConfig,
   StartedSession,
   SummaryStreamMessage,
@@ -214,6 +215,20 @@ export class SidecarDataSource extends SidecarAgentSessions implements AgentData
         "POST",
         `/api/bots/${encodeURIComponent(botId)}/sessions/order`,
         { body: { ...command, requestId: crypto.randomUUID() } },
+      ),
+    );
+  }
+
+  /**
+   * Puts a Bot, or some of its sessions, on or off the canvas. Stored on the Bot's record, so every
+   * surface reading this machine sees the same canvas; the stream carries the change back.
+   */
+  async setBotCanvas(botId: string, command: SetBotCanvasCommand): Promise<BotView> {
+    return parse<BotView>(
+      await this.transport.request(
+        "POST",
+        `/api/bots/${encodeURIComponent(botId)}/canvas`,
+        { body: command },
       ),
     );
   }

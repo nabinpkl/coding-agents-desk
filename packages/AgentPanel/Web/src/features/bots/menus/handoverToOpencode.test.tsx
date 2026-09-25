@@ -34,8 +34,7 @@ function commands(feed: SidecarDataSource, openKeys: Set<string> = new Set()) {
     result: renderHook(() => useBotCommands(
       botFeeds(feed, [machine], () => machine, () => machine),
       {
-        setDetachedBotIds: () => {},
-        setDetachedSessionKeys: () => {},
+        putBotOnCanvas: () => {},
         setCanvasOpenKeys: (update: React.SetStateAction<ReadonlySet<string>>) => {
           const next = typeof update === "function" ? update(openKeys) : update;
           openKeys.clear();

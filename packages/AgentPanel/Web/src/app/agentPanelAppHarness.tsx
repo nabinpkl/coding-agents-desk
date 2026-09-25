@@ -15,6 +15,7 @@
  */
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { BotSnapshot, BotView, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import { FakeHostBridge } from "@/features/activity-feed/data-source/HostBridge";
@@ -150,11 +151,61 @@ export function setup(terminalIds: string[] = []) {
         ? pending.shift() ?? "request-1"
         : `${prefix}-${++sequence}`,
   });
+  const bots = holdBotCanvas(transport);
   const { unmount } = render(<App feed={new SidecarDataSource(transport)} host={host} />);
   act(() => {
     transport.deliver("/api/bots/stream", { version: 2, revision: 0, bots: [] });
   });
-  return { fake, transport, host, unmount };
+  return { fake, transport, host, unmount, bots };
+}
+
+/**
+ * Makes the fake sidecar keep the canvas the way the real one does: on the Bot records.
+ *
+ * Remembers the last Bot snapshot delivered, and answers `POST /api/bots/:id/canvas` by applying
+ * the command to it and publishing the new snapshot down the stream, as `botCanvas.ts` does.
+ * Synchronously, inside the request, so a click and the canvas it changes land in one `act`.
+ * `latest()` is what a reload would be sent.
+ */
+function holdBotCanvas(transport: FakeHttpTransport): { latest: () => BotSnapshot | null } {
+  let latest: BotSnapshot | null = null;
+  const deliver = transport.deliver.bind(transport);
+  transport.deliver = (match, payload) => {
+    if (match === "/api/bots/stream" && typeof payload === "object") latest = payload as BotSnapshot;
+    deliver(match, payload);
+  };
+  const request = transport.request.bind(transport);
+  transport.request = (method, path, options = {}) => {
+    const canvas = /^\/api\/bots\/([^/]+)\/canvas$/.exec(path);
+    if (method !== "POST" || !canvas || !latest) return request(method, path, options);
+    const botId = decodeURIComponent(canvas[1]!);
+    const command = options.body as SetBotCanvasCommand;
+    const bots = latest.bots.map((bot) => bot.botId === botId ? applyCanvas(bot, command) : bot);
+    transport.deliver("/api/bots/stream", { ...latest, revision: latest.revision + 1, bots });
+    const answered = request(method, path, options);
+    return answered.then(() => ({
+      status: 200,
+      body: JSON.stringify(bots.find((bot) => bot.botId === botId)),
+    }));
+  };
+  return { latest: () => latest };
+}
+
+function applyCanvas(bot: BotView, command: SetBotCanvasCommand): BotView {
+  const key = (ref: { source: string; sessionId: string }) => `${ref.source}:${ref.sessionId}`;
+  const off = new Set((bot.offCanvasSessionRefs ?? []).map(key));
+  for (const change of command.sessions ?? []) {
+    if (change.onCanvas) off.delete(key(change));
+    else off.add(key(change));
+  }
+  const { offCanvas, offCanvasSessionRefs: _refs, ...rest } = bot;
+  const refs = bot.sessionRefs.filter((ref) => off.has(key(ref)));
+  const stillOff = command.onCanvas === undefined ? offCanvas : !command.onCanvas;
+  return {
+    ...rest,
+    ...(stillOff ? { offCanvas: true } : {}),
+    ...(refs.length > 0 ? { offCanvasSessionRefs: refs } : {}),
+  };
 }
 
 /** The newest subscription id the App posted for a native-authority watch. */

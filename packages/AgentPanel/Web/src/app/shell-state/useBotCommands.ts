@@ -6,9 +6,8 @@
 // leaves behind -- the dialogs that are open, the sessions the catalog has not heard of yet, and
 // where a failure is said.
 //
-// It writes into the canvas roster in three places, which is why those setters are passed in: a
-// started session opens its card, a fork puts its Bot back, and a detach forgets the key that
-// hid the row.
+// It writes into the canvas roster in two places, which is why those are passed in: a started
+// session opens its card, and puts its Bot back on the canvas if it was off.
 
 import { useCallback, useState } from "react";
 import type {
@@ -46,14 +45,14 @@ export function useBotCommands(
    */
   feeds: BotFeeds,
   roster: {
-    setDetachedBotIds: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
-    setDetachedSessionKeys: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
+    /** Puts a Bot that is off the canvas back on it, on its record. */
+    putBotOnCanvas: (botId: string) => void;
     setCanvasOpenKeys: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
   },
   /** Dropped whenever a picker or dialog opens, so a peek never stacks over the thing it opened. */
   setHoverPreviewOpen: (open: boolean) => void,
 ) {
-  const { setCanvasOpenKeys, setDetachedBotIds, setDetachedSessionKeys } = roster;
+  const { setCanvasOpenKeys, putBotOnCanvas } = roster;
   // A failure from a command the shell issues rather than the thread -- today, editing a Bot.
   // Carries the session it is about, because the canvas shows several at once and a bare string was
   // painted on every one of them; see `BotCommandError`.
@@ -325,12 +324,7 @@ export function useBotCommands(
           tmuxSession: started.tmuxSession,
         },
       ]);
-      setDetachedBotIds((current) => {
-        if (!current.has(bot.botId)) return current;
-        const next = new Set(current);
-        next.delete(bot.botId);
-        return next;
-      });
+      putBotOnCanvas(bot.botId);
       setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
     } catch (error) {
       setBotCommandError({
@@ -340,7 +334,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feeds]);
+  }, [feeds, putBotOnCanvas]);
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
   const closeNewSession = useCallback((sessionId: string) => {
@@ -407,16 +401,8 @@ export function useBotCommands(
     // Cleared as the next removal starts rather than by the open session's own commands: the
     // failure belongs to the Bot edit, so it should outlive a send and not outlive another edit.
     setBotCommandError(null);
-    // Forgotten here rather than left to expire with the panel. Hiding a card and then removing
-    // the session from the Bot are two different acts, and a leftover key would meet the session
-    // again if it were ever attached back -- as an invisible row, on a card that never said so.
-    setDetachedSessionKeys((current) => {
-      const key = `${target.source}:${target.sessionId}`;
-      if (!current.has(key)) return current;
-      const next = new Set(current);
-      next.delete(key);
-      return next;
-    });
+    // Nothing to forget about its place on the canvas: the sidecar drops the session from the
+    // Bot's off-canvas list in the same write that detaches it.
     void Promise.resolve()
       .then(() => feeds.forBot(bot.botId).detachBotSessions(bot.botId, { sessionRefs: [target] }))
       .catch((error: unknown) => {

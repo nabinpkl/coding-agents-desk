@@ -4,6 +4,7 @@ import type {
   DetachBotSessionsCommand,
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
+  SetBotCanvasCommand,
 } from "@agentdesk/agent-feed-wire";
 import {
   BotConflictError,
@@ -77,6 +78,10 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     const orderMatch = /^\/api\/bots\/([^/]+)\/sessions\/order$/.exec(url.pathname);
     if (request.method === "POST" && orderMatch) {
       return reorderBotSessions(request, orderMatch[1]!, registry);
+    }
+    const canvasMatch = /^\/api\/bots\/([^/]+)\/canvas$/.exec(url.pathname);
+    if (request.method === "POST" && canvasMatch) {
+      return setBotCanvas(request, canvasMatch[1]!, registry);
     }
     return undefined;
   };
@@ -154,6 +159,23 @@ async function reorderBotSessions(
     if (body instanceof Response) return body;
     return jsonResponse(
       await registry.reorderSessions(decodedBotId, body as unknown as ReorderBotSessionsCommand, { kind: "user" }),
+    );
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function setBotCanvas(
+  request: Request,
+  botId: string,
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    const decodedBotId = decodeBotId(botId);
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    return jsonResponse(
+      await registry.setCanvas(decodedBotId, body as unknown as SetBotCanvasCommand, { kind: "user" }),
     );
   } catch (error) {
     return routeError(error);

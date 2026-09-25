@@ -185,8 +185,8 @@ const OPEN_SESSIONS_KEY = "agent-panel.bot-canvas.open-session";
  * indistinguishable from a reader with no Bots except that pruning against it costs a whole canvas. A key whose Bot still holds it but whose transcript
  * the sidecar cannot read this minute is kept, so a session that comes back comes back open.
  *
- * What is on the canvas at all is stored beside this, and the note on the detached sets below says
- * what changed to earn that.
+ * What is on the canvas at all is not stored here: it is on each Bot's record in `bots.json`
+ * (`offCanvas`, `offCanvasSessionRefs`), so every surface reads one answer.
  */
 export function loadCanvasOpenKeys(): ReadonlySet<string> {
   if (typeof window === "undefined") return new Set();
@@ -389,72 +389,6 @@ export function moveInOrder(order: string[], from: number, to: number): string[]
   return next;
 }
 
-/**
- * What the reader has taken off the canvas: whole Bots by id, and single sessions as
- * `source:sessionId`.
- *
- * This reverses what the open-keys note above says, and the reversal is the point rather than an
- * oversight. Not storing it was right when the only sign that a Bot was off the canvas was the
- * canvas being one card shorter -- a set that came back would hide a Bot from a reader who had
- * forgotten taking it off, and rebuilding the canvas cost one click. The sidebar roster has since
- * become the answer to both halves: it lists every Bot and every session either way, dims the ones
- * that are off, and carries the toggle that puts them back. So the absence is stated on screen
- * rather than inferred from a gap, and the reader who has forgotten is told.
- *
- * What makes it worth storing rather than merely allowed is the cost of the other side. Taking
- * things off is how a busy canvas is made readable, and this panel is edited while it is read, so
- * a set that forgets is one the reader re-enters many times a day.
- *
- * Identity only, and unlike the open keys these are NOT pruned against the roster. The difference is
- * which way a stale entry fails. A stale open key is silent: it opens nothing and nobody can tell it
- * is there. A stale entry here hides something, and hiding is the thing the roster announces -- the
- * row is listed, dimmed, with the control that puts it back -- so it is visible rather than lost,
- * and a session its Bot takes back is one the reader can see is off the canvas. They grow only by an
- * explicit removal and shrink on restore, which is bound enough.
- */
-const DETACHED_BOTS_KEY = "agent-panel.bot-canvas.off-canvas-bots";
-const DETACHED_SESSIONS_KEY = "agent-panel.bot-canvas.off-canvas-sessions";
-
-function loadDetached(key: string, shaped: (value: string) => boolean): ReadonlySet<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    // Each entry judged on its own: the dangerous direction for this store is the one where a bad
-    // value HIDES something, so an unreadable entry is dropped without costing the ones beside it.
-    return new Set(parsed.filter((value): value is string => typeof value === "string" && shaped(value)));
-  } catch {
-    return new Set();
-  }
-}
-
-function storeDetached(key: string, values: ReadonlySet<string>): void {
-  try {
-    if (values.size === 0) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify([...values]));
-  } catch {
-    // The canvas still hides and restores; it just forgets what by the next visit.
-  }
-}
-
-export function loadDetachedBotIds(): ReadonlySet<string> {
-  return loadDetached(DETACHED_BOTS_KEY, (id) => id.length > 0);
-}
-
-export function storeDetachedBotIds(ids: ReadonlySet<string>): void {
-  storeDetached(DETACHED_BOTS_KEY, ids);
-}
-
-export function loadDetachedSessionKeys(): ReadonlySet<string> {
-  return loadDetached(DETACHED_SESSIONS_KEY, (key) => key.includes(":"));
-}
-
-export function storeDetachedSessionKeys(keys: ReadonlySet<string>): void {
-  storeDetached(DETACHED_SESSIONS_KEY, keys);
-}
-
 const HIDDEN_MACHINES_KEY = "agent-panel.bot-canvas.hidden-machines";
 
 /**
@@ -462,7 +396,7 @@ const HIDDEN_MACHINES_KEY = "agent-panel.bot-canvas.hidden-machines";
  *
  * The canvas reads every declared machine at once, which is the point of it -- a Bot on a remote
  * peer standing beside one on this Mac -- and is also the reason a reader needs a way to say "not
- * that one right now". It passes the same test the detached sets pass (`AGENTS.md`, "Panel state"):
+ * that one right now". It passes the test `AGENTS.md` sets under "Panel state":
  * it is an arrangement nobody else knows, it costs real clicks to redo, and its absence is VISIBLE
  * because the machine's chip stays in the row saying how many cards it is holding back.
  *

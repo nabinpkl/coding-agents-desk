@@ -42,8 +42,7 @@ function commands(feed: SidecarDataSource) {
   return renderHook(() => useBotCommands(
     botFeeds(feed, [machine], () => machine, () => machine),
     {
-      setDetachedBotIds: () => {},
-      setDetachedSessionKeys: () => {},
+      putBotOnCanvas: () => {},
       setCanvasOpenKeys: () => {},
     },
     () => {},

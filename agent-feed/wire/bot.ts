@@ -38,6 +38,15 @@ export interface BotRecord {
   grants: BotGrant[];
   createdAt: number;
   createdBy: BotCreatedBy;
+  /**
+   * Taken off the Bot canvas. Absent means on it.
+   *
+   * Kept on the record rather than in the browser, so every surface and every reload reads one
+   * answer and a Bot on a peer carries its own. Changed with `SetBotCanvasCommand`.
+   */
+  offCanvas?: boolean;
+  /** This Bot's sessions taken off the canvas. Always a subset of `sessionRefs`; absent means none. */
+  offCanvasSessionRefs?: BotSessionRef[];
 }
 
 export interface BotView extends BotRecord {
@@ -186,6 +195,22 @@ export interface ReorderBotSessionsCommand {
   requestId: string;
   /** Every reference the Bot holds, in the order it should now stand. */
   sessionRefs: BotSessionRef[];
+}
+
+/**
+ * Puts a Bot, or some of its sessions, on or off the canvas.
+ *
+ * A setting rather than an act, so no `requestId`: sending it twice lands the same state, and an
+ * idempotency record per toggle would grow `bots.json` by one entry every click. Each field left
+ * out is left as it is. A session must be one the Bot holds.
+ */
+export interface SetBotCanvasCommand {
+  onCanvas?: boolean;
+  sessions?: BotCanvasSessionChange[];
+}
+
+export interface BotCanvasSessionChange extends BotSessionRef {
+  onCanvas: boolean;
 }
 
 /**

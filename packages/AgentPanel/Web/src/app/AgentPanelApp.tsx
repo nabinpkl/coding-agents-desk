@@ -96,12 +96,17 @@ export function App({ feed, host, machines, fill = false }: Props) {
   const chrome = useSidebarChrome();
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
-  const roster = useCanvasRoster({ bots: botsState.bots, settled: botsState.settled && shellMachines.known });
+  const roster = useCanvasRoster(
+    { bots: botsState.bots, settled: botsState.settled && shellMachines.known },
+    shellMachines.feeds,
+  );
   const commands = useBotCommands(
     shellMachines.feeds,
-    { setDetachedBotIds: roster.setDetachedBotIds, setDetachedSessionKeys: roster.setDetachedSessionKeys, setCanvasOpenKeys: roster.setCanvasOpenKeys },
+    { putBotOnCanvas: roster.putBotOnCanvas, setCanvasOpenKeys: roster.setCanvasOpenKeys },
     chrome.setHoverPreviewOpen,
   );
+  // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
+  const botError = commands.botCommandError ?? roster.canvasError;
 
   const botSessionPicker = commands.botSessionPickerId
     ? botsState.bots.find((bot) => bot.botId === commands.botSessionPickerId) ?? null
@@ -416,11 +421,11 @@ export function App({ feed, host, machines, fill = false }: Props) {
                   // one about no session at all. Note the composer band outranks this caption for
                   // every Claude and Codex session, which is why the canvas puts it on the card
                   // instead; here there is nowhere else to put it.
-                  externalError={commands.botCommandError
-                      && (commands.botCommandError.session === null
-                        || commands.botCommandError.session
+                  externalError={botError
+                      && (botError.session === null
+                        || botError.session
                           === `${displayedThread.session.source}:${displayedThread.session.sessionId}`)
-                    ? commands.botCommandError.message
+                    ? botError.message
                     : null}
                 />
                 <FileDropOverlay
@@ -442,7 +447,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 hiddenMachines={roster.hiddenMachines}
                 machineErrors={botsState.machineErrors}
                 sessionContextFor={(botId) => shellMachines.contextFor(sessionViewContext, botId)}
-                botError={commands.botCommandError}
+                botError={botError}
                 onAddSession={commands.openBotSessionPicker}
                 onForkSession={commands.forkSession}
                 onForkFromLastMessage={commands.forkFromLastMessage}

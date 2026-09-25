@@ -22,6 +22,7 @@ import { WorktreeError } from "@/git/worktree";
 import type { BotStore, StoredBotSnapshot } from "@/bots/botStore";
 import type { NormalizedRetire } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
+import { withOffCanvasSessions } from "@/bots/botCanvas";
 import {
   BotConflictError,
   BotNotFoundError,
@@ -55,10 +56,12 @@ export function detachRefs(
   if (absent) throw new BotNotFoundError(`session ${sessionKey(absent)} is not attached to this Bot`);
 
   const removing = new Set(refs.map(sessionKey));
-  const updated: BotRecord = {
-    ...bot,
-    sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))),
-  };
+  const updated: BotRecord = withOffCanvasSessions(
+    { ...bot, sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))) },
+    // A session that leaves the Bot leaves its off-canvas list too. Kept, it would meet the session
+    // again if it were ever attached back, as a row hidden on a card that never said so.
+    (bot.offCanvasSessionRefs ?? []).filter((ref) => !removing.has(sessionKey(ref))),
+  );
   const bots = [...snapshot.bots];
   bots[index] = updated;
   return {

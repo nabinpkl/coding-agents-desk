@@ -60,6 +60,11 @@ function isBotRecord(value: unknown): value is BotRecord {
     && value.grants.every((grant) => grant === "add_bot")
     && typeof value.createdAt === "number"
     && Number.isFinite(value.createdAt)
+    && (value.offCanvas === undefined || typeof value.offCanvas === "boolean")
+    && (
+      value.offCanvasSessionRefs === undefined
+      || (Array.isArray(value.offCanvasSessionRefs) && value.offCanvasSessionRefs.every(isSessionRef))
+    )
     && (
       value.createdBy.kind === "user"
       || (value.createdBy.kind === "bot" && typeof value.createdBy.botId === "string")

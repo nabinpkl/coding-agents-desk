@@ -1,48 +1,101 @@
 // What the reader arranged on the canvas: which Bots are on it, which sessions are open, and which
 // machines it is showing at all.
 //
-// Four sets and the order they stand in, all remembered, and all held above the canvas rather than
-// inside it -- the sidebar's roster puts a Bot back, opens a card and lists them in that same
-// order, and a picker cannot drive state that lives inside the thing it is driving.
-// `botCanvasPreferences` carries why remembering them is safe now and was not before.
+// Four sets and the order they stand in, all held above the canvas rather than inside it -- the
+// sidebar's roster puts a Bot back, opens a card and lists them in that same order, and a picker
+// cannot drive state that lives inside the thing it is driving.
+//
+// Which Bots and sessions are ON the canvas is not the browser's to remember: it is on each Bot's
+// record in its machine's `bots.json` (`offCanvas`, `offCanvasSessionRefs`), read here off the
+// roster and changed with `setBotCanvas`. The rest is how this reader arranged this browser, and
+// `botCanvasPreferences` keeps it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
+import type { BotFeeds } from "@/features/bots/botMachines";
+import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import {
   botCanvasOrderOf,
   loadBotCanvasOrder,
   loadCanvasOpenKeys,
   loadCanvasRoom,
-  loadDetachedBotIds,
-  loadDetachedSessionKeys,
   loadHiddenMachines,
   moveInOrder,
   orderBotsForCanvas,
   storeBotCanvasOrder,
   storeCanvasOpenKeys,
   storeCanvasRoom,
-  storeDetachedBotIds,
-  storeDetachedSessionKeys,
   storeHiddenMachines,
 } from "@/features/bots/canvas/botCanvasPreferences";
 import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/canvas/useCanvasZoom";
 
-export function useCanvasRoster(botsState: {
-  bots: BotView[];
-  /** Every machine's roster has arrived. See the prune below for why "not failing" is not enough. */
-  settled: boolean;
-}) {
-  // What the reader has taken off the canvas: whole Bots by id, then single sessions as
-  // `source:sessionId`. Both live here rather than inside the canvas so the cards and the sidebar
-  // roster that arranges them read one set each, and both are remembered across reloads --
-  // `botCanvasPreferences` carries why that is safe now and was not before.
-  const [detachedBotIds, setDetachedBotIds] = useState<ReadonlySet<string>>(loadDetachedBotIds);
-  const [detachedSessionKeys, setDetachedSessionKeys] = useState<ReadonlySet<string>>(
-    loadDetachedSessionKeys,
+export function useCanvasRoster(
+  botsState: {
+    bots: BotView[];
+    /** Every machine's roster has arrived. See the prune below for why "not failing" is not enough. */
+    settled: boolean;
+  },
+  /** Which machine's sidecar holds each Bot's record, and so its place on the canvas. */
+  feeds: BotFeeds,
+) {
+  // What is off the canvas: whole Bots by id, then single sessions as `source:sessionId`. Derived
+  // from the records on every snapshot rather than held, so there is no second copy to drift.
+  const detachedBotIds = useMemo<ReadonlySet<string>>(
+    () => new Set(botsState.bots.filter((bot) => bot.offCanvas).map((bot) => bot.botId)),
+    [botsState.bots],
   );
+  const detachedSessionKeys = useMemo<ReadonlySet<string>>(
+    () => new Set(botsState.bots.flatMap((bot) =>
+      (bot.offCanvasSessionRefs ?? []).map((ref) => `${ref.source}:${ref.sessionId}`))),
+    [botsState.bots],
+  );
+  // Read through a ref so the commands below keep one identity while the roster moves under them.
+  const currentBots = useRef(botsState.bots);
+  currentBots.current = botsState.bots;
+  /**
+   * A canvas change that did not land. Said on the canvas rather than swallowed: nothing moves
+   * until the sidecar has written it, so a failure would otherwise look like a click that did
+   * nothing.
+   */
+  const [canvasError, setCanvasError] = useState<BotCommandError | null>(null);
+  /**
+   * Writes a Bot's place on the canvas to its record. Nothing is set here on success: the Bot
+   * stream publishes the new snapshot and the sets above follow it, on this surface and every
+   * other one reading that machine.
+   */
+  const setBotCanvas = useCallback(async (
+    botId: string,
+    command: SetBotCanvasCommand,
+    session: string | null = null,
+  ): Promise<void> => {
+    setCanvasError(null);
+    try {
+      await feeds.forBot(botId).setBotCanvas(botId, command);
+    } catch (error) {
+      const name = currentBots.current.find((bot) => bot.botId === botId)?.name ?? botId;
+      setCanvasError({
+        session,
+        message: `Could not change ${name} on the canvas: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }, [feeds]);
+  /** Puts a Bot back if it was off. What starting a session in it does, so the new card shows. */
+  const putBotOnCanvas = useCallback((botId: string) => {
+    const bot = currentBots.current.find((each) => each.botId === botId);
+    if (bot?.offCanvas) void setBotCanvas(botId, { onCanvas: true });
+  }, [setBotCanvas]);
   const removeSessionFromCanvas = useCallback((session: BotSessionRef) => {
-    setDetachedSessionKeys((current) => new Set(current).add(`${session.source}:${session.sessionId}`));
-  }, []);
+    const key = `${session.source}:${session.sessionId}`;
+    const change = { source: session.source, sessionId: session.sessionId, onCanvas: false };
+    // Every Bot holding it, since the key is what the canvas hides by.
+    for (const bot of currentBots.current) {
+      if (bot.sessionRefs.some((ref) => `${ref.source}:${ref.sessionId}` === key)) {
+        void setBotCanvas(bot.botId, { sessions: [change] }, key);
+      }
+    }
+  }, [setBotCanvas]);
   // Which sessions the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
@@ -89,11 +142,6 @@ export function useCanvasRoster(botsState: {
       return kept.size === current.size ? current : kept;
     });
   }, [botsState.bots, botsState.settled]);
-  // The same one-write rule, and these two need it more than the open keys do: each set shrinks
-  // from the sidebar roster and from a real detach as well as growing from a menu, so a call beside
-  // each of those is how one of them ends up forgotten.
-  useEffect(() => storeDetachedBotIds(detachedBotIds), [detachedBotIds]);
-  useEffect(() => storeDetachedSessionKeys(detachedSessionKeys), [detachedSessionKeys]);
   /**
    * The order the Bots stand in, left to right, and the one every surface that lists them reads.
    *
@@ -136,20 +184,18 @@ export function useCanvasRoster(botsState: {
   const openSessionOnCanvas = useCallback((bot: BotView, session: SessionSummary) => {
     // The row in the sidebar is the only way back for a session taken off the canvas, so it puts
     // one back for the same reason it puts a detached Bot back: a click that appears to do nothing
-    // is worse than a click that does slightly more than asked.
-    setDetachedSessionKeys((current) => {
-      const key = `${session.source}:${session.sessionId}`;
-      if (!current.has(key)) return current;
-      const next = new Set(current);
-      next.delete(key);
-      return next;
-    });
-    setDetachedBotIds((current) => {
-      if (!current.has(bot.botId)) return current;
-      const next = new Set(current);
-      next.delete(bot.botId);
-      return next;
-    });
+    // is worse than a click that does slightly more than asked. One command for both, sent only
+    // when something is actually off.
+    const sessionOff = (bot.offCanvasSessionRefs ?? []).some((ref) =>
+      ref.source === session.source && ref.sessionId === session.sessionId);
+    if (bot.offCanvas || sessionOff) {
+      void setBotCanvas(bot.botId, {
+        ...(bot.offCanvas ? { onCanvas: true } : {}),
+        ...(sessionOff
+          ? { sessions: [{ source: session.source, sessionId: session.sessionId, onCanvas: true }] }
+          : {}),
+      });
+    }
     // Opens rather than toggles, unlike the card's own row. The same click also puts a detached
     // Bot back, and a click that re-attaches a Bot while closing the session it was clicked for
     // means two contradictory things at once. Closing stays where the card is.
@@ -158,13 +204,14 @@ export function useCanvasRoster(botsState: {
       if (current.has(key)) return current;
       return new Set(current).add(key);
     });
-  }, []);
+  }, [setBotCanvas]);
   /**
    * Machines the canvas is not showing, and the chip that changes that.
    *
-   * Here rather than inside the canvas for the same reason the other three sets are: this is the
-   * one place that writes the reader's canvas arrangement, from one effect on the value rather than
-   * from a call beside each of the things that change it.
+   * Here rather than inside the canvas for the same reason the open keys are: this is the one
+   * place that writes this browser's canvas arrangement, from one effect on the value rather than
+   * from a call beside each of the things that change it. Unlike the off-canvas sets it stays in
+   * the browser, because it is about which machines this reader wants to see, not about a Bot.
    *
    * Not applied to `canvasBots` below, deliberately. Hiding a machine is a question about what this
    * strip shows, not about which Bots exist -- the sidebar roster still lists every one of them,
@@ -196,19 +243,14 @@ export function useCanvasRoster(botsState: {
   const [canvasRoom, setCanvasRoom] = useState<number>(loadCanvasRoom);
   useEffect(() => storeCanvasRoom(canvasRoom), [canvasRoom]);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
-    setDetachedBotIds((current) => {
-      // A new set rather than a mutation, because React decides whether to re-render by identity.
-      const next = new Set(current);
-      if (!next.delete(bot.botId)) next.add(bot.botId);
-      return next;
-    });
-  }, []);
+    void setBotCanvas(bot.botId, { onCanvas: Boolean(bot.offCanvas) });
+  }, [setBotCanvas]);
 
   return {
     detachedBotIds,
-    setDetachedBotIds,
     detachedSessionKeys,
-    setDetachedSessionKeys,
+    canvasError,
+    putBotOnCanvas,
     canvasOpenKeys,
     setCanvasOpenKeys,
     orderedBots,
