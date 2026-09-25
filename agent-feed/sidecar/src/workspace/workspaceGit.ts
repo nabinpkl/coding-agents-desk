@@ -8,13 +8,26 @@
 // space (` M file` is "modified in the worktree, unstaged"). Trimming would silently reclassify
 // every unstaged change as a staged one.
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { WorkspaceGitEntry, WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
 import { literalPathspec, MAX_PATCH_BYTES } from "@/workspace/workspaceHistory";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
 
+/**
+ * Runs git with optional locks off.
+ *
+ * `GIT_OPTIONAL_LOCKS=0` stops `git status` from refreshing and rewriting `.git/index` as a side
+ * effect of reading it. Every read here is made because a watch reported a change, and a read
+ * that writes the index is a change the same watch then reports: each refresh would schedule the
+ * next one. VS Code's git extension sets the same variable for the same reason.
+ */
 async function git(args: string[], cwd: string): Promise<{ code: number; out: string }> {
-  const process = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
+  const process = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "ignore",
+    env: { ...Bun.env, GIT_OPTIONAL_LOCKS: "0" },
+  });
   const [out, code] = await Promise.all([
     new Response(process.stdout).text(),
     process.exited,
@@ -94,6 +107,58 @@ export async function readGitStatus(root: string): Promise<DirectoryGitStatus | 
 export async function gitStatus(workspaceId: string, root: string): Promise<WorkspaceGitStatus> {
   const status = await readGitStatus(root);
   return { workspaceId, branch: status?.branch ?? null, entries: status?.entries ?? [] };
+}
+
+/** Where a directory's repository lives: its working tree's top, and its git directory. */
+export interface RepositoryLocation {
+  top: string;
+  /** Absolute. Inside `top` for an ordinary clone, elsewhere for a linked worktree. */
+  gitDir: string;
+}
+
+/** The repository a directory is in, or null when it is not in one. */
+export async function repositoryLocation(directory: string): Promise<RepositoryLocation | null> {
+  const answer = await git(["rev-parse", "--show-toplevel", "--absolute-git-dir"], directory);
+  if (answer.code !== 0) return null;
+  const [top, gitDir] = answer.out.split("\n");
+  return top && gitDir ? { top, gitDir } : null;
+}
+
+/** What `git status` could report on, by absolute path. See `listGitPaths`. */
+export interface GitPaths {
+  /** Every tracked file, and every untracked one git does not ignore. */
+  files: Set<string>;
+  /** Every directory holding one of them, and each one's ancestors up to `top`. */
+  folders: Set<string>;
+}
+
+/**
+ * The paths a change has to touch to move the status.
+ *
+ * Ancestors are included because a new directory appears as an entry in its parent, and a parent
+ * holding only directories lists no file of its own. Measured 2026-09-25 on the Linux peer:
+ * `rags` has 9,104 directories on disk and 37 in this set, listed in 5ms.
+ */
+export async function listGitPaths(top: string): Promise<GitPaths> {
+  const answer = await git(["ls-files", "-co", "--exclude-standard", "-z"], top);
+  const files = new Set<string>();
+  const folders = new Set<string>([top]);
+  if (answer.code !== 0) return { files, folders };
+  for (const path of answer.out.split("\0")) {
+    if (!path) continue;
+    const file = join(top, path);
+    files.add(file);
+    for (let folder = dirname(file); folder.length > top.length; folder = dirname(folder)) {
+      if (folders.has(folder)) break;
+      folders.add(folder);
+    }
+  }
+  return { files, folders };
+}
+
+/** Whether git ignores a path that is not in the last `listGitPaths`. */
+export async function isGitIgnored(top: string, path: string): Promise<boolean> {
+  return (await git(["check-ignore", "-q", "--", path], top)).code === 0;
 }
 
 /** The tree of a repository with nothing in it, which is what an unborn `HEAD` is diffed against. */

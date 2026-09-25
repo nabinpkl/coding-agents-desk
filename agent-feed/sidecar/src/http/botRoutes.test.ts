@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { BotConflictError, type BotRegistry } from "@/bots/botRegistry";
 import { createBotRoutes } from "@/http/botRoutes";
+import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 
 const server = { timeout() {} } as never;
+const repositories = new RepositoryGitWatch({ quietMs: 50, longestWaitMs: 200 });
 const bot: BotView = {
   botId: "bot-1",
   name: "Chief of Staff",
@@ -29,7 +31,7 @@ test("creates a Bot through the authenticated user route and returns its durable
       return bot;
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   const request = new Request("http://localhost/api/bots", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -64,7 +66,7 @@ test("adds sessions through the Bot-scoped route, existing or newly started", as
       return { bot };
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   const request = new Request("http://localhost/api/bots/bot-1/sessions", {
     method: "POST",
     body: JSON.stringify({
@@ -95,7 +97,7 @@ test("maps registry conflicts to a typed 409 response", async () => {
       throw new BotConflictError("selected session is already bound to a Bot");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   const request = new Request("http://localhost/api/bots", {
     method: "POST",
     body: JSON.stringify({ requestId: "request-1" }),
@@ -124,7 +126,7 @@ test("detaches sessions through a POST route the host relay can reach", async ()
       throw new Error("detach must not reach the attach path");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   // The relay admits GET and POST only, so removal is a POST to its own path rather than a DELETE
   // on the attach path. `/sessions` and `/sessions/detach` must therefore stay distinguishable.
   const request = new Request("http://localhost/api/bots/bot%201/sessions/detach", {
@@ -163,7 +165,7 @@ test("reorders sessions through a path of its own, so an order is never read as 
       throw new Error("an order must not reach the detach path");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   const request = new Request("http://localhost/api/bots/bot%201/sessions/order", {
     method: "POST",
     body: JSON.stringify({
@@ -198,7 +200,7 @@ test("leaves a DELETE on the sessions path unmatched rather than answering it", 
       throw new Error("a DELETE must not reach the registry");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   const request = new Request("http://localhost/api/bots/bot-1/sessions", { method: "DELETE" });
 
   expect(await route(request, new URL(request.url), server)).toBeUndefined();
@@ -215,7 +217,7 @@ test("routes a retire to its own path and hands the disposals through untouched"
       throw new Error("retire must not reach the detach path");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry);
+  const route = createBotRoutes(registry, repositories);
   // `/sessions`, `/sessions/detach` and `/sessions/retire` are three POSTs under one prefix, so the
   // thing worth asserting is that the deepest one does not fall into either of the others.
   const request = new Request("http://localhost/api/bots/bot%201/sessions/retire", {
@@ -247,23 +249,46 @@ test("routes a retire to its own path and hands the disposals through untouched"
   }]);
 });
 
-test("reads the Bot's directory's git status, and says when there is no repository", async () => {
-  const root = await mkdtemp(join(tmpdir(), "bot-git-route-"));
+/** Reads server-sent events off a streamed response until `accept` takes one, then cancels. */
+async function nextEvent(response: Response | undefined, accept: (event: unknown) => boolean) {
+  const reader = response!.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error("stream ended");
+      buffered += decoder.decode(value);
+      for (const frame of buffered.split("\n\n")) {
+        const data = frame.split("\n").find((line) => line.startsWith("data: "));
+        if (!data) continue;
+        const event: unknown = JSON.parse(data.slice(6));
+        if (accept(event)) return event;
+      }
+    }
+  } finally {
+    await reader.cancel();
+  }
+}
+
+test("streams the Bot's directory's git status, from no repository to one", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "bot-git-route-")));
   try {
     const registry = {
       async snapshot() {
         return { version: 2, revision: 1, bots: [{ ...bot, environment: { kind: "directory", path: root } }] };
       },
     } as unknown as BotRegistry;
-    const route = createBotRoutes(registry);
-    const plain = new Request("http://localhost/api/bots/bot-1/git");
-    const none = await route(plain, new URL(plain.url), server);
-    expect(await none?.json()).toEqual({ botId: "bot-1", repository: false, branch: null, entries: [] });
+    const route = createBotRoutes(registry, repositories);
+    const stream = new Request("http://localhost/api/bots/bot-1/git/stream");
+    const response = await route(stream, new URL(stream.url), server);
+    expect(response?.headers.get("content-type")).toContain("text/event-stream");
+    const reader = nextEvent(response, (event) =>
+      (event as { entries: unknown[] }).entries.length > 0);
 
     await Bun.spawn(["git", "init", "--initial-branch=main"], { cwd: root, stdout: "ignore" }).exited;
     await writeFile(join(root, "new.ts"), "fresh\n");
-    const status = await route(plain, new URL(plain.url), server);
-    expect(await status?.json()).toEqual({
+    expect(await reader).toEqual({
       botId: "bot-1",
       repository: true,
       branch: "main",
@@ -277,7 +302,7 @@ test("reads the Bot's directory's git status, and says when there is no reposito
 
     const unchanged = new Request("http://localhost/api/bots/bot-1/git/diff?path=other.ts");
     expect((await route(unchanged, new URL(unchanged.url), server))?.status).toBe(404);
-    const unknown = new Request("http://localhost/api/bots/bot-2/git");
+    const unknown = new Request("http://localhost/api/bots/bot-2/git/stream");
     expect((await route(unknown, new URL(unknown.url), server))?.status).toBe(404);
   } finally {
     await rm(root, { recursive: true, force: true });

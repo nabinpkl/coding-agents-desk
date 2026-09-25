@@ -1,5 +1,6 @@
 // One place that holds the roster, the shared state and the git status, and tells every open
-// stream when any of them moves.
+// stream when any of them moves. The git status itself is watched by `RepositoryGitWatch`, which a
+// Bot's header reads too; this relays it.
 //
 // The Swift equivalent was spread across `WorkspaceIDEController` (which held it), the lane session
 // (which pushed it) and `WorkspaceObservationCoordinator` (which watched the disk). It is one
@@ -13,7 +14,8 @@ import type {
   WorkspaceStreamEvent,
   WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
-import { gitStatus } from "@/workspace/workspaceGit";
+import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
+import { type DirectoryGitStatus, gitStatus } from "@/workspace/workspaceGit";
 import { isStorablePath } from "@/workspace/workspacePaths";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
@@ -86,14 +88,25 @@ export class WorkspaceService {
    * between an assertion and a coin toss, which is what this exists for.
    */
   private watching: Promise<void> = Promise.resolve();
+  /**
+   * Each workspace's subscription to its repository's status, held only while a stream is open.
+   *
+   * The status comes from the repository watch rather than from the listings above, because those
+   * are one directory deep and git is not: an edit inside a collapsed directory moves the status
+   * and reaches no listing. Held only while someone reads, because a subscription is what makes
+   * the repository watch run git.
+   */
+  private readonly gitFollows = new Map<string, { root: string; stop: () => void }>();
 
   constructor(
     readonly store: WorkspaceStore,
     readonly sharedState: WorkspaceSharedStateStore,
+    private readonly repositories: RepositoryGitWatch,
   ) {
     this.store.subscribe((workspaces) => {
       this.emit({ type: "workspaces", workspaces });
       for (const workspace of workspaces) this.watch(workspace);
+      this.followGit();
     });
     this.sharedState.subscribe((state) => {
       this.emit({ type: "sharedState", state });
@@ -132,9 +145,40 @@ export class WorkspaceService {
 
   subscribe(listener: (event: WorkspaceStreamEvent) => void): () => void {
     this.listeners.add(listener);
+    this.followGit();
     return () => {
       this.listeners.delete(listener);
+      this.followGit();
     };
+  }
+
+  /** Follows every workspace's repository while anyone is reading, and none while nobody is. */
+  private followGit(): void {
+    const wanted = this.listeners.size > 0 ? this.store.list() : [];
+    const keep = new Set(wanted.map((workspace) => workspace.id));
+    for (const [id, follow] of this.gitFollows) {
+      const workspace = this.store.get(id);
+      if (keep.has(id) && workspace?.root === follow.root) continue;
+      follow.stop();
+      this.gitFollows.delete(id);
+    }
+    for (const workspace of wanted) {
+      if (this.gitFollows.has(workspace.id)) continue;
+      const { id, root } = workspace;
+      const stop = this.repositories.subscribe(root, (status) => void this.gitMoved(id, status));
+      this.gitFollows.set(id, { root, stop });
+    }
+  }
+
+  private async gitMoved(id: string, status: DirectoryGitStatus | null): Promise<void> {
+    const moved: WorkspaceGitStatus = {
+      workspaceId: id,
+      branch: status?.branch ?? null,
+      entries: status?.entries ?? [],
+    };
+    this.gitCache.set(id, moved);
+    this.emit({ type: "git", status: moved });
+    await this.emitTree(id);
   }
 
   private emit(event: WorkspaceStreamEvent): void {
@@ -251,7 +295,8 @@ export class WorkspaceService {
     this.pendingChanges.delete(id);
     if (changedPaths.length === 0) return;
     this.emit({ type: "changed", workspaceId: id, changedPaths });
-    this.emit({ type: "git", status: await this.refreshGit(id) });
+    // The git status is not re-read here: the repository watch answers for that, from every
+    // directory git cares about rather than only the ones this listing watches.
     await this.emitTree(id);
   }
 
@@ -259,6 +304,8 @@ export class WorkspaceService {
   async close(): Promise<void> {
     for (const timer of this.changeTimers.values()) clearTimeout(timer);
     this.changeTimers.clear();
+    for (const follow of this.gitFollows.values()) follow.stop();
+    this.gitFollows.clear();
     await this.watcher?.close();
     this.watcher = null;
     this.watchedPaths.clear();

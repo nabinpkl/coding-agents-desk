@@ -14,7 +14,7 @@ import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
 export function BotGitButton({ bot, feed }: { bot: BotView; feed: SidecarDataSource }) {
-  const { status, error, refresh } = useBotGitStatus(
+  const { status, error } = useBotGitStatus(
     feed,
     bot.botId,
     bot.environmentAvailability === "available",
@@ -45,12 +45,9 @@ export function BotGitButton({ bot, feed }: { bot: BotView; feed: SidecarDataSou
     <>
       <button
         type="button"
-        onClick={() => {
-          refresh();
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
         aria-label={`Show git changes in ${bot.name}, ${label}`}
-        title={error ? `${label}. Last read failed: ${error}` : label}
+        title={error ? `${label}. Updates stopped: ${error}` : label}
         className={`flex h-9 min-w-9 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-lg px-1.5 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70
           ${error ? "text-destructive" : "text-muted-foreground"}`}
       >
@@ -67,7 +64,6 @@ export function BotGitButton({ bot, feed }: { bot: BotView; feed: SidecarDataSou
           feed={feed}
           status={status}
           error={error}
-          onRefresh={refresh}
           onClose={() => setOpen(false)}
         />
       ) : null}

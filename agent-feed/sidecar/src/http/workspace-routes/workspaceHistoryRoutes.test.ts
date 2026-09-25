@@ -14,6 +14,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { RouteHandler } from "@/http/route";
 import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
+import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceService } from "@/workspace/workspaceService";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
@@ -54,6 +55,7 @@ async function harness(): Promise<{ routes: RouteHandler; workspaceId: string; r
   const service = new WorkspaceService(
     new WorkspaceStore(join(state, "workspaces.json")),
     new WorkspaceSharedStateStore(join(state, "state.json")),
+    new RepositoryGitWatch(),
   );
   services.push(service);
   await service.ready();

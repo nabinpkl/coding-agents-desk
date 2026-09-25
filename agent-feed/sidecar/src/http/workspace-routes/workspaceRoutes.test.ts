@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { RouteHandler } from "@/http/route";
 import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
 import { createWorkspaceRoutes } from "@/http/workspace-routes/workspaceRoutes";
+import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceService } from "@/workspace/workspaceService";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
@@ -44,6 +45,7 @@ async function harness(): Promise<Harness> {
   const service = new WorkspaceService(
     new WorkspaceStore(join(state, "workspaces.json")),
     new WorkspaceSharedStateStore(join(state, "state.json")),
+    new RepositoryGitWatch(),
   );
   services.push(service);
   await service.ready();

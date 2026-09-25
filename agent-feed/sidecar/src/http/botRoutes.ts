@@ -23,14 +23,18 @@ import {
   startServerSentEventStream,
 } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
-import { readGitStatus, workingTreeFileDiff } from "@/workspace/workspaceGit";
+import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
+import { workingTreeFileDiff } from "@/workspace/workspaceGit";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
 
 const BOTS_ROUTE = "/api/bots";
 const BOTS_STREAM_ROUTE = "/api/bots/stream";
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 
-export function createBotRoutes(registry: BotRegistry): RouteHandler {
+export function createBotRoutes(
+  registry: BotRegistry,
+  repositories: RepositoryGitWatch,
+): RouteHandler {
   return (request, url, server) => {
     if (request.method === "GET" && url.pathname === BOTS_ROUTE) {
       return registry.snapshot().then((snapshot) => jsonResponse(snapshot), routeError);
@@ -87,11 +91,11 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     if (request.method === "POST" && canvasMatch) {
       return setBotCanvas(request, canvasMatch[1]!, registry);
     }
-    // What is uncommitted in the Bot's directory, and one path of it. Reads, so GETs, and the
-    // Bot's own paths rather than the IDE's: see `BotGitStatus` for why a Bot is not a workspace.
-    const gitMatch = /^\/api\/bots\/([^/]+)\/git$/.exec(url.pathname);
-    if (request.method === "GET" && gitMatch) {
-      return botGitStatus(gitMatch[1]!, registry);
+    // What is uncommitted in the Bot's directory, as it changes, and one path of it. The Bot's own
+    // paths rather than the IDE's: see `BotGitStatus` for why a Bot is not a workspace.
+    const gitStreamMatch = /^\/api\/bots\/([^/]+)\/git\/stream$/.exec(url.pathname);
+    if (request.method === "GET" && gitStreamMatch) {
+      return botGitStream(request, server, gitStreamMatch[1]!, registry, repositories);
     }
     const gitDiffMatch = /^\/api\/bots\/([^/]+)\/git\/diff$/.exec(url.pathname);
     if (request.method === "GET" && gitDiffMatch) {
@@ -117,16 +121,34 @@ async function botDirectory(botId: string, registry: BotRegistry): Promise<strin
   return bot.environment.path;
 }
 
-async function botGitStatus(botId: string, registry: BotRegistry): Promise<Response> {
+/**
+ * The Bot's directory's git status now, and again whenever it moves.
+ *
+ * Pushed from the repository watch the IDE reads too, rather than asked for on a timer: the
+ * directory is resolved once, when the stream opens, so an unknown Bot or a missing directory is an
+ * ordinary error response instead of a stream that opens and says nothing.
+ */
+async function botGitStream(
+  request: Request,
+  server: Parameters<RouteHandler>[2],
+  botId: string,
+  registry: BotRegistry,
+  repositories: RepositoryGitWatch,
+): Promise<Response> {
   try {
-    const status = await readGitStatus(await botDirectory(botId, registry));
-    const answer: BotGitStatus = {
-      botId: decodeBotId(botId),
-      repository: status !== null,
-      branch: status?.branch ?? null,
-      entries: status?.entries ?? [],
-    };
-    return jsonResponse(answer);
+    const directory = await botDirectory(botId, registry);
+    const decodedBotId = decodeBotId(botId);
+    return startServerSentEventStream(request, server, (write) =>
+      repositories.subscribe(directory, (status) => {
+        const answer: BotGitStatus = {
+          botId: decodedBotId,
+          repository: status !== null,
+          branch: status?.branch ?? null,
+          entries: status?.entries ?? [],
+        };
+        write(encodeServerSentEvent(answer));
+      }),
+    );
   } catch (error) {
     return routeError(error);
   }

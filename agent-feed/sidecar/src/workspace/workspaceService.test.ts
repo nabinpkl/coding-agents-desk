@@ -3,15 +3,18 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceStreamEvent } from "@agentdesk/agent-feed-wire";
+import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceService } from "@/workspace/workspaceService";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
 
 const scratches: string[] = [];
 const services: WorkspaceService[] = [];
+const gitWatches: RepositoryGitWatch[] = [];
 
 afterEach(async () => {
   await Promise.all(services.splice(0).map((service) => service.close()));
+  await Promise.all(gitWatches.splice(0).map((watch) => watch.close()));
   await Promise.all(scratches.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -39,18 +42,22 @@ async function serviceOver(project: string) {
   const state = await scratch("workspace-service-state-");
   const store = new WorkspaceStore(join(state, "workspaces.json"));
   const shared = new WorkspaceSharedStateStore(join(state, "workspace-state.json"));
-  const service = new WorkspaceService(store, shared);
+  const repositories = new RepositoryGitWatch({ quietMs: 50, longestWaitMs: 200 });
+  gitWatches.push(repositories);
+  const service = new WorkspaceService(store, shared, repositories);
   services.push(service);
   await service.ready();
   const workspace = await store.add(project);
   const changed: string[][] = [];
+  const git: string[][] = [];
   service.subscribe((event: WorkspaceStreamEvent) => {
     if (event.type === "changed") changed.push([...event.changedPaths]);
+    if (event.type === "git") git.push(event.status.entries.map((entry) => entry.relativePath));
   });
   // A write before the watcher is ready is reported by nobody: too late for the first pass and
   // too early to be an event. Waiting here is what makes the assertions below deterministic.
   await service.whenWatching();
-  return { service, shared, workspace, changed };
+  return { service, shared, workspace, changed, git };
 }
 
 test("a workspace root is watchable immediately, however large the tree beneath it", async () => {
@@ -102,4 +109,30 @@ test("an expanded path that could not have come from this tree is refused, not w
   ).rejects.toThrow();
 
   expect(service.watchedDirectories).toEqual([project]);
+});
+
+test("the git status moves for an edit inside a collapsed directory", async () => {
+  // The listings are one directory deep, and the status used to be re-read only when one of them
+  // reported a change, so an agent editing `src/deep/file.ts` under a collapsed `src` left the
+  // source-control list stale until something at the top moved. The status now comes from the
+  // repository watch, which covers every directory git lists.
+  const project = await scratch("workspace-service-project-");
+  await mkdir(join(project, "src", "deep"), { recursive: true });
+  await writeFile(join(project, "src", "deep", "file.ts"), "one\n");
+  for (const args of [
+    ["init", "--initial-branch=main"],
+    ["-c", "user.email=t@example.com", "-c", "user.name=T", "add", "."],
+    ["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-m", "first"],
+  ]) {
+    await Bun.spawn(["git", ...args], { cwd: project, stdout: "ignore", stderr: "ignore" }).exited;
+  }
+  const { service, git } = await serviceOver(project);
+  expect(service.watchedDirectories).toEqual([project]);
+
+  await writeFile(join(project, "src", "deep", "file.ts"), "two\n");
+  const deadline = Date.now() + 5_000;
+  while (!git.some((paths) => paths.includes("src/deep/file.ts")) && Date.now() < deadline) {
+    await Bun.sleep(25);
+  }
+  expect(git.some((paths) => paths.includes("src/deep/file.ts"))).toBe(true);
 });

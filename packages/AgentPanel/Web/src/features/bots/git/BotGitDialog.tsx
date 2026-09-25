@@ -7,7 +7,7 @@
 // Side by side where there is room for a diff beside a list; on a phone, one at a time, with the
 // list first and a way back from the diff.
 
-import { ArrowLeft, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { BotGitStatus, BotView } from "@agentdesk/agent-feed-wire";
@@ -24,15 +24,13 @@ export function BotGitDialog({
   feed,
   status,
   error,
-  onRefresh,
   onClose,
 }: {
   bot: BotView;
   feed: SidecarDataSource;
   status: BotGitStatus;
-  /** The last status read's failure, shown over a list that may be out of date because of it. */
+  /** Why the status stream failed, shown over a list that may be out of date because of it. */
   error: string | null;
-  onRefresh: () => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -90,15 +88,6 @@ export function BotGitDialog({
           </div>
           <button
             type="button"
-            onClick={onRefresh}
-            aria-label="Read the changes again"
-            title="Refresh"
-            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70"
-          >
-            <RefreshCw className="size-4" aria-hidden />
-          </button>
-          <button
-            type="button"
             onClick={onClose}
             aria-label="Close changes"
             title="Close"
@@ -140,7 +129,7 @@ export function BotGitDialog({
                   </span>
                 </div>
                 <div className="min-h-0 flex-1">
-                  {/* Re-read on each status, because an agent on this Bot may be mid-edit. */}
+                  {/* Re-read on each pushed status, because an agent on this Bot may be mid-edit. */}
                   <ReadPatchView
                     subject={`${bot.botId}:${selected}`}
                     refresh={status}

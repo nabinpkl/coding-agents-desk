@@ -235,11 +235,31 @@ export class SidecarDataSource extends SidecarAgentSessions implements AgentData
     );
   }
 
-  /** What is uncommitted in the Bot's directory, read fresh from git on this machine. */
-  async botGitStatus(botId: string): Promise<BotGitStatus> {
-    return parse<BotGitStatus>(
-      await this.transport.request("GET", `/api/bots/${encodeURIComponent(botId)}/git`),
-    );
+  /**
+   * Follows what is uncommitted in the Bot's directory: the status now, and again whenever the
+   * sidecar's watch of that repository sees it move. Returns unsubscribe.
+   */
+  subscribeBotGit(
+    botId: string,
+    onStatus: (status: BotGitStatus) => void,
+    onError: (reason: string) => void,
+  ): () => void {
+    return this.transport.subscribe(`/api/bots/${encodeURIComponent(botId)}/git/stream`, {
+      onMessage: (payload) => {
+        try {
+          const message = JSON.parse(payload) as Partial<BotGitStatus> & {
+            error?: { message?: string };
+          };
+          if (message.error) onError(message.error.message ?? "Git stream failed");
+          else if (typeof message.repository === "boolean" && Array.isArray(message.entries)) {
+            onStatus(message as BotGitStatus);
+          } else onError("Git stream returned an invalid status");
+        } catch {
+          onError("Git stream returned malformed JSON");
+        }
+      },
+      onError,
+    });
   }
 
   /** One path's uncommitted change in the Bot's directory, against `HEAD`. */

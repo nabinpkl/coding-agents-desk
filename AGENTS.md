@@ -1071,6 +1071,42 @@ Two things hid all of this for weeks. The panel backfills a hole once a later ro
 read as normal. And a sidecar that has just reloaded is prompt, so it worked right after every edit
 and rotted from there.
 
+## Reach for an event first, and a poll last
+
+Recorded 2026-09-25, on the owner's word, after a Bot's git count shipped as a ten-second poll.
+
+**The first design for anything that has to notice a change is an event, and a timer is the fallback
+you justify.** A poll does its work whether or not anything moved, is late by up to its interval
+when something did, and multiplies by every reader that runs one. It also hides as convenience:
+"asking git every few seconds is cheap" was true of one Bot and was the design for every Bot on
+every machine. Ask first whether something already knows when the thing changes -- a filesystem
+watch, a stream the sidecar already publishes, the process that made the change -- and subscribe to
+that. Poll only when nothing can tell you, and write down beside the timer why nothing could.
+
+**An event source still costs something, and this repo has paid for watches four times**: a
+chokidar walk that starved the event loop for 54 seconds (`WATCH_DEPTH` in
+`workspace/workspaceService.ts`), ~2,000 descriptors of per-file watches and the deadlock that came
+with them (`transcripts/catalog/watchTree.ts`), and, in the section above, Bun poisoning the next
+watch on a path you closed and per-file watches going minutes late in a long-lived process. So "use an
+event" means one of the shapes that survived those, not a new watch per thing:
+
+- **One watch per root, shared by every reader of it.** `workspace/repositoryWatch.ts` is the
+  reference: one watch per repository whether an IDE workspace, a Bot, or both read it.
+- **Watch the platform's cheap way, which is not the same way on both.** Measured 2026-09-25 under
+  Bun: on macOS one recursive watch (FSEvents) is 3 descriptors in 2ms for a whole repository, and
+  355 one-directory watches are 356 descriptors that `close()` never gives back. On Linux one
+  recursive watch walks the tree on the main thread -- 5.1s and 9,104 inotify watches for `rags`,
+  build output included -- and 300 one-directory watches are 9ms on one inotify instance.
+  `workspace/repositoryEvents.ts` carries both and picks by platform.
+- **Filter by what can matter before doing any work.** A change that cannot move the answer should
+  cost a string comparison: the repository watch asks `git ls-files` which paths git could report
+  on, and on the Linux peer that was 37 of `rags`' 9,104 directories.
+- **Do the expensive read only while someone is subscribed**, after a quiet moment, one at a time.
+  VS Code's git extension waits for its window to have focus; the panel drops its subscription while
+  its page is hidden, which is the same idea.
+- **Never close a watch in the Bun process on macOS**, for the reason above; keep it for the life of
+  the process and ignore its events instead.
+
 ## Several sessions share one branch, so re-read before you trust anything
 
 Work here is not serialised. More than one session can be on `main` in this single worktree at the

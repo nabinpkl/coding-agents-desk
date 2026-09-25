@@ -26,7 +26,10 @@ function feedAnswering(status: BotGitStatus) {
     truncated: false,
   }));
   const feed = {
-    botGitStatus: vi.fn(async () => status),
+    subscribeBotGit: vi.fn((_botId: string, onStatus: (status: BotGitStatus) => void) => {
+      queueMicrotask(() => onStatus(status));
+      return () => {};
+    }),
     botGitDiff,
   } as unknown as SidecarDataSource;
   return { feed, botGitDiff };
@@ -65,15 +68,16 @@ it("counts the changed files and opens them as a list and a diff", async () => {
 it("draws nothing for a directory that is not in a repository", async () => {
   const { feed } = feedAnswering({ botId: "bot-1", repository: false, branch: null, entries: [] });
   const { container } = render(<BotGitButton bot={bot} feed={feed} />);
-  await waitFor(() => expect(feed.botGitStatus).toHaveBeenCalled());
+  await waitFor(() => expect(feed.subscribeBotGit).toHaveBeenCalled());
   await Promise.resolve();
   expect(container.innerHTML).toBe("");
 });
 
 it("says why when git cannot be read, instead of showing a zero", async () => {
   const feed = {
-    botGitStatus: vi.fn(async () => {
-      throw new Error("the sidecar answered 500");
+    subscribeBotGit: vi.fn((_botId: string, _onStatus: unknown, onError: (reason: string) => void) => {
+      queueMicrotask(() => onError("the sidecar answered 500"));
+      return () => {};
     }),
   } as unknown as SidecarDataSource;
   render(<BotGitButton bot={bot} feed={feed} />);
@@ -81,11 +85,11 @@ it("says why when git cannot be read, instead of showing a zero", async () => {
     .toBeTruthy();
 });
 
-it("asks nothing for a Bot whose directory is missing", () => {
+it("follows nothing for a Bot whose directory is missing", () => {
   const { feed } = feedAnswering({ botId: "bot-1", repository: true, branch: "main", entries: [] });
   const { container } = render(
     <BotGitButton bot={{ ...bot, environmentAvailability: "missing" }} feed={feed} />,
   );
-  expect(feed.botGitStatus).not.toHaveBeenCalled();
+  expect(feed.subscribeBotGit).not.toHaveBeenCalled();
   expect(container.innerHTML).toBe("");
 });

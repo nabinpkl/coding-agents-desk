@@ -295,7 +295,8 @@ export interface BotSessionsRetired {
 }
 
 /**
- * `GET /api/bots/:botId/git` response: what is uncommitted in the Bot's directory.
+ * `GET /api/bots/:botId/git/stream` event: what is uncommitted in the Bot's directory, sent on
+ * subscribing and again after every change the sidecar's repository watch sees.
  *
  * The Bot's own route rather than the IDE's, because a Bot is a directory and not a workspace: the
  * IDE addresses a root somebody registered, and a Bot's directory usually is not one. The entries

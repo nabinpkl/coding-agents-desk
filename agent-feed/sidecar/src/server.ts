@@ -39,6 +39,7 @@ import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceH
 import { createWorkspaceRoutes } from "@/http/workspace-routes/workspaceRoutes";
 import { createWorkspaceStreamRoutes } from "@/http/workspace-routes/workspaceStreamRoutes";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
+import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceService } from "@/workspace/workspaceService";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
 import { createUsageScanner, detectUsageVendors } from "@/usage/usageReport";
@@ -141,9 +142,13 @@ backends.register(codexLive);
 // The workspace IDE's own state. Started here rather than lazily on the first request so a
 // malformed store on disk fails the sidecar at launch, where it is one line in the log, rather
 // than as a 500 on whichever request happened to touch it first.
+// One watch per repository for every reader of its git status: the IDE's workspaces and the Bots'
+// headers, which often sit on the same checkout.
+const repositoryGitWatch = new RepositoryGitWatch();
 const workspaceService = new WorkspaceService(
   new WorkspaceStore(config.workspacesPath),
   new WorkspaceSharedStateStore(config.workspaceStatePath),
+  repositoryGitWatch,
 );
 void workspaceService.ready().catch((error: unknown) => {
   console.error("workspace service failed to start", error);
@@ -159,7 +164,7 @@ const routes: RouteHandler[] = [
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
   createInventoryRoutes(describeAgentSession),
-  createBotRoutes(botRegistry),
+  createBotRoutes(botRegistry, repositoryGitWatch),
   createAgentTerminalRoutes(agentTerminals),
   createTmuxRoutes(),
   createAgentRoutes(resolveBackend),
