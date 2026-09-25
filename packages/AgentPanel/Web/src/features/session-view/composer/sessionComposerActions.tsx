@@ -5,7 +5,7 @@
 // The two submit paths are separate on purpose: one joins the panel's own queue and can be
 // steered, the other hands a whole turn to a transport the panel does not own.
 
-import { CornerDownLeft, LoaderCircle, Paperclip, Send, Square } from "lucide-react";
+import { ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, Square } from "lucide-react";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
@@ -120,7 +120,9 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
     });
   }
   // The TUI's `{agent} · {model}` row, minus the agent: the serve reports the session's model
-  // on its usage, and pressing it opens the picker instead of typing `/models`.
+  // on its usage, and pressing it opens the picker instead of typing `/models`. Truncated with
+  // a selector chevron: on a narrow card the `model · provider` text wraps to two lines and
+  // crowds the meter, so it gets one capped line with an ellipsis and the affordance says menu.
   if (m.session.source === "opencode") {
     const [provider, ...rest] = (m.sessionModel ?? "").split("/");
     const label = rest.length > 0 ? `${rest.join("/")} · ${provider}` : "Model";
@@ -128,10 +130,15 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       key: "switch-model",
       ariaLabel: m.sessionModel ? `Switch model, currently ${m.sessionModel}` : "Switch model",
       title: "Switch this session's model",
-      icon: <span>{label}</span>,
+      icon: (
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="block max-w-36 truncate">{label}</span>
+          <ChevronsUpDown className="size-3 shrink-0 opacity-60" aria-hidden />
+        </span>
+      ),
       disabled: m.pending,
       className:
-        "h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
+        "h-9 min-w-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
       placement: "footer",
       onClick: () => m.onOpenModels(""),
     });
