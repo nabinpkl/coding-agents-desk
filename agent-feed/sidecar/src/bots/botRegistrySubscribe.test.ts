@@ -154,10 +154,10 @@ test("and told when it resolves again, which is the half the bug dropped", async
   stop();
 });
 
-test("a view subscriber is still not woken by a session's own counters moving", async () => {
-  // The constraint that keeps this from being the hundred-a-minute flood wearing a new hat. The
-  // comparison is identity, not content: a title, a token count and an activity all move on an
-  // ordinary transcript write, and a panel already hears those from the session catalog stream.
+test("a view subscriber is still not woken by a session's counters moving", async () => {
+  // The constraint that keeps this from being the hundred-a-minute flood wearing a new hat, and it
+  // is about what a write really moves: `lastEventAt` and the activity bin change on every one, a
+  // panel already hears those from the session catalog stream, and nothing here compares them.
   const { registry } = await aBotHoldingAResolvableReference();
   const held = sessions.get("pi:session-1")!;
   const woken: number[] = [];
@@ -170,11 +170,44 @@ test("a view subscriber is still not woken by a session's own counters moving", 
 
   sessions.set("pi:session-1", {
     ...held,
-    summary: { ...held.summary, lastEventAt: held.summary.lastEventAt + 5000, title: "moved" },
+    summary: { ...held.summary, lastEventAt: held.summary.lastEventAt + 5000, activity: "live" },
   });
   notifyCatalog();
   await settle();
   expect(woken).toEqual([]);
+  stop();
+});
+
+test("a view subscriber IS woken by a rename, which is a value change and not a write", async () => {
+  // The half that used to be missing, and the reason the signature carries a title. Measured on the
+  // transcripts: 74,631 records across 55 sessions moved a title 5 times, so a title is not the
+  // churn the counters are -- and a renamed row that keeps drawing the old name is a rename that
+  // reads as one that did nothing.
+  const { registry } = await aBotHoldingAResolvableReference();
+  const held = sessions.get("pi:session-1")!;
+  const drawn: string[] = [];
+  const stop = await registry.subscribe(
+    (snapshot) => drawn.push(snapshot.bots[0]!.sessions[0]!.title),
+    undefined,
+    { onChange: "view" },
+  );
+  const before = drawn.length;
+
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, title: "What I called it" } });
+  notifyCatalog();
+  await settle();
+  expect(drawn.length).toBe(before + 1);
+  expect(drawn.at(-1)).toBe("What I called it");
+
+  // And a re-emission of that same title is not a change, which is the case that made a title look
+  // like it moved on every write: Claude re-emits its generated title as a session goes on.
+  sessions.set("pi:session-1", {
+    ...held,
+    summary: { ...held.summary, title: "What I called it", lastEventAt: 99 },
+  });
+  notifyCatalog();
+  await settle();
+  expect(drawn).toHaveLength(before + 1);
   stop();
 });
 

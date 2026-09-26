@@ -86,28 +86,27 @@ try {
   check('the sidecar took the rename', answered.status() === 200, `${answered.status()} ${await answered.text()}`);
   check('the dialog closed on success', await page.getByRole('dialog', { name: 'Rename session' }).count() === 0);
 
-  // The part a unit test cannot see: the serve does not emit an event for a rename, so the title
-  // only reaches the sidecar's catalog because the rename schedules its own re-read. That the
-  // catalog then holds the new name is what this polls -- the roster's own repaint is a separate
-  // question, answered by the Bot stream, which only publishes on a store revision (measured: a
-  // rename alone moved nothing on the stream; the next reorder carried the new title with it).
-  const stored = await page.waitForFunction(
-    async (title) => {
-      const snapshot = await (await fetch('/api/bots')).json();
-      return snapshot.bots.some((bot) => (bot.sessions ?? []).some((s) => s.title === title));
-    },
-    PROBE,
-    { timeout: 10000, polling: 500 },
-  ).then(() => true, () => false);
-  check('the sidecar holds the new name without being asked twice', stored);
+  // The part a unit test cannot see, and the part that used to be broken: the serve does not
+  // announce a rename, the catalog learns it only because the rename asks for a re-read, and the
+  // row on the canvas learns it only because the Bot stream compares titles. All three, asserted on
+  // the painted DOM rather than on an API, because a rename that worked everywhere except the row
+  // the reader is looking at is still a rename that did nothing.
+  const painted = await canvas.getByText(PROBE, { exact: true }).first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true, () => false);
+  check('the card repaints with the new name on its own', painted);
 
   await page.screenshot({ path: join(work, 'renamed.png') });
 
   // The roster beside the canvas is the other place a session's menu is built, and a separate call
   // site of the same rule. Named by the Bot that owns the session rather than picked out of a list
   // of them: this row is inside the sidebar's roster, and the canvas card's is a different element.
+  // It also repaints, which is the same stream carrying the same title.
   const roster = page.getByRole('list', { name: `${process.env.ROSTER_BOT || 'AD bot'} sessions` });
-  await roster.getByRole('button', { name: `Actions for ${TARGET}`, exact: true }).first().click();
+  check('the roster row repaints too', await roster.getByText(PROBE, { exact: true }).first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true, () => false));
+  await roster.getByRole('button', { name: `Actions for ${PROBE}`, exact: true }).first().click();
   check('the roster row offers Rename too', await page.getByRole('menuitem', { name: 'Rename session' }).count() === 1);
   await page.keyboard.press('Escape');
 
@@ -120,14 +119,9 @@ try {
   await page.getByRole('dialog', { name: 'Rename session' }).getByLabel('Title').fill(TARGET);
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await restored;
-  const back = await page.waitForFunction(
-    async (title) => {
-      const snapshot = await (await fetch('/api/bots')).json();
-      return snapshot.bots.some((bot) => (bot.sessions ?? []).some((s) => s.title === title));
-    },
-    TARGET,
-    { timeout: 10000, polling: 500 },
-  ).then(() => true, () => false);
+  const back = await canvas.getByText(TARGET, { exact: true }).first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true, () => false);
   check('the name is back where it was', back);
 
   await context.close();

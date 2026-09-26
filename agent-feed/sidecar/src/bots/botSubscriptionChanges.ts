@@ -31,22 +31,34 @@ export interface BotSubscribeOptions {
 /**
  * The parts of a snapshot a subscriber DRAWS, and nothing else.
  *
- * Identity, not content, and that is the whole constraint. A session's title, token count and
- * activity all move on an ordinary transcript write, so comparing them would put this back to a
- * snapshot per write and reintroduce the flood the store's revision exists to stop. A panel already
- * holds the session catalog stream and the per-session streams, so everything that moves on a write
- * reaches it from there. What this stream owns is which references a Bot holds and which of them
- * resolve, and that is what has to be compared.
+ * Identity for most of it, and that is the constraint: a token count and an activity bin both move
+ * on an ordinary transcript write, so comparing them would put this back to a snapshot per write and
+ * reintroduce the flood the store's revision exists to stop. A panel already holds the session
+ * catalog stream and the per-session streams, so everything that moves on a write reaches it from
+ * there. What this stream owns is which references a Bot holds, which of them resolve, and what each
+ * one is called.
  *
  * `environmentAvailability` is here because it is a `stat` rather than a record, so it can move
  * without a `mutate` too: a Bot's directory deleted underneath it, which is news a card should hear.
+ *
+ * The title is here for the same reason, and it is the one content field on this list, so it is
+ * worth the measurement rather than the assumption. A title LOOKS like it moves on every write:
+ * Claude re-emits its generated title as a session goes on, and a rename in opencode is a PATCH
+ * the serve does not even announce. Neither is a change of value. Replaying every record of every
+ * transcript on this machine under the sidecar's own rule -- `customTitle ?? aiTitle`, last one
+ * wins, a custom title never overwritten -- 55 sessions and 74,631 records moved a title 5 times,
+ * one per ~15,000 records, and the worst single session moved it once in 2,222. Compared against
+ * the same replay counting `lastEventAt`, which is what a write really does move, including a title
+ * costs a repaint roughly every fifteen thousand writes. The cost is not zero, and this is the
+ * field to drop first if it ever is: a rename that leaves a row showing the old name reads as a
+ * rename that did nothing, and the reader has no other signal that it worked.
  */
 export function viewSignature(snapshot: BotSnapshot): string {
   return snapshot.bots
     .map((bot) => [
       bot.botId,
       bot.environmentAvailability,
-      bot.sessions.map((one) => one.sessionId).sort().join(","),
+      bot.sessions.map((one) => `${one.source}:${one.sessionId}:${one.title}`).sort().join(","),
       bot.missingSessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`).sort().join(","),
     ].join("~"))
     .join("|");
