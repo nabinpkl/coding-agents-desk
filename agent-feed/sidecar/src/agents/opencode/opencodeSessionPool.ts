@@ -22,10 +22,14 @@ import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentPr
 import { OpencodeEventMapper, type OpencodeSyncResult } from "@/agents/opencode/opencodeEventMapper";
 import { OpencodeImageStore } from "@/agents/opencode/opencodeImageStore";
 import { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
+import { readOpencodeMeter } from "@/agents/opencode/opencodeUsage";
+import {
+  OpencodeStreamTail,
+  type OpencodeStreamedPart,
+} from "@/agents/opencode/opencodeStreamTail";
 import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
 import { latestCompletedCompactionId, readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
-import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -86,6 +90,8 @@ export class OpencodeSessionPool {
   private readonly modelLimits = new OpencodeModelLimits();
   /** The pictures live rows drew, waiting for the image route's on-demand reads. */
   private readonly imageStore = new OpencodeImageStore();
+  /** The turn being written, held from the serve's own deltas rather than re-read. */
+  private readonly streaming = new OpencodeStreamTail();
   private readonly now: () => number;
   private readonly serve: () => OpencodeClient | null;
   private readonly events: OpencodeServeEvents;
@@ -114,6 +120,7 @@ export class OpencodeSessionPool {
           this.compactions.end(messageId);
         },
         compactionSettled: (sessionId) => this.compactions.endSession(sessionId),
+        streamPart: (sessionId, part) => this.streamPart(sessionId, part),
       },
       this.serve,
     );
@@ -288,6 +295,7 @@ export class OpencodeSessionPool {
       this.owned.delete(sessionId);
       this.disposeOwned(owned);
       this.imageStore.dropSession(sessionId);
+      this.streaming.clear(sessionId);
     }
   }
 
@@ -307,6 +315,7 @@ export class OpencodeSessionPool {
     this.owned.clear();
     this.starts.clear();
     this.imageStore.clear();
+    this.streaming.clearAll();
   }
 
   /**
@@ -394,53 +403,19 @@ export class OpencodeSessionPool {
       }
       const historyBoundaryId = latestCompletedCompactionId(history);
       if (replace || historyBoundaryId !== null) current.compactionBoundaryId = historyBoundaryId;
+      this.streaming.forget(sessionId, history);
       this.imageStore.store(sessionId, result.images);
-      const session = info.data?.data;
-      // Named whenever the serve names one, whether or not tokens rode along: a fresh
-      // session reports no token totals yet, and usage still blanks across the
-      // post-compaction gap, but neither ever changes the model.
-      const servedModel = session?.model;
-      if (servedModel) current.model = `${servedModel.providerID}/${servedModel.id}`;
-      if (session?.tokens && session.model) {
-        const tokens = session.tokens;
-        const modelKey = `${session.model.providerID}/${session.model.id}`;
-        current.model = modelKey;
-        // The window, not the odometer: session totals accumulate every turn's cache re-read
-        // (measured 330M on a 1M window), while the meter answers what is in context now.
-        // A completed compaction with no turn reporting tokens after it blanks the meter until
-        // the next turn lands its own provider count -- the TUI's gap behavior, rather than
-        // holding a pre-compaction number for a window that no longer exists. Otherwise
-        // keeps the previous reading when the batch holds no turn with tokens, and seeds from
-        // the totals only for a session that has never reported a window at all.
-        const windowTokens = currentWindowTokens(history);
-        const totals = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;
-        // The session's lifetime spend in USD, straight off `session.get cost` -- the same
-        // figure the TUI formats beside its meter. Read, never computed: cost math belongs
-        // to the side that prices. Absent (not zero) when the serve names none.
-        const rawCost = (session as { cost?: unknown } | undefined)?.cost;
-        const cost = typeof rawCost === "number" && Number.isFinite(rawCost) ? rawCost : undefined;
-        if (windowTokens !== null) {
-          current.usage = {
-            current: windowTokens,
-            // Resolved from the model list, never invented: a fraction of a guessed denominator
-            // reads as authoritative and is not. Null until the first lookup lands, which the
-            // meter draws as a count without a bar.
-            limit: await this.modelLimits.limit(modelKey),
-            updatedAt: this.now(),
-            model: modelKey,
-            cost,
-          };
-        } else if (lastCompletedCompactionIndex(history) !== -1) {
-          current.usage = null;
-        } else {
-          current.usage = {
-            current: current.usage?.current ?? totals,
-            limit: await this.modelLimits.limit(modelKey),
-            updatedAt: this.now(),
-            model: modelKey,
-            cost: cost ?? current.usage?.cost,
-          };
-        }
+      // The meter's own rules, and the gap a compaction leaves in them, live in one place.
+      const meter = await readOpencodeMeter({
+        session: info.data?.data,
+        history,
+        previous: current.usage,
+        limits: this.modelLimits,
+        now: this.now,
+      });
+      if (meter) {
+        current.model = meter.model;
+        current.usage = meter.usage;
       }
       current.projection.setState(result.open ? "running" : "idle");
       current.lastTouchedAt = this.now();
@@ -450,6 +425,30 @@ export class OpencodeSessionPool {
       if (isServeUnauthorized(error)) resetOpencodeClient();
       console.error("opencode session refresh failed", { sessionId, error: String(error) });
     }
+  }
+
+  /**
+   * The running turn's own words, drawn as the serve publishes them.
+   *
+   * Nothing is read here. The serve is already sending the chunk that extends the row, so the
+   * read this replaces -- coalesced, once per burst -- could only ever be a later copy of what
+   * this already holds, and it re-read and re-mapped the newest 200 messages to move one line.
+   * The tail hands back a message shaped like the durable one, the same mapper draws it, and
+   * the row's id is the durable id, so the closing read replaces this row in place.
+   *
+   * Run state follows from the row rather than being set here: words arriving mean the turn is
+   * running, and the read that ends the step is what says it stopped. Marking the session
+   * touched matters for the same reason -- a reader who opens mid-turn gets the live row from
+   * here without waiting for anything.
+   */
+  private streamPart(sessionId: string, part: OpencodeStreamedPart): void {
+    const owned = this.owned.get(sessionId);
+    if (!owned || owned.disposed) return;
+    const message = this.streaming.apply(sessionId, part, this.now());
+    if (!message) return;
+    owned.mapper.sync([message]);
+    owned.projection.setState("running");
+    owned.lastTouchedAt = this.now();
   }
 
   private scheduleRefresh(sessionId: string, full = false): void {

@@ -1,0 +1,205 @@
+// A turn's words reach the projection as the serve publishes them, and the read that ends the
+// step settles the same row rather than adding one.
+//
+// The property under test is the one a reader would describe as "it streams": every delta
+// produces its own row, in order, with the text so far -- and none of them costs a fetch of the
+// message history. The fake serve counts those fetches, because before this each delta bought
+// one (coalesced into a re-read that arrived later than the words it was re-reading for).
+import { afterEach, describe, expect, it } from "bun:test";
+import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { OpencodeSessionPool } from "@/agents/opencode/opencodeSessionPool";
+import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+
+const CAPABILITIES = {
+  canSend: true,
+  canStreamLive: true,
+  canInterrupt: true,
+  canOpenTerminal: false,
+  supportsExtensionUi: true,
+  canFork: true,
+  canCompact: true,
+  canRename: true,
+  supportsImages: true,
+  supportsModelSwitch: true,
+} as never;
+
+interface Harness {
+  pool: OpencodeSessionPool;
+  push: (event: unknown) => void;
+  /** What the next history read answers with, which is how a turn reaches the serve's file. */
+  settle: (messages: SessionMessage[]) => void;
+  historyReads: () => number;
+  dispose: () => Promise<void>;
+}
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+/**
+ * A serve that publishes one turn's words on demand, and counts the history reads the sidecar
+ * makes against it. The history it serves is whatever the test puts in `durable`, so the
+ * handoff can be watched: a message that is streamed first and only later readable.
+ */
+function harness(initial: SessionMessage[] = []): Harness {
+  let durable: SessionMessage[] = initial;
+  let reads = 0;
+  // A real queue rather than a one-shot promise: the sidecar keeps one stream open for every
+  // session it owns, and a test that published a single event would prove nothing about the
+  // second, third or fourth -- which is exactly the range this is about.
+  const waiting: ((event: unknown) => void)[] = [];
+  const queued: unknown[] = [];
+  const push = (event: unknown): void => {
+    const next = waiting.shift();
+    if (next) next(event);
+    else queued.push(event);
+  };
+
+  globalThis.fetch = (async (url: string | URL) => {
+    const parsed = new URL(String(url));
+    if (parsed.pathname.endsWith("/message")) {
+      reads += 1;
+      return Response.json({ data: [...durable].reverse() });
+    }
+    if (parsed.pathname === "/api/model") {
+      return Response.json({ data: [
+        { providerID: "opencode-go", modelID: "m", name: "M", limit: { context: 1000 }, cost: [] },
+      ] });
+    }
+    return Response.json({ data: {} });
+  }) as typeof globalThis.fetch;
+
+  const client = {
+    v2: {
+      session: {
+        get: async () => ({
+          data: { data: { id: "s1", model: { id: "m", providerID: "opencode-go" }, tokens: null } },
+        }),
+      },
+      event: {
+        subscribe: async (options?: { signal?: AbortSignal }) => ({
+          stream: (async function* () {
+            for (;;) {
+              const event = queued.length > 0
+                ? queued.shift()
+                : await new Promise<unknown>((resolve, reject) => {
+                  options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+                  waiting.push(resolve);
+                });
+              yield event;
+            }
+          })(),
+        }),
+      },
+    },
+  } as unknown as OpencodeClient;
+
+  const pool = new OpencodeSessionPool({
+    resolveSession: () => ({ sessionId: "s1", source: "opencode", projectPath: "/repo" }),
+    onSessionCreated: () => {},
+    onCatalogChanged: () => {},
+    capabilities: CAPABILITIES,
+    client: () => client,
+  });
+  return {
+    pool,
+    push,
+    settle: (messages) => {
+      durable = messages;
+    },
+    historyReads: () => reads,
+    dispose: async () => {
+      await pool.dispose();
+    },
+  };
+}
+
+async function openAndWatch(h: Harness): Promise<() => void> {
+  // Subscribing is what turns the serve stream on, so a reader arriving mid-turn is the case
+  // this exercises rather than an accident of the test.
+  return h.pool.subscribe("s1", 0, () => {});
+}
+
+describe("the opencode pool, streaming a turn", () => {
+  it("draws every delta as its own row, and reads the history once for the seed", async () => {
+    const h = harness();
+    const stop = await openAndWatch(h);
+    const readsAfterSeed = h.historyReads();
+
+    h.push({ type: "session.text.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
+    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "one " } });
+    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "two" } });
+    h.push({ type: "session.text.ended", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, text: "one two" } });
+    // The serve re-read is a macrotask away; give the event loop a turn.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const page = await h.pool.page("s1", 0, 10, "nice");
+    expect(page.events).toHaveLength(1);
+    expect(page.events[0]?.id).toBe("opencode:msg-1");
+    expect(page.events[0]?.phase).toBe("streaming");
+    expect(page.events[0]?.blocks).toEqual([{ kind: "text", text: "one two" }]);
+    // The whole turn, and not one read per delta.
+    expect(h.historyReads()).toBe(readsAfterSeed);
+    expect(page.runState).toBe("running");
+    await stop();
+    await h.dispose();
+  });
+
+  it("settles the streamed row in place when the step's read brings the durable message", async () => {
+    const h = harness();
+    const stop = await openAndWatch(h);
+    h.push({ type: "session.reasoning.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
+    h.push({ type: "session.reasoning.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "thinking" } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const streamed = await h.pool.page("s1", 0, 10, "nice");
+    expect(streamed.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "thinking" }]);
+
+    // The step ends, so the serve answers the read with the message it wrote, tool part and all.
+    h.settle([{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1, completed: 2 },
+      agent: "build",
+      model: { id: "m", providerID: "opencode-go" },
+      content: [
+        { type: "reasoning", text: "thinking" },
+        { type: "text", text: "the answer" },
+      ],
+    } as unknown as SessionMessage]);
+    h.push({ type: "session.step.ended", data: { sessionID: "s1", assistantMessageID: "msg-1", finish: "stop" } });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const settled = await h.pool.page("s1", 0, 10, "nice");
+    expect(settled.total).toBe(1);
+    expect(settled.events[0]?.id).toBe("opencode:msg-1");
+    expect(settled.events[0]?.phase).toBe("complete");
+    expect(settled.events[0]?.blocks).toEqual([
+      { kind: "reasoning", text: "thinking" },
+      { kind: "text", text: "the answer" },
+    ]);
+    expect(settled.runState).toBe("idle");
+    await stop();
+    await h.dispose();
+  });
+
+  it("forgets the running message, so a late event for it cannot overwrite the settled row", async () => {
+    const h = harness([{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1, completed: 2 },
+      agent: "build",
+      model: { id: "m", providerID: "opencode-go" },
+      content: [{ type: "text", text: "the whole answer" }],
+    } as unknown as SessionMessage]);
+    const stop = await openAndWatch(h);
+    // A delta that arrives after the read, for a message the serve already wrote whole.
+    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "stale" } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const page = await h.pool.page("s1", 0, 10, "nice");
+    expect(page.events[0]?.blocks).toEqual([{ kind: "text", text: "the whole answer" }]);
+    expect(page.events[0]?.phase).toBe("complete");
+    await stop();
+    await h.dispose();
+  });
+});

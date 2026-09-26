@@ -84,3 +84,44 @@ rebuild the projection instead of upserting onto rows the serve has replaced. Th
 `projectionId`, which is what makes an already-open card drop its old window; without that, a
 compacted session could keep showing a pre-compaction tool call as its last line. Shell calls open
 their command and result by default, because that output is the answer the row exists to give.
+
+## Update 2026-09-26: the serve's deltas are the read, for a turn's words
+
+A turn's prose and thinking are not a thing the panel goes and fetches. The serve publishes each
+part as a lifecycle — `session.reasoning.started`, one `session.reasoning.delta` per chunk,
+`session.reasoning.ended` carrying the whole part — and the durable message does not exist until
+the step ends. Every one of those events used to fall through to the router's catch-all, which
+schedules a re-read of the newest page, coalesced to one per 300ms. So a sentence arrived in
+300ms steps, and each step re-read and re-mapped 200 messages to move one line of it. Measured on
+a live turn: the text now grows in 85–135ms steps, which the coalesce could not produce, and the
+whole turn costs no history read at all.
+
+`OpencodeStreamTail` holds the parts of a running message in the order the serve opened them and
+hands back a message shaped exactly like the durable one, so the existing mapper draws the streamed
+row with the rules the settled row uses and the durable read replaces it by id, in place. The
+shape is deliberately minimal — `type`, `time.created`, `content` — because that is all the
+mapper's assistant branch reads, and a cast is the honest way to say a synthesized envelope is
+not a promise about the whole `SessionMessage` union.
+
+Three seams decide what is drawn, and each is a place where the cheaper answer would be a lie:
+
+- **A part is not drawn before it has words.** `started` names a part that is empty; drawing the
+  row and filling it a moment later is a flash, not a stream.
+- **A delta for a part this tail never saw open is dropped.** The sidecar was not watching when
+  the serve opened it, so there is no base text to extend, and inventing one would silently drop
+  the words that came before. The durable read settles it instead.
+- **A streamed message never carries `time.completed`.** Its row reads as streaming however long
+  the words run, because the read at the end of the step is what closes it, and that read is also
+  what brings the tool parts, tokens and cost the deltas never name.
+
+Tool events deliberately still buy a read. A tool row needs its input, its output and its state
+together, and the deltas carry them in pieces; a partial tool row is a call with no result under
+it. An event of the word families that this shape cannot draw is dropped rather than read, since
+falling through to a read would buy the same words later and more slowly.
+
+The panel needed nothing for this. A growing row is an ordinary upsert on an index it may not hold
+(`events.set(event.index, event)`, with `total` widened), the projection's `revision` rises with
+each change so the merge accepts it, and the tail follower re-pins on a `ResizeObserver` over
+measured height, so a row that grows in place keeps the reader at the bottom. The separate `tail`
+channel stays for the backends that have a live mirror, and `canStreamLive` stays false here: this
+is the projection streaming, not a mirror.

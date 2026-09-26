@@ -1,11 +1,18 @@
-// The serve's compaction family lands in the watch, not in a re-read: while a compaction
-// streams there is no durable message to read, so only `ended` (and the checkpoint landing)
-// schedules one. Deltas arrive per token and must never each cost a round trip.
+// Two families, and the same rule for both: a serve event that already carries the words is
+// delivered, and a re-read is bought only by the one event that means the serve has finished
+// writing. A compaction has no durable message to read while it streams, so only `ended` (and
+// the checkpoint landing) schedules one. A turn's prose and thinking are published as they are
+// written, so those go to the projection and must never each cost a round trip -- that read is
+// what made the text arrive in steps, re-mapping 200 messages to move one line of it.
 import { expect, test } from "bun:test";
 import type { OpencodeClient, V2Event } from "@opencode-ai/sdk/v2/client";
 import { OpencodeServeEvents, type ServeEventRouter } from "@/agents/opencode/opencodeServeEvents";
 
 function compaction(type: string, data: Record<string, unknown>): V2Event {
+  return { id: "evt-1", type, data } as unknown as V2Event;
+}
+
+function part(type: string, data: Record<string, unknown>): V2Event {
   return { id: "evt-1", type, data } as unknown as V2Event;
 }
 
@@ -22,6 +29,8 @@ function harness(events: V2Event[]) {
     compactionDeltaForSession: (sessionId, text) => void calls.push(`sessdelta:${sessionId}:${text}`),
     compactionEnded: (sessionId, messageId) => void calls.push(`ended:${sessionId}:${messageId}`),
     compactionSettled: (sessionId) => void calls.push(`settled:${sessionId}`),
+    streamPart: (sessionId, streamed) =>
+      void calls.push(`part:${sessionId}:${streamed.kind}:${streamed.phase}:${streamed.messageId}:${streamed.chunk ?? ""}`),
   };
   const client = {
     v2: {
@@ -120,4 +129,63 @@ test("v2 compaction failure settles the notice and refreshes", async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   await stream.dispose();
   expect(calls).toEqual(["settled:ses-2", "refresh:ses-2"]);
+});
+
+test("a turn's words go to the projection, and only the step ending buys a read", async () => {
+  const { calls, stream } = harness([
+    part("session.reasoning.started", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0 }),
+    part("session.reasoning.delta", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, delta: "weighing" }),
+    part("session.reasoning.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, text: "weighing it up" }),
+    part("session.text.started", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0 }),
+    part("session.text.delta", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" }),
+    part("session.text.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, text: "the answer" }),
+    part("session.step.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", finish: "stop" }),
+  ]);
+  stream.setWanted(true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await stream.dispose();
+  expect(calls).toEqual([
+    "part:ses-1:reasoning:started:msg-1:",
+    "part:ses-1:reasoning:delta:msg-1:weighing",
+    "part:ses-1:reasoning:ended:msg-1:",
+    "part:ses-1:text:started:msg-1:",
+    "part:ses-1:text:delta:msg-1:the answer",
+    "part:ses-1:text:ended:msg-1:",
+    "refresh:ses-1",
+  ]);
+});
+
+test("a tool lifecycle is not a word, so it leaves to the read that has the whole call", async () => {
+  const { calls, stream } = harness([
+    part("session.tool.input.started", { sessionID: "ses-1", assistantMessageID: "msg-1", id: "call-1", name: "read" }),
+    part("session.tool.input.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", id: "call-1" }),
+    part("session.tool.called", { sessionID: "ses-1", assistantMessageID: "msg-1", id: "call-1", name: "read" }),
+    part("session.tool.success", { sessionID: "ses-1", assistantMessageID: "msg-1", id: "call-1" }),
+  ]);
+  stream.setWanted(true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await stream.dispose();
+  // A partial tool row is a call with no result under it; the read that ends the step brings
+  // the input, the output and the state together. These four do coalesce into one read.
+  expect(calls).toEqual([
+    "refresh:ses-1",
+    "refresh:ses-1",
+    "refresh:ses-1",
+    "refresh:ses-1",
+  ]);
+});
+
+test("a word event this shape cannot draw is dropped rather than read", async () => {
+  const { calls, stream } = harness([
+    part("session.text.delta", { assistantMessageID: "msg-1", ordinal: 0, delta: "no session" }),
+    part("session.text.delta", { sessionID: "ses-1", ordinal: 0, delta: "no message id" }),
+    part("session.text.delta", { sessionID: "ses-1", assistantMessageID: "msg-1", delta: "no ordinal" }),
+    part("session.text.streamed", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, delta: "x" }),
+  ]);
+  stream.setWanted(true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await stream.dispose();
+  // Falling through to a read here would buy the same words one coalesced page re-read later,
+  // which is the cost this family was moved off.
+  expect(calls).toEqual([]);
 });

@@ -8,6 +8,7 @@
 
 import type { OpencodeClient, V2Event } from "@opencode-ai/sdk/v2/client";
 import { describeServeError, isServeUnauthorized, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeStreamedPart } from "@/agents/opencode/opencodeStreamTail";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
 
 export type OpencodeRunState = "running" | "idle" | "error";
@@ -30,6 +31,12 @@ export interface ServeEventRouter {
   compactionDeltaForSession(sessionId: string, text: string): void;
   /** A compaction finished (or its checkpoint landed); the notice comes down. */
   compactionEnded(sessionId: string, messageId: string): void;
+  /**
+   * A running turn's prose or thinking advanced. Delivered to the projection rather than
+   * re-read: the serve is publishing the words as they are written, so reading the messages
+   * back would only arrive later, in steps, having re-read 200 of them to move one line.
+   */
+  streamPart(sessionId: string, part: OpencodeStreamedPart): void;
   /**
    * A checkpoint landed without naming its compaction (`session.compacted` carries only the
    * session). Ends whatever is running there: the notice must not outlive the row it waited on.
@@ -115,6 +122,19 @@ export class OpencodeServeEvents {
         this.routeCompactionV2(type, event, sessionId);
         return;
       }
+      // A running turn's own words, dispatched before the catch-all below for the reason the
+      // compaction family is: these arrive per chunk, and every one of them used to buy a
+      // re-read of the newest page. The durable read now waits for the step to end instead.
+      // Recognised by the family and not by whether the event parses, so an event this shape
+      // cannot draw -- no session, no message id, an unknown phase -- is dropped rather than
+      // falling through to a read that would buy the same thing more slowly.
+      if (type.startsWith("session.reasoning.") || type.startsWith("session.text.")) {
+        const streamed = this.streamedPart(type, event);
+        if (streamed && sessionId && this.router.hasSession(sessionId)) {
+          this.router.streamPart(sessionId, streamed);
+        }
+        return;
+      }
     }
     switch (event.type) {
       case "session.status": {
@@ -187,6 +207,35 @@ export class OpencodeServeEvents {
         if (sessionId && this.router.hasSession(sessionId)) this.router.refresh(sessionId);
       }
     }
+  }
+
+  /**
+   * One event about a running turn's prose or thinking, in the shape the tail takes.
+   *
+   * The serve splits each part into a lifecycle -- `started`, one `delta` per chunk, `ended`
+   * carrying the whole part -- and names the part by its position among parts of its own kind,
+   * which is why a message with reasoning then text numbers both 0. Returns null for an event
+   * of this family that carries nothing drawable, which is dropped rather than read.
+   */
+  private streamedPart(type: string, event: V2Event): OpencodeStreamedPart | null {
+    const kind = type.startsWith("session.reasoning.") ? "reasoning" : "text";
+    // The LAST dot: the family itself carries one, after `session`.
+    const phase = type.slice(type.lastIndexOf(".") + 1);
+    if (phase !== "started" && phase !== "delta" && phase !== "ended") return null;
+    const data = (event as { data?: Record<string, unknown> }).data ?? {};
+    const messageId = data["assistantMessageID"];
+    const ordinal = data["ordinal"];
+    if (typeof messageId !== "string" || !messageId || typeof ordinal !== "number") return null;
+    const chunk = data["delta"];
+    const text = data["text"];
+    return {
+      kind,
+      phase,
+      messageId,
+      ordinal,
+      ...(typeof chunk === "string" && chunk ? { chunk } : {}),
+      ...(typeof text === "string" && text ? { text } : {}),
+    };
   }
 
   /**
