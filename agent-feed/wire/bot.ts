@@ -329,6 +329,28 @@ export interface BotSessionsRetired {
 }
 
 /**
+ * Renames one Bot session's bracket task, addressed by the session rather than the Bot.
+ *
+ * The single completion path every `set_task` front door forwards to: the relay child for
+ * Claude, the hub for opencode, a native tool for Pi. The caller names the session and the task
+ * text only -- the anchor is resolved here, composed here, and never arrives over this wire.
+ */
+export interface RenameBracketCommand {
+  source: SourceId;
+  sessionId: string;
+  /** The bracket task. Empty starts the session bare under its anchor. */
+  task: string;
+}
+
+/** `POST /api/bots/sessions/rename-bracket` response. */
+export interface RenamedBracket {
+  botId: string;
+  anchor: string;
+  title: string;
+  status: "renamed" | "already";
+}
+
+/**
  * `GET /api/bots/:botId/git/stream` event: what is uncommitted in the Bot's directory, sent on
  * subscribing and again after every change the sidecar's repository watch sees.
  *

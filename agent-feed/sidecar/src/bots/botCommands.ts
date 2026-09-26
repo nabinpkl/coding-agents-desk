@@ -152,6 +152,32 @@ export function normalizeSessionRef(value: unknown): BotSessionRef {
   return { source: ref.source, sessionId: ref.sessionId };
 }
 
+export interface NormalizedBracket {
+  ref: BotSessionRef;
+  /** The bracket task, trimmed. Empty starts the session bare under its anchor. */
+  task: string;
+}
+
+/**
+ * A bracket rename: which session, and what it is doing now.
+ *
+ * The task is bounded like a launch title for the same reason -- it becomes one argument to the
+ * session's own rename -- and refused for line breaks up front. Parentheses and the composed
+ * length are the registry's call, beside the anchor they compose with.
+ */
+export function normalizeBracketCommand(value: unknown): NormalizedBracket {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BotInvalidError("request body must be an object");
+  }
+  const command = value as { source?: unknown; sessionId?: unknown; task?: unknown };
+  const ref = normalizeSessionRef({ source: command.source, sessionId: command.sessionId });
+  if (typeof command.task !== "string") throw new BotInvalidError("task must be a string");
+  const task = command.task.trim();
+  if (task.length > MAX_NAME) throw new BotInvalidError(`task must be at most ${MAX_NAME} characters`);
+  if (/[\n\r]/.test(task)) throw new BotInvalidError("task cannot contain a line break");
+  return { ref, task };
+}
+
 /**
  * The launch options: what the session is working on, as task text.
  *

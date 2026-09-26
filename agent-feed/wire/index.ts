@@ -71,6 +71,8 @@ export type {
   BotSnapshot,
   BotView,
   DetachBotSessionsCommand,
+  RenameBracketCommand,
+  RenamedBracket,
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
   RetiredBotSession,

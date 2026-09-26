@@ -273,6 +273,51 @@ async function nextEvent(response: Response | undefined, accept: (event: unknown
   }
 }
 
+test("renames one session's bracket through the registry, addressed by the session", async () => {
+  const calls: unknown[] = [];
+  const renamed = { botId: "bot-1", anchor: "Aaron", title: "Aaron (night shift)", status: "renamed" };
+  const registry = {
+    async renameBracket(ref: unknown, task: unknown, renamer: unknown) {
+      calls.push({ ref, task, renamer });
+      return renamed;
+    },
+  } as unknown as BotRegistry;
+  const rename = async () => {};
+  const route = createBotRoutes(registry, repositories, LIMITS, { renameSession: rename });
+  const request = new Request("http://localhost/api/bots/sessions/rename-bracket", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source: "claude", sessionId: "session-1", task: "night shift" }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual(renamed);
+  // The task text crosses; the anchor never does, and the route hands the renamer through.
+  expect(calls).toEqual([{
+    ref: { source: "claude", sessionId: "session-1" },
+    task: "night shift",
+    renamer: rename,
+  }]);
+});
+
+test("refuses a bracket rename that names no task text", async () => {
+  const registry = {
+    async renameBracket() {
+      throw new Error("unreached: validation is the route's");
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
+  const request = new Request("http://localhost/api/bots/sessions/rename-bracket", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source: "claude", sessionId: "session-1" }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(400);
+});
+
 test("streams the Bot's directory's git status, from no repository to one", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "bot-git-route-")));
   try {

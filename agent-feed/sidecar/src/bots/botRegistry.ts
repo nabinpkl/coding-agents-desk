@@ -13,6 +13,7 @@ import type {
   StartedSession,
   DetachBotSessionsCommand,
   ReorderBotSessionsCommand,
+  RenamedBracket,
   RetireBotSessionsCommand,
   SetBotCanvasCommand,
 } from "@agentdesk/agent-feed-wire";
@@ -34,6 +35,7 @@ import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
 import { attachRefs } from "@/bots/sessions/botSessionAttach";
 import {
   normalizeBotTitles,
+  renameBracketTitle,
   type BotSessionRenamer,
   type TitleNormalization,
 } from "@/bots/sessions/botTitleNormalize";
@@ -302,8 +304,7 @@ export class BotRegistry {
   }
 
   /**
-   * Brings every attached session's title into the anchor shape. See `botTitleNormalize.ts`: the
-   * registry owns the store this runs against, and nothing else about the pass.
+   * Brings every attached session's title into the anchor shape. See `botTitleNormalize.ts`.
    */
   async normalizeTitles(renamer: BotSessionRenamer): Promise<{
     bots: BotView[];
@@ -311,6 +312,15 @@ export class BotRegistry {
   }> {
     const normalizations = await normalizeBotTitles(this.store, this.catalog, renamer);
     return { bots: (await this.snapshot()).bots, normalizations };
+  }
+
+  /** One session's bracket task: the completion path every `set_task` door forwards to. */
+  async renameBracket(
+    ref: BotSessionRef,
+    task: string,
+    renamer: BotSessionRenamer,
+  ): Promise<RenamedBracket> {
+    return renameBracketTitle(this.store, this.catalog, ref, task, renamer);
   }
 
   /**
