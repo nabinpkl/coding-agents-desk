@@ -10,7 +10,7 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
   Markdown: ({ content }: { content: string }) => <div data-testid="markdown-view">{content}</div>,
 }));
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 class MockResizeObserver {
   observe() {}

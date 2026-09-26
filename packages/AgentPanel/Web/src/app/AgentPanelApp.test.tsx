@@ -36,7 +36,7 @@ vi.mock("@/features/activity-feed/markdown/Markdown", async () => {
   const { markdownModule } = await import("@/app/agentPanelAppMocks");
   return markdownModule();
 });
-vi.mock("@/features/activity-feed/blocks/DiffBlock", async () => {
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", async () => {
   const { diffBlockModule } = await import("@/app/agentPanelAppMocks");
   return diffBlockModule();
 });

@@ -11,7 +11,7 @@ import {
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div /> }));
 
 const CTX: EventRowContext = {
   session: { source: "claude", sessionId: "session-1", mode: "nice" },

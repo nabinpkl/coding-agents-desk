@@ -17,7 +17,7 @@ import { toolIntent } from "@/features/activity-feed/rows/activityEventText";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div /> }));
 
 const ROOT = "/private/tmp/claude-501/-Users-dev-projects-agent-desk/8497f3ba/scratchpad";
 const CAPTION = "Blue is imported-by, orange is imports.";

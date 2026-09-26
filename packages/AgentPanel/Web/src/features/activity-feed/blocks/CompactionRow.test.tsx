@@ -7,7 +7,7 @@ import { CompactionRow } from "@/features/activity-feed/blocks/CompactionRow";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),

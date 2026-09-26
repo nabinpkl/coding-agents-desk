@@ -22,7 +22,7 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 
 // @git-diff-view and next-themes do not run under jsdom. Markdown stays REAL:
 // whether reasoning renders its markup is the whole point of one test below.
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),

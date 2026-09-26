@@ -7,7 +7,8 @@
 // routes those into the event's Raw drawer before this is reached.
 
 import { ChevronRight } from "lucide-react";
-import { DiffBlock } from "@/features/activity-feed/blocks/DiffBlock";
+import { DiffBlock } from "@/features/activity-feed/blocks/diff/DiffBlock";
+import { describeEditChange } from "@/features/activity-feed/blocks/diff/describeEditChange";
 import { SearchResultBody, parseSearchResult } from "@/features/activity-feed/blocks/SearchResultBody";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";

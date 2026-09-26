@@ -21,7 +21,7 @@ import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarD
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),

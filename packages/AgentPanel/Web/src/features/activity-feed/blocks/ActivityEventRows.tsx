@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, GitBranch } from "lucide-react";
-import { DiffBlock } from "@/features/activity-feed/blocks/DiffBlock";
+import { DiffBlock } from "@/features/activity-feed/blocks/diff/DiffBlock";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";

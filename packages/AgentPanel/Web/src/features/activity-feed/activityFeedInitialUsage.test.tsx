@@ -14,7 +14,7 @@ vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
     <div data-testid="markdown-view">{content}</div>
   ),
 }));
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 // The feed's stick-to-bottom machinery observes the scroller; jsdom has none.
 class MockResizeObserver {
