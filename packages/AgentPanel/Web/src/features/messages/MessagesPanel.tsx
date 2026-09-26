@@ -99,7 +99,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
           >
             <option value="">Pick a session…</option>
             {groups.map((group) => (
-              <optgroup key={group.label ?? "sessions"} label={group.label ?? "Sessions"}>
+              <optgroup key={group.label} label={group.label}>
                 {group.entries.map((entry) => (
                   <option key={entry.address} value={entry.address}>
                     {optionLabel(entry)}

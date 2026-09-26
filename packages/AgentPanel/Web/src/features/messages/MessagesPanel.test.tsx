@@ -145,7 +145,7 @@ describe("MessagesPanel", () => {
     await screen.findByText("No messages yet");
     const picker = screen.getByLabelText("To");
     const groups = within(picker).getAllByRole("group").map((group) => group.getAttribute("label"));
-    expect(groups).toEqual(["Site fixer", "Sessions"]);
+    expect(groups).toEqual(["Site fixer", "mac · other"]);
     // The Bot itself is not a choice, only a heading.
     expect(within(picker).queryByRole("option", { name: /^Site fixer/ })).toBeNull();
     expect(within(picker).getByRole("option", { name: "Fix the header" })).toBeTruthy();
