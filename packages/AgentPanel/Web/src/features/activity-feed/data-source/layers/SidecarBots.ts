@@ -64,7 +64,7 @@ export class SidecarBots extends SidecarBotDirectory {
   async browseDirectories(path: string | null): Promise<WorkspaceBrowseListing> {
     const query = path === null ? "" : `?path=${encodeURIComponent(path)}`;
     return parse<WorkspaceBrowseListing>(
-      await this.transport.request("GET", `/api/workspace/browse${query}`),
+      await this.transport.request("GET", `/api/workspaces/browse${query}`),
     );
   }
 

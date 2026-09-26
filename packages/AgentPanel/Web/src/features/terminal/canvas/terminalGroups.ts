@@ -10,7 +10,7 @@
 //
 // - **Live tmux sessions**, by the `path` each one reports. A session working in a directory
 //   puts that directory on the canvas whether anything registered it or not.
-// - **Workspace roots** (`GET /api/workspace/list`). An empty parent is still a parent: it is
+// - **Workspace roots** (`GET /api/workspaces`). An empty parent is still a parent: it is
 //   where the reader starts a shell when nothing is running there yet.
 // - **Bot directories**. A Bot IS a directory with sessions in it, so its directory stands on
 //   this canvas too -- as a plain parent, with no Bot semantics attached.

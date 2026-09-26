@@ -56,7 +56,7 @@ export const feed = {} as SidecarDataSource;
 
 export function transportWith(workspaces: WorkspaceSummary[]): FakeHttpTransport {
   const transport = new FakeHttpTransport();
-  transport.responses.set("GET /api/workspace/list", {
+  transport.responses.set("GET /api/workspaces", {
     status: 200,
     body: JSON.stringify({ workspaces }),
   });
@@ -74,9 +74,9 @@ export async function mountWorkspaceIde(): Promise<FakeHttpTransport> {
     { timeout: 10_000 },
   );
   act(() => {
-    transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: CLEAN_STATE });
-    transport.deliver("/api/workspace/w-1/stream", { type: "tree", workspaceId: "w-1", tree: TREE });
-    transport.deliver("/api/workspace/w-1/stream", { type: "git", status: GIT });
+    transport.deliver("/api/workspaces/w-1/stream", { type: "sharedState", state: CLEAN_STATE });
+    transport.deliver("/api/workspaces/w-1/stream", { type: "tree", workspaceId: "w-1", tree: TREE });
+    transport.deliver("/api/workspaces/w-1/stream", { type: "git", status: GIT });
   });
   return transport;
 }

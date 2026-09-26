@@ -59,7 +59,7 @@ export class SidecarTerminals extends SidecarComposers {
    */
   async listWorkspaces(): Promise<WorkspaceSummary[]> {
     const { workspaces } = parse<{ workspaces: WorkspaceSummary[] }>(
-      await this.transport.request("GET", "/api/workspace/list"),
+      await this.transport.request("GET", "/api/workspaces"),
     );
     return workspaces;
   }

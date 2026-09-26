@@ -1,4 +1,4 @@
-// `GET /api/workspace/<id>/stream` -- everything about one workspace, as it changes.
+// `GET /api/workspaces/<id>/stream` -- everything about one workspace, as it changes.
 //
 // One stream rather than one per concern. The panel already opens an EventSource for the catalog,
 // the transcript, background tasks, the summary, usage, bots, the session board and the terminals;

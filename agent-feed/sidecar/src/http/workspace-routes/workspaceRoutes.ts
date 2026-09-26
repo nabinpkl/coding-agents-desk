@@ -1,6 +1,6 @@
 // The roster and the shared state: what workspaces exist, and what is open in one.
 //
-// `/api/workspace/...` alongside `/api/park/...` and the feed routes. The directory name says what
+// `/api/workspaces/...` alongside `/api/park/...` and the feed routes. The directory name says what
 // these are for; the `agent-feed` above them is the port that is still open (`FEATURE-MAP.md`).
 
 import type { WorkspaceOperation } from "@agentdesk/agent-feed-wire";
@@ -12,17 +12,15 @@ import {
   RequestFailure,
   requiredString,
   workspaceErrorResponse,
+  workspaceRecord,
   workspaceRoute,
 } from "@/http/workspace-routes/workspaceResponses";
 import { browseDirectories } from "@/workspace/workspaceBrowse";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
-const LIST = "/api/workspace/list";
-const ADD = "/api/workspace/add";
-const REMOVE = "/api/workspace/remove";
-const RENAME = "/api/workspace/rename";
-const REORDER = "/api/workspace/reorder";
-const BROWSE = "/api/workspace/browse";
+const COLLECTION = "/api/workspaces";
+const ORDER = "/api/workspaces/order";
+const BROWSE = "/api/workspaces/browse";
 
 /**
  * Validate an operation from the wire before it reaches the state store.
@@ -58,6 +56,14 @@ function parseOperation(value: unknown): WorkspaceOperation {
 /**
  * The roster and shared-state routes.
  *
+ * The collection is addressed as a collection: listing it, adding to it, and standing it in a
+ * new order are all said to `/api/workspaces`, and one workspace is renamed or removed at its
+ * own address. So adding is the POST it always was, removing is a DELETE, renaming a PATCH of
+ * the one field a rename touches, and reordering a PUT -- it names the roster's whole order
+ * and is refused unless that is exactly the permutation the store holds, the same complete
+ * replacement the Bot order is. Applying a shared-state operation and writing a file stay
+ * POSTs: both are acts with an idempotency story, not settings.
+ *
  * The returned handler is deliberately NOT `async`: `RouteHandler` says a handler either answers
  * (possibly with a promise) or returns `undefined` so the next handler gets a look, and an async
  * function's `undefined` is a resolved promise, which reads as an answer. So matching is
@@ -67,15 +73,23 @@ export function createWorkspaceRoutes(service: WorkspaceService): RouteHandler {
   return (request, url) => {
     const { pathname } = url;
 
-    if (pathname === LIST) {
-      if (request.method !== "GET") return undefined;
-      return jsonResponse({ workspaces: service.store.list() });
+    if (pathname === COLLECTION) {
+      if (request.method === "GET") return jsonResponse({ workspaces: service.store.list() });
+      if (request.method === "POST") return add(service, request);
+      return undefined;
     }
-    if (pathname === ADD && request.method === "POST") return add(service, request);
-    if (pathname === REMOVE && request.method === "POST") return remove(service, request);
-    if (pathname === RENAME && request.method === "POST") return rename(service, request);
-    if (pathname === REORDER && request.method === "POST") return reorder(service, request);
     if (pathname === BROWSE && request.method === "GET") return browse(request);
+    // A complete replacement, refused unless it is exactly the permutation the store holds.
+    if (pathname === ORDER && request.method === "PUT") return reorder(service, request);
+
+    // One workspace's own address, after the literals above: a roster id of "order" or "browse"
+    // still resolves here, because those only match on their own methods.
+    const record = workspaceRecord(pathname);
+    if (record !== null) {
+      if (request.method === "DELETE") return remove(service, record);
+      if (request.method === "PATCH") return rename(service, record, request);
+      return undefined;
+    }
 
     const route = workspaceRoute(pathname);
     if (!route) return undefined;
@@ -113,20 +127,19 @@ async function add(service: WorkspaceService, request: Request): Promise<Respons
   }
 }
 
-async function remove(service: WorkspaceService, request: Request): Promise<Response> {
+async function remove(service: WorkspaceService, id: string): Promise<Response> {
   try {
-    const body = await readJsonBody(request);
-    await service.store.remove(requiredString(body, "id"));
+    await service.store.remove(id);
     return new Response(null, { status: 204 });
   } catch (error) {
     return refusalResponse(error);
   }
 }
 
-async function rename(service: WorkspaceService, request: Request): Promise<Response> {
+async function rename(service: WorkspaceService, id: string, request: Request): Promise<Response> {
   try {
     const body = await readJsonBody(request);
-    await service.store.rename(requiredString(body, "id"), requiredString(body, "name"));
+    await service.store.rename(id, requiredString(body, "name"));
     return new Response(null, { status: 204 });
   } catch (error) {
     return refusalResponse(error);

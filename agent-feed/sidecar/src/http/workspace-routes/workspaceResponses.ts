@@ -73,19 +73,34 @@ export function refusalResponse(
 }
 
 /**
- * The workspace id and trailing action in `/api/workspace/<id>/<action>`, or null.
+ * The workspace id and trailing action in `/api/workspaces/<id>/<action>`, or null.
  *
  * Returns null rather than throwing for a path this module does not own, because a route handler
  * that does not match must fall through to the next one.
  */
 export function workspaceRoute(pathname: string): { id: string; action: string } | null {
   const parts = pathname.split("/");
-  // ["", "api", "workspace", id, action]
-  if (parts.length !== 5 || parts[1] !== "api" || parts[2] !== "workspace") return null;
+  // ["", "api", "workspaces", id, action]
+  if (parts.length !== 5 || parts[1] !== "api" || parts[2] !== "workspaces") return null;
   const id = decodeURIComponent(parts[3] ?? "");
   const action = parts[4] ?? "";
   if (id === "" || action === "") return null;
   return { id, action };
+}
+
+/**
+ * The workspace id in `/api/workspaces/<id>`, or null.
+ *
+ * The record itself, addressed for the verbs that rewrite or forget it: PATCH renames it,
+ * DELETE removes it. Collection-level paths (`order`, `browse`) are exactly four parts too, so
+ * callers match those literals first and only then ask this.
+ */
+export function workspaceRecord(pathname: string): string | null {
+  const parts = pathname.split("/");
+  // ["", "api", "workspaces", id]
+  if (parts.length !== 4 || parts[1] !== "api" || parts[2] !== "workspaces") return null;
+  const id = decodeURIComponent(parts[3] ?? "");
+  return id === "" ? null : id;
 }
 
 /** A refusal raised by a route itself, for a request that never reached the workspace layer. */

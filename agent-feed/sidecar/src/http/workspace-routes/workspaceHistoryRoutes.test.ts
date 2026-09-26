@@ -77,18 +77,18 @@ test("answers the log, one commit's files, and one file's patch", async () => {
   const { routes, workspaceId } = await harness();
 
   const log = await json<{ commits: WorkspaceCommit[] }>(
-    await call(routes, `/api/workspace/${workspaceId}/commits`),
+    await call(routes, `/api/workspaces/${workspaceId}/commits`),
   );
   expect(log.commits.map((commit) => commit.subject)).toEqual(["second", "first"]);
 
   const hash = log.commits[0]!.hash;
   const detail = await json<{ detail: WorkspaceCommitDetail }>(
-    await call(routes, `/api/workspace/${workspaceId}/commit?hash=${hash}`),
+    await call(routes, `/api/workspaces/${workspaceId}/commit?hash=${hash}`),
   );
   expect(detail.detail.files.map((file) => file.path)).toEqual(["main.ts"]);
 
   const diff = await json<{ diff: WorkspaceCommitDiff }>(
-    await call(routes, `/api/workspace/${workspaceId}/diff?hash=${hash}&path=main.ts`),
+    await call(routes, `/api/workspaces/${workspaceId}/diff?hash=${hash}&path=main.ts`),
   );
   expect(diff.diff.patch).toContain("+export const x = 1;");
   expect(diff.diff.truncated).toBe(false);
@@ -97,11 +97,11 @@ test("answers the log, one commit's files, and one file's patch", async () => {
 test("takes a limit, and refuses one that is not a count", async () => {
   const { routes, workspaceId } = await harness();
   const one = await json<{ commits: WorkspaceCommit[] }>(
-    await call(routes, `/api/workspace/${workspaceId}/commits?limit=1`),
+    await call(routes, `/api/workspaces/${workspaceId}/commits?limit=1`),
   );
   expect(one.commits).toHaveLength(1);
 
-  const refused = await call(routes, `/api/workspace/${workspaceId}/commits?limit=nonsense`);
+  const refused = await call(routes, `/api/workspaces/${workspaceId}/commits?limit=nonsense`);
   expect(refused?.status).toBe(400);
 });
 
@@ -109,19 +109,19 @@ test("refuses a hash that is not one, rather than handing it to git", async () =
   const { routes, workspaceId } = await harness();
   // A leading dash is the case that matters: an argument list is not a shell, so this cannot
   // inject a command, but it can still be read by git as an option rather than as a commit.
-  const response = await call(routes, `/api/workspace/${workspaceId}/commit?hash=--help`);
+  const response = await call(routes, `/api/workspaces/${workspaceId}/commit?hash=--help`);
   expect(response?.status).toBe(400);
   expect((await json<{ error: { code: string } }>(response)).error.code).toBe("invalidPath");
 });
 
 test("declines a path it does not own, so the roster routes still get a look", async () => {
   const { routes, workspaceId } = await harness();
-  expect(await call(routes, `/api/workspace/${workspaceId}/tree`)).toBeUndefined();
+  expect(await call(routes, `/api/workspaces/${workspaceId}/tree`)).toBeUndefined();
 });
 
 test("answers 404 for a workspace the sidecar does not know", async () => {
   const { routes } = await harness();
-  const response = await call(routes, "/api/workspace/nope/commits");
+  const response = await call(routes, "/api/workspaces/nope/commits");
   expect(response?.status).toBe(404);
 });
 
@@ -130,11 +130,11 @@ test("answers an uncommitted change, and 404 for a path with none", async () => 
   await writeFile(join(root, "main.ts"), "export {};\nexport const x = 2;\n");
 
   const change = await json<{ diff: WorkspaceChangeDiff }>(
-    await call(routes, `/api/workspace/${workspaceId}/change?path=main.ts`),
+    await call(routes, `/api/workspaces/${workspaceId}/change?path=main.ts`),
   );
   expect(change.diff).toMatchObject({ workspaceId, path: "main.ts", truncated: false });
   expect(change.diff.patch).toContain("-export const x = 1;\n+export const x = 2;");
 
-  const none = await call(routes, `/api/workspace/${workspaceId}/change?path=other.ts`);
+  const none = await call(routes, `/api/workspaces/${workspaceId}/change?path=other.ts`);
   expect(none?.status).toBe(404);
 });

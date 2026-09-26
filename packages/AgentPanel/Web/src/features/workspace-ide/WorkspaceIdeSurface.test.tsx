@@ -33,7 +33,7 @@ it("offers to add one when there are no workspaces, rather than drawing an empty
 
 it("subscribes to the workspace it resolved, and draws the tree the stream sent", async () => {
   const transport = await mounted();
-  expect(transport.subscriptions[0]!.path).toBe("/api/workspace/w-1/stream");
+  expect(transport.subscriptions[0]!.path).toBe("/api/workspaces/w-1/stream");
   const tree = await screen.findByRole("tree");
   expect(within(tree).getByRole("button", { name: "Expand src" })).toBeInTheDocument();
   expect(within(tree).getByRole("button", { name: "Open README.md" })).toBeInTheDocument();
@@ -45,7 +45,7 @@ it("expands a directory by asking the sidecar, not by guessing", async () => {
 
   await waitFor(() => {
     const posted = transport.requests.find(
-      (request) => request.path === "/api/workspace/w-1/state",
+      (request) => request.path === "/api/workspaces/w-1/state",
     );
     expect(posted).toBeDefined();
     expect(posted!.body).toMatchObject({
@@ -62,11 +62,11 @@ it("opens a file, then reads it and shows its text", async () => {
   const opened = { ...CLEAN_STATE, revision: 1, orderedOpenPaths: ["README.md"] };
   // The real route answers with the state it applied, and the hook adopts it. Without this the
   // fake's default `{}` would blank the shared state, which is the surface going dark.
-  transport.responses.set("POST /api/workspace/w-1/state", {
+  transport.responses.set("POST /api/workspaces/w-1/state", {
     status: 200,
     body: JSON.stringify({ state: opened }),
   });
-  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+  transport.responses.set("GET /api/workspaces/w-1/file?path=README.md", {
     status: 200,
     body: JSON.stringify({
       file: {
@@ -97,11 +97,11 @@ it("opens markdown rendered, and keeps the source once a reader asks for it", as
   // A reader opening a markdown file is almost always reading it. Everything else opens as source,
   // because for every other editable kind the source IS the document.
   const transport = await mounted();
-  transport.responses.set("POST /api/workspace/w-1/state", {
+  transport.responses.set("POST /api/workspaces/w-1/state", {
     status: 200,
     body: JSON.stringify({ state: { ...CLEAN_STATE, revision: 1, orderedOpenPaths: ["README.md"] } }),
   });
-  transport.responses.set("GET /api/workspace/w-1/file?path=README.md", {
+  transport.responses.set("GET /api/workspaces/w-1/file?path=README.md", {
     status: 200,
     body: JSON.stringify({
       file: { workspaceId: "w-1", path: "README.md", kind: "markdown", revision: "abc", text: "# Title\n" },
@@ -180,7 +180,7 @@ it("hides the sidebar when the toggle asks, and remembers that across a remount"
 
 it("surfaces a stream failure instead of sitting blank", async () => {
   const transport = await mounted();
-  act(() => transport.fail("/api/workspace/w-1/stream", "the stream went away"));
+  act(() => transport.fail("/api/workspaces/w-1/stream", "the stream went away"));
   expect(await screen.findByText("the stream went away")).toBeInTheDocument();
 });
 

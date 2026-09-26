@@ -91,7 +91,7 @@ function call(
 
 test("lists the roster", async () => {
   const { roster, workspaceId } = await harness();
-  const response = await call(roster, "GET", "/api/workspace/list");
+  const response = await call(roster, "GET", "/api/workspaces");
   expect(response?.status).toBe(200);
   const body = await json<{ workspaces: { id: string; name: string }[] }>(response);
   expect(body.workspaces).toHaveLength(1);
@@ -102,12 +102,17 @@ test("lists the roster", async () => {
 test("declines a path it does not own, so the next handler gets a look", async () => {
   const { roster, files } = await harness();
   expect(await call(roster, "GET", "/api/sessions")).toBeUndefined();
-  expect(await call(files, "GET", "/api/workspace/list")).toBeUndefined();
+  expect(await call(files, "GET", "/api/workspaces")).toBeUndefined();
+  // The retired singular roster paths fall through too: removed means deleted entirely.
+  expect(await call(roster, "POST", "/api/workspaces/add", { root: "/tmp" })).toBeUndefined();
+  expect(await call(roster, "POST", "/api/workspaces/remove", { id: "x" })).toBeUndefined();
+  expect(await call(roster, "POST", "/api/workspaces/rename", { id: "x" })).toBeUndefined();
+  expect(await call(roster, "POST", "/api/workspaces/reorder", { ids: [] })).toBeUndefined();
 });
 
 test("an unknown workspace is 404 with a code the panel can render", async () => {
   const { roster } = await harness();
-  const response = await call(roster, "GET", "/api/workspace/nope/tree");
+  const response = await call(roster, "GET", "/api/workspaces/nope/tree");
   expect(response?.status).toBe(404);
   expect(await json<unknown>(response)).toEqual({
     error: {
@@ -122,12 +127,12 @@ test("an unknown workspace is 404 with a code the panel can render", async () =>
 test("serves the tree, and expanding a directory changes it", async () => {
   const { roster, workspaceId } = await harness();
   const before = await json<{ tree: { name: string; children: unknown[] }[] }>(
-    await call(roster, "GET", `/api/workspace/${workspaceId}/tree`),
+    await call(roster, "GET", `/api/workspaces/${workspaceId}/tree`),
   );
   expect(before.tree.map((node) => node.name)).toEqual(["src"]);
   expect(before.tree[0]!.children).toEqual([]);
 
-  const applied = await call(roster, "POST", `/api/workspace/${workspaceId}/state`, {
+  const applied = await call(roster, "POST", `/api/workspaces/${workspaceId}/state`, {
     baseRevision: 0,
     operationId: "op-1",
     operation: { type: "expand", path: "src" },
@@ -135,19 +140,19 @@ test("serves the tree, and expanding a directory changes it", async () => {
   expect(applied?.status).toBe(200);
 
   const after = await json<{ tree: { children: { name: string }[] }[] }>(
-    await call(roster, "GET", `/api/workspace/${workspaceId}/tree`),
+    await call(roster, "GET", `/api/workspaces/${workspaceId}/tree`),
   );
   expect(after.tree[0]!.children.map((node) => node.name)).toEqual(["main.ts"]);
 });
 
 test("a stale base revision is 409", async () => {
   const { roster, workspaceId } = await harness();
-  await call(roster, "POST", `/api/workspace/${workspaceId}/state`, {
+  await call(roster, "POST", `/api/workspaces/${workspaceId}/state`, {
     baseRevision: 0,
     operationId: "op-1",
     operation: { type: "open", path: "src/main.ts" },
   });
-  const response = await call(roster, "POST", `/api/workspace/${workspaceId}/state`, {
+  const response = await call(roster, "POST", `/api/workspaces/${workspaceId}/state`, {
     baseRevision: 0,
     operationId: "op-2",
     operation: { type: "open", path: "other.ts" },
@@ -159,7 +164,7 @@ test("a stale base revision is 409", async () => {
 test("an unknown operation is 400 rather than being absorbed", async () => {
   const { roster, workspaceId } = await harness();
   for (const operation of [undefined, {}, { type: "detonate" }, { type: "open" }]) {
-    const response = await call(roster, "POST", `/api/workspace/${workspaceId}/state`, {
+    const response = await call(roster, "POST", `/api/workspaces/${workspaceId}/state`, {
       baseRevision: 0,
       operationId: "op",
       operation,
@@ -170,7 +175,7 @@ test("an unknown operation is 400 rather than being absorbed", async () => {
 
 test("reads a file with its kind and revision", async () => {
   const { files, workspaceId } = await harness();
-  const response = await call(files, "GET", `/api/workspace/${workspaceId}/file?path=src/main.ts`);
+  const response = await call(files, "GET", `/api/workspaces/${workspaceId}/file?path=src/main.ts`);
   expect(response?.status).toBe(200);
   const body = await json<{ file: { kind: string; text: string; revision: string } }>(response);
   expect(body.file.kind).toBe("text");
@@ -187,11 +192,11 @@ test("a symlink escape is 403 on read and on write", async () => {
   const read = await call(
     files,
     "GET",
-    `/api/workspace/${workspaceId}/file?path=escape/secret.txt`,
+    `/api/workspaces/${workspaceId}/file?path=escape/secret.txt`,
   );
   expect(read?.status).toBe(403);
 
-  const write = await call(files, "POST", `/api/workspace/${workspaceId}/file`, {
+  const write = await call(files, "POST", `/api/workspaces/${workspaceId}/file`, {
     path: "escape/secret.txt",
     expectedRevision: "any",
     text: "overwritten",
@@ -206,7 +211,7 @@ test("an absolute path or a traversal is 400, and never reaches the filesystem",
     const response = await call(
       files,
       "GET",
-      `/api/workspace/${workspaceId}/file?path=${encodeURIComponent(path)}`,
+      `/api/workspaces/${workspaceId}/file?path=${encodeURIComponent(path)}`,
     );
     expect(response?.status).toBe(400);
   }
@@ -215,10 +220,10 @@ test("an absolute path or a traversal is 400, and never reaches the filesystem",
 test("writes when the revision matches, and 409s when it does not", async () => {
   const { files, workspaceId, root } = await harness();
   const read = await json<{ file: { revision: string } }>(
-    await call(files, "GET", `/api/workspace/${workspaceId}/file?path=src/main.ts`),
+    await call(files, "GET", `/api/workspaces/${workspaceId}/file?path=src/main.ts`),
   );
 
-  const written = await call(files, "POST", `/api/workspace/${workspaceId}/file`, {
+  const written = await call(files, "POST", `/api/workspaces/${workspaceId}/file`, {
     path: "src/main.ts",
     expectedRevision: read.file.revision,
     text: "export const x = 1;\n",
@@ -226,7 +231,7 @@ test("writes when the revision matches, and 409s when it does not", async () => 
   expect(written?.status).toBe(200);
   expect(await readFile(join(root, "src", "main.ts"), "utf8")).toBe("export const x = 1;\n");
 
-  const stale = await call(files, "POST", `/api/workspace/${workspaceId}/file`, {
+  const stale = await call(files, "POST", `/api/workspaces/${workspaceId}/file`, {
     path: "src/main.ts",
     expectedRevision: read.file.revision,
     text: "export const y = 2;\n",
@@ -238,7 +243,7 @@ test("writes when the revision matches, and 409s when it does not", async () => 
 
 test("refuses a body that is not a JSON object", async () => {
   const { roster } = await harness();
-  const url = new URL("http://127.0.0.1/api/workspace/add");
+  const url = new URL("http://127.0.0.1/api/workspaces");
   const response = await Promise.resolve(roster(
     new Request(url.toString(), { method: "POST", body: "not json" }),
     url,
@@ -250,30 +255,35 @@ test("refuses a body that is not a JSON object", async () => {
 test("adds, renames, reorders and removes through the roster routes", async () => {
   const { roster } = await harness();
   const second = await scratch("workspace-routes-second-");
-  const added = await call(roster, "POST", "/api/workspace/add", { root: second, name: "Second" });
+  const added = await call(roster, "POST", "/api/workspaces", { root: second, name: "Second" });
   expect(added?.status).toBe(200);
   const { workspace } = await json<{ workspace: { id: string } }>(added);
 
-  expect((await call(roster, "POST", "/api/workspace/rename", {
-    id: workspace.id,
+  expect((await call(roster, "PATCH", `/api/workspaces/${workspace.id}`, {
     name: "Renamed",
   }))?.status).toBe(204);
 
   const listed = await json<{ workspaces: { id: string; name: string }[] }>(
-    await call(roster, "GET", "/api/workspace/list"),
+    await call(roster, "GET", "/api/workspaces"),
   );
   expect(listed.workspaces.map((entry) => entry.name)).toEqual(["Project", "Renamed"]);
 
   const ids = listed.workspaces.map((entry) => entry.id).reverse();
-  expect((await call(roster, "POST", "/api/workspace/reorder", { ids }))?.status).toBe(204);
+  expect((await call(roster, "PUT", "/api/workspaces/order", { ids }))?.status).toBe(204);
 
-  expect((await call(roster, "POST", "/api/workspace/remove", { id: workspace.id }))?.status)
+  expect((await call(roster, "DELETE", `/api/workspaces/${workspace.id}`))?.status)
     .toBe(204);
+});
+
+test("a rename without a name is 400", async () => {
+  const { roster, workspaceId } = await harness();
+  const response = await call(roster, "PATCH", `/api/workspaces/${workspaceId}`, { name: "" });
+  expect(response?.status).toBe(400);
 });
 
 test("refuses a reorder that is not a permutation", async () => {
   const { roster, workspaceId } = await harness();
-  const response = await call(roster, "POST", "/api/workspace/reorder", {
+  const response = await call(roster, "PUT", "/api/workspaces/order", {
     ids: [workspaceId, "invented"],
   });
   expect(response?.status).toBe(400);

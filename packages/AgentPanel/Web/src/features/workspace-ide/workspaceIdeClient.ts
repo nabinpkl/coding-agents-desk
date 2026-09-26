@@ -58,7 +58,7 @@ export class WorkspaceIdeClient {
   }
 
   listWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
-    return this.call("GET", "/api/workspace/list");
+    return this.call("GET", "/api/workspaces");
   }
 
   /**
@@ -69,19 +69,19 @@ export class WorkspaceIdeClient {
    */
   browse(path: string | null): Promise<WorkspaceBrowseListing> {
     const query = path === null ? "" : `?path=${encodeURIComponent(path)}`;
-    return this.call("GET", `/api/workspace/browse${query}`);
+    return this.call("GET", `/api/workspaces/browse${query}`);
   }
 
   addWorkspace(root: string, name?: string): Promise<{ workspace: WorkspaceSummary }> {
-    return this.call("POST", "/api/workspace/add", { root, name });
+    return this.call("POST", "/api/workspaces", { root, name });
   }
 
   removeWorkspace(id: string): Promise<void> {
-    return this.call("POST", "/api/workspace/remove", { id });
+    return this.call("DELETE", `/api/workspaces/${encodeURIComponent(id)}`);
   }
 
   renameWorkspace(id: string, name: string): Promise<void> {
-    return this.call("POST", "/api/workspace/rename", { id, name });
+    return this.call("PATCH", `/api/workspaces/${encodeURIComponent(id)}`, { name });
   }
 
   /**
@@ -89,18 +89,19 @@ export class WorkspaceIdeClient {
    *
    * The whole order every time, not a move: the store takes a permutation and refuses one that is
    * not, so sending two indices would make the caller responsible for a rule the store already
-   * owns.
+   * owns. A PUT for the same reason: stating the whole order is what makes a stale roster
+   * detectable.
    */
   reorderWorkspaces(ids: readonly string[]): Promise<void> {
-    return this.call("POST", "/api/workspace/reorder", { ids: [...ids] });
+    return this.call("PUT", "/api/workspaces/order", { ids: [...ids] });
   }
 
   tree(id: string): Promise<{ tree: WorkspaceTreeNode[] }> {
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/tree`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/tree`);
   }
 
   git(id: string): Promise<{ status: WorkspaceGitStatus }> {
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/git`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/git`);
   }
 
   /**
@@ -111,13 +112,13 @@ export class WorkspaceIdeClient {
    */
   commits(id: string, limit: number): Promise<{ commits: WorkspaceCommit[] }> {
     const query = new URLSearchParams({ limit: String(limit) });
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/commits?${query}`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/commits?${query}`);
   }
 
   /** What one commit touched, against the commit before it. */
   commit(id: string, hash: string): Promise<{ detail: WorkspaceCommitDetail }> {
     const query = new URLSearchParams({ hash });
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/commit?${query}`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/commit?${query}`);
   }
 
   /**
@@ -128,13 +129,13 @@ export class WorkspaceIdeClient {
    */
   commitDiff(id: string, hash: string, path: string): Promise<{ diff: WorkspaceCommitDiff }> {
     const query = new URLSearchParams({ hash, path });
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/diff?${query}`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/diff?${query}`);
   }
 
   /** One path's uncommitted change against `HEAD`, staged and unstaged together. */
   changeDiff(id: string, path: string): Promise<{ diff: WorkspaceChangeDiff }> {
     const query = new URLSearchParams({ path });
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/change?${query}`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/change?${query}`);
   }
 
   /**
@@ -148,7 +149,7 @@ export class WorkspaceIdeClient {
     baseRevision: number,
     operation: WorkspaceOperation,
   ): Promise<{ state: WorkspaceSharedState }> {
-    return this.call("POST", `/api/workspace/${encodeURIComponent(id)}/state`, {
+    return this.call("POST", `/api/workspaces/${encodeURIComponent(id)}/state`, {
       baseRevision,
       operationId: crypto.randomUUID(),
       operation,
@@ -157,13 +158,13 @@ export class WorkspaceIdeClient {
 
   readFile(id: string, path: string): Promise<{ file: WorkspaceFileRead }> {
     const query = new URLSearchParams({ path });
-    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/file?${query}`);
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/file?${query}`);
   }
 
   /** The path a binary-backed document's bytes are fetched from, for the docx renderer. */
   contentPath(id: string, path: string): string {
     const query = new URLSearchParams({ path });
-    return `/api/workspace/${encodeURIComponent(id)}/content?${query}`;
+    return `/api/workspaces/${encodeURIComponent(id)}/content?${query}`;
   }
 
   /**
@@ -183,7 +184,7 @@ export class WorkspaceIdeClient {
   > {
     const response = await this.transport.request(
       "POST",
-      `/api/workspace/${encodeURIComponent(id)}/file`,
+      `/api/workspaces/${encodeURIComponent(id)}/file`,
       { body: { path, expectedRevision, text } },
     );
     if (response.status === 409) {
@@ -201,7 +202,7 @@ export class WorkspaceIdeClient {
     onEvent: (event: WorkspaceStreamEvent) => void,
     onError: (reason: string) => void,
   ): () => void {
-    return this.transport.subscribe(`/api/workspace/${encodeURIComponent(id)}/stream`, {
+    return this.transport.subscribe(`/api/workspaces/${encodeURIComponent(id)}/stream`, {
       onMessage: (payload) => {
         let event: unknown;
         try {

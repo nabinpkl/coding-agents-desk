@@ -251,7 +251,7 @@ const routes: RouteHandler[] = [
   createWebrtcTileRoutes(),
   // The workspace IDE. Ahead of the session routes only for readability; none of these paths is
   // under `/api/sessions/`. The stream is listed before the others so `/stream` is matched before
-  // the roster routes walk the same `/api/workspace/<id>/` shape.
+  // the roster routes walk the same `/api/workspaces/<id>/` shape.
   createWorkspaceStreamRoutes(workspaceService),
   createWorkspaceFileRoutes(workspaceService, {
     maxTextBytes: config.workspaceMaxTextBytes,

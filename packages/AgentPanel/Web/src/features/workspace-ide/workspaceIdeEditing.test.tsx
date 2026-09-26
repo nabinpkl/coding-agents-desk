@@ -47,19 +47,19 @@ const CONFLICT = JSON.stringify({
 /** Mounted with notes.txt open and read, sitting in the editor with the caret in it. */
 async function editing(): Promise<FakeHttpTransport> {
   const transport = new FakeHttpTransport();
-  transport.responses.set("GET /api/workspace/list", {
+  transport.responses.set("GET /api/workspaces", {
     status: 200,
     body: JSON.stringify({ workspaces: [WORKSPACE] }),
   });
-  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
+  transport.responses.set("GET /api/workspaces/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-1", "hello"),
   });
-  transport.responses.set("POST /api/workspace/w-1/state", {
+  transport.responses.set("POST /api/workspaces/w-1/state", {
     status: 200,
     body: JSON.stringify({ state: OPEN_STATE }),
   });
-  transport.responses.set("POST /api/workspace/w-1/file", {
+  transport.responses.set("POST /api/workspaces/w-1/file", {
     status: 200,
     body: JSON.stringify({ written: { workspaceId: "w-1", path: "notes.txt", revision: "rev-2" } }),
   });
@@ -71,14 +71,14 @@ async function editing(): Promise<FakeHttpTransport> {
     { timeout: 10_000 },
   );
   act(() => {
-    transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: OPEN_STATE });
+    transport.deliver("/api/workspaces/w-1/stream", { type: "sharedState", state: OPEN_STATE });
   });
   await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("hello"));
   return transport;
 }
 
 const writes = (transport: FakeHttpTransport) =>
-  transport.requests.filter((request) => request.path === "/api/workspace/w-1/file");
+  transport.requests.filter((request) => request.path === "/api/workspaces/w-1/file");
 
 const type = (text: string) =>
   fireEvent.change(screen.getByLabelText("Edit notes.txt"), { target: { value: text } });
@@ -115,7 +115,7 @@ it("writes an edit before letting its tab close, instead of dropping it", async 
 it("refuses to close a conflicted tab, because that is the one close with nothing behind it", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const transport = await editing();
-  transport.responses.set("POST /api/workspace/w-1/file", { status: 409, body: CONFLICT });
+  transport.responses.set("POST /api/workspaces/w-1/file", { status: 409, body: CONFLICT });
   type("mine");
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Keep mine/i })).toBeInTheDocument());
@@ -134,16 +134,16 @@ it("keeps my version by writing it against the revision it just fetched", async 
   // stayed up until the reader typed another character.
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const transport = await editing();
-  transport.responses.set("POST /api/workspace/w-1/file", { status: 409, body: CONFLICT });
+  transport.responses.set("POST /api/workspaces/w-1/file", { status: 409, body: CONFLICT });
   type("mine");
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Keep mine/i })).toBeInTheDocument());
 
-  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
+  transport.responses.set("GET /api/workspaces/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-2", "theirs"),
   });
-  transport.responses.set("POST /api/workspace/w-1/file", {
+  transport.responses.set("POST /api/workspaces/w-1/file", {
     status: 200,
     body: JSON.stringify({ written: { workspaceId: "w-1", path: "notes.txt", revision: "rev-3" } }),
   });
@@ -164,12 +164,12 @@ it("keeps the tab of a file another reader closed while this one had unsaved tex
   // the tab on that would leave the text in memory with nothing on screen to reach it.
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const transport = await editing();
-  transport.responses.set("POST /api/workspace/w-1/file", { status: 409, body: CONFLICT });
+  transport.responses.set("POST /api/workspaces/w-1/file", { status: 409, body: CONFLICT });
   type("mine");
   await settle();
 
   act(() => {
-    transport.deliver("/api/workspace/w-1/stream", {
+    transport.deliver("/api/workspaces/w-1/stream", {
       type: "sharedState",
       state: { ...OPEN_STATE, revision: 2, orderedOpenPaths: [] },
     });
@@ -186,7 +186,7 @@ it("does not start a second write while one is in flight, then saves what was ty
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const transport = await editing();
 
-  const release = transport.hold("POST /api/workspace/w-1/file");
+  const release = transport.hold("POST /api/workspaces/w-1/file");
 
   type("first");
   await settle(1000);
@@ -213,14 +213,14 @@ it("brings a conflicted edit back after a reload, still marked as a conflict", a
   // is in React state and nowhere else, and a Vite save discards that many times an hour.
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const transport = await editing();
-  transport.responses.set("POST /api/workspace/w-1/file", { status: 409, body: CONFLICT });
+  transport.responses.set("POST /api/workspaces/w-1/file", { status: 409, body: CONFLICT });
   type("mine");
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Keep mine/i })).toBeInTheDocument());
 
   // The reload: everything in memory goes, and the file on disk has moved on.
   cleanup();
-  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
+  transport.responses.set("GET /api/workspaces/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-2", "theirs"),
   });
@@ -232,7 +232,7 @@ it("brings a conflicted edit back after a reload, still marked as a conflict", a
     { timeout: 10_000 },
   );
   act(() => {
-    transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: OPEN_STATE });
+    transport.deliver("/api/workspaces/w-1/stream", { type: "sharedState", state: OPEN_STATE });
   });
 
   await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("mine"));
@@ -243,12 +243,12 @@ it("brings a conflicted edit back after a reload, still marked as a conflict", a
 it("does not resurrect a draft the reader asked to discard", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const transport = await editing();
-  transport.responses.set("POST /api/workspace/w-1/file", { status: 409, body: CONFLICT });
+  transport.responses.set("POST /api/workspaces/w-1/file", { status: 409, body: CONFLICT });
   type("mine");
   await settle();
   await waitFor(() => expect(screen.getByRole("button", { name: /Use theirs/i })).toBeInTheDocument());
 
-  transport.responses.set("GET /api/workspace/w-1/file?path=notes.txt", {
+  transport.responses.set("GET /api/workspaces/w-1/file?path=notes.txt", {
     status: 200,
     body: fileBody("rev-2", "theirs"),
   });
@@ -264,7 +264,7 @@ it("does not resurrect a draft the reader asked to discard", async () => {
     { timeout: 10_000 },
   );
   act(() => {
-    transport.deliver("/api/workspace/w-1/stream", { type: "sharedState", state: OPEN_STATE });
+    transport.deliver("/api/workspaces/w-1/stream", { type: "sharedState", state: OPEN_STATE });
   });
   await waitFor(() => expect(screen.getByLabelText("Edit notes.txt")).toHaveValue("theirs"));
 }, BUDGET_MS);

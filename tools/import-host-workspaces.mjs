@@ -34,8 +34,8 @@ function rootPath(value) {
 }
 
 const host = JSON.parse(await readFile(registry, "utf8"));
-const existing = await fetch(`${sidecar}/api/workspace/list`).then((response) => {
-  if (!response.ok) throw new Error(`sidecar answered ${response.status} to /api/workspace/list`);
+const existing = await fetch(`${sidecar}/api/workspaces`).then((response) => {
+  if (!response.ok) throw new Error(`sidecar answered ${response.status} to /api/workspaces`);
   return response.json();
 });
 const known = new Set(existing.workspaces.map((workspace) => workspace.root));
@@ -56,7 +56,7 @@ for (const workspace of host.workspaces ?? []) {
     skipped += 1;
     continue;
   }
-  const response = await fetch(`${sidecar}/api/workspace/add`, {
+  const response = await fetch(`${sidecar}/api/workspaces`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ root, name: workspace.name }),
