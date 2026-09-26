@@ -132,6 +132,11 @@ export function toolIntent(event: { blocks: ActivityBlock[] }): string | null {
   return null;
 }
 
+/** Whether a tool's input is the command it ran, so its body is worth opening by default. */
+export function isShellTool(tool: string | undefined): boolean {
+  return tool !== undefined && SHELL_COMMAND_INPUT.has(tool);
+}
+
 export function shellCommand(block: ActivityBlock): string | null {
   const inputKey = block.tool ? SHELL_COMMAND_INPUT.get(block.tool) : undefined;
   if (inputKey === undefined) return null;

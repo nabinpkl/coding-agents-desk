@@ -75,6 +75,17 @@ export async function readOpencodeHistory(
   return [...seen.values()];
 }
 
+/** The newest landed compaction in a message page, or null when it carries none. */
+export function latestCompletedCompactionId(messages: SessionMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.type !== "compaction") continue;
+    const status = (message as { status?: unknown }).status;
+    if (status === undefined || status === "completed") return message.id;
+  }
+  return null;
+}
+
 /**
  * The session's latest page only: what a live refresh folds into a seeded
  * projection. One round trip; the mapper upserts by id, so concurrent

@@ -12,6 +12,7 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 import type { EventMode, AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
+import { isShellTool } from "@/features/activity-feed/rows/activityEventText";
 
 export function useFeedRows({
   events,
@@ -57,6 +58,22 @@ export function useFeedRows({
   // Key is `callId` when available (stable across reorderings), else a
   // composite of event+block indices.
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  // The newest shell call is the one whose output is the answer at the live edge. Expanding
+  // every shell in a long window would turn a compacted thread into a wall of command output;
+  // older calls keep the tight default and open on click.
+  const defaultedShellToolsRef = useRef<Set<string>>(new Set());
+  useLayoutEffect(() => {
+    // The key is the one `ActivityBlockViews` uses for the disclosure state it renders:
+    // `callId` when the tool gave one, else event and block index. Walking newest-first is
+    // what makes only the live-edge call open.
+    const latest = [...events].reverse().flatMap((event) => event.blocks.map((block, blockIndex) => ({
+      block,
+      key: block.callId ?? `${event.index}-${blockIndex}`,
+    })).reverse()).find(({ block }) => isShellTool(block.tool))?.key;
+    if (!latest || defaultedShellToolsRef.current.has(latest)) return;
+    defaultedShellToolsRef.current.add(latest);
+    setExpandedTools((previous) => new Set([...previous, latest]));
+  }, [events]);
   const toggleTool = useCallback((key: string) => {
     pause();
     setExpandedTools((prev) => {

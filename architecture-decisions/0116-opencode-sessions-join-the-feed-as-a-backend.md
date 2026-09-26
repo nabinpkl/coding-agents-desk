@@ -77,3 +77,10 @@ paged in. The feed continues measuring its rows, but hides the opening window be
 notice until the exact event is loaded, so the first loaded row is never presented as the reader's
 saved place. A real wheel, touch, or key input cancels the pending restore and hands control back
 to the reader.
+
+A compaction is also a replacement boundary inside one projection. The serve can rewrite the
+message set, so a completed compaction in the tail makes the pool re-read the whole history and
+rebuild the projection instead of upserting onto rows the serve has replaced. The rebuild rotates
+`projectionId`, which is what makes an already-open card drop its old window; without that, a
+compacted session could keep showing a pre-compaction tool call as its last line. Shell calls open
+their command and result by default, because that output is the answer the row exists to give.

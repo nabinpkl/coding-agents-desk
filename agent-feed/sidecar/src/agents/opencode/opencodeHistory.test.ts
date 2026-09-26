@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
+import { latestCompletedCompactionId, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 
 const message = (id: string) => ({ id, type: "assistant" });
 
@@ -18,5 +18,17 @@ describe("readOpencodeTail", () => {
     });
     expect(seen).toEqual(["/api/session/ses_probe/message?order=desc&limit=200"]);
     expect(tail.map((item) => item.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("latestCompletedCompactionId", () => {
+  it("finds a landed compaction and ignores a running one", () => {
+    expect(latestCompletedCompactionId([
+      { id: "m1", type: "compaction", status: "completed" },
+      { id: "m2", type: "assistant" },
+    ] as unknown as Parameters<typeof latestCompletedCompactionId>[0])).toBe("m1");
+    expect(latestCompletedCompactionId([
+      { id: "m1", type: "compaction", status: "running" },
+    ] as unknown as Parameters<typeof latestCompletedCompactionId>[0])).toBeNull();
   });
 });

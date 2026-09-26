@@ -33,7 +33,8 @@ export class LiveAgentProjection {
    * restart builds a new one even when the underlying session is the same, and the panel must
    * treat that as a replacement boundary.
    */
-  readonly projectionId: string;
+  private currentProjectionId: string;
+  private replacing = false;
   private readonly replayLimit: number;
   private readonly items = new Map<string, ActivityEvent>();
   private readonly order: string[] = [];
@@ -44,11 +45,15 @@ export class LiveAgentProjection {
   private currentQueue: AgentQueueState = { steer: 0, followUp: 0 };
 
   constructor(options: { replayLimit?: number; projectionId?: string } = {}) {
-    this.projectionId = options.projectionId ?? randomUUID();
+    this.currentProjectionId = options.projectionId ?? randomUUID();
     this.replayLimit = options.replayLimit ?? 256;
     if (!Number.isSafeInteger(this.replayLimit) || this.replayLimit < 1) {
       throw new Error("replayLimit must be a positive integer");
     }
+  }
+
+  get projectionId(): string {
+    return this.currentProjectionId;
   }
 
   get total(): number {
@@ -73,8 +78,46 @@ export class LiveAgentProjection {
     if (current && sameEventContent(current, candidate)) return current;
     if (!current) this.order.push(input.id);
     this.items.set(input.id, candidate);
-    this.publish("upsert", [candidate]);
+    if (!this.replacing) this.publish("upsert", [candidate]);
     return candidate;
+  }
+
+  /**
+   * Rebuilds the projection from a complete history read.
+   *
+   * A compaction or fork can make the serve's message set differ from the one this projection
+   * was built from. Upserting the new tail into the old map keeps rows that no longer exist and
+   * leaves the panel showing the wrong turn as the session's last line. A full read is therefore a
+   * replacement boundary: it rotates the projection id and publishes one snapshot, so a subscriber
+   * drops the old window instead of merging it.
+   */
+  replace(build: () => void): void {
+    const previous = {
+      projectionId: this.currentProjectionId,
+      items: new Map(this.items),
+      order: [...this.order],
+      replay: [...this.replay],
+    };
+    this.currentProjectionId = randomUUID();
+    this.items.clear();
+    this.order.length = 0;
+    this.replay.length = 0;
+    this.replacing = true;
+    try {
+      build();
+    } catch (error) {
+      this.currentProjectionId = previous.projectionId;
+      this.items.clear();
+      for (const [id, item] of previous.items) this.items.set(id, item);
+      this.order.length = 0;
+      this.order.push(...previous.order);
+      this.replay.length = 0;
+      this.replay.push(...previous.replay);
+      throw error;
+    } finally {
+      this.replacing = false;
+    }
+    this.publish("snapshot", this.page(Math.max(0, this.total - 100), 100));
   }
 
   setState(runState: AgentRunState, queue: AgentQueueState = this.currentQueue): void {

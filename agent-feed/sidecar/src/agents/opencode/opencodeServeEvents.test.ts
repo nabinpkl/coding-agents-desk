@@ -12,7 +12,7 @@ function compaction(type: string, data: Record<string, unknown>): V2Event {
 function harness(events: V2Event[]) {
   const calls: string[] = [];
   const router: ServeEventRouter = {
-    refresh: (sessionId) => void calls.push(`refresh:${sessionId}`),
+    refresh: (sessionId, full = false) => void calls.push(`refresh:${sessionId}${full ? ":full" : ""}`),
     setRunState: (sessionId, state) => void calls.push(`run:${sessionId}:${state}`),
     catalogChanged: () => void calls.push("catalog"),
     hasSession: () => true,
@@ -65,7 +65,7 @@ test("compaction streams into the watch and refreshes only when it lands", async
     "delta:ses-1:msg-1:## Sum",
     "delta:ses-1:msg-1:mary",
     "ended:ses-1:msg-1",
-    "refresh:ses-1",
+    "refresh:ses-1:full",
   ]);
 });
 
@@ -76,7 +76,7 @@ test("a landed checkpoint settles the notice and refreshes", async () => {
   stream.setWanted(true);
   await new Promise((resolve) => setTimeout(resolve, 50));
   await stream.dispose();
-  expect(calls).toEqual(["settled:ses-9", "refresh:ses-9"]);
+  expect(calls).toEqual(["settled:ses-9", "refresh:ses-9:full"]);
 });
 
 test("v2 compaction streams by session and refreshes only when it lands", async () => {
@@ -104,7 +104,7 @@ test("v2 compaction streams by session and refreshes only when it lands", async 
     "sessdelta:ses-1:## Sum",
     "sessdelta:ses-1:mary",
     "settled:ses-1",
-    "refresh:ses-1",
+    "refresh:ses-1:full",
   ]);
 });
 

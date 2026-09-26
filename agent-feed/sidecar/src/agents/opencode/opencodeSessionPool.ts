@@ -19,12 +19,13 @@ import type {
 import { AgentSessionNotFoundError } from "@/agents/agentBackend";
 import { AgentUiBroker } from "@/agents/agentUiBroker";
 import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentProjection";
-import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
+import { OpencodeEventMapper, type OpencodeSyncResult } from "@/agents/opencode/opencodeEventMapper";
 import { OpencodeImageStore } from "@/agents/opencode/opencodeImageStore";
+import { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
 import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
-import { readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
-import { currentWindowTokens, fetchOpencodeModelLimits, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
+import { latestCompletedCompactionId, readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
+import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -55,6 +56,10 @@ export interface OwnedSession {
   commands: Map<string, { signature: string; promise: Promise<AgentCommandReceipt> }>;
   refreshTimer: ReturnType<typeof setTimeout> | null;
   refreshQueued: boolean;
+  /** A queued refresh must rebuild history, not just read the tail. */
+  refreshFull: boolean;
+  /** The newest landed compaction already folded into the projection. */
+  compactionBoundaryId: string | null;
   usage: TokenUsage | null;
   /**
    * The session's current model as `providerID/modelID`, or null while the serve has not named
@@ -78,10 +83,9 @@ const FRESHNESS_BOUND_MS = 10_000;
 export class OpencodeSessionPool {
   private readonly owned = new Map<string, OwnedSession>();
   private readonly starts = new Map<string, Promise<OwnedSession>>();
-  private readonly limits = new Map<string, number>();
+  private readonly modelLimits = new OpencodeModelLimits();
   /** The pictures live rows drew, waiting for the image route's on-demand reads. */
   private readonly imageStore = new OpencodeImageStore();
-  private limitsLoading: Promise<void> | null = null;
   private readonly now: () => number;
   private readonly serve: () => OpencodeClient | null;
   private readonly events: OpencodeServeEvents;
@@ -94,7 +98,7 @@ export class OpencodeSessionPool {
     this.serve = options.client ?? opencodeClient;
     this.events = new OpencodeServeEvents(
       {
-        refresh: (sessionId) => this.scheduleRefresh(sessionId),
+        refresh: (sessionId, full = false) => this.scheduleRefresh(sessionId, full),
         setRunState: (sessionId, state) => this.setRunState(sessionId, state),
         catalogChanged: () => this.options.onCatalogChanged(),
         hasSession: (sessionId) => this.owned.has(sessionId),
@@ -306,31 +310,6 @@ export class OpencodeSessionPool {
   }
 
   /**
-   * The model's context window for a usage fraction, or null while unknown.
-   *
-   * One shared load across sessions: the first unknown model fetches the whole list once and
-   * caches every entry, so seventy models cost one GET no matter how many sessions ask. A
-   * failed load answers null rather than throwing, because usage must keep flowing without
-   * a bar -- and a fresh model the serve has not told us about yet is routine, not an error.
-   */
-  private async modelLimit(modelKey: string): Promise<number | null> {
-    const known = this.limits.get(modelKey);
-    if (known !== undefined) return known;
-    if (!this.limitsLoading) {
-      this.limitsLoading = fetchOpencodeModelLimits().then(
-        (limits) => {
-          for (const [key, limit] of limits) this.limits.set(key, limit);
-        },
-        () => {},
-      ).finally(() => {
-        this.limitsLoading = null;
-      });
-    }
-    await this.limitsLoading;
-    return this.limits.get(modelKey) ?? null;
-  }
-
-  /**
    * Re-reads a projection whose last refresh is older than the freshness
    * bound, so polling readers and reconnects converge even when no serve
    * event arrived while they were away. Long subscriptions stay event-driven;
@@ -361,6 +340,8 @@ export class OpencodeSessionPool {
       commands: new Map(),
       refreshTimer: null,
       refreshQueued: false,
+      refreshFull: false,
+      compactionBoundaryId: null,
       usage: null,
       model: null,
       disposed: false,
@@ -376,8 +357,9 @@ export class OpencodeSessionPool {
    * The only read path, used for seed and live alike. A seed walks the whole
    * history oldest-first; a live refresh reads only the latest page, because
    * durable messages are immutable once completed and only the open tail can
-   * still move. The mapper upserts by message id either way, so concurrent
-   * refreshes and event bursts converge rather than interleave.
+   * still move. A completed compaction is the exception: it can rewrite the
+   * message set, so that refresh re-reads the whole history and replaces the
+   * projection rather than upserting onto rows the serve has removed.
    */
   private async refresh(sessionId: string, full: boolean): Promise<void> {
     const owned = this.owned.get(sessionId);
@@ -395,7 +377,23 @@ export class OpencodeSessionPool {
       if (info.error) throw new Error(`get: ${describeServeError(info.error)}`);
       const current = this.owned.get(sessionId);
       if (!current || current.disposed) return;
-      const result = current.mapper.sync(messages);
+      // A new completed compaction changes the message set, not just its tail. Read the whole
+      // history before folding it in, or the projection keeps rows the serve has replaced and
+      // the panel's last line stays the pre-compaction tool call. The id keeps a later tail
+      // refresh from repeating that full read for the same boundary.
+      const tailCompactionId = latestCompletedCompactionId(messages);
+      const replace = full || (tailCompactionId !== null && tailCompactionId !== current.compactionBoundaryId);
+      const history = replace && !full ? await readOpencodeHistory(sessionId) : messages;
+      let result!: OpencodeSyncResult;
+      if (replace) {
+        current.projection.replace(() => {
+          result = current.mapper.sync(history);
+        });
+      } else {
+        result = current.mapper.sync(messages);
+      }
+      const historyBoundaryId = latestCompletedCompactionId(history);
+      if (replace || historyBoundaryId !== null) current.compactionBoundaryId = historyBoundaryId;
       this.imageStore.store(sessionId, result.images);
       const session = info.data?.data;
       // Named whenever the serve names one, whether or not tokens rode along: a fresh
@@ -414,7 +412,7 @@ export class OpencodeSessionPool {
         // holding a pre-compaction number for a window that no longer exists. Otherwise
         // keeps the previous reading when the batch holds no turn with tokens, and seeds from
         // the totals only for a session that has never reported a window at all.
-        const windowTokens = currentWindowTokens(messages);
+        const windowTokens = currentWindowTokens(history);
         const totals = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;
         // The session's lifetime spend in USD, straight off `session.get cost` -- the same
         // figure the TUI formats beside its meter. Read, never computed: cost math belongs
@@ -427,17 +425,17 @@ export class OpencodeSessionPool {
             // Resolved from the model list, never invented: a fraction of a guessed denominator
             // reads as authoritative and is not. Null until the first lookup lands, which the
             // meter draws as a count without a bar.
-            limit: await this.modelLimit(modelKey),
+            limit: await this.modelLimits.limit(modelKey),
             updatedAt: this.now(),
             model: modelKey,
             cost,
           };
-        } else if (lastCompletedCompactionIndex(messages) !== -1) {
+        } else if (lastCompletedCompactionIndex(history) !== -1) {
           current.usage = null;
         } else {
           current.usage = {
             current: current.usage?.current ?? totals,
-            limit: await this.modelLimit(modelKey),
+            limit: await this.modelLimits.limit(modelKey),
             updatedAt: this.now(),
             model: modelKey,
             cost: cost ?? current.usage?.cost,
@@ -454,13 +452,17 @@ export class OpencodeSessionPool {
     }
   }
 
-  private scheduleRefresh(sessionId: string): void {
+  private scheduleRefresh(sessionId: string, full = false): void {
     const owned = this.owned.get(sessionId);
-    if (!owned || owned.disposed || owned.refreshTimer) return;
+    if (!owned || owned.disposed) return;
+    owned.refreshFull = owned.refreshFull || full;
+    if (owned.refreshTimer) return;
     owned.refreshTimer = setTimeout(() => {
       if (owned.refreshTimer) {
         owned.refreshTimer = null;
-        void this.refresh(sessionId, false);
+        const rebuild = owned.refreshFull;
+        owned.refreshFull = false;
+        void this.refresh(sessionId, rebuild);
       }
     }, REFRESH_COALESCE_MS);
     owned.refreshTimer.unref?.();

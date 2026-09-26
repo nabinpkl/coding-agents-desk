@@ -57,6 +57,34 @@ describe("LiveAgentProjection", () => {
     expect(second.snapshot().projectionId).toBe("projection-b");
   });
 
+  test("replaces stale rows and rotates the projection identity", () => {
+    const projection = new LiveAgentProjection({ projectionId: "projection-before" });
+    const envelopes: TimelineEnvelope[] = [];
+    projection.subscribe(0, (envelope) => envelopes.push(envelope));
+    projection.upsert({
+      id: "stale",
+      ts: 1,
+      type: "assistant",
+      phase: "complete",
+      blocks: [{ kind: "text", text: "before" }],
+    });
+    const before = projection.projectionId;
+    projection.replace(() => {
+      projection.upsert({
+        id: "current",
+        ts: 2,
+        type: "system",
+        phase: "complete",
+        blocks: [{ kind: "compaction", summary: "after" }],
+      });
+    });
+
+    expect(projection.total).toBe(1);
+    expect(projection.page(0, 1)[0]?.id).toBe("current");
+    expect(projection.projectionId).not.toBe(before);
+    expect(envelopes.at(-1)).toMatchObject({ kind: "snapshot", projectionId: projection.projectionId });
+  });
+
   test("replays retained mutations and snapshots an expired gap", () => {
     const projection = new LiveAgentProjection({ replayLimit: 2 });
     for (let index = 0; index < 3; index += 1) {

@@ -13,7 +13,7 @@ import type { AgentUiBroker } from "@/agents/agentUiBroker";
 export type OpencodeRunState = "running" | "idle" | "error";
 
 export interface ServeEventRouter {
-  refresh(sessionId: string): void;
+  refresh(sessionId: string, full?: boolean): void;
   setRunState(sessionId: string, state: OpencodeRunState): void;
   catalogChanged(): void;
   hasSession(sessionId: string): boolean;
@@ -171,7 +171,7 @@ export class OpencodeServeEvents {
         const ended = event as CompactionEnded;
         if (sessionId && this.router.hasSession(sessionId)) {
           this.router.compactionEnded(sessionId, ended.data.messageID);
-          this.router.refresh(sessionId);
+          this.router.refresh(sessionId, true);
         }
         return;
       }
@@ -179,7 +179,7 @@ export class OpencodeServeEvents {
         // The checkpoint landed; a notice orphaned by a dropped stream comes down with it.
         if (sessionId && this.router.hasSession(sessionId)) {
           this.router.compactionSettled(sessionId);
-          this.router.refresh(sessionId);
+          this.router.refresh(sessionId, true);
         }
         return;
       }
@@ -193,8 +193,8 @@ export class OpencodeServeEvents {
    * v2's compaction streaming, mirroring the TUI's own handling (`stream-v2.transport.ts`):
    * `started` raises the notice and marks the session running, each `delta` extends the summary
    * beside the thread (never a re-read -- deltas arrive per token and there is nothing durable
-   * to read until the checkpoint exists), and `ended` / `failed` take the notice down and
-   * re-read once for the landed row. The durable `compaction` message itself streams too -- it
+   * to read until the checkpoint exists), and `ended` takes the notice down and re-reads the
+   * whole history for the landed row. The durable `compaction` message itself streams too -- it
    * sits at `status: running` while the summary is written -- but the feed draws no banner for
    * that: the notice IS the running state, and the banner is what landing earns.
    */
@@ -222,7 +222,7 @@ export class OpencodeServeEvents {
       case "session.compaction.ended":
       case "session.compaction.failed": {
         this.router.compactionSettled(sessionId);
-        this.router.refresh(sessionId);
+        this.router.refresh(sessionId, type === "session.compaction.ended");
         return;
       }
       default:

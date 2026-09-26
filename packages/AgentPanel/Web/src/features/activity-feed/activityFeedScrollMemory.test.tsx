@@ -241,6 +241,28 @@ describe("where a session was left being read", () => {
     view.unmount();
   });
 
+  it("opens only the newest shell call's output by default", async () => {
+    const shell = (index: number, callId: string, output: string): ActivityEvent => ({
+      id: `claude:shell:${index}`,
+      index,
+      revision: 0,
+      phase: "complete",
+      ts: 1000 + index,
+      type: "assistant",
+      blocks: [
+        { kind: "tool_use", tool: "shell", callId, input: { command: "git status" }, summary: "git status" },
+        { kind: "tool_result", callId, text: output, preview: output },
+      ],
+    });
+    const { view } = mountFeed([
+      shell(0, "shell-old", "old output"),
+      shell(1, "shell-new", "new output"),
+    ]);
+    expect(await screen.findByText("new output")).toBeTruthy();
+    expect(screen.queryByText("old output")).toBeNull();
+    view.unmount();
+  });
+
   it("does not present the first loaded row while an older anchor is still paging in", async () => {
     localStorage.setItem(
       STORAGE_KEY,
