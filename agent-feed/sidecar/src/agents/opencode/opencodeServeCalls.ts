@@ -216,8 +216,9 @@ export async function listOpencodeServeCommands(): Promise<OpencodeSlashCommand[
  *
  * Two rows are not the web client's. `/models` is an alias of the web's `/model`, because that
  * name shipped here first and the panel's own model button has been saying `/models` since.
- * `/rename` is the TUI's, kept: the web client renames from a dialog, and this panel has no
- * other way to name an opencode session at all.
+ * `/rename` is the TUI's, and it now sits beside the panel's own Rename dialog rather than
+ * standing in for it: the web client has a dialog and no row, this panel has both, and they are
+ * one rename -- the row and the dialog reach the same serve PATCH.
  *
  * Read the list against a checkout rather than against this comment when it needs checking: the
  * reference clone at `.reference/opencode` is the upstream tree (see `.gitignore`), and
@@ -274,7 +275,10 @@ export async function undoOpencodeSession(sessionId: string, messageId: string):
   checkLocalOp("revert commit", committed.status, committed.text);
 }
 
-/** Renames the session; the new title arrives on the session event like any rename. */
+/**
+ * Renames the session. Says nothing afterwards: measured on a live serve, the PATCH answers and no
+ * `session.updated` follows it, so the caller is what tells the catalog -- see `applyRename`.
+ */
 export async function renameOpencodeSession(sessionId: string, title: string): Promise<void> {
   const answered = await serveWrite("PATCH", `/api/session/${sessionId}`, { title });
   checkLocalOp("rename", answered.status, answered.text);

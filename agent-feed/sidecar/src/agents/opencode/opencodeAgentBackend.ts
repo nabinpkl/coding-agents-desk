@@ -243,6 +243,35 @@ export class OpencodeAgentBackend implements AgentBackend {
   }
 
   /**
+   * Renames the session, which is what the panel's Rename dialog asks for.
+   *
+   * Its own door rather than the command route's `/rename`, for the reason the reads have one: a
+   * title is not a turn. The command route opens the session to run against, so renaming through
+   * it would adopt an idle session -- subscribe to its thread, connect its hub stream -- to change
+   * a label. This checks the registry and leaves it alone.
+   */
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    this.assertActive();
+    this.requireKnownSession(sessionId);
+    await this.applyRename(sessionId, title);
+  }
+
+  /**
+   * The one rename, shared with `/rename` so the dialog and the command cannot drift.
+   *
+   * The catalog is told rather than left to hear about it, because the serve does not say:
+   * measured on a live serve, the PATCH answers 204 and no `session.updated` event follows it, so
+   * the new title reached no row until the 30s reconcile backstop -- a rename that reads as one
+   * that did nothing. The caller made the change, so the caller is the event.
+   */
+  private async applyRename(sessionId: string, title: string): Promise<void> {
+    const named = title.trim();
+    if (!named) throw new Error("rename needs a title after the name");
+    await renameOpencodeSession(sessionId, named);
+    this.options.onCatalogChanged();
+  }
+
+  /**
    * A session this machine knows about, checked against the registry rather than opened through
    * the pool: a read asks about a session that may hold no turn at all, and adopting one to read a
    * tail is work neither of these needs.
@@ -259,7 +288,11 @@ export class OpencodeAgentBackend implements AgentBackend {
     return listOpencodeModels();
   }
 
-  /** Switches the session's model; the change lands on the session event like a rename. */
+  /**
+   * Switches the session's model, on the serve that holds it. The panel's meter reads the model
+   * back off this session's own projection, so it moves on that session's next read rather than on
+   * this call.
+   */
   async switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt> {
     const owned = await this.pool.open(sessionId);
     const signature = JSON.stringify({ type: "switch-model", providerID, modelID });
@@ -300,9 +333,7 @@ export class OpencodeAgentBackend implements AgentBackend {
         // The mirror of undo, and it needs no target: what undo left staged is what redo drops.
         await redoOpencodeSession(sessionId);
       } else if (name === "rename") {
-        const title = text.trim();
-        if (!title) throw new Error("rename needs a title after the name");
-        await renameOpencodeSession(sessionId, title);
+        await this.applyRename(sessionId, text);
       } else if (name === "fork") {
         const location = this.options.resolveSession(sessionId);
         if (!location) throw new AgentSessionNotFoundError(`opencode session "${sessionId}" was not found`);

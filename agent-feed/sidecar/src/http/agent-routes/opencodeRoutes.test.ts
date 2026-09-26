@@ -184,3 +184,40 @@ test("an export answers with the transcript the backend read", async () => {
   expect(answered?.status).toBe(200);
   expect(await answered?.json()).toEqual({ transcript: { info: { id: "s1" }, messages: [] } });
 });
+
+test("a title answers with the name the session now has, and a blank one is refused", async () => {
+  const renamed: { sessionId: string; title: string }[] = [];
+  const base = fakeBackend();
+  const route = createOpencodeRoutes((id) => id === "opencode" ? {
+    ...base,
+    id: "opencode",
+    renameSession: async (sessionId: string, title: string) => { renamed.push({ sessionId, title }); },
+  } : undefined);
+
+  const request = new Request("http://localhost/api/agent-sessions/opencode/s1/title", {
+    method: "POST",
+    body: JSON.stringify({ title: "  Called it this  " }),
+  });
+  const answered = await route(request, new URL(request.url), server);
+  expect(answered?.status).toBe(200);
+  // Trimmed, and answered with the stored name rather than the one that was typed: the serve is
+  // the record, so this is what a caller shows to say what it got.
+  expect(await answered?.json()).toEqual({ sessionId: "s1", title: "Called it this" });
+  expect(renamed).toEqual([{ sessionId: "s1", title: "Called it this" }]);
+
+  const blank = new Request("http://localhost/api/agent-sessions/opencode/s1/title", {
+    method: "POST",
+    body: JSON.stringify({ title: "   " }),
+  });
+  expect((await route(blank, new URL(blank.url), server))?.status).toBe(400);
+  expect(renamed).toHaveLength(1);
+});
+
+test("the title route answers 404 without the backend, like the rest of the opencode surface", async () => {
+  const route = createOpencodeRoutes(() => undefined);
+  const request = new Request("http://localhost/api/agent-sessions/opencode/s1/title", {
+    method: "POST",
+    body: JSON.stringify({ title: "Called it this" }),
+  });
+  expect((await route(request, new URL(request.url), server))?.status).toBe(404);
+});

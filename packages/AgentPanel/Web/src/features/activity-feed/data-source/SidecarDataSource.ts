@@ -38,6 +38,7 @@ import type {
   SessionSummary,
   SetBotCanvasCommand,
   SidecarConfig,
+  SourceId,
   StartedSession,
   SummaryStreamMessage,
   TokenUsage,
@@ -247,21 +248,27 @@ export class SidecarDataSource extends SidecarBotDirectory implements AgentDataS
   }
 
   /**
-   * Renames one Claude session, and answers with the name it now has.
+   * Renames one session, whichever source owns it, and answers with the name it now has.
    *
-   * A session carries two names -- the transcript title every row here shows, and the registry
-   * address `ListAgents` prints and cross-session messaging delivers to -- and this moves both,
-   * because the sidecar renames by running Claude's own `/rename` in the session rather than by
-   * writing its transcript.
+   * Two sources carry a title this panel can write. A Claude session carries two names -- the
+   * transcript title every row here shows, and the registry address `ListAgents` prints and
+   * cross-session messaging delivers to -- and this moves both, because the sidecar renames by
+   * running Claude's own `/rename` in the session rather than by writing its transcript.
    *
    * That is also why it can fail for reasons that are not about the name: a session with no
    * running process has nothing to ask, and one with unsent text in its composer must not be
-   * typed into. Both come back as a conflict carrying the reason, which the dialog shows.
+   * typed into. Both come back as a conflict carrying the reason, which the dialog shows. Neither
+   * reaches an opencode session, whose one name is a label its serve holds and can write whether
+   * or not anything is running.
    *
-   * Nothing else has to happen for a successful rename to land: the session writes its own
-   * records and the inventory stream pushes the new title on its next read.
+   * Nothing else has to happen for a successful rename to land: the session writes its own records
+   * (or its serve does) and the inventory stream pushes the new title on its next read.
    */
-  async renameSession(sessionId: string, title: string): Promise<string> {
+  async renameSession(source: SourceId, sessionId: string, title: string): Promise<string> {
+    if (source === "opencode") return this.renameOpencodeSession(sessionId, title);
+    // A row that offers Rename is gated on this, so reaching here is a gate that drifted rather
+    // than a reader's mistake. Said rather than swallowed.
+    if (source !== "claude") throw new Error(`a ${source} session has no title to rename`);
     const answer = parse<{ title?: unknown }>(
       await this.transport.request(
         "POST",

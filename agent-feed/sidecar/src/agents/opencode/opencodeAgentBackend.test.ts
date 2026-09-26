@@ -173,7 +173,7 @@ function fixture() {
     // What a command made rather than drove, in the order it was made: a fork registers the same
     // way a create does, and a test that cannot see it is a test that cannot tell the two apart.
     onSessionCreated: (location) => registered.push(`${location.sessionId}@${location.projectPath}`),
-    onCatalogChanged() {},
+    onCatalogChanged: () => { recorded.localOps.push("catalog re-read"); },
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => 1000,
   });
@@ -289,6 +289,7 @@ test("local ops compact, undo, redo and rename through their native endpoints", 
     'POST revert/commit {}',
     'DELETE revert',
     'PATCH session {"title":"New title"}',
+    "catalog re-read", // the serve announces nothing for a title change, so the rename tells the catalog
   ]);
   await backend.dispose();
 });

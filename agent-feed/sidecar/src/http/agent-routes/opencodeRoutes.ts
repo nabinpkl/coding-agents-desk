@@ -1,6 +1,7 @@
 // The opencode-only half of the agent-session surface: what a session offers after a slash,
-// running one, the model list, and the two reads that answer a question rather than change
-// anything -- `/btw` and `/export`.
+// running one, the model list, the two reads that answer a question rather than change anything
+// -- `/btw` and `/export` -- and the one write a dialog asks for rather than a composer, the
+// session's title.
 //
 // Split out of `agentRoutes.ts` because that file had reached the 500-line cap and this is the
 // half that had grown: the routes below are the only ones that speak opencode, and opencode is
@@ -18,6 +19,7 @@ const MODEL_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\
 const RUN_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/command$/;
 const ASIDE_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/aside$/;
 const EXPORT_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/export$/;
+const TITLE_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/title$/;
 /** A command's arguments ride the same 256 KiB a send's text does. */
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 
@@ -41,6 +43,10 @@ export function createOpencodeRoutes(resolveBackend: (id: string) => AgentBacken
     if (request.method === "POST" && aside) {
       return askAside(request, resolveBackend, aside[1]!);
     }
+    const title = TITLE_ROUTE.exec(url.pathname);
+    if (request.method === "POST" && title) {
+      return renameTitle(request, resolveBackend, title[1]!);
+    }
     const exported = EXPORT_ROUTE.exec(url.pathname);
     if (request.method === "GET" && exported) {
       return exportTranscript(resolveBackend, exported[1]!);
@@ -59,6 +65,8 @@ export interface OpencodeRoutesBackend {
   askAside(sessionId: string, question: string): Promise<string>;
   /** `/export`: the projected transcript, whole, as the web client downloads it. */
   exportTranscript(sessionId: string): Promise<unknown>;
+  /** The panel's Rename dialog: one title on one session, and no turn anywhere. */
+  renameSession(sessionId: string, title: string): Promise<void>;
 }
 
 function opencodeBackend(
@@ -150,5 +158,33 @@ async function exportTranscript(resolveBackend: (id: string) => AgentBackend | u
   if (backend instanceof Response) return backend;
   try {
     return jsonResponse({ transcript: await backend.exportTranscript(sessionId) });
+  } catch (error) { return routeError(error); }
+}
+
+/**
+ * The title a session now has, as the Rename dialog asks for it.
+ *
+ * Its own route rather than the command route's `/rename` for the reason the reads have one: this
+ * changes a label and starts no turn, so there is no receipt to correlate and no turn to queue it
+ * behind. The answer carries the title that was stored rather than the one that was typed, trimmed
+ * the way it was sent, so a caller can show what it got without a second read.
+ */
+async function renameTitle(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = await jsonBody(request);
+  } catch (error) {
+    return routeError(error);
+  }
+  // Trimmed here, so a blank title is a bad request rather than a serve that stores one: the
+  // catalog falls back to the first prompt for an empty title, which reads as a rename that did
+  // nothing.
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (!title) return errorResponse("invalid-title", "a session title is required", 400);
+  const backend = opencodeBackend(resolveBackend);
+  if (backend instanceof Response) return backend;
+  try {
+    await backend.renameSession(sessionId, title);
+    return jsonResponse({ sessionId, title });
   } catch (error) { return routeError(error); }
 }

@@ -6,6 +6,8 @@ import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { attachedSessionKey, splitSessionsByCanvas } from "@/features/bots/botRosterOrder";
 import { botSessionFaceRank, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
+import { canRenameSession } from "@/features/bots/sessionRename";
+import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
 /**
@@ -49,6 +51,11 @@ export function BotRosterRow({
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
 }) {
+  // What the reader was shown, for the missing rows further down. The sidecar already says why a
+  // reference went missing; this closes the chain by saying the row reached the screen, which is
+  // the half that cannot be recovered from the sidecar's log after the fact. A Bot can be here and
+  // on a canvas card at once, so this is a separate observation from that card's.
+  useMissingSessionLog(bot, "roster-row");
   // Transient by the rule in AGENTS.md: a fold a reader opened to find one session is not an
   // arrangement they would have to rebuild, and one that survived a reload would quietly undo the
   // compaction on every Bot they had ever looked inside.
@@ -173,9 +180,7 @@ export function BotRosterRow({
         <SessionRowMenu
           label={session.title || session.sessionId}
           onRename={
-            session.source === "claude"
-              ? () => onRenameSession(session)
-              : undefined
+            canRenameSession(session) ? () => onRenameSession(session) : undefined
           }
           onDetach={() => onDetachSession(bot, session)}
         />

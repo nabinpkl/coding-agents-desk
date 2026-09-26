@@ -13,6 +13,8 @@ import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
+import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
+import { canRenameSession } from "@/features/bots/sessionRename";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
 import { BotGitButton } from "@/features/bots/git/BotGitButton";
@@ -125,6 +127,10 @@ export function BotCanvasCard({
   machineLabel?: string;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
+  // What the reader was shown, for the missing rows further down. The sidecar already says why a
+  // reference went missing; this closes the chain by saying the row reached the screen, which is
+  // the half that cannot be recovered from the sidecar's log after the fact.
+  useMissingSessionLog(bot, "canvas-card");
   // One subscription for the header: the git button counts from it, and the code button re-reads
   // what it shows whenever it moves. From the card's own feed, because a peer's Bot is a directory
   // on the peer, and asking this Mac's git about it would answer about a path it may not have.
@@ -410,9 +416,9 @@ export function BotCanvasCard({
                 onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
                 sessionContext={sessionContext}
                 botError={botError}
-                // Both Claude-only, and absent rather than inert on a Codex row: forking asks the
-                // Claude CLI for a branch it alone has, and the title being renamed is a record in
-                // a transcript this panel does not write for Codex.
+                // The forks are Claude-only, and absent rather than inert on a Codex row: forking
+                // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
+                // same question for a title, and it is not Claude's alone.
                 onFork={
                   session.source === "claude" ? () => onForkSession(bot, session) : undefined
                 }
@@ -432,7 +438,7 @@ export function BotCanvasCard({
                     : undefined
                 }
                 onRename={
-                  session.source === "claude" ? () => onRenameSession(session) : undefined
+                  canRenameSession(session) ? () => onRenameSession(session) : undefined
                 }
                 // Every source: `/new` and `/fork` are opencode's, but a session made from any
                 // session's composer belongs to the Bot whose card asked.

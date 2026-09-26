@@ -344,13 +344,14 @@ export function useBotCommands(
   /**
    * The session whose title is being edited, if any.
    *
-   * Held by identity rather than by summary so the dialog is opened by the row that has one; the
-   * new title is read back from the stream like every other change to a session, so nothing here
-   * has to be updated when the rename lands.
+   * Held by identity rather than by summary so the dialog is opened by the row that has one. Which
+   * sources may be renamed at all is `canRenameSession`'s answer, asked where the menu is built;
+   * the new title is read back from the stream like every other change to a session, so nothing
+   * here has to be updated when the rename lands.
    */
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const renameSession = useCallback(async (session: SessionSummary, title: string) => {
-    await feeds.forSession(session).renameSession(session.sessionId, title);
+    await feeds.forSession(session).renameSession(session.source, session.sessionId, title);
     setRenamingSession(null);
   }, [feeds]);
 

@@ -154,6 +154,26 @@ export class SidecarAgentSessions extends SidecarTerminals {
   }
 
   /**
+   * Renames an opencode session, which is what the row's Rename asks for.
+   *
+   * Its own route rather than `runOpencodeCommand("rename", ...)`: the two are one rename at the
+   * serve, and this one does not open the session to run against, so naming a session nobody has
+   * open does not start watching it. Answers with the title the serve stored, the shape Claude's
+   * rename answers with, so the dialog treats both sources the same way.
+   */
+  async renameOpencodeSession(sessionId: string, title: string): Promise<string> {
+    const answer = parse<{ title?: unknown }>(
+      await this.transport.request(
+        "POST",
+        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/title`,
+        { body: { title } },
+      ),
+    );
+    if (typeof answer.title !== "string") throw new Error("Rename returned no title");
+    return answer.title;
+  }
+
+  /**
    * Every model the serve offers, with context limits and per-MTok costs for the picker.
    *
    * Read when the models dialog opens rather than held: seventy entries are one small GET,
@@ -166,8 +186,8 @@ export class SidecarAgentSessions extends SidecarTerminals {
   }
 
   /**
-   * Switches the session's model; the change lands on the session event like a rename,
-   * so the meter and the catalog pick it up without a second read.
+   * Switches the session's model; the serve holds it, and the meter reads it back off this
+   * session's own projection.
    */
   async switchOpencodeModel(sessionId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt> {
     return parse<AgentCommandReceipt>(

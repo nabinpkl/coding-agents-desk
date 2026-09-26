@@ -270,6 +270,63 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("renames an opencode session from its canvas row menu, on the serve rather than in a pane", async () => {
+    const { transport, unmount } = setup();
+    transport.responses.set("POST /api/agent-sessions/opencode/sid-opencode-01/title", {
+      status: 200,
+      body: JSON.stringify({ sessionId: "sid-opencode-01", title: "What I called it" }),
+    });
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "opencode", sessionId: "sid-opencode-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [{
+            ...FIXTURE_SESSIONS[0]!,
+            sessionId: "sid-opencode-01",
+            source: "opencode" as const,
+            title: "Session Opencode 01",
+          }],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Opencode 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename session" }));
+
+    // Not Claude's paragraph. This one is a PATCH to the serve, so the two reasons Claude can be
+    // refused -- no running session, unsent text in the composer -- are not this dialog's to warn
+    // about, and saying they were would be a warning about a failure that cannot happen.
+    expect(screen.getByText(/Renames it on this machine's opencode serve/)).toBeInTheDocument();
+
+    const field = screen.getByLabelText(/Title/) as HTMLInputElement;
+    expect(field.value).toBe("Session Opencode 01");
+    fireEvent.change(field, { target: { value: "  What I called it  " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    });
+
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/agent-sessions/opencode/sid-opencode-01/title",
+      body: { title: "What I called it" },
+    });
+    expect(screen.queryByRole("heading", { name: "Rename session" })).toBeNull();
+    unmount();
+  });
+
   it("keeps the rename dialog open and says why when the sidecar refuses", async () => {
     const { transport, unmount } = setup();
     transport.responses.set("POST /api/sessions/claude/sid-claude-01/title", {

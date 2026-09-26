@@ -38,7 +38,7 @@ export function BotSidebarPanel({
   selectedSessionKeys: ReadonlySet<string>;
   onSelectSession: (bot: BotView, session: SessionSummary) => void;
   onAddSession: (bot: BotView) => void;
-  /** Opens the rename dialog for one session. Claude only; a Codex row does not offer it. */
+  /** Opens the rename dialog for one session. Whichever sources `canRenameSession` admits. */
   onRenameSession: (session: SessionSummary) => void;
   /**
    * Drops the reference from the Bot's projection. The session itself is untouched.
