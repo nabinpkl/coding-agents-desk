@@ -145,7 +145,7 @@ export interface MachineTerminalContext {
   via: MachineShellBackend;
 }
 
-/** What carries a machine's own shell: the PTY manager, or tmux where there is none. */
+/** What carries a machine's own shell. Tmux on every machine; the PTY arm stays for older sidecars. */
 export type MachineShellBackend = "pty" | "tmux";
 
 /**

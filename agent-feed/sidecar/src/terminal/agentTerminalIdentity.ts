@@ -240,9 +240,9 @@ async function identifyWorkspace(
  * that check is about a path the panel SENT, and this kind sends none. One fixed name, because
  * there is one home per sidecar, so a second tab joins the shell the first one started.
  *
- * `via` picks the backend the machine said it has (`SidecarConfig.machineShell`): a PTY session of
- * our own, or a tmux session started here the first time and joined after that, the way a
- * `tmux-new` target is. An empty command is the login shell on either.
+ * `via` picks the backend, carried from the machine's own answer (`SidecarConfig.machineShell`).
+ * Every machine answers tmux now; the PTY arm stays for sidecars older than the switch, which
+ * still answer it. An empty command is the login shell on either.
  */
 async function identifyMachine(
   deps: TerminalIdentityDeps,

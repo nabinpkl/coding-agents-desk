@@ -1,5 +1,4 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
-import { existsSync } from "node:fs";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
@@ -283,10 +282,12 @@ const server = Bun.serve<undefined>({
         // requests per surface, and an extra availability call fired on mount
         // loses that race and reads as "this machine cannot do it".
         parkAvailable: config.yabaiPath !== null,
-        // Whether a machine terminal can be a PTY session here, read per request like
-        // `usageVendors`: the socket is there while the host runs the PTY manager, and a peer runs
-        // the sidecar without that host, so its answer is tmux.
-        machineShell: existsSync(config.ptyManagerSocketPath) ? "pty" : "tmux",
+        // The machine's own shell rides tmux, on every machine. It used to prefer the PTY
+        // manager where its socket was there -- this Mac -- and answer tmux only on peers, but the
+        // two shells drifted apart and the peer's tmux one is what gets watched: a second viewer
+        // of a tmux pane is legal by construction, while a PTY shell is one reader's. Read as a
+        // constant rather than probed, so there is no priority left to prefer anything else.
+        machineShell: "tmux",
         // Read per request, from the file this machine's supervisor heartbeats. It belongs on this
         // answer because the panel's dev server already asks every sidecar it knows for
         // `/api/config` on a timer to see whether it is alive, so a peer's held state crosses the

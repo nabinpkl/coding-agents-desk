@@ -3,9 +3,9 @@
 // Opened from the terminal button beside each machine in the tab bar. It is the machine's own
 // login shell in its home directory, so it is a place to run a command on that machine without
 // first finding a workspace or a session there. What carries it is the machine's answer, not the
-// panel's guess: a PTY session where the machine runs the PTY manager, tmux where it does not
-// (`SidecarConfig.machineShell`), asked before the shell mounts because a tmux pane is viewed
-// differently from the first byte.
+// panel's guess (`SidecarConfig.machineShell`): tmux on every machine, asked before the shell
+// mounts because a tmux pane is viewed differently from the first byte. The PTY arm below stays
+// for sidecars older than the switch, which still answer it.
 //
 // Closing ENDS the shell, after asking. There is no hide: a shell left running behind a closed
 // dialog is one nobody can see and everybody pays for, so leaving means the work in it stops, and
