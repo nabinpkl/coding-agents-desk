@@ -42,7 +42,6 @@ const MIGRATIONS: readonly string[] = [
     from_addr     TEXT NOT NULL,
     from_kind     TEXT NOT NULL CHECK (from_kind IN ('human', 'agent')),
     to_addr       TEXT NOT NULL,
-    fallback_bot  TEXT,
     kind          TEXT NOT NULL CHECK (kind IN ('request', 'notice', 'reply')),
     body          TEXT NOT NULL,
     refs_json     TEXT NOT NULL,
@@ -59,6 +58,45 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX messages_state ON messages (state, seq);
   CREATE INDEX messages_from ON messages (from_addr, created_at);
   `,
+  // A Bot stopped being a delivery fallback when it stopped being a destination. `fallback_bot` let a
+  // message addressed to one run be rerouted at a sibling, so a message could land in a run nobody
+  // named; a message now waits for the session it names. SQLite cannot drop a column, so the table is
+  // rebuilt, which is why this is a migration and not an edit to the first one. Any message still
+  // holding a `bot:` recipient was a message whose address is now refused, so they are cancelled
+  // rather than left queued against a rule that no longer exists.
+  `
+  UPDATE messages SET state = 'cancelled' WHERE to_addr LIKE 'bot:%' AND state IN ('queued', 'pushed');
+
+  CREATE TABLE messages_without_fallback (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            TEXT NOT NULL UNIQUE,
+    thread_id     TEXT NOT NULL,
+    in_reply_to   TEXT,
+    from_addr     TEXT NOT NULL,
+    from_kind     TEXT NOT NULL CHECK (from_kind IN ('human', 'agent')),
+    to_addr       TEXT NOT NULL,
+    kind          TEXT NOT NULL CHECK (kind IN ('request', 'notice', 'reply')),
+    body          TEXT NOT NULL,
+    refs_json     TEXT NOT NULL,
+    hops          INTEGER NOT NULL,
+    state         TEXT NOT NULL CHECK (state IN ('queued', 'pushed', 'delivered', 'answered', 'expired', 'cancelled')),
+    pushed_stream TEXT,
+    delivered_to  TEXT,
+    delivered_at  TEXT,
+    answered_by   TEXT,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+  );
+  INSERT INTO messages_without_fallback
+    SELECT seq, id, thread_id, in_reply_to, from_addr, from_kind, to_addr, kind, body, refs_json,
+           hops, state, pushed_stream, delivered_to, delivered_at, answered_by, created_at, expires_at
+    FROM messages;
+  DROP TABLE messages;
+  ALTER TABLE messages_without_fallback RENAME TO messages;
+  CREATE INDEX messages_thread ON messages (thread_id, seq);
+  CREATE INDEX messages_state ON messages (state, seq);
+  CREATE INDEX messages_from ON messages (from_addr, created_at);
+  `,
 ];
 
 interface MessageRow {
@@ -68,7 +106,6 @@ interface MessageRow {
   from_addr: string;
   from_kind: string;
   to_addr: string;
-  fallback_bot: string | null;
   kind: string;
   body: string;
   refs_json: string;
@@ -83,8 +120,6 @@ interface MessageRow {
 }
 
 export interface StoredMessage extends Message {
-  /** The Bot a reply falls back to when its session is gone. Hub-internal. */
-  fallbackBot: MessageAddress | null;
   pushedStream: string | null;
 }
 
@@ -114,7 +149,6 @@ export interface NewMessage {
   from: MessageAddress;
   fromKind: SenderKind;
   to: MessageAddress;
-  fallbackBot: MessageAddress | null;
   kind: MessageKind;
   body: string;
   refs: MessageRef[];
@@ -134,7 +168,6 @@ function toMessage(row: MessageRow): StoredMessage {
     from: row.from_addr as MessageAddress,
     fromKind: row.from_kind as SenderKind,
     to: row.to_addr as MessageAddress,
-    fallbackBot: row.fallback_bot as MessageAddress | null,
     kind: row.kind as MessageKind,
     body: row.body,
     refs: JSON.parse(row.refs_json) as MessageRef[],
@@ -151,7 +184,7 @@ function toMessage(row: MessageRow): StoredMessage {
 
 /** The wire shape, without the hub-internal fields. */
 export function publicMessage(message: StoredMessage): Message {
-  const { fallbackBot: _fallback, pushedStream: _stream, ...rest } = message;
+  const { pushedStream: _stream, ...rest } = message;
   return rest;
 }
 
@@ -186,8 +219,8 @@ export class HubStore {
 
   insertMessage(m: NewMessage): StoredMessage {
     this.db.query(`
-      INSERT INTO messages (id, thread_id, in_reply_to, from_addr, from_kind, to_addr, fallback_bot, kind, body, refs_json, hops, state, delivered_to, delivered_at, created_at, expires_at)
-      VALUES ($id, $threadId, $inReplyTo, $from, $fromKind, $to, $fallbackBot, $kind, $body, $refs, $hops, $state, $deliveredTo, $deliveredAt, $createdAt, $expiresAt)
+      INSERT INTO messages (id, thread_id, in_reply_to, from_addr, from_kind, to_addr, kind, body, refs_json, hops, state, delivered_to, delivered_at, created_at, expires_at)
+      VALUES ($id, $threadId, $inReplyTo, $from, $fromKind, $to, $kind, $body, $refs, $hops, $state, $deliveredTo, $deliveredAt, $createdAt, $expiresAt)
     `).run({
       id: m.id,
       threadId: m.threadId,
@@ -195,7 +228,6 @@ export class HubStore {
       from: m.from,
       fromKind: m.fromKind,
       to: m.to,
-      fallbackBot: m.fallbackBot,
       kind: m.kind,
       body: m.body,
       refs: JSON.stringify(m.refs),

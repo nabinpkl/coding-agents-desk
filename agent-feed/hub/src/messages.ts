@@ -126,31 +126,33 @@ export class Messages {
       if (input.kind !== "request" && input.kind !== "notice") throw new InvalidMessage("kind must be request or notice");
       to = input.to;
       kind = input.kind;
-      // Agent to agent is Bot to Bot. An agent opening a new conversation with another agent names
-      // an active Bot rather than a session, because a session id names one run of a process that is
-      // gone the moment it restarts, while a Bot is whatever that agent is right now. "Active" means
-      // the Bot is in the published list, which the exists() check below already enforces: an
-      // unpublished Bot is not addressable, so a caller can only ever reach a Bot some machine is
-      // currently publishing.
-      //
-      // Replies are exempt, and have to be: a reply's recipient is whoever the message came from,
-      // which is a session, and following a thread back to its sender is not opening a new
-      // conversation. So this sits in the new-send branch only, and only for an agent sender.
-      if (fromKind === "agent" && to !== "human" && !to.startsWith("bot:")) {
-        throw new Refused("agent to agent is bot to bot: name an active bot (bot:<id>) from hub_directory, not a session");
-      }
     }
     if (to === from) throw new Refused("a session cannot message itself");
-    // A2A is bot to bot on both ends. An agent only takes part in a message that is not addressed to
-    // the owner when it is a member of an active Bot, because that is the only way its address means
-    // "whatever this agent is right now" rather than "one run of a process". It also closes the
-    // reply path, which is the subtle one: a reply is delivered to parent.from, so without this an
-    // agent that is not a Bot member could enter a thread and end up being its own reply target,
-    // waking a session that is not a chosen Bot member. Every non-owner participant has to be a Bot;
-    // addressing the owner is always allowed, so a session the owner started a thread with can still
-    // answer the owner even though it is not a Bot.
-    if (fromKind === "agent" && to !== "human" && this.directory.botsOf(from).length === 0) {
-      throw new Refused("agent to agent is bot to bot: this session is not a member of an active Bot, so it cannot take part in a message to another agent");
+    // A Bot is a label, not a destination. It says which sessions belong to one agent, and the hub
+    // reads that live, but naming a Bot does not say WHICH of its sessions should get the message, so
+    // it was never a thing to send to. Worse, it made the sender's own Bot a valid target: an agent
+    // that is a member of the Bot it named had that Bot resolve back to its own session, and the
+    // message arrived already answered by itself. The sendable unit is a Bot's member session, which
+    // names one run unambiguously and cannot resolve to the sender by accident.
+    if (to.startsWith("bot:")) {
+      throw new Refused("a Bot is a label, not an address: send to one of its member sessions from hub_directory, which lists them under the Bot");
+    }
+    // What replaces it. An agent taking part in a message that is not addressed to the owner must be
+    // a member of an active Bot on BOTH ends, and that is now checked per side rather than implied by
+    // the address. The sender's check is the reply-path guard the old rule had: a reply is delivered to
+    // parent.from, so without it a session belonging to no Bot could open a thread, be named in it, and
+    // end up waking itself. The recipient's check is the same stability the Bot address used to buy:
+    // a session id names one run of a process that is gone the moment it restarts, so an agent may only
+    // address a run that some machine is publishing as part of an agent that keeps running. Addressing
+    // the owner is exempt from both, because the owner can deliberately involve any session and that
+    // session must be able to answer.
+    if (fromKind === "agent" && to !== "human") {
+      if (this.directory.botsOf(from).length === 0) {
+        throw new Refused("agent to agent is between members of active Bots: this session belongs to no published Bot, so it cannot take part in a message to another agent");
+      }
+      if (this.directory.botsOf(to).length === 0) {
+        throw new Refused("agent to agent is between members of active Bots: that session belongs to no published Bot, so it cannot be addressed by another agent; a human can still send to it");
+      }
     }
     if (!this.directory.exists(to)) throw new NotFound(`no such address: ${to}`);
 
@@ -174,8 +176,6 @@ export class Messages {
     if (parent && this.store.threadSize(threadId) >= LIMITS.threadMessages) throw new Refused(`thread is at ${LIMITS.threadMessages} messages; start a new one`);
 
     const toHuman = to === "human";
-    const bots = sessionSource(to) ? this.directory.botsOf(to) : [];
-    const fallbackBot = bots[0] ? (`bot:${bots[0]!.botId}` as MessageAddress) : null;
     const saved = this.store.transaction(() => {
       const row = this.store.insertMessage({
         id,
@@ -184,7 +184,6 @@ export class Messages {
         from,
         fromKind,
         to,
-        fallbackBot,
         kind,
         body,
         refs,
@@ -283,11 +282,19 @@ export class Messages {
     return this.store.expire(this.clock().toISOString());
   }
 
-  /** Where a queued message should go now, or null to keep holding it. */
+  /**
+   * Where a queued message should go now, or null to keep holding it.
+   *
+   * The session it names, and nothing else. A message waits for the run that was addressed, so a
+   * sender's choice is honoured rather than second-guessed by picking a different session of the same
+   * agent -- which is what the old Bot fallback did, and how a message to one run could land in
+   * another. The cost is honest: a message to a session that has ended is held until it returns or
+   * expires, rather than being rerouted at a sibling. Naming the session is what makes the wait
+   * predictable, and a sender who wants the agent rather than the run reads the member sessions off the
+   * Bot's directory entry and aims at the one that is up.
+   */
   private target(message: StoredMessage): MessageAddress | null {
-    if (message.to.startsWith("bot:")) return this.directory.resolveBot(message.to);
-    if (this.directory.reachable(message.to) && this.streams.has(message.to)) return message.to;
-    return message.fallbackBot ? this.directory.resolveBot(message.fallbackBot) : null;
+    return this.directory.reachable(message.to) && this.streams.has(message.to) ? message.to : null;
   }
 
   /** Pushes every queued message that has somewhere to go, oldest first. */

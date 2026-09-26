@@ -1,4 +1,5 @@
-// Publishes this machine's Bots to the hub, so `bot:<id>` addresses resolve and every surface can
+// Publishes this machine's Bots to the hub, so `bot:<id>` labels list the sessions under them and
+// every surface can
 // list them. The registry stays the authoritative home; the hub's copy is replaced whole on every
 // publish, on each registry change and once a minute so a hub restart is healed without an event.
 

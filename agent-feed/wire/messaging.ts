@@ -5,8 +5,13 @@
  * Who can send or receive.
  *
  * `human` is the owner. `claude:<sessionId>` and `opencode:<sessionId>` are one live agent session
- * on one machine. `bot:<botId>` is an agent-desk Bot, resolved at delivery time to one of its
- * reachable sessions.
+ * on one machine, and they are what a message is addressed to.
+ *
+ * `bot:<botId>` is an agent-desk Bot, and it is a LABEL rather than a destination: it names the set
+ * of sessions belonging to one agent, and the directory lists it so a reader sees that grouping. It
+ * is in this type because the directory and a message's `to` field carry the shape, not because
+ * anything can be sent to one -- the hub refuses that, since a Bot does not say which of its sessions
+ * should receive a message.
  */
 export type MessageAddress = "human" | `claude:${string}` | `opencode:${string}` | `bot:${string}`;
 
@@ -46,7 +51,7 @@ export interface Message {
   /** Consecutive agent-sent messages in the thread since the last human one, this one included. */
   hops: number;
   state: MessageState;
-  /** The session it reached, for a `bot:` address the member that was chosen. */
+  /** The session it reached, which is always a session. Null while the message is still held. */
   deliveredTo: MessageAddress | null;
   deliveredAt: string | null;
   answeredBy: string | null;
@@ -57,7 +62,7 @@ export interface Message {
 export interface SendMessageRequest {
   /** The sender: `human` for a human surface, `<source>:<id>` for a relay child speaking for its session. */
   as: MessageAddress;
-  /** Omitted on a reply: a reply always goes to the sender of `inReplyTo`. */
+  /** Omitted on a reply: a reply always goes to the sender of `inReplyTo`. Never a `bot:` address. */
   to?: MessageAddress;
   kind: "request" | "notice";
   body: string;
@@ -84,7 +89,12 @@ export interface DirectoryEntry {
   machine: string | null;
   reachability: DirectoryReachability;
   lastSeenAt: string | null;
-  /** For a session, the Bots it belongs to; for a Bot, its member sessions. */
+  /**
+   * For a session, the Bots it belongs to; for a Bot, the member sessions to send to instead.
+   *
+   * This is how a label stays useful now that it cannot be addressed: the directory hands a reader
+   * the sessions under a Bot, and those are the addresses a message goes to.
+   */
   related: MessageAddress[];
   cwd: string | null;
 }

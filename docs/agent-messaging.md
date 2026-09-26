@@ -51,7 +51,7 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 |---|---|---|
 | `human` | The owner. There is one in v1. | Always. Messages are stored and shown on human surfaces. |
 | `claude:<sessionId>` | One Claude Code session. | Its relay child holds an open stream to the hub, and that session was started with the channel flag (see Reachability). |
-| `bot:<botId>` | An agent-desk Bot. It resolves at delivery time to one reachable member session. | Any member session is reachable. |
+| `bot:<botId>` | An agent-desk Bot, as a label. It is **not a destination** and the hub refuses to send to one. The directory entry lists the sessions to address instead. | Nothing to reach; it names a set of sessions. |
 | `opencode:<sessionId>` | One opencode session. | While that machine's sidecar holds a stream for it, which it does for every session the serve lists. |
 
 **The directory:**
@@ -59,18 +59,14 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 - Sessions enter it through their stream: the sidecar's per-session stream under opencode, a relay child's stream under Claude.
 - Bots enter it through each sidecar publishing its Bot registry: `botId`, name, directory and member session ids, each source-prefixed (`claude:<id>`, `opencode:<id>`). agent-desk stays the authoritative home for Bots, and the hub's copy is replaced whole on each publish.
 
-**A2A is Bot to Bot on both ends, and active means in the list:**
-- When an agent opens a *new* conversation with another agent, both ends are Bots. The hub refuses a new non-human send from an agent to anything that is not a `bot:` address, and it refuses an agent whose own session is not a member of an active Bot. Membership is read live, so a session whose Bot stopped publishing it loses the ability at the next send.
-- A Bot is *active* when it is in the published directory, which some machine is currently publishing. An agent can only ever reach an active Bot, so a stale Bot id is useless rather than wrong, and a message to a Bot with no live member waits for one.
-- A session id names one run of a process that is gone the moment it restarts, which is why it is the wrong address for reaching an agent that keeps running. A Bot is whatever that agent is right now.
-- The "not a Bot member cannot participate" rule is what closes the reply path. A reply is delivered to whoever the previous message came from, so without it an agent that is not a Bot member could open a thread, enter it, and become its own reply target, waking a session that is not a chosen Bot member.
+**A Bot is a label; the addressable unit is one of its sessions:**
+- A `bot:` address is refused. A Bot names a *set* of sessions, so addressing one never said which should receive the message, and the failure mode was concrete: an agent that was a member of the Bot it named had that Bot resolve back to its own session, so the message was delivered to its own sender and could not be replied to, because a reply is addressed to the sender. The refusal names the fix, which is to send to a member session.
+- A message waits for **the session it names**. It is not rerouted at a sibling of the same Bot when that one is down. The trade is deliberate: a sender's choice is honoured over a convenience that silently put a message in a run nobody asked for, and a sender who wants the agent rather than the run reads the Bot's `related` sessions off the directory and aims at the one that is up. A message to a session that has ended is held until it returns or expires.
+- An agent taking part in a message that is not addressed to the owner must be a member of a published Bot on **both** ends, checked per side rather than implied by the address. Membership is read live, so a session whose Bot stopped publishing it loses the ability at the next send.
+- A Bot is *published* when it is in the directory, which some machine is currently publishing. That is what makes membership meaningful: an agent can only reach a run that some machine is publishing as part of an agent that keeps running, rather than any session id it happens to know.
+- The sender-side check is what closes the reply path. A reply is delivered to whoever the previous message came from, so without it a session belonging to no Bot could open a thread, be named in it, and end up waking itself.
 - Addressing the owner is never gated. The owner can deliberately involve any session, and that session must be able to answer, so `to === "human"` is exempt from both the recipient and the membership rules.
-- This governs agent senders. The human surfaces (panel, annotator) still address sessions directly, because a person picks the specific session they can see.
-
-**Resolving `bot:` to a session:**
-- **Thread affinity first:** a message in an existing thread goes to the session that handled the thread's last message, if it is still reachable.
-- **Otherwise the newest reachable member session.**
-- **None reachable:** the message is held and delivered in order when one connects.
+- This governs agent senders. The human surfaces (panel, annotator) address sessions directly, because a person picks the specific session they can see.
 
 ## Messages, threads, delivery
 
@@ -161,7 +157,7 @@ body text
 **Channel event as the model sees it, under Claude Code:**
 
 ```
-<channel source="agentdesk-relay" message_id="01K…" thread_id="01K…" from="bot:site-fixer" from_kind="agent" kind="request" hops="1">
+<channel source="agentdesk-relay" message_id="01K…" thread_id="01K…" from="opencode:ses_01K…" from_name="Site fixer (Fix header)" from_kind="agent" kind="request" hops="1">
 body text
 </channel>
 ```
@@ -253,8 +249,9 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
    with curl through the edge and from both machines' tokens.
 2. **Relay child rewrite.** Done. The four hub tools replace the tmux and socket paths; the channel
    loop is source-aware. Verified against a local stand-in edge with two live sessions.
-3. **Bots.** Done. The sidecar publishes both runtimes' session refs under source-prefixed ids;
-   `bot:` resolves across runtimes with thread affinity and held delivery.
+3. **Bots.** Done. The sidecar publishes both runtimes' session refs under source-prefixed ids. A
+   `bot:` entry is a label listing the sessions under one agent; messages are addressed to a member
+   session, and a message waits for the run it names.
 4. **OpenCode adapter.** Code done: one hub stream per serve-listed session, prompt delivery, hub
    confirmation after the write, dropped sessions requeued. Awaiting the live check on a real
    opencode session on both machines.

@@ -1,4 +1,9 @@
-// Who can be addressed, and which session a Bot address lands on right now.
+// Who can be addressed, and which of a Bot's sessions is currently up.
+//
+// A Bot is a label: it names the sessions belonging to one agent and the directory lists it so a
+// reader can see that grouping. It is not a destination, and nothing resolves through it. Its one
+// runtime use is naming which of its member sessions is reachable, which is what the panel and a
+// sender both read to decide where a message should go.
 
 import { basename } from "node:path";
 import type { DirectoryEntry, MessageAddress, MessagingSource } from "@agentdesk/agent-feed-wire";
@@ -14,6 +19,14 @@ export const SESSION_ID = /^[0-9a-zA-Z_-]{1,128}$/;
 /** The sources a session stream can be opened for, with the address prefix each one uses. */
 const SOURCE_PREFIX: Record<MessagingSource, string> = { claude: "claude", opencode: "opencode" };
 
+/**
+ * Whether a value is an address at all, which includes a Bot.
+ *
+ * A Bot is an address in the sense that the directory lists one and a message's `to` field can carry
+ * the shape. It is NOT something a message is addressed TO -- `send` refuses that separately, with
+ * the reason, because a Bot does not name one session. Keeping the two apart is what lets `bot:`
+ * stay in the address type the wire already carries.
+ */
 export function isAddress(value: unknown): value is MessageAddress {
   return (
     typeof value === "string" &&
@@ -74,7 +87,14 @@ export class Directory {
     return s !== undefined && s.connected && s.channel;
   }
 
-  /** The newest reachable member session of a Bot, or null when none is. */
+  /**
+   * The newest reachable member session of a Bot, or null when none is.
+   *
+   * Which of a label's members is up right now. Nothing in delivery reaches this: a message goes to
+   * the session it names, and a session that is down is waited for rather than rerouted. This is here
+   * because a reader deciding where to aim needs it -- the panel shows it, and a sender reads the
+   * member list off the Bot's directory entry.
+   */
   resolveBot(address: MessageAddress): MessageAddress | null {
     const bot = this.bot(address);
     if (!bot) return null;

@@ -105,28 +105,58 @@ describe("send and reply", () => {
 });
 
 describe("bots", () => {
-  test("a Bot address resolves to its newest reachable member, and holds when none is", () => {
+  test("a Bot is a label and cannot be addressed, and the refusal says what to send to instead", () => {
+    // The bug this replaced. A Bot names a SET of sessions, so addressing one did not say which
+    // should receive the message, and an agent that was a member of the Bot it named had that Bot
+    // resolve back to its own session: the message was delivered to its own sender, arrived already
+    // answered, and could not be replied to because a reply goes to the sender.
     const f = fixture();
     f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [`claude:${A}`, `claude:${B}`] }]);
-    const held = f.messages.send(MAC, { as: "human", to: "bot:fixer", kind: "request", body: "first" });
-    expect(held.state).toBe("queued");
     f.open(MAC, A);
-    expect(f.messages.get(held.id)).toMatchObject({ state: "pushed", deliveredTo: `claude:${A}` });
-    f.advance(1000);
     f.open(MAC, B);
-    const next = f.messages.send(MAC, { as: "human", to: "bot:fixer", kind: "request", body: "second" });
-    expect(next.deliveredTo).toBe(`claude:${B}`);
+    expect(() => f.messages.send(MAC, { as: "human", to: "bot:fixer", kind: "request", body: "hi" })).toThrow(Refused);
+    expect(() => f.messages.send(MAC, { as: "human", to: "bot:fixer", kind: "request", body: "hi" }))
+      .toThrow(/member session/i);
   });
 
-  test("a Bot holding both runtimes resolves to whichever member is live", () => {
+  test("an agent cannot reach itself through the Bot it belongs to, by any address", () => {
     const f = fixture();
-    f.messages.publishBots(MAC, "mac", [{ botId: "mixed", name: "Mixed", path: "/work/site", sessionIds: [`claude:${A}`, `opencode:${B}`] }]);
-    const held = f.messages.send(MAC, { as: "human", to: "bot:mixed", kind: "request", body: "work" });
-    f.open(MAC, B, true, "opencode");
-    expect(f.messages.get(held.id)).toMatchObject({ state: "pushed", deliveredTo: `opencode:${B}` });
+    f.messages.publishBots(MAC, "mac", [{ botId: "mine", name: "Mine", path: "/work/mine", sessionIds: [`claude:${A}`] }]);
+    f.open(MAC, A);
+    // The Bot is refused as a label, and the session is refused as itself. Either way there is no
+    // address that loops the message back to the sender.
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: "bot:mine", kind: "request", body: "hi" })).toThrow(Refused);
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: `claude:${A}`, kind: "request", body: "hi" })).toThrow(Refused);
   });
 
-  test("a reply to a gone Bot session falls back to the Bot", () => {
+  test("a message to a known session that has gone quiet is held for that session", () => {
+    // Naming a session says which run should get the message, so that is the run it waits for, and a
+    // sibling that is up does not receive it.
+    const f = fixture();
+    f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [`claude:${A}`, `claude:${B}`] }]);
+    const a = f.open(MAC, A);
+    const first = f.messages.send(MAC, { as: "human", to: `claude:${A}`, kind: "request", body: "first" });
+    expect(first.state).toBe("pushed");
+    f.messages.disconnect(`claude:${A}`, a.id);
+    f.open(MAC, B);
+    const held = f.messages.send(MAC, { as: "human", to: `claude:${A}`, kind: "request", body: "second" });
+    expect(held.state).toBe("queued");
+    expect(held.deliveredTo).toBeNull();
+    // A message that names B explicitly goes to B, which is the point: the sender chose the run.
+    const aimed = f.messages.send(MAC, { as: "human", to: `claude:${B}`, kind: "request", body: "third" });
+    expect(aimed.deliveredTo).toBe(`claude:${B}`);
+  });
+
+  test("a session the hub has never seen is refused rather than held", () => {
+    const f = fixture();
+    expect(() => f.messages.send(MAC, { as: "human", to: `claude:${C}`, kind: "request", body: "x" })).toThrow(NotFound);
+  });
+
+  test("a reply to a session that has gone quiet waits for that session, not a sibling", () => {
+    // The old rule rerouted a reply at whichever member of the Bot happened to be live, which meant a
+    // message addressed to one run could be answered by another. Now the recipient is the session and
+    // it holds. What still makes an agent reachable is that the directory lists its members, so a
+    // sender aiming at the agent rather than the run can see which one is up.
     const f = fixture();
     f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [`claude:${A}`, `claude:${B}`] }]);
     const a = f.open(MAC, A);
@@ -135,7 +165,11 @@ describe("bots", () => {
     f.open(MAC, B);
     const answer = f.messages.send(MAC, { as: "human", inReplyTo: question.id, body: "blue" });
     expect(answer.to).toBe(`claude:${A}`);
-    expect(answer.deliveredTo).toBe(`claude:${B}`);
+    expect(answer.state).toBe("queued");
+    expect(answer.deliveredTo).toBeNull();
+    // The Bot's label still names the set, which is how a sender finds the session to aim at.
+    const bot = f.messages.directory.list(Date.now()).find((e) => e.address === "bot:fixer");
+    expect(bot?.related).toEqual([`claude:${A}`, `claude:${B}`]);
   });
 
   test("a machine may publish only its own Bots", () => {
@@ -145,7 +179,7 @@ describe("bots", () => {
 });
 
 describe("agent to agent", () => {
-  /** Two active Bots, one live member each, so a message between them is genuinely Bot to Bot. */
+  /** Two published Bots, one live member each, so a message between them is member to member. */
   function twoBots() {
     const f = fixture();
     f.messages.publishBots(MAC, "mac", [{ botId: "asker", name: "Asker", path: "/work/asker", sessionIds: [`claude:${A}`] }]);
@@ -155,45 +189,47 @@ describe("agent to agent", () => {
     return f;
   }
 
-  test("an active Bot opens a new conversation with another active Bot and reaches its live member", () => {
+  test("an agent reaches another agent's member session directly", () => {
     const f = twoBots();
-    const sent = f.messages.send(MAC, { as: `claude:${A}`, to: "bot:fixer", kind: "request", body: "please fix the header" });
+    const sent = f.messages.send(MAC, { as: `claude:${A}`, to: `opencode:${B}`, kind: "request", body: "please fix the header" });
     expect(sent.state).toBe("pushed");
     expect(sent.deliveredTo).toBe(`opencode:${B}`);
   });
 
-  test("the reply comes back to the asking Bot's member, and that member is a Bot", () => {
+  test("the reply comes back to the asking session", () => {
     const f = twoBots();
-    const question = f.messages.send(MAC, { as: `claude:${A}`, to: "bot:fixer", kind: "request", body: "which colour?" });
+    const question = f.messages.send(MAC, { as: `claude:${A}`, to: `opencode:${B}`, kind: "request", body: "which colour?" });
     const answer = f.messages.send(ORACLE, { as: `opencode:${B}`, inReplyTo: question.id, body: "blue" });
     expect(answer.to).toBe(`claude:${A}`);
     expect(answer.state).toBe("pushed");
     expect(f.messages.get(question.id)).toMatchObject({ state: "answered" });
   });
 
-  test("a session that is not a member of any active Bot cannot open a conversation with a Bot", () => {
-    // The far side of the rule. "Active bots only" has to mean the participants too, not only the
-    // recipients: a standalone session has no stable identity, so letting it send would let it enter
-    // a thread and become a reply target, which is the wake-up this is meant to prevent.
+  test("a session that belongs to no published Bot cannot open a conversation with another agent", () => {
+    // The far side of the rule. Membership has to mean the participants too, not only the recipients:
+    // a standalone session has no stable identity, so letting it send would let it enter a thread and
+    // become a reply target, which is the wake-up this is meant to prevent.
     const f = fixture();
     f.messages.publishBots(ORACLE, "oracle", [{ botId: "fixer", name: "Fixer", path: "/work/fixer", sessionIds: [`opencode:${B}`] }]);
     f.open(ORACLE, B, true, "opencode");
     f.open(MAC, C); // a live session that belongs to no Bot
-    expect(() => f.messages.send(MAC, { as: `claude:${C}`, to: "bot:fixer", kind: "request", body: "hi" })).toThrow(Refused);
+    expect(() => f.messages.send(MAC, { as: `claude:${C}`, to: `opencode:${B}`, kind: "request", body: "hi" })).toThrow(Refused);
   });
 
-  test("opening a new conversation with a raw session is refused: it is Bot to Bot", () => {
-    // A session id names one run of a process that is gone the moment it restarts, and the whole
-    // point of a Bot is that it is whatever that agent is right now. Both ends must be Bots.
+  test("an agent cannot address a session that belongs to no published Bot", () => {
+    // What the recipient check buys, and the reason it is not implied by the sender's. A session id
+    // names one run of a process that is gone the moment it restarts, so an agent may only address a
+    // run some machine is publishing as part of an agent that keeps running. A human still can, since
+    // a person picks the specific session they can see.
     const f = twoBots();
-    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: `opencode:${B}`, kind: "request", body: "hi" })).toThrow(Refused);
+    f.open(MAC, C); // a live session that belongs to no Bot
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: `claude:${C}`, kind: "request", body: "hi" })).toThrow(Refused);
+    expect(f.messages.send(MAC, { as: "human", to: `claude:${C}`, kind: "request", body: "hi" }).state).toBe("pushed");
   });
 
-  test("a Bot that is not in the published list is not an active Bot, so it cannot be reached", () => {
-    // "Active" is exactly "in the bots list": an agent can only ever reach a Bot some machine is
-    // currently publishing, which is what makes a stale Bot id useless rather than wrong.
+  test("a session that is not in the published list is not a member of any Bot", () => {
     const f = twoBots();
-    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: "bot:never-published", kind: "request", body: "hi" })).toThrow(NotFound);
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: `claude:${C}`, kind: "request", body: "hi" })).toThrow(Refused);
   });
 
   test("a Bot member that falls out of every Bot can no longer reach another agent", () => {
@@ -201,7 +237,7 @@ describe("agent to agent", () => {
     // take part at the next send rather than keeping a right it no longer has.
     const f = twoBots();
     f.messages.publishBots(MAC, "mac", []);
-    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: "bot:fixer", kind: "request", body: "hi" })).toThrow(Refused);
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: `opencode:${B}`, kind: "request", body: "hi" })).toThrow(Refused);
   });
 
   test("a session the owner started a thread with can still answer the owner, Bot or not", () => {
@@ -276,11 +312,11 @@ describe("rules", () => {
     f.open(MAC, A);
     f.open(ORACLE, B);
     // Every participant in an A2A thread is a Bot member, so both sides are published. The opening
-    // hop names the Bot it opens with; every later hop is a reply, whose recipient is the previous
-    // sender.
+    // hop names the session it opens with; every later hop is a reply, whose recipient is the
+    // previous sender.
     f.messages.publishBots(MAC, "mac", [{ botId: "aarp", name: "Aarp", path: "/work/aarp", sessionIds: [`claude:${A}`] }]);
     f.messages.publishBots(ORACLE, "oracle", [{ botId: "bee", name: "Bee", path: "/work/bee", sessionIds: [`claude:${B}`] }]);
-    let last = f.messages.send(MAC, { as: `claude:${A}`, to: "bot:bee", kind: "request", body: "1" });
+    let last = f.messages.send(MAC, { as: `claude:${A}`, to: `claude:${B}`, kind: "request", body: "1" });
     const sides: [Principal, string][] = [[ORACLE, B], [MAC, A]];
     for (let hop = 2; hop <= LIMITS.maxHops; hop++) {
       const [principal, id] = sides[hop % 2]!;
