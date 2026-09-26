@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowRightLeft,
+  Crown,
   EyeOff,
   GitBranch,
   GitFork,
@@ -27,6 +28,9 @@ export function SessionRowMenu({
   onMoveEarlier,
   onMoveLater,
   onDetach,
+  isFather,
+  onSetFather,
+  onClearFather,
   onRemoveFromCanvas,
 }: {
   label: string;
@@ -87,6 +91,20 @@ export function SessionRowMenu({
   onMoveLater?: () => void;
   onDetach: () => void;
   /**
+   * Whether this session is the Bot's Father now. The menu shows the other act: naming the
+   * one that is not, clearing the one that is. Derived by the caller from the Bot's record,
+   * because the menu names labels and the Bot owns the fact.
+   */
+  isFather?: boolean;
+  /**
+   * Names this session the Bot's Father. Absent together with `onClearFather` on rows with
+   * no Bot to name it on -- the missing-reference menu, which has a Bot but no session the
+   * home could render.
+   */
+  onSetFather?: () => void;
+  /** Clears this session as the Bot's Father. */
+  onClearFather?: () => void;
+  /**
    * Takes this session's card off the canvas and changes nothing about the Bot.
    *
    * Absent everywhere there is no canvas to be taken off, which is the Bots tab and the sidebar
@@ -124,6 +142,16 @@ export function SessionRowMenu({
   // through rearranging what is here, to taking it away. Both entries are the Bot's own order
   // rather than this view's, so they sit with "Remove from bot" rather than with the canvas act
   // under it.
+  //
+  // The Father beside the handover rather than with either group: naming one is neither making
+  // nor taking, it is pointing the home at a session that is already here. Only one of the two
+  // ever shows -- the act this session is not -- so there is no pair to misread.
+  if (onSetFather && !isFather) {
+    items.push({ label: "Set as Father", icon: Crown, onSelect: onSetFather });
+  }
+  if (onClearFather && isFather) {
+    items.push({ label: "Clear as Father", icon: Crown, onSelect: onClearFather });
+  }
   if (onMoveEarlier) items.push({ label: "Move left", icon: ArrowLeft, onSelect: onMoveEarlier });
   if (onMoveLater) items.push({ label: "Move right", icon: ArrowRight, onSelect: onMoveLater });
   // "from bot", not "from canvas": this drops the Bot's reference to the session wherever the row

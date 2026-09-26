@@ -204,6 +204,50 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("names a session the Bot's Father through the row's actions menu", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+    transport.responses.set("PATCH /api/bots/bot-1", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-1" }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Session Claude 01/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as Father" }));
+
+    // The record carries the naming; the home follows on the stream, which is also what happens
+    // when the same Bot is edited from another surface. Nothing local predicts it.
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.method === "PATCH")).toEqual({
+        method: "PATCH",
+        path: "/api/bots/bot-1",
+        body: { fatherSession: { source: "claude", sessionId: "sid-claude-01" } },
+      });
+    });
+    unmount();
+  });
+
   it("creates a Bot from a name, icon, and existing project directory", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);

@@ -23,6 +23,7 @@ import type { BotStore, StoredBotSnapshot } from "@/bots/botStore";
 import type { NormalizedRetire } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { withOffCanvasSessions } from "@/bots/botCanvas";
+import { clearDetachedFather } from "@/bots/botUpdate";
 import {
   BotConflictError,
   BotNotFoundError,
@@ -56,12 +57,14 @@ export function detachRefs(
   if (absent) throw new BotNotFoundError(`session ${sessionKey(absent)} is not attached to this Bot`);
 
   const removing = new Set(refs.map(sessionKey));
-  const updated: BotRecord = withOffCanvasSessions(
+  // A Father that leaves the Bot stops being one in the same write: kept, the home would name
+  // a session the Bot has forgotten, and retiring clears it through here too.
+  const updated: BotRecord = clearDetachedFather(withOffCanvasSessions(
     { ...bot, sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))) },
     // A session that leaves the Bot leaves its off-canvas list too. Kept, it would meet the session
     // again if it were ever attached back, as a row hidden on a card that never said so.
     (bot.offCanvasSessionRefs ?? []).filter((ref) => !removing.has(sessionKey(ref))),
-  );
+  ), removing);
   const bots = [...snapshot.bots];
   bots[index] = updated;
   return {

@@ -85,6 +85,7 @@ function panel(canvas: {
       onAddSession={() => undefined}
       onRenameSession={() => undefined}
       onDetachSession={() => undefined}
+      onSetFatherSession={() => undefined}
       onAddBot={() => undefined}
       canvas={{
         detachedBotIds: canvas.detachedBotIds,
@@ -404,6 +405,7 @@ describe("BotSidebarPanel terminal buttons", () => {
       onAddSession={() => undefined}
       onRenameSession={() => undefined}
       onDetachSession={() => undefined}
+      onSetFatherSession={() => undefined}
       onAddBot={() => undefined}
     />,
   );

@@ -256,6 +256,75 @@ export function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
  * The title is task text, never the anchor: the anchor is spent at launch time and this
  * normalizer cannot know it yet. Omitted starts bare.
  */
+/**
+ * A Bot edit: every field optional, at least one required.
+ *
+ * Clearing follows the creator dialog's shape rather than inventing its own: an empty string
+ * where a value lives (icon, role, description) removes it, because a reader clearing a field
+ * deletes its text rather than reaching for null. Labels and custom replace wholesale per
+ * field -- merging two label lists element-wise would make removing one label unsayable.
+ * `fatherSession: null` clears the Father; omitted leaves it. Grants are absent on purpose:
+ * only creation hands out management powers.
+ */
+export interface NormalizedUpdateBot {
+  name?: string;
+  normalizedName?: string;
+  iconUrl?: string | null;
+  /** Only the metadata keys the caller named; each replaces wholesale, the rest stay. */
+  metadata?: { role?: string; description?: string; labels?: string[]; custom?: Record<string, string> };
+  fatherSession?: BotSessionRef | null;
+}
+
+export function normalizeUpdateBot(command: unknown): NormalizedUpdateBot {
+  if (!command || typeof command !== "object" || Array.isArray(command)) {
+    throw new BotInvalidError("request body must be an object");
+  }
+  const { name, iconUrl, metadata, fatherSession } = command as {
+    name?: unknown;
+    iconUrl?: unknown;
+    metadata?: unknown;
+    fatherSession?: unknown;
+  };
+  if (name === undefined && iconUrl === undefined && metadata === undefined && fatherSession === undefined) {
+    throw new BotInvalidError("name, iconUrl, metadata or fatherSession is required");
+  }
+  const normalized: NormalizedUpdateBot = {};
+  if (name !== undefined) {
+    const { name: trimmed, normalizedName } = normalizeName(name);
+    normalized.name = trimmed;
+    normalized.normalizedName = normalizedName;
+  }
+  if (iconUrl !== undefined) {
+    if (typeof iconUrl !== "string") throw new BotInvalidError("iconUrl must be a string");
+    // Empty clears to the initials; anything else obeys the creation rule.
+    normalized.iconUrl = iconUrl.trim() === "" ? null : normalizeIconUrl(iconUrl);
+  }
+  if (metadata !== undefined) {
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+      throw new BotInvalidError("metadata must be an object");
+    }
+    // Only the keys the caller named: each one replaces wholesale, and the rest stay. An
+    // explicit undefined value counts as unnamed -- JSON cannot carry it, so nothing can mean
+    // it -- while an empty string clears role and description the way the creator dialog reads
+    // a deleted field.
+    const raw = metadata as Record<string, unknown>;
+    const merged: { role?: string; description?: string; labels?: string[]; custom?: Record<string, string> } = {};
+    if (raw.role !== undefined) merged.role = compactOptional(raw.role, "metadata.role", MAX_ROLE);
+    if (raw.description !== undefined) {
+      merged.description = compactOptional(raw.description, "metadata.description", MAX_DESCRIPTION);
+    }
+    if (raw.labels !== undefined) merged.labels = normalizeLabels(raw.labels);
+    if (raw.custom !== undefined) merged.custom = normalizeCustom(raw.custom);
+    normalized.metadata = merged;
+  }
+  if (fatherSession !== undefined) {
+    // Null clears; a reference must parse, and membership is the registry's call beside the
+    // record it checks against.
+    normalized.fatherSession = fatherSession === null ? null : normalizeSessionRef(fatherSession);
+  }
+  return normalized;
+}
+
 export function normalizeLaunchFor(botId: string, value: unknown): NormalizedLaunch | undefined {
   void botId;
   return normalizeLaunch(value);

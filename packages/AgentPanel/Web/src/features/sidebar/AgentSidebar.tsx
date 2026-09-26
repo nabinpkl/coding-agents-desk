@@ -88,6 +88,8 @@ interface AgentSidebarProps {
   onSelectBotSession: (bot: BotView, session: SessionSummary) => void;
   onAddBotSession: (bot: BotView) => void;
   onDetachBotSession: (bot: BotView, session: BotSessionRef) => void;
+  /** Names a session the Bot's Father, or clears it with a null ref. */
+  onSetFatherBotSession: (bot: BotView, session: BotSessionRef | null) => void;
   /** Opens the rename dialog for one session, from either Bots view. */
   onRenameSession: (session: SessionSummary) => void;
   /**
@@ -350,6 +352,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onAddSession={props.onAddBotSession}
             onRenameSession={props.onRenameSession}
             onDetachSession={props.onDetachBotSession}
+            onSetFatherSession={props.onSetFatherBotSession}
             onAddBot={props.onAddBot}
             canvas={{
               detachedBotIds: props.detachedBotIds,
@@ -396,6 +399,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onAddSession={props.onAddBotSession}
             onRenameSession={props.onRenameSession}
             onDetachSession={props.onDetachBotSession}
+            onSetFatherSession={props.onSetFatherBotSession}
             onAddBot={props.onAddBot}
           />
         </div>

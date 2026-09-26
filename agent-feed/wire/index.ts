@@ -55,6 +55,7 @@ export type {
   AddBotCommand,
   AddBotSessionsCommand,
   BotCanvasSessionChange,
+  BotDeleted,
   BotCreatedBy,
   BotDirectoryEnvironment,
   BotFileRead,
@@ -77,6 +78,7 @@ export type {
   RetireBotSessionsCommand,
   RetiredBotSession,
   SetBotCanvasCommand,
+  UpdateBotCommand,
 } from "./bot.ts";
 
 export type {

@@ -16,6 +16,7 @@ import {
 import { useMemo } from "react";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { BotCreatorDialog } from "@/features/bots/dialogs/BotCreatorDialog";
+import { BotRenameDialog } from "@/features/bots/dialogs/BotRenameDialog";
 import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog";
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
@@ -34,13 +35,16 @@ export function AppDialogs({
   forkTitlesInProject,
   inventoryLoading,
   projects,
+  renameBot,
   renameSession,
+  renamingBot,
   renamingSession,
   sessionsByProject,
   setBotCreatorOpen,
   setBotSessionPickerId,
   setForkRequest,
   setHandoverRequest,
+  setRenamingBot,
   setRenamingSession,
   startFork,
   startHandover,
@@ -59,7 +63,9 @@ export function AppDialogs({
   machineOfBot: (botId: string) => BotMachine | undefined;
   inventoryLoading: boolean;
   projects: ProjectSummary[];
+  renameBot: (bot: BotView, restyle: { name: string; iconUrl?: string; role?: string }) => Promise<void>;
   renameSession: (session: SessionSummary, title: string) => Promise<void>;
+  renamingBot: BotView | null;
   renamingSession: SessionSummary | null;
   /** Read-only: the shell owns this map, and one of its entries can come from another machine. */
   sessionsByProject: ReadonlyMap<string, SessionSummary[]>;
@@ -67,6 +73,7 @@ export function AppDialogs({
   setBotSessionPickerId: (botId: string | null) => void;
   setForkRequest: (request: ForkRequest | null) => void;
   setHandoverRequest: (request: HandoverRequest | null) => void;
+  setRenamingBot: (bot: BotView | null) => void;
   setRenamingSession: (session: SessionSummary | null) => void;
   startFork: (
     request: ForkRequest,
@@ -123,6 +130,11 @@ export function AppDialogs({
           anchor={renameAnchor}
           onClose={() => setRenamingSession(null)}
           onRename={renameSession}
+        />
+        <BotRenameDialog
+          bot={renamingBot}
+          onClose={() => setRenamingBot(null)}
+          onRename={renameBot}
         />
         <ForkSessionDialog
           request={forkRequest}

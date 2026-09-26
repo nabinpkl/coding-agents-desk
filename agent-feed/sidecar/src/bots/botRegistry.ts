@@ -3,6 +3,7 @@ import type {
   AddBotCommand,
   AddBotSessionsCommand,
   BotCreatedBy,
+  BotDeleted,
   BotMetadata,
   BotRecord,
   BotSessionRef,
@@ -16,12 +17,12 @@ import type {
   RenamedBracket,
   RetireBotSessionsCommand,
   SetBotCanvasCommand,
+  UpdateBotCommand,
 } from "@agentdesk/agent-feed-wire";
 import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
 import { directoryBelongsTo } from "@/git/worktree";
-import { noteBotSessionOutcomes, resolveBotSessions, type BotSessionOutcome } from "@/bots/botSessionResolution";
-import { viewSignature, type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
 import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
+import { type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
 import {
   normalizeAddBot,
   normalizeLaunchFor,
@@ -32,6 +33,8 @@ import {
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
+import { BotRecordEditor } from "@/bots/botUpdate";
+import { BotViewer } from "@/bots/botViews";
 import { attachRefs } from "@/bots/sessions/botSessionAttach";
 import {
   normalizeBotTitles,
@@ -81,6 +84,10 @@ export class BotRegistry {
   private readonly starter: BotSessionStarter;
   /** And taking one out of it again. See `botSessionRemoval.ts`. */
   private readonly retirer: BotSessionRetirer;
+  /** What the roster says: snapshots, subscriptions, one resolved view. See `botViews.ts`. */
+  private readonly viewer: BotViewer;
+  /** And rewriting the record itself: renames, faces, Fathers, and forgetting. See `botUpdate.ts`. */
+  private readonly editor: BotRecordEditor;
 
   constructor(
     private readonly store: BotStore,
@@ -99,10 +106,12 @@ export class BotRegistry {
   ) {
     this.starter = new BotSessionStarter(store, catalog, launcher, newSessionId);
     this.retirer = new BotSessionRetirer(store, catalog, launcher);
+    this.viewer = new BotViewer(store, catalog);
+    this.editor = new BotRecordEditor(store, (record) => this.viewer.viewRecord(record));
   }
 
   async snapshot(): Promise<BotSnapshot> {
-    return this.view(await this.store.snapshot());
+    return this.viewer.snapshot();
   }
 
   /**
@@ -176,14 +185,14 @@ export class BotRegistry {
       return { snapshot: next, value: { bot, fresh: true } };
     });
 
-    if (!normalized.launch) return { bot: await this.viewRecord(created.bot) };
+    if (!normalized.launch) return { bot: await this.viewer.viewRecord(created.bot) };
     // A replay normally starts nothing -- idempotency that spawned an agent per retry would be
     // worse than none. The exception is a replay of a command whose launch FAILED: the Bot is
     // there and holds no sessions, so starting one finishes the original command rather than
     // repeating it, and resending the identical request is the obvious move once the cause is
     // fixed.
     if (!created.fresh && created.bot.sessionRefs.length > 0) {
-      return { bot: await this.viewRecord(created.bot) };
+      return { bot: await this.viewer.viewRecord(created.bot) };
     }
 
     // Everything after this point has already written a Bot, so every failure here is a
@@ -191,7 +200,7 @@ export class BotRegistry {
     // say what survived.
     const started = await this.starter.launchFirstSession(created.bot, normalized.launch);
     return {
-      bot: await this.viewRecord(
+      bot: await this.viewer.viewRecord(
         await this.starter.recordStartedSession(created.bot.botId, { source: "claude", sessionId: started.sessionId }),
       ),
       started,
@@ -262,11 +271,11 @@ export class BotRegistry {
       )
     );
 
-    if (!launch) return { bot: await this.viewRecord(record.bot) };
+    if (!launch) return { bot: await this.viewer.viewRecord(record.bot) };
     // A replay attaches nothing and starts nothing. Unlike Bot creation there is no half-done
     // state to finish: the references landed or they did not, and a Bot that already holds them
     // is the answer to the same question being asked twice.
-    if (!record.fresh) return { bot: await this.viewRecord(record.bot) };
+    if (!record.fresh) return { bot: await this.viewer.viewRecord(record.bot) };
 
     // Nothing durable has been spent on the launch itself yet, so its refusals stay ordinary
     // refusals -- a branch that exists, a source that is not this Bot's -- and the caller can fix
@@ -274,7 +283,7 @@ export class BotRegistry {
     // requested task, reserved against the slot it will attach to before anything starts.
     const started = await this.starter.launchReservedSession(botId, record.bot, launch);
     return {
-      bot: await this.viewRecord(
+      bot: await this.viewer.viewRecord(
         await this.starter.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }),
       ),
       started,
@@ -300,7 +309,7 @@ export class BotRegistry {
     const record = await this.store.mutate((snapshot) =>
       detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
     );
-    return this.viewRecord(record);
+    return this.viewer.viewRecord(record);
   }
 
   /**
@@ -355,7 +364,7 @@ export class BotRegistry {
     const record = await this.store.mutate((snapshot) =>
       reorderRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
     );
-    return this.viewRecord(record);
+    return this.viewer.viewRecord(record);
   }
 
   /** Puts this Bot, or some of its sessions, on or off the canvas. See `botCanvas.ts`. */
@@ -366,7 +375,26 @@ export class BotRegistry {
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
     const normalized = normalizeBotCanvas(command);
     const record = await this.store.mutate((snapshot) => setBotCanvas(snapshot, botId, normalized));
-    return this.viewRecord(record);
+    return this.viewer.viewRecord(record);
+  }
+
+  /**
+   * Renames this Bot, restyles it, or names its Father. See `botUpdate.ts`.
+   *
+   * A setting, so no idempotency record: sending it twice lands the same record.
+   */
+  async updateBot(botId: string, command: UpdateBotCommand, actor: BotActor): Promise<BotView> {
+    return this.editor.updateBot(botId, command, actor);
+  }
+
+  /**
+   * Forgets this Bot. The sessions survive. See `botUpdate.ts`.
+   *
+   * No idempotency record: a replay lands on a Bot that is gone, and 404 saying so is the
+   * honest answer.
+   */
+  async deleteBot(botId: string, actor: BotActor): Promise<BotDeleted> {
+    return this.editor.deleteBot(botId, actor);
   }
 
   /**
@@ -387,7 +415,7 @@ export class BotRegistry {
     }
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
     const { record, retired } = await this.retirer.retire(botId, normalizeRetire(command), actor);
-    return { bot: await this.viewRecord(record), retired };
+    return { bot: await this.viewer.viewRecord(record), retired };
   }
 
   async botAllowedToAdd(session: BotSessionRef): Promise<boolean> {
@@ -403,96 +431,6 @@ export class BotRegistry {
     onError?: (error: unknown) => void,
     options: BotSubscribeOptions = {},
   ): Promise<() => void> {
-    const onChange = options.onChange ?? "store";
-    let closed = false;
-    let tail: Promise<void> = Promise.resolve();
-    let lastRevision = -1;
-    let lastVisible = "";
-    // `force` is for the first snapshot, which nobody has emitted yet. Everything after that goes
-    // through the change check, which is the whole point of having one.
-    const emit = (force = false): void => {
-      tail = tail.then(async () => {
-        const snapshot = await this.snapshot();
-        if (closed) return;
-        // Only for a subscriber that reads it. The hub's emits are the frequent ones and the
-        // signature is two sorts per Bot, which is nothing -- but nothing on the hottest path in
-        // the product is better spent on a value that is then discarded.
-        const visible = onChange === "view" ? viewSignature(snapshot) : lastVisible;
-        const unchanged = snapshot.revision === lastRevision
-          && (onChange === "store" || visible === lastVisible);
-        if (!force && unchanged) return;
-        lastRevision = snapshot.revision;
-        lastVisible = visible;
-        listener(snapshot);
-      }).catch((error) => {
-        if (!closed) onError?.(error);
-      });
-    };
-    // Both signals go unforced, and the catalog one matters most. Which of them is worth answering
-    // is `onChange`, and the whole reason there are two answers is in `botSubscriptionChanges.ts` --
-    // including why the store's revision is right for the hub and wrong for a canvas, and what it
-    // cost when one check tried to serve both.
-    const stopStore = this.store.subscribe(() => emit());
-    const stopCatalog = this.catalog.subscribe(() => emit());
-    try {
-      const initial = await this.snapshot();
-      lastRevision = initial.revision;
-      lastVisible = viewSignature(initial);
-      listener(initial);
-    } catch (error) {
-      stopStore();
-      stopCatalog();
-      throw error;
-    }
-    // No timer: the store watches its own file, so a change made by another process arrives as a
-    // store event exactly like one made here. Both of these subscriptions are the whole signal.
-    return () => {
-      closed = true;
-      stopStore();
-      stopCatalog();
-    };
-  }
-
-  /**
-   * Resolves every Bot, then says what the misses were -- in that order, and the order is the
-   * point. The log diffs "still missing" across a whole snapshot, so a per-Bot note would read
-   * every other Bot's still-missing reference as resolved, once per Bot, on every broadcast.
-   */
-  private async view(snapshot: StoredBotSnapshot): Promise<BotSnapshot> {
-    const resolved = await Promise.all(snapshot.bots.map((record) => this.resolveRecord(record)));
-    noteBotSessionOutcomes(resolved.flatMap((one) => one.outcomes));
-    return {
-      // The STREAM's version, which is the wire's and not the store's: `BOT_STORE_VERSION` just
-      // moved to 3 and this stays 2.
-      version: 2,
-      revision: snapshot.revision,
-      bots: resolved.map(({ outcomes, view }) => view),
-    };
-  }
-
-  private async resolveRecord(record: BotRecord): Promise<{ view: BotView; outcomes: BotSessionOutcome[] }> {
-    const { outcomes, ...split } = await resolveBotSessions(
-      record,
-      (ref) => this.catalog.resolveSession(ref),
-    );
-    return {
-      view: {
-        ...record,
-        environmentAvailability: await directoryAvailability(record.environment.path),
-        ...split,
-      },
-      outcomes,
-    };
-  }
-
-  /**
-   * One Bot's view, for the callers that want a single record rather than a snapshot.
-   *
-   * Goes through `resolveRecord` so a command's answer resolves its references the same way a
-   * snapshot does -- but says nothing, because a command answers one Bot and the log diffs a whole
-   * snapshot. A line from here would report every other Bot's still-missing reference as resolved.
-   */
-  private async viewRecord(record: BotRecord): Promise<BotView> {
-    return (await this.resolveRecord(record)).view;
+    return this.viewer.subscribe(listener, onError, options);
   }
 }

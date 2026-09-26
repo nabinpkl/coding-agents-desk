@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { BotConflictError, type BotRegistry } from "@/bots/botRegistry";
+import { BotConflictError, BotNotFoundError, type BotRegistry } from "@/bots/botRegistry";
 import { createBotRoutes } from "@/http/botRoutes";
 import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 
@@ -213,6 +213,76 @@ test("leaves a POST on the sessions path to the attach route rather than detachi
 
   const response = await route(request, new URL(request.url), server);
   expect(response?.status).toBe(200);
+});
+
+test("patches one Bot's record and answers its view", async () => {
+  const calls: unknown[] = [];
+  const registry = {
+    async updateBot(botId: string, command: unknown, actor: unknown) {
+      calls.push({ botId, command, actor });
+      return bot;
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
+  const request = new Request("http://localhost/api/bots/bot%201", {
+    method: "PATCH",
+    body: JSON.stringify({ name: "Commodore", fatherSession: null }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual(bot);
+  expect(calls).toEqual([{
+    botId: "bot 1",
+    command: { name: "Commodore", fatherSession: null },
+    actor: { kind: "user" },
+  }]);
+});
+
+test("deletes one Bot's record and answers what went", async () => {
+  const calls: unknown[] = [];
+  const registry = {
+    async deleteBot(botId: string, actor: unknown) {
+      calls.push({ botId, actor });
+      return { deleted: botId };
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
+  const request = new Request("http://localhost/api/bots/bot%201", {
+    method: "DELETE",
+    body: JSON.stringify({}),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual({ deleted: "bot 1" });
+  expect(calls).toEqual([{ botId: "bot 1", actor: { kind: "user" } }]);
+});
+
+test("answers 404 when the Bot to change is gone", async () => {
+  const registry = {
+    async updateBot() {
+      throw new BotNotFoundError(`Bot "no-such-bot" was not found`);
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
+  const request = new Request("http://localhost/api/bots/no-such-bot", {
+    method: "PATCH",
+    body: JSON.stringify({ name: "Ghost" }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+
+  expect(response?.status).toBe(404);
+  expect(await response?.json()).toEqual({
+    error: {
+      code: "bot-resource-not-found",
+      message: `Bot "no-such-bot" was not found`,
+      retryable: false,
+    },
+  });
 });
 
 test("routes a retire to its own path and hands the disposals through untouched", async () => {

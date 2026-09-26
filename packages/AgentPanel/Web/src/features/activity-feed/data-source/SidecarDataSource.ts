@@ -12,20 +12,14 @@
  * That last part now lives one layer down, in `SidecarTranscript.ts`.
  *
  * The class is one API split across files by what its methods are about: this file holds the
- * inventory, the Bots, session commands, usage, config and the Desktop park, and inherits what is
- * in a Bot's directory, the agent sessions, the terminals, the composers and the transcript from
- * the layers under it. `sidecarRoutes.ts`
+ * inventory, session commands, usage, config and the Desktop park, and inherits the Bots, what
+ * is in a Bot's directory, the agent sessions, the terminals, the composers and the transcript
+ * from the layers under it. `sidecarRoutes.ts`
  * explains why it is a chain rather than a facade.
  */
 
 import type {
   ActivityEvent,
-  AddBotCommand,
-  AddBotSessionsCommand,
-  BotSessionsAdded,
-  BotSnapshot,
-  BotView,
-  DetachBotSessionsCommand,
   ForkSessionCommand,
   LastSessionMessage,
   ParkPlanResponse,
@@ -33,21 +27,18 @@ import type {
   ParkRestoreReport,
   ParkStateResponse,
   ProjectSummary,
-  ReorderBotSessionsCommand,
   LimitsStreamMessage,
   SessionSummary,
-  SetBotCanvasCommand,
   SidecarConfig,
   SourceId,
   StartedSession,
   SummaryStreamMessage,
   TokenUsage,
   UsageStreamMessage,
-  WorkspaceBrowseListing,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
-import { SidecarBotDirectory } from "@/features/activity-feed/data-source/layers/SidecarBotDirectory";
+import { SidecarBots } from "@/features/activity-feed/data-source/layers/SidecarBots";
 import { SidecarHub, type HubHandle } from "@/features/activity-feed/data-source/layers/SidecarHub";
 
 export { SidecarError, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
@@ -58,7 +49,7 @@ function summaryPath(session: SessionAddress): string {
 }
 
 /** The panel's data source when there is a sidecar behind the transport, which is always. */
-export class SidecarDataSource extends SidecarBotDirectory implements AgentDataSource {
+export class SidecarDataSource extends SidecarBots implements AgentDataSource {
 
   /**
    * The one config read, shared. Several features ask "what does this sidecar
@@ -130,126 +121,7 @@ export class SidecarDataSource extends SidecarBotDirectory implements AgentDataS
     );
   }
 
-  // ---------------------------------------------------------------------
-  // Curated Bots
-  // ---------------------------------------------------------------------
 
-  subscribeBots(
-    onSnapshot: (snapshot: BotSnapshot) => void,
-    onError?: (reason: string) => void,
-  ): () => void {
-    return this.transport.subscribe("/api/bots/stream", {
-      onMessage: (payload) => {
-        try {
-          const message = JSON.parse(payload) as Partial<BotSnapshot> & {
-            error?: { message?: string };
-          };
-          if (message.error) {
-            onError?.(message.error.message ?? "Bot stream failed");
-            return;
-          }
-          if (message.version !== 2 || !Number.isSafeInteger(message.revision) || !Array.isArray(message.bots)) {
-            onError?.("Bot stream returned an invalid snapshot");
-            return;
-          }
-          onSnapshot(message as BotSnapshot);
-        } catch {
-          onError?.("Bot stream returned malformed JSON");
-        }
-      },
-      onError: (reason) => onError?.(reason),
-    });
-  }
-
-  /**
-   * The directories inside one directory, for choosing a Bot's own.
-   *
-   * Here rather than only on `WorkspaceIdeClient` because a Bot can be created on any machine the
-   * canvas reads, and the picker has to list the directories of the machine the reader chose. The
-   * route is the IDE's -- one server-side folder picker, since nothing in the web platform hands a
-   * page an absolute path -- and it is confined to home by the sidecar.
-   *
-   * A null path means "start where the sidecar starts", which is that machine's home directory. The
-   * panel cannot know what that is, and guessing it here would be a second place holding the answer.
-   */
-  async browseDirectories(path: string | null): Promise<WorkspaceBrowseListing> {
-    const query = path === null ? "" : `?path=${encodeURIComponent(path)}`;
-    return parse<WorkspaceBrowseListing>(
-      await this.transport.request("GET", `/api/workspace/browse${query}`),
-    );
-  }
-
-  async createBot(command: Omit<AddBotCommand, "requestId">): Promise<BotView> {
-    return parse<BotView>(
-      await this.transport.request("POST", "/api/bots", {
-        body: { ...command, requestId: crypto.randomUUID() },
-      }),
-    );
-  }
-
-  async addBotSessions(
-    botId: string,
-    command: Omit<AddBotSessionsCommand, "requestId">,
-  ): Promise<BotSessionsAdded> {
-    return parse<BotSessionsAdded>(
-      await this.transport.request(
-        "POST",
-        `/api/bots/${encodeURIComponent(botId)}/sessions`,
-        { body: { ...command, requestId: crypto.randomUUID() } },
-      ),
-    );
-  }
-
-  /**
-   * Drops references from a Bot's projection. A DELETE on the collection the POST above adds
-   * to: the verb is what keeps a body naming sessionRefs from reading as an attach.
-   */
-  async detachBotSessions(
-    botId: string,
-    command: Omit<DetachBotSessionsCommand, "requestId">,
-  ): Promise<BotView> {
-    return parse<BotView>(
-      await this.transport.request(
-        "DELETE",
-        `/api/bots/${encodeURIComponent(botId)}/sessions`,
-        { body: { ...command, requestId: crypto.randomUUID() } },
-      ),
-    );
-  }
-
-  /**
-   * Stands a Bot's sessions in a new order, and answers with the Bot holding it. A PUT, because
-   * it names the Bot's whole order and is refused unless that is exactly what the Bot holds --
-   * a complete replacement. Its own path rather than the attach one, where a body naming
-   * sessionRefs ADDS them; stating the whole order is what makes a stale roster detectable.
-   */
-  async reorderBotSessions(
-    botId: string,
-    command: Omit<ReorderBotSessionsCommand, "requestId">,
-  ): Promise<BotView> {
-    return parse<BotView>(
-      await this.transport.request(
-        "PUT",
-        `/api/bots/${encodeURIComponent(botId)}/sessions/order`,
-        { body: { ...command, requestId: crypto.randomUUID() } },
-      ),
-    );
-  }
-
-  /**
-   * Puts a Bot, or some of its sessions, on or off the canvas. A PATCH, because each field left
-   * out is left as it is. Stored on the Bot's record, so every surface reading this machine sees
-   * the same canvas; the stream carries the change back.
-   */
-  async setBotCanvas(botId: string, command: SetBotCanvasCommand): Promise<BotView> {
-    return parse<BotView>(
-      await this.transport.request(
-        "PATCH",
-        `/api/bots/${encodeURIComponent(botId)}/canvas`,
-        { body: command },
-      ),
-    );
-  }
 
   /**
    * Renames one session, whichever source owns it, and answers with the name it now has.

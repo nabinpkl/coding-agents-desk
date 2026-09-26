@@ -18,7 +18,7 @@ import {
   noteBotSessionOutcomes,
   resolveBotSessions,
   type BotSessionOutcome,
-} from "@/bots/botSessionResolution";
+} from "@/bots/sessions/botSessionResolution";
 import { state } from "@/transcripts/transcriptState";
 import { forgetWorktrees } from "@/git/worktree";
 

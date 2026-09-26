@@ -17,6 +17,7 @@ export function BotSidebarPanel({
   onAddSession,
   onRenameSession,
   onDetachSession,
+  onSetFatherSession,
   onAddBot,
   machineLabels,
   feedForBot,
@@ -56,6 +57,8 @@ export function BotSidebarPanel({
    * otherwise be the one entry a Bot can never be rid of.
    */
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  /** Names a session the Bot's Father, or clears it with a null ref. */
+  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
   onAddBot: () => void;
   /**
    * Rendered between the Add Bot button and the roster.
@@ -170,6 +173,7 @@ export function BotSidebarPanel({
               onAddSession={onAddSession}
               onRenameSession={onRenameSession}
               onDetachSession={onDetachSession}
+              onSetFatherSession={onSetFatherSession}
             />
           ))}
         </ul>

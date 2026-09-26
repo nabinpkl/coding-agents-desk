@@ -287,6 +287,9 @@ describe("App shell", () => {
         "Fork from last message",
         "Fork from last compaction",
         "Hand over to opencode",
+        // The home's naming beside the handover: pointing at a session already here is neither
+        // making nor taking, so it sits with neither group.
+        "Set as Father",
         // One direction only: this is the first of the Bot's two sessions, so there is nowhere
         // earlier for it to go and the entry that would say so is absent rather than inert.
         "Move right",

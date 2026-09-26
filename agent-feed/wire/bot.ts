@@ -258,6 +258,43 @@ export interface BotCanvasSessionChange extends BotSessionRef {
 }
 
 /**
+ * Renames a Bot, restyles it, or names its Father.
+ *
+ * A setting rather than an act, so no `requestId`, for `SetBotCanvasCommand`'s reason: sending
+ * it twice lands the same record. Each field left out is left as it is, and a call naming
+ * nothing is refused rather than answered as a no-op. The directory, the sessions, the grants
+ * and the history are not settable: a Bot cannot become a different checkout, and only creation
+ * grants management powers.
+ */
+export interface UpdateBotCommand {
+  /** Trimmed, unique across Bots ignoring case. Empty is refused, not a clear. */
+  name?: string;
+  /**
+   * An https image URL. Empty clears it to the initials the panel renders without one; anything
+   * else must parse as https, the same rule creation obeys.
+   */
+  iconUrl?: string;
+  /** Merged over the Bot's metadata: labels and custom entries replace wholesale per field. */
+  metadata?: {
+    role?: string;
+    description?: string;
+    labels?: string[];
+    custom?: Record<string, string>;
+  };
+  /**
+   * The session that speaks as this Bot's Father. Must be one the Bot holds -- the Father is a
+   * member, not a session from elsewhere -- and null clears it. Detaching the named session
+   * clears it in the same write, so no update can strand a Father the Bot no longer holds.
+   */
+  fatherSession?: BotSessionRef | null;
+}
+
+/** `DELETE /api/bots/:botId` response. The sessions survive: a Bot is forgotten, not ended. */
+export interface BotDeleted {
+  deleted: string;
+}
+
+/**
  * Retires sessions: ends them, forgets them, and disposes of what their launch created.
  *
  * The inverse of `BotLaunchCommand`. Starting a session in a worktree is one call; tearing one

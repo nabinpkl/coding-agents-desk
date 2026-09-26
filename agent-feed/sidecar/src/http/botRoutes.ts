@@ -9,6 +9,7 @@ import type {
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
   SetBotCanvasCommand,
+  UpdateBotCommand,
 } from "@agentdesk/agent-feed-wire";
 import {
   BotConflictError,
@@ -122,6 +123,18 @@ export function createBotRoutes(
     // and what was skipped instead.
     if (request.method === "POST" && url.pathname === "/api/bots/normalize-titles") {
       return normalizeBotTitles(registry, dependencies.renameSession);
+    }
+    // One Bot's record, renamed, restyled, or given its Father -- or forgotten entirely.
+    //
+    // After the literals above, where `normalize-titles` would otherwise read as a Bot id.
+    // PATCH carries the fields to change, DELETE carries nothing but the address: the body
+    // must still parse as an object, so the panel sends an empty one.
+    const botMatch = /^\/api\/bots\/([^/]+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && botMatch) {
+      return updateBot(request, botMatch[1]!, registry);
+    }
+    if (request.method === "DELETE" && botMatch) {
+      return deleteBot(botMatch[1]!, registry);
     }
     // What is uncommitted in the Bot's directory, as it changes, and one path of it. The Bot's own
     // paths rather than the IDE's: see `BotGitStatus` for why a Bot is not a workspace.
@@ -376,6 +389,32 @@ async function normalizeBotTitles(
 ): Promise<Response> {
   try {
     return jsonResponse(await registry.normalizeTitles(renameSession));
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function updateBot(
+  request: Request,
+  botId: string,
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    const decodedBotId = decodeBotId(botId);
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    return jsonResponse(
+      await registry.updateBot(decodedBotId, body as unknown as UpdateBotCommand, { kind: "user" }),
+    );
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function deleteBot(botId: string, registry: BotRegistry): Promise<Response> {
+  try {
+    const decodedBotId = decodeBotId(botId);
+    return jsonResponse(await registry.deleteBot(decodedBotId, { kind: "user" }));
   } catch (error) {
     return routeError(error);
   }

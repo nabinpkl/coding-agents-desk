@@ -21,6 +21,7 @@ import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
+import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
 
 /**
  * The Bot a whole-session fork attaches to.
@@ -57,7 +58,8 @@ export function useBotCommands(
   // Carries the session it is about, because the canvas shows several at once and a bare string was
   // painted on every one of them; see `BotCommandError`.
   const [botCommandError, setBotCommandError] = useState<BotCommandError | null>(null);
-  const [botCreatorOpen, setBotCreatorOpen] = useState(false);
+  // The Bot's own record beside the sessions on it: creation, renames, Fathers, forgetting.
+  const record = useBotRecordCommands(feeds, setBotCommandError);
   const [botSessionPickerId, setBotSessionPickerId] = useState<string | null>(null);
   /**
    * A session forked from another, and the pane it runs in.
@@ -360,22 +362,6 @@ export function useBotCommands(
     setHoverPreviewOpen(false);
   }, []);
 
-  /**
-   * Creates a Bot on the machine whose directory it names.
-   *
-   * The machine is an argument rather than a lookup, because this is the one command with no Bot to
-   * resolve from: the directory is on that machine, its sessions are on that machine, and the
-   * registry that will own the record is that machine's. The dialog picks it, since the dialog is
-   * where the reader picked the folder.
-   */
-  const createBot = useCallback(async (
-    command: Omit<AddBotCommand, "requestId">,
-    machine: BotMachine,
-  ) => {
-    await machine.feed.createBot(command);
-    setBotCreatorOpen(false);
-  }, []);
-
   const attachBotSessions = useCallback(async (bot: BotView, sessionRefs: BotSessionRef[]) => {
     await feeds.forBot(bot.botId).addBotSessions(bot.botId, { sessionRefs });
     setBotSessionPickerId(null);
@@ -453,8 +439,7 @@ export function useBotCommands(
   return {
     botCommandError,
     setBotCommandError,
-    botCreatorOpen,
-    setBotCreatorOpen,
+    ...record,
     botSessionPickerId,
     setBotSessionPickerId,
     forkedSession,
@@ -477,7 +462,6 @@ export function useBotCommands(
     closeNewSession,
     renameSession,
     openBotSessionPicker,
-    createBot,
     attachBotSessions,
     detachBotSession,
     reorderBotSessions,

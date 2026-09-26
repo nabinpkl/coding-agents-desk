@@ -18,6 +18,17 @@ export function attachedSessionKey(session: BotSessionRef): string {
 }
 
 /**
+ * Whether this session is the Bot's Father now.
+ *
+ * Beside the key because every menu that offers the Father asks it, on both surfaces: the menu
+ * shows the other act, so the caller derives the flag from the Bot's record rather than the
+ * menu owning the fact.
+ */
+export function isFatherSession(bot: BotView, session: BotSessionRef): boolean {
+  return bot.fatherSession !== undefined && attachedSessionKey(bot.fatherSession) === attachedSessionKey(session);
+}
+
+/**
  * When a Bot was last doing anything: the newest event across its sessions, or its own creation.
  *
  * `createdAt` for a Bot with no sessions rather than zero, so a Bot made this morning and never

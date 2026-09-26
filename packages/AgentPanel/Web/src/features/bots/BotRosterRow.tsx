@@ -5,7 +5,7 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
-import { attachedSessionKey, splitSessionsByCanvas } from "@/features/bots/botRosterOrder";
+import { attachedSessionKey, isFatherSession, splitSessionsByCanvas } from "@/features/bots/botRosterOrder";
 import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionSlots, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
@@ -34,6 +34,7 @@ export function BotRosterRow({
   onAddSession,
   onRenameSession,
   onDetachSession,
+  onSetFatherSession,
 }: {
   bot: BotView;
   /** The Bot's colour and its place on the face ladder, both ranked over the whole roster. */
@@ -58,6 +59,8 @@ export function BotRosterRow({
   onAddSession: (bot: BotView) => void;
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
+  /** Names a session the Bot's Father, or clears it with a null ref. */
+  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
 }) {
   // What the reader was shown, for the missing rows further down. The sidecar already says why a
   // reference went missing; this closes the chain by saying the row reached the screen, which is
@@ -191,6 +194,9 @@ export function BotRosterRow({
             canRenameSession(session) ? () => onRenameSession(session) : undefined
           }
           onDetach={() => onDetachSession(bot, session)}
+          isFather={isFatherSession(bot, session)}
+          onSetFather={() => onSetFatherSession(bot, session)}
+          onClearFather={() => onSetFatherSession(bot, null)}
         />
       </li>
     );

@@ -82,6 +82,7 @@ export function sidebarProps({
     onSelectBotSession: thread.openBotSession,
     onAddBotSession: commands.openBotSessionPicker,
     onDetachBotSession: commands.detachBotSession,
+    onSetFatherBotSession: commands.setFatherBotSession,
     onRenameSession: commands.setRenamingSession,
     detachedBotIds: roster.detachedBotIds,
     onToggleBotOnCanvas: roster.toggleBotOnCanvas,

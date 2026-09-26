@@ -58,6 +58,9 @@ export function BotCanvas({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onSetFatherSession,
+  onRenameBot,
+  onDeleteBot,
   onMoveBot,
   onReorderSessions,
   detachedCount,
@@ -171,6 +174,12 @@ export function BotCanvas({
    * back.
    */
   onDetachBot: (bot: BotView) => void;
+  /** Names a session the Bot's Father, or clears it with a null ref. */
+  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
+  /** Opens the dialog that renames a Bot and restyles its face. */
+  onRenameBot: (bot: BotView) => void;
+  /** Forgets a Bot; its sessions survive. */
+  onDeleteBot: (bot: BotView) => void;
   /**
    * Stands one Bot's sessions in a new order, naming the one carried. A Bot command rather than an
    * arrangement of this canvas: that order is the Bot's own and reaches every surface reading it.
@@ -285,6 +294,9 @@ export function BotCanvas({
         onDetachSession={onDetachSession}
         onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
         onDetachBot={onDetachBot}
+        onSetFatherSession={onSetFatherSession}
+        onRenameBot={onRenameBot}
+        onDeleteBot={onDeleteBot}
         onReorderSessions={onReorderSessions}
         onMoveBot={onMoveBot}
         detachedSessionKeys={detachedSessionKeys}

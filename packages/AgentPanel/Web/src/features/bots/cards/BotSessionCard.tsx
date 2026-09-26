@@ -62,6 +62,9 @@ export function BotSessionCard({
   onAttachSession,
   onDetach,
   onRemoveFromCanvas,
+  isFather,
+  onSetFather,
+  onClearFather,
 }: {
   bot: BotView;
   session: SessionSummary;
@@ -116,6 +119,14 @@ export function BotSessionCard({
   onDetach: () => void;
   /** Takes this card off the canvas. The Bot keeps the session, and the sidebar still lists it. */
   onRemoveFromCanvas: () => void;
+  /**
+   * Names this session the Bot's Father, or clears it. The card knows neither act's label --
+   * the menu shows the other one -- so both arrive and `isFather` picks: derived here from
+   * the Bot's record, because the card holds the Bot and the menu only names labels.
+   */
+  isFather: boolean;
+  onSetFather: () => void;
+  onClearFather: () => void;
 }) {
   const title = session.title || session.sessionId;
   // Where this session portals its control strip. One per session rather than one per Bot card,
@@ -357,6 +368,9 @@ export function BotSessionCard({
                 onMoveLater={canMoveLater ? () => onMoveBySteps(1) : undefined}
                 onDetach={onDetach}
                 onRemoveFromCanvas={onRemoveFromCanvas}
+                isFather={isFather}
+                onSetFather={onSetFather}
+                onClearFather={onClearFather}
               />
             </span>
           </div>

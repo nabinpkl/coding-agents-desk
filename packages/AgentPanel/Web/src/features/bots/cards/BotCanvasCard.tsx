@@ -4,27 +4,21 @@
 // what it had left over, which is why the width and height it remembers are the CARD's and the
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
-import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
-import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
+import { BotCanvasHeader } from "@/features/bots/cards/BotCanvasHeader";
 import { botSessionSlots, botSurfaceStyle } from "@/features/bots/botSurface";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { canRenameSession } from "@/features/bots/sessionRename";
-import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
-import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
-import { BotGitButton } from "@/features/bots/git/BotGitButton";
-import { BotTerminalButton } from "@/features/bots/BotTerminalButton";
-import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
 import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
+import { isFatherSession } from "@/features/bots/botRosterOrder";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 
 export function BotCanvasCard({
@@ -56,6 +50,9 @@ export function BotCanvasCard({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onSetFatherSession,
+  onRenameBot,
+  onDeleteBot,
   onReorderSessions,
   scroller,
   newSessions,
@@ -99,6 +96,12 @@ export function BotCanvasCard({
   /** Takes one session's card off the canvas; the Bot keeps the session either way. */
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  /** Names a session the Bot's Father, or clears it with a null ref. */
+  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
+  /** Opens the dialog that renames this Bot and restyles its face. */
+  onRenameBot: (bot: BotView) => void;
+  /** Forgets this Bot; its sessions survive. */
+  onDeleteBot: (bot: BotView) => void;
   /**
    * Stands this Bot's sessions in a new order, naming the one that was carried.
    *
@@ -127,19 +130,10 @@ export function BotCanvasCard({
    */
   machineLabel?: string;
 }) {
-  const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   // What the reader was shown, for the missing rows further down. The sidecar already says why a
   // reference went missing; this closes the chain by saying the row reached the screen, which is
   // the half that cannot be recovered from the sidecar's log after the fact.
   useMissingSessionLog(bot, "canvas-card");
-  // One subscription for the header: the git button counts from it, and the code button re-reads
-  // what it shows whenever it moves. From the card's own feed, because a peer's Bot is a directory
-  // on the peer, and asking this Mac's git about it would answer about a path it may not have.
-  const git = useBotGitStatus(
-    sessionContext.feed,
-    bot.botId,
-    bot.environmentAvailability === "available",
-  );
   // Dropped as soon as the Bot itself carries the session, rather than when the shell decides it
   // should be gone. The two happen a snapshot apart, and rendering both for that moment would put
   // two cards with one identity side by side.
@@ -166,35 +160,6 @@ export function BotCanvasCard({
   // transcripts and sessions taken off the canvas -- and ranking either subset would repaint the
   // rest of the roster whenever one left it. See `botSessionSlots`.
   const slots = useMemo(() => botSessionSlots(bot.sessionRefs, bot.sessionSlots), [bot.sessionRefs, bot.sessionSlots]);
-  // A press on the header is a click until it has travelled far enough to be a carry. Without that
-  // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
-  // pixels while clicking "Add sessions" would reorder the canvas.
-  const grab = useRef<{ pointerId: number; startX: number; carrying: boolean } | null>(null);
-  const MOVE_THRESHOLD = 4;
-  const grabHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
-    // Never from a control. The header holds the add button and the Bot's menu, and a drag that
-    // began on either would swallow the press that was meant for it.
-    if ((event.target as HTMLElement).closest("button")) return;
-    grab.current = { pointerId: event.pointerId, startX: event.clientX, carrying: false };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-  const carryHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = grab.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    if (!held.carrying) {
-      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD) return;
-      held.carrying = true;
-      onMoveStart(held.startX);
-    }
-    onMoveBy(event.clientX);
-  };
-  const dropHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = grab.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    grab.current = null;
-    if (held.carrying) onMoveEnd();
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  };
   // The same carry the strip does with Bot cards, one level down and over this Bot's own roster.
   // What it moves is the BOT's order rather than anything held here, so the drop translates the
   // positions on screen into the full order and hands that over; nothing local remembers it.
@@ -213,10 +178,6 @@ export function BotCanvasCard({
     count: shown.length,
     onDrop: rearrangeSessions,
   });
-  const live = shown.filter((session) => session.activity === "live").length;
-  const counted = `${shown.length} ${shown.length === 1 ? "session" : "sessions"}${
-    live > 0 ? `, ${live} live` : ""
-  }${hidden > 0 ? `, ${hidden} off the canvas` : ""}`;
   // Whether an open session is one of THIS card's, which is what the scroll below acts on.
   const holdsOpen = shown.some((session) => openKeys.has(sessionKey(session)));
   // Brings this card into view when it BECOMES an open one, because the row that opened it may
@@ -279,84 +240,26 @@ export function BotCanvasCard({
       }}
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Not sticky, and it never was in effect. It carried `sticky top-0` from the days of a
-            single scrolling column, but the card clips its own overflow, which makes the CARD the
-            scrollport this would stick inside -- and a card never scrolls. Measured: with the
-            card's top 288px above the scroller's top, the header sat at the card's top, not the
-            scroller's. */}
-        {/* `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
-            sized by its contents, and contents are measured at MAX-content -- so the Bot's full
-            name and full project path were setting a width the sessions never asked for, and
-            `truncate` never engaged because nothing was ever constraining it. A percentage
-            min-width cannot be resolved while that measurement is happening, so the header counts
-            as zero then and stretches to the answer afterwards. */}
-        <div
-          // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
-          // the same colour and so invisible; now that the card carries a hue, repainting the band
-          // that holds the Bot's name would be the one part of the card not wearing it.
-          className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none active:cursor-grabbing"
-          onPointerDown={grabHeader}
-          onPointerMove={carryHeader}
-          onPointerUp={dropHeader}
-          onPointerCancel={dropHeader}
-        >
-          <BotAvatar bot={bot} hue={hue} rank={rank} size="size-11" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
-              {bot.name}
-            </span>
-            {/* The chip tier, not the meta tier, and that is the whole hierarchy fix on this card.
-                This line is a caption bound to the name above it -- where the Bot runs and what it
-                is pointed at -- while the session titles below it are the card's content, the
-                thing a reader scans a canvas for. Both were 13px, so the only separation was
-                weight and ink, and size was arguing against them: measured on the live canvas,
-                "dev · agent-desk" and "AD Project manager" sat at the same optical level.
-                11px also puts this line where the SIDEBAR has always drawn it, so one Bot now
-                reads the same way in both places instead of two. */}
-            <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-              {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
-              {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
-              {machineLabel ? " · " : ""}
-              <span className="font-mono">{projectName}</span>
-              {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
-            </span>
-          </span>
-          {/* A count, not a sentence. "3 sessions" said in a header sitting over three sessions is
-              a word spent naming what is directly underneath it; the number is the only part that
-              was carrying anything. The dot is there only when something is live, which is the one
-              thing the spines below cannot tell you at a glance once there are several. */}
-          <span
-            className="flex shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium text-muted-foreground"
-            title={counted}
-          >
-            {live > 0 ? <ActivityDot activity="live" /> : null}
-            <span aria-hidden>{shown.length}</span>
-            <span className="sr-only">{counted}</span>
-          </span>
-          <BotCodeButton bot={bot} feed={sessionContext.feed} git={git} />
-          <BotGitButton bot={bot} feed={sessionContext.feed} git={git} />
-          <BotTerminalButton bot={bot} feed={sessionContext.feed} />
-          <button
-            type="button"
-            onClick={() => onAddSession(bot)}
-            disabled={bot.environmentAvailability === "missing"}
-            // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
-            // identically named buttons with no way to tell which card it is on.
-            aria-label={`Add sessions to ${bot.name}`}
-            title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
-            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus className="size-4" aria-hidden />
-          </button>
-          {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
-              takes the whole Bot off the canvas, and they are not the same scale of act. */}
-          <BotCardMenu
-            bot={bot}
-            onDetach={() => onDetachBot(bot)}
-            onMoveLeft={canMoveLeft ? () => onMoveBySteps(-1) : undefined}
-            onMoveRight={canMoveRight ? () => onMoveBySteps(1) : undefined}
-          />
-        </div>
+        <BotCanvasHeader
+          bot={bot}
+          hue={hue}
+          rank={rank}
+          machineLabel={machineLabel}
+          feed={sessionContext.feed}
+          sessionCount={shown.length}
+          liveCount={shown.filter((session) => session.activity === "live").length}
+          hiddenCount={hidden}
+          onMoveStart={onMoveStart}
+          onMoveBy={onMoveBy}
+          onMoveEnd={onMoveEnd}
+          onMoveBySteps={onMoveBySteps}
+          canMoveLeft={canMoveLeft}
+          canMoveRight={canMoveRight}
+          onAddSession={onAddSession}
+          onDetachBot={onDetachBot}
+          onRenameBot={onRenameBot}
+          onDeleteBot={onDeleteBot}
+        />
 
         {shown.length === 0 && shownMissing.length === 0 && starting.length === 0 ? (
           <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
@@ -455,6 +358,9 @@ export function BotCanvasCard({
                 onAttachSession={attachSessionToBot(bot)}
                 onDetach={() => onDetachSession(bot, session)}
                 onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
+                isFather={isFatherSession(bot, session)}
+                onSetFather={() => onSetFatherSession(bot, session)}
+                onClearFather={() => onSetFatherSession(bot, null)}
               />
             ))}
             {/* After the Bot's own sessions, because that is where each one lands the moment its

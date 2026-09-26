@@ -53,6 +53,9 @@ export function BotCanvasList({
   onDetachSession,
   onRemoveSessionFromCanvas,
   onDetachBot,
+  onSetFatherSession,
+  onRenameBot,
+  onDeleteBot,
   onMoveBot,
   onReorderSessions,
   detachedSessionKeys,
@@ -86,6 +89,12 @@ export function BotCanvasList({
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
   onDetachBot: (bot: BotView) => void;
+  /** Names a session the Bot's Father, or clears it with a null ref. */
+  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
+  /** Opens the dialog that renames a Bot and restyles its face. */
+  onRenameBot: (bot: BotView) => void;
+  /** Forgets a Bot; its sessions survive. */
+  onDeleteBot: (bot: BotView) => void;
   onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
   onMoveBot: (moved: string, target: string) => void;
   detachedSessionKeys: ReadonlySet<string>;
@@ -211,6 +220,9 @@ export function BotCanvasList({
           onDetachSession={onDetachSession}
           onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
           onDetachBot={onDetachBot}
+          onSetFatherSession={onSetFatherSession}
+          onRenameBot={onRenameBot}
+          onDeleteBot={onDeleteBot}
           onReorderSessions={onReorderSessions}
           scroller={canvas}
           newSessions={newSessions.filter((each) => each.botId === bot.botId)}
