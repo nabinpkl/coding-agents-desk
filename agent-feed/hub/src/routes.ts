@@ -5,6 +5,7 @@ import { Unauthorized, type Verifier } from "@/auth";
 import type { Principal } from "@/config";
 import { isAddress, SESSION_ID, sessionAddress } from "@/directory";
 import { Forbidden, InvalidMessage, Messages, NotFound, RateLimited, Refused, type SessionStream } from "@/messages";
+import { createMcpFetch, MCP_PATH } from "@/mcp";
 import { RateLimiter } from "@/ratelimit";
 
 const HEARTBEAT_MS = 25_000;
@@ -177,8 +178,13 @@ async function route(deps: RouteDeps, request: Request, url: URL): Promise<Respo
 }
 
 export function createFetch(deps: RouteDeps): (request: Request) => Promise<Response> {
+  // One transport table per listener, so tests get isolation and production gets one shared table.
+  const mcp = createMcpFetch(deps);
   return async (request) => {
     const url = new URL(request.url);
+    // The MCP endpoint authenticates per request inside its handler and budgets per tool call, so it
+    // bypasses the route budgets here the way streams do.
+    if (url.pathname === MCP_PATH || url.pathname.startsWith(`${MCP_PATH}/`)) return mcp(request);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true });
     const start = performance.now();
     let response: Response;
