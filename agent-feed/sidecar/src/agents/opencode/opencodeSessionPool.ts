@@ -24,6 +24,7 @@ import { OpencodeImageStore } from "@/agents/opencode/opencodeImageStore";
 import { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
 import { readOpencodeMeter } from "@/agents/opencode/opencodeUsage";
 import {
+  mergedRead,
   OpencodeStreamTail,
   type OpencodeStreamedPart,
 } from "@/agents/opencode/opencodeStreamTail";
@@ -393,17 +394,24 @@ export class OpencodeSessionPool {
       const tailCompactionId = latestCompletedCompactionId(messages);
       const replace = full || (tailCompactionId !== null && tailCompactionId !== current.compactionBoundaryId);
       const history = replace && !full ? await readOpencodeHistory(sessionId) : messages;
+      const historyBoundaryId = latestCompletedCompactionId(history);
+      if (replace || historyBoundaryId !== null) current.compactionBoundaryId = historyBoundaryId;
+      // Settled before drawn, and the merge drawn rather than the read: a read of the message the
+      // serve is still writing is a snapshot of a row mid-write, regularly behind the words already
+      // on screen because the serve writes a reasoning part at the end. Drawn on its own it replaced
+      // a live row with a thinner one -- the thinking emptied out and the tool call took its place,
+      // then both were right again on the next read. Substituting the merge for that one message is
+      // what makes it a single draw, so the row only ever grows. See `opencodeStreamTail` for the rule.
+      const streaming = this.streaming.settle(sessionId, history);
+      const drawable = streaming ? mergedRead(history, streaming) : history;
       let result!: OpencodeSyncResult;
       if (replace) {
         current.projection.replace(() => {
-          result = current.mapper.sync(history);
+          result = current.mapper.sync(drawable);
         });
       } else {
-        result = current.mapper.sync(messages);
+        result = current.mapper.sync(drawable);
       }
-      const historyBoundaryId = latestCompletedCompactionId(history);
-      if (replace || historyBoundaryId !== null) current.compactionBoundaryId = historyBoundaryId;
-      this.streaming.settle(sessionId, history);
       this.imageStore.store(sessionId, result.images);
       // The meter's own rules, and the gap a compaction leaves in them, live in one place.
       const meter = await readOpencodeMeter({
@@ -417,7 +425,9 @@ export class OpencodeSessionPool {
         current.model = meter.model;
         current.usage = meter.usage;
       }
-      current.projection.setState(result.open ? "running" : "idle");
+      // A turn with words still arriving is running even when the read's own last message reads
+      // finished, which is the normal shape while a tool call is in flight.
+      current.projection.setState(streaming || result.open ? "running" : "idle");
       current.lastTouchedAt = this.now();
       current.lastRefreshAt = current.lastTouchedAt;
       notifyOpencodeSessionChanged(sessionId);

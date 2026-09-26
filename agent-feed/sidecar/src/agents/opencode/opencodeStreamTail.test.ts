@@ -203,4 +203,114 @@ describe("opencode stream tail", () => {
       { kind: "text", text: "the answer" },
     ]);
   });
+
+  // The shape the live turn showed, measured rather than imagined: at 13.16s the projection read
+  // `reasoning: 583` while the serve's own message for the same id read `reasoning: 0` with the
+  // shell part already `running`, because the serve writes a reasoning part at the end. The read
+  // was mapped on its own, so the row became `reasoning: 0  tool_use: shell` and the thinking came
+  // back on the next read. A snapshot of a row mid-write is the starting record for it, not the
+  // end of it.
+  it("hands back the merge after a read that is behind the stream, so the thinking is never replaced", () => {
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ kind: "reasoning", phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ kind: "reasoning", chunk: "five hundred and eighty three characters of it" }), 1);
+    const merged = tail.settle(SESSION, [{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1 },
+      content: [
+        { type: "reasoning", text: "" },
+        { type: "tool", id: "call-1", name: "shell", state: { status: "running", input: { command: "ls" } } },
+      ],
+    }] as unknown as SessionMessage[]);
+    expect(contentOf(merged).map((part) => `${part.type}:${part.text?.length ?? 0}`)).toEqual([
+      "reasoning:46",
+      "tool:0",
+    ]);
+  });
+
+  it("keeps a tool part across a later delta, so a shell call does not vanish when a sentence arrives", () => {
+    // The other half of the same bug, and it runs the other way: the deltas know nothing about a
+    // tool, so a row drawn from the stream alone would drop the call the reader is watching run.
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ kind: "reasoning", phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ kind: "reasoning", chunk: "thinking" }), 1);
+    tail.apply(SESSION, part({ kind: "text", phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ kind: "text", chunk: "let me look" }), 1);
+    tail.settle(SESSION, [{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1 },
+      content: [
+        { type: "reasoning", text: "thinking" },
+        { type: "text", text: "let me look" },
+        { type: "tool", id: "call-1", name: "shell", state: { status: "running", input: { command: "ls" } } },
+      ],
+    }] as unknown as SessionMessage[]);
+    const afterDelta = tail.apply(SESSION, part({ kind: "text", chunk: " at the files" }), 1);
+    expect(contentOf(afterDelta).map((part) => part.type)).toEqual(["reasoning", "text", "tool"]);
+    expect(textOf(afterDelta)).toBe("let me look at the files");
+  });
+
+  it("draws the same row whether the read is behind, level, or ahead, and never a thinner one", () => {
+    // The invariant in one place: whatever the read says, what a reader had is still there.
+    const cases: { read: string; expected: string }[] = [
+      { read: "", expected: "weighing it up" },
+      { read: "weighing", expected: "weighing it up" },
+      { read: "weighing it up, and the rest the deltas never sent", expected: "weighing it up, and the rest the deltas never sent" },
+    ];
+    for (const { read, expected } of cases) {
+      const tail = new OpencodeStreamTail();
+      tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
+      tail.apply(SESSION, part({ chunk: "weighing it up" }), 1);
+      const merged = tail.settle(SESSION, [{
+        id: "msg-1",
+        type: "assistant",
+        time: { created: 1 },
+        content: [{ type: "text", text: read }],
+      }] as unknown as SessionMessage[]);
+      expect(textOf(merged)).toBe(expected);
+    }
+  });
+
+  it("goes on holding what it streamed when a read has not caught up with the stream", () => {
+    // The read names no unfinished message at all, which means it is behind rather than that the
+    // turn is over. The tail's row is then the better record, and it is still drawn.
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ chunk: "still writing" }), 1);
+    const drawn = tail.settle(SESSION, [
+      { id: "msg-1", type: "assistant", time: { created: 1, completed: 2 } },
+    ] as unknown as SessionMessage[]);
+    // A completed message is the whole story, so the stream is over for it and there is nothing to
+    // redraw: the read already drew the settled row.
+    expect(drawn).toBeNull();
+    expect(tail.holds(SESSION, "msg-1")).toBe(false);
+  });
+
+  it("redraws a message the read did not name at all, rather than leaving the read's older row up", () => {
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ chunk: "live words" }), 1);
+    const drawn = tail.settle(SESSION, [
+      { id: "msg-old", type: "assistant", time: { created: 1, completed: 2 } },
+    ] as unknown as SessionMessage[]);
+    expect(textOf(drawn)).toBe("live words");
+  });
+
+  it("carries the serve's own fields through, so a redraw does not lose what the deltas never name", () => {
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ chunk: "words" }), 1);
+    const merged = tail.settle(SESSION, [{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 7, created2: undefined },
+      agent: "build",
+      model: { id: "m", providerID: "p" },
+      content: [{ type: "text", text: "" }],
+    }] as unknown as SessionMessage[]) as unknown as { created?: number; agent?: string; time: { created: number } };
+    expect(merged.time.created).toBe(7);
+    expect(merged.agent).toBe("build");
+  });
 });

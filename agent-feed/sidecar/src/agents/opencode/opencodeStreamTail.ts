@@ -12,6 +12,26 @@
 // which means the existing mapper draws the streamed row with the same rules as the settled
 // row -- and the durable read replaces it by id, in place, with nothing to move.
 //
+// What this hands back is the serve's own record with the stream's words ON TOP of it, never
+// the stream alone and never the read alone. Both halves are needed and neither is a superset
+// of the other:
+//
+// - The read is behind the stream. Measured on a live turn: the stream held 583 characters of
+//   reasoning while the serve's own message read `reasoning: 0` with the shell part already
+//   `running`, because the serve writes that part at the end. Mapping the read on its own drew
+//   a row whose thinking had been replaced by the shell, and the thinking came back on the next
+//   read. A read is a snapshot of a row mid-write, so it is the STARTING RECORD for a message
+//   the serve is still writing, not the end of it.
+// - The stream knows nothing the read does. A shell call's input, its state, its output, the
+//   tokens and the cost are all in the durable record and none of it arrives on a delta, so a
+//   row drawn from the stream alone drops the tool that a reader is watching run.
+//
+// So the row is built once, from both: the durable message's parts in the durable order, each
+// text part's words taken from whichever record has more of them, and any part the serve has
+// not written yet appended in the order the stream opened it. The invariant is that a message
+// this draws is never thinner than the row it replaces, which is the whole bug: a streamed
+// upsert that is missing what the reader already had reads as the feed losing the turn.
+//
 // What this deliberately does NOT do is finish a message. A streamed message never carries
 // `time.completed`, so its row reads as streaming however long the text runs; the durable read
 // at the end of the step is what closes it, and that read is also what brings the tool parts,
@@ -44,31 +64,50 @@ interface StreamedPart {
   text: string;
 }
 
+/** One part of a serve message. Only the fields this file reads are named; the rest ride through. */
+interface ContentPart {
+  type: string;
+  text?: string;
+}
+
 interface RunningMessage {
   id: string;
   createdAt: number;
-  /** Content order, which is the order the serve opened the parts in. */
-  content: StreamedPart[];
-  /** `<kind>:<ordinal>` to the part, so a delta finds the part it extends. */
+  /**
+   * The serve's own record for this message, kept WHOLE, or null before a read has drawn it.
+   *
+   * Whole because the deltas name none of it: the tool parts with their state and their output,
+   * the tokens, the cost. A row built from the stream alone would drop the shell call a reader is
+   * watching run, which is the same class of loss as dropping the thinking.
+   */
+  durable: SessionMessage | null;
+  /** `<kind>:<ordinal>` to the part, in the order the serve opened them. */
   byKey: Map<string, StreamedPart>;
 }
 
 /**
- * Keys a message's parts the way the serve names them, by position among parts of the same kind.
+ * A message's parts named the way the serve names them: by position among parts of their own kind,
+ * which is all a delta carries. `key` is null for a part that is not text or reasoning, which is
+ * every part the deltas never speak for.
  *
- * One place, because a delta finds its part by this key and the durable merge lines the two
- * records up by it. If they disagreed, a merge would write a part into the row under a key the
- * next delta does not read, and the text that followed would land in a second block.
+ * One place, because a delta finds its part by this key, the durable merge lines the two records
+ * up by it, and the row is built from it. If they disagreed, a merge would write a part into the
+ * row under a key the next delta does not read, and the text that followed would land in a second
+ * block.
  */
-function partsByKey(parts: readonly StreamedPart[]): Map<string, StreamedPart> {
-  const byKey = new Map<string, StreamedPart>();
+function* namedParts(
+  message: SessionMessage | null,
+): Generator<{ part: ContentPart; key: string | null }> {
   const counts = new Map<string, number>();
-  for (const part of parts) {
+  for (const part of (message as { content?: ContentPart[] } | null)?.content ?? []) {
+    if (part.type !== "text" && part.type !== "reasoning") {
+      yield { part, key: null };
+      continue;
+    }
     const ordinal = counts.get(part.type) ?? 0;
     counts.set(part.type, ordinal + 1);
-    byKey.set(`${part.type}:${ordinal}`, part);
+    yield { part, key: `${part.type}:${ordinal}` };
   }
-  return byKey;
 }
 
 /** True once the serve has written the whole message, which is the handoff. */
@@ -94,18 +133,34 @@ function newestUnfinishedAssistant(read: readonly SessionMessage[]): SessionMess
 
 /** A running message that starts from what the serve has already written for it. */
 function seededFrom(durable: SessionMessage): RunningMessage {
-  const parts = (durable as { content?: { type?: string; text?: string }[] }).content ?? [];
-  const content: StreamedPart[] = [];
-  for (const part of parts) {
-    if (part.type !== "text" && part.type !== "reasoning") continue;
-    content.push({ type: part.type, text: part.text ?? "" });
+  const byKey = new Map<string, StreamedPart>();
+  for (const { part, key } of namedParts(durable)) {
+    if (key === null) continue;
+    byKey.set(key, { type: part.type as OpencodeStreamedKind, text: part.text ?? "" });
   }
   return {
     id: durable.id,
     createdAt: (durable as { time: { created: number } }).time.created,
-    content,
-    byKey: partsByKey(content),
+    durable,
+    byKey,
   };
+}
+
+/**
+ * The read to draw, with the stream's record of the message the serve is still writing put in
+ * place of the read's own.
+ *
+ * Substitution rather than a second draw, because two draws publishes the thinner row first and
+ * corrects it a millisecond later, and a reader is entitled to a row that only ever grows. The read
+ * still supplies the page around it, so every other message, the tokens and the tool parts are the
+ * serve's own.
+ */
+export function mergedRead(
+  read: readonly SessionMessage[],
+  streamed: SessionMessage,
+): SessionMessage[] {
+  const drawn = read.map((message) => (message.id === streamed.id ? streamed : message));
+  return drawn.some((message) => message.id === streamed.id) ? drawn : [...drawn, streamed];
 }
 
 /**
@@ -146,8 +201,7 @@ export class OpencodeStreamTail {
       // A delta for a part that was never opened here, and an `ended` for one that was
       // forgotten. Both mean this tail missed the start, and neither can be drawn honestly.
       if (part.phase === "delta" || part.phase === "ended") return null;
-      message.content.push({ type: part.kind, text: "" });
-      message.byKey.set(key, message.content[message.content.length - 1]!);
+      message.byKey.set(key, { type: part.kind, text: "" });
       return null;
     }
     if (part.phase === "delta" && part.chunk) streamed.text += part.chunk;
@@ -155,30 +209,72 @@ export class OpencodeStreamTail {
     // accumulation, so it is the authority on anything the deltas dropped or reordered. It is
     // also empty on an encrypted-thinking provider, which is why this is not an assignment.
     if (part.phase === "ended" && part.text) streamed.text = part.text;
-    if (!message.content.some((entry) => entry.text)) return null;
-    // Shaped like the durable message and nothing more, because that is all the mapper reads:
-    // `type` to pick the branch, `time.created` to order the row, `content` for the blocks.
-    // The parts are copied so a row the mapper is holding cannot change under it on the next
-    // delta, and there is no `time.completed` -- see the file header for why a streamed
-    // message never closes itself.
+    return this.materialise(message);
+  }
+
+  /**
+   * The row to draw: the serve's own record, with the streamed words in place of its own.
+   *
+   * The durable message's parts in its own order, because that is the order the settled row will
+   * have and a reader should not see the blocks move as the two records disagree. Its text parts
+   * take the stream's words rather than the read's: `mergeDurable` has already reconciled the two,
+   * and it has to be the one that does, because the stream is the accumulation the deltas append to
+   * and a read's text can only become its base. Parts the serve has not written yet are appended in
+   * the order the stream opened them.
+   *
+   * Null when no part holds any words, which is the same honesty the deltas keep: a part that has
+   * just opened draws nothing, and an encrypted-thinking part draws nothing until a read brings
+   * the row that says it exists.
+   */
+  private materialise(message: RunningMessage): SessionMessage | null {
+    const content: unknown[] = [];
+    const emitted = new Set<string>();
+    for (const { part, key } of namedParts(message.durable)) {
+      if (key === null) {
+        content.push(part);
+        continue;
+      }
+      emitted.add(key);
+      const streamed = message.byKey.get(key);
+      if (!streamed) {
+        throw new Error(`opencode stream tail: the read names part ${key} of ${message.id} that the stream never opened`);
+      }
+      content.push({ type: part.type, text: streamed.text });
+    }
+    for (const [key, part] of message.byKey) {
+      if (!emitted.has(key)) content.push({ type: part.type, text: part.text });
+    }
+    if (!content.some((part) => typeof (part as ContentPart).text === "string" && (part as ContentPart).text)) {
+      return null;
+    }
+    // Shaped like the durable message and nothing more, because that is all the mapper reads: `id`
+    // and `type` to pick the branch and the row, `time.created` to order it, `content` for the
+    // blocks. The parts are copied so a row the mapper is holding cannot change under it on the
+    // next delta, and the serve's own fields ride through the spread -- which is how a tool part
+    // the deltas never named survives into a row drawn because one more sentence arrived. There is
+    // no `time.completed` added here; see the file header for why a streamed message never closes
+    // itself.
+    const base = (message.durable ?? {}) as { time?: { created?: number } };
     return {
+      ...(message.durable as object),
       id: message.id,
       type: "assistant",
-      time: { created: message.createdAt },
-      content: message.content.map((entry) => ({ type: entry.type, text: entry.text })),
+      time: { ...base.time, created: message.createdAt },
+      content,
     } as unknown as SessionMessage;
   }
 
   /**
-   * Folds a durable read into what is being streamed, rather than obeying it.
+   * Folds a durable read into what is being streamed, rather than obeying it, and hands back the
+   * row the read should have drawn.
    *
    * The serve inserts a message into its history while the step is still writing it, so a read
-   * that names the running message is not a record OF it -- it is a snapshot of a row mid-write.
-   * Treating the first such read as the answer is what made a running turn lose its thinking: the
-   * tail dropped, the next delta rebuilt a message holding only the part it had seen since, and
-   * that thinner record replaced a row which had a reasoning block in it. The block came back
-   * when the step ended, which is what a reader sees as the tail being overwritten and then
-   * settling on the durable text.
+   * that names the running message is not a record OF it -- it is a snapshot of a row mid-write,
+   * and the snapshot is regularly behind the words already on screen. Mapping that snapshot as the
+   * answer is what made a running turn lose its thinking: the row was replaced by one holding
+   * `reasoning: ""` and the shell part the read had, so the thinking vanished the moment a tool
+   * call bought a read, and came back on the next one. Measured on a live turn, with the serve's
+   * own message read `reasoning: 0` while the stream held 583 characters.
    *
    * So a read is the STARTING RECORD for the stream, not the end of it, in three cases:
    *
@@ -191,60 +287,59 @@ export class OpencodeStreamTail {
    *   showed: the read drew a thinking line, and the first text delta would otherwise have drawn
    *   a row with no thinking in it.
    * - The read draws nothing unfinished, which means it has not caught up with the stream. What
-   *   the tail holds is then the better record and is kept untouched.
+   *   the tail holds is then the better record and is kept.
    *
-   * Where both know a part, the longer text wins, because a read can be behind the stream still
-   * writing it and the stream is the one being watched; a read can also carry words no delta ever
-   * sent, which is the other way round, and the same rule takes them.
+   * In every case the message returned is the merge, and the caller draws it. Returning it is the
+   * point rather than a convenience: a repair the next delta would eventually reveal is a repair
+   * the reader watched the row go without, which is the whole of what was wrong.
    */
-  settle(sessionId: string, read: readonly SessionMessage[]): void {
+  settle(sessionId: string, read: readonly SessionMessage[]): SessionMessage | null {
     const running = this.running.get(sessionId);
     const held = running ? read.find((message) => message.id === running.id) : undefined;
     if (running && held && isFinished(held)) {
       this.running.delete(sessionId);
-      return;
+      return null;
     }
     const unfinished = newestUnfinishedAssistant(read);
-    if (!unfinished) return;
+    if (!unfinished) return running ? this.materialise(running) : null;
     if (running && running.id === unfinished.id) {
       this.mergeDurable(running, unfinished);
-      return;
+      return this.materialise(running);
     }
     // Either nothing was held, or the serve has opened a newer step than the one we hold: the
     // durable record for the one being written now is the better place to start.
-    this.running.set(sessionId, seededFrom(unfinished));
+    const seeded = seededFrom(unfinished);
+    this.running.set(sessionId, seeded);
     this.trim();
+    return this.materialise(seeded);
   }
 
+  /**
+   * Takes the read's record for a running message, and lines its text parts up with the stream's.
+   *
+   * The whole durable message is kept, so a tool part, a token count and a cost the deltas never
+   * named are still there to be drawn. A text part the stream has not opened is added under the key
+   * a delta for it would use, and a part the read has more words for becomes the stream's base
+   * rather than a separate copy: the deltas keep appending to one accumulation per part, so a
+   * sentence arriving after a read that had caught up extends what the reader can see instead of
+   * being dropped in favour of the read's text.
+   *
+   * The creation time comes across too, so the row is ordered by the serve's own clock from the
+   * first delta rather than moving when the first read lands.
+   */
   private mergeDurable(running: RunningMessage, durable: SessionMessage): void {
-    const parts = (durable as { content?: { type?: string; text?: string }[] }).content ?? [];
-    const merged: StreamedPart[] = [];
-    const emitted = new Set<string>();
-    const counts = new Map<string, number>();
-    for (const part of parts) {
-      if (part.type !== "text" && part.type !== "reasoning") continue;
-      // A part is named by its position among parts of its own kind, which is how the serve
-      // numbers the deltas too, so the two records can be lined up part for part.
-      const ordinal = counts.get(part.type) ?? 0;
-      counts.set(part.type, ordinal + 1);
-      const key = `${part.type}:${ordinal}`;
-      emitted.add(key);
-      const streamed = running.byKey.get(key);
+    running.durable = durable;
+    running.createdAt = (durable as { time: { created: number } }).time.created;
+    for (const { part, key } of namedParts(durable)) {
+      if (key === null) continue;
       const durableText = part.text ?? "";
-      merged.push({
-        type: part.type,
-        // Longer wins, and only because longer is a real signal: a durable read can be behind
-        // the stream still writing this part, and the stream is the one being watched.
-        text: (streamed?.text.length ?? 0) > durableText.length ? streamed!.text : durableText,
-      });
+      const streamed = running.byKey.get(key);
+      if (!streamed) {
+        running.byKey.set(key, { type: part.type as OpencodeStreamedKind, text: durableText });
+      } else if (durableText.length > streamed.text.length) {
+        streamed.text = durableText;
+      }
     }
-    // Parts the durable message does not name are parts the serve has not written yet, so the
-    // stream is the only record of them. Appended in the order the tail opened them.
-    for (const [key, part] of running.byKey) {
-      if (!emitted.has(key)) merged.push(part);
-    }
-    running.content = merged;
-    running.byKey = partsByKey(merged);
   }
 
   /** Drops everything for a session that is no longer owned. */
@@ -270,7 +365,7 @@ export class OpencodeStreamTail {
     const message: RunningMessage = {
       id: part.messageId,
       createdAt: now,
-      content: [],
+      durable: null,
       byKey: new Map(),
     };
     this.running.set(sessionId, message);

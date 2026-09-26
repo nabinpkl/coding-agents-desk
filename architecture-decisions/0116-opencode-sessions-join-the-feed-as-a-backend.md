@@ -129,6 +129,28 @@ extends what the row already shows. Where both know a part, the longer text wins
 behind the stream still writing it, and a read can carry words no delta ever sent. The invariant
 is that a streamed upsert is never thinner than the row it replaces, which is the whole of it.
 
+ - **The merge is the only draw, and it is drawn in the read's place.** The invariant above was not
+   enough on its own, and the way it failed is worth recording because it is the same bug one layer
+   down. Reconciling the tail's memory while the projection kept the read's row left the repair
+   invisible: the row went thin, and the next delta or the next read put it back. Measured on a live
+   turn, with the serve's own message for the id the stream was writing reading
+   `reasoning: 0, tool: shell running` while the stream held 583 characters of reasoning -- the serve
+   writes that part at the end. So a tool call, which deliberately buys a read, emptied the thinking
+   out of the row, and the thinking came back on the following read. A repair the next event would
+   eventually reveal is a repair the reader watched the row go without.
+
+   The row is therefore built once, from both records: the durable message's parts in the durable
+   order, each text part's words taken from the stream, and any part the serve has not written yet
+   appended in the order the stream opened it. That merge is substituted into the page the read
+   returned and drawn once, in place of the read's own version of that message, so the read still
+   supplies the page, the tokens, the tool parts and every other message. Two details are
+   load-bearing rather than tidy. The decision about which record has more of a part belongs where
+   the read is folded in, not where the row is built, because the stream is the accumulation the
+   deltas append to and a read's text can only become its base; deciding at build time silently
+   drops a sentence that arrives after a read which had caught up. And the substitution is what
+   keeps a tool part from vanishing when the next sentence arrives, since a delta knows nothing
+   about one.
+
 Tool events deliberately still buy a read. A tool row needs its input, its output and its state
 together, and the deltas carry them in pieces; a partial tool row is a call with no result under
 it. An event of the word families that this shape cannot draw is dropped rather than read, since
