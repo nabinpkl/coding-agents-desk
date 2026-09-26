@@ -218,6 +218,24 @@ export function FatherOverlay({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // And on a pointer landing outside it, the way a menu does: the strip beside and below stays
+  // visible and clickable while the home is open, and reaching for any of it puts the home away.
+  // On `pointerdown` rather than `click` so a press that starts outside and ends inside still
+  // closes -- a click would fire only when both land outside, and a drag onto the drawer would
+  // leave it open under the hand. Portal menus the session opens into `document.body` are not
+  // outside: they are the drawer acting at a distance, and picking from one should not dismiss
+  // what opened it.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Element | null;
+      if (sectionRef.current?.contains(event.target as Node)) return;
+      if (target?.closest?.('[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"]')) return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [onClose]);
+
   return (
     <section
       ref={sectionRef}

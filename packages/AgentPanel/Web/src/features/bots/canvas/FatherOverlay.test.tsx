@@ -159,6 +159,27 @@ describe("FatherOverlay", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("closes on a pointer landing outside it, and not on one inside", () => {
+    const onClose = vi.fn();
+    render(<FatherOverlay {...PROPS} onClose={onClose} />);
+    fireEvent.pointerDown(screen.getByTestId("father-session"), { bubbles: true });
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerDown(document.body, { bubbles: true });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a portal menu the session opened from counting as outside", () => {
+    const onClose = vi.fn();
+    render(<FatherOverlay {...PROPS} onClose={onClose} />);
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    menu.textContent = "Father action";
+    document.body.appendChild(menu);
+    fireEvent.pointerDown(menu, { bubbles: true });
+    expect(onClose).not.toHaveBeenCalled();
+    menu.remove();
+  });
+
   it("offers the detach for a Father the catalog forgot", () => {
     const onDetachSession = vi.fn();
     const gone = bot("a", {
