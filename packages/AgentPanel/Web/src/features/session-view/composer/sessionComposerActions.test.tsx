@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
-import { useSendAttachments } from "@/features/session-view/composer/useSendAttachments";
+import { useSendAttachments } from "@/features/session-view/composer/useComposerHold";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
 function model(overrides: Partial<ComposerModel> = {}): ComposerModel {

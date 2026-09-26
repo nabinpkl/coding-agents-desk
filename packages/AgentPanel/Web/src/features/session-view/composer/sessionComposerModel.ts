@@ -10,7 +10,7 @@ import type { AgentSessionControlState } from "@/features/activity-feed/data-sou
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { CliInputHandle } from "@/features/cli-input/useCliInput";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
-import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useSendAttachments";
+import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useComposerHold";
 import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
@@ -61,7 +61,12 @@ export interface ComposerModel {
   session: SessionSummary;
   setDeliveryError: (message: string | null) => void;
   setDeliveryPending: (pending: boolean) => void;
-  setLocalDraft: (value: string) => void;
+  /**
+   * Writes the composer's own text, in memory and in storage together. Takes the updater form a
+   * `useState` setter does, because the transport handover needs to keep whichever side already
+   * holds a sentence.
+   */
+  setLocalDraft: (value: string | ((current: string) => string)) => void;
   state: AgentSessionControlState;
   tmuxBand: boolean;
   tmuxComposer: ReturnType<typeof useTmuxComposer>;

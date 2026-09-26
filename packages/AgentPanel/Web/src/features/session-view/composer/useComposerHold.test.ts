@@ -1,17 +1,17 @@
 /**
- * Images held for an opencode send: picked Blobs stay Blobs until the send reads them, the
- * strip shows object URLs that die with the image, and both come back after a reload because
- * the store kept the bytes.
+ * What a composer holds for a send that has not happened: staged images and unsent text, both
+ * keyed by the session and both remembered across a reload.
  *
- * jsdom holds no object URLs, so the test stands in for them. The store itself is mocked here
- * and tested for real against IndexedDB's shape in `heldImagesStore.test.ts`; what this file
- * owns is the hook: which session's images come back, that a refused store still sends, and
- * that a restored id and a freshly picked one cannot collide.
+ * jsdom holds no object URLs, so the test stands in for them. The image store is mocked here and
+ * tested for real against IndexedDB's shape in `heldImagesStore.test.ts`; what this file owns is
+ * the hooks: which session's images and words come back, that a refused store still sends, that a
+ * restored id and a freshly picked one cannot collide, and that a draft empties itself when the
+ * send path clears it.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useSendAttachments } from "@/features/session-view/composer/useSendAttachments";
+import { useComposerDraft, useSendAttachments } from "@/features/session-view/composer/useComposerHold";
 
 /** The store's contract, in memory: the same four calls, ids allocated beside the stored ones. */
 const stored = new Map<string, { id: number; name: string; mime: string; blob: Blob; addedAt: number }[]>();
@@ -175,5 +175,80 @@ describe("useSendAttachments", () => {
       [4, "old.png"],
       [5, "new.png"],
     ]);
+  });
+});
+
+describe("useComposerDraft", () => {
+  // The draft is the reader's own unsent words, so it behaves like the images: keyed per
+  // session, restored from storage on open, and emptied by the same setter the send path uses.
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("brings the draft back after the composer is opened again", () => {
+    const first = renderHook(() => useComposerDraft("opencode/s1"));
+    act(() => first.result.current[1]("half a thought"));
+    first.unmount();
+
+    // Opened again, as a reload would: the field is not empty, and not one frame of flicker.
+    const second = renderHook(() => useComposerDraft("opencode/s1"));
+    expect(second.result.current[0]).toBe("half a thought");
+  });
+
+  it("empties itself, in the field and in storage, when the send clears it", () => {
+    const { result } = renderHook(() => useComposerDraft("opencode/s1"));
+    act(() => result.current[1]("go"));
+    expect(window.localStorage.getItem("agent-panel.composer-draft.opencode/s1")).toBe("go");
+
+    // What a successful send does. One setter, and both copies go: the send path has no second
+    // call to remember, so it cannot clear the field and leave the words remembered.
+    act(() => result.current[1](""));
+    expect(result.current[0]).toBe("");
+    expect(window.localStorage.getItem("agent-panel.composer-draft.opencode/s1")).toBeNull();
+  });
+
+  it("keeps the draft when a send is refused, because the setter is never called", () => {
+    const { result } = renderHook(() => useComposerDraft("opencode/s1"));
+    act(() => result.current[1]("do not lose this"));
+    // A refused send catches and returns without touching the draft, so the words stay in the
+    // field AND in storage. This is the property the send path's catch relies on.
+    expect(result.current[0]).toBe("do not lose this");
+    expect(window.localStorage.getItem("agent-panel.composer-draft.opencode/s1")).toBe("do not lose this");
+  });
+
+  it("does not carry one session's words into another", () => {
+    const { result, rerender } = renderHook(
+      ({ key }: { key: string }) => useComposerDraft(key),
+      { initialProps: { key: "opencode/s1" } },
+    );
+    act(() => result.current[1]("mine"));
+    act(() => rerender({ key: "opencode/s2" }));
+    // Empty, not "mine": the field beside a Send that would deliver it somewhere else.
+    expect(result.current[0]).toBe("");
+
+    act(() => rerender({ key: "opencode/s1" }));
+    expect(result.current[0]).toBe("mine");
+  });
+
+  it("keeps the draft sendable when the browser refuses to store it", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A private window, or storage turned off: both reads and writes throw. Stubbed as the
+    // whole object rather than by spying on Storage.prototype, which jsdom's localStorage does
+    // not route through.
+    vi.stubGlobal("localStorage", {
+      getItem: () => { throw new Error("storage disabled"); },
+      setItem: () => { throw new Error("storage disabled"); },
+      removeItem: () => { throw new Error("storage disabled"); },
+      clear: () => { throw new Error("storage disabled"); },
+    });
+    try {
+      const { result } = renderHook(() => useComposerDraft("opencode/s1"));
+      act(() => result.current[1]("still here"));
+      // The words are in the field and still send; only surviving a reload is gone, and said.
+      expect(result.current[0]).toBe("still here");
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

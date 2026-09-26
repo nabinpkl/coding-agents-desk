@@ -81,7 +81,7 @@ import type { AgentTerminalComposer, TerminalState } from "@/features/session-vi
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
 import { useComposerFileDrop } from "@/features/session-view/composer/useComposerFileDrop";
 import { useOpencodeCommands } from "@/features/session-view/composer/useOpencodeCommands";
-import { useSendAttachments, type SendAttachment } from "@/features/session-view/composer/useSendAttachments";
+import { useComposerDraft, useSendAttachments, type SendAttachment } from "@/features/session-view/composer/useComposerHold";
 import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import { harnessName } from "@/features/session-view/SessionView";
 import { composerActions, submitComposer, submitOwnedTransport } from "@/features/session-view/composer/sessionComposerActions";
@@ -248,8 +248,7 @@ export function SessionComposer({
   // Held here rather than in the pane: an opencode session has no pane, so picked images wait
   // for the send instead. Keyed by the session, so a strip never rides into another thread and
   // this thread's own staged images are still there when the reader comes back to it.
-  const sendAttachments = useSendAttachments(`${source}/${sessionId}`);
-  const tmuxComposer = useTmuxComposer(
+  const sendAttachments = useSendAttachments(`${source}/${sessionId}`);  const tmuxComposer = useTmuxComposer(
     feed,
     tmuxComposerSession,
     isClaude && (engaged || question !== null),
@@ -336,7 +335,12 @@ export function SessionComposer({
   // Every non-window transport composes against local state. If native resolution refuses after
   // somebody has already typed, hand that exact draft to the selected local transport before the
   // native watcher releases ownership.
-  const [localDraft, setLocalDraft] = useState("");
+  //
+  // Remembered per session, because a reload otherwise threw away a half-written sentence the
+  // same way it threw away staged images. The setter writes through to storage itself, so the
+  // send path's existing `setLocalDraft("")` empties the remembered copy too: one place changes
+  // the draft, and the field and the store cannot drift apart.
+  const [localDraft, setLocalDraft] = useComposerDraft(`${source}/${sessionId}`);
   /**
    * The file picker behind the paperclip.
    *
