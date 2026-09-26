@@ -20,9 +20,6 @@ import {
   storeCanvasOpenKeys,
   storeCanvasRoom,
   storeCanvasScroll,
-  storeFatherHeight,
-  storeFatherOpen,
-  storeFatherWidth,
   storeHiddenMachines,
   storeSessionCardSizes,
 } from "@/features/bots/canvas/botCanvasPreferences";
