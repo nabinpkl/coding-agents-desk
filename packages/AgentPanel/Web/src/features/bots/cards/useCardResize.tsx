@@ -217,8 +217,12 @@ export function useCardResize({
             // their names, and this one has none to say it with.
             title="Resize both ways"
             // Square, and square at whatever the two edges are: this is the corner they meet in,
-            // so its size is theirs rather than a number of its own.
-            className="group flex size-2 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border"
+            // so its size is theirs rather than a number of its own. Eight pixels of visible
+            // target is a hunt, so the grab reaches twenty up and left over the grips beside it:
+            // outward is clipped away with the card, inward is where the pointer already is.
+            // The transcript's own corner answers diagonal too, which is the honest price of a
+            // target a hand can find.
+            className="group relative flex size-2 shrink-0 cursor-nwse-resize touch-none items-center justify-center border-t border-l border-border before:absolute before:-top-5 before:-left-5 before:right-0 before:bottom-0 before:content-['']"
             onPointerDown={startDrag}
             onPointerMove={(event) => dragTo(event, { width: true, height: true })}
             onPointerUp={finishDrag}
