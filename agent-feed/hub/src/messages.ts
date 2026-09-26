@@ -144,6 +144,21 @@ export class Messages {
       if (!principal.human) throw new Forbidden(`${principal.label} may not send as human`);
       return { from: "human", fromKind: "human" };
     }
+    const checked = this.sessionSender(principal, as);
+    return { from: checked.session, fromKind: "agent" };
+  }
+
+  /**
+   * Checks that a principal may act as a live session, and says which machine holds its stream.
+   *
+   * The same guard sending answers to, so a tool that acts for a session refuses exactly the
+   * sessions a message may not speak as: no live stream, another machine's, or in no Bot.
+   */
+  checkSession(principal: Principal, address: SessionAddress): { machine: string } {
+    return { machine: this.sessionSender(principal, address).machine };
+  }
+
+  private sessionSender(principal: Principal, as: unknown): { session: SessionAddress; machine: string } {
     const session = sessionAddress(as);
     if (!session) throw new InvalidMessage("as must be \"human\" or a session id");
     const row = this.store.getSession(session);
@@ -161,7 +176,7 @@ export class Messages {
     if (this.directory.botsOf(session).length === 0) {
       throw new Refused(`${session} is in no published Bot, so it does not take part in messaging; put it in one to include it`);
     }
-    return { from: session, fromKind: "agent" };
+    return { session, machine: row.machine };
   }
 
   send(principal: Principal, input: SendInput): Message {
@@ -343,6 +358,14 @@ export class Messages {
     const session = message.toSession;
     if (!session) return null;
     return this.directory.reachable(session) && this.streams.has(session) ? session : null;
+  }
+
+  /** Pushes one event onto a live stream, or answers false when nothing holds it. */
+  direct(address: SessionAddress, event: HubStreamEvent): boolean {
+    const stream = this.streams.get(address);
+    if (!stream) return false;
+    stream.push(event);
+    return true;
   }
 
   /** Pushes every queued message that has somewhere to go, oldest first. */

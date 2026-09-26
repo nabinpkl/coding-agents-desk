@@ -90,6 +90,9 @@ export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal)
             deps.log(`relay channel connected as ${event.address} (channel ${event.channel ? "on" : "off"})`);
             return;
           }
+          // Directives ride the same stream vocabulary but are never pushed to a Claude stream;
+          // ignored here rather than notified, so a future one cannot become a channel message.
+          if (event.type !== "message") return;
           await deps.notify(channelNotification(event.message, event.fromName));
           await deps.hub.request("POST", `/v1/messages/${event.message.id}/delivered`, { stream: event.streamId });
         },

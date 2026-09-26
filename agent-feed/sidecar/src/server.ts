@@ -66,6 +66,7 @@ import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
+import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
@@ -172,6 +173,22 @@ void workspaceService.ready().catch((error: unknown) => {
 // the same gigabytes, since the coalescing that prevents that lives inside one of them.
 const usageScanner = createUsageScanner();
 
+// Renames through the same doors the Rename dialog uses: Claude's own `/rename` in its pane,
+// opencode's serve through its backend. Anything else has no mechanism and is reported, not
+// failed. One closure because two callers need it: the Bot routes' completion path and the
+// opencode adapter answering hub directives.
+const renameSession: BotSessionRenamer = async (ref, title) => {
+  if (ref.source === "claude") {
+    await renameClaudeSession(ref.sessionId, title);
+    return;
+  }
+  if (ref.source === "opencode") {
+    await opencodeBackend.renameSession(ref.sessionId, title);
+    return;
+  }
+  throw new Error(`sessions from ${ref.source} cannot be renamed`);
+};
+
 const routes: RouteHandler[] = [
   // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
@@ -180,22 +197,7 @@ const routes: RouteHandler[] = [
   createBotRoutes(botRegistry, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,
     maxDocumentBytes: config.workspaceMaxDocumentBytes,
-  }, {
-    // The normalize-titles pass renames through the same doors the Rename dialog uses: Claude's
-    // own `/rename` in its pane, opencode's serve through its backend. Anything else has no
-    // mechanism and is reported, not failed.
-    renameSession: async (ref, title) => {
-      if (ref.source === "claude") {
-        await renameClaudeSession(ref.sessionId, title);
-        return;
-      }
-      if (ref.source === "opencode") {
-        await opencodeBackend.renameSession(ref.sessionId, title);
-        return;
-      }
-      throw new Error(`sessions from ${ref.source} cannot be renamed`);
-    },
-  }),
+  }, { renameSession }),
   createAgentTerminalRoutes(agentTerminals),
   createTmuxRoutes(),
   // Ahead of the generic agent-session routes: opencode's own paths live under the same
@@ -347,6 +349,7 @@ void startCatalog()
         hub,
         serve: liveOpencodeServePort(() => void opencodeHub.sync()),
         log: (line) => console.error(`[hub-opencode] ${line}`),
+        rename: (ref, task) => botRegistry.renameBracket(ref, task, renameSession),
       });
       opencodeHub.start();
       state.shutdownHooks.push(() => opencodeHub.stop());

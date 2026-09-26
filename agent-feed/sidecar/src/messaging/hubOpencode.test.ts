@@ -100,6 +100,9 @@ describe("HubOpencodeAdapter", () => {
       },
       log: () => {},
       sleep: async () => {},
+      rename: async () => {
+        throw new Error("unreached");
+      },
     });
     adapter.start();
     await settle();
@@ -130,6 +133,9 @@ describe("HubOpencodeAdapter", () => {
       },
       log: () => {},
       sleep: async () => {},
+      rename: async () => {
+        throw new Error("unreached");
+      },
     });
     adapter.start();
     await settle();
@@ -152,6 +158,9 @@ describe("HubOpencodeAdapter", () => {
       },
       log: () => {},
       sleep: async () => {},
+      rename: async () => {
+        throw new Error("unreached");
+      },
     });
     adapter.start();
     await settle();
@@ -176,11 +185,75 @@ describe("HubOpencodeAdapter", () => {
       },
       log: (line) => void logs.push(line),
       sleep: async () => {},
+      rename: async () => {
+        throw new Error("unreached");
+      },
     });
     adapter.start();
     await settle();
     expect(streams).toHaveLength(0);
     expect(logs[0]).toContain("serve is down");
+    adapter.stop();
+  });
+
+  test("a directive renames through the registry and confirms the outcome, never a prompt", async () => {
+    const { hub, streams, posts } = fakeHub();
+    const renamed: { ref: unknown; task: string }[] = [];
+    const adapter = new HubOpencodeAdapter({
+      hub,
+      serve: {
+        sessions: async () => [{ sessionId: "ses_1", cwd: "/work/site", title: "Fixer" }],
+        prompt: async () => {
+          throw new Error("a directive must never become a prompt");
+        },
+        onChanged: () => () => {},
+      },
+      log: () => {},
+      sleep: async () => {},
+      rename: async (ref, task) => {
+        renamed.push({ ref, task });
+        return { botId: "bot-1", anchor: "Aaron", title: "Aaron (night shift)", status: "renamed" };
+      },
+    });
+    adapter.start();
+    await settle();
+    streams[0]!.emit({ type: "hello", address: "opencode:ses_1", channel: true, streamId: "s1" });
+    streams[0]!.emit({ type: "directive", id: "d1", kind: "rename-bracket", task: "night shift", streamId: "s1" });
+    await settle();
+
+    expect(renamed).toEqual([{ ref: { source: "opencode", sessionId: "ses_1" }, task: "night shift" }]);
+    expect(posts.at(-1)).toEqual({
+      path: "/v1/directives/d1/done",
+      body: { ok: true, anchor: "Aaron", title: "Aaron (night shift)", status: "renamed" },
+    });
+    adapter.stop();
+  });
+
+  test("a directive that fails still confirms, so the waiter learns it", async () => {
+    const { hub, streams, posts } = fakeHub();
+    const adapter = new HubOpencodeAdapter({
+      hub,
+      serve: {
+        sessions: async () => [{ sessionId: "ses_1", cwd: "/work/site", title: "Fixer" }],
+        prompt: async () => {},
+        onChanged: () => () => {},
+      },
+      log: () => {},
+      sleep: async () => {},
+      rename: async () => {
+        throw new Error("this session is not running");
+      },
+    });
+    adapter.start();
+    await settle();
+    streams[0]!.emit({ type: "hello", address: "opencode:ses_1", channel: true, streamId: "s1" });
+    streams[0]!.emit({ type: "directive", id: "d2", kind: "rename-bracket", task: "night shift", streamId: "s1" });
+    await settle();
+
+    expect(posts.at(-1)).toEqual({
+      path: "/v1/directives/d2/done",
+      body: { ok: false, error: "this session is not running" },
+    });
     adapter.stop();
   });
 });

@@ -10,7 +10,7 @@
 // Reachability follows the serve, as the user said it should: while the serve answers, every
 // session it lists is reachable, and a message to a session the serve has not listed waits.
 
-import type { HubStreamEvent, Message, MessageRef } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, HubStreamEvent, Message, MessageRef, RenamedBracket } from "@agentdesk/agent-feed-wire";
 import { opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/opencodeClient";
 import { subscribeCatalog } from "@/transcripts/catalog/catalogState";
 import type { HubClient } from "@/messaging/hubClient";
@@ -67,6 +67,11 @@ export interface HubOpencodeDeps {
   hub: HubClient;
   serve: OpencodeServePort;
   log: (text: string) => void;
+  /**
+   * Renames one session's bracket through the Bot registry's completion path. Wired in server.ts,
+   * where the registry and the opencode backend both exist; the adapter owns neither.
+   */
+  rename: (ref: BotSessionRef, task: string) => Promise<RenamedBracket>;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -172,6 +177,12 @@ export class HubOpencodeAdapter {
               this.deps.log(`opencode stream connected as ${event.address}`);
               return;
             }
+            // A directive the hub pushed for this session: run it locally and confirm the outcome,
+            // so the MCP caller waiting on it learns what happened. Never a prompt.
+            if (event.type === "directive") {
+              await this.answerDirective(event.id, current.sessionId, event.task);
+              return;
+            }
             await this.deliver(event.message, event.fromName, event.streamId);
           },
           signal,
@@ -194,6 +205,30 @@ export class HubOpencodeAdapter {
   private async deliver(message: Message, fromName: string, streamId: string): Promise<void> {
     await this.deps.serve.prompt(message.deliveredTo?.replace(/^opencode:/, "") ?? "", message.id, messagePrompt(message, fromName));
     await this.deps.hub.request("POST", `/v1/messages/${message.id}/delivered`, { stream: streamId });
+  }
+
+  /**
+   * Runs a rename-bracket directive and confirms what it did, so the waiting MCP call answers.
+   *
+   * A failure to run is still a confirmation, with `ok: false`: the directive is done either way
+   * and must not wait out its clock on the hub while the answer sits here.
+   */
+  private async answerDirective(id: string, sessionId: string, task: string): Promise<void> {
+    const ref = { source: "opencode" as const, sessionId };
+    try {
+      const done = await this.deps.rename(ref, task);
+      await this.deps.hub.request("POST", `/v1/directives/${id}/done`, {
+        ok: true,
+        anchor: done.anchor,
+        title: done.title,
+        status: done.status,
+      });
+    } catch (error) {
+      await this.deps.hub.request("POST", `/v1/directives/${id}/done`, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 

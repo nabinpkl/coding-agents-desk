@@ -5,6 +5,7 @@ import { Unauthorized, type Verifier } from "@/auth";
 import type { Principal } from "@/config";
 import { isAddress, SESSION_ID, sessionAddress } from "@/directory";
 import { Forbidden, InvalidMessage, Messages, NotFound, RateLimited, Refused, type SessionStream } from "@/messages";
+import type { Directives } from "@/directives";
 import { createMcpFetch, MCP_PATH } from "@/mcp";
 import { RateLimiter } from "@/ratelimit";
 
@@ -13,6 +14,7 @@ const MAX_BODY = 64 * 1024;
 
 export interface RouteDeps {
   messages: Messages;
+  directives: Directives;
   verify: Verifier;
   log: (line: Record<string, unknown>) => void;
   /** Per-principal budgets. Injected so a test can hand in small numbers instead of waiting. */
@@ -157,6 +159,19 @@ async function route(deps: RouteDeps, request: Request, url: URL): Promise<Respo
     const body = await readJson(request);
     if (typeof body.stream !== "string") throw new InvalidMessage("stream is required");
     return json(messages.confirm(principal, match[1]!, body.stream));
+  }
+  match = /^\/v1\/directives\/([^/]+)\/done$/.exec(path);
+  if (method === "POST" && match) {
+    // A sidecar answering the directive its stream carried. The id is unguessable and the entry
+    // remembers which machine it was pushed to, so this is confirmation, not a new capability.
+    const body = await readJson(request);
+    return json(deps.directives.confirm(principal, match[1]!, {
+      ok: body.ok === true,
+      ...(typeof body.anchor === "string" ? { anchor: body.anchor } : {}),
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(typeof body.status === "string" ? { status: body.status } : {}),
+      ...(typeof body.error === "string" ? { error: body.error } : {}),
+    }));
   }
   match = /^\/v1\/messages\/([^/]+)\/cancel$/.exec(path);
   if (method === "POST" && match) return json(messages.cancel(principal, match[1]!));

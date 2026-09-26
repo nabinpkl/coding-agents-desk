@@ -61,7 +61,7 @@ function compactEntry(entry: DirectoryEntry) {
   return { address: entry.address, name: entry.name, machine: entry.machine, reachability: entry.reachability, cwd: entry.cwd };
 }
 
-export function buildMcpServer(deps: Pick<RouteDeps, "messages" | "limiter">): McpServer {
+export function buildMcpServer(deps: Pick<RouteDeps, "messages" | "limiter" | "directives">): McpServer {
   const server = new McpServer(
     { name: "agent-hub", version: "0.1.0" },
     { capabilities: { tools: { listChanged: true } } },
@@ -147,6 +147,28 @@ export function buildMcpServer(deps: Pick<RouteDeps, "messages" | "limiter">): M
         const { identified } = context();
         deps.limiter?.take(identified.clientId, "reads", "mcp hub_directory");
         return text(deps.messages.directory.list(Date.now()).map(compactEntry));
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "set_task",
+    {
+      description: "Rename this opencode session's bracket task: the stable anchor stays, the bracket says what the session is working on. session_id names the opencode session sending, as shown in hub_directory. Refused when the session is in no Bot, or nothing holds its stream right now.",
+      inputSchema: {
+        session_id: z.string(),
+        task: z.string(),
+      },
+    },
+    async ({ session_id, task }: { session_id: string; task: string }) => {
+      try {
+        const { identified } = context();
+        deps.limiter?.take(identified.clientId, "writes", "mcp set_task");
+        const done = await deps.directives.renameBracket(identified.principal, session_id, task);
+        if (!done.ok) return failure(done.error ?? "the rename did not happen");
+        return text(done);
       } catch (error) {
         return failure(error);
       }

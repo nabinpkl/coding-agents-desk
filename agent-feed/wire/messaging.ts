@@ -146,4 +146,5 @@ export interface PublishBotsRequest {
 /** What a relay child's stream carries, as SSE `data:` lines. */
 export type HubStreamEvent =
   | { type: "hello"; address: SessionAddress; channel: boolean }
-  | { type: "message"; message: Message; fromName: string };
+  | { type: "message"; message: Message; fromName: string }
+  | { type: "directive"; id: string; kind: "rename-bracket"; task: string };

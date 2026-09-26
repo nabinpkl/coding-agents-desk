@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import { createVerifier } from "@/auth";
 import { parsePrincipals, type HubConfig } from "@/config";
+import { Directives } from "@/directives";
 import { Messages } from "@/messages";
 import { createFetch } from "@/routes";
 import { HubStore } from "@/store";
@@ -115,7 +116,8 @@ beforeAll(async () => {
     ownerEmail: "owner@example.com",
   };
   const messages = new Messages(new HubStore(":memory:"));
-  hub = Bun.serve({ port: 0, idleTimeout: 60, fetch: createFetch({ messages, verify: createVerifier(config), log: () => {} }) });
+  const directives = new Directives(messages);
+  hub = Bun.serve({ port: 0, idleTimeout: 60, fetch: createFetch({ messages, directives, verify: createVerifier(config), log: () => {} }) });
 });
 
 afterAll(() => {

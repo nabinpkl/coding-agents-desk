@@ -80,4 +80,42 @@ describe("runChannelLoop", () => {
     expect(notes[0]!.meta.message_id).toBe("m1");
     expect(confirmed[0]).toEqual({ path: "/v1/messages/m1/delivered", body: { stream: "s1" }, id: "cid" });
   });
+
+  test("a directive on the stream is ignored, never notified and never confirmed", async () => {
+    const confirmed: unknown[] = [];
+    const encoder = new TextEncoder();
+    fake = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/v1/stream") {
+          return new Response(new ReadableStream({
+            start(c) {
+              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`));
+              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "directive", id: "d1", kind: "rename-bracket", task: "night shift", streamId: "s1" })}\n\n`));
+            },
+          }), { headers: { "content-type": "text/event-stream" } });
+        }
+        confirmed.push({ path: url.pathname, body: await request.json() });
+        return Response.json({ ok: true });
+      },
+    });
+    const hub = new HubClient({ url: `http://127.0.0.1:${fake.port}`, machine: "mac", clientId: "cid", clientSecret: "secret" });
+    const notes: ChannelNotification[] = [];
+    const stop = new AbortController();
+    const loop = runChannelLoop({
+      hub,
+      readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
+      notify: async (n) => {
+        notes.push(n);
+      },
+      log: () => {},
+      sleep: async () => {},
+    }, stop.signal);
+    await Bun.sleep(100);
+    stop.abort();
+    await loop;
+    expect(notes).toHaveLength(0);
+    expect(confirmed).toHaveLength(0);
+  });
 });

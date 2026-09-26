@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createVerifier } from "@/auth";
 import { loadConfig } from "@/config";
+import { Directives } from "@/directives";
 import { Messages } from "@/messages";
 import { RateLimiter } from "@/ratelimit";
 import { createFetch } from "@/routes";
@@ -15,6 +16,7 @@ mkdirSync(dirname(config.dbFile), { recursive: true });
 const store = new HubStore(config.dbFile);
 store.disconnectAll();
 const messages = new Messages(store);
+const directives = new Directives(messages);
 const log = (line: Record<string, unknown>) => console.log(JSON.stringify({ at: new Date().toISOString(), ...line }));
 
 const server = Bun.serve({
@@ -22,7 +24,7 @@ const server = Bun.serve({
   port: config.port,
   // Streams hold connections open; the heartbeat keeps them under this.
   idleTimeout: 60,
-  fetch: createFetch({ messages, verify: createVerifier(config), log, limiter: new RateLimiter() }),
+  fetch: createFetch({ messages, directives, verify: createVerifier(config), log, limiter: new RateLimiter() }),
 });
 
 const sweep = setInterval(() => {

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { createVerifier } from "@/auth";
 import { parsePrincipals, type HubConfig } from "@/config";
+import { Directives } from "@/directives";
 import { Messages } from "@/messages";
 import { RateLimiter, type Limits } from "@/ratelimit";
 import { createFetch } from "@/routes";
@@ -34,10 +35,11 @@ beforeAll(async () => {
     ownerEmail: null,
   };
   const messages = new Messages(new HubStore(":memory:"));
+  const directives = new Directives(messages);
   hub = Bun.serve({
     port: 0,
     idleTimeout: 60,
-    fetch: createFetch({ messages, verify: createVerifier(config), log: () => {}, limiter: new RateLimiter(LIMITS, () => 0) }),
+    fetch: createFetch({ messages, directives, verify: createVerifier(config), log: () => {}, limiter: new RateLimiter(LIMITS, () => 0) }),
   });
 });
 
