@@ -42,6 +42,7 @@ beforeAll(async () => {
     dbFile: ":memory:",
     access: { teamDomain: TEAM, audience: AUD, jwksUrl: `http://127.0.0.1:${jwks.port}/certs` },
     principals: parsePrincipals("mac.access=mac:mac:human,annotator.access=annotator::human"),
+    ownerEmail: null,
   };
   const messages = new Messages(new HubStore(":memory:"));
   hub = Bun.serve({ port: 0, idleTimeout: 60, fetch: createFetch({ messages, verify: createVerifier(config), log: () => {} }) });

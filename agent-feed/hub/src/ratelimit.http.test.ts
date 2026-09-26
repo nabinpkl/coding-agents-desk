@@ -31,6 +31,7 @@ beforeAll(async () => {
     dbFile: ":memory:",
     access: { teamDomain: TEAM, audience: AUD, jwksUrl: `http://127.0.0.1:${jwks.port}/certs` },
     principals: parsePrincipals("mac.access=mac:mac:human,oracle.access=oracle:oracle,annotator.access=annotator::human"),
+    ownerEmail: null,
   };
   const messages = new Messages(new HubStore(":memory:"));
   hub = Bun.serve({

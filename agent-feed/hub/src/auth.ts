@@ -1,5 +1,9 @@
-// Every request except /health carries a Cloudflare Access JWT. Only service tokens named in
+// Every request except /health carries a Cloudflare Access JWT. Service tokens named in
 // HUB_PRINCIPALS are accepted, and what each may do comes from that table, never from the request.
+// The owner is the second way in: a Managed OAuth user token whose email matches HUB_OWNER_EMAIL
+// identifies as themselves rather than as a machine, and may speak as a session on any machine
+// plus as human. One owner owns all machines, so scoping an owner login to one of them would be
+// theatre; the email allowlist of exactly one is the whole boundary.
 
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { HubConfig, Principal } from "@/config";
@@ -34,7 +38,12 @@ export function createVerifier(config: HubConfig): Verifier {
     }
     const clientId = typeof payload.common_name === "string" ? payload.common_name : "";
     const principal = config.principals.get(clientId);
-    if (!principal) throw new Unauthorized(clientId ? `service token ${clientId} is not a hub principal` : "only service tokens may use the hub");
-    return { principal, clientId };
+    if (principal) return { principal, clientId };
+    const email = typeof payload.email === "string" ? payload.email : "";
+    if (config.ownerEmail && email === config.ownerEmail) {
+      return { principal: { label: "owner", machine: null, human: true, owner: true }, clientId: email };
+    }
+    if (clientId) throw new Unauthorized(`service token ${clientId} is not a hub principal`);
+    throw new Unauthorized("only service tokens and the owner may use the hub");
   };
 }

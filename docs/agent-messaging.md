@@ -178,6 +178,11 @@ body text
   - Machine tokens (one Access service token per machine) may speak only as `claude:` or
     `opencode:` sessions that are present from that machine.
   - Surface tokens (the annotator server and the agent-desk panel backend) may speak as `human`.
+  - **Owner login (Managed OAuth, owner email only):** the owner authenticates as themselves and
+    may speak as a session on any machine plus as human. A machine token is scoped to its machine;
+    an owner login carries no machine, and scoping it to one would be theatre, since one owner owns
+    all machines. The email allowlist of exactly one is the whole boundary. The curated-session
+    rule still applies: the owner speaks as sessions, but only sessions in a published Bot.
   - **Known limit:** any local process holding a machine's token can claim any session on that machine. This is accepted for one owner and written down.
 - **The envelope cannot be forged:** the hub refuses (400) a body that contains `<channel` or `</channel`. The sender gets the error rather than a silently escaped message.
 - **Loops are bounded:**

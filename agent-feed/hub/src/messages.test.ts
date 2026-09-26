@@ -4,9 +4,9 @@ import type { Principal } from "@/config";
 import { Forbidden, InvalidMessage, LIMITS, Messages, NotFound, RateLimited, Refused, type SessionStream } from "@/messages";
 import { HubStore } from "@/store";
 
-const MAC: Principal = { label: "mac", machine: "mac", human: true };
-const ORACLE: Principal = { label: "oracle", machine: "oracle", human: false };
-const ANNOTATOR: Principal = { label: "annotator", machine: null, human: true };
+const MAC: Principal = { label: "mac", machine: "mac", human: true, owner: false };
+const ORACLE: Principal = { label: "oracle", machine: "oracle", human: false, owner: false };
+const ANNOTATOR: Principal = { label: "annotator", machine: null, human: true, owner: false };
 
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";

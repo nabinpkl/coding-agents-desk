@@ -30,13 +30,32 @@ async function token(commonName: string): Promise<string> {
     .sign(key);
 }
 
+/** A Managed OAuth user token carries an email, not a service-token client id. */
+async function emailToken(email: string): Promise<string> {
+  return new SignJWT({ email })
+    .setProtectedHeader({ alg: "RS256", kid: "k1" })
+    .setIssuer(`https://${TEAM}`)
+    .setAudience(AUD)
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(key);
+}
+
 // Small helper because the SDK Client takes its transport at connect time, not construction.
 async function connect(as?: string): Promise<Client> {
   const init: RequestInit = {};
   if (as) init.headers = { "cf-access-jwt-assertion": await token(as) };
+  return connectWith(init);
+}
+
+async function connectWith(init: RequestInit): Promise<Client> {
   const c = new Client({ name: "mcp-test", version: "0.0.0" });
   await c.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${hub.port}/mcp`), { requestInit: init }));
   return c;
+}
+
+async function connectEmail(email: string): Promise<Client> {
+  return connectWith({ headers: { "cf-access-jwt-assertion": await emailToken(email) } });
 }
 
 async function rpc(path: string, init: RequestInit & { as?: string } = {}): Promise<Response> {
@@ -93,6 +112,7 @@ beforeAll(async () => {
     dbFile: ":memory:",
     access: { teamDomain: TEAM, audience: AUD, jwksUrl: `http://127.0.0.1:${jwks.port}/certs` },
     principals: parsePrincipals("mac.access=mac:mac:human,annotator.access=annotator::human"),
+    ownerEmail: "owner@example.com",
   };
   const messages = new Messages(new HubStore(":memory:"));
   hub = Bun.serve({ port: 0, idleTimeout: 60, fetch: createFetch({ messages, verify: createVerifier(config), log: () => {} }) });
@@ -111,6 +131,43 @@ describe("mcp auth", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } } }),
     });
     expect(response.status).toBe(401);
+  });
+});
+
+describe("mcp owner login", () => {
+  test("the owner speaks as a session without belonging to a machine", async () => {
+    const a = await streamSession(A);
+    try {
+      await publish([["abot", A]]);
+      const c = await connectEmail("owner@example.com");
+      try {
+        const sent = await c.callTool({ name: "hub_send", arguments: { to: "human", body: "owner note", kind: "notice", session_id: A } });
+        expect(sent.isError).toBeFalsy();
+        expect(JSON.parse((sent.content as [{ text: string }])[0]!.text)).toMatchObject({ from: `opencode:${A}`, to: "human" });
+      } finally {
+        await c.close();
+      }
+    } finally {
+      a.close();
+    }
+  });
+
+  test("any other email is refused at the door", async () => {
+    await expect(connectEmail("someone.else@example.com")).rejects.toThrow();
+  });
+
+  test("without HUB_OWNER_EMAIL even the owner is a stranger", async () => {
+    const { createVerifier } = await import("@/auth");
+    const { parsePrincipals } = await import("@/config");
+    const verify = createVerifier({
+      host: "127.0.0.1",
+      port: 0,
+      dbFile: ":memory:",
+      access: { teamDomain: TEAM, audience: AUD, jwksUrl: `http://127.0.0.1:${jwks.port}/certs` },
+      principals: parsePrincipals("mac.access=mac:mac:human"),
+      ownerEmail: null,
+    });
+    await expect(verify(await emailToken("owner@example.com"))).rejects.toThrow("only service tokens and the owner may use the hub");
   });
 });
 

@@ -147,7 +147,12 @@ export class Messages {
     const session = sessionAddress(as);
     if (!session) throw new InvalidMessage("as must be \"human\" or a session id");
     const row = this.store.getSession(session);
-    if (!principal.machine || !row || row.machine !== principal.machine || !row.connected) {
+    if (!row || !row.connected) {
+      throw new Forbidden(`${principal.label} has no live stream for ${session}`);
+    }
+    // Service tokens speak for their own machine's sessions. The owner carries no machine and may
+    // speak as a session on any of them; the curation check below still applies either way.
+    if (!principal.owner && (!principal.machine || row.machine !== principal.machine)) {
       throw new Forbidden(`${principal.label} has no live stream for ${session}`);
     }
     // A session in no Bot does not take part in messaging. The Bot grouping is the owner's curation

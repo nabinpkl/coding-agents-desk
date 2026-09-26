@@ -10,6 +10,12 @@ export interface Principal {
   human: boolean;
   /** Short label for logs. */
   label: string;
+  /**
+   * Whether this is the owner logging in as themselves (Managed OAuth, owner email only) rather
+   * than a machine service token. An owner login carries no machine, so it may speak as a session
+   * on any machine: the owner owns all of them. Recorded deliberately; see docs/agent-messaging.md.
+   */
+  owner: boolean;
 }
 
 export interface HubConfig {
@@ -23,6 +29,12 @@ export interface HubConfig {
     jwksUrl: string;
   };
   principals: Map<string, Principal>;
+  /**
+   * The owner email allowed in as themselves through Managed OAuth. Null disables owner login:
+   * the hub then speaks only to service tokens. Set from HUB_OWNER_EMAIL, which is optional
+   * precisely so an existing deploy boots unchanged until its .env grows the line.
+   */
+  ownerEmail: string | null;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -44,7 +56,7 @@ export function parsePrincipals(text: string): Map<string, Principal> {
     const [label, machine, flag] = spec.split(":");
     if (!label) throw new Error(`HUB_PRINCIPALS entry has no label: ${entry}`);
     if (flag !== undefined && flag !== "human" && flag !== "") throw new Error(`HUB_PRINCIPALS flag must be "human": ${entry}`);
-    principals.set(clientId, { label, machine: machine ? machine : null, human: flag === "human" });
+    principals.set(clientId, { label, machine: machine ? machine : null, human: flag === "human", owner: false });
   }
   if (principals.size === 0) throw new Error("HUB_PRINCIPALS names no tokens");
   return principals;
@@ -64,5 +76,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
       jwksUrl: env.HUB_JWKS_URL?.trim() || `https://${teamDomain}/cdn-cgi/access/certs`,
     },
     principals: parsePrincipals(required(env, "HUB_PRINCIPALS")),
+    ownerEmail: env.HUB_OWNER_EMAIL?.trim() || null,
   };
 }
