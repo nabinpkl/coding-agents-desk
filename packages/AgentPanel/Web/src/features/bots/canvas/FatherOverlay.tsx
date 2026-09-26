@@ -119,7 +119,7 @@ export function FatherOverlay({
       id="father-home"
       aria-label="Father home"
       style={{ height: resize.height }}
-      className="absolute inset-x-3 top-3 z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+      className="absolute inset-x-3 top-0 z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
       {...drop.dropProps}
     >
       <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
