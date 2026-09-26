@@ -31,3 +31,48 @@ export function runtimesOf(entry: DirectoryEntry): string[] {
   }
   return [...fromMembers].sort();
 }
+
+/** One pickable recipient, and the group it sits under. */
+export interface RecipientGroup {
+  /**
+   * The Bot's name, or null for a session that belongs to no Bot. Null rather than a word here,
+   * because "belongs to no Bot" is a fact and "Sessions" is a heading the caller words; this
+   * module decides who is under what, not what the column above them is called.
+   */
+  label: string | null;
+  entries: DirectoryEntry[];
+}
+
+/**
+ * The recipient picker, grouped by the Bot a session belongs to.
+ *
+ * A Bot is not something you can talk to. The hub resolves `bot:<id>` to whichever member session
+ * is live at delivery time, so picking a Bot picks a session by a rule the reader cannot see, and
+ * two Bots whose sessions overlap are indistinguishable. The Bot's name is therefore only a group
+ * label here, and the options under it are the sessions that will actually receive the message.
+ *
+ * Loose sessions come last under their own heading, so a session with no Bot is still one click
+ * away and the list of everything reachable is still one list.
+ */
+export function recipientGroups(directory: DirectoryEntry[]): RecipientGroup[] {
+  const byAddress = new Map(directory.map((entry) => [entry.address, entry]));
+  const sessions = directory.filter((entry) => runtimeOf(entry.address) !== null);
+  const claimed = new Set<string>();
+  const groups: RecipientGroup[] = [];
+
+  for (const bot of directory.filter((entry) => entry.address.startsWith("bot:"))) {
+    const members = bot.related
+      .map((address) => byAddress.get(address))
+      .filter(
+        (entry): entry is DirectoryEntry =>
+          entry !== undefined && runtimeOf(entry.address) !== null && !claimed.has(entry.address),
+      );
+    if (members.length === 0) continue;
+    for (const member of members) claimed.add(member.address);
+    groups.push({ label: bot.name, entries: members });
+  }
+
+  const loose = sessions.filter((entry) => !claimed.has(entry.address));
+  if (loose.length > 0) groups.push({ label: null, entries: loose });
+  return groups;
+}

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import { isCancellable, isUnanswered, messageTime, threadState, threadStateLabel } from "@/features/messages/messageState";
-import { runtimesOf } from "@/features/messages/hubRuntime";
+import { recipientGroups, runtimesOf } from "@/features/messages/hubRuntime";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
@@ -17,17 +17,14 @@ function isReachable(address: string, directory: DirectoryEntry[]): boolean {
 }
 
 /**
- * One recipient's name in the picker, with its runtime and whether anyone is there.
+ * One session's name in the picker, with whether anyone is there to receive it.
  *
- * The runtime is spelled out here rather than badged, because an `option` cannot hold a badge and
- * a reader choosing between two Bots of the same name needs the distinction in the text they are
- * about to pick from.
+ * No runtime here. The runtime is on the thread row, where it is the thing being told apart, and a
+ * reader choosing between four sessions of one Bot is choosing between four names, not four
+ * providers; repeating "opencode" on all four spends the width the names needed.
  */
 function optionLabel(entry: DirectoryEntry): string {
-  const runtime = runtimesOf(entry).join(" + ");
-  return [entry.name, runtime, entry.reachability === "reachable" ? "" : "no live session"]
-    .filter(Boolean)
-    .join(" · ");
+  return entry.reachability === "reachable" ? entry.name : `${entry.name} · no live session`;
 }
 
 interface MessagesPanelProps {
@@ -56,8 +53,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
 
   const { state, addressable } = messages;
   const directory = state.kind === "ready" ? state.directory : [];
-  const bots = useMemo(() => addressable.filter((entry) => entry.address.startsWith("bot:")), [addressable]);
-  const sessions = useMemo(() => addressable.filter((entry) => !entry.address.startsWith("bot:")), [addressable]);
+  const groups = useMemo(() => recipientGroups(addressable), [addressable]);
   const reachable = to ? isReachable(to, directory) : false;
 
   const submit = async (event: FormEvent) => {
@@ -101,25 +97,16 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
             onChange={(event) => setTo(event.target.value)}
             className="min-w-0 flex-1 bg-transparent text-(length:--agent-panel-fs-sidebar-body,15px) outline-none"
           >
-            <option value="">Pick a recipient…</option>
-            {bots.length > 0 ? (
-              <optgroup label="Bots">
-                {bots.map((entry) => (
+            <option value="">Pick a session…</option>
+            {groups.map((group) => (
+              <optgroup key={group.label ?? "sessions"} label={group.label ?? "Sessions"}>
+                {group.entries.map((entry) => (
                   <option key={entry.address} value={entry.address}>
                     {optionLabel(entry)}
                   </option>
                 ))}
               </optgroup>
-            ) : null}
-            {sessions.length > 0 ? (
-              <optgroup label="Sessions">
-                {sessions.map((entry) => (
-                  <option key={entry.address} value={entry.address}>
-                    {optionLabel(entry)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
+            ))}
           </select>
         </label>
         <div className="flex items-start gap-2 p-3">
@@ -133,7 +120,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
                 if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submit(event);
               }}
               rows={2}
-              placeholder={to ? (reachable ? "Message" : "Held until a live session") : "Write, then pick a recipient"}
+              placeholder={to ? (reachable ? "Message" : "Held until a live session") : "Write, then pick a session"}
               className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-(length:--agent-panel-fs-sidebar-body,15px) outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
             />
           </label>

@@ -36,6 +36,7 @@ const directory: DirectoryEntry[] = [
   { address: "bot:fixer", name: "Site fixer", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["opencode:ses_1"], cwd: "/work/site" },
   { address: "bot:sleeping", name: "Sleeping bot", machine: "mac", reachability: "offline", lastSeenAt: null, related: [], cwd: "/work/site" },
   { address: "opencode:ses_1", name: "OpenCode session", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+  { address: "opencode:ses_2", name: "OpenCode session 2", machine: "oracle", reachability: "offline", lastSeenAt: null, related: ["bot:sleeping"], cwd: "/work/site" },
 ];
 
 function feed(over: Record<string, unknown> = {}): HubHandle {
@@ -106,17 +107,51 @@ describe("MessagesPanel", () => {
     expect(within(threads).queryByText("Claude")).toBeNull();
   });
 
-  test("a Bot with no live session is named as such, and the message waits rather than failing", async () => {
+  test("a session with no live session is named as such, and the message waits rather than failing", async () => {
     const data = feed();
     render(<Harness data={data} />);
     await screen.findByText("No messages yet");
-    fireEvent.change(screen.getByLabelText("To"), { target: { value: "bot:sleeping" } });
-    expect(screen.getByRole("option", { name: "Sleeping bot · no live session" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "opencode:ses_2" } });
+    expect(screen.getByRole("option", { name: "OpenCode session 2 · no live session" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "when you are up" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => {
-      expect(data.send).toHaveBeenCalledWith({ to: "bot:sleeping", body: "when you are up" });
+      expect(data.send).toHaveBeenCalledWith({ to: "opencode:ses_2", body: "when you are up" });
     });
+  });
+
+  test("the picker offers sessions, grouped under the Bot they belong to", async () => {
+    // A Bot is not something you can talk to: the hub resolves `bot:<id>` to whichever member
+    // session is live at delivery time, so offering a Bot as a choice picks a session by a rule
+    // the reader cannot see. The Bot's name is a group label and the options are its sessions.
+    const data = feed({
+      directory: vi.fn(async () => [
+        { address: "human", name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
+        {
+          address: "bot:fixer",
+          name: "Site fixer",
+          machine: "mac",
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: ["opencode:ses_1", "opencode:ses_2"],
+          cwd: "/work/site",
+        },
+        { address: "opencode:ses_1", name: "Fix the header", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+        { address: "opencode:ses_2", name: "Fix the footer", machine: "mac", reachability: "offline", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+        { address: "opencode:ses_9", name: "Loose session", machine: "mac", reachability: "reachable", lastSeenAt: null, related: [], cwd: "/work/other" },
+      ]),
+    });
+    render(<Harness data={data} />);
+    await screen.findByText("No messages yet");
+    const picker = screen.getByLabelText("To");
+    const groups = within(picker).getAllByRole("group").map((group) => group.getAttribute("label"));
+    expect(groups).toEqual(["Site fixer", "Sessions"]);
+    // The Bot itself is not a choice, only a heading.
+    expect(within(picker).queryByRole("option", { name: /^Site fixer/ })).toBeNull();
+    expect(within(picker).getByRole("option", { name: "Fix the header" })).toBeTruthy();
+    expect(within(picker).getByRole("option", { name: "Fix the footer · no live session" })).toBeTruthy();
+    // And the loose session is still one click away, not filtered out by the grouping.
+    expect(within(picker).getByRole("option", { name: "Loose session" })).toBeTruthy();
   });
 
   test("an agent's question carries a reply field that answers in its thread", async () => {
