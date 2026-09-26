@@ -54,9 +54,9 @@ Every client signs in with OAuth through Cloudflare Access. Only the owner's ema
 
 ## Operations
 
-The server and a cloudflared tunnel run with docker compose on oracle (`~/apps/agentdesk-annotator/deploy`). Data lives in the `annotator-data` volume as one SQLite file, screenshots included.
+The server and a cloudflared tunnel run with docker compose on oracle (shipped tree at `~/.local/share/agentdesk/repo/agentdesk-annotator/deploy`). Data lives in the `annotator-data` volume as one SQLite file, screenshots included.
 
-- `just deploy`: pull, rebuild, restart, then run the edge e2e suite.
+- `just deploy`: ship, rebuild, restart, then run the edge e2e suite.
 - `just logs`: follow the server log (one JSON line per request, with the verified identity).
 - `just backup`: consistent snapshot to `/data/backups/`.
 - `just check`: typecheck, tests, and extension build locally.

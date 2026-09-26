@@ -46,7 +46,7 @@ server: auth/access-jwt → /mcp (MCP SDK) and /api/v1 (extension) → service �
 - `just check`: typecheck (server and extension), `node --test` for the server, extension build.
 - `just watch-extension`: dev-only rebuild and hot reload (`extension/src/dev/`, injected only by `build.ts --watch`; release builds never contain it).
 - `just e2e`: live edge suite from the mac (reads `~/.config/agentdesk-annotator/e2e.env`).
-- `just deploy`: pull on oracle, `docker compose up -d --build`, then run e2e on oracle.
+- `just deploy`: ship to oracle, `docker compose up -d --build`, then run e2e on oracle.
 - `just logs`, `just backup` (SQLite `VACUUM INTO` inside the data volume).
 
 ## Response completion

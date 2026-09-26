@@ -25,15 +25,17 @@ watch-extension:
 e2e env="~/.config/agentdesk-annotator/e2e.env":
   set -a && . {{env}} && set +a && node --test "e2e/**/*.test.ts"
 
-# Deploy main to oracle: pull, rebuild, restart, then run the edge e2e there.
+# Deploy the shipped tree on oracle: ship it current, rebuild, restart, then run the edge e2e there.
+# Delivery is rsync (ship/watch), not git: the tree at $HOME/.local/share/agentdesk/repo is the build context.
 deploy:
-  ssh oracle 'cd ~/apps/agentdesk-annotator && git pull --ff-only && cd deploy && docker compose up -d --build && docker compose ps'
-  ssh oracle 'cd ~/apps/agentdesk-annotator && npm ci --silent && set -a && . deploy/.env && set +a && node --test "e2e/**/*.test.ts"'
+  bash ../tools/remote-sidecar.sh ship oracle
+  ssh oracle 'cd $HOME/.local/share/agentdesk/repo/agentdesk-annotator/deploy && docker compose up -d --build && docker compose ps'
+  ssh oracle 'cd $HOME/.local/share/agentdesk/repo/agentdesk-annotator && npm ci --silent && set -a && . deploy/.env && set +a && node --test "e2e/**/*.test.ts"'
 
 # Tail production logs on oracle.
 logs:
-  ssh oracle 'cd ~/apps/agentdesk-annotator/deploy && docker compose logs -f --tail 100 server'
+  ssh oracle 'cd $HOME/.local/share/agentdesk/repo/agentdesk-annotator/deploy && docker compose logs -f --tail 100 server'
 
 # Consistent SQLite snapshot into the data volume's backups/ directory.
 backup:
-  ssh oracle 'cd ~/apps/agentdesk-annotator/deploy && docker compose exec -T server node server/src/backup.ts'
+  ssh oracle 'cd $HOME/.local/share/agentdesk/repo/agentdesk-annotator/deploy && docker compose exec -T server node server/src/backup.ts'
