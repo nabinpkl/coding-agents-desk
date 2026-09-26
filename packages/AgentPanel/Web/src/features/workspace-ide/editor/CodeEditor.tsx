@@ -53,14 +53,14 @@ const PAINTED = "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-
 export function CodeEditor({
   path,
   text,
-  readOnly,
   onChange,
 }: {
   path: string;
   text: string;
-  readOnly: boolean;
-  onChange: (text: string) => void;
+  /** Absent for a file that is only read: the same surface, with the caret but no typing. */
+  onChange?: (text: string) => void;
 }) {
+  const readOnly = onChange === undefined;
   // The path, not an extension pulled off it: the highlighter takes a file name as readily as a
   // fence language, which is what gives `Justfile` and `Dockerfile` a grammar at all.
   const { highlighter, lang } = useCodeHighlighting(path);
@@ -159,14 +159,14 @@ export function CodeEditor({
         ref={input}
         value={text}
         readOnly={readOnly}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => onChange?.(event.target.value)}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
         // The attribute rather than the CSS: `white-space` decides how the VALUE is painted, and
         // only `wrap` decides whether the control soft-wraps it in the first place.
         wrap="off"
-        aria-label={`Edit ${path.split("/").pop() ?? path}`}
+        aria-label={`${readOnly ? "Source of" : "Edit"} ${path.split("/").pop() ?? path}`}
         style={{ left: gutterWidth }}
         className={`${LAYER} ${CODE} absolute inset-y-0 right-0 resize-none overflow-auto border-0
           bg-transparent text-transparent caret-foreground outline-none

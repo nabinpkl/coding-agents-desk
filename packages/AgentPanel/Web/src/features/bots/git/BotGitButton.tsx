@@ -10,15 +10,20 @@ import { useState } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotGitDialog } from "@/features/bots/git/BotGitDialog";
-import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
+import type { BotGitState } from "@/features/bots/git/useBotGitStatus";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
-export function BotGitButton({ bot, feed }: { bot: BotView; feed: SidecarDataSource }) {
-  const { status, error } = useBotGitStatus(
-    feed,
-    bot.botId,
-    bot.environmentAvailability === "available",
-  );
+export function BotGitButton({
+  bot,
+  feed,
+  git,
+}: {
+  bot: BotView;
+  feed: SidecarDataSource;
+  /** The card's one subscription, which the code button reads too. */
+  git: BotGitState;
+}) {
+  const { status, error } = git;
   const [open, setOpen] = useState(false);
 
   if (status === null && error === null) return null;

@@ -164,7 +164,10 @@ const routes: RouteHandler[] = [
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
   createInventoryRoutes(describeAgentSession),
-  createBotRoutes(botRegistry, repositoryGitWatch),
+  createBotRoutes(botRegistry, repositoryGitWatch, {
+    maxTextBytes: config.workspaceMaxTextBytes,
+    maxDocumentBytes: config.workspaceMaxDocumentBytes,
+  }),
   createAgentTerminalRoutes(agentTerminals),
   createTmuxRoutes(),
   createAgentRoutes(resolveBackend),

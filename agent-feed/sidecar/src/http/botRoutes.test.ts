@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BotView } from "@agentdesk/agent-feed-wire";
@@ -9,6 +9,7 @@ import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 
 const server = { timeout() {} } as never;
 const repositories = new RepositoryGitWatch({ quietMs: 50, longestWaitMs: 200 });
+const LIMITS = { maxTextBytes: 64, maxDocumentBytes: 1024 };
 const bot: BotView = {
   botId: "bot-1",
   name: "Chief of Staff",
@@ -31,7 +32,7 @@ test("creates a Bot through the authenticated user route and returns its durable
       return bot;
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   const request = new Request("http://localhost/api/bots", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -66,7 +67,7 @@ test("adds sessions through the Bot-scoped route, existing or newly started", as
       return { bot };
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   const request = new Request("http://localhost/api/bots/bot-1/sessions", {
     method: "POST",
     body: JSON.stringify({
@@ -97,7 +98,7 @@ test("maps registry conflicts to a typed 409 response", async () => {
       throw new BotConflictError("selected session is already bound to a Bot");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   const request = new Request("http://localhost/api/bots", {
     method: "POST",
     body: JSON.stringify({ requestId: "request-1" }),
@@ -126,7 +127,7 @@ test("detaches sessions through a POST route the host relay can reach", async ()
       throw new Error("detach must not reach the attach path");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   // The relay admits GET and POST only, so removal is a POST to its own path rather than a DELETE
   // on the attach path. `/sessions` and `/sessions/detach` must therefore stay distinguishable.
   const request = new Request("http://localhost/api/bots/bot%201/sessions/detach", {
@@ -165,7 +166,7 @@ test("reorders sessions through a path of its own, so an order is never read as 
       throw new Error("an order must not reach the detach path");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   const request = new Request("http://localhost/api/bots/bot%201/sessions/order", {
     method: "POST",
     body: JSON.stringify({
@@ -200,7 +201,7 @@ test("leaves a DELETE on the sessions path unmatched rather than answering it", 
       throw new Error("a DELETE must not reach the registry");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   const request = new Request("http://localhost/api/bots/bot-1/sessions", { method: "DELETE" });
 
   expect(await route(request, new URL(request.url), server)).toBeUndefined();
@@ -217,7 +218,7 @@ test("routes a retire to its own path and hands the disposals through untouched"
       throw new Error("retire must not reach the detach path");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   // `/sessions`, `/sessions/detach` and `/sessions/retire` are three POSTs under one prefix, so the
   // thing worth asserting is that the deepest one does not fall into either of the others.
   const request = new Request("http://localhost/api/bots/bot%201/sessions/retire", {
@@ -279,7 +280,7 @@ test("streams the Bot's directory's git status, from no repository to one", asyn
         return { version: 2, revision: 1, bots: [{ ...bot, environment: { kind: "directory", path: root } }] };
       },
     } as unknown as BotRegistry;
-    const route = createBotRoutes(registry, repositories);
+    const route = createBotRoutes(registry, repositories, LIMITS);
     const stream = new Request("http://localhost/api/bots/bot-1/git/stream");
     const response = await route(stream, new URL(stream.url), server);
     expect(response?.headers.get("content-type")).toContain("text/event-stream");
@@ -306,5 +307,48 @@ test("streams the Bot's directory's git status, from no repository to one", asyn
     expect((await route(unknown, new URL(unknown.url), server))?.status).toBe(404);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reads a Bot's tree and files from its own directory, decorated from where it sits", async () => {
+  const top = await realpath(await mkdtemp(join(tmpdir(), "bot-files-route-")));
+  // The Bot is bound below the repository's top, so its paths and git's disagree by `app/`.
+  const root = join(top, "app");
+  try {
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "index.ts"), "export {};\n");
+    await writeFile(join(root, "big.txt"), "x".repeat(100));
+    await Bun.spawn(["git", "init", "--initial-branch=main"], { cwd: top, stdout: "ignore" }).exited;
+    const registry = {
+      async snapshot() {
+        return { version: 2, revision: 1, bots: [{ ...bot, environment: { kind: "directory", path: root } }] };
+      },
+    } as unknown as BotRegistry;
+    const route = createBotRoutes(registry, repositories, LIMITS);
+    const ask = async (path: string) => {
+      const request = new Request(`http://localhost${path}`);
+      return (await route(request, new URL(request.url), server))!;
+    };
+
+    const collapsed = await (await ask("/api/bots/bot-1/tree")).json() as { tree: { name: string; children: unknown[]; gitStatus: string | null }[] };
+    expect(collapsed.tree.map((node) => [node.name, node.gitStatus, node.children.length])).toEqual([
+      ["src", "??", 0],
+      ["big.txt", "??", 0],
+    ]);
+    const expanded = await (await ask("/api/bots/bot-1/tree?expanded=src")).json() as { tree: { children: { path: string }[] }[] };
+    expect(expanded.tree[0]!.children.map((node) => node.path)).toEqual(["src/index.ts"]);
+
+    expect(await (await ask("/api/bots/bot-1/file?path=src/index.ts")).json()).toEqual({
+      botId: "bot-1",
+      path: "src/index.ts",
+      kind: "text",
+      text: "export {};\n",
+    });
+    expect((await ask("/api/bots/bot-1/file?path=big.txt")).status).toBe(422);
+    expect((await ask("/api/bots/bot-1/file?path=gone.ts")).status).toBe(404);
+    expect((await ask("/api/bots/bot-1/file?path=../escape.ts")).status).toBeGreaterThanOrEqual(400);
+    expect((await ask("/api/bots/bot-1/file")).status).toBe(400);
+  } finally {
+    await rm(top, { recursive: true, force: true });
   }
 });

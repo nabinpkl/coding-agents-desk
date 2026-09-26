@@ -109,6 +109,26 @@ export async function gitStatus(workspaceId: string, root: string): Promise<Work
   return { workspaceId, branch: status?.branch ?? null, entries: status?.entries ?? [] };
 }
 
+/**
+ * The status entries beneath `directory`, with paths relative to it rather than to the top.
+ *
+ * Porcelain paths are always relative to the repository's top, and a tree drawn from a
+ * subdirectory names its paths from there, so a Bot bound to `repo/app` would otherwise decorate
+ * nothing. `--show-prefix` is git's own answer to where the directory sits, symlinks resolved.
+ * Empty outside a repository, for the reason `readGitStatus` answers null there.
+ */
+export async function directoryGitEntries(directory: string): Promise<WorkspaceGitEntry[]> {
+  const [status, prefix] = await Promise.all([
+    readGitStatus(directory),
+    git(["rev-parse", "--show-prefix"], directory),
+  ]);
+  if (!status || prefix.code !== 0) return [];
+  const base = prefix.out.trim();
+  return status.entries
+    .filter((entry) => entry.relativePath.startsWith(base))
+    .map((entry) => ({ ...entry, relativePath: entry.relativePath.slice(base.length) }));
+}
+
 /** Where a directory's repository lives: its working tree's top, and its git directory. */
 export interface RepositoryLocation {
   top: string;

@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 import type { BotGitStatus, BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotGitButton } from "@/features/bots/git/BotGitButton";
+import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 
 const bot: BotView = {
   botId: "bot-1",
@@ -17,6 +18,12 @@ const bot: BotView = {
   sessions: [],
   missingSessionRefs: [],
 };
+
+/** The button as the card mounts it: under the card's one git subscription. */
+function Following({ bot, feed }: { bot: BotView; feed: SidecarDataSource }) {
+  const git = useBotGitStatus(feed, bot.botId, bot.environmentAvailability === "available");
+  return <BotGitButton bot={bot} feed={feed} git={git} />;
+}
 
 function feedAnswering(status: BotGitStatus) {
   const botGitDiff = vi.fn(async (botId: string, path: string) => ({
@@ -45,7 +52,7 @@ it("counts the changed files and opens them as a list and a diff", async () => {
       { relativePath: "notes.md", indexStatus: "?", workTreeStatus: "?" },
     ],
   });
-  render(<BotGitButton bot={bot} feed={feed} />);
+  render(<Following bot={bot} feed={feed} />);
 
   const button = await screen.findByRole("button", { name: "Show git changes in Rags, 2 changed files" });
   expect(button.textContent).toBe("2");
@@ -67,7 +74,7 @@ it("counts the changed files and opens them as a list and a diff", async () => {
 
 it("draws nothing for a directory that is not in a repository", async () => {
   const { feed } = feedAnswering({ botId: "bot-1", repository: false, branch: null, entries: [] });
-  const { container } = render(<BotGitButton bot={bot} feed={feed} />);
+  const { container } = render(<Following bot={bot} feed={feed} />);
   await waitFor(() => expect(feed.subscribeBotGit).toHaveBeenCalled());
   await Promise.resolve();
   expect(container.innerHTML).toBe("");
@@ -80,7 +87,7 @@ it("says why when git cannot be read, instead of showing a zero", async () => {
       return () => {};
     }),
   } as unknown as SidecarDataSource;
-  render(<BotGitButton bot={bot} feed={feed} />);
+  render(<Following bot={bot} feed={feed} />);
   expect(await screen.findByRole("img", { name: "Git changes unavailable: the sidecar answered 500" }))
     .toBeTruthy();
 });
@@ -88,7 +95,7 @@ it("says why when git cannot be read, instead of showing a zero", async () => {
 it("follows nothing for a Bot whose directory is missing", () => {
   const { feed } = feedAnswering({ botId: "bot-1", repository: true, branch: "main", entries: [] });
   const { container } = render(
-    <BotGitButton bot={{ ...bot, environmentAvailability: "missing" }} feed={feed} />,
+    <Following bot={{ ...bot, environmentAvailability: "missing" }} feed={feed} />,
   );
   expect(feed.subscribeBotGit).not.toHaveBeenCalled();
   expect(container.innerHTML).toBe("");

@@ -1,8 +1,10 @@
 import type {
   AddBotCommand,
   AddBotSessionsCommand,
+  BotFileRead,
   BotGitDiff,
   BotGitStatus,
+  BotTree,
   DetachBotSessionsCommand,
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
@@ -23,17 +25,26 @@ import {
   startServerSentEventStream,
 } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
+import type { WorkspaceFileLimits } from "@/http/workspace-routes/workspaceFileRoutes";
 import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
-import { workingTreeFileDiff } from "@/workspace/workspaceGit";
+import { fileKind, readDocumentFile, readTextFile } from "@/workspace/workspaceFiles";
+import { directoryGitEntries, workingTreeFileDiff } from "@/workspace/workspaceGit";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
+import { buildTree } from "@/workspace/workspaceTree";
 
 const BOTS_ROUTE = "/api/bots";
 const BOTS_STREAM_ROUTE = "/api/bots/stream";
 const MAXIMUM_BODY_BYTES = 256 * 1024;
+/**
+ * How many expanded directories one tree request may name. Each one that is reachable costs a
+ * directory read, and the caller is unauthenticated; a reader expands a handful.
+ */
+const MAXIMUM_EXPANDED_PATHS = 512;
 
 export function createBotRoutes(
   registry: BotRegistry,
   repositories: RepositoryGitWatch,
+  limits: WorkspaceFileLimits,
 ): RouteHandler {
   return (request, url, server) => {
     if (request.method === "GET" && url.pathname === BOTS_ROUTE) {
@@ -100,6 +111,16 @@ export function createBotRoutes(
     const gitDiffMatch = /^\/api\/bots\/([^/]+)\/git\/diff$/.exec(url.pathname);
     if (request.method === "GET" && gitDiffMatch) {
       return botGitDiff(gitDiffMatch[1]!, url.searchParams.get("path"), registry);
+    }
+    // The Bot's files, read-only, for a quick look into its code. The IDE's tree and reads, with
+    // the Bot's directory as the root: see `BotTree` for why expansion travels with the request.
+    const treeMatch = /^\/api\/bots\/([^/]+)\/tree$/.exec(url.pathname);
+    if (request.method === "GET" && treeMatch) {
+      return botTree(treeMatch[1]!, url.searchParams.getAll("expanded"), registry);
+    }
+    const fileMatch = /^\/api\/bots\/([^/]+)\/file$/.exec(url.pathname);
+    if (request.method === "GET" && fileMatch) {
+      return botFile(fileMatch[1]!, url.searchParams.get("path"), registry, limits);
     }
     return undefined;
   };
@@ -175,6 +196,62 @@ async function botGitDiff(
     }
     return routeError(error);
   }
+}
+
+async function botTree(
+  botId: string,
+  expanded: string[],
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    if (expanded.length > MAXIMUM_EXPANDED_PATHS) {
+      throw new BotInvalidError(`at most ${MAXIMUM_EXPANDED_PATHS} expanded directories`);
+    }
+    const directory = await botDirectory(botId, registry);
+    const tree = await buildTree(directory, expanded, await directoryGitEntries(directory));
+    const answer: BotTree = { botId: decodeBotId(botId), tree };
+    return jsonResponse(answer);
+  } catch (error) {
+    return fileRouteError(error, null);
+  }
+}
+
+async function botFile(
+  botId: string,
+  path: string | null,
+  registry: BotRegistry,
+  limits: WorkspaceFileLimits,
+): Promise<Response> {
+  try {
+    if (!path) throw new BotInvalidError("path is required");
+    const directory = await botDirectory(botId, registry);
+    const kind = fileKind(path);
+    let text: string | null = null;
+    // A Word document is read to prove it is there and within bounds, and answered without its
+    // bytes: the IDE's preview has no renderer for it either, and says so by name.
+    if (kind === "docx") await readDocumentFile(directory, path, limits.maxDocumentBytes);
+    else text = (await readTextFile(directory, path, limits.maxTextBytes)).text;
+    const answer: BotFileRead = { botId: decodeBotId(botId), path, kind, text };
+    return jsonResponse(answer);
+  } catch (error) {
+    return fileRouteError(error, path);
+  }
+}
+
+/**
+ * The workspace's path refusals, spelled the way the Bot routes spell theirs. A path that is not
+ * there is a missing resource, one that escapes the directory is forbidden, and a file that is
+ * there but cannot be shown -- binary, too large, not UTF-8 -- says which in its message.
+ */
+function fileRouteError(error: unknown, path: string | null): Response {
+  if (!(error instanceof WorkspaceFailure)) return routeError(error);
+  const subject = path === null ? "" : ` (${path})`;
+  if (error.code === "notFound") {
+    return errorResponse("bot-path-not-found", `${error.message}${subject}`, 404);
+  }
+  if (error.code === "forbidden") return errorResponse("bot-forbidden", error.message, 403);
+  if (error.code === "invalidPath") return errorResponse("invalid-bot", error.message, 400);
+  return errorResponse("bot-file-unreadable", `${error.message}${subject}`, 422);
 }
 
 async function createBot(request: Request, registry: BotRegistry): Promise<Response> {

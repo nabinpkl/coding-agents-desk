@@ -12,8 +12,9 @@
  * That last part now lives one layer down, in `SidecarTranscript.ts`.
  *
  * The class is one API split across files by what its methods are about: this file holds the
- * inventory, the Bots, session commands, usage, config and the Desktop park, and inherits the
- * agent sessions, the terminals, the composers and the transcript from the layers under it. `sidecarRoutes.ts`
+ * inventory, the Bots, session commands, usage, config and the Desktop park, and inherits what is
+ * in a Bot's directory, the agent sessions, the terminals, the composers and the transcript from
+ * the layers under it. `sidecarRoutes.ts`
  * explains why it is a chain rather than a facade.
  */
 
@@ -21,8 +22,6 @@ import type {
   ActivityEvent,
   AddBotCommand,
   AddBotSessionsCommand,
-  BotGitDiff,
-  BotGitStatus,
   BotSessionsAdded,
   BotSnapshot,
   BotView,
@@ -47,7 +46,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
-import { SidecarAgentSessions } from "@/features/activity-feed/data-source/SidecarAgentSessions";
+import { SidecarBotDirectory } from "@/features/activity-feed/data-source/layers/SidecarBotDirectory";
 
 export { SidecarError, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 export type { TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
@@ -57,7 +56,7 @@ function summaryPath(session: SessionAddress): string {
 }
 
 /** The panel's data source when there is a sidecar behind the transport, which is always. */
-export class SidecarDataSource extends SidecarAgentSessions implements AgentDataSource {
+export class SidecarDataSource extends SidecarBotDirectory implements AgentDataSource {
 
   /**
    * The one config read, shared. Several features ask "what does this sidecar
@@ -232,41 +231,6 @@ export class SidecarDataSource extends SidecarAgentSessions implements AgentData
         `/api/bots/${encodeURIComponent(botId)}/canvas`,
         { body: command },
       ),
-    );
-  }
-
-  /**
-   * Follows what is uncommitted in the Bot's directory: the status now, and again whenever the
-   * sidecar's watch of that repository sees it move. Returns unsubscribe.
-   */
-  subscribeBotGit(
-    botId: string,
-    onStatus: (status: BotGitStatus) => void,
-    onError: (reason: string) => void,
-  ): () => void {
-    return this.transport.subscribe(`/api/bots/${encodeURIComponent(botId)}/git/stream`, {
-      onMessage: (payload) => {
-        try {
-          const message = JSON.parse(payload) as Partial<BotGitStatus> & {
-            error?: { message?: string };
-          };
-          if (message.error) onError(message.error.message ?? "Git stream failed");
-          else if (typeof message.repository === "boolean" && Array.isArray(message.entries)) {
-            onStatus(message as BotGitStatus);
-          } else onError("Git stream returned an invalid status");
-        } catch {
-          onError("Git stream returned malformed JSON");
-        }
-      },
-      onError,
-    });
-  }
-
-  /** One path's uncommitted change in the Bot's directory, against `HEAD`. */
-  async botGitDiff(botId: string, path: string): Promise<BotGitDiff> {
-    const query = new URLSearchParams({ path });
-    return parse<BotGitDiff>(
-      await this.transport.request("GET", `/api/bots/${encodeURIComponent(botId)}/git/diff?${query}`),
     );
   }
 

@@ -334,15 +334,41 @@ export class RepositoryGitWatch {
     if (!waiting) {
       waiting = new Set();
       this.plainDirectories.set(directory, waiting);
-      const onPath = (path: string): void => {
-        if (basename(path) !== ".git") return;
-        const subscriptions = [...(this.plainDirectories.get(directory) ?? [])];
-        this.plainDirectories.get(directory)?.clear();
-        for (const each of subscriptions) {
-          void this.attach(each).catch((error: unknown) =>
-            console.error("repository watch failed to start", directory, error),
-          );
+      // `git init` makes `.git` before it writes `HEAD`, and this watch sees `.git` appear once. A
+      // probe that lands in between finds no repository and would never be asked again, so every
+      // later event in the directory probes too while a `.git` is there -- one at a time, since a
+      // burst of writes is one question.
+      let probing = false;
+      let probeAgain = false;
+      const probe = async (): Promise<void> => {
+        if (probing) {
+          probeAgain = true;
+          return;
         }
+        probing = true;
+        try {
+          do {
+            probeAgain = false;
+            if (!(await repositoryLocation(directory))) continue;
+            const subscriptions = [...(this.plainDirectories.get(directory) ?? [])];
+            this.plainDirectories.get(directory)?.clear();
+            for (const each of subscriptions) {
+              void this.attach(each).catch((error: unknown) =>
+                console.error("repository watch failed to start", directory, error),
+              );
+            }
+            return;
+          } while (probeAgain);
+        } finally {
+          probing = false;
+        }
+      };
+      const onPath = (path: string): void => {
+        if (this.plainDirectories.get(directory)?.size === 0) return;
+        if (basename(path) !== ".git" && !existsSync(join(directory, ".git"))) return;
+        void probe().catch((error: unknown) =>
+          console.error("repository probe failed", directory, error),
+        );
       };
       const watch = repositoryEvents("folders", directory, onPath, (error) =>
         console.error("directory watch failed", directory, error),

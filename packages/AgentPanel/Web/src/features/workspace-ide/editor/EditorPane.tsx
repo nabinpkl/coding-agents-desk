@@ -5,33 +5,25 @@
 // terminal toggle used to be here too and is now on the IDE's status bar, at the edge of the pane
 // it opens rather than three controls away and above it.
 
-import { Eye, FileCode2, PanelLeft, Pencil } from "lucide-react";
+import { FileCode2, PanelLeft } from "lucide-react";
 import type { CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
 import { CommitDiffView, diffTargetLabel } from "@/features/workspace-ide/history/CommitDiff";
 import type { WorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
-import { CodeEditor } from "@/features/workspace-ide/editor/CodeEditor";
 import { EditorTabs } from "@/features/workspace-ide/editor/EditorTabs";
-import { FilePreview } from "@/features/workspace-ide/editor/FilePreview";
-
-// `grid-flow-col` on the labelled variant below, because `CONTROL` is a grid and a grid stacks its
-// children: the icon sat on top of its own label in both of the controls that carry one, inside a
-// button 28px tall. One row, not two.
-const LABELLED = "w-auto grid-flow-col gap-1 px-2 text-xs";
-
-const CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-foreground"
-  + " outline-none transition-colors hover:bg-muted/60 hover:text-foreground"
-  + " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-  + " aria-pressed:bg-muted aria-pressed:text-foreground";
+import {
+  FILE_CONTROL as CONTROL,
+  FILE_CONTROL_LABELLED as LABELLED,
+  FileBody,
+  FileViewToggle,
+  hasSource,
+} from "@/features/workspace-ide/editor/FileBody";
 
 export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffTab }) {
   const { activePath, openFiles, visibleOpenPaths, preferences } = ide;
   const file = activePath ? openFiles[activePath] : undefined;
-  // Which kinds open which way is `useWorkspaceIde`'s to answer, including the read-only ones, so
-  // that a kind's default lives in one place rather than half here and half beside the toggle.
+  // Whether this file is showing rendered is `useWorkspaceIde`'s to answer, from the reader's
+  // choice or the kind's default in `FileBody`, so a kind's default lives in one place.
   const preview = Boolean(file) && (activePath ? ide.isPreview(activePath) : false);
-  // Separately: whether there is an editor to switch TO. A notebook and a Word document are drawn
-  // from a parsed model and the sidecar refuses a write to either, so no toggle is offered.
-  const readOnlyKind = file?.kind === "docx" || file?.kind === "notebook";
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -100,17 +92,13 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
             </button>
           )
           : null}
-        {file && !readOnlyKind && !diff.active
+        {file && hasSource(file.kind) && !diff.active
           ? (
-            <button
-              type="button"
-              aria-label={preview ? "Edit file" : "Show file preview"}
-              onClick={() => ide.togglePreview(file.path)}
-              className={`${CONTROL} ${LABELLED}`}
-            >
-              {preview ? <Pencil className="size-3.5" /> : <Eye className="size-3.5" />}
-              {preview ? "Edit" : "Preview"}
-            </button>
+            <FileViewToggle
+              preview={preview}
+              editable
+              onToggle={() => ide.togglePreview(file.path)}
+            />
           )
           : null}
       </div>
@@ -157,16 +145,7 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
             />
           )
           : file && ide.workspaceId
-          ? (preview
-            ? <FilePreview file={file} />
-            : (
-              <CodeEditor
-                path={file.path}
-                text={file.text}
-                readOnly={false}
-                onChange={(text) => ide.edit(file.path, text)}
-              />
-            ))
+          ? <FileBody file={file} preview={preview} onChange={(text) => ide.edit(file.path, text)} />
           : (
             <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
               {ide.loadingPath ? "Opening file…" : "Open a file from the explorer"}

@@ -4,10 +4,20 @@
 // markdown-it, its own mermaid and its own notebook renderer, which is three copies of a job
 // `features/activity-feed/markdown` was already doing.
 
+import type { WorkspaceFileKind } from "@agentdesk/agent-feed-wire";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
-import type { OpenFile } from "@/features/workspace-ide/useWorkspaceIde";
 
-export function FilePreview({ file }: { file: OpenFile }) {
+/**
+ * What a file view needs to draw a file, and nothing about where it came from: an IDE tab, with
+ * its revision and save state, and a Bot's read-only file both are one.
+ */
+export interface ViewedFile {
+  path: string;
+  kind: WorkspaceFileKind;
+  text: string;
+}
+
+export function FilePreview({ file }: { file: ViewedFile }) {
   if (file.kind === "notebook") return <NotebookPreview text={file.text} />;
   if (file.kind === "docx") return <DocxPreview path={file.path} />;
   if (file.kind === "html") {

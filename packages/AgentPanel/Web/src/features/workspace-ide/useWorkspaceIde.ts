@@ -17,6 +17,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { WorkspaceIdeClient, WorkspaceRequestError } from "@/features/workspace-ide/workspaceIdeClient";
+import { defaultFileView, hasSource } from "@/features/workspace-ide/editor/FileBody";
 import { useWorkspaceIdeWriting } from "@/features/workspace-ide/useWorkspaceIdeWriting";
 import {
   loadDraft,
@@ -27,7 +28,6 @@ import {
   DEFAULT_WORKSPACE_IDE_PREFERENCES,
   loadWorkspaceIdePreferences,
   storeWorkspaceIdePreferences,
-  type FileView,
   type WorkspaceIdePreferences,
 } from "@/features/workspace-ide/workspaceIdePreferences";
 
@@ -339,21 +339,6 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     void applyOperation({ type: "open", path });
   }, [applyOperation, setActivePath]);
 
-  /**
-   * How a file opens when its reader has not said otherwise.
-   *
-   * Markdown is rendered. It is the one editable kind whose source is a means to a rendered
-   * document rather than the document -- a reader opening `AGENTS.md` is almost always reading it,
-   * and the ones editing it are one press away. HTML is deliberately NOT here: its preview shows
-   * the source anyway, because rendering it would run someone else's script inside the one origin
-   * that can reach this machine's sidecar.
-   *
-   * A notebook and a Word document have no editor at all, so their default is the only thing they
-   * have. `togglePreview` refuses them for the same reason, and this is where that agrees.
-   */
-  const defaultFileView = (kind: WorkspaceFileKind | undefined): FileView =>
-    kind === "markdown" || kind === "docx" || kind === "notebook" ? "preview" : "source";
-
   const isPreview = useCallback((path: string) => {
     if (!workspaceId) return false;
     const chosen = preferences.fileViewByWorkspace[workspaceId]?.[path];
@@ -370,7 +355,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   const togglePreview = useCallback((path: string) => {
     if (!workspaceId) return;
     const kind = openFilesRef.current[path]?.kind;
-    if (kind === "docx" || kind === "notebook") return;
+    if (!hasSource(kind)) return;
     setPreferences((current) => {
       const held = current.fileViewByWorkspace[workspaceId] ?? {};
       // Against what is on screen, which is the choice if there is one and the kind's default

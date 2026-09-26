@@ -14,7 +14,9 @@ import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
+import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
 import { BotGitButton } from "@/features/bots/git/BotGitButton";
+import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
@@ -121,6 +123,14 @@ export function BotCanvasCard({
   machineLabel?: string;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
+  // One subscription for the header: the git button counts from it, and the code button re-reads
+  // what it shows whenever it moves. From the card's own feed, because a peer's Bot is a directory
+  // on the peer, and asking this Mac's git about it would answer about a path it may not have.
+  const git = useBotGitStatus(
+    sessionContext.feed,
+    bot.botId,
+    bot.environmentAvailability === "available",
+  );
   // Dropped as soon as the Bot itself carries the session, rather than when the shell decides it
   // should be gone. The two happen a snapshot apart, and rendering both for that moment would put
   // two cards with one identity side by side.
@@ -306,9 +316,8 @@ export function BotCanvasCard({
             <span aria-hidden>{shown.length}</span>
             <span className="sr-only">{counted}</span>
           </span>
-          {/* The machine's feed, from the card's own context: a peer's Bot is a directory on the
-              peer, and asking this Mac's git about it would answer about a path it may not have. */}
-          <BotGitButton bot={bot} feed={sessionContext.feed} />
+          <BotCodeButton bot={bot} feed={sessionContext.feed} refresh={git.status} />
+          <BotGitButton bot={bot} feed={sessionContext.feed} git={git} />
           <button
             type="button"
             onClick={() => onAddSession(bot)}

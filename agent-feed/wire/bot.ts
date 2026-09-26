@@ -3,7 +3,7 @@
 
 import type { SourceId } from "./activity.ts";
 import type { SessionSummary, StartedSession } from "./session.ts";
-import type { WorkspaceGitEntry } from "./workspaceIde.ts";
+import type { WorkspaceFileKind, WorkspaceGitEntry, WorkspaceTreeNode } from "./workspaceIde.ts";
 
 export type BotGrant = "add_bot";
 
@@ -322,4 +322,31 @@ export interface BotGitDiff {
   patch: string;
   /** True when the patch was cut at the sidecar's ceiling. */
   truncated: boolean;
+}
+
+/**
+ * `GET /api/bots/:botId/tree?expanded=<path>&expanded=<path>` response: the Bot's directory as the
+ * IDE's explorer draws it, with every expanded directory listed beneath it.
+ *
+ * Expansion travels with the request rather than living on the sidecar, because it belongs to one
+ * reader's glance at the Bot and not to the Bot: the IDE shares its open tabs between readers, and
+ * a quick look into a Bot's code is not something a second reader should find rearranged. Paths
+ * and git decorations are relative to the Bot's directory, not to the repository's top.
+ */
+export interface BotTree {
+  botId: string;
+  tree: WorkspaceTreeNode[];
+}
+
+/**
+ * `GET /api/bots/:botId/file?path=` response: one file in the Bot's directory, read-only.
+ *
+ * The IDE's read without its workspace: text for every kind the IDE opens, null for a binary-backed
+ * one, which this route has no content route beside it to fetch.
+ */
+export interface BotFileRead {
+  botId: string;
+  path: string;
+  kind: WorkspaceFileKind;
+  text: string | null;
 }
