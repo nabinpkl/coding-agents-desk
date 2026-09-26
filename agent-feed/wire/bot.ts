@@ -379,7 +379,7 @@ export interface RenameBracketCommand {
   task: string;
 }
 
-/** `POST /api/bots/sessions/rename-bracket` response. */
+/** `POST /api/sessions/:source/:sessionId/bracket` response. */
 export interface RenamedBracket {
   botId: string;
   anchor: string;

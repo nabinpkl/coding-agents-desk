@@ -27,7 +27,6 @@ import {
   startServerSentEventStream,
 } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
-import { normalizeBracketCommand } from "@/bots/botCommands";
 import type { WorkspaceFileLimits } from "@/http/workspace-routes/workspaceFileRoutes";
 import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { fileKind, readDocumentFile, readTextFile } from "@/workspace/workspaceFiles";
@@ -82,12 +81,11 @@ export function createBotRoutes(
     if (request.method === "POST" && url.pathname === BOTS_ROUTE) {
       return createBot(request, registry);
     }
-    // One session's bracket, addressed by the session rather than the Bot: the completion path
-    // every `set_task` front door forwards to. Ahead of the `:botId` match below, where the
-    // literal `sessions` would otherwise read as a Bot id.
-    if (request.method === "POST" && url.pathname === "/api/bots/sessions/rename-bracket") {
-      return renameBracket(request, registry, dependencies.renameSession);
-    }
+    // One session's bracket moved to its own address: `POST
+    // /api/sessions/:source/:sessionId/bracket`, beside the session routes. Renaming a bracket
+    // is something done to a session, and the literal `sessions` below would otherwise read as
+    // a Bot id -- which is why this comment sits ahead of that match rather than where the
+    // route used to be.
     const sessionsMatch = /^\/api\/bots\/([^/]+)\/sessions$/.exec(url.pathname);
     if (request.method === "POST" && sessionsMatch) {
       return addBotSessions(request, sessionsMatch[1]!, registry);
@@ -415,21 +413,6 @@ async function deleteBot(botId: string, registry: BotRegistry): Promise<Response
   try {
     const decodedBotId = decodeBotId(botId);
     return jsonResponse(await registry.deleteBot(decodedBotId, { kind: "user" }));
-  } catch (error) {
-    return routeError(error);
-  }
-}
-
-async function renameBracket(
-  request: Request,
-  registry: BotRegistry,
-  renameSession: BotSessionRenamer,
-): Promise<Response> {
-  try {
-    const body = await requestObject(request);
-    if (body instanceof Response) return body;
-    const { ref, task } = normalizeBracketCommand(body);
-    return jsonResponse(await registry.renameBracket(ref, task, renameSession));
   } catch (error) {
     return routeError(error);
   }

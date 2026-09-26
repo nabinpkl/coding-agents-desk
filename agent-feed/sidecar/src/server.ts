@@ -25,6 +25,7 @@ import { createWindowRoutes } from "@/http/windowRoutes";
 import { createWebrtcTileRoutes } from "@/http/tile-peer/webrtcTileRoutes";
 import type { RouteHandler } from "@/http/route";
 import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
+import { createBracketRoutes } from "@/http/session-routes/bracketRoutes";
 import { createEventImageRoutes } from "@/http/session-routes/eventImageRoutes";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 import { createTaskRoutes } from "@/http/session-routes/taskRoutes";
@@ -259,6 +260,10 @@ const routes: RouteHandler[] = [
   }),
   createWorkspaceHistoryRoutes(workspaceService),
   createWorkspaceRoutes(workspaceService),
+  // And `/bracket`, which names what one session is doing: a session's address rather than a
+  // Bot's, for the same reason forking moved off the Bot endpoint, and ahead of the catch-all
+  // below for the same mechanical reason as the rest.
+  createBracketRoutes(botRegistry, { renameSession }),
   createSessionRoutes(describeAgentSession),
   // The agent messaging hub, spoken to as `human` on the panel's behalf (docs/agent-messaging.md).
   createHubRoutes(),
