@@ -229,7 +229,11 @@ export function BotCanvasList({
       // running to the window's, and the strip reads as a region with room around it rather than
       // as content pressed against the panel. It is horizontal only -- the vertical run is what
       // the cards are measured in, and the bar this surface no longer draws already gave it back.
-      className="mx-4 h-full overflow-auto overscroll-contain"
+      //
+      // `flex-1` rather than `h-full` because this scroller is no longer the column's only child:
+      // the open Father home stands above it, and a full height here would push the strip past the
+      // column's end instead of sharing it.
+      className="mx-4 min-h-0 flex-1 overflow-auto overscroll-contain"
     >
       <CanvasNotices
         machineErrors={machineErrors}

@@ -413,3 +413,70 @@ export function storeHiddenMachines(keys: ReadonlySet<string>): void {
     // The canvas still hides and shows machines; it just forgets which by the next visit.
   }
 }
+
+/**
+ * Whether the Father home -- the Bot roster control that drops down from the top of the
+ * canvas -- is open, remembered across reloads.
+ *
+ * Closed until a reader opens it, because it costs the strip a band of vertical room and an
+ * unreadable value must cost nothing: anything but an explicit true means shut.
+ */
+const FATHER_OPEN_KEY = "agent-panel.bot-canvas.father-open";
+
+export function loadFatherOpen(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(FATHER_OPEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function storeFatherOpen(open: boolean): void {
+  try {
+    if (open) localStorage.setItem(FATHER_OPEN_KEY, "true");
+    else localStorage.removeItem(FATHER_OPEN_KEY);
+  } catch {
+    // The home still opens and closes; it just forgets which by the next visit.
+  }
+}
+
+/**
+ * How tall the Father home stands, in pixels.
+ *
+ * Its own range rather than the cards': a card may tower over the window because the canvas
+ * scrolls, while this panel shares the column with the strip -- taller than the column buries
+ * the sessions it controls, shorter than a row clips its own header and grip.
+ */
+export const FATHER_MIN_HEIGHT = 160;
+export const FATHER_MAX_HEIGHT = 640;
+export const FATHER_DEFAULT_HEIGHT = 288;
+
+const FATHER_HEIGHT_KEY = "agent-panel.bot-canvas.father-height";
+
+export function clampFatherHeight(height: number): number {
+  const wanted = Number.isFinite(height) ? Math.round(height) : FATHER_DEFAULT_HEIGHT;
+  return Math.min(FATHER_MAX_HEIGHT, Math.max(FATHER_MIN_HEIGHT, wanted));
+}
+
+export function loadFatherHeight(): number {
+  if (typeof window === "undefined") return FATHER_DEFAULT_HEIGHT;
+  try {
+    const raw = localStorage.getItem(FATHER_HEIGHT_KEY);
+    if (raw === null) return FATHER_DEFAULT_HEIGHT;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? clampFatherHeight(parsed) : FATHER_DEFAULT_HEIGHT;
+  } catch {
+    return FATHER_DEFAULT_HEIGHT;
+  }
+}
+
+export function storeFatherHeight(height: number): void {
+  try {
+    const clamped = clampFatherHeight(height);
+    if (clamped === FATHER_DEFAULT_HEIGHT) localStorage.removeItem(FATHER_HEIGHT_KEY);
+    else localStorage.setItem(FATHER_HEIGHT_KEY, String(clamped));
+  } catch {
+    // The home still resizes; it just opens at the default height next time.
+  }
+}

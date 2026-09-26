@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
 import { type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BotCanvasList } from "@/features/bots/cards/BotCanvasList";
+import { FatherButton, FatherOverlay } from "@/features/bots/canvas/FatherOverlay";
+import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/botCanvasPreferences";
 
 // Re-exported because this is the canvas's entry point: the app imports the surface and the shape
 // of a failure from one name, and the parts moving out did not move that.
@@ -225,6 +228,15 @@ export function BotCanvas({
   // Nothing to lay out, so nothing below this point would be about anything: no scroller, no
   // strip, and no offset to come back to. The condition stays here rather than inside the
   // placeholder so a reader of the canvas can see when it does not draw one.
+  //
+  // The Father home lives beside the strip rather than in the app above it, because the strip is
+  // what it controls: the open switch of one is the unfolded card of the other. One state, written
+  // from the effect below, so closing the home and reopening the panel agree.
+  const [fatherOpen, setFatherOpen] = useState(loadFatherOpen);
+  useEffect(() => {
+    storeFatherOpen(fatherOpen);
+  }, [fatherOpen]);
+
   if (loading || error !== null || bots.length === 0) {
     return (
       <CanvasPlaceholder
@@ -237,34 +249,56 @@ export function BotCanvas({
   }
 
   return (
-    <BotCanvasList
-      bots={bots}
-      hues={hues}
-      ranks={ranks}
-      sessionContextFor={sessionContextFor}
-      machines={machines}
-      keyOfBot={keyOfBot}
-      hiddenMachines={hiddenMachines}
-      machineErrors={machineErrors}
-      botError={botError}
-      onAddSession={onAddSession}
-      onForkSession={onForkSession}
-      attachSessionToBot={attachSessionToBot}
-      onForkFromLastMessage={onForkFromLastMessage}
-      onForkFromLastCompaction={onForkFromLastCompaction}
-      onHandoverToOpencode={onHandoverToOpencode}
-      onRenameSession={onRenameSession}
-      onDetachSession={onDetachSession}
-      onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
-      onDetachBot={onDetachBot}
-      onReorderSessions={onReorderSessions}
-      onMoveBot={onMoveBot}
-      detachedSessionKeys={detachedSessionKeys}
-      openKeys={openKeys}
-      onToggleSession={onToggleSession}
-      newSessions={newSessions}
-      onCloseNewSession={onCloseNewSession}
-      canvasZoom={canvasZoom}
-    />
+    // A column rather than the strip alone, so the open home takes its band from the top and the
+    // strip keeps the rest: both visible at once, and the grip between them is where they fight
+    // for the vertical room. Closed, the home costs nothing -- one floating button over the
+    // corner, which is why it floats instead of spending a row the cards would not get.
+    <div className="relative flex h-full min-h-0 flex-col">
+      <FatherButton open={fatherOpen} onToggle={() => setFatherOpen(true)} />
+      {fatherOpen ? (
+        <FatherOverlay
+          bots={bots}
+          hues={hues}
+          ranks={ranks}
+          machines={machines}
+          keyOfBot={keyOfBot}
+          hiddenMachines={hiddenMachines}
+          detachedSessionKeys={detachedSessionKeys}
+          openKeys={openKeys}
+          onToggleSession={onToggleSession}
+          onAddBot={onAddBot}
+          onClose={() => setFatherOpen(false)}
+        />
+      ) : null}
+      <BotCanvasList
+        bots={bots}
+        hues={hues}
+        ranks={ranks}
+        sessionContextFor={sessionContextFor}
+        machines={machines}
+        keyOfBot={keyOfBot}
+        hiddenMachines={hiddenMachines}
+        machineErrors={machineErrors}
+        botError={botError}
+        onAddSession={onAddSession}
+        onForkSession={onForkSession}
+        attachSessionToBot={attachSessionToBot}
+        onForkFromLastMessage={onForkFromLastMessage}
+        onForkFromLastCompaction={onForkFromLastCompaction}
+        onHandoverToOpencode={onHandoverToOpencode}
+        onRenameSession={onRenameSession}
+        onDetachSession={onDetachSession}
+        onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
+        onDetachBot={onDetachBot}
+        onReorderSessions={onReorderSessions}
+        onMoveBot={onMoveBot}
+        detachedSessionKeys={detachedSessionKeys}
+        openKeys={openKeys}
+        onToggleSession={onToggleSession}
+        newSessions={newSessions}
+        onCloseNewSession={onCloseNewSession}
+        canvasZoom={canvasZoom}
+      />
+    </div>
   );
 }
