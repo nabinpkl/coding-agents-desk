@@ -8,10 +8,12 @@
 //
 // An overlay rather than a band, because a band spends rows the cards do not get and moves the
 // strip every time it opens: the reader's cards would jump down and back with each toggle. This
-// floats above them instead, and costs nothing while shut -- one button over the corner.
+// drops from the viewport top like a drawer -- `fixed`, so it draws over the navbar instead of
+// starting below it -- centered and narrower than the canvas, so the strip beside and below it
+// stays visible and clickable while it is open.
 
 import { Crown, X } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
@@ -114,12 +116,22 @@ export function FatherOverlay({
   });
   const resolved = resolveFather(bots);
 
+  // A drawer closes on Escape, the way a dialog does: it floats over the page rather than living
+  // in it, so the keyboard needs the same way out the X gives the pointer.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <section
       id="father-home"
       aria-label="Father home"
       style={{ height: resize.height }}
-      className="absolute inset-x-3 top-0 z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+      className="fixed top-0 left-1/2 z-50 flex w-[min(880px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl"
       {...drop.dropProps}
     >
       <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
