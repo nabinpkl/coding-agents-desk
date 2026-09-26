@@ -243,3 +243,65 @@ test("a landed compaction arrives as a banner carrying its summary", () => {
     expect.objectContaining({ kind: "compaction", text: "## Summary\n1. Primary Request" }),
   ]);
 });
+
+test("a running compaction draws no banner but keeps the turn open", () => {
+  // The serve inserts the checkpoint when compaction STARTS: a banner for it would read
+  // "context compacted" minutes before anything compacted, while the summary streams beside
+  // the thread through the compaction watch instead.
+  const projection = new LiveAgentProjection();
+  const running = {
+    id: "msg-c",
+    type: "compaction",
+    status: "running",
+    reason: "auto",
+    summary: "## Summary so far",
+    recent: "recent context",
+    time: { created: 400 },
+  } as unknown as SessionMessage;
+  const result = new OpencodeEventMapper(projection).sync([user("msg-u", "hi"), running]);
+  expect(result.open).toBe(true);
+  expect(result.lastTurnClosed).toBe(false);
+  expect(projection.page(0, 10).map((row) => row.id)).toEqual(["opencode:msg-u"]);
+});
+
+test("a completed compaction with an explicit status still earns its banner", () => {
+  const projection = new LiveAgentProjection();
+  const compaction = {
+    id: "msg-c",
+    type: "compaction",
+    status: "completed",
+    reason: "manual",
+    summary: "## Summary",
+    recent: "recent context",
+    time: { created: 400 },
+  } as unknown as SessionMessage;
+  new OpencodeEventMapper(projection).sync([compaction]);
+  const rows = projection.page(0, 10);
+  expect(rows.map((row) => row.id)).toEqual(["opencode:msg-c"]);
+  expect(rows[0]!.blocks).toEqual([expect.objectContaining({ kind: "compaction", text: "## Summary" })]);
+});
+
+test("a cancelled compaction draws nothing; a failed one names its error", () => {
+  const aborted = {
+    id: "msg-x",
+    type: "compaction",
+    status: "failed",
+    reason: "auto",
+    error: { type: "aborted", message: "cancelled" },
+    time: { created: 400 },
+  } as unknown as SessionMessage;
+  const failed = {
+    id: "msg-f",
+    type: "compaction",
+    status: "failed",
+    reason: "auto",
+    error: { type: "compaction.failed", message: "no summary" },
+    time: { created: 500 },
+  } as unknown as SessionMessage;
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([aborted, failed]);
+  const rows = projection.page(0, 10);
+  // No banner claiming the context compacted: the failure reads as what it is.
+  expect(rows.map((row) => row.id)).toEqual(["opencode:msg-f"]);
+  expect(rows[0]!.blocks).toEqual([{ kind: "text", text: "Compaction failed: no summary" }]);
+});

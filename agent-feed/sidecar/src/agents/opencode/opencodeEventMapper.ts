@@ -64,9 +64,13 @@ export class OpencodeEventMapper {
       });
     }
     const last = ordered.at(-1);
+    // A trailing running compaction keeps the turn open without drawing a row: the notice beside
+    // the thread IS its running state, and the banner is what landing earns. Without this a
+    // refresh mid-compaction would report the session idle while the summariser streams.
+    const lastCompacting = isCompactionRunning(last);
     return {
-      lastTurnClosed: last === undefined || turnClosed(last),
-      open: last !== undefined && !turnClosed(last),
+      lastTurnClosed: last === undefined || (!lastCompacting && turnClosed(last)),
+      open: last !== undefined && (!turnClosed(last) || lastCompacting),
     };
   }
 
@@ -151,13 +155,40 @@ export class OpencodeEventMapper {
         }
         return { ts: message.time.created, type: "assistant", phase: open ? "streaming" : "complete", blocks };
       }
-      case "compaction":
+      case "compaction": {
+        // The TUI's own states, in feed terms. `running` draws nothing: the serve inserts the
+        // checkpoint when compaction STARTS and flips it to `completed` when it lands, so a
+        // banner for `running` reads "context compacted" minutes before anything compacted --
+        // while the summary streams beside the thread through the compaction watch instead.
+        // A cancelled compaction (`aborted`) draws nothing either, the way the TUI's mini
+        // surface ends it silently; a genuine failure draws a text row naming the error rather
+        // than a banner claiming the context compacted. Only `completed` (and the status-less
+        // v1 shape, which is a landed row by construction) earns the banner.
+        const status = (message as { status?: unknown }).status;
+        if (status === "running") return null;
+        if (status === "failed") {
+          const error = (message as { error?: { type?: unknown; message?: unknown } }).error;
+          if (error?.type === "aborted") return null;
+          const detail = typeof error?.message === "string" && error.message ? error.message : "Compaction failed";
+          return {
+            ts: message.time.created,
+            type: "system",
+            phase: "complete",
+            blocks: [{ kind: "text", text: `Compaction failed: ${detail}` }],
+          };
+        }
+        const summary = (message as { summary?: unknown }).summary;
         return {
           ts: message.time.created,
           type: "system",
           phase: "complete",
-          blocks: [{ kind: "compaction", summary: message.reason, ...capText(message.summary) }],
+          blocks: [{
+            kind: "compaction",
+            summary: message.reason,
+            ...capText(typeof summary === "string" ? summary : ""),
+          }],
         };
+      }
       case "agent-switched":
         return {
           ts: message.time.created,
@@ -186,6 +217,17 @@ export class OpencodeEventMapper {
 
 function messageTime(message: SessionMessage): number {
   return message.time.created;
+}
+
+/**
+ * True while the summariser still owns the session: the checkpoint the serve inserted at
+ * compaction start, not yet flipped to `completed` on landing. The feed draws no row for it
+ * (the notice beside the thread is its running state), but the turn stays open so a refresh
+ * mid-compaction does not report the session idle.
+ */
+function isCompactionRunning(message: SessionMessage | undefined): boolean {
+  return message?.type === "compaction" &&
+    (message as { status?: unknown }).status === "running";
 }
 
 function turnClosed(message: SessionMessage): boolean {

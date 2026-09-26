@@ -94,6 +94,9 @@ export class OpencodeSessionPool {
         compactionDelta: (_sessionId, messageId, text) => {
           this.compactions.append(messageId, text);
         },
+        compactionDeltaForSession: (sessionId, text) => {
+          this.compactions.appendToSession(sessionId, text);
+        },
         compactionEnded: (_sessionId, messageId) => {
           this.compactions.end(messageId);
         },

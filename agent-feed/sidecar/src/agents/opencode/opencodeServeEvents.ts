@@ -22,6 +22,12 @@ export interface ServeEventRouter {
   compactionStarted(sessionId: string, messageId: string): void;
   /** One streamed delta of a running compaction's summary. */
   compactionDelta(sessionId: string, messageId: string, text: string): void;
+  /**
+   * One streamed delta that names the session but not the compaction: v2's
+   * `session.compaction.delta` carries only `sessionID` plus text, so it appends to whatever is
+   * newest there rather than to a named flow.
+   */
+  compactionDeltaForSession(sessionId: string, text: string): void;
   /** A compaction finished (or its checkpoint landed); the notice comes down. */
   compactionEnded(sessionId: string, messageId: string): void;
   /**
@@ -99,6 +105,17 @@ export class OpencodeServeEvents {
 
   private route(event: V2Event): void {
     const sessionId = serveEventSession(event);
+    // v2's compaction family, which the pinned v1 SDK union does not name: the raw JSON still
+    // arrives over the same SSE stream, so dispatch on the string rather than the union. v1's
+    // `session.next.compaction.*` keeps its cases below for older serves; the live one (v2.0.16)
+    // emits only these.
+    if (typeof (event as { type?: unknown }).type === "string") {
+      const type = (event as { type: string }).type;
+      if (type.startsWith("session.compaction.")) {
+        this.routeCompactionV2(type, event, sessionId);
+        return;
+      }
+    }
     switch (event.type) {
       case "session.status": {
         const status = event.data.status.type;
@@ -134,6 +151,7 @@ export class OpencodeServeEvents {
       // `ended` -- so the summary streams through the watch beside the thread (the same notice
       // Claude compactions draw), and only the end re-reads the messages. Deltas never refresh:
       // they arrive per token and there is nothing new to read until the checkpoint exists.
+      // v1 names; v2's `session.compaction.*` is dispatched above.
       case "session.next.compaction.started": {
         const started = event as CompactionStarted;
         if (sessionId && this.router.hasSession(sessionId)) {
@@ -168,6 +186,47 @@ export class OpencodeServeEvents {
       default: {
         if (sessionId && this.router.hasSession(sessionId)) this.router.refresh(sessionId);
       }
+    }
+  }
+
+  /**
+   * v2's compaction streaming, mirroring the TUI's own handling (`stream-v2.transport.ts`):
+   * `started` raises the notice and marks the session running, each `delta` extends the summary
+   * beside the thread (never a re-read -- deltas arrive per token and there is nothing durable
+   * to read until the checkpoint exists), and `ended` / `failed` take the notice down and
+   * re-read once for the landed row. The durable `compaction` message itself streams too -- it
+   * sits at `status: running` while the summary is written -- but the feed draws no banner for
+   * that: the notice IS the running state, and the banner is what landing earns.
+   */
+  private routeCompactionV2(type: string, event: V2Event, sessionId: string | null): void {
+    if (!sessionId || !this.router.hasSession(sessionId)) return;
+    const data = (event as { data?: Record<string, unknown> }).data ?? {};
+    switch (type) {
+      case "session.compaction.started": {
+        const inputID = data["inputID"];
+        const eventID = (event as { id?: unknown }).id;
+        const key = typeof inputID === "string" && inputID
+          ? inputID
+          : typeof eventID === "string" && eventID
+            ? eventID
+            : `v2:${sessionId}:${Date.now()}`;
+        this.router.setRunState(sessionId, "running");
+        this.router.compactionStarted(sessionId, key);
+        return;
+      }
+      case "session.compaction.delta": {
+        const text = data["text"];
+        if (typeof text === "string" && text) this.router.compactionDeltaForSession(sessionId, text);
+        return;
+      }
+      case "session.compaction.ended":
+      case "session.compaction.failed": {
+        this.router.compactionSettled(sessionId);
+        this.router.refresh(sessionId);
+        return;
+      }
+      default:
+        return;
     }
   }
 

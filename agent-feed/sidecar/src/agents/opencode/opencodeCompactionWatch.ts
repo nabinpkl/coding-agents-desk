@@ -1,12 +1,17 @@
 // Which opencode sessions are compacting right now, and what the summariser has written so far.
 //
 // The serve's own shape, mirroring `claudeCompactionWatch` for the proxy-observed Claude flows:
-// a compaction writes no durable message until it lands (the checkpoint is inserted on
-// `session.next.compaction.ended`), so a feed that only re-reads messages sits silent for the
-// minutes the summariser streams. The serve publishes that streaming instead as
-// `session.next.compaction.started` / `.delta` / `.ended`, and this watch folds those into the
-// same beside-the-thread summary the timeline already draws for Claude (`compacting` plus
-// `compaction-summary`), so one notice covers both harnesses.
+// a compaction writes no durable row worth drawing until it lands, so a feed that only re-reads
+// messages sits silent for the minutes the summariser streams. The serve publishes that
+// streaming instead as compaction started / delta / ended events, and this watch folds those
+// into the same beside-the-thread summary the timeline already draws for Claude (`compacting`
+// plus `compaction-summary`), so one notice covers both harnesses.
+//
+// Two event families name the same streaming, from the two serve generations this sidecar has
+// talked to: v1's `session.next.compaction.*` carries the compaction's own message id on every
+// event, while v2's `session.compaction.*` names only the session on deltas (the started event's
+// `inputID` is the only key, and it is optional). Deltas that name no key append to the
+// session's newest flow, which is the retry's -- the one that lands.
 //
 // Keyed by the compaction's own message id rather than a flow id: a retry compacts the same
 // session under a new message, and the retry's summary is the one that lands.
@@ -84,6 +89,20 @@ export class OpencodeCompactionWatch {
     if (this.latest(running.sessionId) === running) {
       this.announceSummary(running.sessionId, text, false);
     }
+    return true;
+  }
+
+  /**
+   * Adds one streamed delta to the session's newest compaction, for events that name the
+   * session but not the compaction (v2 deltas carry only `sessionID` plus text). False when
+   * nothing is running there, which drops the delta rather than raising a notice for it.
+   */
+  appendToSession(sessionId: string, text: string): boolean {
+    const running = this.latest(sessionId);
+    if (!running) return false;
+    if (!text) return true;
+    running.summary += text;
+    this.announceSummary(sessionId, text, false);
     return true;
   }
 

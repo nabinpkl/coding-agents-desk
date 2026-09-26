@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import type { OpencodeClient, V2Event } from "@opencode-ai/sdk/v2/client";
 import { OpencodeServeEvents, type ServeEventRouter } from "@/agents/opencode/opencodeServeEvents";
 
-function compaction(type: V2Event["type"], data: Record<string, unknown>): V2Event {
+function compaction(type: string, data: Record<string, unknown>): V2Event {
   return { id: "evt-1", type, data } as unknown as V2Event;
 }
 
@@ -19,6 +19,7 @@ function harness(events: V2Event[]) {
     uiFor: () => null,
     compactionStarted: (sessionId, messageId) => void calls.push(`started:${sessionId}:${messageId}`),
     compactionDelta: (sessionId, messageId, text) => void calls.push(`delta:${sessionId}:${messageId}:${text}`),
+    compactionDeltaForSession: (sessionId, text) => void calls.push(`sessdelta:${sessionId}:${text}`),
     compactionEnded: (sessionId, messageId) => void calls.push(`ended:${sessionId}:${messageId}`),
     compactionSettled: (sessionId) => void calls.push(`settled:${sessionId}`),
   };
@@ -76,4 +77,47 @@ test("a landed checkpoint settles the notice and refreshes", async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   await stream.dispose();
   expect(calls).toEqual(["settled:ses-9", "refresh:ses-9"]);
+});
+
+test("v2 compaction streams by session and refreshes only when it lands", async () => {
+  // The live serve (v2.0.16) emits `session.compaction.*`, which the pinned v1 SDK union does
+  // not name: the raw JSON still arrives over the same stream. Deltas name only the session,
+  // so they must never each cost a re-read -- there is nothing durable to read until the
+  // checkpoint lands.
+  const { calls, stream } = harness([
+    compaction("session.compaction.started", { sessionID: "ses-1", reason: "auto", recent: "r", inputID: "msg-1" }),
+    compaction("session.compaction.delta", { sessionID: "ses-1", text: "## Sum" }),
+    compaction("session.compaction.delta", { sessionID: "ses-1", text: "mary" }),
+    compaction("session.compaction.ended", {
+      sessionID: "ses-1",
+      reason: "auto",
+      text: "## Summary",
+      recent: "recent",
+    }),
+  ]);
+  stream.setWanted(true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await stream.dispose();
+  expect(calls).toEqual([
+    "run:ses-1:running",
+    "started:ses-1:msg-1",
+    "sessdelta:ses-1:## Sum",
+    "sessdelta:ses-1:mary",
+    "settled:ses-1",
+    "refresh:ses-1",
+  ]);
+});
+
+test("v2 compaction failure settles the notice and refreshes", async () => {
+  const { calls, stream } = harness([
+    compaction("session.compaction.failed", {
+      sessionID: "ses-2",
+      reason: "auto",
+      error: { type: "compaction.failed", message: "no summary" },
+    }),
+  ]);
+  stream.setWanted(true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await stream.dispose();
+  expect(calls).toEqual(["settled:ses-2", "refresh:ses-2"]);
 });
