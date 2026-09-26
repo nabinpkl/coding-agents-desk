@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import { isCancellable, isUnanswered, messageTime, threadState, threadStateLabel } from "@/features/messages/messageState";
-import { recipientGroups, runtimesOf } from "@/features/messages/hubRuntime";
+import { runtimesOf } from "@/features/messages/hubRuntime";
+import { SessionPicker } from "@/features/messages/SessionPicker";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
@@ -14,17 +15,6 @@ function otherEntry(message: Message, directory: DirectoryEntry[]): DirectoryEnt
 
 function isReachable(address: string, directory: DirectoryEntry[]): boolean {
   return directory.find((entry) => entry.address === address)?.reachability === "reachable";
-}
-
-/**
- * One session's name in the picker, with whether anyone is there to receive it.
- *
- * No runtime here. The runtime is on the thread row, where it is the thing being told apart, and a
- * reader choosing between four sessions of one Bot is choosing between four names, not four
- * providers; repeating "opencode" on all four spends the width the names needed.
- */
-function optionLabel(entry: DirectoryEntry): string {
-  return entry.reachability === "reachable" ? entry.name : `${entry.name} · no live session`;
 }
 
 interface MessagesPanelProps {
@@ -53,7 +43,6 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
 
   const { state, addressable } = messages;
   const directory = state.kind === "ready" ? state.directory : [];
-  const groups = useMemo(() => recipientGroups(addressable), [addressable]);
   const reachable = to ? isReachable(to, directory) : false;
 
   const submit = async (event: FormEvent) => {
@@ -90,25 +79,14 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
       </div>
 
       <form onSubmit={submit} className="shrink-0 border-t border-border">
-        <label className="flex min-h-11 items-center gap-2 border-b border-border/80 px-3">
+        <div className="flex min-h-11 items-center gap-2 border-b border-border/80 px-3">
           <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">To</span>
-          <select
+          <SessionPicker
+            entries={addressable}
             value={to}
-            onChange={(event) => setTo(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-(length:--agent-panel-fs-sidebar-body,15px) outline-none"
-          >
-            <option value="">Pick a session…</option>
-            {groups.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.entries.map((entry) => (
-                  <option key={entry.address} value={entry.address}>
-                    {optionLabel(entry)}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+            onChange={(entry) => setTo(entry.address)}
+          />
+        </div>
         <div className="flex items-start gap-2 p-3">
           <label className="min-w-0 flex-1">
             <span className="sr-only">Message</span>

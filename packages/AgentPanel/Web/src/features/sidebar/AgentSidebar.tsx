@@ -148,17 +148,40 @@ interface AgentSidebarProps {
   park: DesktopParkHandle;
 }
 
+/**
+ * Bring a tab into the strip, and only if it is not already in it.
+ *
+ * The strip scrolls when the views stop fitting, and the selected tab is the one that has to be
+ * readable: a reader who arrives at "Messages" and sees "Sessions" has been told the name and left
+ * to guess the rest. But a tab that is already on screen is not a problem, and scrolling to it
+ * anyway is not free -- `scrollIntoView` walks every scrollable ancestor, so an unconditional call
+ * on every tab click disturbs containers that have nothing to do with the strip. `nearest` keeps
+ * the movement small; measuring first keeps the call from happening at all.
+ *
+ * The first ancestor that clips horizontally is the strip, and a tab inside its box is inside the
+ * strip. If nothing clips, the whole strip is on screen and there is nothing to reveal.
+ */
+function revealInStrip(tab: HTMLButtonElement | null | undefined): void {
+  if (!tab) return;
+  const tabBox = tab.getBoundingClientRect();
+  for (let node = tab.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowX;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    const stripBox = node.getBoundingClientRect();
+    if (tabBox.left >= stripBox.left && tabBox.right <= stripBox.right) return;
+    tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return;
+  }
+}
+
 export function AgentSidebar(props: AgentSidebarProps) {
   const tabGroupId = useId();
   const tabId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-tab`;
   const panelId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-panel`;
   const tabRefs = useRef(new Map<AgentSidebarMode, HTMLButtonElement | null>());
 
-  // The strip scrolls when the views stop fitting, and the selected tab is the one that has to be
-  // readable: a reader who arrives at "Messages" and sees "Me" has been told the name and left to
-  // guess the rest. `nearest` rather than `center` so a tab that already fits does not jump.
   const revealSelectedTab = useCallback(() => {
-    tabRefs.current.get(props.mode)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    revealInStrip(tabRefs.current.get(props.mode));
   }, [props.mode]);
 
   // On mount as well as on selection: a reader who reloads with a view remembered has not clicked
@@ -172,7 +195,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (focus) {
       globalThis.requestAnimationFrame?.(() => tabRefs.current.get(mode)?.focus());
     }
-    tabRefs.current.get(mode)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    revealInStrip(tabRefs.current.get(mode));
   };
 
   // Roving by index rather than the two-way toggle this was when there were exactly two tabs:

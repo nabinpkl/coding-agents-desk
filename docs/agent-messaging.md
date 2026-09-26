@@ -187,6 +187,12 @@ body text
    - Threads to and from `human`, with Reply.
    - New message to any directory address.
    - Delivery states on each message.
+   - The recipient picker is a portalled panel, not a `<select>`. A native select cannot nest: it
+     renders an `<optgroup>` label as one flat line, so the two sections (all Bots, all sessions)
+     and the group under each had to be spelled into a single string, and the list did not scroll or
+     narrow. It is a `listbox` with the two sections as labelled groups, filtered by whatever the
+     reader remembers about a session: name, Bot, machine or directory. A session that belongs to a
+     Bot appears in both sections, which is deliberate and is what the filter preserves.
    - Its backend holds the surface token. The panel is tailnet-only, which is agent-desk's existing trust boundary.
 2. **Annotator Send (v1, an adapter):**
    - The extension panel shows `Send N to [recipient ▾]`, with the pick remembered per site.
