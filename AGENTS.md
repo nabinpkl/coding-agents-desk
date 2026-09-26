@@ -879,6 +879,36 @@ Five traps, each of which cost real time:
   first turn and in the file name after it). That is what lets the panel name a fork's pane and its
   transcript the same thing rather than discovering the file afterwards.
 
+## The opencode serve is one per machine, and its plugins load hot
+
+Settled 2026-09-26, after a probe's second serve shared the live one's database.
+
+- **Never start a second `opencode serve` on this machine.** Every process shares one global
+  SQLite database (`~/.local/share/opencode/opencode.db`), and a second writer dies with
+  `SQLiteError: locking protocol` / `database is locked`, sometimes taking the live serve with
+  it (upstream issues #15188, #33320, #36775). A different port isolates nothing. One-shot
+  probes isolate with a throwaway data dir instead:
+  `XDG_DATA_HOME="$d/share" XDG_STATE_HOME="$d/state" opencode run "prompt"`.
+- **Plugins load hot; no restart is needed.** The serve watches the global plugin dir and
+  per-session project dirs: a new or edited file logs `loading plugin` plus `watcher
+  subscribe` and runs setup within seconds, with sessions untouched. Read failures the same
+  way, in `~/.local/share/opencode/log/opencode.log` (`role=server`): `failed to load plugin`
+  names the file and the cause. The old hooks-object shape (`export const X = async () =>
+  ({ "chat.message": ... })`) is dead on this binary -- it imports the file and never calls
+  the export, with only `Missing key "default"` in the log to say so. The working shape is
+  `export default Plugin.define({ id, setup })` from `@opencode/plugin`, and a global loose
+  file resolves bare imports from `~/.config/opencode/node_modules` only.
+- **The pre-turn hook is `ctx.session.hook("prompt", ...)`, and it must not loop.** Measured:
+  it fires exactly once per admitted prompt, for `queue` and `steer` alike, carrying
+  `sessionID`, `messageID`, `delivery` and the mutable `prompt`. The loop guard is structural:
+  the hook reads (files, sidecar HTTP) and mutates the admitted prompt in place, and never
+  calls `session.prompt`, `generate` or `command` -- those re-enter the hook, which is the
+  infinite-LLM-call shape. Keep a per-process seen-set of `messageID`s so a retried hook
+  still injects once, never throw, and never instruct the model to emit another user message
+  (`set_task` is a tool call, not a message, so it cannot re-fire). A global hook sees EVERY
+  session on the machine -- during the probe it caught a foreign `steer` -- so scope any
+  injection to Bot sessions before writing a word.
+
 ## Claude's own files are read-only, and its credentials are off limits
 
 Recorded 2026-09-15, on the owner's word, after a feature of ours reached for a status-line mirror
