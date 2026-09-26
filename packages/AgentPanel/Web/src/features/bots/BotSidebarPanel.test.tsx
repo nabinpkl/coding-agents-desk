@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { setBotFaces } from "@/features/bots/avatar/BotFace";
 
@@ -385,5 +386,36 @@ describe("BotSidebarPanel folded sessions", () => {
     panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
     expect(rows().querySelectorAll(".bot-face-eyes--open")).toHaveLength(0);
     expect(rows().querySelectorAll(".bot-face-eyes--shut")).toHaveLength(2);
+  });
+});
+
+describe("BotSidebarPanel terminal buttons", () => {
+  const feed = {} as unknown as SidecarDataSource;
+  const withFeed = () => render(
+    <BotSidebarPanel
+      bots={[HOME, PEER]}
+      machineLabels={LABELS}
+      feedForBot={() => feed}
+      loading={false}
+      error={null}
+      selectedBotIds={new Set()}
+      selectedSessionKeys={new Set()}
+      onSelectSession={() => undefined}
+      onAddSession={() => undefined}
+      onRenameSession={() => undefined}
+      onDetachSession={() => undefined}
+      onAddBot={() => undefined}
+    />,
+  );
+
+  it("offers a directory shell in each Bot header when the shell names a feed", () => {
+    withFeed();
+    expect(screen.getByRole("button", { name: "Open a terminal in Home bot" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open a terminal in Peer bot" })).toBeTruthy();
+  });
+
+  it("offers no directory shell when the roster was rendered without a shell behind it", () => {
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
+    expect(screen.queryByRole("button", { name: /Open a terminal in/ })).toBeNull();
   });
 });

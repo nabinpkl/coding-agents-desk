@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from "react";
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { ProfileRow } from "@/features/profile/ProfileRow";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { BotCanvasStatus } from "@/features/bots/canvas/BotCanvasStatus";
@@ -73,6 +74,14 @@ interface AgentSidebarProps {
   bots: BotView[];
   /** Which machine each Bot is on, empty when one. See `BotSidebarPanel`. */
   botMachineLabels: ReadonlyMap<string, string>;
+  /**
+   * The sidecar that owns a Bot's directory, by id, for the roster's terminal button.
+   *
+   * The canvas cards already carry their machine's feed in their session context; the roster rows
+   * have no context, so the feed arrives this way instead. One function rather than a map because
+   * the roster is a merge of several machines' and the owner is a lookup.
+   */
+  feedForBot: (botId: string) => SidecarDataSource;
   botsLoading: boolean;
   botsError: string | null;
   selectedBotId: string | null;
@@ -317,6 +326,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <BotSidebarPanel
             bots={props.bots}
             machineLabels={props.botMachineLabels}
+            feedForBot={props.feedForBot}
             loading={props.botsLoading}
             error={props.botsError}
             // Marked from what the CANVAS has open, not from what the app has selected: over here
@@ -375,6 +385,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <BotSidebarPanel
             bots={props.bots}
             machineLabels={props.botMachineLabels}
+            feedForBot={props.feedForBot}
             loading={props.botsLoading}
             error={props.botsError}
             // Singletons: this tab selects one session at a time. The panel takes sets because

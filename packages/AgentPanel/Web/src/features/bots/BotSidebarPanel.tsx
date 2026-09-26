@@ -1,6 +1,7 @@
 import { Bot, LoaderCircle, Plus, ScanFace } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { BotRosterRow } from "@/features/bots/BotRosterRow";
 import { withOffCanvasLast } from "@/features/bots/botRosterOrder";
@@ -18,6 +19,7 @@ export function BotSidebarPanel({
   onDetachSession,
   onAddBot,
   machineLabels,
+  feedForBot,
   status,
   canvas,
 }: {
@@ -31,6 +33,12 @@ export function BotSidebarPanel({
    * peers with a `projects` directory each would otherwise be two identical rows.
    */
   machineLabels?: ReadonlyMap<string, string>;
+  /**
+   * The sidecar that owns a Bot's directory, by id. Optional because the terminal button is absent
+   * without it: tests render this roster without a shell behind it, and a row without a directory
+   * shell is the roster as it always was.
+   */
+  feedForBot?: (botId: string) => SidecarDataSource;
   loading: boolean;
   error: string | null;
   /** Every Bot to mark. A set because the canvas opens as many cards as it is asked to. */
@@ -156,6 +164,7 @@ export function BotSidebarPanel({
               selected={selectedBotIds.has(bot.botId)}
               selectedSessionKeys={selectedSessionKeys}
               machineLabel={machineLabels?.get(bot.botId)}
+              feed={feedForBot?.(bot.botId)}
               canvas={canvas}
               onSelectSession={onSelectSession}
               onAddSession={onAddSession}

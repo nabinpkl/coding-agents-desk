@@ -73,6 +73,9 @@ export function sidebarProps({
     // the strip are the same Bots, so a reader who moves a card has moved this row with it.
     bots: roster.orderedBots,
     botMachineLabels: machines.labels,
+    // The roster rows' terminal button opens a shell in the Bot's own directory, on the machine
+    // that owns it -- the same lookup every Bot command already routes through.
+    feedForBot: (botId: string) => machines.feeds.forBot(botId),
     botsLoading: botsState.loading,
     botsError: botsState.error,
     selectedBotId: thread.selectedBotId,

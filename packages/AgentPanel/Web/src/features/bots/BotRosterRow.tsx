@@ -1,6 +1,7 @@
 import { ChevronRight, EyeOff, Plus } from "lucide-react";
 import { useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
@@ -8,6 +9,7 @@ import { attachedSessionKey, splitSessionsByCanvas } from "@/features/bots/botRo
 import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionSlots, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
+import { BotTerminalButton } from "@/features/bots/BotTerminalButton";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 
 /**
@@ -26,6 +28,7 @@ export function BotRosterRow({
   selected,
   selectedSessionKeys,
   machineLabel,
+  feed,
   canvas,
   onSelectSession,
   onAddSession,
@@ -40,6 +43,11 @@ export function BotRosterRow({
   selectedSessionKeys: ReadonlySet<string>;
   /** Which machine this Bot is on, absent when there is only one to be on. */
   machineLabel?: string;
+  /**
+   * The sidecar that owns this Bot's directory, for the header's terminal button. Absent when the
+   * roster was rendered without a shell behind it, and the button with it.
+   */
+  feed?: SidecarDataSource;
   canvas?: {
     detachedBotIds: ReadonlySet<string>;
     machineHiddenBotIds: ReadonlySet<string>;
@@ -297,6 +305,7 @@ export function BotRosterRow({
             <EyeOff className="size-4" aria-hidden />
           </span>
         ) : null}
+        {feed ? <BotTerminalButton bot={bot} feed={feed} /> : null}
         <button
           type="button"
           onClick={() => onAddSession(bot)}

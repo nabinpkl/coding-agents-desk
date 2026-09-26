@@ -18,6 +18,7 @@ import { canRenameSession } from "@/features/bots/sessionRename";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
 import { BotGitButton } from "@/features/bots/git/BotGitButton";
+import { BotTerminalButton } from "@/features/bots/BotTerminalButton";
 import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
@@ -334,6 +335,7 @@ export function BotCanvasCard({
           </span>
           <BotCodeButton bot={bot} feed={sessionContext.feed} git={git} />
           <BotGitButton bot={bot} feed={sessionContext.feed} git={git} />
+          <BotTerminalButton bot={bot} feed={sessionContext.feed} />
           <button
             type="button"
             onClick={() => onAddSession(bot)}
