@@ -1,6 +1,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
+import { formatBotSessionTitle, taskFromText } from "@agentdesk/agent-feed-wire";
 
 /**
  * Renaming one session, in the smallest dialog that can carry a field and a failure.
@@ -11,11 +12,18 @@ import type { SessionSummary } from "@agentdesk/agent-feed-wire";
  */
 export function SessionRenameDialog({
   session,
+  anchor,
   onClose,
   onRename,
 }: {
   /** The session being renamed, or null when the dialog is closed. */
   session: SessionSummary | null;
+  /**
+   * The session's stable anchor, when exactly one Bot holds it. Present edits only the bracket
+   * task and leaves the anchor alone; absent edits the whole title the way it always has. An old
+   * title seeds the task, so the first rename normalizes it instead of nesting it.
+   */
+  anchor?: string;
   onClose: () => void;
   onRename: (session: SessionSummary, title: string) => Promise<void>;
 }) {
@@ -28,15 +36,16 @@ export function SessionRenameDialog({
   const wantsSelected = useRef<string | null>(null);
 
   // Seeded from the session rather than left empty: a rename is usually an edit of the name that
-  // is there, and starting blank makes the reader retype what they can already see.
+  // is there, and starting blank makes the reader retype what they can already see. Under an
+  // anchor the field holds only the bracket task, read the same way the sidecar reads it.
   useEffect(() => {
     if (!session) return;
-    const seed = session.title || session.sessionId;
+    const seed = anchor ? taskFromText(session.title || session.sessionId, anchor) : (session.title || session.sessionId);
     setTitle(seed);
     setPending(false);
     setError(null);
     wantsSelected.current = seed;
-  }, [session]);
+  }, [anchor, session]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -71,11 +80,12 @@ export function SessionRenameDialog({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (pending || !title.trim()) return;
+    // Under an anchor an empty field is a bare anchor, not a missing name.
+    if (pending || (!title.trim() && !anchor)) return;
     setPending(true);
     setError(null);
     try {
-      await onRename(session, title.trim());
+      await onRename(session, anchor ? formatBotSessionTitle(anchor, title.trim()) : title.trim());
     } catch (reason) {
       setError(String((reason as Error).message ?? reason));
       setPending(false);
@@ -100,8 +110,13 @@ export function SessionRenameDialog({
         className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
       >
         <h2 id="session-rename-title" className="text-base font-semibold">Rename session</h2>
+        {anchor ? (
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground">
+            {anchor} <span className="text-muted-foreground">(what it is doing)</span>
+          </p>
+        ) : null}
         <label className="block text-sm font-medium">
-          Title
+          {anchor ? "Task" : "Title"}
           {/* Capped where the catalog truncates, so a stored title is always the one shown. */}
           <input
             ref={field}
@@ -142,7 +157,7 @@ export function SessionRenameDialog({
           </button>
           <button
             type="submit"
-            disabled={!title.trim() || pending}
+            disabled={(!title.trim() && !anchor) || pending}
             className="flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : null}

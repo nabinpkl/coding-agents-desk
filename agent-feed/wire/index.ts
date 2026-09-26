@@ -42,6 +42,14 @@ export type {
   TmuxQuestionState,
 } from "./tmuxQuestion.ts";
 
+export {
+  formatBotSessionTitle,
+  parseBotSessionTitle,
+  refuseTaskText,
+  stableSessionAnchor,
+  taskFromText,
+} from "./botSessionTitle.ts";
+
 export type {
   AddBotCommand,
   AddBotSessionsCommand,

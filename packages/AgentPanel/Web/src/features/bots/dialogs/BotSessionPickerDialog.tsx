@@ -1,9 +1,9 @@
 import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { stableSessionAnchor } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
-import { nextSessionTitle } from "@/features/bots/dialogs/sessionTitles";
 
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;
@@ -22,7 +22,6 @@ export function BotSessionPickerDialog({
   open,
   bot,
   sessions,
-  takenTitles,
   onClose,
   onAttach,
   onStartNew,
@@ -30,8 +29,6 @@ export function BotSessionPickerDialog({
   open: boolean;
   bot: BotView | null;
   sessions: SessionSummary[] | undefined;
-  /** Every title standing in the Bot's directory, which is how the proposal picks its number. */
-  takenTitles: readonly string[];
   onClose: () => void;
   onAttach: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
   /**
@@ -58,9 +55,10 @@ export function BotSessionPickerDialog({
     setSelectedKeys(new Set());
     setPending(false);
     setError(null);
-    setNewTitle(bot ? nextSessionTitle(bot.name, takenTitles) : "");
-    // Deliberately not keyed on `takenTitles`: it is rebuilt on every inventory push, and
-    // depending on it would retype the reader's field underneath them while they are in it.
+    // The next anchor, spent from the Bot's slot counter rather than counted from titles: two
+    // presses in one minute cannot propose the same name, and a deleted session's number never
+    // comes back. What the session is doing goes in brackets after it.
+    setNewTitle(bot ? stableSessionAnchor(bot.name, bot.nextSessionSlot ?? bot.sessionRefs.length) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bot?.botId, open]);
 
@@ -168,10 +166,10 @@ export function BotSessionPickerDialog({
             <SquareTerminal className="size-4" aria-hidden />
             Start
           </button>
-          {/* Said before rather than discovered later: this is the one moment the name is free. */}
+          {/* Said before rather than discovered later: the anchor is the stable half. */}
           <p className="basis-full text-xs text-muted-foreground">
-            Runs Claude in {bot.environment.path} and opens it on the canvas. The name is the one
-            <code> /resume</code> shows and the one other agents message it by.
+            Runs Claude in {bot.environment.path} and opens it on the canvas. The name before the
+            brackets never changes; what it is doing goes inside them.
           </p>
         </form>
 

@@ -35,7 +35,7 @@ test("creating a Bot with launch starts a session in its directory and attaches 
   expect(bot.missingSessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
 });
 
-test("a launch title overrides the Bot's name, and a prompt is optional", async () => {
+test("a launch title brackets as the task after the Bot's anchor, and a prompt is optional", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
@@ -46,11 +46,12 @@ test("a launch title overrides the Bot's name, and a prompt is optional", async 
     launch: { title: "OSS agent familiarization" },
   }, { kind: "user" });
 
+  // The anchor is stable and the request is the bracket: the `-n` name is both halves at once.
   expect(launched).toEqual([{
     kind: "start",
     cwd: project,
     sessionId: "started-1",
-    title: "OSS agent familiarization",
+    title: "OSS agent (familiarization)",
     prompt: undefined,
   }]);
 });

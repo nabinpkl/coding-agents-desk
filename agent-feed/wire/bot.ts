@@ -106,7 +106,12 @@ export interface BotSnapshot {
  * with no side effects, which is what makes it safe to make twice.
  */
 export interface BotLaunchCommand {
-  /** The session's name and title. Defaults to the Bot's name. */
+  /**
+   * What the session is working on. The `-n` title is composed from it: the session's stable
+   * anchor first, this text bracketed after (`AD 2 (Checkout flow)`). Omitted starts bare under
+   * the anchor. On creation the anchor is the Bot's name; on an existing Bot it is the next
+   * slot's, which the sidecar spends before launching so the name and the slot always agree.
+   */
   title?: string;
   /**
    * The session's first turn, delivered as the CLI's prompt argument.

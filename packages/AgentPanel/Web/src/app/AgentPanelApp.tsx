@@ -214,29 +214,12 @@ export function App({ feed, host, machines, fill = false }: Props) {
     && chrome.sidebarPinned
     && !commands.forkedSession;
   /**
-   * The names already standing where a new session would be started, which is what its number
-   * counts past. The catalog's titles plus the ones this panel has started and the catalog has not
-   * heard of yet -- without the second half, two presses in one minute propose the same name, and
-   * `-n` would then address neither of them.
-   */
-  const sessionTitlesInBot = useMemo(
-    () => botSessionPicker
-      ? [
-        ...(dialogSessionsByProject.get(botSessionPicker.environment.path) ?? [])
-          .map((session) => session.title),
-        ...commands.newSessions
-          .filter((started) => started.botId === botSessionPicker.botId)
-          .map((started) => started.title),
-      ]
-      : [],
-    [botSessionPicker, commands.newSessions, dialogSessionsByProject],
-  );
-  /**
-   * The names already standing in the project a fork would join, which is what its number counts
-   * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
-   * rows the reader can see -- a second reading could be a moment ahead of them and propose a
-   * number for a fork that is not on screen yet.
-   */
+  * The names already standing in the project a fork would join, which is what its number counts
+  * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
+  * rows the reader can see -- a second reading could be a moment ahead of them and propose a
+  * number for a fork that is not on screen yet. Only for forks that belong to nobody: a fork
+  * onto a Bot starts under its next anchor instead.
+  */
   const forkTitlesInProject = useMemo(
     () => commands.forkRequest
       ? (inventory.sessionsByProject.get(commands.forkRequest.projectPath) ?? []).map((session) => session.title)
@@ -308,7 +291,6 @@ export function App({ feed, host, machines, fill = false }: Props) {
           renameSession={commands.renameSession}
           renamingSession={commands.renamingSession}
           sessionsByProject={dialogSessionsByProject}
-          sessionTitlesInBot={sessionTitlesInBot}
           setBotCreatorOpen={commands.setBotCreatorOpen}
           setBotSessionPickerId={commands.setBotSessionPickerId}
           setForkRequest={commands.setForkRequest}

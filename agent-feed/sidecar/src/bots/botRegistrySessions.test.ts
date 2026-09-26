@@ -82,26 +82,30 @@ test("starts a session on a Bot that already has some, and attaches it", async (
   }, { kind: "user" });
   const added = await registry.addSessions(
     bot.botId,
-    { requestId: "start", launch: { title: "AD composer fix", prompt: "Read the brief." } },
+    { requestId: "start", launch: { title: "composer fix", prompt: "Read the brief." } },
     { kind: "user" },
   );
 
+  // Slot zero, so the anchor is the Bot's name and the request brackets after it. The reservation
+  // is spent before the launch, so the stored slot and the `-n` title always agree.
   expect(launched).toEqual([{
     kind: "start",
     cwd: project,
     sessionId: "started-1",
-    title: "AD composer fix",
+    title: "AD bot (composer fix)",
     prompt: "Read the brief.",
   }]);
   // The pane comes back with it: the caller has nowhere else to read it from, and rebuilding the
   // name at the call site would put the sidecar's rule in two places.
   expect(added.started).toEqual({
     sessionId: "started-1",
-    title: "AD composer fix",
+    title: "AD bot (composer fix)",
     projectPath: project,
     tmuxSession: "agentdesk-started-1",
   });
   expect(added.bot.missingSessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
+  expect(added.bot.sessionSlots).toEqual({ "claude:started-1": 0 });
+  expect(added.bot.nextSessionSlot).toBe(1);
 });
 
 test("forks one of the Bot's own sessions, and puts the brief behind the handoff note", async () => {
@@ -128,12 +132,15 @@ test("forks one of the Bot's own sessions, and puts the brief behind the handoff
     cwd: project,
     sessionId: claudeRef.sessionId,
     forkId: "started-1",
-    title: "Bot background color",
+    // Second slot, so the anchor numbers past the attached session and the request brackets.
+    title: "AD bot 2 (Bot background color)",
     // The launcher composes the handoff note in front of this; what the registry passes is the
     // reader's own words, unchanged.
     brief: "Give each card a colour.",
   }]);
   expect(added.started?.tmuxSession).toBe("agentdesk-fork-started-1");
+  expect(added.started?.title).toBe("AD bot 2 (Bot background color)");
+  expect(added.bot.sessionSlots?.["claude:started-1"]).toBe(1);
 });
 
 test("refuses to fork a session the Bot does not hold", async () => {
@@ -154,18 +161,45 @@ test("refuses to fork a session the Bot does not hold", async () => {
   )).rejects.toThrow(BotNotFoundError);
 });
 
-test("requires a title when adding a session to a Bot that already has one", async () => {
-  // At creation the Bot's name is the obvious title for its only session. Here it is the opposite:
-  // every session would answer to the same address, and `-n` is what other agents send to.
-  const { project, registry } = await fixture();
+test("an omitted title starts bare under the next anchor", async () => {
+  // The anchor is spent from the slot counter, not counted from titles, so two launches in one
+  // moment cannot preview the same name and a deleted session's number is never reused.
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
   const bot = await addBot(registry, {
     requestId: "add",
     name: "AD bot",
     directoryPath: project,
   }, { kind: "user" });
 
-  await expect(registry.addSessions(bot.botId, { requestId: "start", launch: {} }, { kind: "user" }))
-    .rejects.toThrow(/launch.title is required/);
+  const added = await registry.addSessions(bot.botId, { requestId: "start", launch: {} }, { kind: "user" });
+
+  expect(launched).toEqual([{
+    kind: "start",
+    cwd: project,
+    sessionId: "started-1",
+    title: "AD bot",
+    prompt: undefined,
+  }]);
+  expect(added.started?.title).toBe("AD bot");
+  expect(added.bot.sessionSlots).toEqual({ "claude:started-1": 0 });
+});
+
+test("a task carrying its own brackets is refused before anything is spent", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
+  const bot = await addBot(registry, {
+    requestId: "add",
+    name: "AD bot",
+    directoryPath: project,
+  }, { kind: "user" });
+
+  await expect(registry.addSessions(
+    bot.botId,
+    { requestId: "start", launch: { title: "fix (urgent) bug" } },
+    { kind: "user" },
+  )).rejects.toThrow(/parentheses/);
+  expect(launched).toEqual([]);
 });
 
 test("refuses a command that neither attaches nor starts anything", async () => {

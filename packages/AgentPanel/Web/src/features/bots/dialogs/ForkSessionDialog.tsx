@@ -50,6 +50,7 @@ export interface ForkRequest {
 export function ForkSessionDialog({
   request,
   takenTitles,
+  botAnchor,
   onClose,
   onFork,
 }: {
@@ -57,6 +58,12 @@ export function ForkSessionDialog({
   request: ForkRequest | null;
   /** Every title already in the source's project, which is how the proposal picks its number. */
   takenTitles: readonly string[];
+  /**
+   * The anchor a fork onto a Bot starts under. Present when the fork is for a Bot: the new
+   * session takes the Bot's next anchor with an empty task, not a `(fork n)` of its source.
+   * Absent for a fork that belongs to nobody, which keeps counting past its project's titles.
+   */
+  botAnchor?: string;
   onClose: () => void;
   onFork: (request: ForkRequest, title: string, brief: string, worktree: boolean) => void;
 }) {
@@ -71,7 +78,7 @@ export function ForkSessionDialog({
 
   useEffect(() => {
     if (!request) return;
-    const seed = nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
+    const seed = botAnchor ?? nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
     setTitle(seed);
     // Seeded with what that message said, because the thing a reader wants from forking at a
     // message is almost always to send it again differently -- which is what Claude's own rewind

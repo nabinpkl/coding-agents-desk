@@ -1,10 +1,13 @@
 /**
- * What to call a session the panel is about to start, whether it is a fork or a fresh one.
+ * What to call a fork the panel is about to start.
  *
- * Both live here because they answer the same question at the same moment, and the moment is the
- * only one there is: `-n` sets a session's ADDRESS as well as its title, so the name has to be
- * settled before the CLI is run and cannot be corrected afterwards without leaving the session
- * listed under the wrong one in between.
+ * It lives here because the moment is the only one there is: `-n` sets a session's ADDRESS as
+ * well as its title, so the name has to be settled before the CLI is run and cannot be corrected
+ * afterwards without leaving the session listed under the wrong one in between.
+ *
+ * A fork onto a Bot does NOT use this: it starts under the Bot's next anchor with an empty task
+ * (`AD 3`), spent from the Bot's slot counter. This is only for a fork that belongs to nobody,
+ * which has no anchor and counts past its project's titles instead.
  *
  * # Forks
  *
@@ -55,38 +58,4 @@ export function nextForkTitle(sourceTitle: string, takenTitles: Iterable<string>
     highest = Math.max(highest, Number(suffix[2]));
   }
   return `${base} (fork ${highest + 1})`;
-}
-
-/** `<base> <n>` for n above one, with the number captured so a standing one can be read off. */
-const NUMBER_SUFFIX = /^(.*\S)\s+(\d+)$/;
-
-/**
- * The next free name for a session started fresh in a directory, seeded from the Bot's own name.
- *
- * A plain number rather than the fork suffix, because these are not forks OF anything: `AD`, then
- * `AD 2`. A fork's suffix says which branch of one conversation it is, and putting that word on a
- * session with no parent would be a claim about where it came from.
- *
- * Numbered at all for the reason the fork proposal is: `-n` is the address other agents send to,
- * and six sessions here were all called "Windows canvas", which made the bare name address none of
- * them. A seed that is simply the Bot's name would do exactly that on the second press.
- *
- * Read off the titles that exist rather than counted in this process, so a gap left by a deleted
- * session is reused and a session started from a shell is still counted.
- */
-export function nextSessionTitle(base: string, takenTitles: Iterable<string>): string {
-  const trimmed = base.trim();
-  if (!trimmed) return trimmed;
-  let highest = 0;
-  for (const taken of takenTitles) {
-    const candidate = taken.trim();
-    if (candidate === trimmed) {
-      highest = Math.max(highest, 1);
-      continue;
-    }
-    const suffix = NUMBER_SUFFIX.exec(candidate);
-    if (!suffix || suffix[1] !== trimmed) continue;
-    highest = Math.max(highest, Number(suffix[2]));
-  }
-  return highest === 0 ? trimmed : `${trimmed} ${highest + 1}`;
 }

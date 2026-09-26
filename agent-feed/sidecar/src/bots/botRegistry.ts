@@ -182,7 +182,7 @@ export class BotRegistry {
     // Everything after this point has already written a Bot, so every failure here is a
     // `BotLaunchError`: the caller cannot simply retry a different command, and the message has to
     // say what survived.
-    const started = await this.starter.launchOrExplain(created.bot, normalized.launch);
+    const started = await this.starter.launchFirstSession(created.bot, normalized.launch);
     return {
       bot: await this.viewRecord(
         await this.starter.recordStartedSession(created.bot.botId, { source: "claude", sessionId: started.sessionId }),
@@ -291,8 +291,9 @@ export class BotRegistry {
 
     // Nothing durable has been spent on the launch itself yet, so its refusals stay ordinary
     // refusals -- a branch that exists, a source that is not this Bot's -- and the caller can fix
-    // the command and send a different one.
-    const started = await this.starter.launchSession(record.bot, launch);
+    // the command and send a different one. The `-n` title is the next anchor bracketed with the
+    // requested task, reserved against the slot it will attach to before anything starts.
+    const started = await this.starter.launchReservedSession(botId, record.bot, launch);
     return {
       bot: await this.viewRecord(
         await this.starter.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }),

@@ -6,12 +6,20 @@
 // at construction so both halves write through the same store.
 
 import type { BotRecord, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
+import {
+  formatBotSessionTitle,
+  refuseTaskText,
+  stableSessionAnchor,
+  taskFromText,
+} from "@agentdesk/agent-feed-wire";
 import { WorktreeError } from "@/git/worktree";
 import { launchSession } from "@/transcripts/session-ops/forkSession";
+import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import type { BotStore } from "@/bots/botStore";
 import type { NormalizedLaunch } from "@/bots/botCommands";
 import { sessionKey } from "@/bots/botIdempotency";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
+import { BotInvalidError } from "@/bots/botTypes";
 import {
   BotConflictError,
   BotLaunchError,
@@ -65,6 +73,7 @@ export class BotSessionStarter {
   async launchSession(
     bot: BotRecord,
     launch: NormalizedLaunch,
+    newSessionId: () => string = this.newSessionId,
   ): Promise<StartedSession> {
     // A fork runs where its source runs unless it asked for a tree of its own, so a fork of a
     // session already in a worktree stays in that worktree rather than being pulled back into the
@@ -81,7 +90,7 @@ export class BotSessionStarter {
           ...(launch.worktree === undefined ? {} : { worktree: launch.worktree }),
         },
         this.launcher,
-        this.newSessionId,
+        newSessionId,
       );
     } catch (error) {
       // Said as a Bot conflict rather than passed through: the caller asked a Bot for a session,
@@ -107,6 +116,57 @@ export class BotSessionStarter {
       throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
     }
     return resolved;
+  }
+
+  /**
+   * Starts a new Bot's first session, which is always slot zero.
+   *
+   * The anchor is the Bot's name with nothing to spend ahead of the launch, so this is one call
+   * where the existing-Bot path reserves first. Kept beside that method rather than in the
+   * registry because both halves compose the same `-n` title.
+   */
+  async launchFirstSession(bot: BotRecord, launch: NormalizedLaunch): Promise<StartedSession> {
+    return this.launchOrExplain(bot, {
+      ...launch,
+      title: composeBotSessionTitle(bot.name, 0, launch.title),
+    });
+  }
+
+  /**
+   * Starts a session on a Bot that already exists, under its next anchor.
+   *
+   * The slot is spent BEFORE the launch, in the same store, so the `-n` title and the stored
+   * slot always agree: reserving first is what keeps two launches in one moment from previewing
+   * the same number. A launch that is then refused or fails still spends its number, which the
+   * slot rule already prices in -- numbers are never reused either way, so a gap is a gap and
+   * not a collision.
+   *
+   * The attach afterwards (`recordStartedSession`) finds the reservation and keeps it, which is
+   * why this and that agree without sharing anything but the session id.
+   */
+  async launchReservedSession(botId: string, bot: BotRecord, launch: NormalizedLaunch): Promise<StartedSession> {
+    const sessionId = this.newSessionId();
+    const reserved = await this.store.mutate((snapshot) => {
+      const index = snapshot.bots.findIndex((one) => one.botId === botId);
+      if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
+      const current = snapshot.bots[index]!;
+      const backed = ensureSessionSlots(current, current.sessionRefs);
+      const slot = backed.nextSessionSlot;
+      const sessionSlots = { ...backed.sessionSlots, [`claude:${sessionId}`]: slot };
+      const updated: BotRecord = {
+        ...current,
+        sessionSlots,
+        nextSessionSlot: slot + 1,
+      };
+      const bots = [...snapshot.bots];
+      bots[index] = updated;
+      return {
+        snapshot: { ...snapshot, revision: snapshot.revision + 1, bots },
+        value: { bot: updated, slot },
+      };
+    });
+    const title = composeBotSessionTitle(bot.name, reserved.slot, launch.title);
+    return this.launchSession(reserved.bot, { ...launch, title }, () => sessionId);
   }
 
   /**
@@ -140,4 +200,22 @@ export class BotSessionStarter {
       };
     });
   }
+}
+
+/**
+ * The `-n` title a Bot session starts under: its slot's anchor, bracketed with its task.
+ *
+ * Exported so the Bot creation path composes the same string without reserving anything: a new
+ * Bot's first session is always slot zero, so its anchor is the Bot's name and there is nothing
+ * to spend ahead of the launch.
+ */
+export function composeBotSessionTitle(botName: string, slot: number, requested: string): string {
+  const anchor = stableSessionAnchor(botName, slot);
+  const task = taskFromText(requested, anchor);
+  const taskRefusal = task ? refuseTaskText(task) : null;
+  if (taskRefusal) throw new BotInvalidError(`launch.title: ${taskRefusal}`);
+  const title = formatBotSessionTitle(anchor, task);
+  const refusal = sessionTitleRefusal(title);
+  if (refusal) throw new BotInvalidError(`launch.title: ${refusal}`);
+  return title;
 }
