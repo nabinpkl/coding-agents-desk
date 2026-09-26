@@ -131,6 +131,20 @@ export class LiveAgentProjection {
     this.publish("state", []);
   }
 
+  /**
+   * Publishes the current state unconditionally, for a change no row carries.
+   *
+   * A model switch lands on no message: the serve publishes `session.model.selected` and the
+   * next `session.get` names the new model, but the message set is untouched, so `upsert`
+   * publishes nothing and `setState` sees the same idle it already holds. Without this the
+   * HTTP layer's per-envelope model stamp has nothing to ride on, and an open stream never
+   * learns the switch -- measured 2026-09-26, a footer that kept the previous model until the
+   * next turn. The envelope carries no events, only a newer sequence and the current state.
+   */
+  announce(): void {
+    this.publish("state", []);
+  }
+
   page(offset: number, limit: number): ActivityEvent[] {
     const start = Math.max(0, offset);
     const end = Math.min(this.order.length, start + Math.max(0, limit));

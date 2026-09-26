@@ -422,6 +422,7 @@ export class OpencodeSessionPool {
         now: this.now,
       });
       if (meter) {
+        if (meter.model !== current.model) current.projection.announce();
         current.model = meter.model;
         current.usage = meter.usage;
       }

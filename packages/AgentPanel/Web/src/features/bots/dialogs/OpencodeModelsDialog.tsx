@@ -1,7 +1,6 @@
 import { ChevronDown, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 
 /**
@@ -210,19 +209,25 @@ export interface OpencodeModelsMenu {
 }
 
 /**
- * The menu with its list: loads the models on open, marks the session's current one from
- * its usage, and closes on a successful switch. A failed list is a closed menu rather than
- * an empty one -- an empty list reads as "this serve offers nothing", which is never true.
+ * The menu with its list: loads the models on open, marks the session's current one, and closes
+ * on a successful switch. A failed list is a closed menu rather than an empty one -- an empty
+ * list reads as "this serve offers nothing", which is never true.
+ *
+ * The current model arrives as a name rather than as usage, on purpose: usage blanks across the
+ * post-compaction gap while the model survives it, and after a switch the meter holds the
+ * previous reading until the next turn -- measured 2026-09-26, a dialog that marked the old
+ * model current after the footer had already moved on.
  */
 export function OpencodeModelsHost({
   feed,
-  usage,
+  current,
   initialFilter,
   onClose,
   onSwitch,
 }: {
   feed: SidecarDataSource;
-  usage: TokenUsage | null;
+  /** The session's current model as `providerID/modelID`, or null while unknown. */
+  current: string | null;
   initialFilter: string;
   onClose: () => void;
   onSwitch: (providerID: string, modelID: string) => Promise<void>;
@@ -247,7 +252,7 @@ export function OpencodeModelsHost({
   return (
     <OpencodeModelsDialog
       models={models}
-      current={usage?.model ?? null}
+      current={current}
       initialFilter={initialFilter}
       onClose={onClose}
       onSwitch={async (model) => {

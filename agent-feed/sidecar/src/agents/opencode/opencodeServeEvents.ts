@@ -122,6 +122,14 @@ export class OpencodeServeEvents {
         this.routeCompactionV2(type, event, sessionId);
         return;
       }
+      // The one event the meter depends on, dispatched on the string for the reason the
+      // compaction family is: the pinned SDK union predates the serve's v2 name, so no case
+      // below can spell it. A model switch lands on no message, so this refresh is what picks
+      // the new name up, and the pool's announce is what carries it to an open stream.
+      if (type === "session.model.selected" || type === "session.next.model.switched") {
+        if (sessionId && this.router.hasSession(sessionId)) this.router.refresh(sessionId);
+        return;
+      }
       // A running turn's own words, dispatched before the catch-all below for the reason the
       // compaction family is: these arrive per chunk, and every one of them used to buy a
       // re-read of the newest page. The durable read now waits for the step to end instead.

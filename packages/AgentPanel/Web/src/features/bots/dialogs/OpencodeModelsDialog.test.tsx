@@ -116,7 +116,7 @@ describe("OpencodeModelsDialog", () => {
     const { rerender } = render(
       <OpencodeModelsHost
         feed={feed}
-        usage={null}
+        current={null}
         initialFilter=""
         onClose={onClose}
         onSwitch={async () => {}}
@@ -126,12 +126,28 @@ describe("OpencodeModelsDialog", () => {
     rerender(
       <OpencodeModelsHost
         feed={feed}
-        usage={{ current: 1, limit: null, updatedAt: 0, model: "other/tiny" } as never}
+        current="other/tiny"
         initialFilter=""
         onClose={onClose}
         onSwitch={async () => {}}
       />,
     );
     expect(await screen.findByRole("dialog", { name: "Switch model" })).toBeTruthy();
+  });
+
+  it("marks the session's model current rather than the meter's last reading", async () => {
+    // The meter holds the previous reading until the next turn, so after a switch usage still
+    // names the old model. The host takes the session's model directly, which is what moved.
+    const feed = { listOpencodeModels: async () => MODELS } as never;
+    render(
+      <OpencodeModelsHost
+        feed={feed}
+        current="opencode-go/spark"
+        initialFilter=""
+        onClose={() => {}}
+        onSwitch={async () => {}}
+      />,
+    );
+    expect(await screen.findByRole("option", { name: /Muse Spark.*current/ })).toBeTruthy();
   });
 });

@@ -291,7 +291,7 @@ export function SessionComposerBand({
           {surfaces.models ? (
             <OpencodeModelsHost
               feed={feed}
-              usage={usage}
+              current={model.sessionModel ?? usage?.model ?? null}
               initialFilter={surfaces.models.filter}
               onClose={surfaces.models.onClose}
               onSwitch={surfaces.models.onSwitch}

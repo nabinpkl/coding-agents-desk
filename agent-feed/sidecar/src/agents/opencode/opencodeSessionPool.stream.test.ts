@@ -7,6 +7,7 @@
 // one (coalesced into a re-read that arrived later than the words it was re-reading for).
 import { afterEach, describe, expect, it } from "bun:test";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { OpencodeSessionPool } from "@/agents/opencode/opencodeSessionPool";
 import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
 
@@ -28,6 +29,8 @@ interface Harness {
   push: (event: unknown) => void;
   /** What the next history read answers with, which is how a turn reaches the serve's file. */
   settle: (messages: SessionMessage[]) => void;
+  /** What the serve's next `session.get` names as the session's model. */
+  setServeModel: (modelId: string) => void;
   historyReads: () => number;
   dispose: () => Promise<void>;
 }
@@ -45,6 +48,8 @@ afterEach(() => {
 function harness(initial: SessionMessage[] = []): Harness {
   let durable: SessionMessage[] = initial;
   let reads = 0;
+  // The model the serve names, changed by the test to stage a switch.
+  let serveModelId = "m";
   // A real queue rather than a one-shot promise: the sidecar keeps one stream open for every
   // session it owns, and a test that published a single event would prove nothing about the
   // second, third or fourth -- which is exactly the range this is about.
@@ -74,7 +79,7 @@ function harness(initial: SessionMessage[] = []): Harness {
     v2: {
       session: {
         get: async () => ({
-          data: { data: { id: "s1", model: { id: "m", providerID: "opencode-go" }, tokens: null } },
+          data: { data: { id: "s1", model: { id: serveModelId, providerID: "opencode-go" }, tokens: null } },
         }),
       },
       event: {
@@ -108,6 +113,9 @@ function harness(initial: SessionMessage[] = []): Harness {
     settle: (messages) => {
       durable = messages;
     },
+    setServeModel: (modelId) => {
+      serveModelId = modelId;
+    },
     historyReads: () => reads,
     dispose: async () => {
       await pool.dispose();
@@ -119,6 +127,16 @@ async function openAndWatch(h: Harness): Promise<() => void> {
   // Subscribing is what turns the serve stream on, so a reader arriving mid-turn is the case
   // this exercises rather than an accident of the test.
   return h.pool.subscribe("s1", 0, () => {});
+}
+
+/** Polls rather than sleeping a fixed span: refreshes are coalesced and fetched a macrotask away. */
+async function waitFor(done: () => boolean): Promise<void> {
+  const started = Date.now();
+  for (;;) {
+    if (done()) return;
+    if (Date.now() - started > 5000) throw new Error("waitFor: condition never became true");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 describe("the opencode pool, streaming a turn", () => {
@@ -218,8 +236,7 @@ describe("the opencode pool, streaming a turn", () => {
     await h.dispose();
   });
 
-  it("forgets the running message, so a late event for it cannot overwrite the settled row", async () => {
-    const h = harness([{
+  it("forgets the running message, so a late event for it cannot overwrite the settled row", async () => {    const h = harness([{
       id: "msg-1",
       type: "assistant",
       time: { created: 1, completed: 2 },
@@ -234,6 +251,33 @@ describe("the opencode pool, streaming a turn", () => {
     const page = await h.pool.page("s1", 0, 10, "nice");
     expect(page.events[0]?.blocks).toEqual([{ kind: "text", text: "the whole answer" }]);
     expect(page.events[0]?.phase).toBe("complete");
+    await stop();
+    await h.dispose();
+  });
+
+  it("announces a model switch, so an open stream learns it with no new message", async () => {
+    // Measured 2026-09-26: a switch from the panel's own picker updated the TUI and left the
+    // panel's footer on the previous model. The serve publishes `session.model.selected` and
+    // the next `session.get` names the new model, but the message set is untouched -- so the
+    // refresh published nothing, the per-envelope stamp had nothing to ride on, and the open
+    // stream never heard. The announce is the envelope the stamp rides on.
+    const h = harness();
+    const seen: TimelineEnvelope[] = [];
+    const stop = await h.pool.subscribe("s1", 0, (envelope) => seen.push(envelope));
+    await waitFor(() => h.pool.sessionModel("s1") === "opencode-go/m");
+    const before = seen.length;
+
+    h.setServeModel("m2");
+    h.push({
+      type: "session.model.selected",
+      data: { sessionID: "s1", model: { providerID: "opencode-go", id: "m2" } },
+    });
+    await waitFor(() => h.pool.sessionModel("s1") === "opencode-go/m2");
+
+    expect(seen.length).toBeGreaterThan(before);
+    // The switch wrote no message, so the announcement carries no rows -- only the newer
+    // sequence the HTTP layer stamps the model onto.
+    expect(seen.at(-1)?.events).toEqual([]);
     await stop();
     await h.dispose();
   });
