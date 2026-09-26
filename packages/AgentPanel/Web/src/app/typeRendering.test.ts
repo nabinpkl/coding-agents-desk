@@ -47,13 +47,27 @@ describe("Agent Panel type rendering", () => {
     // real stack; drop the :root line and the property is invalid at computed
     // value time, taking `body`'s font-family down with it.
     expect(appStyles).toMatch(
-      /^\s*--font-sans:\s*"Inter Variable",\s*system-ui,\s*-apple-system,\s*sans-serif;/m,
+      /^\s*--font-sans:\s*"Roboto Variable",\s*system-ui,\s*-apple-system,\s*sans-serif;/m,
     );
     expect(appStyles).toContain("font-family: var(--font-sans);");
   });
 
-  it("keeps optical sizing on, which is what the opsz build is bundled for", () => {
-    expect(appStyles).toContain("font-optical-sizing: auto;");
+  it("leaves font smoothing alone, so dark mode keeps the stroke the face has", () => {
+    // `-webkit-font-smoothing: antialiased` forces greyscale antialiasing, which
+    // thins every stroke, worst for light text on a dark ground. It was removed
+    // because that is the surface this panel is read on, and removing it was the
+    // whole dark-mode fix -- no weight in the tree moved. Adding it back would
+    // undo that silently: nothing errors and no markup changes, the text just
+    // goes thin again.
+    // Matched as a declaration rather than as a substring, since the comment that
+    // records the removal names the property too.
+    expect(appStyles).not.toMatch(/^\s*-webkit-font-smoothing:/m);
+  });
+
+  it("keeps the tracking that answers Roboto setting tighter than Inter did", () => {
+    // Paired with the line above: the two together are what replaced a weight
+    // bump, so losing either one puts the panel back where it started.
+    expect(appStyles).toMatch(/^\s*letter-spacing: 0\.\d+em;/m);
   });
 
   it("points every @font-face at a file the installed package actually ships", () => {

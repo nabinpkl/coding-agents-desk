@@ -17,53 +17,53 @@
   }
 }
 
-/* Inter, self-hosted. The panel ships as a local bundle inside WKWebView on
+/* Roboto, self-hosted. The panel ships as a local bundle inside WKWebView on
    both macOS and iOS, so a CDN is not an option; Vite fingerprints these four
    woff2 files into dist/assets alongside the KaTeX faces already there.
 
-   `opsz` rather than `wght`: Inter's optical-size axis is what makes it hold
-   up at the sizes this feed actually uses. The tile tokens run 10px chips to
-   28px headings, and `font-optical-sizing: auto` (below) picks a heavier,
-   more open cut at the small end -- which is the whole reason for the swap.
-   These four total 422KB against 271KB for the weight-only build; the 151KB
-   buys the axis. Even with the axis ignored the default instance is opsz 14,
-   the text-optimized cut, so the floor is fine.
+   The `wght` build rather than `standard`. Roboto varies on two axes, weight
+   and width, and nothing here varies width, so the weight-only files are
+   148KB against 233KB for the dual-axis ones. It carries no optical-size axis
+   at all, which is why `body` no longer sets `font-optical-sizing`: that was
+   there for Inter's `opsz` build, and against Roboto it would be a no-op.
+   The swap also drops 274KB, since the four Inter files were 422KB.
 
-   Latin and latin-ext only, of the seven subsets the package ships. The
+   Latin and latin-ext only, of the nine subsets the package ships. The
    `unicode-range` descriptors are copied verbatim from the package's own
-   `opsz.css` and are load-bearing: a codepoint outside them falls through to
-   the next family in `--font-sans` per glyph, so Cyrillic or Greek in a
-   transcript renders in the system face instead of tofu. */
+   `wght.css` and `wght-italic.css` and are load-bearing: a codepoint outside
+   them falls through to the next family in `--font-sans` per glyph, so
+   Cyrillic or Greek in a transcript renders in the system face instead of
+   tofu. */
 @font-face {
-  font-family: "Inter Variable";
+  font-family: "Roboto Variable";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
-  src: url("@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2") format("woff2-variations");
+  src: url("@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Inter Variable";
+  font-family: "Roboto Variable";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
-  src: url("@fontsource-variable/inter/files/inter-latin-opsz-italic.woff2") format("woff2-variations");
+  src: url("@fontsource-variable/roboto/files/roboto-latin-wght-italic.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Inter Variable";
+  font-family: "Roboto Variable";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
-  src: url("@fontsource-variable/inter/files/inter-latin-ext-opsz-normal.woff2") format("woff2-variations");
+  src: url("@fontsource-variable/roboto/files/roboto-latin-ext-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "Inter Variable";
+  font-family: "Roboto Variable";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
-  src: url("@fontsource-variable/inter/files/inter-latin-ext-opsz-italic.woff2") format("woff2-variations");
+  src: url("@fontsource-variable/roboto/files/roboto-latin-ext-wght-italic.woff2") format("woff2-variations");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
@@ -99,8 +99,8 @@
   color-scheme: light dark;
   /* `@theme inline` above republishes this as Tailwind's `font-sans` utility,
      so the stack has exactly one definition. The system faces stay behind
-     Inter as the per-glyph fallback for the subsets not bundled. */
-  --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
+     Roboto as the per-glyph fallback for the subsets not bundled. */
+  --font-sans: "Roboto Variable", system-ui, -apple-system, sans-serif;
   /* Leading for every prose surface in the feed. It has four consumers -- the
      Markdown renderer plus the three text wrappers in ActivityEventRows --
      and they had drifted apart: markdown prose sat at 1.45 while user and
@@ -807,10 +807,19 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    /* Explicit rather than relying on the initial value: it is the reason the
-       `opsz` build is bundled instead of the smaller `wght` one. */
-    font-optical-sizing: auto;
-    -webkit-font-smoothing: antialiased;
+    /* Roboto sets tighter than Inter did, and at the sizes this panel uses the
+       difference reads as cramped rather than as compact. A hair of tracking
+       opens it back up. Uniform, so the mono spans it also touches keep their
+       columns, and global rather than dark-only, since letter-spacing changes
+       how wide text is and the layout should not reflow when the OS theme
+       flips. */
+    letter-spacing: 0.011em;
+    /* No `-webkit-font-smoothing: antialiased` here, deliberately. It forces
+       greyscale antialiasing, which thins every stroke, and light text on a
+       dark ground is where that is most visible -- which is the surface this
+       panel is actually read on. Dropping it is what carries dark mode, and it
+       does it by restoring the stroke the face already has rather than by
+       moving any weight: every `font-weight` in the tree is untouched. */
     overflow: hidden;
     overscroll-behavior: none;
   }
