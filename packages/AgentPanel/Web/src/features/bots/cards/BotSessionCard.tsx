@@ -15,7 +15,7 @@ import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-import { botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
+import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
 const MOVE_THRESHOLD = 4;
@@ -37,7 +37,7 @@ export function BotSessionCard({
   session,
   hue,
   rank,
-  shade,
+  slot,
   solo,
   open,
   onToggle,
@@ -69,8 +69,8 @@ export function BotSessionCard({
   hue: number | undefined;
   /** The Bot's rank in the creation order, which draws its sessions' faces. Beside the hue. */
   rank: number | undefined;
-  /** This session's step on that Bot's shade ladder, which is what separates it from its siblings. */
-  shade: number | undefined;
+  /** This session's stored slot: what separates it from its siblings in shade and face. */
+  slot: number | undefined;
   /**
    * Whether this is the only session its Bot has, in which case it gets no rail.
    *
@@ -149,7 +149,7 @@ export function BotSessionCard({
   // Both or neither, decided in one place so the class and the properties cannot disagree: a card
   // wearing `bot-session-fill` with no `--bot-hue` would resolve the hue it inherited from the Bot
   // card around it and paint step zero of a ladder it is not on.
-  const shaded = botSessionStyle(hue, shade);
+  const shaded = botSessionStyle(hue, slot === undefined ? undefined : slot % BOT_SESSION_SHADES);
   // The rail says which Bot a card belongs to, among the Bot's several. With one session there is
   // no "among", and a rail down the only thing in a container draws a line between a group and
   // itself. The card keeps its shade either way, so it still reads as a card sitting on its Bot.
@@ -304,7 +304,7 @@ export function BotSessionCard({
                 title={title}
                 activity={session.activity}
                 shaded={Boolean(shaded)}
-                rank={rank !== undefined && shade !== undefined ? botSessionFaceRank(rank, shade) : undefined}
+                rank={rank !== undefined && slot !== undefined ? botSessionFaceRank(rank, slot) : undefined}
                 // The same fact the chevron beside it states, said by the same face the roster
                 // draws: one session looks like one session in both places, which is the whole
                 // reason the row and the card share a mark at all.

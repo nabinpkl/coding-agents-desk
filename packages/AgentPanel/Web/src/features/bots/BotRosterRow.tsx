@@ -5,7 +5,7 @@ import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { attachedSessionKey, splitSessionsByCanvas } from "@/features/bots/botRosterOrder";
-import { botSessionFaceRank, botSessionShades, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
+import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionSlots, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
@@ -74,10 +74,10 @@ export function BotRosterRow({
   const onCanvas = canvas ? !canvas.detachedBotIds.has(bot.botId) : undefined;
   const onStrip = onCanvas === undefined ? undefined : onCanvas && !machineHidden;
   // The same ladder the canvas cards stand on, derived here for the same reason the hues
-  // are: it is a pure function of the Bot's own durable roster, so both surfaces reach
+  // are: it is a pure function of the Bot's own stored slots, so both surfaces reach
   // the same answer by construction rather than by agreement. A session that is one
   // shade of teal on its card and another in this list would be two facts to learn.
-  const shades = botSessionShades(bot.sessionRefs);
+  const slots = botSessionSlots(bot.sessionRefs, bot.sessionSlots);
   const split = splitSessionsByCanvas(
     bot.sessions,
     (session) => (canvas?.detachedSessionKeys.has(attachedSessionKey(session)) ?? false)
@@ -93,11 +93,11 @@ export function BotRosterRow({
     // the two reasons it is.
     const noCard = (canvas?.detachedSessionKeys.has(key) ?? false)
       || onStrip === false;
-    const shaded = botSessionStyle(hue, shades.get(key));
+    const step = slots.get(key);
+    const shaded = botSessionStyle(hue, step === undefined ? undefined : step % BOT_SESSION_SHADES);
     // Its own face rather than its Bot's, so siblings never share one; either
     // half missing leaves the mark on its disc.
     const botRank = rank;
-    const step = shades.get(key);
     const faceRank = botRank !== undefined && step !== undefined
       ? botSessionFaceRank(botRank, step)
       : undefined;

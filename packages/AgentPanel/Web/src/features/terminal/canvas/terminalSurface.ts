@@ -10,8 +10,8 @@
 // - Bot hues rank creation order, which is append-only: a new Bot takes the next index and
 //   nothing moves. Terminal parents rank PATH order, and the set churns -- sessions start and
 //   stop all day. A rank shift repaints the hues after it, which is accepted for the same reason
-//   `botSessionShades` accepts it on detach: the alternative is hashing ids into buckets, and
-//   neighbours sharing a colour on purpose is worse than a repaint after churn.
+//   Bots used to accept it on detach before slots were stored: the alternative is hashing ids
+//   into buckets, and neighbours sharing a colour on purpose is worse than a repaint after churn.
 // - Bot shades rank the durable curation order. Terminal children have no curation, so they rank
 //   name order, which is the only order a tmux roster has.
 //

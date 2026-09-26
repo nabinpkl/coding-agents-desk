@@ -60,6 +60,40 @@ test("attaches existing sessions from the Bot directory as one durable update", 
   expect((await registry.snapshot()).revision).toBe(2);
 });
 
+test("a reorder moves the order and nothing else; detach keeps the slot for the return", async () => {
+  // The reason slots are stored rather than ranked: a reader who drags a card is arranging, and
+  // an arrangement that repaints every session it passed is not one.
+  const { project, ref, secondRef, registry } = await fixture();
+  const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref, secondRef] }, { kind: "user" });
+
+  const reordered = await registry.reorderSessions(
+    bot.botId,
+    { requestId: "move", sessionRefs: [secondRef, ref] },
+    { kind: "user" },
+  );
+  expect(reordered.sessionRefs).toEqual([secondRef, ref]);
+  expect(reordered.sessionSlots).toEqual({ "pi:session-1": 0, "codex:session-2": 1 });
+  expect(reordered.nextSessionSlot).toBe(2);
+
+  const detached = await registry.detachSessions(
+    bot.botId,
+    { requestId: "leave", sessionRefs: [secondRef] },
+    { kind: "user" },
+  );
+  expect(detached.sessionRefs).toEqual([ref]);
+  expect(detached.sessionSlots).toEqual({ "pi:session-1": 0, "codex:session-2": 1 });
+
+  const returned = await addSessions(
+    registry,
+    bot.botId,
+    { requestId: "back", sessionRefs: [secondRef] },
+    { kind: "user" },
+  );
+  expect(returned.sessionSlots).toEqual({ "pi:session-1": 0, "codex:session-2": 1 });
+  expect(returned.nextSessionSlot).toBe(2);
+});
+
 test("rejects sessions outside the Bot directory and request reuse across Bots", async () => {
   const { project, secondProject, ref, registry } = await fixture();
   const first = await addBot(registry, { requestId: "first", name: "First", directoryPath: project }, { kind: "user" });

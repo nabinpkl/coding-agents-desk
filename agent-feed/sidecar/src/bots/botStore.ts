@@ -2,8 +2,9 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { BotRecord } from "@agentdesk/agent-feed-wire";
+import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 
-export const BOT_STORE_VERSION = 2;
+export const BOT_STORE_VERSION = 3;
 const LOCK_WAIT_MS = 25;
 const LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;
@@ -14,7 +15,7 @@ export interface BotIdempotencyRecord {
 }
 
 export interface StoredBotSnapshot {
-  version: 2;
+  version: 3;
   revision: number;
   bots: BotRecord[];
   idempotency: Record<string, BotIdempotencyRecord>;
@@ -38,6 +39,13 @@ function isSessionRef(value: unknown): boolean {
     && typeof value.sessionId === "string";
 }
 
+function isSessionSlots(value: unknown): value is Record<string, number> | undefined {
+  if (value === undefined) return true;
+  return isRecord(value)
+    && Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key))
+    && Object.values(value).every((slot) => Number.isSafeInteger(slot) && Number(slot) >= 0);
+}
+
 function isBotRecord(value: unknown): value is BotRecord {
   if (!isRecord(value) || !isRecord(value.environment) || !isRecord(value.metadata) || !isRecord(value.createdBy)) {
     return false;
@@ -50,6 +58,9 @@ function isBotRecord(value: unknown): value is BotRecord {
     && typeof value.environment.path === "string"
     && Array.isArray(value.sessionRefs)
     && value.sessionRefs.every(isSessionRef)
+    && isSessionSlots(value.sessionSlots)
+    && (value.nextSessionSlot === undefined
+      || (Number.isSafeInteger(value.nextSessionSlot) && Number(value.nextSessionSlot) >= 0))
     && isOptionalString(value.metadata.role)
     && isOptionalString(value.metadata.description)
     && Array.isArray(value.metadata.labels)
@@ -76,7 +87,7 @@ function isBotRecord(value: unknown): value is BotRecord {
 }
 
 function validateSnapshot(value: unknown): StoredBotSnapshot {
-  if (!isRecord(value) || value.version !== BOT_STORE_VERSION) {
+  if (!isRecord(value) || (value.version !== BOT_STORE_VERSION && value.version !== 2)) {
     throw new Error(`bots.json must have version ${BOT_STORE_VERSION}`);
   }
   if (!Number.isSafeInteger(value.revision) || Number(value.revision) < 0) {
@@ -88,8 +99,15 @@ function validateSnapshot(value: unknown): StoredBotSnapshot {
   if (!value.bots.every(isBotRecord)) {
     throw new Error("bots.json contains an invalid Bot record");
   }
-  const botIds = new Set(value.bots.map((bot) => bot.botId));
-  if (botIds.size !== value.bots.length) {
+  const bots = (value.bots as BotRecord[]).map((bot) =>
+    // Version 2 predates slots: backfill from the order its sessions already wear, so the
+    // migration changes the stored shape and nothing the reader sees.
+    bot.sessionSlots === undefined && bot.nextSessionSlot === undefined
+      ? { ...bot, ...ensureSessionSlots(bot, bot.sessionRefs) }
+      : bot
+  );
+  const botIds = new Set(bots.map((bot) => bot.botId));
+  if (botIds.size !== bots.length) {
     throw new Error("bots.json contains duplicate Bot ids");
   }
   if (!Object.values(value.idempotency).every((entry) =>
@@ -100,7 +118,7 @@ function validateSnapshot(value: unknown): StoredBotSnapshot {
   )) {
     throw new Error("bots.json contains an invalid idempotency record");
   }
-  return value as unknown as StoredBotSnapshot;
+  return { version: BOT_STORE_VERSION, revision: value.revision, bots, idempotency: value.idempotency } as unknown as StoredBotSnapshot;
 }
 
 /**

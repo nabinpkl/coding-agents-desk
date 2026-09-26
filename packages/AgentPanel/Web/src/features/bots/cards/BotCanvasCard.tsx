@@ -12,7 +12,7 @@ import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
-import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
+import { botSessionSlots, botSurfaceStyle } from "@/features/bots/botSurface";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
@@ -160,11 +160,11 @@ export function BotCanvasCard({
   );
   const hidden = bot.sessions.length - shown.length
     + bot.missingSessionRefs.length - shownMissing.length;
-  // Over `sessionRefs` and not over `shown`, which is the whole reason it is computed here rather
-  // than beside the filter above: the cards on screen are a subset twice over -- missing
+  // Over the stored slots and not over `shown`, which is the whole reason it is computed here
+  // rather than beside the filter above: the cards on screen are a subset twice over -- missing
   // transcripts and sessions taken off the canvas -- and ranking either subset would repaint the
-  // rest of the roster whenever one left it. See `botSessionShades`.
-  const shades = useMemo(() => botSessionShades(bot.sessionRefs), [bot.sessionRefs]);
+  // rest of the roster whenever one left it. See `botSessionSlots`.
+  const slots = useMemo(() => botSessionSlots(bot.sessionRefs, bot.sessionSlots), [bot.sessionRefs, bot.sessionSlots]);
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
   // pixels while clicking "Add sessions" would reorder the canvas.
@@ -415,7 +415,7 @@ export function BotCanvasCard({
                 canMoveLater={index < shown.length - 1}
                 hue={hue}
                 rank={rank}
-                shade={shades.get(sessionKey(session))}
+                slot={slots.get(sessionKey(session))}
                 solo={bot.sessionRefs.length === 1}
                 open={openKeys.has(sessionKey(session))}
                 onToggle={() => onToggleSession(sessionKey(session))}

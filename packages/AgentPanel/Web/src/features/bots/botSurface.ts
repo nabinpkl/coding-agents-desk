@@ -117,15 +117,15 @@ export function botCanvasRanks(bots: readonly BotColourIdentity[]): ReadonlyMap<
 export const BOT_SESSION_FACE_BASE = 256;
 
 /**
- * The face a session wears, from its Bot's rank and its own step on that Bot's ladder.
+ * The face a session wears, from its Bot's rank and its own stored slot.
  *
  * A session does NOT share its Bot's face: a Bot with five sessions wearing one face five times
- * teaches nothing, where five faces teach which session is which. The step is unique within a
+ * teaches nothing, where five faces teach which session is which. The slot is unique within a
  * Bot, so siblings never share an input; the base keeps every session's input clear of every
- * Bot's. Both halves are stable across reloads and detaches, so the face is too.
+ * Bot's. Both halves are stable across reloads, detaches and reorders, so the face is too.
  */
-export function botSessionFaceRank(botRank: number, step: number): number {
-  return BOT_SESSION_FACE_BASE + botRank * BOT_SESSION_SHADES + step;
+export function botSessionFaceRank(botRank: number, slot: number): number {
+  return BOT_SESSION_FACE_BASE + botRank * BOT_SESSION_SHADES + slot;
 }
 
 /**
@@ -150,7 +150,7 @@ export function botSurfaceStyle(hue: number | undefined): CSSProperties | undefi
 
 /**
  * Enough of one of a Bot's sessions to shade it. The reference rather than the summary, for the
- * reason `botSessionShades` gives: the durable list is what ranks stably.
+ * reason `botSessionSlots` gives: the stored slot is what ranks stably.
  */
 export interface BotSessionShadeIdentity {
   source: string;
@@ -170,35 +170,36 @@ export interface BotSessionShadeIdentity {
 export const BOT_SESSION_SHADES = 6;
 
 /**
- * Each of one Bot's sessions, by `source:sessionId`, on a step of that Bot's shade ladder.
+ * Each of one Bot's sessions, by `source:sessionId`, on its stored slot.
  *
  * The HUE is the Bot's and does not move -- a session is that Bot's session before it is any
  * particular one -- so what separates two of them is lightness, with a little chroma behind it.
  * Which way the ladder climbs is the theme's business and lives in `styles.css`; what crosses this
- * boundary is a step number, the same split `botSurfaceStyle` keeps for the same reason.
+ * boundary is a slot number, the same split `botSurfaceStyle` keeps for the same reason. The shade
+ * a slot paints is the slot mod the ladder; the face takes the whole slot, so siblings stay
+ * distinct past the sixth instead of cycling onto each other's faces with their shades.
  *
- * Ranked over `sessionRefs`, the Bot's durable curation order, rather than over `sessions`. Three
- * things follow, and each is why:
+ * Ranked from the Bot's stored `sessionSlots`, never from list position. Three things follow, and
+ * each is why:
  *
- * - **A session the catalog has forgotten still holds its rank.** Those resolve to
+ * - **A reorder repaints nothing.** The order moves and every slot stays where it was, so the
+ *   arrangement a reader just made is not answered with six new colours and six new faces.
+ * - **A detach shifts no tail.** The entry stays in the map while the reference is gone, so the
+ *   sessions after it keep their step -- and a reattach restores the slot it kept, which is the
+ *   same session wearing the same shade and face it left with.
+ * - **A session the catalog has forgotten still holds its slot.** Those resolve to
  *   `missingSessionRefs` rather than to a summary, and ranking the resolved list would hand a
  *   missing session's shade to whichever session came after it.
- * - **Taking a session off the canvas recolours nothing**, and neither does a Bot whose card is
- *   showing a subset. Same argument as `botCanvasHues`: rank the roster, not the view.
- * - **A new session recolours nothing**, because attaching appends.
  *
- * What DOES move every shade after it is detaching a session, which shifts the tail of
- * `sessionRefs` by one. Unlike the Bot delete that `botCanvasHues` can call hypothetical, this
- * route exists and is in every row's menu. It is accepted rather than solved: the alternative is
- * hashing the session id into six buckets, and six sessions land in six distinct buckets 1.5% of
- * the time, so the common case would be two cards the same colour on purpose instead of a repaint
- * after a detach.
+ * A record that predates slots reads as its current `sessionRefs` order, which is the migration
+ * the sidecar writes out on its next read. Everything else -- taking a session off the canvas,
+ * a card showing a subset -- was already ranked over the roster rather than the view, and still is.
  *
- * A Bot with ONE session is ranked like any other and takes step zero. What it does NOT take is
- * a rail, and that is the card's decision rather than this one's -- a rail down the only thing
- * inside a container is a line drawn between a group and itself. The shade stays, because a
- * session card should be visibly a card sitting ON its Bot rather than a patch of the Bot's own
- * body, and step zero is 0.094 of lightness away from the Bot's surface in dark.
+ * A Bot with ONE session takes slot zero. What it does NOT take is a rail, and that is the card's
+ * decision rather than this one's -- a rail down the only thing in a container is a line drawn
+ * between a group and itself. The shade stays, because a session card should be visibly a card
+ * sitting ON its Bot rather than a patch of the Bot's own body, and step zero is 0.094 of
+ * lightness away from the Bot's surface in dark.
  *
  * Step zero is the BOTTOM of the ladder rather than the Bot's own surface, which it used to be.
  * Pinning it there meant the ladder could only climb, and the ceiling is close: `styles.css`
@@ -208,14 +209,16 @@ export const BOT_SESSION_SHADES = 6;
  * it; what replaces it is better, because a session card that is not the colour of its container
  * is a session card you can see the edges of.
  */
-export function botSessionShades(
+export function botSessionSlots(
   refs: readonly BotSessionShadeIdentity[],
+  stored?: Record<string, number>,
 ): ReadonlyMap<string, number> {
-  const shades = new Map<string, number>();
+  const slots = new Map<string, number>();
   refs.forEach((ref, index) => {
-    shades.set(`${ref.source}:${ref.sessionId}`, index % BOT_SESSION_SHADES);
+    const key = `${ref.source}:${ref.sessionId}`;
+    slots.set(key, stored?.[key] ?? index);
   });
-  return shades;
+  return slots;
 }
 
 /**

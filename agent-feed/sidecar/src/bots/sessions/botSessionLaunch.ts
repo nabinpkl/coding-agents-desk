@@ -11,6 +11,7 @@ import { launchSession } from "@/transcripts/session-ops/forkSession";
 import type { BotStore } from "@/bots/botStore";
 import type { NormalizedLaunch } from "@/bots/botCommands";
 import { sessionKey } from "@/bots/botIdempotency";
+import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import {
   BotConflictError,
   BotLaunchError,
@@ -129,7 +130,8 @@ export class BotSessionStarter {
       if (bot.sessionRefs.some((existing) => sessionKey(existing) === sessionKey(ref))) {
         return { snapshot, value: bot };
       }
-      const updated: BotRecord = { ...bot, sessionRefs: [...bot.sessionRefs, ref] };
+      const heldRefs = [...bot.sessionRefs, ref];
+      const updated: BotRecord = { ...bot, sessionRefs: heldRefs, ...ensureSessionSlots(bot, heldRefs) };
       const bots = [...snapshot.bots];
       bots[index] = updated;
       return {

@@ -16,7 +16,7 @@ import {
   botCanvasHues,
   botCanvasRanks,
   botSessionFaceRank,
-  botSessionShades,
+  botSessionSlots,
   botSessionStyle,
   botSurfaceStyle,
   sessionInitials,
@@ -154,7 +154,8 @@ describe("botSessionFaceRank", () => {
 
   test("a session keeps its face while its neighbours come and go", () => {
     // Both halves are stable: the Bot's rank moves only if an older Bot is deleted, which the
-    // sidecar has no route for, and the step is the session's place in the Bot's durable refs.
+    // sidecar has no route for, and the slot is stored on the Bot's record rather than ranked
+    // from its order.
     expect(botSessionFaceRank(2, 3)).toBe(botSessionFaceRank(2, 3));
   });
 });
@@ -202,51 +203,78 @@ const REFS = [
   ref("9e4c3a7d-4c90-4062-a082-3caf4d5e6f70"),
 ];
 
-describe("botSessionShades", () => {
-  test("gives each of a Bot's sessions its own step, so two of them never look alike", () => {
-    const shades = botSessionShades(REFS);
-    expect([...shades.values()]).toEqual([0, 1, 2, 3]);
+describe("botSessionSlots", () => {
+  test("a fresh Bot deals slots in order, so two of them never look alike", () => {
+    const slots = botSessionSlots(REFS);
+    expect([...slots.values()]).toEqual([0, 1, 2, 3]);
     // Keyed the way every other part of the canvas addresses a session, source included: two
     // providers can hand back the same id and they are not the same session.
-    expect(shades.get(`codex:${REFS[2]!.sessionId}`)).toBe(2);
-    expect(shades.get(`claude:${REFS[2]!.sessionId}`)).toBeUndefined();
+    expect(slots.get(`codex:${REFS[2]!.sessionId}`)).toBe(2);
+    expect(slots.get(`claude:${REFS[2]!.sessionId}`)).toBeUndefined();
   });
 
   test("a Bot with one session still ranks it, because a lone card is still a card", () => {
-    // Step zero is a real rung and this is the one place it is the WHOLE ladder. What a solo
+    // Slot zero is a real rung and this is the one place it is the WHOLE ladder. What a solo
     // session drops is its rail, which is the card's call and not this function's: a shade says
     // "I am a card sitting on this Bot" and is worth having with one session, where a rail says
     // "I am this Bot's, among its several" and is not.
-    expect(botSessionShades([REFS[0]!]).get(`claude:${REFS[0]!.sessionId}`)).toBe(0);
+    expect(botSessionSlots([REFS[0]!]).get(`claude:${REFS[0]!.sessionId}`)).toBe(0);
   });
 
   test("attaching a session recolours none of the ones already there", () => {
-    const before = botSessionShades(REFS);
-    const after = botSessionShades([...REFS, ref("af5d4b8e-5da1-4173-b193-4dbf5e6f7081")]);
-    for (const [key, shade] of before) expect(after.get(key)).toBe(shade);
+    const stored = { "claude:s0": 0, "claude:s1": 1 };
+    const refs = [ref("s0"), ref("s1"), ref("s2")];
+    const slots = botSessionSlots(refs, stored);
+    expect(slots.get("claude:s0")).toBe(0);
+    expect(slots.get("claude:s1")).toBe(1);
+    expect(slots.get("claude:s2")).toBe(2);
   });
 
-  test("a session missing from the catalog still holds its rank", () => {
-    // `sessionRefs` is the durable list and `sessions` is what resolved. Ranking the resolved list
-    // would hand a forgotten session's shade to whoever came after it, and give it back when the
-    // catalog remembered -- a card that changes colour because an unrelated transcript reappeared.
-    const resolvedOnly = REFS.filter((each) => each !== REFS[1]);
-    expect(botSessionShades(REFS).get(`claude:${REFS[3]!.sessionId}`)).toBe(3);
-    expect(botSessionShades(resolvedOnly).get(`claude:${REFS[3]!.sessionId}`)).toBe(2);
+  test("a reorder moves nothing, because the slot is stored and not the position", () => {
+    // The test the whole change exists for: the order the reader arranged is not the identity
+    // the colours are ranked from, so arranging repaints nothing.
+    const stored = { "claude:s0": 0, "claude:s1": 1, "claude:s2": 2 };
+    const reordered = [ref("s2"), ref("s0"), ref("s1")];
+    const slots = botSessionSlots(reordered, stored);
+    expect(slots.get("claude:s0")).toBe(0);
+    expect(slots.get("claude:s1")).toBe(1);
+    expect(slots.get("claude:s2")).toBe(2);
   });
 
-  test("past the last step it cycles, so neighbours differ however many sessions a Bot has", () => {
-    const many = Array.from({ length: BOT_SESSION_SHADES * 2 + 1 }, (_, i) => ref(`s${i}`));
-    const shades = [...botSessionShades(many).values()];
-    expect(shades).toHaveLength(BOT_SESSION_SHADES * 2 + 1);
-    // The property that matters is adjacency: a collision is allowed only between sessions a whole
-    // ladder apart, which on a strip of cards is a different part of the screen.
-    for (let i = 1; i < shades.length; i += 1) expect(shades[i]).not.toBe(shades[i - 1]);
-    expect(shades[BOT_SESSION_SHADES]).toBe(shades[0]);
+  test("a detach shifts no tail, and the return restores the kept slot", () => {
+    const stored = { "claude:s0": 0, "claude:s1": 1, "claude:s2": 2 };
+    const afterDetach = botSessionSlots([ref("s0"), ref("s2")], stored);
+    expect(afterDetach.get("claude:s0")).toBe(0);
+    expect(afterDetach.get("claude:s2")).toBe(2);
+    const afterReturn = botSessionSlots([ref("s0"), ref("s2"), ref("s1")], stored);
+    expect(afterReturn.get("claude:s1")).toBe(1);
   });
 
-  test("a Bot with no sessions has no shades rather than an empty first step", () => {
-    expect(botSessionShades([]).size).toBe(0);
+  test("a session missing from the catalog still holds its slot", () => {
+    // The stored map is the durable list and `sessions` is what resolved. Ranking the resolved
+    // list would hand a forgotten session's shade to whoever came after it, and give it back
+    // when the catalog remembered -- a card that changes colour because an unrelated transcript
+    // reappeared.
+    const stored = { "claude:s0": 0, "claude:s1": 1, "claude:s2": 2, "claude:s3": 3 };
+    const withoutTheMissing = [ref("s0"), ref("s2"), ref("s3")];
+    expect(botSessionSlots(withoutTheMissing, stored).get("claude:s3")).toBe(3);
+  });
+
+  test("past the last step the shade cycles while the slot keeps climbing", () => {
+    // The shade is the slot mod the ladder, so neighbours differ however many sessions a Bot
+    // has; the face takes the whole slot, so the seventh session does not wear the first one's
+    // face the way a cycling step would.
+    const many = Array.from({ length: BOT_SESSION_SHADES + 1 }, (_, i) => ref(`s${i}`));
+    const slots = botSessionSlots(many, { "claude:s0": 0 });
+    expect(slots.get("claude:s0")).toBe(0);
+    expect(slots.get(`claude:s${BOT_SESSION_SHADES}`)).toBe(BOT_SESSION_SHADES);
+    expect(slots.get(`claude:s${BOT_SESSION_SHADES}`)! % BOT_SESSION_SHADES).toBe(
+      slots.get("claude:s0")! % BOT_SESSION_SHADES,
+    );
+  });
+
+  test("a Bot with no sessions has no slots rather than an empty first step", () => {
+    expect(botSessionSlots([]).size).toBe(0);
   });
 });
 

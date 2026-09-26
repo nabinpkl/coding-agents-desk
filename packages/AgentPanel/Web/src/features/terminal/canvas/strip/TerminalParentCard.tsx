@@ -76,7 +76,7 @@ export function TerminalParentCard({
 }) {
   const leaf = group.path.split("/").filter(Boolean).at(-1) ?? "Other sessions";
   // Ranked over the parent's FULL roster rather than over the rows below, for the reason
-  // `botSessionShades` gives: the rows on screen are a subset twice over -- sessions taken off
+  // `botSessionSlots` gives: the rows on screen are a subset twice over -- sessions taken off
   // the strip, and sessions whose listing has not arrived -- and ranking the subset would repaint
   // the rest every time one left it.
   const steps = useMemo(

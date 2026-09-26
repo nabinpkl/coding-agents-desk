@@ -20,7 +20,7 @@ import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
 import { directoryBelongsTo } from "@/git/worktree";
 import { noteBotSessionOutcomes, resolveBotSessions, type BotSessionOutcome } from "@/bots/botSessionResolution";
 import { viewSignature, type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
-import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
+import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import {
   normalizeAddBot,
   normalizeLaunchFor,
@@ -31,6 +31,7 @@ import {
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
+import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
 import { reorderRefs } from "@/bots/sessions/botSessionOrder";
 import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
@@ -152,6 +153,8 @@ export class BotRegistry {
         ...(normalized.iconUrl ? { iconUrl: normalized.iconUrl } : {}),
         environment: { kind: "directory", path: project.projectPath },
         sessionRefs: [],
+        sessionSlots: {},
+        nextSessionSlot: 0,
         metadata: normalized.metadata,
         grants: normalized.grants,
         createdAt: this.now(),
@@ -263,9 +266,11 @@ export class BotRegistry {
       const duplicate = normalized.sessionRefs.find((ref) => attached.has(sessionKey(ref)));
       if (duplicate) throw new BotConflictError(`session ${sessionKey(duplicate)} is already attached to this Bot`);
 
+      const heldRefs = [...bot.sessionRefs, ...normalized.sessionRefs];
       const updated: BotRecord = {
         ...bot,
-        sessionRefs: [...bot.sessionRefs, ...normalized.sessionRefs],
+        sessionRefs: heldRefs,
+        ...ensureSessionSlots(bot, heldRefs),
       };
       const bots = [...snapshot.bots];
       bots[index] = updated;
@@ -457,7 +462,9 @@ export class BotRegistry {
     const resolved = await Promise.all(snapshot.bots.map((record) => this.resolveRecord(record)));
     noteBotSessionOutcomes(resolved.flatMap((one) => one.outcomes));
     return {
-      version: BOT_STORE_VERSION,
+      // The STREAM's version, which is the wire's and not the store's: `BOT_STORE_VERSION` just
+      // moved to 3 and this stays 2.
+      version: 2,
       revision: snapshot.revision,
       bots: resolved.map(({ outcomes, view }) => view),
     };

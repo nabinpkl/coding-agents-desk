@@ -25,7 +25,7 @@ test("persists a revisioned snapshot atomically with private permissions", async
   }));
 
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-    version: 2,
+    version: 3,
     revision: 1,
     bots: [],
     idempotency: {},
@@ -65,6 +65,34 @@ test("rejects malformed existing bots.json instead of treating it as an empty re
   await writeFile(path, "not json", "utf8");
 
   await expect(new BotStore(path).snapshot()).rejects.toThrow("is not valid JSON");
+});
+
+test("migrates a version 2 file by dealing slots in the order its sessions wear", async () => {
+  // The only migration slots ever need: a record that predates them reads as its current order,
+  // so the stored shape changes and nothing the reader sees does.
+  const { path } = await fixture();
+  await mkdir(dirname(path), { recursive: true });
+  const ref = (sessionId: string) => ({ source: "claude", sessionId });
+  await writeFile(path, JSON.stringify({
+    version: 2,
+    revision: 1,
+    bots: [{
+      botId: "bot-1",
+      name: "Captain",
+      environment: { kind: "directory", path: "/repo" },
+      sessionRefs: [ref("b"), ref("a")],
+      metadata: { labels: [], custom: {} },
+      grants: [],
+      createdAt: 1,
+      createdBy: { kind: "user" },
+    }],
+    idempotency: {},
+  }), "utf8");
+
+  const snapshot = await new BotStore(path).snapshot();
+  expect(snapshot.version).toBe(3);
+  expect(snapshot.bots[0]!.sessionSlots).toEqual({ "claude:b": 0, "claude:a": 1 });
+  expect(snapshot.bots[0]!.nextSessionSlot).toBe(2);
 });
 
 test("rejects structurally invalid Bot records before the registry can consume them", async () => {

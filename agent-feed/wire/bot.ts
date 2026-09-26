@@ -35,6 +35,17 @@ export interface BotRecord {
   iconUrl?: string;
   environment: BotDirectoryEnvironment;
   sessionRefs: BotSessionRef[];
+  /**
+   * Each attached session's step on this Bot's shade ladder, by `source:sessionId`.
+   *
+   * Assigned once at attach and never recomputed from order, so a reorder repaints nothing, a
+   * detach shifts no tail, and a reattach restores the same shade and face. Detaching keeps the
+   * entry; only a never-before-attached session takes `nextSessionSlot`. Absent on records
+   * written before slots existed, which read as the current `sessionRefs` order.
+   */
+  sessionSlots?: Record<string, number>;
+  /** The next slot to hand out on this Bot. Never reused, so history cannot collide. */
+  nextSessionSlot?: number;
   metadata: BotMetadata;
   grants: BotGrant[];
   createdAt: number;

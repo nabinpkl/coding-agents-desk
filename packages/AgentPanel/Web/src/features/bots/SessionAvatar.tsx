@@ -28,8 +28,8 @@ import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
  * **On its own step of its Bot's colour, not on the Bot's.** The Bot's hue is what says whose
  * session this is; the step is what says which one, and without it a Bot with five sessions had
  * five identical discs and only the letters to go on. The ladder and its measurement live in
- * `styles.css`; the step itself comes from `botSessionShades`, ranked over the Bot's durable
- * roster so a session keeps its colour when its neighbours come and go.
+ * `styles.css`; the step itself comes from `botSessionSlots`, stored per session so a reorder,
+ * a detach and a return all leave it where it was.
  *
  * **Activity is a ring rather than a corner badge.** A badge would have to be ringed in whatever
  * is behind it to read as sitting ON the disc, and what is behind it here changes: a session's
