@@ -1,18 +1,15 @@
 // stdio entrypoint for the relay MCP server. Separate from server.ts by design: the HTTP sidecar
-// stays long lived while each runtime spawns its own copy of this, one per Claude Code session and
-// one per opencode serve.
+// stays long lived while each Claude Code session spawns its own copy of this.
 //
-// Which runtime it is comes from the parent process, not from a flag: Claude Code's child hangs off
-// the session's own process, while opencode's hangs off `opencode serve`, which serves every
-// session on the machine. That is the same fact the session id comes from under Claude, so one
-// read answers both.
+// Claude Code starts one stdio child per MCP server per session, so the child reads its session
+// from the parent process. OpenCode sessions never spawn this: they reach the hub through its MCP
+// endpoint as a remote server.
 //
 // stdout carries MCP frames only, so every console.log is rerouted to stderr before anything logs.
 import { createRelayMcpServer } from "@/messaging/relayMcp";
-import { parentRuntime } from "@/messaging/parentRuntime";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 const stderrWrite = console.error.bind(console);
 console.log = (...args: unknown[]) => stderrWrite(...args);
 
-await createRelayMcpServer({ source: parentRuntime() }).connect(new StdioServerTransport());
+await createRelayMcpServer().connect(new StdioServerTransport());

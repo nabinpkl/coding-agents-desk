@@ -44,8 +44,6 @@ export function createVerifier(config: HubConfig): Verifier {
       return { principal: { label: "owner", machine: null, human: true, owner: true }, clientId: email };
     }
     if (clientId) throw new Unauthorized(`service token ${clientId} is not a hub principal`);
-    // Temporary diagnostic while the opencode OAuth login is being brought up: claim names, never
-    // values, so a rejection says what identity the edge actually asserted.
-    throw new Unauthorized(`only service tokens and the owner may use the hub (claims: ${Object.keys(payload).sort().join(",")})`);
+    throw new Unauthorized("only service tokens and the owner may use the hub");
   };
 }

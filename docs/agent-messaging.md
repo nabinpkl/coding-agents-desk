@@ -21,7 +21,7 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 - **Pushing into a Claude session** has one supported path: a channel. A channel is an MCP server that declares `claude/channel` and sends `notifications/claude/channel`. The session must be started with it opted in. Custom channels, during the research preview, can only be opted in with `--dangerously-load-development-channels server:<name>`, which shows a warning screen once at startup. Sources:
   - https://code.claude.com/docs/en/channels (no date verifiable, read 2026-09-25)
   - https://code.claude.com/docs/en/channels-reference (no date verifiable, read 2026-09-25)
-- **Every Claude Code instance starts its own stdio child** for each user-scope MCP server. `agentdesk-relay` is already registered at user scope on both machines, so every session already has a relay child. That child becomes the session's mailbox, both for pushing messages in and for tools that send messages out.
+- **Every Claude Code instance starts its own stdio child** for each user-scope MCP server. `agentdesk-relay` is already registered at user scope on both machines, so every session already has a relay child. That child becomes the session's mailbox, both for pushing messages in and for tools that send messages out. OpenCode sessions never spawn it: they use the hub's MCP endpoint as a remote server instead, so no per-session child and no stale code pinned per serve.
 - **The two machines need one store.** Sessions on the mac and oracle must reach each other, and a held message must survive a session or machine being down. So there is one hub, reached over HTTPS behind Cloudflare Access like the annotator, not a store per machine.
 - **The channel probe (2026-09-25, Claude Code 2.1.282)** confirmed:
   - An event wakes an idle session with no approval.
@@ -37,8 +37,8 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
              ▲ SSE stream + POST             ▲ POST / GET              ▲ PUT directory
              │ (machine token)               │ (surface token)         │ (machine token)
    agent-desk sidecar (one stream per      human surfaces             agent-desk sidecar
-   opencode session) + relay child        agent-desk panel inbox      publishes Bots per machine
-   = send/reply tools                     annotator (Send adapter)
+   opencode session) + hub /mcp           agent-desk panel inbox      publishes Bots per machine
+   endpoint + relay child = tools         annotator (Send adapter)
              │
    opencode serve: POST /api/session/{id}/prompt (delivery: queue)
              ▼
@@ -130,24 +130,23 @@ When the child starts, it works out the following:
    - With `channel: false`, the session is listed as "started without messaging" and is never chosen for delivery.
    - It can still send, because its tools work either way.
 
-## The session side: relay child tools and instructions
+## The session side: hub tools and instructions
 
 The old relay tools (`send` through the tmux composer, `notify` through the socket inbox,
-`sessions_list`, `session_status`) are gone. Four hub tools replace them, and the same four are
-served under both runtimes.
+`sessions_list`, `session_status`) are gone. Four hub tools replace them. Claude sessions get them
+from the local relay child; OpenCode sessions get the same four from the hub's MCP endpoint as a
+remote server, authenticated by the owner's Managed OAuth login rather than a per-serve child.
 
 | Tool | Does |
 |---|---|
-| `hub_send(to, body, kind, session_id?)` | Starts a thread. On OpenCode, `session_id` is required: one child serves every session the serve holds, so the agent names its own. |
+| `hub_send(to, body, kind, session_id?)` | Starts a thread. On OpenCode, `session_id` is required: the remote endpoint serves every session, so the agent names its own. On Claude the child names it from the parent process. |
 | `hub_reply(message_id, body)` | Answers within the message's thread, to its sender. Needs no session id on either runtime: the hub stamps `deliveredTo` on the message, so the reply learns the session it must speak as from the message it answers. |
 | `hub_inbox()` | Messages to this session (Claude) or to any of this machine's opencode sessions, not yet answered. Used for recovery after a compaction. |
 | `hub_directory()` | Reachable addresses with names and machines. |
 
-**How OpenCode's child learns who is calling (the probe result, 2026-09-25):** it cannot. OpenCode
-calls `client.callTool({ name, arguments })` with no session metadata, and one child is shared by
-every session the serve holds, so there is no parent process naming a session either. Two
-consequences, both handled above: a new thread names its session explicitly, and a reply does not
-need to, because the hub already knows which session the message reached.
+**How the endpoint knows who is calling:** a remote connection cannot see a parent process, so a
+new thread names its session explicitly, and a reply does not need to, because the hub already
+knows which session the message reached. The sender guard lives in the hub either way.
 
 **The message as the model sees it, under OpenCode:**
 
