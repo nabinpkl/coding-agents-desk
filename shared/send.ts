@@ -13,18 +13,22 @@ export type RecipientReachability = "reachable" | "offline";
 /**
  * One thing the reader can send to.
  *
- * A session, never a Bot: the hub resolves `bot:<id>` to whichever member session happens to be
- * live when the message lands, which is a rule the reader cannot see. A Bot arrives as a group
- * label over its sessions, through `related`.
+ * A session a Bot curates. A Bot is the unit the owner curates and the only thing the hub will accept
+ * a message addressed to, so every row here is a session and its `address` is the address that
+ * reaches it: the Bot's own when the Bot curates one session, and `bot:<id>/<sessionId>` when it
+ * curates several. A session in no Bot is not listed at all, since it is not something this can send
+ * to. A Bot arrives as a group label over its sessions, through `related`.
  */
 export interface Recipient {
   address: string;
+  /** The session this row is, or null for a Bot or the owner. */
+  session: string | null;
   name: string;
   machine: string | null;
   cwd: string | null;
   reachability: RecipientReachability;
   lastSeenAt: string | null;
-  /** Bot addresses this session belongs to, so the panel can group it under one. */
+  /** The Bot address curating this session, which is also the group label the panel shows it under. */
   related: string[];
 }
 

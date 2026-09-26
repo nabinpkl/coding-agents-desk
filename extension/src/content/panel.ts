@@ -49,44 +49,32 @@ export interface RecipientGroup {
 }
 
 /**
- * The recipient list, as the two sections it actually is.
+ * The recipient list, as the sections it actually is: one per Bot, holding the sessions it curates.
  *
- * A Bot is not something to send to: the hub resolves `bot:<id>` to whichever member session is
- * live when the message lands, which is a rule the reader cannot see. So a Bot is a group label
- * and its sessions are the choices, and a session that belongs to one appears under it and again
- * under its machine, which is what makes both "the session under this Bot" and "the session in
- * that directory" findable.
+ * A Bot is the address, and a session is reachable only through the Bot curating it, so the grouping
+ * is the whole of the address space rather than a convenience. The hub does not list a session in no
+ * Bot, so there is nothing else to offer: a session the owner has not put in a Bot is not something
+ * this could deliver to, and a row for it would fail on use. Each row carries the address that reaches
+ * that session, which the hub supplies, so nothing here assembles one.
  *
- * Two sessions can share a name. When they do, the address becomes the tail, because a reader
+ * Two sessions can share a name. When they do, the session tail becomes the label, because a reader
  * choosing between "annotator probe" and "annotator probe" has to be able to tell them apart.
  */
 export function recipientGroups(recipients: Recipient[]): RecipientGroup[] {
-  const botNames = new Map(recipients.filter((r) => r.address.startsWith("bot:")).map((r) => [r.address, r.name]));
+  const botNames = new Map(recipients.filter((r) => r.session === null && r.address.startsWith("bot:")).map((r) => [r.address, r.name]));
   const bots = new Map<string, Recipient[]>();
-  const sessions = new Map<string, Recipient[]>();
   for (const entry of recipients) {
-    // A Bot is a heading, never a choice: offering `bot:<id>` would send to whichever member
-    // session happened to be live, which is a rule the reader cannot see. Its address is not
-    // allowed into the sessions section, where it would look exactly like one.
-    if (entry.address.startsWith("bot:")) continue;
-    // Always under its machine and directory.
-    const where = `${entry.machine ?? "unknown machine"} · ${dirLabel(entry.cwd)}`;
-    sessions.set(where, [...(sessions.get(where) ?? []), entry]);
-    // And, when it belongs to one, under that Bot as well. The same session twice is the point:
-    // "the session under this Bot" and "the session in that directory" are both real questions,
-    // and answering one of them should not hide the answer to the other.
+    if (entry.session === null) continue;
     const bot = entry.related.find((a) => a.startsWith("bot:"));
-    if (bot) bots.set(bot, [...(bots.get(bot) ?? []), entry]);
+    if (!bot) continue;
+    bots.set(bot, [...(bots.get(bot) ?? []), entry]);
   }
   const label = (entry: Recipient, group: Recipient[]): string => {
     const base = entry.reachability === "reachable" ? entry.name : `${entry.name} · no live session`;
-    return group.filter((other) => other.name === entry.name).length > 1 ? `${base} (${entry.address})` : base;
+    return group.filter((other) => other.name === entry.name).length > 1 ? `${base} (${entry.session})` : base;
   };
   const render = (group: Recipient[]): Array<{ address: string; label: string }> => group.map((e) => ({ address: e.address, label: label(e, group) }));
-  return [
-    ...[...bots].map(([key, group]) => ({ label: `All bots · ${botNames.get(key) ?? key.replace(/^bot:/, "")}`, entries: render(group) })),
-    ...[...sessions].map(([key, group]) => ({ label: `All sessions · ${key}`, entries: render(group) })),
-  ];
+  return [...bots].map(([key, group]) => ({ label: `All bots · ${botNames.get(key) ?? key.replace(/^bot:/, "")}`, entries: render(group) }));
 }
 
 export interface PanelState {

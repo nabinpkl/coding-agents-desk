@@ -57,6 +57,6 @@ export function createStubHub(directory: Recipient[] = []): StubHub {
 }
 
 /** A reachable session, with the fields a test rarely cares about spelled once. */
-export function session(over: Partial<Recipient> & { address: string; name: string }): Recipient {
-  return { machine: "mac", cwd: "/work", reachability: "reachable", lastSeenAt: null, related: [], ...over };
+export function session(over: Partial<Recipient> & { address: string; name: string; session?: string | null }): Recipient {
+  return { session: null, machine: "mac", cwd: "/work", reachability: "reachable", lastSeenAt: null, related: [], ...over };
 }

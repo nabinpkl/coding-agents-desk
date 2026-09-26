@@ -123,6 +123,7 @@ export function createHubClient(config: HubConfig, fetchImpl: typeof fetch = fet
     if (typeof e.address !== "string" || typeof e.name !== "string") return null;
     return {
       address: e.address,
+      session: typeof e.session === "string" ? e.session : null,
       name: e.name,
       machine: typeof e.machine === "string" ? e.machine : null,
       cwd: typeof e.cwd === "string" ? e.cwd : null,

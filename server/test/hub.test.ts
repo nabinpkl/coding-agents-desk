@@ -56,11 +56,11 @@ test("a redirect to a sign-in page is a refused credential, not a JSON body to p
 test("sends as the owner, with the body and refs the caller gave, and reports the id it was given", async () => {
   const { fetch, calls } = edge((call) => (call.url.endsWith("/v1/messages") ? { status: 201, body: { id: "m1", state: "queued" } } : { body: [] }));
   const hub = createHubClient(CONFIG, fetch);
-  const out = await hub.send({ to: "opencode:ses_1", body: "look at this", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "7" }] });
+  const out = await hub.send({ to: "bot:site/opencode:ses_1", body: "look at this", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "7" }] });
   assert.equal(out.id, "m1");
   const post = calls.find((c) => c.url.endsWith("/v1/messages"))!;
   assert.equal(post.method, "POST");
-  assert.deepEqual(post.body, { as: "human", to: "opencode:ses_1", kind: "request", body: "look at this", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "7" }] });
+  assert.deepEqual(post.body, { as: "human", to: "bot:site/opencode:ses_1", kind: "request", body: "look at this", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "7" }] });
 });
 
 test("the hub's refusals come back as the reader's problem, in the hub's own words", async () => {
@@ -69,7 +69,7 @@ test("the hub's refusals come back as the reader's problem, in the hub's own wor
   for (const status of [400, 404, 409, 422]) {
     const { fetch } = edge(() => ({ status, body: { error: `hub says ${status}` } }));
     const hub = createHubClient(CONFIG, fetch);
-    await assert.rejects(() => hub.send({ to: "opencode:ses_1", body: "hi", refs: [] }), (e: unknown) => e instanceof HubRefused && e.message === `hub says ${status}`);
+    await assert.rejects(() => hub.send({ to: "bot:site/opencode:ses_1", body: "hi", refs: [] }), (e: unknown) => e instanceof HubRefused && e.message === `hub says ${status}`);
   }
 });
 
@@ -86,7 +86,7 @@ test("being over the hub's budget is 'not now', not 'not that', and carries the 
   }) as unknown as typeof fetch;
   const hub = createHubClient(CONFIG, impl);
   await assert.rejects(
-    () => hub.send({ to: "opencode:ses_1", body: "hi", refs: [] }),
+    () => hub.send({ to: "bot:site/opencode:ses_1", body: "hi", refs: [] }),
     (e: unknown) => {
       assert.ok(e instanceof HubBusy, "a budget refusal is not a refusal and not an outage");
       assert.equal((e as HubBusy).retryAfterSeconds, 4, "the wait is the hub's, not one invented here");

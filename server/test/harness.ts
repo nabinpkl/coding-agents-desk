@@ -111,12 +111,19 @@ async function startFakeHub(): Promise<FakeHub & { close(): Promise<void> }> {
   };
 }
 
-/** The directory the fake hub serves: two sessions, a Bot over one of them, and the owner. */
+/**
+ * The directory the fake hub serves: the owner, and two Bots over one session each.
+ *
+ * A session in no Bot is absent, because the hub does not list one and this cannot send to it. Every
+ * session row carries the qualified address even under a Bot curating one, so no two rows share an
+ * address, and `session` is the field that says which run a row is.
+ */
 export const DIRECTORY: Recipient[] = [
-  { address: "human", name: "owner", machine: null, cwd: null, reachability: "reachable", lastSeenAt: null, related: [] },
-  { address: "bot:site", name: "Site bot", machine: "mac", cwd: "/work/site", reachability: "reachable", lastSeenAt: null, related: ["opencode:ses_1"] },
-  { address: "opencode:ses_1", name: "Fix the header", machine: "mac", cwd: "/work/site", reachability: "reachable", lastSeenAt: null, related: ["bot:site"] },
-  { address: "opencode:ses_2", name: "Night shift", machine: "oracle", cwd: "/home/ubuntu", reachability: "offline", lastSeenAt: null, related: [] },
+  { address: "human", session: null, name: "owner", machine: null, cwd: null, reachability: "reachable", lastSeenAt: null, related: [] },
+  { address: "bot:site", session: null, name: "Site bot", machine: "mac", cwd: "/work/site", reachability: "reachable", lastSeenAt: null, related: ["bot:site/opencode:ses_1"] },
+  { address: "bot:site/opencode:ses_1", session: "opencode:ses_1", name: "Fix the header", machine: "mac", cwd: "/work/site", reachability: "reachable", lastSeenAt: null, related: ["bot:site"] },
+  { address: "bot:night", session: null, name: "Night bot", machine: "oracle", cwd: "/home/ubuntu", reachability: "offline", lastSeenAt: null, related: ["bot:night/opencode:ses_2"] },
+  { address: "bot:night/opencode:ses_2", session: "opencode:ses_2", name: "Night shift", machine: "oracle", cwd: "/home/ubuntu", reachability: "offline", lastSeenAt: null, related: ["bot:night"] },
 ];
 
 export interface Harness {

@@ -57,7 +57,7 @@ describe("the send route", () => {
     const { startHarness } = await import("./harness.ts");
     const h = await startHarness({ sendBudget: new SendBudget({ capacity: 2, refillPerSecond: 0.0001 }) });
     try {
-      const post = () => h.fetch("/api/v1/send", { method: "POST", body: JSON.stringify({ ids: [1], to: "opencode:ses_1" }) });
+      const post = () => h.fetch("/api/v1/send", { method: "POST", body: JSON.stringify({ ids: [1], to: "bot:site/opencode:ses_1" }) });
       // The first two are charged and then fail on their own merits (no such annotation), which is
       // fine: the budget is spent by the attempt, which is the point.
       await post();
@@ -76,7 +76,7 @@ describe("the send route", () => {
     const { startHarness } = await import("./harness.ts");
     const h = await startHarness();
     try {
-      const res = await h.fetch("/api/v1/send", { method: "POST", as: null, body: JSON.stringify({ ids: [1], to: "opencode:ses_1" }) });
+      const res = await h.fetch("/api/v1/send", { method: "POST", as: null, body: JSON.stringify({ ids: [1], to: "bot:site/opencode:ses_1" }) });
       assert.equal(res.status, 401);
     } finally {
       await h.close();
