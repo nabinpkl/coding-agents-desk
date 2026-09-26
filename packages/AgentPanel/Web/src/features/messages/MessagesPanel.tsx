@@ -1,21 +1,9 @@
-import { SendHorizonal, X } from "lucide-react";
+import { CornerUpLeft, SendHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { MessagesHandle } from "@/features/messages/useMessages";
+import { isCancellable, isUnanswered, messageTime, threadState, threadStateLabel } from "@/features/messages/messageState";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
-
-/** What one delivery state reads as, in the owner's own terms. */
-const STATE_LABEL: Record<Message["state"], string> = {
-  queued: "waiting for a live session",
-  pushed: "sending",
-  delivered: "delivered",
-  answered: "answered",
-  expired: "expired",
-  cancelled: "cancelled",
-};
-
-/** The states that are not finished, so the owner can see what is still owed. */
-const OPEN_STATES = new Set<Message["state"]>(["queued", "pushed", "delivered"]);
 
 function otherName(message: Message, directory: DirectoryEntry[]): string {
   const other = message.from === "human" ? message.to : message.from;
@@ -33,10 +21,11 @@ interface MessagesPanelProps {
 /**
  * The owner's message threads with every agent the hub can address.
  *
- * A thread, not a list of messages: the agent's answer arrives as a reply in the same thread, and
- * the answer is the only thing the reader needs beside it, so both live in one column with the
- * reply field at the foot of the thread they belong to. Address selection is a list of names
- * rather than raw addresses, because "AD bot" is what the reader knows and `bot:<uuid>` is not.
+ * A dense rail, not a chat window. It sits in the same column as the session list, so it is held
+ * to the same register: a row is a row, direction is a rule down its edge rather than a coloured
+ * bubble, and the only thing that earns emphasis is a thread that is waiting on the owner. A
+ * message app's conventions here would be two surfaces wearing one column, and the reader would
+ * have to learn which one they were in.
  */
 export function MessagesPanel({ messages }: MessagesPanelProps) {
   const [to, setTo] = useState("");
@@ -80,7 +69,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
         {state.threads.length === 0 ? (
           <SidebarStatus>No messages yet</SidebarStatus>
         ) : (
-          <ul role="list" aria-label="Message threads" className="divide-y divide-border">
+          <ul role="list" aria-label="Message threads">
             {state.threads.map((thread) => (
               <Thread key={thread[0]!.threadId} thread={thread} directory={directory} messages={messages} />
             ))}
@@ -88,21 +77,21 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
         )}
       </div>
 
-      <form onSubmit={submit} className="shrink-0 space-y-2 border-t border-border p-2">
-        <label className="block">
-          <span className="sr-only">Send to</span>
+      <form onSubmit={submit} className="shrink-0 border-t border-border">
+        <label className="flex min-h-11 items-center gap-2 border-b border-border/80 px-3">
+          <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">To</span>
           <select
             value={to}
             onChange={(event) => setTo(event.target.value)}
-            className="h-9 w-full rounded-lg border border-border bg-background px-2 text-(length:--agent-panel-fs-sidebar-title,15px) outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="min-w-0 flex-1 bg-transparent text-(length:--agent-panel-fs-sidebar-body,15px) outline-none"
           >
-            <option value="">Send to…</option>
+            <option value="">Pick a recipient…</option>
             {bots.length > 0 ? (
               <optgroup label="Bots">
                 {bots.map((entry) => (
                   <option key={entry.address} value={entry.address}>
                     {entry.name}
-                    {entry.reachability === "reachable" ? "" : " (no live session)"}
+                    {entry.reachability === "reachable" ? "" : " · no live session"}
                   </option>
                 ))}
               </optgroup>
@@ -112,15 +101,15 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
                 {sessions.map((entry) => (
                   <option key={entry.address} value={entry.address}>
                     {entry.name}
-                    {entry.reachability === "reachable" ? "" : " (no live session)"}
+                    {entry.reachability === "reachable" ? "" : " · no live session"}
                   </option>
                 ))}
               </optgroup>
             ) : null}
           </select>
         </label>
-        <div className="flex items-end gap-1.5">
-          <label className="block flex-1">
+        <div className="flex items-start gap-2 p-3">
+          <label className="min-w-0 flex-1">
             <span className="sr-only">Message</span>
             <textarea
               ref={bodyRef}
@@ -130,21 +119,24 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
                 if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submit(event);
               }}
               rows={2}
-              placeholder={to ? (reachable ? "Message" : "Held until a live session") : "Pick a recipient first"}
-              className="w-full resize-none rounded-lg border border-border bg-background px-2 py-1.5 text-(length:--agent-panel-fs-sidebar-title,15px) outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-              disabled={!to}
+              placeholder={to ? (reachable ? "Message" : "Held until a live session") : "Write, then pick a recipient"}
+              className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-(length:--agent-panel-fs-sidebar-body,15px) outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
             />
           </label>
           <button
             type="submit"
             disabled={!to || !body.trim() || sending}
-            aria-label="Send message"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:opacity-80 disabled:pointer-events-none disabled:opacity-40"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:bg-primary/80 disabled:pointer-events-none disabled:opacity-40"
           >
-            <SendHorizonal className="size-4" aria-hidden />
+            <SendHorizontal className="size-3.5" aria-hidden />
+            Send
           </button>
         </div>
-        {failure ? <p className="text-xs text-destructive">{failure}</p> : null}
+        {failure ? (
+          <p role="alert" className="px-3 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
+            {failure}
+          </p>
+        ) : null}
       </form>
     </div>
   );
@@ -161,7 +153,7 @@ function Thread({
 }) {
   const last = thread[thread.length - 1]!;
   const other = otherName(last, directory);
-  const waiting = last.state === "queued";
+  const state = threadState(thread);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -182,63 +174,96 @@ function Thread({
   };
 
   return (
-    <li className="space-y-2 p-2">
-      <div className="flex items-baseline justify-between gap-2">
-        {/* min-w-0 on the name, not just truncate: without it the flex item's automatic minimum
-            is its content width, so a long session name pushed the state badge under itself
-            instead of taking the space and truncating. */}
-        <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold">{other}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{STATE_LABEL[last.state]}</span>
+    <li className="border-b border-border/80">
+      <div className="flex min-h-11 flex-col justify-center gap-0.5 px-3 py-2">
+        <div className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-medium text-foreground">
+            {other}
+          </span>
+          {/* The only emphasised state in the tab. A thread that owes the owner a reply is the one
+              thing here that is actionable, so it is the only one that gets ink. A finished thread
+              says nothing at all rather than "done": knowing it needs nothing is not worth a
+              second line, and a caption on every row is how a list stops being scannable. */}
+          {state === "needs-you" ? (
+            <span className="flex shrink-0 items-center gap-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary">
+              <CornerUpLeft className="size-3" aria-hidden />
+              {threadStateLabel(state)}
+            </span>
+          ) : state === "waiting" || state === "closed" ? (
+            <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+              {threadStateLabel(state)}
+            </span>
+          ) : null}
+        </div>
+        {isCancellable(thread) ? (
+          <button
+            type="button"
+            onClick={() => void messages.cancel(last.id)}
+            className="flex w-fit items-center gap-1 rounded text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="size-3" aria-hidden />
+            Cancel
+          </button>
+        ) : null}
       </div>
-      <ol role="list" className="space-y-1.5">
+
+      {/*
+        Direction is the rule down the left edge, not a bubble and not a name on every line. The
+        rule is the one mark that cannot wrap on a long session name, and it is what lets the
+        attribution line be dropped: a row that says who wrote it is a row repeating what its
+        edge already said.
+      */}
+      <ol role="list" className="pb-1">
         {thread.map((message) => (
           <li
             key={message.id}
-            className={`rounded-lg px-2 py-1.5 text-(length:--agent-panel-fs-body,14px) ${
-              message.from === "human" ? "bg-muted/60" : "bg-primary/10"
+            className={`border-l-2 py-1.5 pr-3 pl-3 ${
+              // Both rules have to be visible or direction stops reading. `border-border` is the
+              // divider colour and disappears against the card on a dark surface, which leaves the
+              // reader with two unmarked paragraphs; the owner's own words get a quiet neutral
+              // rule and an agent's get the accent, which is also the one worth scanning for.
+              message.from === "human" ? "border-foreground/20" : "border-primary"
             }`}
           >
-            <p className="whitespace-pre-wrap break-words">{message.body}</p>
-            {message.refs.length > 0 ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {message.refs.map((ref) => `${ref.app} ${ref.kind} ${ref.id}`).join(", ")}
-              </p>
-            ) : null}
+            <p className="whitespace-pre-wrap break-words text-(length:--agent-panel-fs-sidebar-body,15px) text-foreground">
+              {message.body}
+            </p>
+            <div className="mt-0.5 flex items-baseline gap-2 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+              <span>{messageTime(message.createdAt)}</span>
+              {message.refs.length > 0 ? (
+                <span className="min-w-0 truncate">{message.refs.map((ref) => `${ref.app} ${ref.kind} ${ref.id}`).join(", ")}</span>
+              ) : null}
+            </div>
           </li>
         ))}
       </ol>
-      {waiting ? (
-        <button
-          type="button"
-          onClick={() => void messages.cancel(last.id)}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <X className="size-3" aria-hidden />
-          Cancel
-        </button>
-      ) : null}
-      {last.kind === "request" && last.from !== "human" && OPEN_STATES.has(last.state) ? (
-        <form onSubmit={sendReply} className="flex items-end gap-1.5">
-          <label className="block flex-1">
+
+      {isUnanswered(thread) ? (
+        <form onSubmit={sendReply} className="flex items-start gap-2 px-3 pb-3">
+          <label className="min-w-0 flex-1">
             <span className="sr-only">Reply to {other}</span>
             <textarea
               value={reply}
               onChange={(event) => setReply(event.target.value)}
               rows={1}
-              className="w-full resize-none rounded-lg border border-border bg-background px-2 py-1 text-(length:--agent-panel-fs-body,14px) outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary"
+              className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-(length:--agent-panel-fs-sidebar-body,15px) outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
             />
           </label>
           <button
             type="submit"
             disabled={!reply.trim() || sending}
-            aria-label={`Send reply to ${other}`}
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:opacity-80 disabled:pointer-events-none disabled:opacity-40"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-input px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:bg-muted/80 disabled:pointer-events-none disabled:opacity-40"
           >
-            <SendHorizonal className="size-3.5" aria-hidden />
+            <CornerUpLeft className="size-3.5" aria-hidden />
+            Reply
           </button>
         </form>
       ) : null}
-      {failure ? <p className="text-xs text-destructive">{failure}</p> : null}
+      {failure ? (
+        <p role="alert" className="px-3 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
+          {failure}
+        </p>
+      ) : null}
     </li>
   );
 }

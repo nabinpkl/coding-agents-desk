@@ -5,6 +5,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -153,11 +154,25 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const panelId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-panel`;
   const tabRefs = useRef(new Map<AgentSidebarMode, HTMLButtonElement | null>());
 
+  // The strip scrolls when the views stop fitting, and the selected tab is the one that has to be
+  // readable: a reader who arrives at "Messages" and sees "Me" has been told the name and left to
+  // guess the rest. `nearest` rather than `center` so a tab that already fits does not jump.
+  const revealSelectedTab = useCallback(() => {
+    tabRefs.current.get(props.mode)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [props.mode]);
+
+  // On mount as well as on selection: a reader who reloads with a view remembered has not clicked
+  // anything, and the remembered view is the one that has to be on screen when they arrive.
+  useEffect(() => {
+    revealSelectedTab();
+  }, [revealSelectedTab]);
+
   const selectMode = (mode: AgentSidebarMode, focus = false) => {
     props.onModeChange(mode);
     if (focus) {
       globalThis.requestAnimationFrame?.(() => tabRefs.current.get(mode)?.focus());
     }
+    tabRefs.current.get(mode)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
 
   // Roving by index rather than the two-way toggle this was when there were exactly two tabs:
@@ -183,9 +198,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
           props.ownsWindowTitlebar ? " agent-window-titlebar-sidebar-leading" : ""
         }`}
       >
-        {/* Three tabs fit a phone drawer at the default type size and stop fitting when the
-            reader raises it, so the strip scrolls rather than compressing the last tab into its
-            own truncation. */}
+        {/* Four views fit a phone drawer at the default type size and stop fitting when the
+            reader raises it or narrows the rail, so the strip scrolls rather than compressing the
+            last tab into its own truncation. `selectMode` scrolls the chosen one into view. */}
         <div
           role="tablist"
           aria-label="Agent views"

@@ -11,7 +11,9 @@ const NO_THREAD: Record<AgentSidebarMode, string | null> = {
   sessions: "Select a session from Sessions",
   bots: null,
   canvas: null,
-  messages: "Threads with your agents live in the Messages tab",
+  // Nothing: the inbox is the whole column, so anything said here would be a sentence about a
+  // surface the reader is already looking at.
+  messages: null,
 };
 
 export function sidebarEmptyText(mode: AgentSidebarMode): string | null {

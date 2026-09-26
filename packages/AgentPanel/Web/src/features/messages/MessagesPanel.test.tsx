@@ -71,10 +71,10 @@ describe("MessagesPanel", () => {
     const data = feed();
     render(<Harness data={data} />);
     await screen.findByText("No messages yet");
-    fireEvent.change(screen.getByLabelText("Send to"), { target: { value: "bot:sleeping" } });
-    expect(screen.getByRole("option", { name: "Sleeping bot (no live session)" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "bot:sleeping" } });
+    expect(screen.getByRole("option", { name: "Sleeping bot · no live session" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "when you are up" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => {
       expect(data.send).toHaveBeenCalledWith({ to: "bot:sleeping", body: "when you are up" });
     });
@@ -89,10 +89,41 @@ describe("MessagesPanel", () => {
     render(<Harness data={data} />);
     await screen.findByText("fix the header");
     fireEvent.change(screen.getByLabelText("Reply to OpenCode session"), { target: { value: "blue" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send reply to OpenCode session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
     await waitFor(() => {
       expect(data.reply).toHaveBeenCalledWith("q1", "blue");
     });
+  });
+
+  test("a finished thread claims nothing about its state", async () => {
+    // The bug this pins: the thread ended on the agent's reply, which is `delivered` to the owner,
+    // so reading the last message's state announced a thread that had been answered for an hour
+    // as "delivered" and made it look identical to one still waiting on a live session. A finished
+    // thread now says nothing, because there is no state left to report.
+    const data = feed({
+      threads: vi.fn(async () => [
+        [
+          message({ id: "r1", from: "human", kind: "request", state: "answered" }),
+          message({ id: "r2", from: "opencode:ses_1", fromKind: "agent", kind: "reply", to: "human", state: "delivered", body: "HUB-OK" }),
+        ],
+      ]),
+    });
+    render(<Harness data={data} />);
+    await screen.findByText("HUB-OK");
+    expect(screen.queryByText("delivered")).toBeNull();
+    expect(screen.queryByText("needs a reply")).toBeNull();
+    // And no reply field, because nothing is owed.
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  });
+
+  test("an unanswered agent question is the one state that asks for something", async () => {
+    const data = feed({
+      threads: vi.fn(async () => [
+        [message({ id: "q1", from: "opencode:ses_1", fromKind: "agent", kind: "request", to: "human", state: "delivered" })],
+      ]),
+    });
+    render(<Harness data={data} />);
+    expect(await screen.findByText("needs a reply")).toBeTruthy();
   });
 
   test("a queued message can be cancelled, because the reader is the one who gave up on it", async () => {
