@@ -80,6 +80,7 @@ function isBotRecord(value: unknown): value is BotRecord {
       value.offCanvasSessionRefs === undefined
       || (Array.isArray(value.offCanvasSessionRefs) && value.offCanvasSessionRefs.every(isSessionRef))
     )
+    && (value.fatherSession === undefined || isSessionRef(value.fatherSession))
     && (
       value.createdBy.kind === "user"
       || (value.createdBy.kind === "bot" && typeof value.createdBy.botId === "string")

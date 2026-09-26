@@ -66,6 +66,15 @@ export interface BotRecord {
    * strip, and a Bot without one stands after every Bot with one.
    */
   canvasPosition?: number;
+  /**
+   * The session that speaks as this Bot's Father, and the panel renders as its home.
+   *
+   * One of `sessionRefs`: the Father is a member of the Bot, not a session from elsewhere.
+   * Absent means the Bot has no Father and the home stays shut. Named rather than derived
+   * (newest, livest) because derivation would promote a different session every reload and the
+   * home would follow it.
+   */
+  fatherSession?: BotSessionRef;
 }
 
 export interface BotView extends BotRecord {

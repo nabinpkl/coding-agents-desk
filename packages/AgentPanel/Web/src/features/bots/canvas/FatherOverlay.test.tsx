@@ -1,38 +1,48 @@
 /**
- * What the Father home says, and which switches it throws.
+ * Which session the Father home shows, and what it says while it cannot show one.
  *
- * Tested at the component rather than through the shell for the reason `BotCanvasStatus.test`
- * states: the shell's harness stands up a whole panel for a surface whose whole job is counts
- * and toggles.
+ * The resolved session renders through the real `SessionView`, which owns live streams and is
+ * therefore asserted on the live panel rather than here: jsdom covers the declaration logic and
+ * the two states that say something instead. The stub below stands in for the session surface so
+ * the wiring (which session, which error) is still checked.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { FatherButton, FatherOverlay } from "@/features/bots/canvas/FatherOverlay";
+import { FatherButton, FatherOverlay, resolveFather } from "@/features/bots/canvas/FatherOverlay";
 
-const session = (source: string, sessionId: string, title: string, activity?: string) =>
-  ({ source, sessionId, title, ...(activity ? { activity } : {}) }) as unknown as SessionSummary;
+vi.mock("@/features/session-view/SessionView", () => ({
+  SessionView: (props: { session: SessionSummary; externalError?: string | null }) => (
+    <div data-testid="father-session" data-error={props.externalError ?? ""}>
+      {props.session.sessionId}
+    </div>
+  ),
+}));
 
-const bot = (botId: string, name: string, sessions: SessionSummary[]) =>
-  ({ botId, name, sessions }) as unknown as BotView;
+const session = (source: string, sessionId: string, title: string) =>
+  ({ source, sessionId, title }) as unknown as SessionSummary;
 
-const BOTS = [
-  bot("a", "Alpha", [session("claude", "s1", "First", "live"), session("opencode", "s2", "Second")]),
-  bot("b", "Beta", []),
-];
+const bot = (botId: string, extra: Partial<BotView>) =>
+  ({
+    botId,
+    name: botId,
+    environment: { kind: "directory", path: "/repo" },
+    sessions: [],
+    ...extra,
+  }) as unknown as BotView;
+
+const FATHER = bot("a", {
+  sessions: [session("opencode", "s1", "First"), session("claude", "s2", "Second")],
+  fatherSession: { source: "opencode", sessionId: "s1" },
+});
 
 const PROPS = {
-  bots: BOTS,
-  hues: new Map<string, number>(),
-  ranks: new Map<string, number>(),
-  machines: [] as readonly { key: string; label: string }[],
-  keyOfBot: () => undefined as string | undefined,
-  hiddenMachines: new Set<string>(),
-  detachedSessionKeys: new Set<string>(),
-  openKeys: new Set(["claude:s1"]),
-  onToggleSession: () => undefined,
-  onAddBot: () => undefined,
+  bots: [FATHER],
+  sessionContextFor: () => ({}) as never,
+  attachSessionToBot: () => () => undefined,
+  onDetachSession: () => undefined,
+  botError: null,
   onClose: () => undefined,
 };
 
@@ -56,57 +66,78 @@ describe("FatherButton", () => {
   });
 });
 
+describe("resolveFather", () => {
+  it("names nothing until a Bot declares a Father", () => {
+    expect(resolveFather([])).toBeNull();
+    expect(resolveFather([bot("a", {})])).toBeNull();
+  });
+
+  it("resolves the declaration against the Bot's own sessions", () => {
+    const resolved = resolveFather([FATHER]);
+    expect(resolved && "session" in resolved && resolved.session.sessionId).toBe("s1");
+  });
+
+  it("says missing rather than silently unnaming a forgotten session", () => {
+    const gone = bot("a", {
+      sessions: [session("claude", "s2", "Second")],
+      fatherSession: { source: "opencode", sessionId: "s1" },
+    });
+    const resolved = resolveFather([gone]);
+    expect(resolved && "missing" in resolved && resolved.missing).toEqual({
+      source: "opencode",
+      sessionId: "s1",
+    });
+  });
+
+  it("takes the first Bot that names one, in canvas order", () => {
+    const second = bot("b", {
+      sessions: [session("claude", "s9", "Ninth")],
+      fatherSession: { source: "claude", sessionId: "s9" },
+    });
+    const resolved = resolveFather([FATHER, second]);
+    expect(resolved && "session" in resolved && resolved.bot.botId).toBe("a");
+  });
+});
+
 describe("FatherOverlay", () => {
-  it("counts the roster and marks the sessions the strip has open", () => {
+  it("renders the declared session through the session surface", () => {
     render(<FatherOverlay {...PROPS} />);
-    expect(screen.getByRole("status")).toHaveTextContent("2 bots · 1 open");
-    const list = screen.getByRole("list", { name: "Bots and their sessions" });
-    expect(within(list).getByText("Alpha")).toBeDefined();
-    expect(within(list).getByText("Beta")).toBeDefined();
-    // The pill reads as its session; the open/close direction rides the tooltip, because a pill
-    // named "Close First" would rename every switch each time it is pressed.
-    const first = screen.getByRole("button", { name: "First" });
-    expect(first).toHaveAttribute("aria-pressed", "true");
-    expect(first).toHaveAttribute("title", "Close First on the canvas");
-    const second = screen.getByRole("button", { name: "Second" });
-    expect(second).toHaveAttribute("aria-pressed", "false");
-    expect(second).toHaveAttribute("title", "Open Second on the canvas");
+    const surface = screen.getByTestId("father-session");
+    expect(surface).toHaveTextContent("s1");
+    expect(surface).toHaveAttribute("data-error", "");
   });
 
-  it("throws a session's own switch rather than any Bot's", () => {
-    const onToggleSession = vi.fn();
-    render(<FatherOverlay {...PROPS} onToggleSession={onToggleSession} />);
-    fireEvent.click(screen.getByRole("button", { name: "Second" }));
-    expect(onToggleSession).toHaveBeenCalledWith("opencode:s2");
+  it("carries a Bot failure about the Father session, and no other", () => {
+    const { rerender } = render(
+      <FatherOverlay {...PROPS} botError={{ session: "opencode:s1", message: "detach failed" }} />,
+    );
+    expect(screen.getByTestId("father-session")).toHaveAttribute("data-error", "detach failed");
+
+    rerender(
+      <FatherOverlay {...PROPS} botError={{ session: "claude:s2", message: "detach failed" }} />,
+    );
+    expect(screen.getByTestId("father-session")).toHaveAttribute("data-error", "");
   });
 
-  it("says when a Bot has nothing to switch, closes, and adds", () => {
+  it("says how to name one when no Bot does, and closes", () => {
     const onClose = vi.fn();
-    const onAddBot = vi.fn();
-    render(<FatherOverlay {...PROPS} onClose={onClose} onAddBot={onAddBot} />);
-    expect(screen.getByText("no sessions")).toBeDefined();
+    render(<FatherOverlay {...PROPS} bots={[]} onClose={onClose} />);
+    expect(screen.getByText(/No Bot names a Father session/)).toBeDefined();
+    expect(screen.queryByTestId("father-session")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close the Father home" }));
     expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Add a Bot" }));
-    expect(onAddBot).toHaveBeenCalledTimes(1);
   });
 
-  it("hides what a hidden machine holds back, the way the strip does", () => {
-    render(
-      <FatherOverlay
-        {...PROPS}
-        machines={[{ key: "m1", label: "peer" }]}
-        keyOfBot={(botId) => (botId === "b" ? "m1" : undefined)}
-        hiddenMachines={new Set(["m1"])}
-      />,
-    );
-    expect(screen.getByRole("status")).toHaveTextContent("1 of 2 bots");
-    expect(screen.queryByText("Beta")).toBeNull();
-  });
-
-  it("leaves a session taken off the canvas to the sidebar that holds it", () => {
-    render(<FatherOverlay {...PROPS} detachedSessionKeys={new Set(["opencode:s2"])} />);
-    expect(screen.queryByRole("button", { name: "Second" })).toBeNull();
-    expect(screen.getByRole("button", { name: "First" })).toBeDefined();
+  it("offers the detach for a Father the catalog forgot", () => {
+    const onDetachSession = vi.fn();
+    const gone = bot("a", {
+      sessions: [],
+      fatherSession: { source: "opencode", sessionId: "s1" },
+    });
+    render(<FatherOverlay {...PROPS} bots={[gone]} onDetachSession={onDetachSession} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("opencode:s1");
+    expect(screen.queryByTestId("father-session")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Detach it/ }));
+    expect(onDetachSession).toHaveBeenCalledWith(gone, { source: "opencode", sessionId: "s1" });
   });
 });

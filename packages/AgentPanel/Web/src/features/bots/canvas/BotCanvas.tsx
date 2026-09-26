@@ -249,24 +249,19 @@ export function BotCanvas({
   }
 
   return (
-    // A column rather than the strip alone, so the open home takes its band from the top and the
-    // strip keeps the rest: both visible at once, and the grip between them is where they fight
-    // for the vertical room. Closed, the home costs nothing -- one floating button over the
-    // corner, which is why it floats instead of spending a row the cards would not get.
+    // A column with one child in flow: the open home floats ABOVE the strip rather than
+    // standing over it, so opening it moves no card and closing it moves none back. Closed, the
+    // home costs nothing -- one floating button over the corner, which is why it floats instead
+    // of spending a row the cards would not get.
     <div className="relative flex h-full min-h-0 flex-col">
       <FatherButton open={fatherOpen} onToggle={() => setFatherOpen(true)} />
       {fatherOpen ? (
         <FatherOverlay
           bots={bots}
-          hues={hues}
-          ranks={ranks}
-          machines={machines}
-          keyOfBot={keyOfBot}
-          hiddenMachines={hiddenMachines}
-          detachedSessionKeys={detachedSessionKeys}
-          openKeys={openKeys}
-          onToggleSession={onToggleSession}
-          onAddBot={onAddBot}
+          sessionContextFor={sessionContextFor}
+          attachSessionToBot={attachSessionToBot}
+          onDetachSession={onDetachSession}
+          botError={botError}
           onClose={() => setFatherOpen(false)}
         />
       ) : null}

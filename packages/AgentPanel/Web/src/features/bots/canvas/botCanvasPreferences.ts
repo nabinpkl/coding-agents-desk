@@ -445,12 +445,13 @@ export function storeFatherOpen(open: boolean): void {
  * How tall the Father home stands, in pixels.
  *
  * Its own range rather than the cards': a card may tower over the window because the canvas
- * scrolls, while this panel shares the column with the strip -- taller than the column buries
- * the sessions it controls, shorter than a row clips its own header and grip.
+ * scrolls, while this home floats over the strip -- taller than the column buries what it
+ * covers, shorter than a session clips the transcript it exists to show. 480 is a transcript
+ * with a composer under it rather than an opinion about what is readable.
  */
 export const FATHER_MIN_HEIGHT = 160;
 export const FATHER_MAX_HEIGHT = 640;
-export const FATHER_DEFAULT_HEIGHT = 288;
+export const FATHER_DEFAULT_HEIGHT = 480;
 
 const FATHER_HEIGHT_KEY = "agent-panel.bot-canvas.father-height";
 

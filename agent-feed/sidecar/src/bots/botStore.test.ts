@@ -108,6 +108,37 @@ test("rejects structurally invalid Bot records before the registry can consume t
   await expect(new BotStore(path).snapshot()).rejects.toThrow("contains an invalid Bot record");
 });
 
+test("keeps a Bot's Father declaration, and rejects one that names no session", async () => {
+  // The Father is a reference like any other: well-formed rides along, malformed fails the whole
+  // record before the registry can consume it.
+  const { path } = await fixture();
+  await mkdir(dirname(path), { recursive: true });
+  const record = {
+    botId: "bot-1",
+    name: "Captain",
+    environment: { kind: "directory", path: "/repo" },
+    sessionRefs: [{ source: "opencode", sessionId: "s1" }],
+    metadata: { labels: [], custom: {} },
+    grants: [],
+    createdAt: 1,
+    createdBy: { kind: "user" },
+    fatherSession: { source: "opencode", sessionId: "s1" },
+  };
+  await writeFile(path, JSON.stringify({ version: 3, revision: 1, bots: [record], idempotency: {} }), "utf8");
+  expect((await new BotStore(path).snapshot()).bots[0]!.fatherSession).toEqual({
+    source: "opencode",
+    sessionId: "s1",
+  });
+
+  await writeFile(path, JSON.stringify({
+    version: 3,
+    revision: 2,
+    bots: [{ ...record, fatherSession: { source: "opencode" } }],
+    idempotency: {},
+  }), "utf8");
+  await expect(new BotStore(path).snapshot()).rejects.toThrow("contains an invalid Bot record");
+});
+
 test("announces a write made by another process, without anyone polling for it", async () => {
   // Bots are edited from more than one place: a second sidecar, an editor, a script. Those writes
   // used to reach the panel only because the registry rebuilt a full snapshot every second per
