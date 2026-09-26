@@ -46,6 +46,16 @@ export interface BotRecord {
   sessionSlots?: Record<string, number>;
   /** The next slot to hand out on this Bot. Never reused, so history cannot collide. */
   nextSessionSlot?: number;
+  /**
+   * Each attached session's stable anchor, by `source:sessionId`: the plain name its title starts
+   * with (`Aaron` in `Aaron (checkout flow)`).
+   *
+   * Allocated once from the pool, first-free machine-wide, and never reused -- the same rule as
+   * slots, for the same reason. Detaching keeps the entry, so a reattach restores the same name.
+   * Absent on records written before anchors existed, which normalize on the next rename or
+   * on the normalize-titles pass.
+   */
+  sessionAnchors?: Record<string, string>;
   metadata: BotMetadata;
   grants: BotGrant[];
   createdAt: number;
@@ -107,10 +117,9 @@ export interface BotSnapshot {
  */
 export interface BotLaunchCommand {
   /**
-   * What the session is working on. The `-n` title is composed from it: the session's stable
-   * anchor first, this text bracketed after (`AD 2 (Checkout flow)`). Omitted starts bare under
-   * the anchor. On creation the anchor is the Bot's name; on an existing Bot it is the next
-   * slot's, which the sidecar spends before launching so the name and the slot always agree.
+   * What the session is working on. The `-n` title is composed from it: the session's allocated
+   * anchor first, this text bracketed after (`Aaron (Checkout flow)`). Omitted starts bare under
+   * the anchor. The anchor is spent from the machine-wide pool at launch, so this never names it.
    */
   title?: string;
   /**

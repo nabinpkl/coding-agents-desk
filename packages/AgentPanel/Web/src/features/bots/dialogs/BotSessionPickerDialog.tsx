@@ -1,7 +1,6 @@
 import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { stableSessionAnchor } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 
@@ -22,6 +21,7 @@ export function BotSessionPickerDialog({
   open,
   bot,
   sessions,
+  anchorPreview,
   onClose,
   onAttach,
   onStartNew,
@@ -29,22 +29,29 @@ export function BotSessionPickerDialog({
   open: boolean;
   bot: BotView | null;
   sessions: SessionSummary[] | undefined;
+  /**
+   * The anchor the new session will most likely start under, previewed from the anchors every
+   * Bot already holds. The sidecar spends the real one at launch and wins any race; the field
+   * below is only the bracket task, so a wrong preview costs nothing.
+   */
+  anchorPreview: string;
   onClose: () => void;
   onAttach: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
   /**
-   * Starts a fresh session in the Bot's directory under this name, and closes the dialog.
+   * Starts a fresh session in the Bot's directory under the spent anchor, bracketed with this
+   * task, and closes the dialog.
    *
    * Nothing is awaited and nothing is reported back here: the session becomes a card on the canvas
    * with its terminal in it, so the pane itself is where a failure to start would show. A dialog
    * left open over that card would only be in the way of the thing it just made.
    */
-  onStartNew: (bot: BotView, title: string) => void;
+  onStartNew: (bot: BotView, task: string) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [newTitle, setNewTitle] = useState("");
+  const [task, setTask] = useState("");
   const attachedKeys = useMemo(
     () => new Set(bot?.sessionRefs.map(sessionKey) ?? []),
     [bot],
@@ -55,11 +62,7 @@ export function BotSessionPickerDialog({
     setSelectedKeys(new Set());
     setPending(false);
     setError(null);
-    // The next anchor, spent from the Bot's slot counter rather than counted from titles: two
-    // presses in one minute cannot propose the same name, and a deleted session's number never
-    // comes back. What the session is doing goes in brackets after it.
-    setNewTitle(bot ? stableSessionAnchor(bot.name, bot.nextSessionSlot ?? bot.sessionRefs.length) : "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setTask("");
   }, [bot?.botId, open]);
 
   useEffect(() => {
@@ -86,9 +89,9 @@ export function BotSessionPickerDialog({
 
   const startNew = (event: FormEvent) => {
     event.preventDefault();
-    const chosen = newTitle.trim();
-    if (!chosen || pending || bot.environmentAvailability === "missing") return;
-    onStartNew(bot, chosen);
+    // An empty task is a bare anchor, not a missing name.
+    if (pending || bot.environmentAvailability === "missing") return;
+    onStartNew(bot, task.trim());
   };
 
   const submit = async (event: FormEvent) => {
@@ -146,12 +149,15 @@ export function BotSessionPickerDialog({
           onSubmit={startNew}
           className="flex shrink-0 flex-wrap items-end gap-2 border-b border-border px-4 py-3"
         >
+          <p className="basis-full rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground">
+            {anchorPreview} <span className="text-muted-foreground">(what it is doing)</span>
+          </p>
           <label className="min-w-40 flex-1 text-sm font-medium">
             Start a new session here
             {/* Capped where the catalog truncates, so a stored title is always the one shown. */}
             <input
-              value={newTitle}
-              onChange={(event) => setNewTitle(event.target.value)}
+              value={task}
+              onChange={(event) => setTask(event.target.value)}
               maxLength={240}
               disabled={pending || bot.environmentAvailability === "missing"}
               className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
@@ -159,7 +165,7 @@ export function BotSessionPickerDialog({
           </label>
           <button
             type="submit"
-            disabled={!newTitle.trim() || pending || bot.environmentAvailability === "missing"}
+            disabled={pending || bot.environmentAvailability === "missing"}
             title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : undefined}
             className="flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border px-4 text-sm font-semibold text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
           >

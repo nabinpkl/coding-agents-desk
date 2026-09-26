@@ -43,10 +43,11 @@ export type {
 } from "./tmuxQuestion.ts";
 
 export {
+  backfillTaskText,
+  firstFreeAnchor,
   formatBotSessionTitle,
   parseBotSessionTitle,
   refuseTaskText,
-  stableSessionAnchor,
   taskFromText,
 } from "./botSessionTitle.ts";
 

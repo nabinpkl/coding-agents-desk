@@ -18,6 +18,7 @@ import {
   BotNotFoundError,
   type BotRegistry,
 } from "@/bots/botRegistry";
+import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import {
   encodeServerSentEvent,
   errorResponse,
@@ -45,6 +46,7 @@ export function createBotRoutes(
   registry: BotRegistry,
   repositories: RepositoryGitWatch,
   limits: WorkspaceFileLimits,
+  dependencies: { renameSession: BotSessionRenamer },
 ): RouteHandler {
   return (request, url, server) => {
     if (request.method === "GET" && url.pathname === BOTS_ROUTE) {
@@ -107,6 +109,12 @@ export function createBotRoutes(
     const canvasMatch = /^\/api\/bots\/([^/]+)\/canvas$/.exec(url.pathname);
     if (request.method === "POST" && canvasMatch) {
       return setBotCanvas(request, canvasMatch[1]!, registry);
+    }
+    // One pass that brings every attached session's title into the anchor shape. A POST with no
+    // body: sending it twice lands the same titles, and the response names what each session got
+    // and what was skipped instead.
+    if (request.method === "POST" && url.pathname === "/api/bots/normalize-titles") {
+      return normalizeBotTitles(registry, dependencies.renameSession);
     }
     // What is uncommitted in the Bot's directory, as it changes, and one path of it. The Bot's own
     // paths rather than the IDE's: see `BotGitStatus` for why a Bot is not a workspace.
@@ -350,6 +358,17 @@ async function setBotCanvas(
     return jsonResponse(
       await registry.setCanvas(decodedBotId, body as unknown as SetBotCanvasCommand, { kind: "user" }),
     );
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function normalizeBotTitles(
+  registry: BotRegistry,
+  renameSession: BotSessionRenamer,
+): Promise<Response> {
+  try {
+    return jsonResponse(await registry.normalizeTitles(renameSession));
   } catch (error) {
     return routeError(error);
   }

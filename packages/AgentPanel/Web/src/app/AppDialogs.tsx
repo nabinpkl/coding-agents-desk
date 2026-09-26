@@ -6,7 +6,7 @@
 // above -- nothing here holds state.
 
 import {
-  stableSessionAnchor,
+  firstFreeAnchor,
   type AddBotCommand,
   type BotSessionRef,
   type BotView,
@@ -20,7 +20,6 @@ import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
-import { botSessionSlots } from "@/features/bots/botSurface";
 
 export function AppDialogs({
   attachBotSessions,
@@ -78,23 +77,35 @@ export function AppDialogs({
   startHandover: (request: HandoverRequest, message: string) => Promise<void>;
   startNewSession: (bot: BotView, title: string) => Promise<void>;
 }) {
-  const slotOf = (bot: BotView, session: Pick<SessionSummary, "source" | "sessionId">): number | undefined =>
-    botSessionSlots(bot.sessionRefs, bot.sessionSlots).get(`${session.source}:${session.sessionId}`);
-  // The anchor a fork onto a Bot starts under: the Bot's next slot, spent from its counter rather
-  // than counted from titles.
-  const forkBotAnchor = useMemo(() => {
-    if (!forkRequest?.botId) return undefined;
-    const bot = bots.find((one) => one.botId === forkRequest.botId);
-    return bot ? stableSessionAnchor(bot.name, bot.nextSessionSlot ?? bot.sessionRefs.length) : undefined;
-  }, [bots, forkRequest]);
-  // The anchor a rename must leave alone, when exactly one Bot holds the session. Held twice over,
-  // two anchors name it and the dialog edits the whole title the way it always has.
+  const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
+    `${session.source}:${session.sessionId}`;
+  // Every anchor already spent, across every Bot the panel knows: the preview is first-free over
+  // this set, the same answer the sidecar gives its own store. A race still belongs to the
+  // sidecar, which spends the real one at launch.
+  const takenAnchors = useMemo(
+    () => bots.flatMap((bot) => Object.values(bot.sessionAnchors ?? {})),
+    [bots],
+  );
+  // The anchor a fork onto a Bot will most likely start under. Absent for a fork that belongs to
+  // nobody, which keeps counting past its project's titles instead.
+  const forkBotAnchor = useMemo(
+    () => (forkRequest?.botId ? firstFreeAnchor(takenAnchors) : undefined),
+    [forkRequest?.botId, takenAnchors],
+  );
+  // The anchor a rename must leave alone, when exactly one Bot holds the session with one stored.
+  // Held twice over, or held with none yet, and the dialog edits the whole title the way it
+  // always has.
   const renameAnchor = useMemo(() => {
     if (!renamingSession) return undefined;
-    const holders = bots.filter((bot) => slotOf(bot, renamingSession) !== undefined);
+    const holders = bots.filter((bot) => bot.sessionAnchors?.[keyOf(renamingSession)] !== undefined);
     if (holders.length !== 1) return undefined;
-    return stableSessionAnchor(holders[0]!.name, slotOf(holders[0]!, renamingSession)!);
+    return holders[0]!.sessionAnchors![keyOf(renamingSession)]!;
   }, [bots, renamingSession]);
+  // The picker's preview, same rule as the fork's.
+  const pickerAnchor = useMemo(
+    () => (botSessionPicker ? firstFreeAnchor(takenAnchors) : ""),
+    [botSessionPicker, takenAnchors],
+  );
   return (
     <>
         <BotCreatorDialog
@@ -132,6 +143,7 @@ export function AppDialogs({
           open={botSessionPicker !== null}
           bot={botSessionPicker}
           sessions={botSessionPicker ? sessionsByProject.get(botSessionPicker.environment.path) : undefined}
+          anchorPreview={pickerAnchor}
           onClose={() => setBotSessionPickerId(null)}
           onAttach={attachBotSessions}
           onStartNew={startNewSession}

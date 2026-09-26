@@ -81,6 +81,7 @@ export const BOT_WITH_ONE_SESSION = {
           name: "Release Captain",
           environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
           sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          sessionAnchors: { "claude:sid-claude-01": "Aaron" },
           metadata: { labels: [], custom: {} },
           grants: [],
           createdAt: 1,

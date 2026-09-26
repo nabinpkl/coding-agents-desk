@@ -86,25 +86,26 @@ test("starts a session on a Bot that already has some, and attaches it", async (
     { kind: "user" },
   );
 
-  // Slot zero, so the anchor is the Bot's name and the request brackets after it. The reservation
-  // is spent before the launch, so the stored slot and the `-n` title always agree.
+  // The first free anchor, with the request bracketed after it. The reservation is spent
+  // before the launch, so the stored anchor and the `-n` title always agree.
   expect(launched).toEqual([{
     kind: "start",
     cwd: project,
     sessionId: "started-1",
-    title: "AD bot (composer fix)",
+    title: "Aaron (composer fix)",
     prompt: "Read the brief.",
   }]);
   // The pane comes back with it: the caller has nowhere else to read it from, and rebuilding the
   // name at the call site would put the sidecar's rule in two places.
   expect(added.started).toEqual({
     sessionId: "started-1",
-    title: "AD bot (composer fix)",
+    title: "Aaron (composer fix)",
     projectPath: project,
     tmuxSession: "agentdesk-started-1",
   });
   expect(added.bot.missingSessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
   expect(added.bot.sessionSlots).toEqual({ "claude:started-1": 0 });
+  expect(added.bot.sessionAnchors).toEqual({ "claude:started-1": "Aaron" });
   expect(added.bot.nextSessionSlot).toBe(1);
 });
 
@@ -132,15 +133,16 @@ test("forks one of the Bot's own sessions, and puts the brief behind the handoff
     cwd: project,
     sessionId: claudeRef.sessionId,
     forkId: "started-1",
-    // Second slot, so the anchor numbers past the attached session and the request brackets.
-    title: "AD bot 2 (Bot background color)",
+    // The attach spent Aaron, so the fork takes Adam and the request brackets after it.
+    title: "Adam (Bot background color)",
     // The launcher composes the handoff note in front of this; what the registry passes is the
     // reader's own words, unchanged.
     brief: "Give each card a colour.",
   }]);
   expect(added.started?.tmuxSession).toBe("agentdesk-fork-started-1");
-  expect(added.started?.title).toBe("AD bot 2 (Bot background color)");
+  expect(added.started?.title).toBe("Adam (Bot background color)");
   expect(added.bot.sessionSlots?.["claude:started-1"]).toBe(1);
+  expect(added.bot.sessionAnchors?.["claude:started-1"]).toBe("Adam");
 });
 
 test("refuses to fork a session the Bot does not hold", async () => {
@@ -161,7 +163,7 @@ test("refuses to fork a session the Bot does not hold", async () => {
   )).rejects.toThrow(BotNotFoundError);
 });
 
-test("an omitted title starts bare under the next anchor", async () => {
+test("an omitted title starts bare under the next free anchor", async () => {
   // The anchor is spent from the slot counter, not counted from titles, so two launches in one
   // moment cannot preview the same name and a deleted session's number is never reused.
   const { launched, launcher } = recordingLauncher();
@@ -178,11 +180,12 @@ test("an omitted title starts bare under the next anchor", async () => {
     kind: "start",
     cwd: project,
     sessionId: "started-1",
-    title: "AD bot",
+    title: "Aaron",
     prompt: undefined,
   }]);
-  expect(added.started?.title).toBe("AD bot");
+  expect(added.started?.title).toBe("Aaron");
   expect(added.bot.sessionSlots).toEqual({ "claude:started-1": 0 });
+  expect(added.bot.sessionAnchors).toEqual({ "claude:started-1": "Aaron" });
 });
 
 test("a task carrying its own brackets is refused before anything is spent", async () => {

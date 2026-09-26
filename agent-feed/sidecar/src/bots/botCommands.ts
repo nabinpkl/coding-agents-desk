@@ -153,34 +153,25 @@ export function normalizeSessionRef(value: unknown): BotSessionRef {
 }
 
 /**
- * The launch options, with the Bot's own name standing in for a title nobody gave.
+ * The launch options: what the session is working on, as task text.
  *
  * The title is validated by the same rule a rename obeys, because it is the same field: `-n`
- * writes it to the session registry, and a line break in it would split the argument rather than
- * the name. A Bot name is already bounded well inside that, so the default never refuses. The
- * title here is the REQUESTED text, not the final one: the registry prefixes the session's stable
- * anchor and brackets the rest as its task, so `Checkout flow` on `AD 2` starts as
- * `AD 2 (Checkout flow)`.
+ * writes the composed title to the session registry, and a line break in it would split the
+ * argument rather than the name. Omitted starts bare under the allocated anchor. The anchor
+ * itself is spent at launch time and never arrives over this wire.
  */
-function normalizeLaunch(
-  value: unknown,
-  botName: string,
-  { titleOptional = false }: { titleOptional?: boolean } = {},
-): NormalizedLaunch | undefined {
+function normalizeLaunch(value: unknown): NormalizedLaunch | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new BotInvalidError("launch must be an object");
   }
   const command = value as BotLaunchCommand;
   const requested = compactOptional(command.title, "launch.title", MAX_NAME);
-  const title = requested ?? botName;
-  // The default is checked too: a Bot name is bounded well inside the rule, so it never refuses,
-  // and checking it keeps a name nobody could start a session under from writing a Bot first.
-  // Only an explicitly optional title skips the check, and only when it is absent.
-  if (requested !== undefined || !titleOptional) {
-    const refusal = sessionTitleRefusal(title);
+  if (requested !== undefined) {
+    const refusal = sessionTitleRefusal(requested);
     if (refusal) throw new BotInvalidError(`launch.title: ${refusal}`);
   }
+  const title = requested ?? "";
   if (command.from !== undefined && normalizeSessionRef(command.from).source !== "claude") {
     // `--fork-session` is a Claude CLI flag. Codex has `resume` and no fork, so a Codex source
     // would be silently resumed into the original transcript rather than branched from it.
@@ -229,29 +220,19 @@ export function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
       custom: normalizeCustom(command.metadata?.custom),
     },
     grants: normalizeGrants(command.grants),
-    launch: normalizeLaunch(command.launch, name),
+    launch: normalizeLaunch(command.launch),
   };
 }
 
 /**
- * A launch on an existing Bot, whose title defaults to the next anchor rather than the Bot's
- * name.
+ * A launch on an existing Bot.
  *
- * At creation the Bot's name IS the first session's anchor, so defaulting there is exact. On a
- * Bot that already has sessions the Bot's name would collide with slot zero, and `-n` makes
- * that name the address other agents send to. So an omitted title starts bare under the next
- * slot's anchor (`AD 3`), and a given one brackets as its task (`AD 3 (Checkout flow)`).
+ * The title is task text, never the anchor: the anchor is spent at launch time and this
+ * normalizer cannot know it yet. Omitted starts bare.
  */
 export function normalizeLaunchFor(botId: string, value: unknown): NormalizedLaunch | undefined {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BotInvalidError("launch must be an object");
-  }
-  // Optional, not required, and never defaulted here: the anchor it composes with is spent at
-  // launch time and this normalizer cannot know it yet. `botId` is unused beyond the shape; the
-  // `botId` in the route is what names the Bot.
   void botId;
-  return normalizeLaunch(value, "", { titleOptional: true });
+  return normalizeLaunch(value);
 }
 
 export function normalizeSessionRefCommand(

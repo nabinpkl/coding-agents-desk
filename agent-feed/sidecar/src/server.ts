@@ -72,6 +72,7 @@ import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpenco
 import { createHubRoutes } from "@/messaging/hubRoutes";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
+import { renameClaudeSession } from "@/transcripts/session-ops/renameSession";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
 import { sourceVersion } from "@/sourceVersion";
 
@@ -135,11 +136,12 @@ backends.register(new PiAgentBackend({
 // catalog watches: the backend reads them over the SDK client while the
 // catalog reconciler lists them, the same split Pi keeps between runtime and
 // registry. No password crosses this boundary -- the client holder keeps it.
-backends.register(new OpencodeAgentBackend({
+const opencodeBackend = new OpencodeAgentBackend({
   resolveSession: resolveOpencodeSession,
   onSessionCreated: registerOpencodeSession,
   onCatalogChanged: scheduleOpencodeReconcile,
-}));
+});
+backends.register(opencodeBackend);
 // Read-only live mirror of Claude Code traffic observed through proxy-agent.
 // Registered unconditionally so its routes answer with a precise "unknown
 // source" when the observer endpoint is unreachable; `start()` degrades to a
@@ -178,6 +180,21 @@ const routes: RouteHandler[] = [
   createBotRoutes(botRegistry, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,
     maxDocumentBytes: config.workspaceMaxDocumentBytes,
+  }, {
+    // The normalize-titles pass renames through the same doors the Rename dialog uses: Claude's
+    // own `/rename` in its pane, opencode's serve through its backend. Anything else has no
+    // mechanism and is reported, not failed.
+    renameSession: async (ref, title) => {
+      if (ref.source === "claude") {
+        await renameClaudeSession(ref.sessionId, title);
+        return;
+      }
+      if (ref.source === "opencode") {
+        await opencodeBackend.renameSession(ref.sessionId, title);
+        return;
+      }
+      throw new Error(`sessions from ${ref.source} cannot be renamed`);
+    },
   }),
   createAgentTerminalRoutes(agentTerminals),
   createTmuxRoutes(),

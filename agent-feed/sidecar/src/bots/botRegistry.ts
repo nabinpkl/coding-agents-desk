@@ -31,7 +31,12 @@ import {
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
-import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
+import { attachRefs } from "@/bots/sessions/botSessionAttach";
+import {
+  normalizeBotTitles,
+  type BotSessionRenamer,
+  type TitleNormalization,
+} from "@/bots/sessions/botTitleNormalize";
 import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
 import { reorderRefs } from "@/bots/sessions/botSessionOrder";
 import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
@@ -238,50 +243,22 @@ export class BotRegistry {
     const signature = commandSignature({ botId, ...normalized, launch });
     const idempotencyKey = `sessions:${actorKey(actor)}:${normalized.requestId}`;
 
-    const record = await this.store.mutate((snapshot) => {
-      const prior = priorBot(snapshot, idempotencyKey, signature);
-      if (prior) return { snapshot, value: { bot: prior, fresh: false } };
-      const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
-      if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
-      const bot = snapshot.bots[index]!;
-      if (normalized.sessionRefs.length === 0) {
-        return {
-          snapshot: {
-            ...snapshot,
-            revision: snapshot.revision + 1,
-            idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
-          },
-          value: { bot, fresh: true },
-        };
-      }
-      const outside = resolved.find((session) =>
-        session.projectPath !== bot.environment.path && !belongs.get(session.projectPath)
-      );
-      if (outside) {
-        throw new BotConflictError(
-          "every attached session must belong to the Bot's directory, or a git worktree of it",
-        );
-      }
-      const attached = new Set(bot.sessionRefs.map(sessionKey));
-      const duplicate = normalized.sessionRefs.find((ref) => attached.has(sessionKey(ref)));
-      if (duplicate) throw new BotConflictError(`session ${sessionKey(duplicate)} is already attached to this Bot`);
-
-      const heldRefs = [...bot.sessionRefs, ...normalized.sessionRefs];
-      const updated: BotRecord = {
-        ...bot,
-        sessionRefs: heldRefs,
-        ...ensureSessionSlots(bot, heldRefs),
-      };
-      const bots = [...snapshot.bots];
-      bots[index] = updated;
-      const next: StoredBotSnapshot = {
-        ...snapshot,
-        revision: snapshot.revision + 1,
-        bots,
-        idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
-      };
-      return { snapshot: next, value: { bot: updated, fresh: true } };
-    });
+    // Index-aligned with `normalized.sessionRefs`: the mutation re-reads the Bot, but a Bot cannot
+    // change its directory, so this reading cannot disagree about the thing being asked. A Bot
+    // deleted in between fails inside the mutation with its own error instead.
+    const outsideIndex = directory === undefined ? -1 : resolved.findIndex((session) =>
+      session.projectPath !== directory && !belongs.get(session.projectPath)
+    );
+    const record = await this.store.mutate((snapshot) =>
+      attachRefs(
+        snapshot,
+        botId,
+        normalized.sessionRefs,
+        outsideIndex < 0 ? undefined : normalized.sessionRefs[outsideIndex],
+        idempotencyKey,
+        signature,
+      )
+    );
 
     if (!launch) return { bot: await this.viewRecord(record.bot) };
     // A replay attaches nothing and starts nothing. Unlike Bot creation there is no half-done
@@ -322,6 +299,18 @@ export class BotRegistry {
       detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
     );
     return this.viewRecord(record);
+  }
+
+  /**
+   * Brings every attached session's title into the anchor shape. See `botTitleNormalize.ts`: the
+   * registry owns the store this runs against, and nothing else about the pass.
+   */
+  async normalizeTitles(renamer: BotSessionRenamer): Promise<{
+    bots: BotView[];
+    normalizations: TitleNormalization[];
+  }> {
+    const normalizations = await normalizeBotTitles(this.store, this.catalog, renamer);
+    return { bots: (await this.snapshot()).bots, normalizations };
   }
 
   /**

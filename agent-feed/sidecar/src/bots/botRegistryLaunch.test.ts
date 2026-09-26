@@ -18,14 +18,12 @@ test("creating a Bot with launch starts a session in its directory and attaches 
     launch: { prompt: "Familiarize yourself with the repo." },
   }, { kind: "user" });
 
-  // The title defaults to the Bot's name, which is what makes one call enough: `-n` sets the
-  // session's address, and a Bot whose session answers to something else is a Bot nobody can
-  // message.
+  // The title is the first free anchor, bare: names come from the pool, never from the Bot.
   expect(launched).toEqual([{
     kind: "start",
     cwd: project,
     sessionId: "started-1",
-    title: "OSS agent",
+    title: "Aaron",
     prompt: "Familiarize yourself with the repo.",
   }]);
   expect(bot.sessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
@@ -35,7 +33,7 @@ test("creating a Bot with launch starts a session in its directory and attaches 
   expect(bot.missingSessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
 });
 
-test("a launch title brackets as the task after the Bot's anchor, and a prompt is optional", async () => {
+test("a launch title brackets as the task after the allocated anchor, and a prompt is optional", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
@@ -43,7 +41,7 @@ test("a launch title brackets as the task after the Bot's anchor, and a prompt i
     requestId: "request-1",
     name: "OSS agent",
     directoryPath: project,
-    launch: { title: "OSS agent familiarization" },
+    launch: { title: "familiarization" },
   }, { kind: "user" });
 
   // The anchor is stable and the request is the bracket: the `-n` name is both halves at once.
@@ -51,7 +49,7 @@ test("a launch title brackets as the task after the Bot's anchor, and a prompt i
     kind: "start",
     cwd: project,
     sessionId: "started-1",
-    title: "OSS agent (familiarization)",
+    title: "Aaron (familiarization)",
     prompt: undefined,
   }]);
 });

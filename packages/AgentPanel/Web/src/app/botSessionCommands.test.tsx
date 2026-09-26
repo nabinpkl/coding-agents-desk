@@ -73,7 +73,7 @@ describe("App shell", () => {
         bot: BOT_WITH_ONE_SESSION,
         started: {
           sessionId: "fork-1",
-          title: "Release Captain 2 (Retry the flaky gate)",
+          title: "Adam (Retry the flaky gate)",
           projectPath: FIXTURE_PROJECT_A.projectPath,
           tmuxSession: "agentdesk-fork-fork-1",
         },
@@ -83,34 +83,34 @@ describe("App shell", () => {
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
 
-    // The name first, and nothing started yet. `-n` sets the session's address as well as its
-    // title, so this is the only moment it is free -- afterwards the fork has already been listed
-    // under whatever it was called. A fork onto a Bot starts under the Bot's next anchor with an
-    // empty task, not as a `(fork n)` of its source. A fork onto a Bot starts under the Bot's next anchor with an
-    // empty task, not as a `(fork n)` of its source.
-    const field = screen.getByLabelText("Name") as HTMLInputElement;
-    expect(field.value).toBe("Release Captain 2");
+    // The anchor first, and nothing started yet. `-n` sets the session's address as well as
+    // its title, so this is the only moment it is free -- afterwards the fork has already been
+    // listed under whatever it was called. A fork onto a Bot starts under the next free anchor
+    // with whatever task is typed, not as a `(fork n)` of its source: Aaron is spent, so the
+    // field seeds empty under Adam.
+    const field = screen.getByLabelText("Task") as HTMLInputElement;
+    expect(field.value).toBe("");
     expect(terminalPaneMock.context).toBeNull();
 
-    fireEvent.change(field, { target: { value: "Release Captain 2 (Retry the flaky gate)" } });
+    fireEvent.change(field, { target: { value: "Retry the flaky gate" } });
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
 
     // Creating a session is the Bot's business: the terminal resource attaches to panes and does
     // not make them. The unticked worktree box sends nothing rather than sending false. The panel
-    // sends what the reader typed; the sidecar reads the anchor off it and brackets the rest.
+    // sends the task as typed; the sidecar spends the anchor and brackets it.
     await waitFor(() => {
       expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
         .toEqual({
           requestId: expect.any(String),
           launch: {
-            title: "Release Captain 2 (Retry the flaky gate)",
+            title: "Retry the flaky gate",
             from: { source: "claude", sessionId: "sid-claude-01" },
           },
         });
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Release Captain 2 (Retry the flaky gate)");
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Adam (Retry the flaky gate)");
     });
     // A fork has no transcript to show: the CLI writes none until its first turn, so the view says
     // that rather than spinning on a file that is not coming, and it names where it came from.
@@ -151,7 +151,7 @@ describe("App shell", () => {
         bot: BOT_WITH_ONE_SESSION,
         started: {
           sessionId: "fork-1",
-          title: "Session Claude 01 (fork 1)",
+          title: "Adam",
           projectPath: FIXTURE_PROJECT_A.projectPath,
           tmuxSession: "agentdesk-fork-fork-1",
         },
@@ -171,7 +171,7 @@ describe("App shell", () => {
       {
         sessionId: "fork-1",
         source: "claude",
-        title: "Session Claude 01 (fork 1)",
+        title: "Adam",
         lastEventAt: 9,
         activity: "live",
         capabilities: FIXTURE_SESSIONS[0]!.capabilities,
@@ -226,7 +226,7 @@ describe("App shell", () => {
     const { transport, unmount } = setup();
     transport.responses.set("POST /api/sessions/claude/sid-claude-01/title", {
       status: 200,
-      body: JSON.stringify({ sessionId: "sid-claude-01", title: "Release Captain (What I called it)" }),
+      body: JSON.stringify({ sessionId: "sid-claude-01", title: "Aaron (What I called it)" }),
     });
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -239,6 +239,7 @@ describe("App shell", () => {
           name: "Release Captain",
           environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
           sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          sessionAnchors: { "claude:sid-claude-01": "Aaron" },
           metadata: { labels: [], custom: {} },
           grants: [],
           createdAt: 1,
@@ -253,8 +254,9 @@ describe("App shell", () => {
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename session" }));
 
-    // Held by one Bot, so the dialog edits only the bracket task: the anchor is shown, fixed,
-    // and the old title seeds the task. The rename composes both halves back together.
+    // Held by one Bot with a stored anchor, so the dialog edits only the bracket task: the
+    // anchor is shown, fixed, and the old title seeds the task. The rename composes both halves
+    // back together.
     const field = screen.getByLabelText(/Task/) as HTMLInputElement;
     expect(field.value).toBe("Session Claude 01");
 
@@ -266,7 +268,7 @@ describe("App shell", () => {
     expect(transport.requests.at(-1)).toEqual({
       method: "POST",
       path: "/api/sessions/claude/sid-claude-01/title",
-      body: { title: "Release Captain (What I called it)" },
+      body: { title: "Aaron (What I called it)" },
     });
     // Closed on success. The new title arrives through the inventory stream like every other
     // change to a session, so there is nothing for the dialog to hold on to.
@@ -278,7 +280,7 @@ describe("App shell", () => {
     const { transport, unmount } = setup();
     transport.responses.set("POST /api/agent-sessions/opencode/sid-opencode-01/title", {
       status: 200,
-      body: JSON.stringify({ sessionId: "sid-opencode-01", title: "Release Captain (What I called it)" }),
+      body: JSON.stringify({ sessionId: "sid-opencode-01", title: "Aaron (What I called it)" }),
     });
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -291,6 +293,7 @@ describe("App shell", () => {
           name: "Release Captain",
           environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
           sessionRefs: [{ source: "opencode", sessionId: "sid-opencode-01" }],
+          sessionAnchors: { "opencode:sid-opencode-01": "Aaron" },
           metadata: { labels: [], custom: {} },
           grants: [],
           createdAt: 1,
@@ -315,6 +318,7 @@ describe("App shell", () => {
     // about, and saying they were would be a warning about a failure that cannot happen.
     expect(screen.getByText(/Renames it on this machine's opencode serve/)).toBeInTheDocument();
 
+    // Held with a stored anchor, so the dialog edits only the bracket task.
     const field = screen.getByLabelText(/Task/) as HTMLInputElement;
     expect(field.value).toBe("Session Opencode 01");
     fireEvent.change(field, { target: { value: "  What I called it  " } });
@@ -325,7 +329,7 @@ describe("App shell", () => {
     expect(transport.requests.at(-1)).toEqual({
       method: "POST",
       path: "/api/agent-sessions/opencode/sid-opencode-01/title",
-      body: { title: "Release Captain (What I called it)" },
+      body: { title: "Aaron (What I called it)" },
     });
     expect(screen.queryByRole("heading", { name: "Rename session" })).toBeNull();
     unmount();

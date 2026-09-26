@@ -59,9 +59,10 @@ export function ForkSessionDialog({
   /** Every title already in the source's project, which is how the proposal picks its number. */
   takenTitles: readonly string[];
   /**
-   * The anchor a fork onto a Bot starts under. Present when the fork is for a Bot: the new
-   * session takes the Bot's next anchor with an empty task, not a `(fork n)` of its source.
-   * Absent for a fork that belongs to nobody, which keeps counting past its project's titles.
+   * The anchor a fork onto a Bot starts under, previewed from the anchors every Bot holds. Present
+   * when the fork is for a Bot: the field below is only the bracket task, and the sidecar spends
+   * the real anchor at launch. Absent for a fork that belongs to nobody, which keeps counting
+   * past its project's titles instead.
    */
   botAnchor?: string;
   onClose: () => void;
@@ -78,7 +79,9 @@ export function ForkSessionDialog({
 
   useEffect(() => {
     if (!request) return;
-    const seed = botAnchor ?? nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
+    // A Bot fork starts under the anchor with whatever task is typed; anything else counts past
+    // its project's titles the way it always has.
+    const seed = botAnchor ? "" : nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
     setTitle(seed);
     // Seeded with what that message said, because the thing a reader wants from forking at a
     // message is almost always to send it again differently -- which is what Claude's own rewind
@@ -146,8 +149,9 @@ export function ForkSessionDialog({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    // A Bot fork with an empty task starts bare under its anchor; anything else needs a name.
     const chosen = title.trim();
-    if (!chosen) return;
+    if (!botAnchor && !chosen) return;
     onFork(request, chosen, brief, worktree);
   };
 
@@ -171,6 +175,11 @@ export function ForkSessionDialog({
         className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
       >
         <h2 id="session-fork-title" className="text-base font-semibold">Fork session</h2>
+        {botAnchor ? (
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground">
+            {botAnchor} <span className="text-muted-foreground">(what it is doing)</span>
+          </p>
+        ) : null}
         <p className="text-sm text-muted-foreground">
           Branches <span className="font-medium text-foreground">{source}</span> into a new session
           in its own pane. The original is untouched.
@@ -186,7 +195,7 @@ export function ForkSessionDialog({
           </p>
         ) : null}
         <label className="block text-sm font-medium">
-          Name
+          {botAnchor ? "Task" : "Name"}
           {/* Capped where the catalog truncates, so a stored title is always the one shown. */}
           <input
             ref={field}
@@ -198,8 +207,9 @@ export function ForkSessionDialog({
         </label>
         {/* Said before rather than discovered later: this is the one moment the name is free. */}
         <p className="text-xs text-muted-foreground">
-          Sets the name everywhere at once &mdash; here, in <code>/resume</code>, and the one other
-          agents message it by. Forks of one session share a name unless you give them their own.
+          {botAnchor
+            ? "Sets the bracket task; the anchor above never changes, here, in /resume, or for other agents."
+            : "Sets the name everywhere at once — here, in /resume, and the one other agents message it by. Forks of one session share a name unless you give them their own."}
         </p>
         <div className="rounded-lg border border-border p-3">
           <div className="flex items-center justify-between gap-2">
@@ -257,7 +267,7 @@ export function ForkSessionDialog({
           </button>
           <button
             type="submit"
-            disabled={!title.trim()}
+            disabled={!botAnchor && !title.trim()}
             className="flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Fork

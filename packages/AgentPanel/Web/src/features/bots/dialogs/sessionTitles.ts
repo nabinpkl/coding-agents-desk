@@ -5,8 +5,8 @@
  * well as its title, so the name has to be settled before the CLI is run and cannot be corrected
  * afterwards without leaving the session listed under the wrong one in between.
  *
- * A fork onto a Bot does NOT use this: it starts under the Bot's next anchor with an empty task
- * (`AD 3`), spent from the Bot's slot counter. This is only for a fork that belongs to nobody,
+ * A fork onto a Bot does NOT use this: it starts under an allocated anchor with whatever task
+ * is typed (`Aaron (Retry the flaky gate)`). This is only for a fork that belongs to nobody,
  * which has no anchor and counts past its project's titles instead.
  *
  * # Forks

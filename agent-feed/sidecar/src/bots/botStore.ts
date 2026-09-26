@@ -46,6 +46,14 @@ function isSessionSlots(value: unknown): value is Record<string, number> | undef
     && Object.values(value).every((slot) => Number.isSafeInteger(slot) && Number(slot) >= 0);
 }
 
+function isSessionAnchors(value: unknown): value is Record<string, string> | undefined {
+  if (value === undefined) return true;
+  return isRecord(value)
+    && Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key))
+    && Object.values(value).every((anchor) =>
+      typeof anchor === "string" && anchor.length >= 1 && anchor.length <= 64 && !/[\n\r()]/.test(anchor));
+}
+
 function isBotRecord(value: unknown): value is BotRecord {
   if (!isRecord(value) || !isRecord(value.environment) || !isRecord(value.metadata) || !isRecord(value.createdBy)) {
     return false;
@@ -59,6 +67,7 @@ function isBotRecord(value: unknown): value is BotRecord {
     && Array.isArray(value.sessionRefs)
     && value.sessionRefs.every(isSessionRef)
     && isSessionSlots(value.sessionSlots)
+    && isSessionAnchors(value.sessionAnchors)
     && (value.nextSessionSlot === undefined
       || (Number.isSafeInteger(value.nextSessionSlot) && Number(value.nextSessionSlot) >= 0))
     && isOptionalString(value.metadata.role)
