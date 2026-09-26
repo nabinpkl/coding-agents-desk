@@ -18,11 +18,13 @@ import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } f
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import {
-  DEFAULT_CARD_WIDTH,
   clampFatherHeight,
+  clampFatherWidth,
   loadFatherHeight,
+  loadFatherWidth,
   storeFatherHeight,
-} from "@/features/bots/canvas/botCanvasPreferences";
+  storeFatherWidth,
+} from "@/features/bots/canvas/fatherPreferences";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 
@@ -87,8 +89,9 @@ export function FatherOverlay({
   onClose: () => void;
 }) {
   // Owned here rather than in the canvas, so a drag writes storage only on release: the overlay
-  // follows the live value while it moves, and the stored one is the answer it settled on.
+  // follows the live values while they move, and the stored ones are the answers they settled on.
   const [height, setHeight] = useState(loadFatherHeight);
+  const [width, setWidth] = useState(loadFatherWidth);
   // Where this session portals its control strip and its background-tasks panel: nodes of its
   // own, the way a card gives it, or two open surfaces would land both in the app's single host.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
@@ -104,14 +107,22 @@ export function FatherOverlay({
   const resize = useCardResize({
     name: "Father home",
     noun: "card",
-    size: { width: DEFAULT_CARD_WIDTH, height },
-    canResizeWidth: false,
+    size: { width, height },
+    canResizeWidth: true,
     canResizeHeight: true,
-    onResize: (next) => setHeight(clampFatherHeight(next.height)),
+    // Each dimension judged on its own, so a diagonal drag that crosses one bound still moves
+    // freely on the other.
+    onResize: (next) => {
+      setWidth(clampFatherWidth(next.width));
+      setHeight(clampFatherHeight(next.height));
+    },
     onResizeCommit: (next) => {
-      const clamped = clampFatherHeight(next.height);
-      setHeight(clamped);
-      storeFatherHeight(clamped);
+      const committedWidth = clampFatherWidth(next.width);
+      const committedHeight = clampFatherHeight(next.height);
+      setWidth(committedWidth);
+      setHeight(committedHeight);
+      storeFatherWidth(committedWidth);
+      storeFatherHeight(committedHeight);
     },
   });
   const resolved = resolveFather(bots);
@@ -130,11 +141,16 @@ export function FatherOverlay({
     <section
       id="father-home"
       aria-label="Father home"
-      style={{ height: resize.height }}
-      className="fixed top-0 left-1/2 z-50 flex w-[min(880px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl"
+      style={{ height: resize.height, width: resize.width }}
+      className="fixed top-0 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl"
       {...drop.dropProps}
     >
-      <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+      {/* A row rather than the header straight in the column, because the width grip hangs off
+          the border the way a card's does: overlaid on the inside edge it would land on the
+          transcript's scrollbar, and outside it there is nothing to grab. */}
+      <div className="flex min-h-0 flex-1 flex-row">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
         <Crown className="size-4 shrink-0 text-primary" aria-hidden />
         <h2 className="shrink-0 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground">
           Father
@@ -201,8 +217,11 @@ export function FatherOverlay({
               ? null
               : "This session has no composer to drop into"}
           />
+          </div>
+        )}
         </div>
-      )}
+        {resize.edge}
+      </div>
       {resize.bottom}
     </section>
   );

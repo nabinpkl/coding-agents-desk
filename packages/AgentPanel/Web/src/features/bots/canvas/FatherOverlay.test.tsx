@@ -105,6 +105,9 @@ describe("FatherOverlay", () => {
     const surface = screen.getByTestId("father-session");
     expect(surface).toHaveTextContent("s1");
     expect(surface).toHaveAttribute("data-error", "");
+    // Both grips of the same hook: the bottom grows it taller, the edge wider.
+    expect(screen.getByRole("separator", { name: "Resize Father home card" })).toBeDefined();
+    expect(screen.getByRole("separator", { name: "Widen Father home card" })).toBeDefined();
   });
 
   it("carries a Bot failure about the Father session, and no other", () => {

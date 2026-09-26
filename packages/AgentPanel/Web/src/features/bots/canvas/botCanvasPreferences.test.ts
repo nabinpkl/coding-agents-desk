@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_CARD_HEIGHT,
   DEFAULT_CARD_WIDTH,
-  FATHER_DEFAULT_HEIGHT,
-  FATHER_MAX_HEIGHT,
-  FATHER_MIN_HEIGHT,
   MAX_CARD_HEIGHT,
   MAX_CARD_WIDTH,
   MIN_CARD_HEIGHT,
@@ -13,12 +10,9 @@ import {
   botCanvasPositionOrder,
   clampCardHeight,
   clampCardWidth,
-  clampFatherHeight,
   loadCanvasOpenKeys,
   loadCanvasRoom,
   loadCanvasScroll,
-  loadFatherHeight,
-  loadFatherOpen,
   loadHiddenMachines,
   loadSessionCardSizes,
   moveInOrder,
@@ -28,6 +22,7 @@ import {
   storeCanvasScroll,
   storeFatherHeight,
   storeFatherOpen,
+  storeFatherWidth,
   storeHiddenMachines,
   storeSessionCardSizes,
 } from "@/features/bots/canvas/botCanvasPreferences";
@@ -294,38 +289,5 @@ describe("the machines the canvas is showing", () => {
     expect(loadHiddenMachines()).toEqual(new Set());
     localStorage.setItem(HIDDEN_MACHINES_KEY, JSON.stringify(["oracle", 7, null]));
     expect(loadHiddenMachines()).toEqual(new Set(["oracle"]));
-  });
-});
-
-describe("the Father home above the strip", () => {
-  beforeEach(() => localStorage.clear());
-
-  it("stays shut until a reader opens it, and forgets being open rather than storing false", () => {
-    expect(loadFatherOpen()).toBe(false);
-    storeFatherOpen(true);
-    expect(loadFatherOpen()).toBe(true);
-    expect(localStorage.getItem("agent-panel.bot-canvas.father-open")).toBe("true");
-    storeFatherOpen(false);
-    expect(loadFatherOpen()).toBe(false);
-    expect(localStorage.getItem("agent-panel.bot-canvas.father-open")).toBeNull();
-  });
-
-  it("opens at its default height and holds a drag inside its own range", () => {
-    expect(loadFatherHeight()).toBe(FATHER_DEFAULT_HEIGHT);
-    storeFatherHeight(400);
-    expect(loadFatherHeight()).toBe(400);
-    storeFatherHeight(10);
-    expect(loadFatherHeight()).toBe(FATHER_MIN_HEIGHT);
-    storeFatherHeight(99999);
-    expect(loadFatherHeight()).toBe(FATHER_MAX_HEIGHT);
-    expect(clampFatherHeight(Number.NaN)).toBe(FATHER_DEFAULT_HEIGHT);
-  });
-
-  it("forgets a default height and refuses a value it cannot read", () => {
-    storeFatherHeight(400);
-    storeFatherHeight(FATHER_DEFAULT_HEIGHT);
-    expect(localStorage.getItem("agent-panel.bot-canvas.father-height")).toBeNull();
-    localStorage.setItem("agent-panel.bot-canvas.father-height", "tall");
-    expect(loadFatherHeight()).toBe(FATHER_DEFAULT_HEIGHT);
   });
 });

@@ -6,7 +6,7 @@ import { CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
 import { type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BotCanvasList } from "@/features/bots/cards/BotCanvasList";
 import { FatherButton, FatherOverlay } from "@/features/bots/canvas/FatherOverlay";
-import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/botCanvasPreferences";
+import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/fatherPreferences";
 
 // Re-exported because this is the canvas's entry point: the app imports the surface and the shape
 // of a failure from one name, and the parts moving out did not move that.
