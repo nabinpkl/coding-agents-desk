@@ -3,7 +3,8 @@
  *
  * Its own file because it is its own idea: the canvas preferences remember the strip -- card
  * sizes, open rows, scroll, hidden machines -- while these remember the drawer over it, open
- * or shut and at the size its reader left it. One file per idea is what keeps both readable.
+ * or shut and at the size and place its reader left it. One file per idea is what keeps both
+ * readable.
  */
 
 /**
@@ -111,4 +112,59 @@ export function storeFatherWidth(width: number): void {
   } catch {
     // The home still resizes; it just opens at the default width next time.
   }
+}
+
+export interface FatherPosition {
+  x: number;
+  y: number;
+}
+
+const FATHER_POSITION_KEY = "agent-panel.bot-canvas.father-position";
+
+/**
+ * Where the drawer stands, as its top-left in viewport pixels. Null until the reader first
+ * carries it: centered top is the default and needs nothing stored.
+ */
+export function loadFatherPosition(): FatherPosition | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(FATHER_POSITION_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { x, y } = parsed as Partial<FatherPosition>;
+    if (typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  } catch {
+    return null;
+  }
+}
+
+export function storeFatherPosition(position: FatherPosition): void {
+  try {
+    localStorage.setItem(FATHER_POSITION_KEY, JSON.stringify({
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+    }));
+  } catch {
+    // The drawer still moves; it just opens centered top next time.
+  }
+}
+
+/**
+ * Holds the drawer where a hand can find it: at least a strip of it stays inside the viewport
+ * on every side, so no drag and no window shrink can strand it off-screen with no way back.
+ */
+export function clampFatherPosition(
+  position: FatherPosition,
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): FatherPosition {
+  const margin = 120;
+  return {
+    x: Math.min(Math.max(position.x, margin - size.width), Math.max(viewport.width - margin, 0)),
+    y: Math.min(Math.max(position.y, 0), Math.max(viewport.height - 80, 0)),
+  };
 }

@@ -13,17 +13,21 @@
 // stays visible and clickable while it is open.
 
 import { Crown, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import {
   clampFatherHeight,
+  clampFatherPosition,
   clampFatherWidth,
   loadFatherHeight,
+  loadFatherPosition,
   loadFatherWidth,
   storeFatherHeight,
+  storeFatherPosition,
   storeFatherWidth,
+  type FatherPosition,
 } from "@/features/bots/canvas/fatherPreferences";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
@@ -92,6 +96,23 @@ export function FatherOverlay({
   // follows the live values while they move, and the stored ones are the answers they settled on.
   const [height, setHeight] = useState(loadFatherHeight);
   const [width, setWidth] = useState(loadFatherWidth);
+  // Null until the reader first carries the drawer: centered top is the default and needs
+  // nothing stored. A stored answer survives resizes by being pulled back on screen, never by
+  // being forgotten -- forgetting would reopen centered and strand nothing, but it would also
+  // throw away an arrangement the reader made on purpose.
+  const [position, setPosition] = useState<FatherPosition | null>(loadFatherPosition);
+  const dims = useRef({ width, height });
+  dims.current = { width, height };
+  useEffect(() => {
+    const onResize = (): void =>
+      setPosition((placed) =>
+        placed
+          ? clampFatherPosition(placed, dims.current, { width: window.innerWidth, height: window.innerHeight })
+          : placed
+      );
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   // Where this session portals its control strip and its background-tasks panel: nodes of its
   // own, the way a card gives it, or two open surfaces would land both in the app's single host.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
@@ -127,6 +148,66 @@ export function FatherOverlay({
   });
   const resolved = resolveFather(bots);
 
+  // Carrying the drawer by its header, the way a Bot card carries by its own: a press is a click
+  // until it has travelled far enough to be a carry, and a press that began on a control belongs
+  // to that control. The first carry captures where the drawer already stands -- centered top
+  // included -- so it follows the hand from there instead of jumping to a stored answer.
+  const MOVE_THRESHOLD = 4;
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const carry = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    from: FatherPosition;
+    carrying: boolean;
+  } | null>(null);
+  const viewport = typeof window === "undefined"
+    ? { width: 1440, height: 900 }
+    : { width: window.innerWidth, height: window.innerHeight };
+  const placed = position
+    ? clampFatherPosition(position, { width: resize.width, height: resize.height }, viewport)
+    : null;
+  const grabDrawer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if ((event.target as HTMLElement).closest("button, a, input, select, textarea, [contenteditable='true']")) return;
+    const at = sectionRef.current?.getBoundingClientRect();
+    carry.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      from: placed ?? (at ? { x: at.left, y: at.top } : { x: 0, y: 0 }),
+      carrying: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const carryDrawer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const held = carry.current;
+    if (!held || held.pointerId !== event.pointerId) return;
+    if (!held.carrying) {
+      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD && Math.abs(event.clientY - held.startY) < MOVE_THRESHOLD) return;
+      held.carrying = true;
+    }
+    setPosition(clampFatherPosition(
+      { x: held.from.x + event.clientX - held.startX, y: held.from.y + event.clientY - held.startY },
+      { width: resize.width, height: resize.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    ));
+  };
+  const dropDrawer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const held = carry.current;
+    if (!held || held.pointerId !== event.pointerId) return;
+    carry.current = null;
+    if (held.carrying) {
+      const landed = clampFatherPosition(
+        { x: held.from.x + event.clientX - held.startX, y: held.from.y + event.clientY - held.startY },
+        { width: resize.width, height: resize.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      );
+      setPosition(landed);
+      storeFatherPosition(landed);
+    }
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+
   // A drawer closes on Escape, the way a dialog does: it floats over the page rather than living
   // in it, so the keyboard needs the same way out the X gives the pointer.
   useEffect(() => {
@@ -139,10 +220,19 @@ export function FatherOverlay({
 
   return (
     <section
+      ref={sectionRef}
       id="father-home"
       aria-label="Father home"
-      style={{ height: resize.height, width: resize.width }}
-      className="fixed top-0 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl"
+      style={{
+        height: resize.height,
+        width: resize.width,
+        // An explicit stand once carried; centered top until then. `left-1/2` with the translate
+        // centers, `left-0 top-0` with the numbers stands where the hand left it.
+        ...(placed ? { left: placed.x, top: placed.y } : null),
+      }}
+      className={`fixed z-50 flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl ${
+        placed ? "left-0 top-0" : "left-1/2 top-0 -translate-x-1/2"
+      }`}
       {...drop.dropProps}
     >
       {/* A row rather than the header straight in the column, because the width grip hangs off
@@ -150,7 +240,13 @@ export function FatherOverlay({
           transcript's scrollbar, and outside it there is nothing to grab. */}
       <div className="flex min-h-0 flex-1 flex-row">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+          <div
+            onPointerDown={grabDrawer}
+            onPointerMove={carryDrawer}
+            onPointerUp={dropDrawer}
+            onPointerCancel={dropDrawer}
+            className="flex min-h-11 shrink-0 cursor-grab items-center gap-2 border-b border-border px-3 select-none active:cursor-grabbing"
+          >
         <Crown className="size-4 shrink-0 text-primary" aria-hidden />
         <h2 className="shrink-0 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground">
           Father

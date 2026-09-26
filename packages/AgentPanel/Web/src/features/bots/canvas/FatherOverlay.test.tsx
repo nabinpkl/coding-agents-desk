@@ -122,6 +122,34 @@ describe("FatherOverlay", () => {
     expect(screen.getByTestId("father-session")).toHaveAttribute("data-error", "");
   });
 
+  it("carries by the header background and remembers the stand", () => {
+    render(<FatherOverlay {...PROPS} />);
+    const header = screen.getByRole("heading", { name: "Father" }).parentElement!;
+    fireEvent.pointerDown(header, { pointerId: 1, clientX: 100, clientY: 20, bubbles: true });
+    // A two-pixel wobble is a click, not a carry: nothing moves and nothing is stored.
+    fireEvent.pointerMove(header, { pointerId: 1, clientX: 102, clientY: 21, bubbles: true });
+    fireEvent.pointerUp(header, { pointerId: 1, clientX: 102, clientY: 21, bubbles: true });
+    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBeNull();
+
+    fireEvent.pointerDown(header, { pointerId: 2, clientX: 100, clientY: 20, bubbles: true });
+    fireEvent.pointerMove(header, { pointerId: 2, clientX: 160, clientY: 70, bubbles: true });
+    fireEvent.pointerUp(header, { pointerId: 2, clientX: 160, clientY: 70, bubbles: true });
+    // jsdom measures nothing, so the stand starts at the origin and follows the pointer.
+    expect(screen.getByRole("region", { name: "Father home" }).style.left).toBe("60px");
+    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBe(
+      JSON.stringify({ x: 60, y: 50 }),
+    );
+  });
+
+  it("never carries a press that began on a control", () => {
+    render(<FatherOverlay {...PROPS} />);
+    const close = screen.getByRole("button", { name: "Close the Father home" });
+    fireEvent.pointerDown(close, { pointerId: 3, clientX: 800, clientY: 20, bubbles: true });
+    fireEvent.pointerMove(close, { pointerId: 3, clientX: 900, clientY: 120, bubbles: true });
+    fireEvent.pointerUp(close, { pointerId: 3, clientX: 900, clientY: 120, bubbles: true });
+    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBeNull();
+  });
+
   it("says how to name one when no Bot does, and closes", () => {
     const onClose = vi.fn();
     render(<FatherOverlay {...PROPS} bots={[]} onClose={onClose} />);
