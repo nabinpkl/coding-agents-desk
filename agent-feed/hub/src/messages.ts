@@ -141,6 +141,17 @@ export class Messages {
       }
     }
     if (to === from) throw new Refused("a session cannot message itself");
+    // A2A is bot to bot on both ends. An agent only takes part in a message that is not addressed to
+    // the owner when it is a member of an active Bot, because that is the only way its address means
+    // "whatever this agent is right now" rather than "one run of a process". It also closes the
+    // reply path, which is the subtle one: a reply is delivered to parent.from, so without this an
+    // agent that is not a Bot member could enter a thread and end up being its own reply target,
+    // waking a session that is not a chosen Bot member. Every non-owner participant has to be a Bot;
+    // addressing the owner is always allowed, so a session the owner started a thread with can still
+    // answer the owner even though it is not a Bot.
+    if (fromKind === "agent" && to !== "human" && this.directory.botsOf(from).length === 0) {
+      throw new Refused("agent to agent is bot to bot: this session is not a member of an active Bot, so it cannot take part in a message to another agent");
+    }
     if (!this.directory.exists(to)) throw new NotFound(`no such address: ${to}`);
 
     const hops = fromKind === "human" ? 0 : parent && parent.fromKind === "agent" ? parent.hops + 1 : 1;

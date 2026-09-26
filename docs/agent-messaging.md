@@ -59,12 +59,13 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 - Sessions enter it through their stream: the sidecar's per-session stream under opencode, a relay child's stream under Claude.
 - Bots enter it through each sidecar publishing its Bot registry: `botId`, name, directory and member session ids, each source-prefixed (`claude:<id>`, `opencode:<id>`). agent-desk stays the authoritative home for Bots, and the hub's copy is replaced whole on each publish.
 
-**A2A is Bot to Bot, and active means in the list:**
-- When an agent opens a *new* conversation with another agent, it names a Bot, not a session. The hub refuses a new non-human send from an agent to anything that is not a `bot:` address.
+**A2A is Bot to Bot on both ends, and active means in the list:**
+- When an agent opens a *new* conversation with another agent, both ends are Bots. The hub refuses a new non-human send from an agent to anything that is not a `bot:` address, and it refuses an agent whose own session is not a member of an active Bot. Membership is read live, so a session whose Bot stopped publishing it loses the ability at the next send.
 - A Bot is *active* when it is in the published directory, which some machine is currently publishing. An agent can only ever reach an active Bot, so a stale Bot id is useless rather than wrong, and a message to a Bot with no live member waits for one.
 - A session id names one run of a process that is gone the moment it restarts, which is why it is the wrong address for reaching an agent that keeps running. A Bot is whatever that agent is right now.
-- Replies are exempt and have to be: a reply's recipient is whoever the message came from, which is a session. Following a thread back to its sender is not opening a new conversation. `hub_reply` needs no address for the same reason.
-- This governs agent senders only. The human surfaces (panel, annotator) still address sessions directly, because a person picks the specific session they can see.
+- The "not a Bot member cannot participate" rule is what closes the reply path. A reply is delivered to whoever the previous message came from, so without it an agent that is not a Bot member could open a thread, enter it, and become its own reply target, waking a session that is not a chosen Bot member.
+- Addressing the owner is never gated. The owner can deliberately involve any session, and that session must be able to answer, so `to === "human"` is exempt from both the recipient and the membership rules.
+- This governs agent senders. The human surfaces (panel, annotator) still address sessions directly, because a person picks the specific session they can see.
 
 **Resolving `bot:` to a session:**
 - **Thread affinity first:** a message in an existing thread goes to the session that handled the thread's last message, if it is still reachable.

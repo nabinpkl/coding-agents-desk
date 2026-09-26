@@ -145,45 +145,81 @@ describe("bots", () => {
 });
 
 describe("agent to agent", () => {
-  test("an agent opening a new conversation with an active Bot reaches its live member", () => {
+  /** Two active Bots, one live member each, so a message between them is genuinely Bot to Bot. */
+  function twoBots() {
     const f = fixture();
-    f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [`claude:${A}`] }]);
-    f.open(ORACLE, B, true, "opencode");
-    const sent = f.messages.send(ORACLE, { as: `opencode:${B}`, to: "bot:fixer", kind: "request", body: "please fix the header" });
-    expect(sent.state).toBe("queued");
+    f.messages.publishBots(MAC, "mac", [{ botId: "asker", name: "Asker", path: "/work/asker", sessionIds: [`claude:${A}`] }]);
+    f.messages.publishBots(ORACLE, "oracle", [{ botId: "fixer", name: "Fixer", path: "/work/fixer", sessionIds: [`opencode:${B}`] }]);
     f.open(MAC, A);
-    expect(f.messages.get(sent.id)).toMatchObject({ state: "pushed", deliveredTo: `claude:${A}` });
+    f.open(ORACLE, B, true, "opencode");
+    return f;
+  }
+
+  test("an active Bot opens a new conversation with another active Bot and reaches its live member", () => {
+    const f = twoBots();
+    const sent = f.messages.send(MAC, { as: `claude:${A}`, to: "bot:fixer", kind: "request", body: "please fix the header" });
+    expect(sent.state).toBe("pushed");
+    expect(sent.deliveredTo).toBe(`opencode:${B}`);
   });
 
-  test("an agent opening a new conversation with a raw session is refused: it is Bot to Bot", () => {
-    // A session id names one run of a process that is gone the moment it restarts, and the whole
-    // point of a Bot is that it is whatever that agent is right now. So a new A2A conversation names
-    // the Bot, and naming a session instead is refused rather than quietly allowed. The sender is a
-    // real live session, so the refusal is the Bot-to-Bot rule and not a missing stream.
+  test("the reply comes back to the asking Bot's member, and that member is a Bot", () => {
+    const f = twoBots();
+    const question = f.messages.send(MAC, { as: `claude:${A}`, to: "bot:fixer", kind: "request", body: "which colour?" });
+    const answer = f.messages.send(ORACLE, { as: `opencode:${B}`, inReplyTo: question.id, body: "blue" });
+    expect(answer.to).toBe(`claude:${A}`);
+    expect(answer.state).toBe("pushed");
+    expect(f.messages.get(question.id)).toMatchObject({ state: "answered" });
+  });
+
+  test("a session that is not a member of any active Bot cannot open a conversation with a Bot", () => {
+    // The far side of the rule. "Active bots only" has to mean the participants too, not only the
+    // recipients: a standalone session has no stable identity, so letting it send would let it enter
+    // a thread and become a reply target, which is the wake-up this is meant to prevent.
     const f = fixture();
+    f.messages.publishBots(ORACLE, "oracle", [{ botId: "fixer", name: "Fixer", path: "/work/fixer", sessionIds: [`opencode:${B}`] }]);
     f.open(ORACLE, B, true, "opencode");
-    f.open(MAC, A);
-    expect(() => f.messages.send(ORACLE, { as: `opencode:${B}`, to: `claude:${A}`, kind: "request", body: "hi" })).toThrow(Refused);
+    f.open(MAC, C); // a live session that belongs to no Bot
+    expect(() => f.messages.send(MAC, { as: `claude:${C}`, to: "bot:fixer", kind: "request", body: "hi" })).toThrow(Refused);
+  });
+
+  test("opening a new conversation with a raw session is refused: it is Bot to Bot", () => {
+    // A session id names one run of a process that is gone the moment it restarts, and the whole
+    // point of a Bot is that it is whatever that agent is right now. Both ends must be Bots.
+    const f = twoBots();
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: `opencode:${B}`, kind: "request", body: "hi" })).toThrow(Refused);
   });
 
   test("a Bot that is not in the published list is not an active Bot, so it cannot be reached", () => {
     // "Active" is exactly "in the bots list": an agent can only ever reach a Bot some machine is
     // currently publishing, which is what makes a stale Bot id useless rather than wrong.
-    const f = fixture();
-    f.open(ORACLE, B, true, "opencode");
-    f.open(MAC, A);
-    expect(() => f.messages.send(ORACLE, { as: `opencode:${B}`, to: "bot:never-published", kind: "request", body: "hi" })).toThrow(NotFound);
+    const f = twoBots();
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: "bot:never-published", kind: "request", body: "hi" })).toThrow(NotFound);
   });
 
-  test("a reply goes back to the session that asked, even though it is not a Bot", () => {
-    // Replies are exempt and have to be: the recipient of a reply is whoever the message came from,
-    // which is a session. Following a thread back is not opening a new conversation.
+  test("a Bot member that falls out of every Bot can no longer reach another agent", () => {
+    // Membership is read live, so a session whose Bot stopped publishing it loses the ability to
+    // take part at the next send rather than keeping a right it no longer has.
+    const f = twoBots();
+    f.messages.publishBots(MAC, "mac", []);
+    expect(() => f.messages.send(MAC, { as: `claude:${A}`, to: "bot:fixer", kind: "request", body: "hi" })).toThrow(Refused);
+  });
+
+  test("a session the owner started a thread with can still answer the owner, Bot or not", () => {
+    // Addressing the owner is never gated. The owner can deliberately involve any session, and that
+    // session has to be able to reply, or the owner would be talking to something that cannot answer.
     const f = fixture();
-    f.open(MAC, A);
+    f.open(MAC, A); // a live session that belongs to no Bot
     const question = f.messages.send(MAC, { as: "human", to: `claude:${A}`, kind: "request", body: "which colour?" });
     const answer = f.messages.send(MAC, { as: `claude:${A}`, inReplyTo: question.id, body: "blue" });
     expect(answer.to).toBe("human");
     expect(answer.state).toBe("delivered");
+  });
+
+  test("an agent that belongs to no Bot may still ask the owner a question", () => {
+    const f = fixture();
+    f.open(MAC, A);
+    const sent = f.messages.send(MAC, { as: `claude:${A}`, to: "human", kind: "request", body: "how do I run this?" });
+    expect(sent.state).toBe("delivered");
   });
 
   test("a human may still open a new conversation with a session; the rule is about agents", () => {
@@ -239,11 +275,12 @@ describe("rules", () => {
     const f = fixture();
     f.open(MAC, A);
     f.open(ORACLE, B);
-    // The opening hop is a new A2A conversation, so it names the Bot B is published as. Every later
-    // hop is a reply, which is exempt: its recipient is whoever the last message came from.
+    // Every participant in an A2A thread is a Bot member, so both sides are published. The opening
+    // hop names the Bot it opens with; every later hop is a reply, whose recipient is the previous
+    // sender.
+    f.messages.publishBots(MAC, "mac", [{ botId: "aarp", name: "Aarp", path: "/work/aarp", sessionIds: [`claude:${A}`] }]);
     f.messages.publishBots(ORACLE, "oracle", [{ botId: "bee", name: "Bee", path: "/work/bee", sessionIds: [`claude:${B}`] }]);
     let last = f.messages.send(MAC, { as: `claude:${A}`, to: "bot:bee", kind: "request", body: "1" });
-    expect(last.deliveredTo).toBe(`claude:${B}`);
     const sides: [Principal, string][] = [[ORACLE, B], [MAC, A]];
     for (let hop = 2; hop <= LIMITS.maxHops; hop++) {
       const [principal, id] = sides[hop % 2]!;

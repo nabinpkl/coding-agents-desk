@@ -186,7 +186,7 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.registerTool(
     "hub_directory",
     {
-      description: "Who can be messaged. For agent to agent, the active Bots are the recipients: a Bot is active when some machine is publishing it, and only those can be addressed. Also lists the owner and every session, which the human surfaces use and which hub_reply reaches automatically. Each entry carries whether it is reachable now; a message to an unreachable address waits for it.",
+      description: "Who can be messaged. Agent to agent is Bot to Bot: the active Bots are the recipients, a Bot is active when some machine is publishing it, and only Bots can take part, so a session that belongs to no Bot cannot open or receive an agent-to-agent conversation (it can still ask the owner, and still answer the owner). Also lists the owner and every session, which the human surfaces use. Each entry carries whether it is reachable now; a message to an unreachable address waits for it.",
       inputSchema: {},
     },
     async () => {
