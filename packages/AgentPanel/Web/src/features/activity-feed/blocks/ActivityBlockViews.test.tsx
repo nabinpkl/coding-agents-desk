@@ -43,12 +43,18 @@ function event(blocks: ActivityEvent["blocks"]): ActivityEvent {
   return { index: 7, ts: Date.UTC(2026, 0, 1, 12, 0, 0), type: "assistant", blocks };
 }
 
-function fileRow(tool: string, input: Record<string, unknown>) {
+function fileRow(tool: string, input: Record<string, unknown>, result?: string) {
+  const blocks: ActivityEvent["blocks"] = [
+    { kind: "tool_use", tool, input, summary: `${tool} a.ts`, callId: "c1" },
+  ];
+  if (result !== undefined) blocks.push({ kind: "tool_result", callId: "c1", preview: result });
+  const full = event(blocks);
+  const paired = pairSameEventToolResults(full);
   return render(
     <DataSourceProvider source={DATA_SOURCE}>
       <SegmentEventRow
-        ev={event([{ kind: "tool_use", tool, input, summary: `${tool} a.ts`, callId: "c1" }])}
-        ctx={CTX}
+        ev={withoutPairedToolResults(full, paired)}
+        ctx={{ ...CTX, pairedToolResults: paired }}
         isFirst
         isLast
         isCollapsed={false}
@@ -76,6 +82,19 @@ describe("opencode file shapes", () => {
   it("renders an opencode markdown write as prose rather than source", () => {
     const { unmount } = fileRow("write", { path: "/repo/NOTES.md", content: "# Notes\n\nHello" });
     expect(screen.getByRole("heading", { name: "Notes" })).toBeInTheDocument();
+    unmount();
+  });
+
+  it("draws a source write beside its success result", () => {
+    const { container, unmount } = fileRow(
+      "write",
+      { path: "/repo/messages.sweep.mjs", content: "export const sweep = () => [];\n" },
+      "Wrote file successfully: /repo/messages.sweep.mjs",
+    );
+    expect(screen.getByRole("button", { name: /messages\.sweep\.mjs/ })).toBeInTheDocument();
+    expect(screen.getByText("export const sweep = () => [];")).toBeInTheDocument();
+    expect(screen.getByText("Wrote file successfully: /repo/messages.sweep.mjs")).toBeInTheDocument();
+    expect(container.querySelector(".agent-panel-code")).not.toBeNull();
     unmount();
   });
 

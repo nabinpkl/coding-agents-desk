@@ -238,9 +238,9 @@ export function Block({
     const toolKey = b.callId ?? `${eventIndex}-${blockIndex}`;
     const pairedResult = b.callId ? ctx.pairedToolResults.get(b.callId) : undefined;
     const isExpanded = ctx.expandedTools.has(toolKey);
-    // Edit tool gets a custom header (filename) and a diff body. Generic
-    // tools get chip+summary as header. A matching result expands inside this
-    // same block instead of consuming a second source-line row.
+    // File calls get a custom header (filename) and a body: an Edit draws its diff, while a
+    // Write draws the file's contents. Generic tools get chip+summary as header. A matching
+    // result expands inside this same block instead of consuming a second source-line row.
     //
     // Both harnesses' shapes: Claude's `Edit` carries snake_case (`file_path`,
     // `old_string`, `new_string`); opencode's `edit` carries camelCase (`path`,
@@ -254,10 +254,13 @@ export function Block({
       ((editOld !== null && editOld.length > 0) || (editNew !== null && editNew.length > 0));
     const writePath = toolStringInput(b.input, ["file_path", "path"]);
     const writeContent = toolStringInput(b.input, ["content"]);
+    const isWrite = b.tool === "Write" || b.tool === "write";
     const isMarkdownWrite =
-      (b.tool === "Write" || b.tool === "write") &&
-      writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
-    const isFileBody = isEditDiff || isMarkdownWrite;
+      isWrite && writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
+    const isCodeWrite =
+      isWrite && writePath !== null && !isMarkdownPath(writePath) && writeContent !== null;
+    const isFileBody = isEditDiff || isMarkdownWrite || isCodeWrite;
+    const fileBodyPath = isEditDiff ? editPath : isFileBody ? writePath : null;
     // A file the call READ, drawn as source once its result lands: the paired result's preview
     // is the file's content (Claude prefixes `cat -n` line numbers, stripped here), highlighted
     // by the path's own grammar. Markdown reads render as prose, the way markdown writes do.
@@ -291,8 +294,8 @@ export function Block({
     const named = headerChip && summary.startsWith(`${headerChip} `)
       ? summary.slice(headerChip.length + 1)
       : summary;
-    const headerLabel = isFileBody
-      ? (editPath?.split("/").pop() ?? "")
+    const headerLabel = fileBodyPath !== null
+      ? (fileBodyPath.split("/").pop() ?? "")
       : named;
     // A call that returned a picture shows it while folded, since that picture is usually why the
     // call was made. Open, the result draws it full size, so the header's copy steps aside.
@@ -378,6 +381,9 @@ export function Block({
             ) : null}
             {isMarkdownWrite ? (
               <Markdown content={writeContent!} />
+            ) : null}
+            {isCodeWrite ? (
+              <CodeBlock code={writeContent!} lang={writePath!} />
             ) : null}
             {isMarkdownRead ? (
               <Markdown content={stripReadLineNumbers(readText!)} />
