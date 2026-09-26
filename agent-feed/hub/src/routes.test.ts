@@ -91,7 +91,15 @@ describe("stream", () => {
     const hello = await next();
     expect(hello).toMatchObject({ type: "hello", address: `claude:${SESSION}`, channel: true });
 
-    const sent = await call("/v1/messages", { as: "annotator.access", method: "POST", body: JSON.stringify({ as: "human", to: `claude:${SESSION}`, kind: "request", body: "fix it", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "14" }] }) });
+    // A session only takes part once a Bot curates it, and a single-session Bot is the whole address.
+    const published = await call("/v1/directory/bots/mac", {
+      as: "mac.access",
+      method: "PUT",
+      body: JSON.stringify({ bots: [{ botId: "probe", name: "Probe", path: "/work/x", sessionIds: [`claude:${SESSION}`] }] }),
+    });
+    expect(published.status).toBe(200);
+
+    const sent = await call("/v1/messages", { as: "annotator.access", method: "POST", body: JSON.stringify({ as: "human", to: "bot:probe", kind: "request", body: "fix it", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "14" }] }) });
     expect(sent.status).toBe(201);
     const pushed = await next();
     expect(pushed).toMatchObject({ type: "message", fromName: "owner" });
@@ -102,7 +110,7 @@ describe("stream", () => {
 
     const reply = await call("/v1/messages", { as: "mac.access", method: "POST", body: JSON.stringify({ as: `claude:${SESSION}`, inReplyTo: message.id, body: "done" }) });
     expect(reply.status).toBe(201);
-    const threads = (await (await call("/v1/threads?as=human", { as: "annotator.access" })).json()) as unknown[][];
+    const threads = (await (await call(`/v1/threads?as=claude:${SESSION}`, { as: "annotator.access" })).json()) as unknown[][];
     expect(threads[0]).toHaveLength(2);
     await reader.cancel();
   });

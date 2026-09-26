@@ -50,23 +50,26 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 | Address | Meaning | Reachable when |
 |---|---|---|
 | `human` | The owner. There is one in v1. | Always. Messages are stored and shown on human surfaces. |
-| `claude:<sessionId>` | One Claude Code session. | Its relay child holds an open stream to the hub, and that session was started with the channel flag (see Reachability). |
-| `bot:<botId>` | An agent-desk Bot, as a label. It is **not a destination** and the hub refuses to send to one. The directory entry lists the sessions to address instead. | Nothing to reach; it names a set of sessions. |
-| `opencode:<sessionId>` | One opencode session. | While that machine's sidecar holds a stream for it, which it does for every session the serve lists. |
+| `bot:<botId>` | An agent-desk Bot curating exactly one session. That session. | While that session's relay child or sidecar holds a stream with the channel flag (see Reachability). |
+| `bot:<botId>/<sessionId>` | One named session of a Bot that curates several. | Same. |
+
+There is no bare `<source>:<sessionId>` address. A session is reachable only through the Bot that curates it, so the only way to name one is through that Bot, and an address cannot name a session outside the curation it claims. `SessionAddress` still exists in the wire types, but as *identity* rather than destination: it appears on a message's `from`, `deliveredTo` and `toSession`, and on the directory's session entries, because those record which run spoke or received.
 
 **The directory:**
 - It is the hub's list of addresses with display names, machine, reachability and last seen.
-- Sessions enter it through their stream: the sidecar's per-session stream under opencode, a relay child's stream under Claude.
+- Sessions enter it through their stream: the sidecar's per-session stream under opencode, a relay child's stream under Claude. A session in **no** Bot is not listed, because it is not addressable by anyone.
 - Bots enter it through each sidecar publishing its Bot registry: `botId`, name, directory and member session ids, each source-prefixed (`claude:<id>`, `opencode:<id>`). agent-desk stays the authoritative home for Bots, and the hub's copy is replaced whole on each publish.
+- A session entry's `address` is the address that reaches it, always the qualified `bot:<id>/<sessionId>`, and its `session` field names the run. A surface hands that address to a send rather than assembling one. The address is qualified even for a single-session Bot, because that Bot's own address is the same string and two entries sharing it means one of them is lost to any lookup by address.
 
-**A Bot is a label; the addressable unit is one of its sessions:**
-- A `bot:` address is refused. A Bot names a *set* of sessions, so addressing one never said which should receive the message, and the failure mode was concrete: an agent that was a member of the Bot it named had that Bot resolve back to its own session, so the message was delivered to its own sender and could not be replied to, because a reply is addressed to the sender. The refusal names the fix, which is to send to a member session.
-- A message waits for **the session it names**. It is not rerouted at a sibling of the same Bot when that one is down. The trade is deliberate: a sender's choice is honoured over a convenience that silently put a message in a run nobody asked for, and a sender who wants the agent rather than the run reads the Bot's `related` sessions off the directory and aims at the one that is up. A message to a session that has ended is held until it returns or expires.
-- An agent taking part in a message that is not addressed to the owner must be a member of a published Bot on **both** ends, checked per side rather than implied by the address. Membership is read live, so a session whose Bot stopped publishing it loses the ability at the next send.
+**A Bot is the address, and it resolves to one session or refuses:**
+- A Bot curating **one** session *is* that session. `bot:fixer` needs no ceremony and is what a human surface sends for a single-session agent.
+- A Bot curating **several** does not say which of them should receive the message, so the hub refuses and names the members. The failure this prevents is concrete: when a `bot:` address resolved to the most recently seen member, an instruction addressed to an agent landed in whichever of its sessions reconnected last, by 74 milliseconds. Picking is the agent's job, done from the directory, and asking the owner is better than guessing.
+- A session named under a Bot that does not curate it is refused rather than resolved, so the disambiguation happens through the Bot-session relationship.
+- A message waits for **the session its address resolved to**, resolved once when the message was accepted and stored on the row. Delivery does not resolve it again, so a Bot whose membership changes while a message sits queued cannot move it to a session nobody named. The trade is deliberate: a sender's choice is honoured over a convenience that silently put a message in a run nobody asked for. A message to a session that has ended is held until it returns or expires.
+- Curation governs **both** ends and both directions. A session in no published Bot neither receives nor sends, because an uncurated session is exactly the noise the grouping removes: letting it send would put every unfiltered session in the owner's inbox, and letting it receive would make it addressable by an address naming no agent. Membership is read live, so a session whose Bot stopped publishing it loses the ability at the next send.
 - A Bot is *published* when it is in the directory, which some machine is currently publishing. That is what makes membership meaningful: an agent can only reach a run that some machine is publishing as part of an agent that keeps running, rather than any session id it happens to know.
 - The sender-side check is what closes the reply path. A reply is delivered to whoever the previous message came from, so without it a session belonging to no Bot could open a thread, be named in it, and end up waking itself.
-- Addressing the owner is never gated. The owner can deliberately involve any session, and that session must be able to answer, so `to === "human"` is exempt from both the recipient and the membership rules.
-- This governs agent senders. The human surfaces (panel, annotator) address sessions directly, because a person picks the specific session they can see.
+- Addressing the owner is never gated, and it is the one address outside curation. A Bot member that is refused A2A has to be able to surface that, and the owner is the party who is not curated.
 
 ## Messages, threads, delivery
 
@@ -249,9 +252,10 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
    with curl through the edge and from both machines' tokens.
 2. **Relay child rewrite.** Done. The four hub tools replace the tmux and socket paths; the channel
    loop is source-aware. Verified against a local stand-in edge with two live sessions.
-3. **Bots.** Done. The sidecar publishes both runtimes' session refs under source-prefixed ids. A
-   `bot:` entry is a label listing the sessions under one agent; messages are addressed to a member
-   session, and a message waits for the run it names.
+3. **Bots.** Done. The sidecar publishes both runtimes' session refs under source-prefixed ids. A Bot
+   is the only addressable unit: `bot:<id>` for a Bot curating one session, `bot:<id>/<sessionId>`
+   when it curates several and the sender must say which. A session in no Bot is unreachable by
+   anyone, including the owner, and does not send either.
 4. **OpenCode adapter.** Code done: one hub stream per serve-listed session, prompt delivery, hub
    confirmation after the write, dropped sessions requeued. Awaiting the live check on a real
    opencode session on both machines.

@@ -8,9 +8,10 @@ import type {
   MessagingSource,
   MessageRef,
   SenderKind,
+  SessionAddress,
 } from "@agentdesk/agent-feed-wire";
 import type { Principal } from "@/config";
-import { Directory, isAddress, sessionAddress, sessionSource } from "@/directory";
+import { botAddress, Directory, isAddress, memberAddress, sessionAddress } from "@/directory";
 import { publicMessage, type HubStore, type StoredMessage } from "@/store";
 
 export const LIMITS = {
@@ -80,25 +81,82 @@ function checkRefs(refs: unknown): MessageRef[] {
 
 export class Messages {
   readonly directory: Directory;
-  private readonly streams = new Map<MessageAddress, SessionStream>();
+  private readonly streams = new Map<SessionAddress, SessionStream>();
 
   constructor(private readonly store: HubStore, private readonly clock: () => Date = () => new Date()) {
     this.directory = new Directory(store);
   }
 
+  /**
+   * The one session a Bot address reaches, or why it reaches none.
+   *
+   * This is the single place a destination becomes a session, and it never guesses. A Bot that
+   * curates exactly one session is that session, which is the common case and needs no ceremony. A
+   * Bot curating several does not say which of them should receive a message, so the address has to
+   * name one and it has to be a member: picking the newest reachable member instead is how an
+   * instruction addressed to an agent landed in whichever of its sessions reconnected last, by
+   * 74 milliseconds. A session named under a Bot it is not a member of is refused rather than
+   * resolved, so an address cannot reach outside the curation it claims.
+   */
+  private resolve(address: MessageAddress): SessionAddress {
+    const bot = this.directory.bot(address);
+    if (!bot) throw new NotFound(`no such Bot: ${address}`);
+    const members = this.directory.membersOf(bot);
+    if (members.length === 0) {
+      throw new Refused(`${bot.name} curates no sessions right now, so there is nothing to send to`);
+    }
+    const named = this.directory.namedSession(address);
+    if (address.includes("/")) {
+      if (!named) {
+        throw new Refused(`${bot.name} does not curate that session; it curates ${members.join(", ")}`);
+      }
+      return named;
+    }
+    if (members.length > 1) {
+      // Naming one is the sender's job, and the directory lists them so they can be chosen.
+      throw new Refused(
+        `${bot.name} curates ${members.length} sessions, so name the one to send to: bot:${bot.botId}/<sessionId> (${members.join(", ")})`,
+      );
+    }
+    return members[0]!;
+  }
+
+  /**
+   * The address that reaches a session, used when a reply names its sender.
+   *
+   * A reply carries an address rather than a session, since `to` is what a reader resolves later. A
+   * session its Bot curates alone is that Bot's own address, and the qualified form otherwise. A
+   * session the owner has since taken out of every Bot has no address at all, and the reply is
+   * refused rather than assembled into one that resolves to nothing: uncurated means not a
+   * participant, and a Bot of one invented purely to carry the reply would be a curation nobody made.
+   */
+  private addressFor(session: SessionAddress): MessageAddress {
+    const bot = this.directory.botsOf(session)[0];
+    if (!bot) {
+      throw new Refused(`${session} is in no published Bot, so it cannot be reached; put it in one to let it take part`);
+    }
+    return this.directory.membersOf(bot).length === 1 ? botAddress(bot) : memberAddress(bot, session);
+  }
+
   /** Checks that a principal may speak as an address, and says which kind of sender that is. */
-  private sender(principal: Principal, as: unknown): { from: MessageAddress; fromKind: SenderKind } {
-    if (!isAddress(as)) throw new InvalidMessage("as must be an address");
+  private sender(principal: Principal, as: unknown): { from: SessionAddress | "human"; fromKind: SenderKind } {
     if (as === "human") {
       if (!principal.human) throw new Forbidden(`${principal.label} may not send as human`);
-      return { from: as, fromKind: "human" };
+      return { from: "human", fromKind: "human" };
     }
-    if (!sessionAddress(as)) throw new InvalidMessage("only human or a session can send");
-    const session = this.store.getSession(as);
-    if (!principal.machine || !session || session.machine !== principal.machine || !session.connected) {
-      throw new Forbidden(`${principal.label} has no live stream for ${as}`);
+    const session = sessionAddress(as);
+    if (!session) throw new InvalidMessage("as must be \"human\" or a session id");
+    const row = this.store.getSession(session);
+    if (!principal.machine || !row || row.machine !== principal.machine || !row.connected) {
+      throw new Forbidden(`${principal.label} has no live stream for ${session}`);
     }
-    return { from: as, fromKind: "agent" };
+    // A session in no Bot does not take part in messaging. The Bot grouping is the owner's curation
+    // of which agents are reachable, so an uncurated session is not a participant even as a sender,
+    // which is what stops 55 uncurated sessions from putting messages in the owner's inbox.
+    if (this.directory.botsOf(session).length === 0) {
+      throw new Refused(`${session} is in no published Bot, so it does not take part in messaging; put it in one to include it`);
+    }
+    return { from: session, fromKind: "agent" };
   }
 
   send(principal: Principal, input: SendInput): Message {
@@ -117,44 +175,28 @@ export class Messages {
       parent = this.store.getMessage(input.inReplyTo);
       if (!parent) throw new NotFound(`message ${input.inReplyTo} not found`);
       if (parent.kind === "notice") throw new Refused("a notice takes no reply");
-      if (from !== parent.to && from !== parent.deliveredTo) throw new Forbidden(`${from} did not receive message ${parent.id}`);
-      to = parent.from;
+      // A reply names the sender of what it answers, so it is exempt from the Bot-member rule on the
+      // recipient side: a session the owner deliberately involved must be able to answer even if the
+      // owner has since taken it out of a Bot. The sender check in `sender` is the guard that matters,
+      // since a session in no Bot cannot open a thread in the first place.
+      if (from !== parent.deliveredTo && from !== parent.from) throw new Forbidden(`${from} did not receive message ${parent.id}`);
+      to = parent.from === "human" ? "human" : this.addressFor(parent.from);
       kind = "reply";
       threadId = parent.threadId;
     } else {
-      if (!isAddress(input.to)) throw new InvalidMessage("to must be an address");
+      if (!isAddress(input.to)) {
+        throw new InvalidMessage('to must be "human" or a Bot address: "bot:<id>", or "bot:<id>/<sessionId>" when the Bot curates several sessions');
+      }
       if (input.kind !== "request" && input.kind !== "notice") throw new InvalidMessage("kind must be request or notice");
       to = input.to;
       kind = input.kind;
     }
-    if (to === from) throw new Refused("a session cannot message itself");
-    // A Bot is a label, not a destination. It says which sessions belong to one agent, and the hub
-    // reads that live, but naming a Bot does not say WHICH of its sessions should get the message, so
-    // it was never a thing to send to. Worse, it made the sender's own Bot a valid target: an agent
-    // that is a member of the Bot it named had that Bot resolve back to its own session, and the
-    // message arrived already answered by itself. The sendable unit is a Bot's member session, which
-    // names one run unambiguously and cannot resolve to the sender by accident.
-    if (to.startsWith("bot:")) {
-      throw new Refused("a Bot is a label, not an address: send to one of its member sessions from hub_directory, which lists them under the Bot");
-    }
-    // What replaces it. An agent taking part in a message that is not addressed to the owner must be
-    // a member of an active Bot on BOTH ends, and that is now checked per side rather than implied by
-    // the address. The sender's check is the reply-path guard the old rule had: a reply is delivered to
-    // parent.from, so without it a session belonging to no Bot could open a thread, be named in it, and
-    // end up waking itself. The recipient's check is the same stability the Bot address used to buy:
-    // a session id names one run of a process that is gone the moment it restarts, so an agent may only
-    // address a run that some machine is publishing as part of an agent that keeps running. Addressing
-    // the owner is exempt from both, because the owner can deliberately involve any session and that
-    // session must be able to answer.
-    if (fromKind === "agent" && to !== "human") {
-      if (this.directory.botsOf(from).length === 0) {
-        throw new Refused("agent to agent is between members of active Bots: this session belongs to no published Bot, so it cannot take part in a message to another agent");
-      }
-      if (this.directory.botsOf(to).length === 0) {
-        throw new Refused("agent to agent is between members of active Bots: that session belongs to no published Bot, so it cannot be addressed by another agent; a human can still send to it");
-      }
-    }
-    if (!this.directory.exists(to)) throw new NotFound(`no such address: ${to}`);
+    // Resolving here rather than at delivery is what makes the wait honest: a message addressed to a
+    // session that is down names that session and waits for it, instead of being rerouted somewhere the
+    // sender did not choose. It also settles the self-delivery case, since the resolved session is known
+    // before the message is ever queued.
+    const toSession = to === "human" ? null : this.resolve(to);
+    if (toSession === from) throw new Refused("a session cannot message itself");
 
     const hops = fromKind === "human" ? 0 : parent && parent.fromKind === "agent" ? parent.hops + 1 : 1;
     if (hops > LIMITS.maxHops) {
@@ -184,6 +226,7 @@ export class Messages {
         from,
         fromKind,
         to,
+        toSession,
         kind,
         body,
         refs,
@@ -221,23 +264,22 @@ export class Messages {
     return messages.map(publicMessage);
   }
 
-  threadsFor(address: MessageAddress, limit = 50): Message[][] {
-    const bots = this.directory.botsOf(address).map((b) => `bot:${b.botId}` as MessageAddress);
-    return this.store.threadsFor([address, ...bots], limit).map((t) => t.map(publicMessage));
+  threadsFor(session: SessionAddress, limit = 50): Message[][] {
+    const bots = this.directory.botsOf(session).map((b) => botAddress(b));
+    return this.store.threadsFor([session], bots, limit).map((t) => t.map(publicMessage));
   }
 
   /** Requests and notices that reached a session, or wait for it, and are not answered yet. */
-  inbox(address: MessageAddress): Message[] {
-    const bots = this.directory.botsOf(address).map((b) => `bot:${b.botId}` as MessageAddress);
-    return this.store.openFor(address, bots).filter((m) => m.kind !== "reply" || m.state !== "answered").map(publicMessage);
+  inbox(session: SessionAddress): Message[] {
+    return this.store.openFor(session).filter((m) => m.kind !== "reply" || m.state !== "answered").map(publicMessage);
   }
 
   // Streams and delivery
 
-  connect(principal: Principal, session: { source: MessagingSource; sessionId: string; channel: boolean; cwd: string; title: string }, stream: SessionStream): MessageAddress {
+  connect(principal: Principal, session: { source: MessagingSource; sessionId: string; channel: boolean; cwd: string; title: string }, stream: SessionStream): SessionAddress {
     if (!principal.machine) throw new Forbidden(`${principal.label} speaks for no machine`);
     if (!/^[0-9a-zA-Z_-]{1,128}$/.test(session.sessionId)) throw new InvalidMessage("session must be a session id");
-    const address = `${session.source}:${session.sessionId}` as MessageAddress;
+    const address = `${session.source}:${session.sessionId}` as SessionAddress;
     const previous = this.streams.get(address);
     if (previous) this.store.requeueStream(previous.id);
     this.streams.set(address, stream);
@@ -255,7 +297,7 @@ export class Messages {
     return address;
   }
 
-  disconnect(address: MessageAddress, streamId: string): void {
+  disconnect(address: SessionAddress, streamId: string): void {
     if (this.streams.get(address)?.id !== streamId) return;
     this.streams.delete(address);
     this.store.requeueStream(streamId);
@@ -285,16 +327,17 @@ export class Messages {
   /**
    * Where a queued message should go now, or null to keep holding it.
    *
-   * The session it names, and nothing else. A message waits for the run that was addressed, so a
-   * sender's choice is honoured rather than second-guessed by picking a different session of the same
-   * agent -- which is what the old Bot fallback did, and how a message to one run could land in
-   * another. The cost is honest: a message to a session that has ended is held until it returns or
-   * expires, rather than being rerouted at a sibling. Naming the session is what makes the wait
-   * predictable, and a sender who wants the agent rather than the run reads the member sessions off the
-   * Bot's directory entry and aims at the one that is up.
+   * The session its address resolved to when it was accepted, and nothing else. Resolving once at
+   * acceptance rather than again here is what makes a wait honest: a Bot's membership can change while
+   * a message sits queued, and re-resolving would let it move to a session the sender never named,
+   * which is the same surprise as the old Bot fallback that resolved to whichever member was newest.
+   * The cost is stated rather than hidden: a message to a session that has ended waits for that run
+   * until it returns or the message expires.
    */
-  private target(message: StoredMessage): MessageAddress | null {
-    return this.directory.reachable(message.to) && this.streams.has(message.to) ? message.to : null;
+  private target(message: StoredMessage): SessionAddress | null {
+    const session = message.toSession;
+    if (!session) return null;
+    return this.directory.reachable(session) && this.streams.has(session) ? session : null;
   }
 
   /** Pushes every queued message that has somewhere to go, oldest first. */

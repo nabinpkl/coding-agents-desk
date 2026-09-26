@@ -9,6 +9,7 @@ import type {
   MessageState,
   PublishedBot,
   SenderKind,
+  SessionAddress,
 } from "@agentdesk/agent-feed-wire";
 
 /** Ordered schema migrations; index + 1 is the PRAGMA user_version it produces. Append only. */
@@ -97,6 +98,60 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX messages_state ON messages (state, seq);
   CREATE INDEX messages_from ON messages (from_addr, created_at);
   `,
+  // A destination is now a Bot, and a Bot with several sessions does not say which one should get the
+  // message, so the session is resolved once when the message is accepted and stored here. Delivery
+  // then pushes to the session the sender's address named rather than resolving the Bot again, which
+  // matters twice over: a Bot whose membership changes between accepting and delivering cannot move a
+  // queued message to a session nobody chose, and a reply to a session the owner has since taken out of
+  // a Bot still reaches the run that was actually answered. SQLite cannot add a NOT NULL column to a
+  // populated table without a default, and the default cannot be a real session, so the table is
+  // rebuilt like the last migration. `to_session` is backfilled from `delivered_to` for delivered
+  // messages, which is the session each one actually reached, and NULL for anything still queued: a
+  // queued message predating this migration was addressed to a bare session id that no longer parses
+  // as an address, and there is no way to know which Bot it belonged to, so those are cancelled rather
+  // than delivered to a guess.
+  `
+  UPDATE messages SET state = 'cancelled'
+    WHERE state IN ('queued', 'pushed') AND to_addr NOT LIKE 'bot:%';
+
+  CREATE TABLE messages_with_target (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            TEXT NOT NULL UNIQUE,
+    thread_id     TEXT NOT NULL,
+    in_reply_to   TEXT,
+    from_addr     TEXT NOT NULL,
+    from_kind     TEXT NOT NULL CHECK (from_kind IN ('human', 'agent')),
+    to_addr       TEXT NOT NULL,
+    to_session    TEXT,
+    kind          TEXT NOT NULL CHECK (kind IN ('request', 'notice', 'reply')),
+    body          TEXT NOT NULL,
+    refs_json     TEXT NOT NULL,
+    hops          INTEGER NOT NULL,
+    state         TEXT NOT NULL CHECK (state IN ('queued', 'pushed', 'delivered', 'answered', 'expired', 'cancelled')),
+    pushed_stream TEXT,
+    delivered_to  TEXT,
+    delivered_at  TEXT,
+    answered_by   TEXT,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+  );
+  INSERT INTO messages_with_target
+    SELECT seq, id, thread_id, in_reply_to, from_addr, from_kind, to_addr,
+           CASE WHEN state IN ('delivered', 'answered') AND delivered_to LIKE 'claude:%'
+                  THEN delivered_to
+                WHEN state IN ('delivered', 'answered') AND delivered_to LIKE 'opencode:%'
+                  THEN delivered_to
+                ELSE NULL END,
+           kind, body, refs_json, hops, state, pushed_stream, delivered_to, delivered_at, answered_by,
+           created_at, expires_at
+    FROM messages;
+  DROP TABLE messages;
+  ALTER TABLE messages_with_target RENAME TO messages;
+  CREATE INDEX messages_thread ON messages (thread_id, seq);
+  CREATE INDEX messages_state ON messages (state, seq);
+  CREATE INDEX messages_from ON messages (from_addr, created_at);
+  CREATE INDEX messages_to_session ON messages (to_session, state);
+  `,
 ];
 
 interface MessageRow {
@@ -106,6 +161,7 @@ interface MessageRow {
   from_addr: string;
   from_kind: string;
   to_addr: string;
+  to_session: string | null;
   kind: string;
   body: string;
   refs_json: string;
@@ -121,10 +177,12 @@ interface MessageRow {
 
 export interface StoredMessage extends Message {
   pushedStream: string | null;
+  /** The session `to` resolved to when the message was accepted, or null when addressed to the owner. */
+  toSession: SessionAddress | null;
 }
 
 export interface SessionRow {
-  address: MessageAddress;
+  address: SessionAddress;
   machine: string;
   cwd: string;
   title: string;
@@ -146,15 +204,17 @@ export interface NewMessage {
   id: string;
   threadId: string;
   inReplyTo: string | null;
-  from: MessageAddress;
+  from: SessionAddress | "human";
   fromKind: SenderKind;
   to: MessageAddress;
+  /** The session `to` resolved to when the message was accepted, or null when addressed to the owner. */
+  toSession: SessionAddress | null;
   kind: MessageKind;
   body: string;
   refs: MessageRef[];
   hops: number;
   state: MessageState;
-  deliveredTo: MessageAddress | null;
+  deliveredTo: SessionAddress | "human" | null;
   deliveredAt: string | null;
   createdAt: string;
   expiresAt: string;
@@ -165,16 +225,17 @@ function toMessage(row: MessageRow): StoredMessage {
     id: row.id,
     threadId: row.thread_id,
     inReplyTo: row.in_reply_to,
-    from: row.from_addr as MessageAddress,
+    from: row.from_addr as SessionAddress | "human",
     fromKind: row.from_kind as SenderKind,
     to: row.to_addr as MessageAddress,
+    toSession: row.to_session as SessionAddress | null,
     kind: row.kind as MessageKind,
     body: row.body,
     refs: JSON.parse(row.refs_json) as MessageRef[],
     hops: row.hops,
     state: row.state as MessageState,
     pushedStream: row.pushed_stream,
-    deliveredTo: row.delivered_to as MessageAddress | null,
+    deliveredTo: row.delivered_to as SessionAddress | "human" | null,
     deliveredAt: row.delivered_at,
     answeredBy: row.answered_by,
     createdAt: row.created_at,
@@ -219,8 +280,8 @@ export class HubStore {
 
   insertMessage(m: NewMessage): StoredMessage {
     this.db.query(`
-      INSERT INTO messages (id, thread_id, in_reply_to, from_addr, from_kind, to_addr, kind, body, refs_json, hops, state, delivered_to, delivered_at, created_at, expires_at)
-      VALUES ($id, $threadId, $inReplyTo, $from, $fromKind, $to, $kind, $body, $refs, $hops, $state, $deliveredTo, $deliveredAt, $createdAt, $expiresAt)
+      INSERT INTO messages (id, thread_id, in_reply_to, from_addr, from_kind, to_addr, to_session, kind, body, refs_json, hops, state, delivered_to, delivered_at, created_at, expires_at)
+      VALUES ($id, $threadId, $inReplyTo, $from, $fromKind, $to, $toSession, $kind, $body, $refs, $hops, $state, $deliveredTo, $deliveredAt, $createdAt, $expiresAt)
     `).run({
       id: m.id,
       threadId: m.threadId,
@@ -228,6 +289,7 @@ export class HubStore {
       from: m.from,
       fromKind: m.fromKind,
       to: m.to,
+      toSession: m.toSession,
       kind: m.kind,
       body: m.body,
       refs: JSON.stringify(m.refs),
@@ -254,7 +316,7 @@ export class HubStore {
     return (this.db.query("SELECT count(*) AS n FROM messages WHERE thread_id = ?").get(threadId) as { n: number }).n;
   }
 
-  sentSince(from: MessageAddress, since: string): number {
+  sentSince(from: SessionAddress | "human", since: string): number {
     return (this.db.query("SELECT count(*) AS n FROM messages WHERE from_addr = ? AND created_at >= ?").get(from, since) as { n: number }).n;
   }
 
@@ -263,30 +325,36 @@ export class HubStore {
     return (this.db.query("SELECT * FROM messages WHERE state = 'queued' ORDER BY seq").all() as MessageRow[]).map(toMessage);
   }
 
-  /** Messages to or from any of these addresses, newest thread activity first, whole threads. */
-  threadsFor(addresses: MessageAddress[], limit: number): StoredMessage[][] {
-    const marks = addresses.map(() => "?").join(",");
+  /**
+   * Messages to or from any of these sessions, newest thread activity first, whole threads.
+   *
+   * Matching is on the session rather than the address throughout, because a message addressed to a Bot
+   * carries the Bot in `to_addr` and the session it resolved to in `to_session`, and a reader asking
+   * "what reached this session" means the session column. `to_addr` is matched too so a message
+   * addressed to a Bot shows up for a member that has not been reached yet.
+   */
+  threadsFor(sessions: string[], bots: string[], limit: number): StoredMessage[][] {
+    const all = [...sessions, ...bots];
+    const marks = all.map(() => "?").join(",");
     const ids = this.db.query(`
       SELECT thread_id, max(seq) AS last FROM messages
-      WHERE from_addr IN (${marks}) OR to_addr IN (${marks}) OR delivered_to IN (${marks})
+      WHERE from_addr IN (${marks}) OR to_session IN (${marks}) OR delivered_to IN (${marks}) OR to_addr IN (${marks})
       GROUP BY thread_id ORDER BY last DESC LIMIT ?
-    `).all(...addresses, ...addresses, ...addresses, limit) as { thread_id: string }[];
+    `).all(...all, ...all, ...all, ...all, limit) as { thread_id: string }[];
     return ids.map(({ thread_id }) => this.thread(thread_id));
   }
 
   /** Messages that reached, or wait for, one session and have not been answered or closed. */
-  openFor(address: MessageAddress, bots: MessageAddress[]): StoredMessage[] {
-    const targets = [address, ...bots];
-    const marks = targets.map(() => "?").join(",");
+  openFor(session: SessionAddress): StoredMessage[] {
     return (this.db.query(`
       SELECT * FROM messages
       WHERE (delivered_to = ? AND state IN ('pushed', 'delivered'))
-         OR (to_addr IN (${marks}) AND state = 'queued')
+         OR (to_session = ? AND state = 'queued')
       ORDER BY seq
-    `).all(address, ...targets) as MessageRow[]).map(toMessage);
+    `).all(session, session) as MessageRow[]).map(toMessage);
   }
 
-  markPushed(id: string, stream: string, to: MessageAddress): void {
+  markPushed(id: string, stream: string, to: SessionAddress): void {
     this.db.query("UPDATE messages SET state = 'pushed', pushed_stream = ?, delivered_to = ? WHERE id = ? AND state = 'queued'").run(stream, to, id);
   }
 
@@ -322,11 +390,11 @@ export class HubStore {
     `).run({ ...s, channel: s.channel ? 1 : 0, connected: s.connected ? 1 : 0 });
   }
 
-  setConnected(address: MessageAddress, connected: boolean, at: string): void {
+  setConnected(address: SessionAddress, connected: boolean, at: string): void {
     this.db.query("UPDATE sessions SET connected = ?, last_seen = ? WHERE address = ?").run(connected ? 1 : 0, at, address);
   }
 
-  getSession(address: MessageAddress): SessionRow | undefined {
+  getSession(address: SessionAddress): SessionRow | undefined {
     const row = this.db.query("SELECT * FROM sessions WHERE address = ?").get(address) as Record<string, unknown> | null;
     return row ? sessionRow(row) : undefined;
   }
@@ -365,7 +433,7 @@ export class HubStore {
 
 function sessionRow(row: Record<string, unknown>): SessionRow {
   return {
-    address: row.address as MessageAddress,
+    address: row.address as SessionAddress,
     machine: row.machine as string,
     cwd: row.cwd as string,
     title: row.title as string,

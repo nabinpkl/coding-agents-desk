@@ -8,7 +8,21 @@ import { SessionPicker } from "@/features/messages/SessionPicker";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
+/**
+ * The other side of a thread, as a directory entry.
+ *
+ * A message names a Bot as its destination and a session as its sender, and the session is the more
+ * specific of the two, so it is preferred: a thread with an agent is about that agent's run, and a Bot
+ * holding three runs would otherwise put the same name on all three. Falling back to the Bot is what
+ * covers a message the owner sent that has not been delivered, where only the address is known.
+ */
 function otherEntry(message: Message, directory: DirectoryEntry[]): DirectoryEntry | undefined {
+  // A queued message names only the Bot it was addressed to, and the session it will reach is already
+  // recorded as `toSession`, so the thread can be named for the run that will answer rather than for the
+  // group. An agent's own message names its sender, which is the same lookup from the other side.
+  const session = message.from === "human" ? message.toSession : message.from;
+  const bySession = directory.find((entry) => entry.session !== null && entry.session === session);
+  if (bySession) return bySession;
   const other = message.from === "human" ? message.to : message.from;
   return directory.find((entry) => entry.address === other);
 }
@@ -133,6 +147,12 @@ function Thread({
   const last = thread[thread.length - 1]!;
   const entry = otherEntry(last, directory);
   const other = entry?.name ?? (last.from === "human" ? last.to : last.from);
+  // The badge answers "which runtime answers this", which is a property of the agent rather than of
+  // the one run: a Bot curating sessions on both runtimes is genuinely both, and showing only the run
+  // that answered would send the reader looking for a runtime that is not the one replying.
+  const badgeEntries = entry
+    ? [entry, ...directory.filter((other2) => other2.session !== null && entry.related.includes(other2.related[0]!))]
+    : [];
   const state = threadState(thread);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
@@ -183,7 +203,7 @@ function Thread({
           thing they were scanning for to learn something they could see in the address.
         */}
         <div className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-          {entry ? runtimesOf(entry).map((runtime) => <SourceBadge key={runtime} source={runtime} />) : null}
+          {entry ? runtimesOf(badgeEntries).map((runtime) => <SourceBadge key={runtime} source={runtime} />) : null}
           <span>{messageTime(last.createdAt)}</span>
           {isCancellable(thread) ? (
             <button

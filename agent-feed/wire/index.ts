@@ -278,4 +278,5 @@ export type {
   ReplyMessageRequest,
   SendMessageRequest,
   SenderKind,
+  SessionAddress,
 } from "./messaging.ts";

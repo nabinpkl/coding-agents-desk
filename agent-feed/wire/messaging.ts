@@ -4,16 +4,32 @@
 /**
  * Who can send or receive.
  *
- * `human` is the owner. `claude:<sessionId>` and `opencode:<sessionId>` are one live agent session
- * on one machine, and they are what a message is addressed to.
+ * `human` is the owner. A Bot is the only other thing a message can be addressed to, because a Bot
+ * is the unit of curation: the owner decides which agents exist by putting their sessions in one, so
+ * a session in no Bot is not addressable by anyone and does not take part in messaging at all. That
+ * is the whole point of the grouping, since an uncurated session is exactly the noise it removes.
  *
- * `bot:<botId>` is an agent-desk Bot, and it is a LABEL rather than a destination: it names the set
- * of sessions belonging to one agent, and the directory lists it so a reader sees that grouping. It
- * is in this type because the directory and a message's `to` field carry the shape, not because
- * anything can be sent to one -- the hub refuses that, since a Bot does not say which of its sessions
- * should receive a message.
+ * `bot:<botId>` addresses a Bot, which resolves to the one session it names when it has exactly
+ * one. `bot:<botId>/<sessionId>` names which session of a multi-session Bot should receive it,
+ * because a Bot with several sessions does not say which of them should get a message and guessing
+ * is how an instruction lands in the wrong agent. There is no bare `<source>:<sessionId>` address:
+ * a session on its own says a run of a process but not which agent it belongs to, and that is the
+ * question the Bot answers. The disambiguation happens through the Bot-session relationship, so an
+ * address cannot name a session that is not a member of the Bot it claims.
+ *
+ * A message's `from` and `deliveredTo` are session addresses rather than these, because they record
+ * which run actually spoke and which run actually received it. See `SessionAddress`.
  */
-export type MessageAddress = "human" | `claude:${string}` | `opencode:${string}` | `bot:${string}`;
+export type MessageAddress = "human" | `bot:${string}` | `bot:${string}/${string}`;
+
+/**
+ * One live run of one agent, as the directory lists it and as a message records having received one.
+ *
+ * This is identity, not a destination: nothing is addressed here. A session is reachable only
+ * through the Bot it belongs to, so `to` is a `MessageAddress` and this type appears on `from`,
+ * `deliveredTo` and the directory's session entries.
+ */
+export type SessionAddress = `claude:${string}` | `opencode:${string}`;
 
 /** The agent runtimes v1 can address, in the order the directory lists them. */
 export type MessagingSource = "claude" | "opencode";
@@ -42,7 +58,8 @@ export interface Message {
   id: string;
   threadId: string;
   inReplyTo: string | null;
-  from: MessageAddress;
+  /** The session that spoke, or `human`. */
+  from: SessionAddress | "human";
   fromKind: SenderKind;
   to: MessageAddress;
   kind: MessageKind;
@@ -51,8 +68,10 @@ export interface Message {
   /** Consecutive agent-sent messages in the thread since the last human one, this one included. */
   hops: number;
   state: MessageState;
-  /** The session it reached, which is always a session. Null while the message is still held. */
-  deliveredTo: MessageAddress | null;
+  /** The session `to` resolved to when the message was accepted, or null when addressed to the owner. */
+  toSession: SessionAddress | null;
+  /** The session it reached, or `human` when the owner was the recipient. Null while still held. */
+  deliveredTo: SessionAddress | "human" | null;
   deliveredAt: string | null;
   answeredBy: string | null;
   createdAt: string;
@@ -60,9 +79,9 @@ export interface Message {
 }
 
 export interface SendMessageRequest {
-  /** The sender: `human` for a human surface, `<source>:<id>` for a relay child speaking for its session. */
-  as: MessageAddress;
-  /** Omitted on a reply: a reply always goes to the sender of `inReplyTo`. Never a `bot:` address. */
+  /** The sender: `human` for a human surface, or the session address a relay child speaks for. */
+  as: SessionAddress | "human";
+  /** Omitted on a reply: a reply always goes to the sender of `inReplyTo`. */
   to?: MessageAddress;
   kind: "request" | "notice";
   body: string;
@@ -71,7 +90,7 @@ export interface SendMessageRequest {
 }
 
 export interface ReplyMessageRequest {
-  as: MessageAddress;
+  as: SessionAddress | "human";
   inReplyTo: string;
   body: string;
   refs?: MessageRef[];
@@ -85,6 +104,14 @@ export type DirectoryReachability =
 
 export interface DirectoryEntry {
   address: MessageAddress;
+  /**
+   * The session this entry is, when it is a session rather than a Bot or the owner.
+   *
+   * Needed because a single-session Bot's address is the Bot's own, so the address alone does not say
+   * which run it is. A client that has a session id in hand -- the relay child sending as itself, a
+   * panel following a thread -- matches on this to find the entry, rather than guessing from a name.
+   */
+  session: SessionAddress | null;
   name: string;
   machine: string | null;
   reachability: DirectoryReachability;
@@ -118,5 +145,5 @@ export interface PublishBotsRequest {
 
 /** What a relay child's stream carries, as SSE `data:` lines. */
 export type HubStreamEvent =
-  | { type: "hello"; address: MessageAddress; channel: boolean }
+  | { type: "hello"; address: SessionAddress; channel: boolean }
   | { type: "message"; message: Message; fromName: string };

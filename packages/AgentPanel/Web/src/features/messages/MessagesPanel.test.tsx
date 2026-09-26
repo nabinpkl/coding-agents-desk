@@ -16,12 +16,13 @@ function message(over: Partial<Message> = {}): Message {
     inReplyTo: null,
     from: "human",
     fromKind: "human",
-    to: "opencode:ses_1",
+    to: "bot:fixer",
     kind: "request",
     body: "fix the header",
     refs: [],
     hops: 0,
     state: "delivered",
+    toSession: "opencode:ses_1",
     deliveredTo: "opencode:ses_1",
     deliveredAt: "2026-09-25T09:00:00.000Z",
     answeredBy: null,
@@ -31,12 +32,15 @@ function message(over: Partial<Message> = {}): Message {
   };
 }
 
+// A destination is a Bot, and a session is reachable only through the Bot curating it, so each
+// session entry carries the address that reaches it and the session it is. Every session gets the
+// qualified form, even under a Bot curating one, so no two entries share an address.
 const directory: DirectoryEntry[] = [
-  { address: "human", name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
-  { address: "bot:fixer", name: "Site fixer", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["opencode:ses_1"], cwd: "/work/site" },
-  { address: "bot:sleeping", name: "Sleeping bot", machine: "mac", reachability: "offline", lastSeenAt: null, related: [], cwd: "/work/site" },
-  { address: "opencode:ses_1", name: "OpenCode session", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
-  { address: "opencode:ses_2", name: "OpenCode session 2", machine: "oracle", reachability: "offline", lastSeenAt: null, related: ["bot:sleeping"], cwd: "/work/site" },
+  { address: "human", session: null, name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
+  { address: "bot:fixer", session: null, name: "Site fixer", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer/one", "bot:fixer/two"], cwd: "/work/site" },
+  { address: "bot:sleeping", session: null, name: "Sleeping bot", machine: "mac", reachability: "offline", lastSeenAt: null, related: [], cwd: "/work/site" },
+  { address: "bot:fixer/one", session: "opencode:ses_1", name: "OpenCode session", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+  { address: "bot:fixer/two", session: "opencode:ses_2", name: "OpenCode session 2", machine: "oracle", reachability: "offline", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
 ];
 
 function feed(over: Record<string, unknown> = {}): HubHandle {
@@ -80,31 +84,26 @@ describe("MessagesPanel", () => {
         [
           message({
             id: "b1",
-            to: "bot:both",
-            deliveredTo: "opencode:ses_1",
+            to: "bot:both/opencode:ses_3",
+            toSession: "opencode:ses_3",
+            deliveredTo: "opencode:ses_3",
             state: "queued",
           }),
         ],
       ]),
       directory: vi.fn(async () => [
         ...directory,
-        {
-          address: "bot:both",
-          name: "Both runtimes",
-          machine: "mac",
-          reachability: "reachable",
-          lastSeenAt: null,
-          related: ["opencode:ses_1"],
-          cwd: "/work/site",
-        },
+        { address: "bot:both", session: null, name: "Both runtimes", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:both/opencode:ses_3", "bot:both/claude:ses_4"], cwd: "/work/site" },
+        { address: "bot:both/opencode:ses_3", session: "opencode:ses_3", name: "An opencode run", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:both"], cwd: "/work/site" },
+        { address: "bot:both/claude:ses_4", session: "claude:ses_4", name: "A claude run", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:both"], cwd: "/work/site" },
       ]),
     });
     render(<Harness data={data} />);
     const threads = await screen.findByRole("list", { name: "Message threads" });
-    expect(within(threads).getByText("Both runtimes")).toBeTruthy();
-    // One badge for the one runtime its members have, not a guess from the name.
-    expect(within(threads).getByText("OpenCode")).toBeTruthy();
-    expect(within(threads).queryByText("Claude")).toBeNull();
+    // A thread is named for the session it reached, and badged for the runtimes of the Bot that
+    // curates it. One Bot holding both runtimes is genuinely both, not a guess from the name.
+    expect(within(threads).getByText("An opencode run")).toBeTruthy();
+    expect(within(threads).getByText("Claude")).toBeTruthy();
   });
 
   /** The picker's trigger, which stands in for the `<select>` the tests used to drive. */
@@ -123,49 +122,50 @@ describe("MessagesPanel", () => {
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "when you are up" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => {
-      expect(data.send).toHaveBeenCalledWith({ to: "opencode:ses_2", body: "when you are up" });
+      // The address sent is the one the hub published for that session, not a session id assembled
+      // here: a Bot curating one session gives that session the Bot's own address.
+      expect(data.send).toHaveBeenCalledWith({ to: "bot:fixer/two", body: "when you are up" });
     });
   });
 
-  test("the picker offers sessions, grouped under the Bot they belong to", async () => {
-    // A Bot is not something you can talk to: the hub resolves `bot:<id>` to whichever member
-    // session is live at delivery time, so offering a Bot as a choice picks a session by a rule
-    // the reader cannot see. The Bot's name is a heading and the options are its sessions.
+  test("the picker offers the sessions of each Bot, and nothing that is not curated", async () => {
+    // A Bot is the address, and a session is reachable only through the Bot curating it, so the
+    // grouping is the whole address space rather than a convenience. A session the owner has not put
+    // in a Bot is not in the directory, and so is not something this picker could deliver to.
     const data = feed({
       directory: vi.fn(async () => [
-        { address: "human", name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
+        { address: "human", session: null, name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
         {
           address: "bot:fixer",
+          session: null,
           name: "Site fixer",
           machine: "mac",
           reachability: "reachable",
           lastSeenAt: null,
-          related: ["opencode:ses_1", "opencode:ses_2"],
+          related: ["bot:fixer/one", "bot:fixer/two"],
           cwd: "/work/site",
         },
-        { address: "opencode:ses_1", name: "Fix the header", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
-        { address: "opencode:ses_2", name: "Fix the footer", machine: "mac", reachability: "offline", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
-        { address: "opencode:ses_9", name: "Loose session", machine: "mac", reachability: "reachable", lastSeenAt: null, related: [], cwd: "/work/other" },
+        { address: "bot:fixer/one", session: "opencode:ses_1", name: "Fix the header", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+        { address: "bot:fixer/two", session: "opencode:ses_2", name: "Fix the footer", machine: "mac", reachability: "offline", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+        { address: "bot:loose", session: null, name: "Empty bot", machine: "mac", reachability: "offline", lastSeenAt: null, related: [], cwd: "/work/other" },
       ]),
     });
     render(<Harness data={data} />);
     await screen.findByText("No messages yet");
     openPicker();
     const list = await screen.findByRole("listbox", { name: "Sessions to send to" });
-    // Read the sections by what they are rather than by position: a section is a group whose label
-    // is exactly a section name, and a subgroup's label is that name plus the group under it.
+    // One section per Bot, and the Bot itself is a heading rather than a choice.
     const sections = within(list)
       .getAllByRole("group")
       .map((group) => group.getAttribute("aria-label"))
-      .filter((label): label is string => label === "All bots" || label === "All sessions");
-    expect(sections).toEqual(["All bots", "All sessions"]);
-    // The Bot itself is not a choice, only a heading inside the bots section.
+      .filter((label): label is string => label === "All bots");
+    expect(sections).toEqual(["All bots"]);
     expect(within(list).queryByRole("option", { name: /^Site fixer/ })).toBeNull();
-    // A session attached to a Bot is in both sections, which is the overlap being kept.
-    expect(within(list).getAllByRole("option", { name: "Fix the header" })).toHaveLength(2);
-    expect(within(list).getAllByRole("option", { name: /Fix the footer/ }).length).toBe(2);
-    // And the loose session is still one click away, in the sessions section.
-    expect(within(list).getByRole("option", { name: "Loose session" })).toBeTruthy();
+    // A Bot with no member sessions gets no heading, since there is nothing to send to.
+    expect(within(list).queryByText(/Empty bot/)).toBeNull();
+    // Each session appears once, carrying the address that reaches it.
+    expect(within(list).getAllByRole("option", { name: "Fix the header" })).toHaveLength(1);
+    expect(within(list).getAllByRole("option", { name: /Fix the footer/ })).toHaveLength(1);
   });
 
   test("the picker filters on what the reader remembers about a session", async () => {
@@ -176,23 +176,25 @@ describe("MessagesPanel", () => {
     const filter = await screen.findByLabelText("Filter sessions");
     // The filter answers to what a reader remembers, which is not only a name: a machine, a
     // directory and a Bot are all things they know, so all of them narrow the list.
-    fireEvent.change(filter, { target: { value: "mac" } });
     let list = screen.getByRole("listbox", { name: "Sessions to send to" });
-    const onMac = within(list).getAllByRole("option");
-    expect(onMac.length).toBeGreaterThan(1);
-    // A session that belongs to a Bot keeps both of its rows, which is the overlap the two
-    // sections are for: narrowing to one session must not hide the fact that a Bot has it too.
-    fireEvent.change(filter, { target: { value: "OpenCode session" } });
-    list = screen.getByRole("listbox", { name: "Sessions to send to" });
-    expect(within(list).getAllByRole("option").length).toBeGreaterThanOrEqual(2);
-    // A machine narrows too: only the oracle session carries it.
+    expect(within(list).getAllByRole("option").length).toBe(2);
+    // A machine narrows: only the oracle session carries it.
     fireEvent.change(filter, { target: { value: "oracle" } });
     list = screen.getByRole("listbox", { name: "Sessions to send to" });
     expect(within(list).getAllByRole("option")).toHaveLength(1);
-    // And a directory, which is a group heading rather than a row.
+    // A Bot's name narrows to everything it curates, which is the question a reader actually has when
+    // they remember the agent rather than the run.
+    fireEvent.change(filter, { target: { value: "Site fixer" } });
+    list = screen.getByRole("listbox", { name: "Sessions to send to" });
+    expect(within(list).getAllByRole("option").length).toBe(2);
+    // A name narrows to the one session carrying it.
+    fireEvent.change(filter, { target: { value: "OpenCode session 2" } });
+    list = screen.getByRole("listbox", { name: "Sessions to send to" });
+    expect(within(list).getAllByRole("option")).toHaveLength(1);
+    // And a directory, which both of these sessions run in.
     fireEvent.change(filter, { target: { value: "work/site" } });
     list = screen.getByRole("listbox", { name: "Sessions to send to" });
-    expect(within(list).getAllByRole("option").length).toBeGreaterThan(1);
+    expect(within(list).getAllByRole("option").length).toBe(2);
     fireEvent.change(filter, { target: { value: "zzz" } });
     expect(screen.getByText(/No session matches/)).toBeTruthy();
   });

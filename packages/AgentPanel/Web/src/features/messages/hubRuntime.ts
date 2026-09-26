@@ -1,17 +1,16 @@
-// Which runtime a hub address is, read from the address rather than from a name.
+// Which runtime a recipient is, read from the directory rather than from a name.
 //
-// A session address carries it in the prefix (`claude:<id>`, `opencode:<id>`). A Bot address does
-// not, because a Bot may hold sessions from both: the directory entry's `related` list is its
-// member sessions, so a Bot's runtime is whatever its members are. A Bot with no known members has
-// no runtime to report, and this says so by returning nothing rather than guessing from the name.
+// A destination is a Bot, so a Bot address carries no runtime. A session entry's `session` field
+// carries it in the prefix (`claude:<id>`, `opencode:<id>`), and a Bot's runtime is whatever its
+// members are. A Bot with no known members has no runtime to report, and this says so by returning
+// nothing rather than guessing from the name.
 
 import type { DirectoryEntry, MessageAddress } from "@agentdesk/agent-feed-wire";
 
-/** The runtime an address names, or null when the address names none. */
-export function runtimeOf(address: MessageAddress): string | null {
-  if (address.startsWith("claude:")) return "claude";
-  if (address.startsWith("opencode:")) return "opencode";
-  return null;
+/** The runtime a session runs on, or null when the entry is not a session. */
+export function runtimeOf(entry: DirectoryEntry): string | null {
+  if (!entry.session) return null;
+  return entry.session.startsWith("claude:") ? "claude" : "opencode";
 }
 
 /**
@@ -19,17 +18,18 @@ export function runtimeOf(address: MessageAddress): string | null {
  *
  * A Bot holding both runtimes returns both, and the caller shows both badges rather than picking
  * one: the answer to "which runtime answers this" is genuinely both, and a Bot that looked like
- * one runtime would send a reader to a session that is not the one replying.
+ * one runtime would send a reader to a session that is not the one replying. One entry or many,
+ * because most rows are a single session and a few are a Bot holding several.
  */
-export function runtimesOf(entry: DirectoryEntry): string[] {
-  const direct = runtimeOf(entry.address);
-  if (direct) return [direct];
-  const fromMembers = new Set<string>();
-  for (const member of entry.related) {
-    const runtime = runtimeOf(member);
-    if (runtime) fromMembers.add(runtime);
+export function runtimesOf(entry: DirectoryEntry): string[];
+export function runtimesOf(entries: DirectoryEntry[]): string[];
+export function runtimesOf(input: DirectoryEntry | DirectoryEntry[]): string[] {
+  const found = new Set<string>();
+  for (const entry of Array.isArray(input) ? input : [input]) {
+    const runtime = runtimeOf(entry);
+    if (runtime) found.add(runtime);
   }
-  return [...fromMembers].sort();
+  return [...found].sort();
 }
 
 /** One pickable recipient, and the group it sits under. */
@@ -62,23 +62,23 @@ function distinctNames(entries: DirectoryEntry[]): DirectoryEntry[] {
   if (![...counts.values()].some((count) => count > 1)) return entries;
   return entries.map((entry) =>
     (counts.get(entry.name) ?? 0) > 1
-      ? { ...entry, name: `${entry.name} · ${entry.address.split(":").pop()!.slice(-6)}` }
+      ? { ...entry, name: `${entry.name} · ${entry.session!.split(":").pop()!.slice(-6)}` }
       : entry,
   );
 }
 
 /**
- * The recipient picker, in two sections: the sessions each Bot owns, and every session.
+ * The recipient picker: one section per Bot, holding the sessions it curates.
  *
- * A Bot is not something you can talk to. The hub resolves `bot:<id>` to whichever member session
- * is live at delivery time, so picking a Bot picks a session by a rule the reader cannot see, and
- * two Bots whose sessions overlap are indistinguishable. A Bot's name is therefore a group label,
- * and the options under it are the sessions that will actually receive the message.
+ * A Bot is the address, and a session is reachable only through the Bot that curates it, so the Bot
+ * grouping is not decoration here, it is the whole of the address space. The hub does not list a
+ * session in no Bot, so there is nothing else to show: a session the owner has not curated is not
+ * something this picker could deliver to, and offering it would be a row that fails on use.
  *
- * The two sections are two views of the same sessions, so a session attached to a Bot appears
- * under both: the Bot section answers "what does this Bot have running", the session section
- * answers "what can I reach". The overlap is the point rather than a duplicate to be removed,
- * because each section is a different question and neither is wrong on its own.
+ * Each row's `address` is the address that reaches that session, which the hub supplies: the Bot's
+ * own address when it curates one session, and the qualified `bot:<id>/<sessionId>` when it curates
+ * several. The picker hands that string to a send rather than assembling one, which is what keeps a
+ * Bot with several sessions from being resolved to a session the reader did not choose.
  *
  * A session is identified by its machine and its directory rather than by its name, since two
  * opencode sessions can carry the same title on different machines and one title can be reused
@@ -86,19 +86,19 @@ function distinctNames(entries: DirectoryEntry[]): DirectoryEntry[] {
  * be told apart, which is what splits `projects/tmp` from `/private/tmp`.
  */
 export function recipientGroups(directory: DirectoryEntry[]): RecipientGroup[] {
-  const byAddress = new Map(directory.map((entry) => [entry.address, entry]));
-  const sessions = directory.filter((entry) => runtimeOf(entry.address) !== null);
-  const groups: RecipientGroup[] = [];
-
-  for (const bot of directory.filter((entry) => entry.address.startsWith("bot:"))) {
-    const members = bot.related
-      .map((address) => byAddress.get(address))
-      .filter((entry): entry is DirectoryEntry => entry !== undefined && runtimeOf(entry.address) !== null);
-    if (members.length === 0) continue;
-    groups.push({ label: `${BOTS_SECTION} · ${bot.name}`, entries: distinctNames(members) });
+  const sessions = directory.filter((entry) => entry.session !== null);
+  const byBot = new Map<MessageAddress, DirectoryEntry[]>();
+  for (const entry of sessions) {
+    const bot = entry.related[0];
+    if (!bot) continue;
+    byBot.set(bot, [...(byBot.get(bot) ?? []), entry]);
   }
-
-  groups.push(...looseGroups(sessions));
+  const names = new Map(directory.filter((e) => e.address.startsWith("bot:")).map((e) => [e.address, e.name]));
+  const groups: RecipientGroup[] = [];
+  for (const [bot, members] of byBot) {
+    const label = names.get(bot) ?? bot.slice("bot:".length);
+    groups.push({ label: `${BOTS_SECTION} · ${label}`, entries: distinctNames(members) });
+  }
   return groups;
 }
 

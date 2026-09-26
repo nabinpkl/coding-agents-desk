@@ -1,6 +1,6 @@
 // HTTP: /health open, everything else behind the Access verifier. JSON in and out, one error map.
 
-import type { MessageAddress, PublishedBot } from "@agentdesk/agent-feed-wire";
+import type { PublishedBot, SessionAddress } from "@agentdesk/agent-feed-wire";
 import { Unauthorized, type Verifier } from "@/auth";
 import type { Principal } from "@/config";
 import { isAddress, SESSION_ID, sessionAddress } from "@/directory";
@@ -70,7 +70,7 @@ function openStream(deps: RouteDeps, principal: Principal, url: URL, clientId: s
   const title = url.searchParams.get("title") ?? "";
   const encoder = new TextEncoder();
   const streamId = crypto.randomUUID();
-  let address: MessageAddress | null = null;
+  let address: SessionAddress | null = null;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
 
@@ -138,13 +138,13 @@ async function route(deps: RouteDeps, request: Request, url: URL): Promise<Respo
     return json(messages.send(principal, body), 201);
   }
   if (method === "GET" && path === "/v1/threads") {
-    const as = url.searchParams.get("as");
-    if (!isAddress(as)) throw new InvalidMessage("as must be an address");
+    const as = sessionAddress(url.searchParams.get("as"));
+    if (!as) throw new InvalidMessage("as must be a session id");
     return json(messages.threadsFor(as));
   }
   if (method === "GET" && path === "/v1/inbox") {
-    const as = url.searchParams.get("as");
-    if (!isAddress(as)) throw new InvalidMessage("as must be an address");
+    const as = sessionAddress(url.searchParams.get("as"));
+    if (!as) throw new InvalidMessage("as must be a session id");
     return json(messages.inbox(as));
   }
   let match = /^\/v1\/threads\/([^/]+)$/.exec(path);

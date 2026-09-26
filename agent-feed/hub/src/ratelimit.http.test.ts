@@ -88,10 +88,12 @@ describe("request budgets", () => {
   });
 
   test("reads and writes are separate, so polling hard cannot stop a machine reporting", async () => {
-    // Spend the oracle machine's read budget on polling.
-    expect((await call("/v1/threads?as=human", { as: "oracle.access" })).status).toBe(200);
-    expect((await call("/v1/threads?as=human", { as: "oracle.access" })).status).toBe(200);
-    expect((await call("/v1/threads?as=human", { as: "oracle.access" })).status).toBe(429);
+    // Spend the oracle machine's read budget on polling. `as` is a session, since threads are per
+    // session; a Bot address names a destination, not a reader.
+    const as = "opencode:ses_ratelimit";
+    expect((await call(`/v1/threads?as=${as}`, { as: "oracle.access" })).status).toBe(200);
+    expect((await call(`/v1/threads?as=${as}`, { as: "oracle.access" })).status).toBe(200);
+    expect((await call(`/v1/threads?as=${as}`, { as: "oracle.access" })).status).toBe(429);
     // And its publish still goes through, which one shared balance would have stopped.
     expect((await call("/v1/directory/bots/oracle", { as: "oracle.access", method: "PUT", body: publish })).status).toBe(200);
   });
