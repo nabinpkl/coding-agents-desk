@@ -14,11 +14,11 @@ import type {
   DetachBotSessionsCommand,
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
-  SessionSummary,
   SetBotCanvasCommand,
 } from "@agentdesk/agent-feed-wire";
 import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
-import { directoryBelongsTo, worktreeOf } from "@/git/worktree";
+import { directoryBelongsTo } from "@/git/worktree";
+import { noteBotSessionOutcomes, resolveBotSessions, type BotSessionOutcome } from "@/bots/botSessionResolution";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import {
   normalizeAddBot,
@@ -29,9 +29,9 @@ import {
   type NormalizedLaunch,
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
-import { BotSessionStarter } from "@/bots/botSessionLaunch";
-import { BotSessionRetirer, detachRefs } from "@/bots/botSessionRemoval";
-import { reorderRefs } from "@/bots/botSessionOrder";
+import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
+import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
+import { reorderRefs } from "@/bots/sessions/botSessionOrder";
 import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
 import {
   BotConflictError,
@@ -439,54 +439,44 @@ export class BotRegistry {
     };
   }
 
+  /**
+   * Resolves every Bot, then says what the misses were -- in that order, and the order is the
+   * point. The log diffs "still missing" across a whole snapshot, so a per-Bot note would read
+   * every other Bot's still-missing reference as resolved, once per Bot, on every broadcast.
+   */
   private async view(snapshot: StoredBotSnapshot): Promise<BotSnapshot> {
+    const resolved = await Promise.all(snapshot.bots.map((record) => this.resolveRecord(record)));
+    noteBotSessionOutcomes(resolved.flatMap((one) => one.outcomes));
     return {
       version: BOT_STORE_VERSION,
       revision: snapshot.revision,
-      bots: await Promise.all(snapshot.bots.map((record) => this.viewRecord(record))),
+      bots: resolved.map(({ outcomes, view }) => view),
+    };
+  }
+
+  private async resolveRecord(record: BotRecord): Promise<{ view: BotView; outcomes: BotSessionOutcome[] }> {
+    const { outcomes, ...split } = await resolveBotSessions(
+      record,
+      (ref) => this.catalog.resolveSession(ref),
+    );
+    return {
+      view: {
+        ...record,
+        environmentAvailability: await directoryAvailability(record.environment.path),
+        ...split,
+      },
+      outcomes,
     };
   }
 
   /**
-   * Says which worktree a session is working in, when it is not the Bot's own directory.
+   * One Bot's view, for the callers that want a single record rather than a snapshot.
    *
-   * Only for the rows that need it. A Bot's sessions are usually all in its directory, and a field
-   * that is present and empty on every one of those is a field every reader has to learn to
-   * ignore. Absent means the ordinary case: this session is in the checkout the Bot names.
-   *
-   * The branch rather than the path, because the path is what a reader already sees on the Bot and
-   * the branch is what they do not. Two sessions on one repository editing two branches look
-   * identical without it, which is the failure that made accepting them worth guarding.
+   * Goes through `resolveRecord` so a command's answer resolves its references the same way a
+   * snapshot does -- but says nothing, because a command answers one Bot and the log diffs a whole
+   * snapshot. A line from here would report every other Bot's still-missing reference as resolved.
    */
-  private async withWorktree(
-    summary: SessionSummary,
-    projectPath: string,
-    botPath: string,
-  ): Promise<SessionSummary> {
-    if (projectPath === botPath) return summary;
-    const worktree = await worktreeOf(projectPath);
-    if (!worktree) return summary;
-    return { ...summary, worktree: { path: projectPath, branch: worktree.branch } };
-  }
-
   private async viewRecord(record: BotRecord): Promise<BotView> {
-    const sessions: SessionSummary[] = [];
-    const missingSessionRefs: BotSessionRef[] = [];
-    for (const ref of record.sessionRefs) {
-      const resolved = this.catalog.resolveSession(ref);
-      // The same predicate the attach used, and it has to be: a Bot that accepts a session and
-      // then reports it missing would be worse than one that refused it, because the refusal at
-      // least says so at the moment somebody can act on it.
-      const inside = resolved
-        && await directoryBelongsTo(resolved.projectPath, record.environment.path);
-      if (resolved && inside) sessions.push(await this.withWorktree(resolved.summary, resolved.projectPath, record.environment.path));
-      else missingSessionRefs.push(ref);
-    }
-    return {
-      ...record,
-      environmentAvailability: await directoryAvailability(record.environment.path),
-      sessions,
-      missingSessionRefs,
-    };
+    return (await this.resolveRecord(record)).view;
   }
 }
