@@ -57,6 +57,12 @@ export function createBotRoutes(
         void registry.subscribe(
           (snapshot) => write(encodeServerSentEvent(snapshot)),
           (error) => write(encodeServerSentEvent({ error: errorPayload(error) })),
+          // `"view"`, because this stream feeds a canvas and a roster that draw a row per resolved
+          // session and a row per unresolved reference. The hub publishes membership and wants the
+          // store's revision; this one has to hear about a reference that started or stopped
+          // resolving, or a restart's half-reconciled catalog becomes the panel's picture for as
+          // long as the reader does not touch a Bot.
+          { onChange: "view" },
         )
           .then((stop) => {
             if (closed) stop();

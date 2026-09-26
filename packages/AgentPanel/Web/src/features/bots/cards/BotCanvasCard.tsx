@@ -151,7 +151,15 @@ export function BotCanvasCard({
   // opens. The ones that are off are named in the count's long form rather than dropped silently,
   // because the whole hazard of hiding something is a reader who has forgotten they hid it.
   const shown = bot.sessions.filter((session) => !detachedSessionKeys.has(sessionKey(session)));
-  const hidden = bot.sessions.length - shown.length;
+  // The same split for a reference the catalog cannot resolve. The whole list used to render
+  // regardless, so a session the reader had taken off this canvas came back as a `missing` row
+  // occupying the card -- put there by a sidecar restart's half-reconciled catalog, which the reader
+  // did not cause. A detached one is counted as off the canvas and left there.
+  const shownMissing = bot.missingSessionRefs.filter(
+    (ref) => !detachedSessionKeys.has(sessionKey(ref)),
+  );
+  const hidden = bot.sessions.length - shown.length
+    + bot.missingSessionRefs.length - shownMissing.length;
   // Over `sessionRefs` and not over `shown`, which is the whole reason it is computed here rather
   // than beside the filter above: the cards on screen are a subset twice over -- missing
   // transcripts and sessions taken off the canvas -- and ranking either subset would repaint the
@@ -348,7 +356,7 @@ export function BotCanvasCard({
           />
         </div>
 
-        {shown.length === 0 && bot.missingSessionRefs.length === 0 && starting.length === 0 ? (
+        {shown.length === 0 && shownMissing.length === 0 && starting.length === 0 ? (
           <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
             {/* Not "No sessions attached", which would be false and would send the reader to Add
                 sessions for sessions this Bot already has. The sidebar is where they went. */}
@@ -465,8 +473,10 @@ export function BotCanvasCard({
             ))}
             {/* Shown rather than hidden: a curated reference whose transcript the catalog has
                 forgotten is the row a reader most needs to see, and removing it is the Bots view's
-                job, not this one's. */}
-            {bot.missingSessionRefs.map((ref) => (
+                job, not this one's. Only the ones this canvas is showing, though -- a reference the
+                reader took off it is counted in `hidden` above, like any other session they put
+                away. */}
+            {shownMissing.map((ref) => (
               <li
                 key={sessionKey(ref)}
                 className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"

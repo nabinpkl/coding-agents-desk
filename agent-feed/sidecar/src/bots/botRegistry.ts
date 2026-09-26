@@ -19,6 +19,7 @@ import type {
 import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
 import { directoryBelongsTo } from "@/git/worktree";
 import { noteBotSessionOutcomes, resolveBotSessions, type BotSessionOutcome } from "@/bots/botSessionResolution";
+import { viewSignature, type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import {
   normalizeAddBot,
@@ -395,35 +396,43 @@ export class BotRegistry {
   async subscribe(
     listener: (snapshot: BotSnapshot) => void,
     onError?: (error: unknown) => void,
+    options: BotSubscribeOptions = {},
   ): Promise<() => void> {
+    const onChange = options.onChange ?? "store";
     let closed = false;
     let tail: Promise<void> = Promise.resolve();
     let lastRevision = -1;
+    let lastVisible = "";
     // `force` is for the first snapshot, which nobody has emitted yet. Everything after that goes
-    // through the revision check, which is the whole point of having one.
+    // through the change check, which is the whole point of having one.
     const emit = (force = false): void => {
       tail = tail.then(async () => {
         const snapshot = await this.snapshot();
-        if (closed || (!force && snapshot.revision === lastRevision)) return;
+        if (closed) return;
+        // Only for a subscriber that reads it. The hub's emits are the frequent ones and the
+        // signature is two sorts per Bot, which is nothing -- but nothing on the hottest path in
+        // the product is better spent on a value that is then discarded.
+        const visible = onChange === "view" ? viewSignature(snapshot) : lastVisible;
+        const unchanged = snapshot.revision === lastRevision
+          && (onChange === "store" || visible === lastVisible);
+        if (!force && unchanged) return;
         lastRevision = snapshot.revision;
+        lastVisible = visible;
         listener(snapshot);
       }).catch((error) => {
         if (!closed) onError?.(error);
       });
     };
-    // Both signals go unforced, and the catalog one matters most. The catalog changes on ordinary
-    // session churn -- state, token counts, activity -- and every one of those events used to
-    // publish this machine's whole Bot list to the hub: a directory write per session transition
-    // rather than per Bot change, which on a busy machine was over a hundred a minute. The revision
-    // check is what says "this is the same list you already have". It is safe because every edit
-    // that can change what is published goes through `mutate`, which bumps the revision: a rename, a
-    // ref reorder, a session attached or detached. A catalog event that moves no Bot changes nothing
-    // a subscriber can act on.
+    // Both signals go unforced, and the catalog one matters most. Which of them is worth answering
+    // is `onChange`, and the whole reason there are two answers is in `botSubscriptionChanges.ts` --
+    // including why the store's revision is right for the hub and wrong for a canvas, and what it
+    // cost when one check tried to serve both.
     const stopStore = this.store.subscribe(() => emit());
     const stopCatalog = this.catalog.subscribe(() => emit());
     try {
       const initial = await this.snapshot();
       lastRevision = initial.revision;
+      lastVisible = viewSignature(initial);
       listener(initial);
     } catch (error) {
       stopStore();

@@ -232,6 +232,62 @@ describe("App shell", () => {
     }
   });
 
+  /**
+   * A reference the reader took off this canvas does not come back as a row, missing or not.
+   *
+   * Measured 2026-09-26: a sidecar restart's half-reconciled catalog made every Claude reference on
+   * a Bot read as `missing`, and the card rendered all of them -- including the ones the reader had
+   * deliberately detached -- as rows saying `missing`, which pushed the card's contents down and gave
+   * the Bot a second, wrong session strip. The sidecar now tells the panel when a reference resolves
+   * again, so the rows do not appear at all; this is the other half, for the case where a reference
+   * really is gone and the reader really did put it away.
+   */
+  it("does not draw a missing reference the reader detached from this canvas", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [
+              { source: "claude", sessionId: "sid-claude-01" },
+              { source: "claude", sessionId: "sid-kept" },
+              { source: "claude", sessionId: "sid-put-away" },
+            ],
+            metadata: { role: "Coordinates releases", labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            canvasPosition: 1,
+            sessions: [FIXTURE_SESSIONS[0]!],
+            // One this canvas is showing, one the reader put away. Both unresolvable.
+            missingSessionRefs: [
+              { source: "claude", sessionId: "sid-kept" },
+              { source: "claude", sessionId: "sid-put-away" },
+            ],
+            offCanvasSessionRefs: [{ source: "claude", sessionId: "sid-put-away" }],
+          },
+        ],
+      });
+    });
+
+    // The one the canvas is showing is still a row, and still says why.
+    expect(canvas().getByText("sid-kept")).toBeInTheDocument();
+    // The one the reader detached is not, and is counted with everything else they put away: one
+    // shown session, and one off the canvas -- the detached reference that cannot resolve.
+    expect(canvas().queryByText("sid-put-away")).toBeNull();
+    expect(canvas().getByText(/1 off the canvas/)).toBeInTheDocument();
+    unmount();
+  });
+
   it("shows every Bot at once on the canvas, and opens their sessions inline beside each other", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
