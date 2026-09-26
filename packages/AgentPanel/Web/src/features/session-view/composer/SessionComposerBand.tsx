@@ -317,7 +317,10 @@ export function SessionComposerBand({
             <div className="ml-auto">
               <TokenMeter
                 usage={usage}
-                feed={feed}
+                // Opencode answers spend, not windows: Claude's 5h/7d chips are another
+                // vendor's answer about to stop you, and opencode's own limits live in
+                // its console rather than any feed this meter could read.
+                feed={isClaude || isCodex ? feed : null}
                 vendor={isCodex ? "codex" : isClaude ? "claude" : null}
               />
             </div>

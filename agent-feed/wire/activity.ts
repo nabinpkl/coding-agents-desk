@@ -151,4 +151,11 @@ export interface TokenUsage {
   updatedAt: number;
   model?: string;
   cacheTtlMs?: number;
+  /**
+   * The session's lifetime spend in USD, as its backend reports it -- opencode's
+   * `session.get cost`, the same figure the TUI formats beside the meter. Absent
+   * where the backend reports none, and the meter then shows no dollar figure
+   * rather than a computed one: cost math belongs to the side that prices.
+   */
+  cost?: number;
 }

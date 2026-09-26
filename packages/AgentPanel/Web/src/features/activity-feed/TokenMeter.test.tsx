@@ -42,6 +42,26 @@ describe("TokenMeter", () => {
     expect(bar.getAttribute("aria-valuenow")).toBe("100");
     expect((bar.firstElementChild as HTMLElement).style.width).toBe("100%");
   });
+
+  it("sets the session spend beside the count the way the TUI does", () => {
+    render(
+      <TokenMeter
+        usage={{ current: 214_800, limit: 1_048_576, updatedAt: 1, cost: 1.691467206 }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Session cost $1.69").textContent).toBe("$1.69");
+  });
+
+  it("shows no dollar figure where no backend reported one", () => {
+    render(
+      <TokenMeter
+        usage={{ current: 214_800, limit: 1_048_576, updatedAt: 1 }}
+      />,
+    );
+
+    expect(screen.queryByLabelText(/Session cost/)).toBeNull();
+  });
 });
 
 describe("formatTokens", () => {

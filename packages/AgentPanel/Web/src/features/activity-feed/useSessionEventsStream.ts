@@ -74,12 +74,10 @@ export interface EventCacheHit {
 }
 
 /**
- * Latest context-window occupancy for the session.
- *
- * `limit` arrives already resolved -- the sidecar reads Codex's published window
- * and looks Claude's up in its own model table -- so nothing here maps a model
- * name to a number. `null` means the sidecar has no window for the model, and
- * the meter shows a bare count instead of a fraction of a guess.
+ * Latest context-window occupancy for the session. `limit` arrives already
+ * resolved, so nothing here maps a model name to a number. `null` means the
+ * sidecar has no window for the model, and the meter shows a bare count
+ * instead of a fraction of a guess.
  */
 export interface TokenUsage {
   current: number;
@@ -90,6 +88,8 @@ export interface TokenUsage {
    *  is when re-reading it stops being cheap. Resolved by the sidecar from the
    *  request's own cache breakdown; absent where the provider reports none. */
   cacheTtlMs?: number;
+  /** Session lifetime spend in USD, where the backend reports one. */
+  cost?: number;
 }
 
 interface State {

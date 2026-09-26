@@ -141,6 +141,32 @@ function ModelChip({ model }: { model: string | undefined }) {
 }
 
 /**
+ * Dollars the way the opencode TUI says them: `Intl` USD, shown only past zero, so a free
+ * model reads as no figure rather than `$0.00`.
+ */
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+/**
+ * The session's lifetime spend, beside the count the way the TUI sets it: `tokens (percent)
+ * · $cost`. Carried on the usage rather than looked up, because it arrives on the same
+ * reading from the sidecar. Rendered only where a backend reported one, which today is
+ * opencode sessions alone -- Claude and Codex name no dollar figure on theirs.
+ */
+function CostChip({ cost }: { cost: number | undefined }) {
+  if (cost === undefined || !(cost > 0)) return null;
+  const text = usd.format(cost);
+  return (
+    <span
+      title={`Session cost: ${text}`}
+      aria-label={`Session cost ${text}`}
+      className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums text-muted-foreground"
+    >
+      {text}
+    </span>
+  );
+}
+
+/**
  * Occupancy as a compact count, with a fill bar when the window is known, and the figures behind
  * both on hover or a click.
  *
@@ -274,6 +300,7 @@ export function TokenMeter({
           </span>
         )}
       </button>
+      <CostChip cost={usage.cost} />
       {open ? (
         <TokenMeterDetails
           usage={usage}

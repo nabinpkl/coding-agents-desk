@@ -355,6 +355,11 @@ export class OpencodeSessionPool {
         // the totals only for a session that has never reported a window at all.
         const windowTokens = currentWindowTokens(messages);
         const totals = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;
+        // The session's lifetime spend in USD, straight off `session.get cost` -- the same
+        // figure the TUI formats beside its meter. Read, never computed: cost math belongs
+        // to the side that prices. Absent (not zero) when the serve names none.
+        const rawCost = (session as { cost?: unknown } | undefined)?.cost;
+        const cost = typeof rawCost === "number" && Number.isFinite(rawCost) ? rawCost : undefined;
         if (windowTokens !== null) {
           current.usage = {
             current: windowTokens,
@@ -364,6 +369,7 @@ export class OpencodeSessionPool {
             limit: await this.modelLimit(modelKey),
             updatedAt: this.now(),
             model: modelKey,
+            cost,
           };
         } else if (lastCompletedCompactionIndex(messages) !== -1) {
           current.usage = null;
@@ -373,6 +379,7 @@ export class OpencodeSessionPool {
             limit: await this.modelLimit(modelKey),
             updatedAt: this.now(),
             model: modelKey,
+            cost: cost ?? current.usage?.cost,
           };
         }
       }
