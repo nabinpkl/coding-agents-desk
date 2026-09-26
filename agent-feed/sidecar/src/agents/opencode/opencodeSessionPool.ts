@@ -403,7 +403,7 @@ export class OpencodeSessionPool {
       }
       const historyBoundaryId = latestCompletedCompactionId(history);
       if (replace || historyBoundaryId !== null) current.compactionBoundaryId = historyBoundaryId;
-      this.streaming.forget(sessionId, history);
+      this.streaming.settle(sessionId, history);
       this.imageStore.store(sessionId, result.images);
       // The meter's own rules, and the gap a compaction leaves in them, live in one place.
       const meter = await readOpencodeMeter({

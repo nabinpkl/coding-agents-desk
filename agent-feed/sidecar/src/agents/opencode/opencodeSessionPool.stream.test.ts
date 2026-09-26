@@ -183,6 +183,41 @@ describe("the opencode pool, streaming a turn", () => {
     await h.dispose();
   });
 
+  it("keeps a running row whole when a read draws it mid-write", async () => {
+    // The serve inserts a message into its history while the step is still writing it, so a
+    // refresh can name the running message with parts the deltas never mentioned. Measured on a
+    // live turn: the row drew as a thinking line, went text-only at the next delta, and the
+    // thinking came back when the step ended. The row a reader is following must not lose what
+    // it already had.
+    const h = harness();
+    const stop = await openAndWatch(h);
+    h.settle([{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1 },
+      agent: "build",
+      model: { id: "m", providerID: "opencode-go" },
+      content: [{ type: "reasoning", text: "" }, { type: "text", text: "" }],
+    } as unknown as SessionMessage]);
+    h.push({ type: "session.step.started", data: { sessionID: "s1", assistantMessageID: "msg-1" } });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const drawn = await h.pool.page("s1", 0, 10, "nice");
+    expect(drawn.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "" }]);
+
+    h.push({ type: "session.text.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
+    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const streamed = await h.pool.page("s1", 0, 10, "nice");
+    // The thinking line is still there, and the text joined it rather than replacing the row.
+    expect(streamed.events[0]?.blocks).toEqual([
+      { kind: "reasoning", text: "" },
+      { kind: "text", text: "the answer" },
+    ]);
+    expect(streamed.total).toBe(1);
+    await stop();
+    await h.dispose();
+  });
+
   it("forgets the running message, so a late event for it cannot overwrite the settled row", async () => {
     const h = harness([{
       id: "msg-1",

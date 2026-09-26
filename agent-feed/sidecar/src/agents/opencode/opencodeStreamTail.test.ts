@@ -19,9 +19,12 @@ function part(over: Partial<OpencodeStreamedPart> = {}): OpencodeStreamedPart {
   return { kind: "text", phase: "delta", messageId: "msg-1", ordinal: 0, chunk: "hello", ...over };
 }
 
+function contentOf(message: SessionMessage | null): { type: string; text: string }[] {
+  return (message as { content?: { type: string; text: string }[] } | null)?.content ?? [];
+}
+
 function textOf(message: SessionMessage | null): string {
-  const parts = (message as { content?: { type: string; text: string }[] } | null)?.content ?? [];
-  return parts.filter((entry) => entry.type === "text").map((entry) => entry.text).join("");
+  return contentOf(message).filter((entry) => entry.type === "text").map((entry) => entry.text).join("");
 }
 
 describe("opencode stream tail", () => {
@@ -90,22 +93,85 @@ describe("opencode stream tail", () => {
     expect(textOf(drawn)).toBe("second step");
   });
 
-  it("forgets a running message a durable read has answered for", () => {
+  it("forgets a running message a durable read has finished", () => {
     const tail = new OpencodeStreamTail();
     tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
     tail.apply(SESSION, part({ chunk: "settled" }), 1);
-    tail.forget(SESSION, [{ id: "msg-other" }, { id: "msg-1" }]);
-    // Rebuilt from scratch, so the first delta after a forget has no part to extend and the row
-    // waits for the durable read rather than showing one line of a message the serve wrote whole.
+    tail.settle(SESSION, [
+      { id: "msg-1", type: "assistant", time: { created: 1, completed: 2 } },
+    ] as unknown as SessionMessage[]);
+    expect(tail.holds(SESSION, "msg-1")).toBe(false);
+    // Rebuilt from scratch, so the first delta after the handoff has no part to extend and the
+    // row waits for the durable read rather than showing one line of a message the serve wrote.
     expect(tail.apply(SESSION, part({ chunk: "more" }), 1)).toBeNull();
   });
 
-  it("keeps a running message a read did not answer for", () => {
+  it("keeps a running message a read did not name", () => {
     const tail = new OpencodeStreamTail();
     tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
     tail.apply(SESSION, part({ chunk: "still writing" }), 1);
-    tail.forget(SESSION, [{ id: "msg-other" }]);
+    tail.settle(SESSION, [{ id: "msg-other" }] as unknown as SessionMessage[]);
     expect(textOf(tail.apply(SESSION, part({ chunk: " more" }), 1))).toBe("still writing more");
+  });
+
+  it("keeps a part the read has not finished, so a mid-write row is not replaced by a thinner one", () => {
+    // The shape the live turn showed: the serve inserts a message into its history while the
+    // step still writes it, so a read names the running message with a reasoning part the
+    // stream never saw. Dropping the tail there and rebuilding it from the next delta drew a
+    // message holding only text, which replaced the row that had the reasoning block in it --
+    // the thinking vanished mid-stream and came back when the step ended.
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ chunk: "the answer so far" }), 1);
+    tail.settle(SESSION, [{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1 },
+      content: [
+        { type: "reasoning", text: "" },
+        { type: "text", text: "the answer" },
+      ],
+    }] as unknown as SessionMessage[]);
+    expect(tail.holds(SESSION, "msg-1")).toBe(true);
+    const drawn = tail.apply(SESSION, part({ chunk: " and more" }), 1);
+    expect(contentOf(drawn)).toEqual([
+      { type: "reasoning", text: "" },
+      { type: "text", text: "the answer so far and more" },
+    ]);
+  });
+
+  it("seeds a part the stream never opened, and keeps the longer text where a read is behind", () => {
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ kind: "text", phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ kind: "text", chunk: "written ahead of the file" }), 1);
+    tail.settle(SESSION, [{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1 },
+      content: [
+        { type: "reasoning", text: "thinking the serve has" },
+        { type: "text", text: "written ahead" },
+      ],
+    }] as unknown as SessionMessage[]);
+    const drawn = tail.apply(SESSION, part({ kind: "text", chunk: " and more" }), 1);
+    expect(contentOf(drawn)).toEqual([
+      { type: "reasoning", text: "thinking the serve has" },
+      { type: "text", text: "written ahead of the file and more" },
+    ]);
+  });
+
+  it("takes the durable text when it is the longer one, so the settled row reads as the serve wrote it", () => {
+    const tail = new OpencodeStreamTail();
+    tail.apply(SESSION, part({ phase: "started", chunk: undefined }), 1);
+    tail.apply(SESSION, part({ chunk: "a chunk" }), 1);
+    tail.settle(SESSION, [{
+      id: "msg-1",
+      type: "assistant",
+      time: { created: 1 },
+      content: [{ type: "text", text: "a chunk, and the rest of it that the deltas never sent" }],
+    }] as unknown as SessionMessage[]);
+    const drawn = tail.apply(SESSION, part({ chunk: "!" }), 1);
+    expect(textOf(drawn)).toBe("a chunk, and the rest of it that the deltas never sent!");
   });
 
   it("draws a streamed message through the same mapper as a durable one", () => {

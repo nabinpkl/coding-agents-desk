@@ -103,7 +103,7 @@ shape is deliberately minimal — `type`, `time.created`, `content` — because 
 mapper's assistant branch reads, and a cast is the honest way to say a synthesized envelope is
 not a promise about the whole `SessionMessage` union.
 
-Three seams decide what is drawn, and each is a place where the cheaper answer would be a lie:
+Four seams decide what is drawn, and each is a place where the cheaper answer would be a lie:
 
 - **A part is not drawn before it has words.** `started` names a part that is empty; drawing the
   row and filling it a moment later is a flash, not a stream.
@@ -113,6 +113,21 @@ Three seams decide what is drawn, and each is a place where the cheaper answer w
 - **A streamed message never carries `time.completed`.** Its row reads as streaming however long
   the words run, because the read at the end of the step is what closes it, and that read is also
   what brings the tool parts, tokens and cost the deltas never name.
+- **A read is the STARTING RECORD for the stream, not the end of it.** This one was measured
+  rather than reasoned. The serve inserts a message into its history while the step is still
+  writing it, so a read that names the running message is a snapshot of a row mid-write. Treating
+  the first such read as the answer dropped the tail, and the next delta rebuilt a message holding
+  only the part it had seen since -- a thinner record that replaced a row which had a reasoning
+  block in it. On a live turn the row drew as a thinking line, went text-only at the next delta,
+  and the thinking came back when the step ended: a rewind a reader watches happen, which is what
+  "the tail is overwritten and settles on the transcription" looks like from the outside.
+
+So a read is merged rather than obeyed. A message the read draws as finished is dropped, because
+that is the one moment the durable row is the whole story. A message the read draws as still being
+written is adopted, whether or not the tail already holds it, so a delta arriving afterwards
+extends what the row already shows. Where both know a part, the longer text wins: a read can be
+behind the stream still writing it, and a read can carry words no delta ever sent. The invariant
+is that a streamed upsert is never thinner than the row it replaces, which is the whole of it.
 
 Tool events deliberately still buy a read. A tool row needs its input, its output and its state
 together, and the deltas carry them in pieces; a partial tool row is a call with no result under
