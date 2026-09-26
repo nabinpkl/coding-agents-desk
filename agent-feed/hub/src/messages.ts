@@ -19,6 +19,9 @@ export const LIMITS = {
   maxHops: 6,
   ratePerWindow: 20,
   rateWindowMs: 10 * 60 * 1000,
+  /** The owner's surfaces send when a person does, so their ceiling is far above ordinary use. */
+  humanPerWindow: 60,
+  humanWindowMs: 10 * 60 * 1000,
   threadMessages: 200,
   ttlMs: 7 * 24 * 3600 * 1000,
 } as const;
@@ -27,7 +30,16 @@ export class InvalidMessage extends Error {}
 export class Forbidden extends Error {}
 export class NotFound extends Error {}
 export class Refused extends Error {}
-export class RateLimited extends Error {}
+export class RateLimited extends Error {
+  /** What a refused caller should wait, when the refusal came from a budget rather than a rule. */
+  readonly retryAfterSeconds: number | undefined;
+
+  constructor(message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "RateLimited";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 /** A live stream to one session: where pushes go. */
 export interface SessionStream {
@@ -125,6 +137,15 @@ export class Messages {
     if (fromKind === "agent") {
       const since = new Date(now.getTime() - LIMITS.rateWindowMs).toISOString();
       if (this.store.sentSince(from, since) >= LIMITS.ratePerWindow) throw new RateLimited(`${from} sent ${LIMITS.ratePerWindow} messages in 10 minutes`);
+    } else {
+      // The owner's own surfaces get a budget too, and a far more generous one. They send when a
+      // person does: a panel reply, an annotator Send. Leaving the human path unlimited meant the
+      // one principal that can post as the owner was the one a leaked token could spam from, with
+      // nothing counting. Sixty in ten minutes is far above a person typing and far below a loop.
+      const since = new Date(now.getTime() - LIMITS.humanWindowMs).toISOString();
+      if (this.store.sentSince(from, since) >= LIMITS.humanPerWindow) {
+        throw new RateLimited(`${from} sent ${LIMITS.humanPerWindow} messages in 10 minutes`);
+      }
     }
     if (parent && this.store.threadSize(threadId) >= LIMITS.threadMessages) throw new Refused(`thread is at ${LIMITS.threadMessages} messages; start a new one`);
 

@@ -5,6 +5,7 @@ import { Unauthorized, type Verifier } from "@/auth";
 import type { Principal } from "@/config";
 import { isAddress, SESSION_ID, sessionAddress } from "@/directory";
 import { Forbidden, InvalidMessage, Messages, NotFound, RateLimited, Refused, type SessionStream } from "@/messages";
+import { RateLimiter } from "@/ratelimit";
 
 const HEARTBEAT_MS = 25_000;
 const MAX_BODY = 64 * 1024;
@@ -13,10 +14,19 @@ export interface RouteDeps {
   messages: Messages;
   verify: Verifier;
   log: (line: Record<string, unknown>) => void;
+  /** Per-principal budgets. Injected so a test can hand in small numbers instead of waiting. */
+  limiter?: RateLimiter;
 }
 
-function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status });
+/** What a refusal should cost the caller, and how the routes are sorted into the two budgets. */
+function budgetFor(method: string, path: string): "writes" | "reads" | null {
+  if (path === "/health") return null;
+  if (path.startsWith("/v1/stream")) return null; // Held open and counted separately, not per request.
+  return method === "GET" ? "reads" : "writes";
+}
+
+function json(data: unknown, status = 200, headers?: Record<string, string>): Response {
+  return Response.json(data, headers ? { status, headers } : { status });
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {
@@ -37,13 +47,21 @@ function errorResponse(error: unknown, log: RouteDeps["log"], path: string): Res
   if (error instanceof Forbidden) return json({ error: error.message }, 403);
   if (error instanceof NotFound) return json({ error: error.message }, 404);
   if (error instanceof Refused) return json({ error: error.message }, 409);
-  if (error instanceof RateLimited) return json({ error: error.message }, 429);
+  if (error instanceof RateLimited) {
+    // Retry-After, because a caller told only "no" retries at once and turns one loop into two.
+    return error.retryAfterSeconds === undefined
+      ? json({ error: error.message }, 429)
+      : json({ error: error.message }, 429, { "retry-after": String(error.retryAfterSeconds) });
+  }
   if (error instanceof InvalidMessage) return json({ error: error.message }, 400);
   log({ level: "error", path, error: error instanceof Error ? (error.stack ?? error.message) : String(error) });
   return json({ error: "internal error" }, 500);
 }
 
-function openStream(deps: RouteDeps, principal: Principal, url: URL): Response {
+function openStream(deps: RouteDeps, principal: Principal, url: URL, clientId: string): Response {
+  // Claimed before the stream exists and released when it ends, because a stream is held for hours
+  // and the number of them is the resource that runs out. One machine holds one per live session.
+  const release = deps.limiter?.holdStream(clientId) ?? (() => {});
   const sessionId = url.searchParams.get("session") ?? "";
   const sourceName = url.searchParams.get("source") ?? "claude";
   const source = sourceName === "opencode" ? "opencode" : "claude";
@@ -59,6 +77,7 @@ function openStream(deps: RouteDeps, principal: Principal, url: URL): Response {
   const close = () => {
     if (heartbeat) clearInterval(heartbeat);
     if (address) deps.messages.disconnect(address, streamId);
+    release();
   };
   const write = (text: string) => {
     try {
@@ -71,25 +90,36 @@ function openStream(deps: RouteDeps, principal: Principal, url: URL): Response {
     id: streamId,
     push: (event) => write(`data: ${JSON.stringify({ ...event, streamId })}\n\n`),
   };
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      controller = c;
-      address = deps.messages.connect(principal, { source, sessionId, channel, cwd, title }, stream);
-      heartbeat = setInterval(() => write(": heartbeat\n\n"), HEARTBEAT_MS);
-      deps.log({ event: "stream-open", address, channel, who: principal.label });
-    },
-    cancel() {
-      deps.log({ event: "stream-close", address, who: principal.label });
-      close();
-    },
-  });
+  let body: ReadableStream<Uint8Array>;
+  try {
+    body = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+        address = deps.messages.connect(principal, { source, sessionId, channel, cwd, title }, stream);
+        heartbeat = setInterval(() => write(": heartbeat\n\n"), HEARTBEAT_MS);
+        deps.log({ event: "stream-open", address, channel, who: principal.label });
+      },
+      cancel() {
+        deps.log({ event: "stream-close", address, who: principal.label });
+        close();
+      },
+    });
+  } catch (error) {
+    // The slot was claimed before any of this, and a stream that never opened must give it back.
+    release();
+    throw error;
+  }
   return new Response(body, {
     headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" },
   });
 }
 
 async function route(deps: RouteDeps, request: Request, url: URL): Promise<Response> {
-  const principal = await deps.verify(request.headers.get("cf-access-jwt-assertion"));
+  const { principal, clientId } = await deps.verify(request.headers.get("cf-access-jwt-assertion"));
+  // Spent before the route runs, so a caller in a loop is refused at the door rather than after
+  // doing the work it was hammering. /health and streams are handled by their own rules.
+  const budget = budgetFor(request.method, url.pathname);
+  if (budget) deps.limiter?.take(clientId, budget, `${request.method} ${url.pathname}`);
   const { messages } = deps;
   const path = url.pathname;
   const method = request.method;
@@ -100,7 +130,7 @@ async function route(deps: RouteDeps, request: Request, url: URL): Promise<Respo
     if (!SESSION_ID.test(url.searchParams.get("session") ?? "")) throw new InvalidMessage("session must be a session id");
     const source = url.searchParams.get("source") ?? "claude";
     if (source !== "claude" && source !== "opencode") throw new InvalidMessage("source must be claude or opencode");
-    return openStream(deps, principal, url);
+    return openStream(deps, principal, url, clientId);
   }
   if (method === "GET" && path === "/v1/directory") return json(messages.directory.list(Date.now()));
   if (method === "POST" && path === "/v1/messages") {

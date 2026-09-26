@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { createVerifier } from "@/auth";
 import { loadConfig } from "@/config";
 import { Messages } from "@/messages";
+import { RateLimiter } from "@/ratelimit";
 import { createFetch } from "@/routes";
 import { HubStore } from "@/store";
 
@@ -21,7 +22,7 @@ const server = Bun.serve({
   port: config.port,
   // Streams hold connections open; the heartbeat keeps them under this.
   idleTimeout: 60,
-  fetch: createFetch({ messages, verify: createVerifier(config), log }),
+  fetch: createFetch({ messages, verify: createVerifier(config), log, limiter: new RateLimiter() }),
 });
 
 const sweep = setInterval(() => {
