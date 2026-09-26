@@ -18,6 +18,11 @@ services:
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:?set in deploy/.env}
       ANNOTATOR_ALLOWED_EMAILS: ${ANNOTATOR_ALLOWED_EMAILS:?set in deploy/.env}
       ANNOTATOR_ALLOWED_SERVICE_TOKENS: ${ANNOTATOR_ALLOWED_SERVICE_TOKENS:-}
+      # The agent hub, for Send. The Access service token is minted by the hub's own Access app,
+      # not this one; see deploy/cloudflare.md for what has to exist before this starts.
+      HUB_URL: ${HUB_URL:?set in deploy/.env}
+      HUB_ACCESS_CLIENT_ID: ${HUB_ACCESS_CLIENT_ID:?set in deploy/.env}
+      HUB_ACCESS_CLIENT_SECRET: ${HUB_ACCESS_CLIENT_SECRET:?set in deploy/.env}
     volumes:
       - annotator-data:/data
     healthcheck:

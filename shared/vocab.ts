@@ -20,3 +20,12 @@ export function tagGuide(): string {
 export const STATUSES = ["open", "resolved"] as const;
 export const ACTORS = ["user", "agent"] as const;
 export const SCREENSHOT_MIMES = ["image/jpeg", "image/png"] as const;
+
+/**
+ * Where a message the panel sent is, from the hub's own vocabulary.
+ *
+ * The hub owns these; the annotator only displays them. `queued` is the state the moment Send
+ * returns, and the rest are what the receiving session did with it, so a reader who sends to a
+ * session with nobody at the keyboard sees `queued` rather than a failure.
+ */
+export const SEND_STATES = ["queued", "pushed", "delivered", "answered", "expired", "cancelled"] as const;

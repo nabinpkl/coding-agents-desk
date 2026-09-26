@@ -3,6 +3,7 @@
 import { Hono } from "hono";
 import * as z from "zod";
 import { NewAnnotation, ReplyInput, ScreenshotUpload, Status } from "../../../shared/annotation.ts";
+import { SendQuery, SendRequest } from "../../../shared/send.ts";
 import type { AnnotationService } from "../service/annotations.ts";
 import type { AppEnv } from "./app.ts";
 
@@ -52,6 +53,20 @@ export function restRoutes(service: AnnotationService): Hono<AppEnv> {
   api.get("/annotations/:id/screenshot", (c) => {
     const shot = service.getScreenshot(IdParam.parse(c.req.param("id")));
     return c.body(new Uint8Array(shot.bytes), 200, { "content-type": shot.mime, "cache-control": "private, max-age=300" });
+  });
+
+  // ----- Send -----
+
+  api.get("/recipients", async (c) => c.json(await service.recipients()));
+
+  api.post("/send", async (c) => {
+    const { ids, to } = SendRequest.parse(await c.req.json());
+    return c.json(await service.send(ids, to), 201);
+  });
+
+  api.get("/sends", async (c) => {
+    const { ids } = SendQuery.parse(c.req.query());
+    return c.json(await service.sends(ids));
   });
 
   return api;

@@ -62,4 +62,17 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE annotations_next RENAME TO annotations;
   CREATE INDEX annotations_status_updated ON annotations (status, updated_at);
   `,
+  // Which hub message carried each annotation to an agent (Send in the panel). The message's
+  // state lives in the hub; this table only links the two.
+  `
+  CREATE TABLE sends (
+    annotation_id INTEGER NOT NULL REFERENCES annotations (id) ON DELETE CASCADE,
+    message_id    TEXT NOT NULL,
+    to_addr       TEXT NOT NULL,
+    to_name       TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (annotation_id, message_id)
+  );
+  CREATE INDEX sends_annotation ON sends (annotation_id, created_at);
+  `,
 ];

@@ -3,6 +3,7 @@
  * state it is given and reports user intent through handlers. Page and user
  * text only ever reaches the DOM through textContent. */
 import type { Annotation, Tag } from "../../../shared/annotation.ts";
+import type { Recipient, SendInfo, SendState } from "../../../shared/send.ts";
 import { DEFAULT_TAG, TAG_MEANINGS, TAGS } from "../../../shared/vocab.ts";
 import { icon, type IconName } from "./icons.ts";
 import { PANEL_CSS } from "./styles.ts";
@@ -18,6 +19,76 @@ const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; title: string }> 
   { mode: "region", label: "Region", title: "Drag a rectangle to annotate and screenshot it" },
 ];
 
+/** Where a send has got to, said in the reader's terms rather than the hub's. */
+const STATE_TEXT: Record<SendState, string> = {
+  queued: "waiting for that session",
+  pushed: "handed to that session",
+  delivered: "delivered",
+  answered: "answered",
+  expired: "expired unanswered",
+  cancelled: "cancelled",
+};
+
+/** The states after which nothing more will happen, so there is no point polling for them. */
+export const SETTLED_STATES: ReadonlySet<SendState> = new Set<SendState>(["answered", "expired", "cancelled"]);
+
+/** A home directory has no useful last segment of its own, and the root has none at all. */
+function dirLabel(cwd: string | null): string {
+  if (!cwd) return "unknown";
+  const parts = cwd.split("/").filter(Boolean);
+  if (parts.length === 0) return "root";
+  // /Users/dev and /home/ubuntu are both "somebody's home", and putting the person's name in a
+  // group label helps nobody. The agent-desk picker labels them the same way, on purpose.
+  if (parts.length === 2 && (parts[0] === "home" || parts[0] === "Users")) return "home";
+  return parts[parts.length - 1]!;
+}
+
+export interface RecipientGroup {
+  label: string;
+  entries: Array<{ address: string; label: string }>;
+}
+
+/**
+ * The recipient list, as the two sections it actually is.
+ *
+ * A Bot is not something to send to: the hub resolves `bot:<id>` to whichever member session is
+ * live when the message lands, which is a rule the reader cannot see. So a Bot is a group label
+ * and its sessions are the choices, and a session that belongs to one appears under it and again
+ * under its machine, which is what makes both "the session under this Bot" and "the session in
+ * that directory" findable.
+ *
+ * Two sessions can share a name. When they do, the address becomes the tail, because a reader
+ * choosing between "annotator probe" and "annotator probe" has to be able to tell them apart.
+ */
+export function recipientGroups(recipients: Recipient[]): RecipientGroup[] {
+  const botNames = new Map(recipients.filter((r) => r.address.startsWith("bot:")).map((r) => [r.address, r.name]));
+  const bots = new Map<string, Recipient[]>();
+  const sessions = new Map<string, Recipient[]>();
+  for (const entry of recipients) {
+    // A Bot is a heading, never a choice: offering `bot:<id>` would send to whichever member
+    // session happened to be live, which is a rule the reader cannot see. Its address is not
+    // allowed into the sessions section, where it would look exactly like one.
+    if (entry.address.startsWith("bot:")) continue;
+    // Always under its machine and directory.
+    const where = `${entry.machine ?? "unknown machine"} · ${dirLabel(entry.cwd)}`;
+    sessions.set(where, [...(sessions.get(where) ?? []), entry]);
+    // And, when it belongs to one, under that Bot as well. The same session twice is the point:
+    // "the session under this Bot" and "the session in that directory" are both real questions,
+    // and answering one of them should not hide the answer to the other.
+    const bot = entry.related.find((a) => a.startsWith("bot:"));
+    if (bot) bots.set(bot, [...(bots.get(bot) ?? []), entry]);
+  }
+  const label = (entry: Recipient, group: Recipient[]): string => {
+    const base = entry.reachability === "reachable" ? entry.name : `${entry.name} · no live session`;
+    return group.filter((other) => other.name === entry.name).length > 1 ? `${base} (${entry.address})` : base;
+  };
+  const render = (group: Recipient[]): Array<{ address: string; label: string }> => group.map((e) => ({ address: e.address, label: label(e, group) }));
+  return [
+    ...[...bots].map(([key, group]) => ({ label: `All bots · ${botNames.get(key) ?? key.replace(/^bot:/, "")}`, entries: render(group) })),
+    ...[...sessions].map(([key, group]) => ({ label: `All sessions · ${key}`, entries: render(group) })),
+  ];
+}
+
 export interface PanelState {
   status: ConnStatus;
   statusDetail: string;
@@ -31,6 +102,14 @@ export interface PanelState {
   thumbs: ReadonlyMap<number, string>;
   replyOpen: number | null;
   replyDrafts: ReadonlyMap<number, string>;
+  /** Everyone the reader can send to, from the hub's directory. */
+  recipients: Recipient[];
+  /** The remembered address, or "" when there is nothing remembered to offer. */
+  to: string;
+  sending: boolean;
+  sendError: string;
+  /** Each annotation's newest send, so the item can say where it got to. */
+  sends: ReadonlyMap<number, SendInfo>;
 }
 
 export interface PanelHandlers {
@@ -53,6 +132,8 @@ export interface PanelHandlers {
   shoot(a: Annotation): void;
   save(text: string, tag: Tag): void;
   cancelForm(): void;
+  pickRecipient(address: string): void;
+  sendToAgent(): void;
 }
 
 declare const __BUILD__: { version: string; sha: string; at: string };
@@ -151,8 +232,40 @@ export function createPanel(on: PanelHandlers): Panel {
     light.hidden = true;
   });
 
-  const dock = h("div", { class: "dock" }, bar, list);
+  // ----- Send -----
+
+  const sendCount = h("span", { class: "send-count" });
+  const toSelect = h("select", { class: "send-to", "aria-label": "Send to" });
+  const sendBtn = iconButton("send", "Send these annotations to that session", on.sendToAgent);
+  const sendError = h("div", { class: "send-error", role: "alert" });
+  const sendBar = h("div", { class: "sendbar" }, h("div", { class: "send-row" }, sendCount, toSelect, sendBtn), sendError);
+  toSelect.addEventListener("click", (e) => e.stopPropagation());
+  toSelect.addEventListener("change", () => on.pickRecipient(toSelect.value));
+
+  const dock = h("div", { class: "dock" }, bar, sendBar, list);
   root.append(dock, form, light);
+
+  function renderSendBar(s: PanelState): void {
+    const open = s.items.filter((a) => a.status === "open");
+    // Nothing to send, or nowhere to send it: the row is taken away rather than shown disabled,
+    // because a control that cannot be used is a question the panel cannot answer.
+    const show = s.status === "connected" && open.length > 0;
+    sendBar.hidden = !show;
+    if (!show) return;
+    const who = s.recipients.find((r) => r.address === s.to);
+    sendCount.textContent = `Send ${open.length} to`;
+    toSelect.replaceChildren(
+      // A remembered address the directory no longer has is named rather than silently dropped, so
+      // the reader is not left wondering why their usual session is not in the list.
+      ...(who ? [] : [h("option", { value: "" }, s.to ? `${s.to} (no longer listed)` : "Pick a session")]),
+      ...recipientGroups(s.recipients).map((g) => h("optgroup", { label: g.label }, ...g.entries.map((e) => h("option", { value: e.address, title: e.label }, e.label)))),
+    );
+    toSelect.value = s.to;
+    sendBtn.disabled = !s.to || s.sending;
+    sendBtn.setAttribute("aria-busy", s.sending ? "true" : "false");
+    sendBtn.setAttribute("aria-label", who ? `Send ${open.length} annotations to ${who.name}` : "Send these annotations to that session");
+    sendError.textContent = s.sendError;
+  }
 
   function renderBar(s: PanelState): void {
     const dotTitle =
@@ -223,6 +336,17 @@ export function createPanel(on: PanelHandlers): Panel {
     }
     const err = s.errors.get(a.id);
     if (err) item.append(h("div", { class: "item-error", role: "alert" }, err));
+    const sent = s.sends.get(a.id);
+    if (sent) {
+      item.append(
+        h(
+          "div",
+          { class: "sent", "data-state": sent.state, title: `Hub message ${sent.messageId}` },
+          h("span", { class: "sent-to" }, sent.toName),
+          h("span", { class: "sent-state" }, `· ${STATE_TEXT[sent.state] ?? sent.state}`),
+        ),
+      );
+    }
     return item;
   }
 
@@ -243,6 +367,7 @@ export function createPanel(on: PanelHandlers): Panel {
     host,
     render(s) {
       renderBar(s);
+      renderSendBar(s);
       renderList(s);
     },
     show(visible) {

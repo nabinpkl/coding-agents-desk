@@ -4,9 +4,10 @@
  * the server has accepted it. */
 import type { Annotation, ElementMetadata, NewAnnotation, Tag } from "../../../shared/annotation.ts";
 import { buildBrief } from "../../../shared/brief.ts";
+import type { Recipient, SendInfo, SendOutcome } from "../../../shared/send.ts";
 import { send, type AuthStatus, type HttpMethod, type Result, type TabMessage } from "../messages.ts";
 import { captureElement, captureRegion, type Shot } from "./capture.ts";
-import { createPanel, HOST_ID, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
+import { createPanel, HOST_ID, SETTLED_STATES, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
 import { describeElement, findBySelector, pickContainer, regionAnchor } from "./picker.ts";
 import { createRegionSelector, type RegionSelector } from "./region.ts";
 
@@ -42,6 +43,27 @@ async function lastMode(): Promise<CaptureMode> {
   const v: unknown = (await chrome.storage.local.get(MODE_KEY))[MODE_KEY];
   return CAPTURE_MODES.find((m) => m === v) ?? "element";
 }
+
+/**
+ * Who the reader last sent to, remembered per site.
+ *
+ * Per origin rather than per page: the pick is about the person answering, not the URL, and a
+ * reader moving between pages of one site should not have to choose again. It is a preference, not
+ * an annotation, so chrome.storage is its home and the server never sees it.
+ */
+const TO_PREFIX = "sendTo:";
+
+function toKey(): string {
+  return `${TO_PREFIX}${location.origin}`;
+}
+
+async function rememberedRecipient(): Promise<string> {
+  const v: unknown = (await chrome.storage.local.get(toKey()))[toKey()];
+  return typeof v === "string" ? v : "";
+}
+
+/** How often the panel asks where a send has got to, while one is still moving. */
+const SEND_POLL_MS = 4000;
 
 declare global {
   interface Window {
@@ -79,6 +101,11 @@ function main(): void {
     thumbs: Map<number, string>;
     replyOpen: number | null;
     replyDrafts: Map<number, string>;
+    recipients: Recipient[];
+    to: string;
+    sending: boolean;
+    sendError: string;
+    sends: Map<number, SendInfo>;
   } = {
     status: "unknown",
     statusDetail: "",
@@ -92,6 +119,11 @@ function main(): void {
     thumbs: new Map(),
     replyOpen: null,
     replyDrafts: new Map(),
+    recipients: [],
+    to: "",
+    sending: false,
+    sendError: "",
+    sends: new Map(),
   };
 
   function render(): void {
@@ -137,6 +169,77 @@ function main(): void {
       state.items = res.data.sort((a, b) => a.id - b.id);
       state.thumbs.clear();
       for (const a of state.items) void loadThumb(a);
+    }
+    await pullRecipients();
+    await pullSends();
+    render();
+  }
+
+  // ----- Send -----
+
+  async function pullRecipients(): Promise<void> {
+    if (state.status !== "connected") return;
+    const res = await call<Recipient[]>("GET", "/api/v1/recipients");
+    if (!res.ok) return;
+    state.recipients = res.data;
+    // The remembered address is kept even when the directory does not have it, so the select can
+    // name it as gone rather than quietly sending somewhere else than the reader last chose.
+    if (!state.to) state.to = await rememberedRecipient();
+  }
+
+  /** Asks where each annotation's newest send has got to, and drops the ones no longer on this page. */
+  async function pullSends(): Promise<void> {
+    if (state.status !== "connected" || state.items.length === 0) return;
+    const ids = state.items.map((a) => a.id);
+    const res = await call<SendInfo[]>("GET", `/api/v1/sends?ids=${ids.join(",")}`);
+    if (!res.ok) return;
+    for (const info of res.data) state.sends.set(info.annotationId, info);
+    // A settled state is kept, not forgotten: "answered" is the answer to the reader's question,
+    // so an item that was sent to and came back with a reply still says so tomorrow. What is
+    // dropped is the record of an annotation that is no longer on this page.
+    const onPage = new Set(ids);
+    for (const id of [...state.sends.keys()]) if (!onPage.has(id)) state.sends.delete(id);
+  }
+
+  /**
+   * Keeps asking while a send is still moving.
+   *
+   * Only while one is unsettled: a delivered or answered message will not change, and a panel that
+   * polls forever is a request every four seconds for the rest of the reader's time on the page.
+   */
+  function pollSends(): void {
+    if (![...state.sends.values()].some((info) => !SETTLED_STATES.has(info.state))) return;
+    setTimeout(() => {
+      void pullSends().then(() => {
+        render();
+        pollSends();
+      });
+    }, SEND_POLL_MS);
+  }
+
+  async function sendToAgent(): Promise<void> {
+    const ids = state.items.filter((a) => a.status === "open").map((a) => a.id);
+    if (!state.to || ids.length === 0 || state.sending) return;
+    state.sending = true;
+    state.sendError = "";
+    render();
+    const res = await call<SendOutcome>("POST", "/api/v1/send", { ids, to: state.to });
+    state.sending = false;
+    if (res.ok) {
+      for (const id of res.data.annotationIds) {
+        state.sends.set(id, {
+          annotationId: id,
+          messageId: res.data.messageId,
+          to: res.data.to,
+          toName: res.data.toName,
+          state: res.data.state,
+          createdAt: res.data.sentAt,
+        });
+      }
+      pollSends();
+    } else {
+      // The annotations are untouched, and the panel says so rather than looking like it worked.
+      state.sendError = res.kind === "http" ? `Not sent: ${res.error}` : `Not sent: ${res.error}`;
     }
     render();
   }
@@ -359,6 +462,14 @@ function main(): void {
         void save(text, tag);
       },
       cancelForm,
+      pickRecipient(address) {
+        state.to = address;
+        void chrome.storage.local.set({ [toKey()]: address });
+        render();
+      },
+      sendToAgent() {
+        void sendToAgent();
+      },
     });
     return panel;
   }

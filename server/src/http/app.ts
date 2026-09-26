@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import * as z from "zod";
 import { Unauthorized, type AccessVerifier, type Identity } from "../auth/access-jwt.ts";
+import { HubRefused, HubUnreachable } from "../hub.ts";
 import type { McpEndpoint } from "../mcp/mcp-endpoint.ts";
 import { Conflict, InvalidInput, NotFound, type AnnotationService } from "../service/annotations.ts";
 import { restRoutes } from "./rest.ts";
@@ -66,6 +67,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     if (err instanceof InvalidInput) return c.json({ error: err.message }, 400);
+    // The hub said no, in words meant for the reader, so those words go back verbatim: a stale
+    // recipient pick is theirs to fix, not a server fault to report as one.
+    if (err instanceof HubRefused) return c.json({ error: err.message }, 400);
+    // The hub is unreachable or our own token is wrong. 502 says the fault is upstream, and the
+    // message names which credential, so the log is enough to act on.
+    if (err instanceof HubUnreachable) {
+      deps.log({ level: "error", path: c.req.path, hub: err.message });
+      return c.json({ error: err.message }, 502);
+    }
     deps.log({ level: "error", path: c.req.path, error: err.stack ?? String(err) });
     return c.json({ error: "internal error" }, 500);
   });

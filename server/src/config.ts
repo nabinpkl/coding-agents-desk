@@ -15,6 +15,13 @@ export interface Config {
   };
   /** Origins allowed to send an Origin header to /mcp. Requests without Origin are allowed. */
   mcpAllowedOrigins: string[];
+  /** The agent hub, for Send. Its Access token is minted from the same team as this server's. */
+  hub: {
+    url: string;
+    accessClientId: string;
+    accessClientSecret: string;
+    accessTokenUrl: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -25,6 +32,11 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 
 function list(v: string | undefined): string[] {
   return (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** A base URL with no trailing slash, so callers can append `/v1/...` without doubling it. */
+function baseUrl(env: NodeJS.ProcessEnv, name: string): string {
+  return required(env, name).replace(/\/+$/, "");
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -46,5 +58,13 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       allowedServiceTokens,
     },
     mcpAllowedOrigins: ["https://claude.ai", ...list(env.ANNOTATOR_MCP_ALLOWED_ORIGINS)],
+    hub: {
+      url: baseUrl(env, "HUB_URL"),
+      accessClientId: required(env, "HUB_ACCESS_CLIENT_ID"),
+      accessClientSecret: required(env, "HUB_ACCESS_CLIENT_SECRET"),
+      // The same team mints it, so the token endpoint is a fact about the team rather than a value
+      // to keep in step with HUB_URL.
+      accessTokenUrl: `https://${teamDomain}/cdn-cgi/access/token`,
+    },
   };
 }

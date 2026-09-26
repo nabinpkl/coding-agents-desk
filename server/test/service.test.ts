@@ -5,13 +5,15 @@ import path from "node:path";
 import { test } from "node:test";
 import { Conflict, createAnnotationService, NotFound } from "../src/service/annotations.ts";
 import { openSqliteStore } from "../src/store/sqlite-store.ts";
+import { createStubHub } from "./hub-stub.ts";
 
 function setup() {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "annotator-svc-")), "annotator.db");
   let tick = 0;
   const clock = () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)).toISOString();
   const store = openSqliteStore(file);
-  return { svc: createAnnotationService(store, clock), store };
+  const hub = createStubHub();
+  return { svc: createAnnotationService(store, hub, clock), store, hub };
 }
 
 const input = { url: "https://a.example/form", title: "Form", text: "Pad the button", tag: "bug" as const, metadata: { selector: "form > button", tagName: "BUTTON" } };

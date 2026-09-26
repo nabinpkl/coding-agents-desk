@@ -3,6 +3,8 @@
  * null. */
 import type { Actor, Annotation, CoverageItem, NewAnnotation } from "../../../shared/annotation.ts";
 import { buildBrief } from "../../../shared/brief.ts";
+import type { Recipient, SendInfo, SendOutcome, SendState } from "../../../shared/send.ts";
+import { HubUnreachable, type HubClient } from "../hub.ts";
 import type { AnnotationStore, ListFilter, Screenshot } from "../store/store.ts";
 
 export class NotFound extends Error {
@@ -45,7 +47,7 @@ const ELEMENTS_MAX_LIMIT = 200;
 
 export type AnnotationService = ReturnType<typeof createAnnotationService>;
 
-export function createAnnotationService(store: AnnotationStore, clock: () => string = () => new Date().toISOString()) {
+export function createAnnotationService(store: AnnotationStore, hub: HubClient, clock: () => string = () => new Date().toISOString()) {
   function mustGet(id: number): Annotation {
     const a = store.get(id);
     if (!a) throw new NotFound(`annotation ${id}`);
@@ -130,6 +132,73 @@ export function createAnnotationService(store: AnnotationStore, clock: () => str
     brief(url?: string): string {
       const open = store.list({ url, status: "open" });
       return buildBrief(open, { url: url || "all pages", title: "" });
+    },
+
+    // ----- Send: annotations to an agent session, over the hub -----
+
+    /**
+     * Everything the reader can send to, minus the owner.
+     *
+     * `human` is this surface, so offering it would let a reader message themselves. Bots stay in
+     * the list because the panel groups sessions under them; whether a Bot is itself a choice is
+     * the panel's call, and the hub is what refuses one.
+     */
+    async recipients(): Promise<Recipient[]> {
+      const entries = await hub.directory();
+      return entries.filter((entry) => entry.address !== "human");
+    },
+
+    /**
+     * Hand annotations to a session as one hub request.
+     *
+     * The hub gets the brief and a ref per annotation, so the receiving agent can ask about any of
+     * them by id through the tools it already has. The link back is written only after the hub has
+     * the message: a recorded send that never left is a lie the panel would show as `queued`.
+     */
+    async send(ids: number[], to: string): Promise<SendOutcome> {
+      const annotations = ids.map(mustGet);
+      // The schema asks for at least one, but this is an invariant of the use case rather than of
+      // one adapter, and an empty brief is not a thing to send.
+      const [page] = annotations;
+      if (!page) throw new InvalidInput("nothing to send");
+      const { url, title } = page;
+      // One brief names one page. Sending a brief that claims a URL the reader is not looking at
+      // is worse than refusing, so the invariant is here rather than in a schema.
+      if (annotations.some((a) => a.url !== url)) throw new InvalidInput("annotations from more than one page cannot be sent together");
+      const directory = await hub.directory();
+      const recipient = directory.find((entry) => entry.address === to);
+      if (!recipient) throw new NotFound(`no such recipient: ${to}`);
+
+      const message = await hub.send({
+        to,
+        body: buildBrief(annotations, { url, title }),
+        refs: annotations.map((a) => ({ app: "agentdesk-annotator", kind: "annotation", id: String(a.id), url: a.url })),
+      });
+      const sentAt = clock();
+      store.recordSend(ids, { messageId: message.id, to, toName: recipient.name, createdAt: sentAt });
+      return { messageId: message.id, to, toName: recipient.name, state: message.state, sentAt, annotationIds: ids };
+    },
+
+    /**
+     * Each annotation's newest send, with the state its message has reached.
+     *
+     * Annotations sent together share one message, so the states are fetched once per message
+     * rather than once per annotation. A hub that cannot be reached is an error here, not a blank
+     * state: "we do not know" and "delivered" must not look the same.
+     */
+    async sends(ids: number[]): Promise<SendInfo[]> {
+      const records = store.latestSends(ids);
+      const byMessage = new Map<string, Promise<SendState>>();
+      for (const record of records) {
+        if (byMessage.has(record.messageId)) continue;
+        byMessage.set(record.messageId, hub.message(record.messageId).then((m) => m.state));
+      }
+      const states = new Map(await Promise.all([...byMessage].map(async ([id, pending]) => [id, await pending] as const)));
+      return records.map((record) => {
+        const state = states.get(record.messageId);
+        if (state === undefined) throw new HubUnreachable(`hub returned no state for message ${record.messageId}`);
+        return { ...record, state };
+      });
     },
   };
 }

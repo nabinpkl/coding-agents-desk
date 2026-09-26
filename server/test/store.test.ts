@@ -146,3 +146,38 @@ test("the tag migration keeps rows, replies, screenshots, and the id high-water 
   assert.equal(inspect(file, "SELECT count(*) FROM screenshots"), 0);
   assert.equal(inspect(file, "PRAGMA user_version"), MIGRATIONS.length);
 });
+
+test("a send is recorded per annotation, and only the newest of each is reported", () => {
+  const store = openSqliteStore(tmpDb());
+  const a = store.insert(sample(), T0);
+  const b = store.insert({ ...sample(), text: "Second" }, T0);
+
+  store.recordSend([a.id, b.id], { messageId: "m1", to: "opencode:ses_1", toName: "Fix the header", createdAt: T0 });
+  store.recordSend([a.id], { messageId: "m2", to: "opencode:ses_2", toName: "Night shift", createdAt: T1 });
+
+  const latest = store.latestSends([a.id, b.id]);
+  assert.equal(latest.length, 2, "a is reported once, for its newest send");
+  const first = latest.find((s) => s.annotationId === a.id)!;
+  assert.equal(first.messageId, "m2");
+  assert.equal(first.toName, "Night shift");
+  assert.equal(latest.find((s) => s.annotationId === b.id)?.messageId, "m1");
+  store.close();
+});
+
+test("an annotation that was never sent has no send, and asking for none is not an error", () => {
+  const store = openSqliteStore(tmpDb());
+  const a = store.insert(sample(), T0);
+  assert.deepEqual(store.latestSends([a.id]), []);
+  assert.deepEqual(store.latestSends([]), [], "an empty list must not reach the IN () clause");
+  store.close();
+});
+
+test("deleting an annotation takes its sends with it", () => {
+  const file = tmpDb();
+  const store = openSqliteStore(file);
+  const a = store.insert(sample(), T0);
+  store.recordSend([a.id], { messageId: "m1", to: "opencode:ses_1", toName: "Fix the header", createdAt: T0 });
+  assert.equal(store.remove(a.id), true);
+  store.close();
+  assert.equal(inspect(file, "SELECT count(*) FROM sends"), 0);
+});

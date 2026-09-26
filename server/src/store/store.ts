@@ -24,6 +24,15 @@ export interface Screenshot {
   createdAt: string;
 }
 
+/** One annotation handed to an agent through the hub. */
+export interface SendRecord {
+  annotationId: number;
+  messageId: string;
+  to: string;
+  toName: string;
+  createdAt: string;
+}
+
 export interface AnnotationStore {
   insert(input: NewAnnotation, now: string): Annotation;
   get(id: number): Annotation | undefined;
@@ -34,6 +43,9 @@ export interface AnnotationStore {
   removeByUrl(url: string): number;
   putScreenshot(id: number, shot: Omit<Screenshot, "createdAt">, now: string): boolean;
   getScreenshot(id: number): Screenshot | undefined;
+  recordSend(annotationIds: number[], send: Omit<SendRecord, "annotationId">): void;
+  /** The newest send of each annotation that has one. */
+  latestSends(annotationIds: number[]): SendRecord[];
   /** Runs fn atomically; any throw rolls back every write made inside it. */
   transaction<T>(fn: () => T): T;
   close(): void;

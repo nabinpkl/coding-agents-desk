@@ -54,7 +54,7 @@ export const PANEL_CSS = `
 
 .dock { position: fixed; z-index: 2147483647; top: 12px; right: 12px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .dock[hidden], .list[hidden] { display: none; }
-.bar, .list, .form { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); box-sizing: border-box; }
+.bar, .list, .form, .sendbar { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); box-sizing: border-box; }
 .form { position: fixed; z-index: 2147483647; }
 .bar { max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 5px 5px 5px 10px; border-radius: 12px; }
 .bar .title { font-weight: 600; margin-right: 2px; }
@@ -90,7 +90,21 @@ button[aria-busy="true"] { cursor: progress; }
 .ghost { height: 28px; padding: 0 12px; border-color: var(--border); }
 
 .list { width: min(320px, 100%); min-height: 0; max-height: 60vh; overflow: auto; border-radius: var(--radius); padding: 4px; }
-.banner { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin: 2px; border-radius: var(--radius-sm); background: var(--surface-2); }
+
+/* Send sits between the toolbar and the list, as wide as the list, so the two read as one stack. */
+.sendbar { width: min(320px, 100%); border-radius: var(--radius); padding: 6px 8px; }
+.sendbar[hidden] { display: none; }
+.send-row { display: flex; align-items: center; gap: 6px; }
+.send-count { color: var(--ink-2); white-space: nowrap; }
+.send-to { flex: 1; min-width: 0; max-width: 100%; }
+.send-error { margin-top: 5px; color: var(--danger); font-size: 11px; }
+.send-error:empty { display: none; }
+
+.sent { display: flex; align-items: baseline; gap: 5px; margin: 3px 0 0 14px; font-size: 11px; color: var(--ink-2); }
+.sent-to { color: var(--ink); }
+.sent[data-state="queued"] .sent-state, .sent[data-state="pushed"] .sent-state { color: var(--warn); }
+.sent[data-state="delivered"] .sent-state, .sent[data-state="answered"] .sent-state { color: var(--ok); }
+.sent[data-state="expired"] .sent-state, .sent[data-state="cancelled"] .sent-state { color: var(--danger); }.banner { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin: 2px; border-radius: var(--radius-sm); background: var(--surface-2); }
 .banner span { flex: 1; }
 .empty { padding: 10px; color: var(--hint); }
 .item { padding: 7px 8px 7px 10px; margin: 2px; border-radius: var(--radius-sm); border-left: 3px solid var(--tag-bug); cursor: pointer; }

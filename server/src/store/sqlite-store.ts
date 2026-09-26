@@ -6,7 +6,7 @@ import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { Actor, Annotation, Coverage, ElementMetadata, NewAnnotation, Reply, Status, Tag } from "../../../shared/annotation.ts";
 import { MIGRATIONS } from "./migrations.ts";
-import type { AnnotationStore, ListFilter, Screenshot, StatusChange } from "./store.ts";
+import type { AnnotationStore, ListFilter, Screenshot, SendRecord, StatusChange } from "./store.ts";
 
 interface AnnotationRow {
   id: number;
@@ -80,6 +80,7 @@ export function openSqliteStore(file: string): AnnotationStore {
     putShot: db.prepare(`INSERT INTO screenshots (annotation_id, mime, bytes, coverage_json, created_at) VALUES (?, ?, ?, ?, ?)
                          ON CONFLICT (annotation_id) DO UPDATE SET mime = excluded.mime, bytes = excluded.bytes,
                            coverage_json = excluded.coverage_json, created_at = excluded.created_at`),
+    addSend: db.prepare("INSERT INTO sends (annotation_id, message_id, to_addr, to_name, created_at) VALUES (?, ?, ?, ?, ?)"),
     getShot: db.prepare("SELECT mime, bytes, coverage_json, created_at FROM screenshots WHERE annotation_id = ?"),
   };
 
@@ -201,6 +202,22 @@ export function openSqliteStore(file: string): AnnotationStore {
       const row = q.getShot.get(id) as { mime: string; bytes: Uint8Array; coverage_json: string; created_at: string } | undefined;
       if (!row) return undefined;
       return { mime: row.mime, bytes: row.bytes, coverage: JSON.parse(row.coverage_json) as Coverage, createdAt: row.created_at };
+    },
+
+    recordSend(annotationIds: number[], send: Omit<SendRecord, "annotationId">): void {
+      transaction(() => {
+        for (const id of annotationIds) q.addSend.run(id, send.messageId, send.to, send.toName, send.createdAt);
+      });
+    },
+
+    latestSends(annotationIds: number[]): SendRecord[] {
+      if (annotationIds.length === 0) return [];
+      const rows = db.prepare(`
+        SELECT s.annotation_id, s.message_id, s.to_addr, s.to_name, s.created_at FROM sends s
+        WHERE s.annotation_id IN (${annotationIds.map(() => "?").join(",")})
+          AND s.created_at = (SELECT max(created_at) FROM sends WHERE annotation_id = s.annotation_id)
+      `).all(...annotationIds) as Array<{ annotation_id: number; message_id: string; to_addr: string; to_name: string; created_at: string }>;
+      return rows.map((r) => ({ annotationId: r.annotation_id, messageId: r.message_id, to: r.to_addr, toName: r.to_name, createdAt: r.created_at }));
     },
 
     transaction,

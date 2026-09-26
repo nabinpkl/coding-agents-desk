@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { createAccessVerifier } from "./auth/access-jwt.ts";
 import { loadConfig } from "./config.ts";
 import { createApp } from "./http/app.ts";
+import { createHubClient } from "./hub.ts";
 import { createMcpEndpoint } from "./mcp/mcp-endpoint.ts";
 import { SERVER_NAME, SERVER_VERSION } from "./mcp/tools.ts";
 import { createAnnotationService } from "./service/annotations.ts";
@@ -15,7 +16,7 @@ function log(line: Record<string, unknown>): void {
 
 const config = loadConfig(process.env);
 const store = openSqliteStore(config.dbFile);
-const service = createAnnotationService(store);
+const service = createAnnotationService(store, createHubClient(config.hub));
 const mcp = createMcpEndpoint(service, (e) => log({ level: "error", source: "mcp", error: e.stack ?? String(e) }));
 const app = createApp({
   service,
