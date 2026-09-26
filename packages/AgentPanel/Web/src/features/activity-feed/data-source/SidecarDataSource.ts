@@ -200,25 +200,28 @@ export class SidecarDataSource extends SidecarBotDirectory implements AgentDataS
     );
   }
 
-  /** A POST, not a DELETE: the host relay admits GET and POST only. */
+  /**
+   * Drops references from a Bot's projection. A DELETE on the collection the POST above adds
+   * to: the verb is what keeps a body naming sessionRefs from reading as an attach.
+   */
   async detachBotSessions(
     botId: string,
     command: Omit<DetachBotSessionsCommand, "requestId">,
   ): Promise<BotView> {
     return parse<BotView>(
       await this.transport.request(
-        "POST",
-        `/api/bots/${encodeURIComponent(botId)}/sessions/detach`,
+        "DELETE",
+        `/api/bots/${encodeURIComponent(botId)}/sessions`,
         { body: { ...command, requestId: crypto.randomUUID() } },
       ),
     );
   }
 
   /**
-   * Stands a Bot's sessions in a new order, and answers with the Bot holding it. Its own path
-   * rather than the attach one, where a body naming sessionRefs ADDS them; it states the Bot's
-   * whole order and is refused unless that is exactly what the Bot holds, so a panel working from
-   * a roster that has moved is told rather than silently rewriting it.
+   * Stands a Bot's sessions in a new order, and answers with the Bot holding it. A PUT, because
+   * it names the Bot's whole order and is refused unless that is exactly what the Bot holds --
+   * a complete replacement. Its own path rather than the attach one, where a body naming
+   * sessionRefs ADDS them; stating the whole order is what makes a stale roster detectable.
    */
   async reorderBotSessions(
     botId: string,
@@ -226,7 +229,7 @@ export class SidecarDataSource extends SidecarBotDirectory implements AgentDataS
   ): Promise<BotView> {
     return parse<BotView>(
       await this.transport.request(
-        "POST",
+        "PUT",
         `/api/bots/${encodeURIComponent(botId)}/sessions/order`,
         { body: { ...command, requestId: crypto.randomUUID() } },
       ),
@@ -234,13 +237,14 @@ export class SidecarDataSource extends SidecarBotDirectory implements AgentDataS
   }
 
   /**
-   * Puts a Bot, or some of its sessions, on or off the canvas. Stored on the Bot's record, so every
-   * surface reading this machine sees the same canvas; the stream carries the change back.
+   * Puts a Bot, or some of its sessions, on or off the canvas. A PATCH, because each field left
+   * out is left as it is. Stored on the Bot's record, so every surface reading this machine sees
+   * the same canvas; the stream carries the change back.
    */
   async setBotCanvas(botId: string, command: SetBotCanvasCommand): Promise<BotView> {
     return parse<BotView>(
       await this.transport.request(
-        "POST",
+        "PATCH",
         `/api/bots/${encodeURIComponent(botId)}/canvas`,
         { body: command },
       ),

@@ -129,7 +129,7 @@ describe("App shell", () => {
         }],
       });
     });
-    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+    transport.responses.set("DELETE /api/bots/bot-1/sessions", {
       status: 200,
       body: JSON.stringify({ botId: "bot-1" }),
     });
@@ -142,11 +142,12 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
 
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach"))
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions"))
         .toEqual({
-          // A POST, because the host relay admits GET and POST only.
-          method: "POST",
-          path: "/api/bots/bot-1/sessions/detach",
+          // A DELETE on the collection the attach POST adds to: the verb keeps a body naming
+          // sessionRefs from reading as an attach.
+          method: "DELETE",
+          path: "/api/bots/bot-1/sessions",
           body: {
             requestId: expect.any(String),
             sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
@@ -185,7 +186,7 @@ describe("App shell", () => {
         }],
       });
     });
-    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+    transport.responses.set("DELETE /api/bots/bot-1/sessions", {
       status: 200,
       body: JSON.stringify({ botId: "bot-1" }),
     });
@@ -194,7 +195,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
 
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach")?.body)
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
         .toEqual({
           requestId: expect.any(String),
           sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],

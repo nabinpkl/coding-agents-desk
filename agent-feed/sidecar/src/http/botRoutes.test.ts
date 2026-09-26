@@ -117,7 +117,7 @@ test("maps registry conflicts to a typed 409 response", async () => {
   });
 });
 
-test("detaches sessions through a POST route the host relay can reach", async () => {
+test("detaches sessions with a DELETE on the sessions path", async () => {
   const calls: unknown[] = [];
   const registry = {
     async detachSessions(botId: string, command: unknown, actor: unknown) {
@@ -129,10 +129,10 @@ test("detaches sessions through a POST route the host relay can reach", async ()
     },
   } as unknown as BotRegistry;
   const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
-  // The relay admits GET and POST only, so removal is a POST to its own path rather than a DELETE
-  // on the attach path. `/sessions` and `/sessions/detach` must therefore stay distinguishable.
-  const request = new Request("http://localhost/api/bots/bot%201/sessions/detach", {
-    method: "POST",
+  // The verb says what the path cannot: POST on this path attaches, DELETE removes, so the
+  // two never share a reading of a body naming sessionRefs.
+  const request = new Request("http://localhost/api/bots/bot%201/sessions", {
+    method: "DELETE",
     body: JSON.stringify({
       requestId: "detach-1",
       sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
@@ -169,7 +169,7 @@ test("reorders sessions through a path of its own, so an order is never read as 
   } as unknown as BotRegistry;
   const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
   const request = new Request("http://localhost/api/bots/bot%201/sessions/order", {
-    method: "POST",
+    method: "PUT",
     body: JSON.stringify({
       requestId: "order-1",
       sessionRefs: [
@@ -196,16 +196,23 @@ test("reorders sessions through a path of its own, so an order is never read as 
   }]);
 });
 
-test("leaves a DELETE on the sessions path unmatched rather than answering it", async () => {
+test("leaves a POST on the sessions path to the attach route rather than detaching", async () => {
   const registry = {
     async detachSessions() {
-      throw new Error("a DELETE must not reach the registry");
+      throw new Error("a POST must not reach the detach path");
+    },
+    async addSessions() {
+      return { bot };
     },
   } as unknown as BotRegistry;
   const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
-  const request = new Request("http://localhost/api/bots/bot-1/sessions", { method: "DELETE" });
+  const request = new Request("http://localhost/api/bots/bot-1/sessions", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "attach-1", sessionRefs: [] }),
+  });
 
-  expect(await route(request, new URL(request.url), server)).toBeUndefined();
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(200);
 });
 
 test("routes a retire to its own path and hands the disposals through untouched", async () => {
@@ -220,8 +227,8 @@ test("routes a retire to its own path and hands the disposals through untouched"
     },
   } as unknown as BotRegistry;
   const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
-  // `/sessions`, `/sessions/detach` and `/sessions/retire` are three POSTs under one prefix, so the
-  // thing worth asserting is that the deepest one does not fall into either of the others.
+  // Detach moved onto the verb, so what is worth asserting is that the deepest path still does
+  // not fall into either of the others: DELETE removes, POST attaches, and retire keeps its own.
   const request = new Request("http://localhost/api/bots/bot%201/sessions/retire", {
     method: "POST",
     body: JSON.stringify({

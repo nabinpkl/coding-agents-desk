@@ -400,7 +400,7 @@ describe("App shell", () => {
         }],
       });
     });
-    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+    transport.responses.set("DELETE /api/bots/bot-1/sessions", {
       status: 200,
       body: JSON.stringify({ botId: "bot-1" }),
     });
@@ -413,9 +413,9 @@ describe("App shell", () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
     });
 
-    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach")).toEqual({
-      method: "POST",
-      path: "/api/bots/bot-1/sessions/detach",
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")).toEqual({
+      method: "DELETE",
+      path: "/api/bots/bot-1/sessions",
       body: {
         requestId: expect.any(String),
         sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
@@ -429,7 +429,7 @@ describe("App shell", () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
     });
     expect(
-      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions/detach").at(-1)?.body,
+      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions").at(-1)?.body,
     ).toEqual({
       requestId: expect.any(String),
       sessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],

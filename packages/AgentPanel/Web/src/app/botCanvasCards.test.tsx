@@ -414,7 +414,7 @@ describe("App shell", () => {
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
     fireEvent.click(canvas().getByRole("button", { name: /^Session Codex 01/ }));
 
-    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+    transport.responses.set("DELETE /api/bots/bot-1/sessions", {
       status: 500,
       body: JSON.stringify({
         error: { code: "detach-failed", message: "the Bot would not let go" },

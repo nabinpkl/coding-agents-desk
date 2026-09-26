@@ -301,7 +301,7 @@ describe("App shell", () => {
       // count says where the missing session went rather than pretending it was never there.
       expect(canvas().queryByRole("button", { name: /^Session Claude 01/ })).toBeNull();
       expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
-      expect(transport.requests.some((request) => request.path.endsWith("/sessions/detach"))).toBe(false);
+      expect(transport.requests.some((request) => request.method === "DELETE")).toBe(false);
       expect(screen.getByText("1 session, 1 off the canvas")).toBeInTheDocument();
 
       // Still in the roster, dimmed rather than dropped, and clicking it is the way back. It says

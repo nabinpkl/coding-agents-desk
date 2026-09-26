@@ -163,7 +163,7 @@ export function setup(terminalIds: string[] = []) {
 /**
  * Makes the fake sidecar keep the canvas the way the real one does: on the Bot records.
  *
- * Remembers the last Bot snapshot delivered, and answers `POST /api/bots/:id/canvas` by applying
+ * Remembers the last Bot snapshot delivered, and answers `PATCH /api/bots/:id/canvas` by applying
  * the command to it and publishing the new snapshot down the stream, as `botCanvas.ts` does.
  * Synchronously, inside the request, so a click and the canvas it changes land in one `act`.
  * `latest()` is what a reload would be sent.
@@ -178,7 +178,7 @@ function holdBotCanvas(transport: FakeHttpTransport): { latest: () => BotSnapsho
   const request = transport.request.bind(transport);
   transport.request = (method, path, options = {}) => {
     const canvas = /^\/api\/bots\/([^/]+)\/canvas$/.exec(path);
-    if (method !== "POST" || !canvas || !latest) return request(method, path, options);
+    if (method !== "PATCH" || !canvas || !latest) return request(method, path, options);
     const botId = decodeURIComponent(canvas[1]!);
     const command = options.body as SetBotCanvasCommand;
     const bots = latest.bots.map((bot) => bot.botId === botId ? applyCanvas(bot, command) : bot);

@@ -91,30 +91,30 @@ export function createBotRoutes(
     if (request.method === "POST" && sessionsMatch) {
       return addBotSessions(request, sessionsMatch[1]!, registry);
     }
-    // Removal is a POST to its own path rather than a DELETE on the one above, because the panel's
-    // only route to this sidecar inside the WKWebView is the host relay, and that relay admits GET
-    // and POST alone (`AgentFeedRelay.PathPolicy`). The allow-list is the boundary that keeps the
-    // relay from being an open local proxy, so it is worth spelling a verb around rather than
-    // widening.
-    const detachMatch = /^\/api\/bots\/([^/]+)\/sessions\/detach$/.exec(url.pathname);
-    if (request.method === "POST" && detachMatch) {
+    // Removal is a DELETE on the collection above: the verb says what the path cannot, and
+    // that is what keeps a body naming sessionRefs from reading as an attach. The relay is dead
+    // so no allow-list shapes this any more; the method is chosen for what the call does.
+    const detachMatch = /^\/api\/bots\/([^/]+)\/sessions$/.exec(url.pathname);
+    if (request.method === "DELETE" && detachMatch) {
       return detachBotSessions(request, detachMatch[1]!, registry);
     }
-    // Retiring is detaching plus everything the launch created, so it sits beside it and for the
-    // same reason: a POST rather than a DELETE, because the relay above admits two verbs.
+    // Retiring is detaching plus everything the launch created, so it keeps its own path while
+    // detaching moved onto the verb: a POST, because it triggers disposals rather than deleting a
+    // resource, and a body that would be meaningless on a DELETE.
     const retireMatch = /^\/api\/bots\/([^/]+)\/sessions\/retire$/.exec(url.pathname);
     if (request.method === "POST" && retireMatch) {
       return retireBotSessions(request, retireMatch[1]!, registry);
     }
-    // Reordering is neither of those: the same references, standing differently. Its own path for
-    // the same reason they have theirs -- `/sessions` is where a body naming sessionRefs ATTACHES
-    // them, so a reorder posted there would add every session the Bot already has.
+    // Reordering is neither of those: the same references, standing differently. A PUT, because
+    // the call names the Bot's whole order and is refused unless that is exactly what the Bot
+    // holds -- a complete replacement, not a patch. Its own path for the reason detach states:
+    // a body naming sessionRefs on `/sessions` ATTACHES them.
     const orderMatch = /^\/api\/bots\/([^/]+)\/sessions\/order$/.exec(url.pathname);
-    if (request.method === "POST" && orderMatch) {
+    if (request.method === "PUT" && orderMatch) {
       return reorderBotSessions(request, orderMatch[1]!, registry);
     }
     const canvasMatch = /^\/api\/bots\/([^/]+)\/canvas$/.exec(url.pathname);
-    if (request.method === "POST" && canvasMatch) {
+    if (request.method === "PATCH" && canvasMatch) {
       return setBotCanvas(request, canvasMatch[1]!, registry);
     }
     // One pass that brings every attached session's title into the anchor shape. A POST with no
