@@ -77,7 +77,7 @@ describe("sending with held images", () => {
       revokeObjectURL: vi.fn(),
     });
     try {
-      const { result } = renderHook(() => useSendAttachments());
+      const { result } = renderHook(() => useSendAttachments("opencode/s1"));
       await act(async () => {
         result.current.attach([new File(["bytes"], "shot.png", { type: "image/png" })]);
       });
@@ -105,7 +105,7 @@ describe("sending with held images", () => {
 
   it("sends text alone where no images are held", async () => {
     const onSendMessage = vi.fn(async () => {});
-    const { result } = renderHook(() => useSendAttachments());
+    const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     const m = model({
       editorValue: "plain",
       session: { source: "pi", sessionId: "p1" } as ComposerModel["session"],
@@ -146,7 +146,7 @@ describe("sending a slash command", () => {
   it("runs a listed command natively with the remainder as arguments", async () => {
     const onRunCommand = vi.fn(async () => {});
     const onSendMessage = vi.fn(async () => {});
-    const { result } = renderHook(() => useSendAttachments());
+    const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     const setLocalDraft = vi.fn();
     const m = model({
       editorValue: "/review the last commit",
@@ -168,7 +168,7 @@ describe("sending a slash command", () => {
   it("sends an unknown slash as text, which the serve reads literally", async () => {
     const onRunCommand = vi.fn(async () => {});
     const onSendMessage = vi.fn(async () => {});
-    const { result } = renderHook(() => useSendAttachments());
+    const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     const m = model({
       editorValue: "/nope nothing",
       session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
@@ -188,7 +188,7 @@ describe("sending a slash command", () => {
   it("opens the model picker for /models instead of running anything", async () => {
     const onOpenModels = vi.fn();
     const onRunCommand = vi.fn(async () => {});
-    const { result } = renderHook(() => useSendAttachments());
+    const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     const m = model({
       editorValue: "/models spark",
       session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],

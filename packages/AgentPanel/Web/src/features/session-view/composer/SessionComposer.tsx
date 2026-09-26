@@ -246,11 +246,10 @@ export function SessionComposer({
   useEffect(() => setEngaged(false), [source, sessionId]);
   const engage = useCallback(() => setEngaged(true), []);
   // Held here rather than in the pane: an opencode session has no pane, so picked images wait
-  // for the send instead. Cleared with the session, so a strip never rides into another thread.
-  const sendAttachments = useSendAttachments();
-  useEffect(() => {
-    sendAttachments.clear();
-  }, [source, sessionId, sendAttachments.clear]);  const tmuxComposer = useTmuxComposer(
+  // for the send instead. Keyed by the session, so a strip never rides into another thread and
+  // this thread's own staged images are still there when the reader comes back to it.
+  const sendAttachments = useSendAttachments(`${source}/${sessionId}`);
+  const tmuxComposer = useTmuxComposer(
     feed,
     tmuxComposerSession,
     isClaude && (engaged || question !== null),
