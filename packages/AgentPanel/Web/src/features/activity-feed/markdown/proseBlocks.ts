@@ -50,9 +50,19 @@ function sanitizeProse(html: string): string {
     DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
       if (data.attrName === "style") data.attrValue = scrubStyle(data.attrValue);
     });
+    // Feed links must never replace the panel: every anchor opens in a new
+    // tab. One enforcement point here covers both marked links and raw HTML
+    // links from the transcript, so neither renderer needs its own handling.
+    DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+      const el = node as Element | null;
+      if (el?.tagName === "A" && el.hasAttribute("href")) {
+        el.setAttribute("target", "_blank");
+        el.setAttribute("rel", "noopener noreferrer");
+      }
+    });
     styleHookInstalled = true;
   }
-  return DOMPurify.sanitize(html, { ADD_ATTR: ["style"] });
+  return DOMPurify.sanitize(html, { ADD_ATTR: ["style", "target", "rel"] });
 }
 
 /** A fenced block, however deep in the document it was written. */

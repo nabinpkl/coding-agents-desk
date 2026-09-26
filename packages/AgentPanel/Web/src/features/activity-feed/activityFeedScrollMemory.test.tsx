@@ -241,7 +241,7 @@ describe("where a session was left being read", () => {
     view.unmount();
   });
 
-  it("opens only the newest shell call's output by default", async () => {
+  it("keeps every shell call collapsed until opened on click", async () => {
     const shell = (index: number, callId: string, output: string): ActivityEvent => ({
       id: `claude:shell:${index}`,
       index,
@@ -258,7 +258,7 @@ describe("where a session was left being read", () => {
       shell(0, "shell-old", "old output"),
       shell(1, "shell-new", "new output"),
     ]);
-    expect(await screen.findByText("new output")).toBeTruthy();
+    expect(screen.queryByText("new output")).toBeNull();
     expect(screen.queryByText("old output")).toBeNull();
     view.unmount();
   });

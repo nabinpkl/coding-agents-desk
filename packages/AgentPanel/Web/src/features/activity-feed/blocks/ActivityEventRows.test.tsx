@@ -492,3 +492,4 @@ describe("block flow", () => {
     expect(container.querySelectorAll(".clear-left").length).toBeGreaterThan(0);
   });
 });
+

@@ -25,6 +25,7 @@ import type {
 } from "@/transcripts/transcriptTypes";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { sanitizeAgentValue } from "@/agents/liveAgentProjection";
+import { heuristicShellLabel } from "@/summary/shellLabels";
 
 /**
  * Pictures this sidecar serves, keyed by what the feed addresses: image blocks carry only their
@@ -142,6 +143,10 @@ export class OpencodeEventMapper {
         };
       case "shell": {
         const finished = message.time.completed !== undefined;
+        // A raw command is a whole heredoc where a title should be; the
+        // heuristic names the action instead. Claude rows are untouched --
+        // their adapter already carries the harness's own description.
+        const command = typeof message.command === "string" ? message.command : "";
         return {
           ts: message.time.created,
           type: "assistant",
@@ -152,7 +157,7 @@ export class OpencodeEventMapper {
               tool: "shell",
               callId: message.callID,
               input: { command: message.command } as Record<string, unknown>,
-              summary: message.command,
+              summary: command.trim() ? heuristicShellLabel(command) : message.command,
             },
             ...(finished
               ? [{ kind: "tool_result", callId: message.callID, ...capText(message.output) } as ActivityBlock]
@@ -306,7 +311,7 @@ function toolFiles(state: { status: string }): string[] | undefined {
 // which tool ran, so `read read` spends the header repeating it instead of showing the file.
 // Same convention as Claude's `summarizeToolUse` -- shell calls carry the raw command, file
 // tools the basename, pattern tools the pattern -- so both sources read the same in one feed.
-function toolTitle(name: string, state: { status: string; input?: unknown }): string {
+function toolTitle(name: string, state: { status: string; input?: unknown }): string | undefined {
   const input = "input" in state ? (state as { input?: unknown }).input : undefined;
   const fromInput = summarizeToolInput(
     name,
@@ -316,6 +321,12 @@ function toolTitle(name: string, state: { status: string; input?: unknown }): st
   if ((state.status === "running" || state.status === "completed") && "title" in state) {
     const title = (state as { title?: unknown }).title;
     if (typeof title === "string" && title.length > 0) return `${name} · ${title}`;
+  }
+  // A file tool with nothing to name leaves the summary off: `edit edit`
+  // spends the row repeating the tool instead of saying anything. Other
+  // tools keep the name fallback pinned by the shell test below.
+  if (name === "edit" || name === "Edit" || name === "write" || name === "Write" || name === "read" || name === "Read") {
+    return undefined;
   }
   return name;
 }
@@ -332,7 +343,7 @@ function summarizeToolInput(name: string, input: Record<string, unknown> | undef
     case "Bash":
     case "exec_command": {
       const command = toolString(input["command"]) ?? toolString(input["cmd"]);
-      return command ? command.slice(0, 200) : null;
+      return command ? heuristicShellLabel(command) : null;
     }
     case "read":
     case "edit":

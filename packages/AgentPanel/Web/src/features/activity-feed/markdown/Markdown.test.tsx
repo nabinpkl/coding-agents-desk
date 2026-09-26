@@ -49,4 +49,16 @@ describe("Markdown", () => {
     expect(block?.closest("li")).toBeNull();
     expect(block?.textContent).toContain("const y = 2;");
   });
+
+  it("opens feed links in a new tab instead of replacing the panel", () => {
+    const { container } = render(
+      <Markdown content={'[docs](https://example.com/a)\n\n<a href="https://example.com/b">b</a>\n'} />,
+    );
+    const links = [...container.querySelectorAll("a")];
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toContain("noopener");
+    }
+  });
 });

@@ -14,6 +14,7 @@ import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import { EventFileImage, EventImageBlock } from "@/features/activity-feed/blocks/EventImageBlock";
+import { ToolResultContent, stripReadLineNumbers } from "@/features/activity-feed/blocks/ToolResultViews";
 import {
   SentFilesBlock,
   fileName,
@@ -22,7 +23,7 @@ import {
   withoutFileHandles,
 } from "@/features/activity-feed/blocks/SentFilesBlock";
 import { shellCommand } from "@/features/activity-feed/rows/activityEventText";
-import type { PairedToolResult, SkillBody } from "@/features/activity-feed/rows/activityFeedLayout";
+import type { SkillBody } from "@/features/activity-feed/rows/activityFeedLayout";
 import { markdownSafePrefix, useProgressiveText } from "@/features/activity-feed/blocks/streamingText";
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
@@ -47,100 +48,6 @@ function toolStringInput(
     if (typeof value === "string" && value.length > 0) return value;
   }
   return null;
-}
-
-// Claude `Read` results are `cat -n` output: every line is prefixed with
-// optional leading spaces, the line number, then a tab. Strip that prefix to
-// recover the source Markdown. (Repo convention documents the "line number +
-// tab" shape.) Non-prefixed lines pass through untouched.
-function stripReadLineNumbers(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => line.replace(/^\s*\d+\t/, ""))
-    .join("\n");
-}
-
-function ToolResultBlock({
-  block,
-  renderMarkdown,
-  text,
-}: {
-  block: ActivityBlock;
-  renderMarkdown?: boolean;
-  /** What to show instead of the result's own preview, where the call renders the rest itself. */
-  text?: string;
-}) {
-  const showing = text ?? block.preview ?? "";
-
-  return (
-    <div
-      className="rounded-sm border border-border/50 bg-muted/30"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-    >
-      {renderMarkdown ? (
-        <div className="px-2 py-1.5">
-          <Markdown content={stripReadLineNumbers(showing)} />
-        </div>
-      ) : (
-        <pre className="whitespace-pre-wrap wrap-break-word px-2 py-1.5 font-mono text-foreground/70">
-          {showing}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function ToolResultContent({
-  result,
-  ctx,
-  text,
-}: {
-  result: PairedToolResult;
-  ctx: EventRowContext;
-  /** What the result says, where the call has already drawn the rest of it. */
-  text?: string;
-}) {
-  const hasImages = result.images.length > 0;
-  const showing = text ?? result.block.preview;
-  // A result that returned only a picture is not empty, and saying so above the picture would be
-  // the one false thing in the row.
-  // Nor would "(empty result)" be true of a call that drew the result itself and left nothing over.
-  const content = showing ? (
-    <ToolResultBlock block={result.block} text={showing} />
-  ) : hasImages || text !== undefined ? null : (
-    <LabeledTextBlock
-      block={{ ...result.block, kind: "plain", label: "Tool Result", text: "(empty result)" }}
-    />
-  );
-
-  return (
-    <div className="space-y-1.5">
-      {content}
-      {hasImages ? (
-        <div className="flex flex-wrap gap-2">
-          {result.images.map((blockIndex) => (
-            <EventImageBlock
-              key={blockIndex}
-              ctx={ctx}
-              eventIndex={result.eventIndex}
-              blockIndex={blockIndex}
-              alt="Image this tool returned"
-            />
-          ))}
-        </div>
-      ) : null}
-      {/* Named apart from the call's own drawer: this one is the result's
-          source line, which sits in the same row once the two are paired. */}
-      <RawDetails
-        metadata={result.metadata}
-        session={ctx.session}
-        rawSource={ctx.rawSource}
-        eventIndex={result.eventIndex}
-        includesRawJson={result.includesRawEvent}
-        label="Raw result"
-      />
-    </div>
-  );
 }
 
 /**
@@ -287,7 +194,9 @@ export function Block({
     const caption = typeof b.input?.caption === "string" ? b.input.caption.trim() : "";
     const hasBody =
       isFileBody || command !== null || pairedResult !== undefined || namedFiles !== null;
-    const headerChip = isEditDiff ? "Edit" : b.tool;
+    // Opencode's lowercase `edit` chips as Edit: the case is a harness
+    // accent, not a different tool, and `edit edit` reads as a stutter.
+    const headerChip = isEditDiff || b.tool === "edit" ? "Edit" : b.tool;
     // The summary is written to stand alone -- a folded row and the sticky bar show it with no
     // chip beside it -- so on this line, which draws the chip, it repeats the tool's name back:
     // `SendUserFile  SendUserFile aim-deep.png`. Said once.
@@ -309,6 +218,11 @@ export function Block({
         .filter(({ path }) => isPicture(path))
         .slice(0, HEADER_THUMBNAILS)
       : [];
+    // What the edit changed, on its own row under the header: the header
+    // keeps naming the file, this names the change. Null stays off the row.
+    const editDetail = isEditDiff
+      ? describeEditChange(editOld ?? "", editNew ?? "", editPath ?? undefined)
+      : null;
     return (
       <div className="space-y-1.5">
         <div
@@ -368,8 +282,22 @@ export function Block({
             />
           ))}
         </div>
+        {editDetail ? (
+          <div
+            className="truncate font-mono text-muted-foreground"
+            style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
+          >
+            {editDetail}
+          </div>
+        ) : null}
         {isExpanded ? (
           <>
+            {/* The header truncates the summary to the row's width; expanded,
+                the full line reads here above the command it names. Shell rows
+                only: other calls already draw their full content below. */}
+            {command !== null && summary ? (
+              <div className="text-muted-foreground">{summary}</div>
+            ) : null}
             {/* Wrapped: this is one command, not source, so it has no indentation to read and
                 nothing is gained by putting the rest of it behind a horizontal scroll. */}
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}

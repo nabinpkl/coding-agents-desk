@@ -84,8 +84,8 @@ test("a finished turn carries text, thinking, and a paired tool call", () => {
         tool: "shell",
         callId: "c1",
         input: { command: "ls" },
-        // The chip already says shell, so the summary carries the command.
-        summary: "ls",
+        // The chip already says shell, so the summary names the action.
+        summary: "List files",
         files: undefined,
       },
       { kind: "tool_result", callId: "c1", text: "ok", preview: "ok" },
@@ -147,6 +147,25 @@ test("a shell call without a command falls back to the tool name", () => {
   const call = projection.page(0, 10)[0]!.blocks[0]!;
   expect(call.kind).toBe("tool_use");
   if (call.kind === "tool_use") expect(call.summary).toBe("shell");
+});
+
+test("an edit call without input leaves its summary off", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [
+      {
+        type: "tool",
+        id: "c1",
+        name: "edit",
+        state: { status: "running", input: {}, content: [], structured: {} },
+        time: { created: 1, ran: 2 },
+      },
+    ], 300),
+  ]);
+  const call = projection.page(0, 10)[0]!.blocks[0]!;
+  expect(call.kind).toBe("tool_use");
+  // Not `edit edit`: the chip alone holds the row until input lands.
+  if (call.kind === "tool_use") expect(call.summary).toBeUndefined();
 });
 
 test("an unfinished assistant message streams", () => {

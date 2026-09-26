@@ -22,7 +22,7 @@ import {
 } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
-vi.mock("@/features/activity-feed/blocks/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
@@ -43,9 +43,12 @@ function event(blocks: ActivityEvent["blocks"]): ActivityEvent {
   return { index: 7, ts: Date.UTC(2026, 0, 1, 12, 0, 0), type: "assistant", blocks };
 }
 
-function fileRow(tool: string, input: Record<string, unknown>, result?: string) {
+function fileRow(tool: string, input: Record<string, unknown>, result?: string, opts?: { omitSummary?: boolean }) {
   const blocks: ActivityEvent["blocks"] = [
-    { kind: "tool_use", tool, input, summary: `${tool} a.ts`, callId: "c1" },
+    // An input-less call carries no summary, the way the mapper leaves it.
+    ...(opts?.omitSummary
+      ? [{ kind: "tool_use", tool, input, callId: "c1" } as const]
+      : [{ kind: "tool_use", tool, input, summary: `${tool} a.ts`, callId: "c1" } as const]),
   ];
   if (result !== undefined) blocks.push({ kind: "tool_result", callId: "c1", preview: result });
   const full = event(blocks);
@@ -107,10 +110,58 @@ describe("opencode file shapes", () => {
     unmount();
   });
 
+  it("names an edit's change on its own row under the filename header", () => {
+    const { unmount } = fileRow(
+      "edit",
+      {
+        path: "/repo/src/a.ts",
+        oldString: "export function old() {\n  return 1;\n}",
+        newString: "export function old() {\n  return 1;\n}\nexport function next() {\n  return 2;\n}",
+      },
+    );
+    // Header keeps the file; the detail line names the change, not inline.
+    expect(screen.getByRole("button", { name: /a\.ts/ })).toBeInTheDocument();
+    expect(screen.getByText("adds next(), +3/-0")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("chips an input-less edit as Edit with no doubled label", () => {
+    const { unmount } = fileRow("edit", {}, undefined, { omitSummary: true });
+    // Chip alone holds the row until input streams in: never `edit edit`.
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    unmount();
+  });
+
   it("draws an opencode shell call as a highlighted command", () => {
     const { unmount } = fileRow("shell", { command: "bun test", workdir: "/repo" });
     // The command is the row's body, not just its header: expanding shows it as source.
     expect(screen.getByText("bun test")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("shows the full summary above the command once expanded", () => {
+    const label = "Test describeEditChange.test.ts, filter for FAIL";
+    const blocks: ActivityEvent["blocks"] = [
+      { kind: "tool_use", tool: "shell", input: { command: "npx vitest" }, summary: label, callId: "c1" },
+    ];
+    const full = event(blocks);
+    const paired = pairSameEventToolResults(full);
+    const { unmount } = render(
+      <DataSourceProvider source={DATA_SOURCE}>
+        <SegmentEventRow
+          ev={withoutPairedToolResults(full, paired)}
+          ctx={{ ...CTX, pairedToolResults: paired }}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </DataSourceProvider>,
+    );
+    // Header truncates; the expanded body carries the whole line: one
+    // truncated span up top, one full div below.
+    expect(screen.getAllByText(label)).toHaveLength(2);
     unmount();
   });
 });
