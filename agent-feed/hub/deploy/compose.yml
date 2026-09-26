@@ -16,6 +16,8 @@ services:
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:?set in deploy/.env}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:?set in deploy/.env}
       HUB_PRINCIPALS: ${HUB_PRINCIPALS:?set in deploy/.env}
+      # Optional: the owner email allowed in through Managed OAuth. Empty or absent disables it.
+      HUB_OWNER_EMAIL: ${HUB_OWNER_EMAIL:-}
     volumes:
       - hub-data:/data
     healthcheck:
