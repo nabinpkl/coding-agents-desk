@@ -59,6 +59,13 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 - Sessions enter it through their stream: the sidecar's per-session stream under opencode, a relay child's stream under Claude.
 - Bots enter it through each sidecar publishing its Bot registry: `botId`, name, directory and member session ids, each source-prefixed (`claude:<id>`, `opencode:<id>`). agent-desk stays the authoritative home for Bots, and the hub's copy is replaced whole on each publish.
 
+**A2A is Bot to Bot, and active means in the list:**
+- When an agent opens a *new* conversation with another agent, it names a Bot, not a session. The hub refuses a new non-human send from an agent to anything that is not a `bot:` address.
+- A Bot is *active* when it is in the published directory, which some machine is currently publishing. An agent can only ever reach an active Bot, so a stale Bot id is useless rather than wrong, and a message to a Bot with no live member waits for one.
+- A session id names one run of a process that is gone the moment it restarts, which is why it is the wrong address for reaching an agent that keeps running. A Bot is whatever that agent is right now.
+- Replies are exempt and have to be: a reply's recipient is whoever the message came from, which is a session. Following a thread back to its sender is not opening a new conversation. `hub_reply` needs no address for the same reason.
+- This governs agent senders only. The human surfaces (panel, annotator) still address sessions directly, because a person picks the specific session they can see.
+
 **Resolving `bot:` to a session:**
 - **Thread affinity first:** a message in an existing thread goes to the session that handled the thread's last message, if it is still reachable.
 - **Otherwise the newest reachable member session.**

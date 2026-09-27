@@ -115,9 +115,9 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.registerTool(
     "hub_send",
     {
-      description: "Agent messaging hub. Start a conversation: send a request (expects a reply) or a notice (FYI) to the owner (\"human\"), a Bot (\"bot:<id>\"), a session, or a directory name. On opencode, session_id is required: this child serves every session, so name the one you are in.",
+      description: "Agent messaging hub. Start a conversation: send a request (expects a reply) or a notice (FYI). To the owner, address \"human\". To another agent, address an active Bot (\"bot:<id>\") from hub_directory: agent to agent is Bot to Bot, because a Bot is whatever that agent is right now, and opening a new conversation with a raw session is refused. A directory name is accepted and resolved to one address. On opencode, session_id is required: this child serves every session, so name the one you are in. To answer a message you received, use hub_reply instead, which needs no address.",
       inputSchema: {
-        to: z.string().describe("Address or directory name."),
+        to: z.string().describe("\"human\", an active Bot \"bot:<id>\", a directory name, or (on this tool only, for a human-initiated send) a session address."),
         body: z.string().describe("Message text."),
         kind: z.enum(["request", "notice"]).default("request"),
         session_id: z.string().optional().describe("On opencode, the session you are sending from. Ignored under Claude Code, where the session is the process."),
@@ -186,7 +186,7 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.registerTool(
     "hub_directory",
     {
-      description: "Who can be messaged: the owner, Bots, and sessions on every machine, with whether each is reachable now. Messages to an unreachable address wait for it.",
+      description: "Who can be messaged. For agent to agent, the active Bots are the recipients: a Bot is active when some machine is publishing it, and only those can be addressed. Also lists the owner and every session, which the human surfaces use and which hub_reply reaches automatically. Each entry carries whether it is reachable now; a message to an unreachable address waits for it.",
       inputSchema: {},
     },
     async () => {

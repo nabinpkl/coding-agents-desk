@@ -126,6 +126,19 @@ export class Messages {
       if (input.kind !== "request" && input.kind !== "notice") throw new InvalidMessage("kind must be request or notice");
       to = input.to;
       kind = input.kind;
+      // Agent to agent is Bot to Bot. An agent opening a new conversation with another agent names
+      // an active Bot rather than a session, because a session id names one run of a process that is
+      // gone the moment it restarts, while a Bot is whatever that agent is right now. "Active" means
+      // the Bot is in the published list, which the exists() check below already enforces: an
+      // unpublished Bot is not addressable, so a caller can only ever reach a Bot some machine is
+      // currently publishing.
+      //
+      // Replies are exempt, and have to be: a reply's recipient is whoever the message came from,
+      // which is a session, and following a thread back to its sender is not opening a new
+      // conversation. So this sits in the new-send branch only, and only for an agent sender.
+      if (fromKind === "agent" && to !== "human" && !to.startsWith("bot:")) {
+        throw new Refused("agent to agent is bot to bot: name an active bot (bot:<id>) from hub_directory, not a session");
+      }
     }
     if (to === from) throw new Refused("a session cannot message itself");
     if (!this.directory.exists(to)) throw new NotFound(`no such address: ${to}`);
