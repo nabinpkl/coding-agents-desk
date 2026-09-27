@@ -7,12 +7,12 @@
 // Side by side where there is room for a diff beside a list; on a phone, one at a time, with the
 // list first and a way back from the diff.
 
-import { ArrowLeft, Loader2, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { BotGitDiff, BotGitStatus, BotView } from "@agentdesk/agent-feed-wire";
+import type { BotGitStatus, BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { PatchView } from "@/features/workspace-ide/history/PatchView";
+import { ReadPatchView } from "@/features/workspace-ide/history/PatchView";
 import { SourceControl } from "@/features/workspace-ide/sidebar/SourceControl";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
@@ -140,7 +140,12 @@ export function BotGitDialog({
                   </span>
                 </div>
                 <div className="min-h-0 flex-1">
-                  <BotFileDiff feed={feed} botId={bot.botId} path={selected} status={status} />
+                  {/* Re-read on each status, because an agent on this Bot may be mid-edit. */}
+                  <ReadPatchView
+                    subject={`${bot.botId}:${selected}`}
+                    refresh={status}
+                    read={() => feed.botGitDiff(bot.botId, selected)}
+                  />
                 </div>
               </>
             ) : count > 0 ? (
@@ -153,77 +158,5 @@ export function BotGitDialog({
       </div>
     </dialog>,
     document.body,
-  );
-}
-
-/**
- * One file's diff, read when it is chosen and again whenever the status is read again.
- *
- * Re-read on each status because the file is being written while it is open: an agent on this Bot
- * may be mid-edit, and a diff fixed at the moment it was clicked would quietly fall behind the list
- * beside it. The previous diff stays up while the next is read, so a refresh does not flash.
- */
-function BotFileDiff({
-  feed,
-  botId,
-  path,
-  status,
-}: {
-  feed: SidecarDataSource;
-  botId: string;
-  path: string;
-  status: BotGitStatus;
-}) {
-  const [diff, setDiff] = useState<BotGitDiff | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDiff(null);
-    setFailure(null);
-  }, [botId, path]);
-
-  useEffect(() => {
-    let live = true;
-    feed.botGitDiff(botId, path).then(
-      (answer) => {
-        if (!live) return;
-        setDiff(answer);
-        setFailure(null);
-      },
-      (cause: unknown) => {
-        if (live) setFailure(cause instanceof Error ? cause.message : String(cause));
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [feed, botId, path, status]);
-
-  if (failure !== null && diff === null) {
-    return (
-      <p role="status" className="m-0 p-6 text-center text-sm text-destructive">
-        {failure}
-      </p>
-    );
-  }
-  if (diff === null) {
-    return (
-      <p className="m-0 flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-        <Loader2 aria-hidden className="size-4 animate-spin" />
-        Reading the diff…
-      </p>
-    );
-  }
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {failure !== null ? (
-        <p role="alert" className="m-0 shrink-0 px-2 py-1 text-xs text-destructive">
-          Could not read this diff again: {failure}
-        </p>
-      ) : null}
-      <div className="min-h-0 flex-1">
-        <PatchView diff={diff} />
-      </div>
-    </div>
   );
 }

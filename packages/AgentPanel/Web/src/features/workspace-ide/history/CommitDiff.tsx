@@ -11,11 +11,10 @@
 // is `PatchView.tsx`, which takes a patch rather than a place in the history, so a Bot's
 // uncommitted changes are drawn by the same rows.
 
-import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useCallback, useState } from "react";
 import type { WorkspaceCommit, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
-import { PatchView, type PatchSource } from "@/features/workspace-ide/history/PatchView";
+import { ReadPatchView } from "@/features/workspace-ide/history/PatchView";
 
 /** One file of one commit, or one file's uncommitted change: what a diff tab is pointed at. */
 export interface CommitDiffTarget {
@@ -88,13 +87,9 @@ export function useCommitDiffTab(): CommitDiffTab {
  * The patch the tab is pointed at, fetched when it is pointed there.
  *
  * The read happens here rather than in whatever opened the tab, so a tab that is reopened on the
- * same file re-reads rather than drawing a patch from before the branch moved.
- *
- * An uncommitted change is read again whenever git's status is, because the file is still being
- * written: an agent in this workspace may be mid-edit, and a diff fixed at the moment it was
- * opened would fall quietly behind the list it was opened from. The previous patch stays up while
- * the next is read, so that refresh does not flash. A commit's patch cannot move, so it is read
- * once.
+ * same file re-reads rather than drawing a patch from before the branch moved. An uncommitted
+ * change is read again whenever git's status is, because the file may still be being written; a
+ * commit's patch cannot move, so it is read once.
  */
 export function CommitDiffView({
   client,
@@ -108,61 +103,17 @@ export function CommitDiffView({
   /** Changes whenever git's status is read again. Only an uncommitted change listens to it. */
   gitRevision: unknown;
 }) {
-  const [diff, setDiff] = useState<PatchSource | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
   const { path } = target;
   const hash = target.commit?.hash ?? null;
-  const refresh = hash === null ? gitRevision : null;
-
-  useEffect(() => {
-    setDiff(null);
-    setFailure(null);
-  }, [workspaceId, hash, path]);
-
-  useEffect(() => {
-    let live = true;
-    const read = hash === null
-      ? client.changeDiff(workspaceId, path)
-      : client.commitDiff(workspaceId, hash, path);
-    read
-      .then((answer) => {
-        if (!live) return;
-        setDiff(answer.diff);
-        setFailure(null);
-      })
-      .catch((cause: unknown) => {
-        if (live) setFailure(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => {
-      live = false;
-    };
-  }, [client, workspaceId, hash, path, refresh]);
-
-  if (failure !== null && diff === null) {
-    return (
-      <p role="status" className="m-0 p-6 text-center text-sm text-destructive">
-        {failure}
-      </p>
-    );
-  }
-  if (diff === null) {
-    return (
-      <p className="m-0 flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-        <Loader2 aria-hidden className="size-4 animate-spin" />
-        Reading the diff…
-      </p>
-    );
-  }
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {failure !== null ? (
-        <p role="alert" className="m-0 shrink-0 px-2 py-1 text-xs text-destructive">
-          Could not read this diff again: {failure}
-        </p>
-      ) : null}
-      <div className="min-h-0 flex-1">
-        <PatchView diff={diff} />
-      </div>
-    </div>
+    <ReadPatchView
+      subject={`${workspaceId}:${hash ?? "uncommitted"}:${path}`}
+      refresh={hash === null ? gitRevision : null}
+      read={() =>
+        (hash === null
+          ? client.changeDiff(workspaceId, path)
+          : client.commitDiff(workspaceId, hash, path)
+        ).then((answer) => answer.diff)}
+    />
   );
 }

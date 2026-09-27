@@ -2,9 +2,11 @@
 // syntax colours on top.
 //
 // Takes a patch and nothing about where it came from, which is what lets a commit's diff in the IDE
-// and a Bot's uncommitted change on the canvas be the same rows.
+// and a Bot's uncommitted change on the canvas be the same rows. `ReadPatchView` is the fetching
+// half both of them share: when to read, when to read again, and what to show meanwhile.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 // The rule that reads Shiki's per-token variables, for the reason the editor imports it too: a
 // surface that emits perfectly tokenised markup and depends on a stylesheet nothing here mentions
@@ -122,6 +124,85 @@ export function PatchView({ diff }: { diff: PatchSource }) {
           </p>
         )
         : null}
+    </div>
+  );
+}
+
+/**
+ * A patch read from wherever `read` says, drawn with `PatchView`.
+ *
+ * Read when `subject` changes, which blanks it, and read again when `refresh` changes, which does
+ * not: an uncommitted file may still be being written, so its diff is re-read on every git status,
+ * and the previous patch stays up meanwhile so that refresh does not flash. A read that fails with
+ * a patch already showing says so above it rather than throwing the patch away.
+ *
+ * `read` is held in a ref rather than listed as a dependency, because every caller builds it inline
+ * and a new function each render would read on every render. `subject` is what says the thing
+ * being read has changed.
+ */
+export function ReadPatchView({
+  read,
+  subject,
+  refresh,
+}: {
+  read: () => Promise<PatchSource>;
+  /** Names what is being read. A new one starts over; the same one re-reads in place. */
+  subject: string;
+  /** Changes when the patch may have moved. Pass something constant for one that cannot. */
+  refresh: unknown;
+}) {
+  const reader = useRef(read);
+  reader.current = read;
+  const [diff, setDiff] = useState<PatchSource | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDiff(null);
+    setFailure(null);
+  }, [subject]);
+
+  useEffect(() => {
+    let live = true;
+    reader.current().then(
+      (answer) => {
+        if (!live) return;
+        setDiff(answer);
+        setFailure(null);
+      },
+      (cause: unknown) => {
+        if (live) setFailure(cause instanceof Error ? cause.message : String(cause));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [subject, refresh]);
+
+  if (failure !== null && diff === null) {
+    return (
+      <p role="status" className="m-0 p-6 text-center text-sm text-destructive">
+        {failure}
+      </p>
+    );
+  }
+  if (diff === null) {
+    return (
+      <p className="m-0 flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 aria-hidden className="size-4 animate-spin" />
+        Reading the diff…
+      </p>
+    );
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {failure !== null ? (
+        <p role="alert" className="m-0 shrink-0 px-2 py-1 text-xs text-destructive">
+          Could not read this diff again: {failure}
+        </p>
+      ) : null}
+      <div className="min-h-0 flex-1">
+        <PatchView diff={diff} />
+      </div>
     </div>
   );
 }
