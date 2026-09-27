@@ -89,13 +89,13 @@ export function useStickyIndices({
   // until they are measured, the feed opens on a window of the newest events rather than the whole
   // thread, and a live session has grown in the meantime -- where the event is the one thing every
   // one of those preserves.
-  const topEvent = useMemo<number | null>(() => {
+  const topEvent = useMemo(() => {
     for (const row of virtualItems) {
       if (row.end <= scrollTop) continue;
       const item = rowItems[row.index];
       // The live tail counts rows in the sidecar's projection rather than lines in the transcript,
       // so it is not an anchor -- and a reader sitting on it is at the end, which needs none.
-      return !item || item.kind === "tail" ? null : leadEvent(item).index;
+      return !item || item.kind === "tail" ? null : leadEvent(item);
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps

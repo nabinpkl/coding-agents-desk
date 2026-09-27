@@ -128,7 +128,7 @@ export function ActivityFeed({
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const {
-    events, loadOlder, windowStart, usage, sessionModel, loading, error, runState, queue, liveTails, compactionSummary,
+    events, loadOlder, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary,
   } = useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -295,6 +295,7 @@ export function ActivityFeed({
     rowVirtualizer,
     sessionId,
     source,
+    timelineEpoch: snapshotCount,
     topEvent,
     virtualItems,
   });

@@ -111,7 +111,7 @@ function mountFeed(
   });
   const scroller = view.container.querySelector<HTMLDivElement>("div.overflow-y-auto");
   if (!scroller) throw new Error("the feed rendered no scroller");
-  return { view, scroller };
+  return { view, scroller, transport, events };
 }
 
 /** Where the virtualiser has placed the row carrying this text. */
@@ -177,6 +177,44 @@ describe("where a session was left being read", () => {
     view.unmount();
   });
 
+  it("reapplies the saved line when a timeline snapshot replaces the rows", async () => {
+    const events = Array.from({ length: 30 }, (_, index) => durable(index));
+    const { scroller, view, transport } = mountFeed(events);
+    await screen.findByText("line 0");
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([[`claude:${SESSION}`, 100, "claude:line:4"]]),
+    );
+    scrollTo(scroller, rowTop("line 4"));
+    fireEvent.wheel(scroller, { deltaY: -240 });
+    scrollTo(scroller, rowTop("line 4"));
+
+    // Model the sidecar replacing the projection while the card stays mounted: the browser's
+    // scroll offset is gone, but the next snapshot still describes the same event identities.
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      transport.deliver(SESSION, {
+        type: "timeline",
+        envelope: {
+          kind: "snapshot",
+          sequence: 2,
+          mode: "nice",
+          events,
+          windowStart: 0,
+          total: events.length,
+          stableIndices: true,
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+        },
+      });
+    });
+
+    await waitFor(() => expect(scroller.scrollTop).toBe(rowTop("line 4")));
+    view.unmount();
+  });
+
   it("remembers the line reached by scrolling up, and forgets it on the way back to the end", async () => {
     const { scroller, view } = mountFeed();
     await screen.findByText("line 0");
@@ -189,7 +227,7 @@ describe("where a session was left being read", () => {
 
     await waitFor(
       () => expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]"))
-        .toEqual([[`claude:${SESSION}`, 4]]),
+        .toEqual([[`claude:${SESSION}`, 4, "claude:line:4"]]),
       { timeout: 2000 },
     );
 

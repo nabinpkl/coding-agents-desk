@@ -452,6 +452,7 @@ onEvent: (event) => {
     sequence: state.sequence,
     runState: state.runState,
     queue: state.queue,
+    snapshotCount: state.snapshotCount,
     liveTails,
     compactionSummary,
   };

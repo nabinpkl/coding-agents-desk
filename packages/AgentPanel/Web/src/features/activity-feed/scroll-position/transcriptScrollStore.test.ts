@@ -19,14 +19,14 @@ describe("where each session was left", () => {
   it("keeps a place per session, because two sessions are read in two places at once", () => {
     rememberTranscriptAnchor(CLAUDE, 412);
     rememberTranscriptAnchor(CODEX, 7);
-    expect(loadTranscriptAnchor(CLAUDE)).toBe(412);
-    expect(loadTranscriptAnchor(CODEX)).toBe(7);
+    expect(loadTranscriptAnchor(CLAUDE)).toEqual({ index: 412 });
+    expect(loadTranscriptAnchor(CODEX)).toEqual({ index: 7 });
   });
 
   it("moves a place rather than stacking a second one under the same session", () => {
     rememberTranscriptAnchor(CLAUDE, 412);
     rememberTranscriptAnchor(CLAUDE, 480);
-    expect(loadTranscriptAnchor(CLAUDE)).toBe(480);
+    expect(loadTranscriptAnchor(CLAUDE)).toEqual({ index: 480 });
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([["claude:sid-a", 480]]);
   });
 
@@ -43,7 +43,7 @@ describe("where each session was left", () => {
       rememberTranscriptAnchor({ source: "claude", sessionId: `sid-${session}` }, session);
     }
     expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-5" })).toBeNull();
-    expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-69" })).toBe(69);
+    expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-69" })).toEqual({ index: 69 });
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toHaveLength(64);
   });
 
@@ -55,8 +55,8 @@ describe("where each session was left", () => {
       JSON.stringify([["claude:sid-a", 412], ["codex:sid-b", 900]]),
     );
     rememberTranscriptAnchor(CLAUDE, 500);
-    expect(loadTranscriptAnchor(CODEX)).toBe(900);
-    expect(loadTranscriptAnchor(CLAUDE)).toBe(500);
+    expect(loadTranscriptAnchor(CODEX)).toEqual({ index: 900 });
+    expect(loadTranscriptAnchor(CLAUDE)).toEqual({ index: 500 });
   });
 
   it("drops an entry it cannot read rather than scrolling to a place no event has", () => {
@@ -66,7 +66,19 @@ describe("where each session was left", () => {
     );
     expect(loadTranscriptAnchor(CLAUDE)).toBeNull();
     expect(loadTranscriptAnchor(CODEX)).toBeNull();
-    expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-c" })).toBe(8);
+    expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-c" })).toEqual({ index: 8 });
+  });
+
+  it("keeps the event identity beside the index for a rebuilt projection", () => {
+    rememberTranscriptAnchor({ source: "opencode", sessionId: "ses-a" }, 412, "opencode:msg-a");
+
+    expect(loadTranscriptAnchor({ source: "opencode", sessionId: "ses-a" })).toEqual({
+      index: 412,
+      eventId: "opencode:msg-a",
+    });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([
+      ["opencode:ses-a", 412, "opencode:msg-a"],
+    ]);
   });
 
   it("opens at the tail rather than trusting a value it cannot parse", () => {

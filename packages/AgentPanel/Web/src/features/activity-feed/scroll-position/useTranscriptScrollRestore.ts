@@ -8,10 +8,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { leadEvent, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import {
   forgetTranscriptAnchor,
   loadTranscriptAnchor,
   rememberTranscriptAnchor,
+  type TranscriptScrollAnchor,
 } from "@/features/activity-feed/scroll-position/transcriptScrollStore";
 
 /**
@@ -38,6 +40,41 @@ const RESTORE_HOLD_MS = 1500;
  * half-arrived ones.
  */
 const SCROLL_SETTLE_MS = 200;
+
+/**
+ * Finds the row an anchor names, preferring identity over position.
+ *
+ * A backend projection can be rebuilt with the same messages at different indices. An exact event id
+ * therefore wins whenever it is loaded. The index remains the fallback for old stored anchors and
+ * for sources whose rows have no id. An anchor older than the loaded window returns -1 so the feed's
+ * normal paging effect can fetch the page that may contain its exact id.
+ */
+function findAnchorRow(
+  rowItems: readonly (DisplayItem | { kind: "tail" })[],
+  anchor: TranscriptScrollAnchor,
+): number {
+  const durable = rowItems
+    .map((item, index) => item.kind === "tail" ? null : { item, index })
+    .filter((entry): entry is { item: DisplayItem; index: number } => entry !== null);
+  if (durable.length === 0) return -1;
+
+  if (anchor.eventId) {
+    const exact = durable.find(({ item }) => leadEvent(item).id === anchor.eventId);
+    if (exact) return exact.index;
+  }
+
+  const byIndex = durable.find(({ item }) => leadEvent(item).index >= anchor.index);
+  if (byIndex) return byIndex.index;
+
+  const first = durable[0]!;
+  const last = durable[durable.length - 1]!;
+  // Everything currently loaded is newer than the anchor. Its exact id may be on the next older
+  // page, so leave the restore pending rather than jumping to an unrelated row.
+  if (leadEvent(first.item).index > anchor.index) return -1;
+  // The projection is shorter than the remembered position. Its last row is the nearest place.
+  return last.index;
+}
+
 /**
  * Holds the reader's place while the rows settle, then remembers where they stopped.
  *
@@ -53,6 +90,7 @@ export function useTranscriptScrollRestore({
   rowVirtualizer,
   sessionId,
   source,
+  timelineEpoch,
   topEvent,
   virtualItems,
 }: {
@@ -64,7 +102,9 @@ export function useTranscriptScrollRestore({
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   sessionId: string;
   source: string;
-  topEvent: number | null;
+  /** Changes whenever the timeline replaces its window, including after a sidecar restart. */
+  timelineEpoch: number;
+  topEvent: ActivityEvent | null;
   virtualItems: { index: number }[];
 }): void {
   const restoredFor = useRef<string | null>(null);
@@ -75,25 +115,21 @@ export function useTranscriptScrollRestore({
   // should do. `pause()` first, or the tail-follower's own ResizeObserver snaps the scroll back to
   // the bottom the moment the next row is measured.
   //
-  // An anchor older than the loaded window resolves to the window's first row, which is the
-  // nearest place to it that exists -- and landing there is what asks for the page before it.
-  // The transcript line a restore is currently holding at the top of the viewport, or null once it
-  // has let go. The line rather than its row, because paging older events in renumbers every row
-  // and a held number would then hold somebody else.
-  const [holdingEvent, setHoldingEvent] = useState<number | null>(null);
+  // The epoch is part of the restore key because a sidecar restart replaces the projection without
+  // remounting this component. The saved event is then still the right place even though the rows
+  // and their indices have just been rebuilt. An anchor older than the loaded window stays pending
+  // so the feed's paging effect can fetch the page that may contain its exact id.
+  const [holdingEvent, setHoldingEvent] = useState<TranscriptScrollAnchor | null>(null);
   useLayoutEffect(() => {
-    const key = `${source}:${sessionId}`;
+    const key = `${source}:${sessionId}:${timelineEpoch}`;
     if (restoredFor.current === key || rowItems.length === 0) return;
     const anchor = loadTranscriptAnchor({ source, sessionId });
-    const rowIndex = anchor === null ? -1 : rowItems.findIndex(
-      (item) => item.kind !== "tail" && leadEvent(item).index >= anchor,
-    );
-    // Nothing to put back, or nothing left to put it back on. Either way this session is answered,
-    // and every scroll from here is the reader's.
-    if (rowIndex < 0) {
+    if (anchor === null) {
       restoredFor.current = key;
       return;
     }
+    const rowIndex = findAnchorRow(rowItems, anchor);
+    if (rowIndex < 0) return;
     // The rows exist before the virtualiser has measured any of them, and a restore that gave up
     // there would give up for good. Left unanswered so the next commit tries again.
     if (!rowVirtualizer.measurementsCache[rowIndex] || !parentRef.current) return;
@@ -101,7 +137,7 @@ export function useTranscriptScrollRestore({
     pause();
     setHoldingEvent(anchor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sessionId, rowItems, virtualItems, rowVirtualizer, pause]);
+  }, [source, sessionId, timelineEpoch, rowItems, virtualItems, rowVirtualizer, pause]);
 
   /**
    * Puts the held row back at the top after every commit that could have moved it.
@@ -112,9 +148,7 @@ export function useTranscriptScrollRestore({
    */
   useLayoutEffect(() => {
     if (holdingEvent === null) return;
-    const rowIndex = rowItems.findIndex(
-      (item) => item.kind !== "tail" && leadEvent(item).index >= holdingEvent,
-    );
+    const rowIndex = findAnchorRow(rowItems, holdingEvent);
     if (rowIndex >= 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
   });
 
@@ -148,14 +182,14 @@ export function useTranscriptScrollRestore({
    * just put the reader back on. It also costs one write per flick rather than one per frame.
    */
   useEffect(() => {
-    if (restoredFor.current !== `${source}:${sessionId}` || holdingEvent !== null) return;
+    if (restoredFor.current !== `${source}:${sessionId}:${timelineEpoch}` || holdingEvent !== null) return;
     const timer = setTimeout(() => {
       const session = { source, sessionId };
       // Back at the end is not a place worth keeping: it is where a session opens anyway, and an
       // entry saying so would outlive the reading it came from.
       if (following || topEvent === null) forgetTranscriptAnchor(session);
-      else rememberTranscriptAnchor(session, topEvent);
+      else rememberTranscriptAnchor(session, topEvent.index, topEvent.id);
     }, SCROLL_SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [source, sessionId, following, topEvent, holdingEvent]);
+  }, [source, sessionId, timelineEpoch, following, topEvent, holdingEvent]);
 }
