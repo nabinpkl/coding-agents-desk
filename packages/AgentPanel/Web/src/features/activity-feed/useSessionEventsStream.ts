@@ -5,7 +5,7 @@ import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSou
 import { seedRange, olderRange } from "@/features/activity-feed/data-source/eventPaging";
 import { useTimelineGapFill, withNewer } from "@/features/activity-feed/useTimelineGapFill";
 import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageFromEvents";
-import { splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
+import { splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 
 export interface ActivityBlock {
@@ -97,14 +97,20 @@ interface State {
   total: number;
   windowStart: number;
   usage: TokenUsage | null;
+  /**
+   * The session's current model as `providerID/modelID`, or null while unnamed. Beside usage
+   * rather than derived from it: usage blanks across a post-compaction gap while the model
+   * survives it, and the switcher reads this without touching the meter.
+   */
+  sessionModel: string | null;
   loading: boolean;
   error: string | null;
   sequence: number;
   runState: "idle" | "running" | "ended" | "error";
   queue: { steer: number; followUp: number };
   /** Every row the live mirror has published that the transcript has not reached,
-   *  keyed by row id. What the reader actually sees is `visibleTails` below, which
-   *  keeps the ones still ahead of the file. */
+   *  keyed by row id. What the reader actually sees is `visibleTails` in
+   *  `rows/liveTailBlocks`, which keeps the ones still ahead of the file. */
   liveRows: Map<string, ActivityEvent>;
   /** Every message id this mirror has ever published, retired rows included. It is
    *  what tells an unmirrored transcript row apart from one the preview produced,
@@ -113,72 +119,6 @@ interface State {
   /** How many snapshots this subscription has applied. What re-arms the gap fill below after a
    *  snapshot overtakes one of its pages and leaves the same hole behind. */
   snapshotCount: number;
-}
-
-/** A live row's key: the mirror's own row id, stable across the revisions that
- *  grow one message, so a delta replaces its row instead of adding one. */
-export function liveRowKey(event: ActivityEvent): string {
-  return event.id ?? `live:${event.index}`;
-}
-
-/**
- * The live rows to draw under the thread, oldest first.
- *
- * The mirror runs AHEAD of the file: a transcript line is written after the fact, so
- * the only thing this preview is ever about is the part of the turn the reader cannot
- * see yet. Once the transcript has reached a row, the file is the authority and the
- * preview has nothing left to add for it.
- *
- * A turn is MANY messages, not one. The mirror opens a row per message, finishes it,
- * and moves on, and the transcript is what collects them into a thread. So this is a
- * list rather than a slot: holding one slot and letting each new message overwrite
- * the last is only correct while the file keeps up, and it does not. Measured
- * 2026-09-10 on a live session, the durable stream delivered nothing for ninety
- * seconds while four messages took the slot in turn, so three of them were on screen
- * for a few seconds and then nowhere at all, and the thread appeared to stop moving.
- *
- * What retires a row is therefore two separate things, and neither is a clock:
- *
- * - The file NAMING it. That is the handoff, settled on `messageId` in `onEvent`,
- *   which also retires every row the mirror published before it: the file writes
- *   messages in the order the mirror made them, so naming one says the file has
- *   reached that point in the mirror's own order.
- * - The file moving PAST it, which is what this function decides. A mirror that
- *   stops mid-turn keeps publishing a row whose id never reaches the file, so the
- *   handoff can never fire and the preview sits under a thread that is streaming
- *   perfectly well behind it. Measured 2026-09-09: a three-hour-old finished message
- *   pinned below a live session as a 9,554px block, in a feed that follows its own
- *   bottom.
- *
- * "Past" is measured against the newest transcript row for a message THIS MIRROR
- * never published, because those are the only rows that say the mirror is behind. A
- * row's `ts` is the moment its message began streaming, so a file holding an
- * unmirrored message from that moment or later is not waiting on this one. Two kinds
- * of row are deliberately ignored:
- *
- * - Rows for a message the mirror DID publish. The transcript appends per tool step
- *   and writes a message when it ends, so its row lands at about the instant the next
- *   message starts streaming; counting it would retire the row the mirror is writing
- *   right now on a coin flip. Those rows are the handoff's business, not this one's.
- * - Rows carrying no message at all -- tool results, the reader's own turns. They are
- *   written throughout a turn and belong to no message, so their arrival is not
- *   evidence about which message the file has reached.
- */
-export function visibleTails(
-  rows: ReadonlyMap<string, ActivityEvent>,
-  durable: readonly ActivityEvent[],
-  mirrored: ReadonlySet<string>,
-): ActivityEvent[] {
-  let newestUnmirrored = Number.NEGATIVE_INFINITY;
-  for (const event of durable) {
-    if (event.messageId === undefined || mirrored.has(event.messageId)) continue;
-    if (event.ts > newestUnmirrored) newestUnmirrored = event.ts;
-  }
-  const visible: ActivityEvent[] = [];
-  for (const row of rows.values()) {
-    if (row.ts > newestUnmirrored) visible.push(row);
-  }
-  return visible.sort((left, right) => left.index - right.index);
 }
 
 export function useSessionEventsStream(
@@ -197,6 +137,7 @@ export function useSessionEventsStream(
     total: 0,
     windowStart: 0,
     usage: null,
+    sessionModel: null,
     loading: true,
     error: null,
     sequence: 0,
@@ -222,6 +163,9 @@ export function useSessionEventsStream(
     // Cleared on every open, not only on unsubscribe. The stream says afresh whether the context
     // is being rewritten, so a session swapped in behind a compacting one must not inherit it.
     setCompactionSummary(null);
+    // Named afresh per open like the compaction notice: a session swapped in behind another
+    // must not inherit its model, and a reconnect snapshot re-names it immediately below.
+    setState((current) => (current.sessionModel === null ? current : { ...current, sessionModel: null }));
     let cancelled = false;
     const pendingLive = new Map<number, ActivityEvent>();
     let seeded = false;
@@ -324,6 +268,10 @@ onEvent: (event) => {
             usage:
               newerUsage(current.usage, snapshot.usage) ??
               lastUsageFromEvents(snapshot.events),
+            // The model is authoritative per message rather than merged: the sidecar names it on
+            // every envelope, so the newest naming wins and a gap that blanks usage never blanks
+            // this. Null only where the sender never names one.
+            sessionModel: snapshot.sessionModel ?? current.sessionModel,
             loading: false,
             error: null,
             sequence: snapshot.state.sequence,
@@ -350,6 +298,10 @@ onEvent: (event) => {
           ...current,
           usage: newerUsage(current.usage, usage),
         })),
+      // The model lands per envelope beside usage, and survives the gap that blanks it: a
+      // compaction rewrites context, never the model. Null where the sender names none.
+      onSessionModel: (model) =>
+        setState((current) => (current.sessionModel === model ? current : { ...current, sessionModel: model })),
       // The mirror publishes one row at a time and never revisits an older one, so
       // these accumulate rather than replace: the rows it opened earlier in the turn
       // are exactly the part of the turn the transcript has not caught up to. `null`
@@ -382,11 +334,13 @@ onEvent: (event) => {
         const { offset, limit } = seedRange(total);
         let initial: ActivityEvent[] = [];
         let seedUsage = probe.usage;
+        let seedModel = probe.sessionModel ?? null;
         if (limit > 0) {
           const data = await ds.fetchEventsPage(session, offset, limit);
           if (cancelled) return;
           initial = data.events;
           seedUsage = data.usage;
+          seedModel = data.sessionModel ?? seedModel;
         }
         if (cancelled || replacedBySnapshot) return;
 
@@ -406,6 +360,9 @@ onEvent: (event) => {
           usage:
             newerUsage(current.usage, seedUsage) ??
             lastUsageFromEvents(initial),
+          // The seed page names the model outright, so no merge rule: whatever the sidecar
+          // said on this open wins, including across the gap that blanks the usage above.
+          sessionModel: seedModel ?? current.sessionModel,
           loading: false,
           error: null,
           sequence: current.sequence,
@@ -487,6 +444,7 @@ onEvent: (event) => {
     total: state.total,
     windowStart: state.windowStart,
     usage: state.usage,
+    sessionModel: state.sessionModel,
     loadOlder,
     loading: state.loading,
     error: state.error,

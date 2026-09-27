@@ -111,6 +111,14 @@ export class OpencodeAgentBackend implements AgentBackend {
   }
 
   /**
+   * The session's current model as `providerID/modelID`, for the switcher. Delegated so the
+   * timeline route's probe lands: it survives the post-compaction gap that blanks usage.
+   */
+  sessionModel(sessionId: string): string | null {
+    return this.pool.sessionModel(sessionId);
+  }
+
+  /**
    * What the session's summariser has streamed so far, or null when it is not compacting.
    * Delegated so the timeline route's probe lands: only this backend's sessions compact.
    */

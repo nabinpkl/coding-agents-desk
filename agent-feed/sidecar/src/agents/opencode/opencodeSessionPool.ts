@@ -55,6 +55,12 @@ export interface OwnedSession {
   refreshTimer: ReturnType<typeof setTimeout> | null;
   refreshQueued: boolean;
   usage: TokenUsage | null;
+  /**
+   * The session's current model as `providerID/modelID`, or null while the serve has not named
+   * one. Tracked beside usage rather than inside it: usage blanks across a post-compaction gap
+   * while the model survives it, and the panel's switcher reads this without touching the meter.
+   */
+  model: string | null;
   disposed: boolean;
 }
 
@@ -167,6 +173,15 @@ export class OpencodeSessionPool {
   /** Latest occupancy the pool has seen, for the timeline's meter. */
   sessionUsage(sessionId: string): TokenUsage | null {
     return this.owned.get(sessionId)?.usage ?? null;
+  }
+
+  /**
+   * The session's current model as `providerID/modelID`, or null while the serve has not named
+   * one. Answered even across the post-compaction gap that blanks usage: a compaction rewrites
+   * context, never the model.
+   */
+  sessionModel(sessionId: string): string | null {
+    return this.owned.get(sessionId)?.model ?? null;
   }
 
   /**
@@ -312,6 +327,7 @@ export class OpencodeSessionPool {
       refreshTimer: null,
       refreshQueued: false,
       usage: null,
+      model: null,
       disposed: false,
     };
     this.owned.set(sessionId, owned);
@@ -349,6 +365,9 @@ export class OpencodeSessionPool {
       if (session?.tokens && session.model) {
         const tokens = session.tokens;
         const modelKey = `${session.model.providerID}/${session.model.id}`;
+        // Named on every refresh, inside the occupancy branch or out of it: usage blanks
+        // across the post-compaction gap while the model survives it.
+        current.model = modelKey;
         // The window, not the odometer: session totals accumulate every turn's cache re-read
         // (measured 330M on a 1M window), while the meter answers what is in context now.
         // A completed compaction with no turn reporting tokens after it blanks the meter until

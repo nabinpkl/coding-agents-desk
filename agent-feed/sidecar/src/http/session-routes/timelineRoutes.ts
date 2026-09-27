@@ -11,6 +11,7 @@
 // one stream and reads messages off it.
 
 import type { AgentBackend } from "@/agents/agentBackend";
+import { stampSessionModel } from "@/agents/agentBackend";
 import {
   findSession,
   getWatcherState,
@@ -279,6 +280,10 @@ function timelineStream(options: {
         fail("session-not-found", `no session ${source}/${sessionId}`, false);
         return;
       }
+      // Asked live rather than taken from the page, which covers a model switch that landed
+      // after the window was read. The page already carries one where the read stamped it;
+      // the live answer is fresher, so it wins where it names one.
+      const windowModel = backend ? stampSessionModel(backend, sessionId) : {};
       emit({
         type: "timeline",
         envelope: {
@@ -296,6 +301,9 @@ function timelineStream(options: {
           runState: window.page.runState,
           queue: window.page.queue,
           usage: window.page.usage,
+          // Absent while unnamed, so a sender that never names a model emits the
+          // snapshot the fixture pins byte for byte.
+          ...windowModel,
         },
       });
       if (cancelled) return;
@@ -309,10 +317,14 @@ function timelineStream(options: {
           onError: (message) => fail("timeline-stream-failed", message),
         }));
       } else if (backend) {
+        // Stamped per envelope rather than captured, the same way usage is read per write in
+        // the transcript follower: a model switch mid-stream must travel on the next envelope.
+        // Absent while unnamed, so a sender that never names a model emits the envelope shape
+        // it always has.
         hold(
           await backend
             .subscribe(sessionId, window.page.sequence, (envelope) =>
-              emit({ type: "timeline", envelope }))
+              emit({ type: "timeline", envelope: { ...envelope, ...stampSessionModel(backend, sessionId) } }))
             .catch((error) => {
               fail("timeline-stream-failed", error);
               return null;
@@ -377,7 +389,7 @@ async function openingWindow(
     }
     if (!backend) return null;
     const page = await backend.page(sessionId, offset, limit, mode);
-    return { ...page, usage: backendUsage(backend, sessionId) };
+    return { ...page, usage: backendUsage(backend, sessionId), ...stampSessionModel(backend, sessionId) };
   };
 
   const probe = await read(0, 1);

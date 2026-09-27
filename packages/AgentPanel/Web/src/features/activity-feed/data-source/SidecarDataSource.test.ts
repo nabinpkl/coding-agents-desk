@@ -19,6 +19,7 @@ interface Recorder extends SessionEventsHandlers {
   snapshots: unknown[];
   events: unknown[];
   usages: unknown[];
+  models: unknown[];
   tails: unknown[];
   errors: string[];
 }
@@ -28,11 +29,13 @@ function handlers(): Recorder {
     snapshots: [],
     events: [],
     usages: [],
+    models: [],
     tails: [],
     errors: [],
     onSnapshot: (snapshot) => sink.snapshots.push(snapshot),
     onEvent: (activityEvent) => sink.events.push(activityEvent),
     onUsage: (usage) => sink.usages.push(usage),
+    onSessionModel: (model) => sink.models.push(model),
     onLiveTail: (activityEvent) => sink.tails.push(activityEvent),
     onError: () => sink.errors.push("failed"),
   };
@@ -96,6 +99,7 @@ describe("SidecarDataSource", () => {
         runState: "running",
         queue: { steer: 1, followUp: 2 },
         usage: { current: 100, limit: 200, updatedAt: 5 },
+        sessionModel: "p/m",
       },
     });
     transport.deliver("timeline", {
@@ -117,6 +121,7 @@ describe("SidecarDataSource", () => {
         events: [event(0)],
         total: 11,
         usage: { current: 100, limit: 200, updatedAt: 5 },
+        sessionModel: "p/m",
         windowStart: 4,
         state: { sequence: 10, runState: "running", queue: { steer: 1, followUp: 2 } },
       },
@@ -124,6 +129,9 @@ describe("SidecarDataSource", () => {
     expect(sink.events).toEqual([event(1)]);
     // The second envelope carried no usage, so the meter is not blanked between readings.
     expect(sink.usages).toEqual([{ current: 100, limit: 200, updatedAt: 5 }]);
+    // The model rides beside usage: named on the snapshot, untouched by the upsert that
+    // carried neither, so the switcher never blanks with the meter.
+    expect(sink.models).toEqual(["p/m"]);
   });
 
   it("passes the live tail and its end through", () => {

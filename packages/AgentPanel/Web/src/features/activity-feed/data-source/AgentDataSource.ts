@@ -34,6 +34,10 @@ export interface EventsPage {
   /** Session occupancy, not page occupancy: always the latest the transcript has
    *  published, even on a page of older events. */
   usage: TokenUsage | null;
+  /** The session's current model as `providerID/modelID`, or null while unknown.
+   *  Beside usage rather than inside it: usage blanks across a post-compaction gap
+   *  while the model survives it, and the switcher reads this without touching the meter. */
+  sessionModel?: string | null;
 }
 
 export interface SessionEventsSnapshot extends EventsPage {
@@ -57,6 +61,10 @@ export interface SessionEventsHandlers {
    *  occupancy is session state and arrives on the chunk, and because it has to
    *  land before the seed resolves as well as after. */
   onUsage?: (usage: TokenUsage | null) => void;
+  /** Fired whenever a chunk names the session's model. Separate from `onUsage` because
+   *  occupancy blanks across a post-compaction gap while the model survives it, and the
+   *  switcher must not blank with the meter. */
+  onSessionModel?: (model: string | null) => void;
   /** The live in-flight message, mirrored from the network layer. `event` is the
    *  message as it streams; `null` means the live tail is over. The viewer shows
    *  it below the durable rows and hands it off when the durable transcript

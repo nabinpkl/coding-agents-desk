@@ -5,11 +5,11 @@ import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
 import {
-  liveRowKey,
   useSessionEventsStream,
   type ActivityEvent,
   type TokenUsage,
 } from "@/features/activity-feed/useSessionEventsStream";
+import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import { CompactingNotice } from "@/features/activity-feed/blocks/CompactingNotice";
 import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
 import {
@@ -69,6 +69,7 @@ export function ActivityFeed({
   controlsHost,
   onSessionState,
   onUsage,
+  onSessionModel,
   onOpenQuestion,
   onForkFromMessage,
 }: {
@@ -105,6 +106,13 @@ export function ActivityFeed({
    */
   onUsage?: (usage: TokenUsage | null) => void;
   /**
+   * Mirrors the session's current model up to the shell. The composer band renders it as the
+   * switcher label, so it lives here beside usage; the feed owns the stream that carries it.
+   * Separate because usage blanks across a post-compaction gap while the model survives it.
+   * `null` while nothing has named one.
+   */
+  onSessionModel?: (model: string | null) => void;
+  /**
    * Mirrors the session's open AskUserQuestion up to the shell. The composer band
    * renders the mirror, so it lives here rather than in the header; the feed owns
    * the event stream the question is derived from. `null` while no question is open.
@@ -120,7 +128,7 @@ export function ActivityFeed({
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const {
-    events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTails, compactionSummary,
+    events, loadOlder, windowStart, usage, sessionModel, loading, error, runState, queue, liveTails, compactionSummary,
   } = useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -128,6 +136,9 @@ export function ActivityFeed({
   useEffect(() => {
     onUsage?.(usage);
   }, [onUsage, usage]);
+  useEffect(() => {
+    onSessionModel?.(sessionModel);
+  }, [onSessionModel, sessionModel]);
   // The open AskUserQuestion derives from the stream the feed owns. Memoized so
   // the shell's mirror only re-renders when the answer actually changes it.
   const openQuestion = useMemo(

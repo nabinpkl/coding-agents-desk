@@ -1,3 +1,5 @@
+import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
+
 /**
  * Whether the composer band puts a pane above its field, given what this session remembers.
  *
@@ -18,4 +20,36 @@
  */
 export function terminalArrangement(shown: boolean, hasBasis: boolean): "echo" | null {
   return shown && hasBasis ? "echo" : null;
+}
+
+export interface ComposerTerminalPane {
+  context: SessionTmuxTerminalContext;
+  layout: "band" | "echo";
+  height: number | null;
+  onResized: (height: number) => void;
+}
+
+/**
+ * The pane that stands above the field, in the band's own shape, or null when this session's is
+ * hidden. Beside `terminalArrangement` because it is the same decision with the session's
+ * remembered size attached: the field is not part of it, since it is the surface every session
+ * has, and the control is about what is ABOVE it rather than about which of two surfaces gets
+ * the band.
+ */
+export function composerTerminalPane(
+  terminalComposer: {
+    context: SessionTmuxTerminalContext;
+    shown: boolean;
+    height: number | null;
+    onResized: (height: number) => void;
+  } | null,
+  terminalHeightBasis: HTMLElement | null,
+): ComposerTerminalPane | null {
+  const layout = terminalArrangement(
+    Boolean(terminalComposer?.shown),
+    Boolean(terminalHeightBasis),
+  );
+  if (!terminalComposer || !layout) return null;
+  const { context, height, onResized } = terminalComposer;
+  return { context, layout, height, onResized };
 }

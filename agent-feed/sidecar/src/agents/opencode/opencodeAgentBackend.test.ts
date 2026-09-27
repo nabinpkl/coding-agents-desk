@@ -173,8 +173,32 @@ test("timeline serves nice mode only", async () => {
   const page = await backend.page("s1", 0, 10, "nice");
   expect(page).toMatchObject({ mode: "nice", total: 1 });
   expect(backend.sessionUsage("s1")).toEqual(expect.objectContaining({ model: "p/m", limit: null }));
+  expect(backend.sessionModel("s1")).toBe("p/m");
   await expect(backend.page("s1", 0, 10, "raw")).rejects.toBeInstanceOf(AgentModeUnsupportedError);
   await expect(backend.page("nope", 0, 10, "nice")).rejects.toBeInstanceOf(AgentSessionNotFoundError);
+  await backend.dispose();
+});
+
+test("the session model survives the post-compaction gap that blanks usage", async () => {
+  // A landed compaction with no turn reporting tokens after it: the meter blanks rather than
+  // holding a pre-compaction number, but the switcher must keep naming the model -- a
+  // compaction rewrites context, never the model.
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  installFetch(recorded, [
+    { id: "msg-c", time: { created: 200 }, type: "compaction", status: "completed" },
+    userItem("msg-u", "hello"),
+  ] as unknown as FakeItem[]);
+  const backend = new OpencodeAgentBackend({
+    resolveSession: (sessionId) =>
+      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    onSessionCreated() {},
+    onCatalogChanged() {},
+    client: () => fakeServe(recorded) as unknown as OpencodeClient,
+    now: () => 1000,
+  });
+  await backend.page("s1", 0, 10, "nice");
+  expect(backend.sessionUsage("s1")).toBeNull();
+  expect(backend.sessionModel("s1")).toBe("p/m");
   await backend.dispose();
 });
 

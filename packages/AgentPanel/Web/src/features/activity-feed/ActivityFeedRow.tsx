@@ -6,7 +6,8 @@
 // ref are what make it a virtualised row rather than a row.
 
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
-import { liveRowKey, type ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import {
   ClusterRow,

@@ -119,8 +119,8 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: () => m.filePicker.current?.click(),
     });
   }
-  // The TUI's `{agent} · {model}` row, minus the agent: the serve reports the session's model
-  // on its usage, and pressing it opens the picker instead of typing `/models`. Truncated with
+  // The TUI's `{agent} · {model}` row, minus the agent: the sidecar names the session's model
+  // beside usage, and pressing it opens the picker instead of typing `/models`. Truncated with
   // a selector chevron: on a narrow card the `model · provider` text wraps to two lines and
   // crowds the meter, so it gets one capped line with an ellipsis and the affordance says menu.
   if (m.session.source === "opencode") {

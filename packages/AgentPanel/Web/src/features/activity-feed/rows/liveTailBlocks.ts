@@ -1,10 +1,75 @@
 // The live tail in the shape the transcript will give it: one row per block.
 
 import {
-  liveRowKey,
   type ActivityBlock,
   type ActivityEvent,
 } from "@/features/activity-feed/useSessionEventsStream";
+
+/** A live row's key: the mirror's own row id, stable across the revisions that
+ *  grow one message, so a delta replaces its row instead of adding one. */
+export function liveRowKey(event: ActivityEvent): string {
+  return event.id ?? `live:${event.index}`;
+}
+
+/**
+ * The live rows to draw under the thread, oldest first.
+ *
+ * The mirror runs AHEAD of the file: a transcript line is written after the fact, so
+ * the only thing this preview is ever about is the part of the turn the reader cannot
+ * see yet. Once the transcript has reached a row, the file is the authority and the
+ * preview has nothing left to add for it.
+ *
+ * A turn is MANY messages, not one. The mirror opens a row per message, finishes it,
+ * and moves on, and the transcript is what collects them into a thread. So this is a
+ * list rather than a slot: holding one slot and letting each new message overwrite
+ * the last is only correct while the file keeps up, and it does not. Measured
+ * 2026-09-10 on a live session, the durable stream delivered nothing for ninety
+ * seconds while four messages took the slot in turn, so three of them were on screen
+ * for a few seconds and then nowhere at all, and the thread appeared to stop moving.
+ *
+ * What retires a row is therefore two separate things, and neither is a clock:
+ *
+ * - The file NAMING it. That is the handoff, settled on `messageId` in `onEvent`,
+ *   which also retires every row the mirror published before it: the file writes
+ *   messages in the order the mirror made them, so naming one says the file has
+ *   reached that point in the mirror's own order.
+ * - The file moving PAST it, which is what this function decides. A mirror that
+ *   stops mid-turn keeps publishing a row whose id never reaches the file, so the
+ *   handoff can never fire and the preview sits under a thread that is streaming
+ *   perfectly well behind it. Measured 2026-09-09: a three-hour-old finished message
+ *   pinned below a live session as a 9,554px block, in a feed that follows its own
+ *   bottom.
+ *
+ * "Past" is measured against the newest transcript row for a message THIS MIRROR
+ * never published, because those are the only rows that say the mirror is behind. A
+ * row's `ts` is the moment its message began streaming, so a file holding an
+ * unmirrored message from that moment or later is not waiting on this one. Two kinds
+ * of row are deliberately ignored:
+ *
+ * - Rows for a message the mirror DID publish. The transcript appends per tool step
+ *   and writes a message when it ends, so its row lands at about the instant the next
+ *   message starts streaming; counting it would retire the row the mirror is writing
+ *   right now on a coin flip. Those rows are the handoff's business, not this one's.
+ * - Rows carrying no message at all -- tool results, the reader's own turns. They are
+ *   written throughout a turn and belong to no message, so their arrival is not
+ *   evidence about which message the file has reached.
+ */
+export function visibleTails(
+  rows: ReadonlyMap<string, ActivityEvent>,
+  durable: readonly ActivityEvent[],
+  mirrored: ReadonlySet<string>,
+): ActivityEvent[] {
+  let newestUnmirrored = Number.NEGATIVE_INFINITY;
+  for (const event of durable) {
+    if (event.messageId === undefined || mirrored.has(event.messageId)) continue;
+    if (event.ts > newestUnmirrored) newestUnmirrored = event.ts;
+  }
+  const visible: ActivityEvent[] = [];
+  for (const row of rows.values()) {
+    if (row.ts > newestUnmirrored) visible.push(row);
+  }
+  return visible.sort((left, right) => left.index - right.index);
+}
 
 /** The blocks a transcript writes a line for. Anything else rides on the message's last row. */
 const CONTENT_KINDS: ReadonlySet<ActivityBlock["kind"]> = new Set(["text", "reasoning", "tool_use"]);

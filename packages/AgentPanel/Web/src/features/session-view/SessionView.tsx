@@ -186,6 +186,9 @@ export function SessionView({
   // Mirrored up from ActivityFeed, which owns the event stream both derive from, and rendered by
   // the composer band below the transcript.
   const [sessionUsage, setSessionUsage] = useState<TokenUsage | null>(null);
+  // The switcher label, mirrored beside usage rather than derived from it: usage blanks across
+  // a post-compaction gap while the model survives it.
+  const [sessionModel, setSessionModel] = useState<string | null>(null);
   const [openQuestion, setOpenQuestion] = useState<OpenAskUserQuestion | null>(null);
   const [extensionUI, setExtensionUI] = useState<AgentUiRequest[]>([]);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
@@ -399,6 +402,7 @@ export function SessionView({
           controlsHost={feedControlsHost}
           onSessionState={setSessionState}
           onUsage={setSessionUsage}
+          onSessionModel={setSessionModel}
           onOpenQuestion={setOpenQuestion}
           {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
         />
@@ -431,6 +435,7 @@ export function SessionView({
         session={session}
         state={sessionState}
         usage={sessionUsage}
+        sessionModel={sessionModel}
         pending={commands.commandPending}
         error={commands.commandError ?? externalError}
         question={openQuestion}

@@ -80,7 +80,7 @@ export class SidecarTranscript extends SidecarRoutes {
     const page = parse<WireEventsPage>(
       await this.transport.request("GET", eventsPath(session, offset, limit)),
     );
-    return { events: page.events, total: page.total, usage: page.usage ?? null };
+    return { events: page.events, total: page.total, usage: page.usage ?? null, sessionModel: page.sessionModel ?? null };
   }
 
   /**
@@ -213,11 +213,15 @@ export class SidecarTranscript extends SidecarRoutes {
         // Usage rides the envelope rather than its own message, and has to land whether the
         // envelope is the opening snapshot or a later chunk.
         if (envelope.usage !== undefined) handlers.onUsage?.(envelope.usage ?? null);
+        // The model rides beside usage for the same reason, and lands the same way: it is
+        // what keeps the switcher named across the post-compaction gap that blanks usage.
+        if (envelope.sessionModel !== undefined) handlers.onSessionModel?.(envelope.sessionModel ?? null);
         if (envelope.kind === "snapshot") {
           handlers.onSnapshot({
             events: envelope.events,
             total: envelope.total,
             usage: envelope.usage ?? null,
+            sessionModel: envelope.sessionModel ?? null,
             windowStart: envelope.windowStart ?? 0,
             stableIndices: envelope.stableIndices,
             state,

@@ -1,4 +1,4 @@
-import { parseMessageAttachments, type AgentBackend, type AgentCommandReceipt, type AgentMessageDelivery } from "@/agents/agentBackend";
+import { parseMessageAttachments, stampSessionModel, type AgentBackend, type AgentCommandReceipt, type AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import { buildHandoverPrompt, renderHandover, SessionHandoverError } from "@/transcripts/sessionHandover";
@@ -331,6 +331,7 @@ async function pageLiveEvents(
       runState: page.runState,
       queue: page.queue,
       usage: typeof live.sessionUsage === "function" ? live.sessionUsage(sessionId) : null,
+      ...stampSessionModel(backend, sessionId),
     });
   } catch (error) {
     return routeError(error);
@@ -372,6 +373,7 @@ function streamLiveEvents(
           mode,
           events: envelope.events.map((event) => ({ ...event, otherModeIndex: event.index })),
           usage: usageFor(sessionId),
+          ...stampSessionModel(backend, sessionId),
         }));
       })
         .then((value) => {

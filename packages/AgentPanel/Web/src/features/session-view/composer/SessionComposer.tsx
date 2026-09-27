@@ -68,7 +68,7 @@ import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
-import { terminalArrangement } from "@/features/session-view/composer/terminalArrangement";
+import { composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
 import type { OpencodeModelsMenu } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
@@ -115,6 +115,7 @@ export function SessionComposer({
   session,
   state,
   usage,
+  sessionModel,
   pending,
   error,
   question,
@@ -135,6 +136,8 @@ export function SessionComposer({
   session: SessionSummary;
   state: AgentSessionControlState;
   usage: TokenUsage | null;
+  /** The session's current model (`providerID/modelID`); beside usage, which blanks across compaction gaps. */
+  sessionModel: string | null;
   pending: boolean;
   error: string | null;
   /**
@@ -398,21 +401,8 @@ export function SessionComposer({
   }, [engage]);
   const [softwareKeyboard] = useState(drawsOwnKeyboard);
 
-  // The pane that stands above the field, or null when this session's is hidden. The field is not
-  // part of this decision: it is the surface every session has, and the control is about what is
-  // ABOVE it rather than about which of two surfaces gets the band.
-  const paneLayout = terminalArrangement(
-    Boolean(terminalComposer?.shown),
-    Boolean(terminalHeightBasis),
-  );
-  const terminalPane = terminalComposer && paneLayout
-    ? {
-      context: terminalComposer.context,
-      layout: paneLayout,
-      height: terminalComposer.height,
-      onResized: terminalComposer.onResized,
-    }
-    : null;
+  // The pane that stands above the field, or null when this session's is hidden.
+  const terminalPane = composerTerminalPane(terminalComposer, terminalHeightBasis);
 
   const [deliveryPending, setDeliveryPending] = useState(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
@@ -452,7 +442,7 @@ export function SessionComposer({
     running,
     sendAttachments,
     session,
-    sessionModel: usage?.model ?? null,
+    sessionModel: sessionModel ?? usage?.model ?? null,
     setDeliveryError,
     setDeliveryPending,
     setLocalDraft,

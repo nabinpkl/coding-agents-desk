@@ -34,6 +34,30 @@ export type AgentMessageDelivery = "next" | "steer";
 
 export type AgentUiResponseResult = "accepted" | "already-resolved" | "not-found" | "invalid";
 
+/**
+ * A backend that names its sessions' current model, as `providerID/modelID`. Probed rather
+ * than required: only opencode's backend names one, and Pi implements neither this nor usage.
+ */
+export type ModelReportingBackend = AgentBackend & {
+  sessionModel(sessionId: string): string | null;
+};
+
+/**
+ * The session's model stamped onto a page or envelope, or nothing to spread where no backend
+ * has named one. One helper because both timeline routes probe the same optional method, and
+ * absent-while-unknown keeps a sender that never names a model byte-identical to before.
+ */
+export function stampSessionModel(
+  backend: AgentBackend,
+  sessionId: string,
+): { sessionModel: string } | Record<string, never> {
+  const reporting = backend as ModelReportingBackend;
+  const model = typeof reporting.sessionModel === "function"
+    ? reporting.sessionModel(sessionId)
+    : null;
+  return model === null ? {} : { sessionModel: model };
+}
+
 /** A session-id referenced a session this backend does not own (or that has been dropped). */
 export class AgentSessionNotFoundError extends Error {}
 /** A mode the backend does not serve was requested (e.g. `raw` on a nice-only live source). */

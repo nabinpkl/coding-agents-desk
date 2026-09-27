@@ -41,6 +41,15 @@ export interface EventsPage {
   total: number;
   mode: EventMode;
   usage: TokenUsage | null;
+  /**
+   * The session's current model as `providerID/modelID`.
+   *
+   * Separate from `usage` on purpose: usage blanks across a post-compaction gap
+   * (no turn has reported tokens for the new window yet), while the model survives
+   * it -- a compaction rewrites context, never the model. A reader of the model
+   * alone must not go through occupancy. Absent while no backend has named one.
+   */
+  sessionModel?: string | null;
   sequence: number;
   runState: AgentRunState;
   queue: AgentQueueState;
@@ -84,6 +93,15 @@ export interface TimelineEnvelope {
    * fires once per event, so the meter goes live with no extra plumbing.
    */
   usage?: TokenUsage | null;
+  /**
+   * The session's current model as `providerID/modelID`.
+   *
+   * Beside usage rather than inside it: usage blanks across a post-compaction gap while the
+   * model survives it, and the model switcher reads this without touching the meter. Absent
+   * while no backend has named one, so a sender that never names a model emits byte-identical
+   * envelopes to before.
+   */
+  sessionModel?: string | null;
 }
 
 /**

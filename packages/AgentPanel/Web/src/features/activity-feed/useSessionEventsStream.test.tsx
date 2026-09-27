@@ -349,4 +349,48 @@ describe("useSessionEventsStream", () => {
       updatedAt: 3000,
     });
   });
+
+  it("keeps naming the session model across a snapshot that blanks usage", async () => {
+    // The post-compaction gap: the sidecar stops reporting occupancy for a window that no
+    // longer exists, while the model survives it. The switcher reads the model, the meter
+    // reads usage, so one blanks and the other must not.
+    let handlers: SessionEventsHandlers | undefined;
+    const source: AgentDataSource = stubDataSource({
+      // A fresh open after the compaction landed: the seed names the model but carries no
+      // occupancy for the window that no longer exists.
+      fetchEventsPage: async () => ({
+        events: [event(0, "row-0", "assistant")],
+        total: 1,
+        usage: null,
+        sessionModel: "p/m",
+      }),
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("opencode", "thread", "nice"),
+      { wrapper },
+    );
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(view.result.current.usage).toBeNull();
+    expect(view.result.current.sessionModel).toBe("p/m");
+
+    act(() => handlers?.onSnapshot?.({
+      events: [event(0, "row-0", "assistant")],
+      total: 1,
+      windowStart: 0,
+      usage: null,
+      sessionModel: "p/m",
+      state: { sequence: 2, runState: "idle", queue: { steer: 0, followUp: 0 } },
+    }));
+
+    expect(view.result.current.usage).toBeNull();
+    expect(view.result.current.sessionModel).toBe("p/m");
+  });
 });
