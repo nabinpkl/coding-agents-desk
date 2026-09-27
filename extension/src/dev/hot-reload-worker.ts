@@ -68,5 +68,10 @@ function connect(): void {
 }
 
 console.log(`[hot-reload] dev build ${__DEV_BUILD_ID__}, watching ${__DEV_RELOAD_URL__}`);
+// Chrome stops an idle MV3 worker after about 30 s, and an open fetch stream does
+// not count as activity, so the watcher would lose it between saves. Any
+// extension API call resets the idle timer; dev builds only.
+setInterval(() => void chrome.runtime.getPlatformInfo(), 20_000);
+
 void reloadMarkedTabs();
 connect();
