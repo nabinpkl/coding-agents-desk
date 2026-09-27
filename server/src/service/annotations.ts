@@ -12,6 +12,14 @@ export class NotFound extends Error {
   }
 }
 
+/** A valid request that the annotation's current state does not allow, e.g. reopening an open one. */
+export class Conflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Conflict";
+  }
+}
+
 /** A request the service refuses on its own rules (as opposed to schema validation at the edge). */
 export class InvalidInput extends Error {
   constructor(message: string) {
@@ -70,8 +78,10 @@ export function createAnnotationService(store: AnnotationStore, clock: () => str
       });
     },
 
+    /** Only a resolved annotation can be reopened; a note on an open one is a reply. */
     reopen(id: number, by: Actor, message?: string): Annotation {
       return store.transaction(() => {
+        if (mustGet(id).status !== "resolved") throw new Conflict(`annotation ${id} is already open; reply to add a note`);
         if (!store.setStatus(id, { status: "open", resolvedAt: null, resolvedBy: null, reopenedBy: by, updatedAt: clock() })) {
           throw new NotFound(`annotation ${id}`);
         }

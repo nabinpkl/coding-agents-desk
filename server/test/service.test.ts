@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { createAnnotationService, NotFound } from "../src/service/annotations.ts";
+import { Conflict, createAnnotationService, NotFound } from "../src/service/annotations.ts";
 import { openSqliteStore } from "../src/store/sqlite-store.ts";
 
 function setup() {
@@ -29,6 +29,21 @@ test("resolve records who and when; reopen clears it and records who reopened", 
   assert.equal(o.resolvedBy, null);
   assert.equal(o.resolvedAt, null);
   assert.equal(o.reopenedBy, "user");
+});
+
+test("reopen refuses an open annotation and leaves it untouched", () => {
+  const { svc } = setup();
+  const a = svc.add(input);
+  assert.throws(() => svc.reopen(a.id, "agent", "note"), Conflict);
+  const after = svc.get(a.id);
+  assert.deepEqual([after.reopenedBy, after.replies.length, after.updatedAt], [null, 0, a.updatedAt]);
+});
+
+test("reply adds a note without touching status", () => {
+  const { svc } = setup();
+  const a = svc.add(input);
+  const r = svc.reply(a.id, "agent", "Which breakpoint do you mean?");
+  assert.deepEqual([r.status, r.reopenedBy, r.replies[0]?.by], ["open", null, "agent"]);
 });
 
 test("resolve and reopen with a message append a reply atomically", () => {

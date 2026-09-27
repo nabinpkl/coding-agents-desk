@@ -52,6 +52,7 @@ test("annotation lifecycle over REST acts as user", async () => {
 
   const reopened = (await (await h.fetch(`/api/v1/annotations/${id}/reopen`, { method: "POST" })).json()) as { status: string; reopenedBy: string };
   assert.deepEqual([reopened.status, reopened.reopenedBy], ["open", "user"]);
+  assert.equal((await h.fetch(`/api/v1/annotations/${id}/reopen`, { method: "POST" })).status, 409, "reopening an open annotation");
 
   const replied = await h.fetch(`/api/v1/annotations/${id}/replies`, { method: "POST", headers: json, body: JSON.stringify({ text: "please also fix mobile" }) });
   assert.equal(replied.status, 201);

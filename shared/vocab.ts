@@ -6,10 +6,10 @@ export const DEFAULT_TAG = TAGS[0];
 
 /** What each tag asks an agent to do. The one definition agents read, via MCP tool text and the brief. */
 export const TAG_MEANINGS: Record<(typeof TAGS)[number], string> = {
-  comment: "a note that may or may not need a fix; ask the user to clarify (reopen with a message) before changing anything",
+  comment: "a note that may or may not need a fix; reply to ask the user to clarify before changing anything",
   bug: "investigate the cause and fix it",
   change: "make the requested change",
-  suggestion: "do not implement yet; debate it, lay out the viable approaches with their tradeoffs, and recommend one",
+  suggestion: "do not implement yet; debate it and reply with the viable approaches, their tradeoffs, and a recommendation",
   question: "answer it (resolve with the answer as the message); change nothing",
   info: "context only; take no action and leave it open",
 };

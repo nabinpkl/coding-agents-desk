@@ -57,7 +57,8 @@ Every client signs in with OAuth through Cloudflare Access. Only the owner's ema
 | `agentdesk-annotator_screenshot` | The element screenshot as image content |
 | `agentdesk-annotator_elements` | Covered DOM nodes, filtered by substring or tag, capped by limit |
 | `agentdesk-annotator_resolve` | Mark fixed (resolvedBy agent), with an optional reply |
-| `agentdesk-annotator_reopen` | Keep open with a "why" reply when blocked |
+| `agentdesk-annotator_reply` | Add an agent reply without changing status (clarifying questions, debated approaches) |
+| `agentdesk-annotator_reopen` | Reopen a resolved annotation that is not done, with an optional reason; refused on an open one |
 
 ## Operations
 

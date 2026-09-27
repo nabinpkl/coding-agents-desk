@@ -7,7 +7,7 @@ import { bodyLimit } from "hono/body-limit";
 import * as z from "zod";
 import { Unauthorized, type AccessVerifier, type Identity } from "../auth/access-jwt.ts";
 import type { McpEndpoint } from "../mcp/mcp-endpoint.ts";
-import { InvalidInput, NotFound, type AnnotationService } from "../service/annotations.ts";
+import { Conflict, InvalidInput, NotFound, type AnnotationService } from "../service/annotations.ts";
 import { restRoutes } from "./rest.ts";
 
 export type AppEnv = { Variables: { identity: Identity } };
@@ -62,6 +62,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.onError((err, c) => {
     if (err instanceof Unauthorized) return c.json({ error: err.message }, 401);
     if (err instanceof NotFound) return c.json({ error: err.message }, 404);
+    if (err instanceof Conflict) return c.json({ error: err.message }, 409);
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     if (err instanceof InvalidInput) return c.json({ error: err.message }, 400);

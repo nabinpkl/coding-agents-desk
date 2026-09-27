@@ -1,10 +1,10 @@
-/* The agent-facing MCP surface: seven tools over the annotation service.
+/* The agent-facing MCP surface: eight tools over the annotation service.
  * Agents act as "agent"; the extension's REST calls act as "user". */
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { Status } from "../../../shared/annotation.ts";
 import { tagGuide } from "../../../shared/vocab.ts";
-import { NotFound, type AnnotationService } from "../service/annotations.ts";
+import { Conflict, NotFound, type AnnotationService } from "../service/annotations.ts";
 
 export const SERVER_NAME = "agentdesk-annotator";
 export const SERVER_VERSION = "1.0.0";
@@ -19,12 +19,12 @@ function json(value: unknown): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
-/** A missing id is an expected agent mistake: answer with a tool error, not a protocol error. */
+/** A missing id or a state conflict is an expected agent mistake: answer with a tool error, not a protocol error. */
 function guard(fn: () => ToolResult): ToolResult {
   try {
     return fn();
   } catch (e) {
-    if (e instanceof NotFound) return { content: [{ type: "text", text: e.message }], isError: true };
+    if (e instanceof NotFound || e instanceof Conflict) return { content: [{ type: "text", text: e.message }], isError: true };
     throw e;
   }
 }
@@ -109,11 +109,21 @@ export function buildMcpServer(service: AnnotationService): McpServer {
   );
 
   server.registerTool(
+    `${P}_reply`,
+    {
+      description:
+        "Add an agent reply to an annotation without changing its status. Use it to ask for clarification (comment), to post the debated approaches and a recommendation (suggestion), or to say what blocks you.",
+      inputSchema: z.object({ id: Id, message: z.string().trim().min(1).describe("Reply shown in the panel.") }),
+    },
+    async ({ id, message }) => guard(() => json(service.reply(id, "agent", message))),
+  );
+
+  server.registerTool(
     `${P}_reopen`,
     {
       description:
-        "Acknowledged but unresolved: optional message stays on the item while it remains open. Use it to ask for clarification (comment), to post the debated approaches (suggestion), or when confused or blocked, instead of resolving.",
-      inputSchema: z.object({ id: Id, message: z.string().optional().describe("Why it is unresolved, shown in the panel.") }),
+        "Reopen a resolved annotation that is not actually done, e.g. the fix did not hold. Fails on an open annotation; use reply for a note on one. Optional message says why.",
+      inputSchema: z.object({ id: Id, message: z.string().optional().describe("Why it is reopened, shown in the panel.") }),
     },
     async ({ id, message }) => guard(() => json(service.reopen(id, "agent", message || undefined))),
   );

@@ -39,10 +39,10 @@ async function seed(text: string): Promise<number> {
   return ((await r.json()) as { id: number }).id;
 }
 
-test("server identifies itself and lists the seven tools", async () => {
+test("server identifies itself and lists the eight tools", async () => {
   assert.equal(client.getServerVersion()?.name, P);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["brief", "elements", "get", "list", "reopen", "resolve", "screenshot"].map((n) => `${P}_${n}`));
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["brief", "elements", "get", "list", "reopen", "reply", "resolve", "screenshot"].map((n) => `${P}_${n}`));
 });
 
 test("list, get and brief read what the extension wrote", async () => {
@@ -60,6 +60,15 @@ test("resolve and reopen act as agent and store the message as a reply", async (
   assert.deepEqual([r.status, r.resolvedBy, r.replies[0].by, r.replies[0].text], ["resolved", "agent", "agent", "Changed to brand blue"]);
   const o = parsed(await call("reopen", { id, message: "Blocked on design token" }));
   assert.deepEqual([o.status, o.reopenedBy, o.replies.length], ["open", "agent", 2]);
+});
+
+test("reply acts as agent without a status change; reopen on an open item is a tool error", async () => {
+  const id = await seed("Spacing feels off");
+  const r = parsed(await call("reply", { id, message: "Which card do you mean?" }));
+  assert.deepEqual([r.status, r.reopenedBy, r.replies[0].by, r.replies[0].text], ["open", null, "agent", "Which card do you mean?"]);
+  const refused = await call("reopen", { id, message: "note" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0]!.text!, /already open/);
 });
 
 test("screenshot returns image content and elements filters the coverage", async () => {
@@ -84,8 +93,8 @@ test("screenshot returns image content and elements filters the coverage", async
 });
 
 test("a missing id is a tool error, not a protocol failure", async () => {
-  for (const name of ["get", "screenshot", "elements", "resolve", "reopen"]) {
-    const r = await call(name, { id: 999999 });
+  for (const name of ["get", "screenshot", "elements", "resolve", "reopen", "reply"]) {
+    const r = await call(name, { id: 999999, ...(name === "reply" ? { message: "x" } : {}) });
     assert.equal(r.isError, true, name);
     assert.match(r.content[0]!.text!, /not found/);
   }

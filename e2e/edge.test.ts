@@ -41,9 +41,9 @@ test("the edge demands OAuth before anything reaches the origin", async () => {
   assert.deepEqual(meta.code_challenge_methods_supported, ["S256"]);
 });
 
-test("MCP over the edge: seven tools, full annotation round trip", async () => {
+test("MCP over the edge: eight tools, full annotation round trip", async () => {
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 7);
+  assert.equal(tools.length, 8);
 
   const created = await api("/annotations", {
     method: "POST",
@@ -73,6 +73,8 @@ test("MCP over the edge: seven tools, full annotation round trip", async () => {
   const shot = await text("screenshot", { id: annId });
   assert.deepEqual(Buffer.from(shot.content[0]!.data!, "base64"), bytes);
   assert.equal(JSON.parse((await text("elements", { id: annId, tag: "h2" })).content[0]!.text!).returned, 1);
+  const replied = JSON.parse((await text("reply", { id: annId, message: "e2e agent reply" })).content[0]!.text!);
+  assert.deepEqual([replied.status, replied.replies.at(-1).by], ["open", "agent"]);
   const resolved = JSON.parse((await text("resolve", { id: annId, message: "e2e resolved" })).content[0]!.text!);
   assert.deepEqual([resolved.status, resolved.resolvedBy], ["resolved", "agent"]);
   const reopened = JSON.parse((await text("reopen", { id: annId })).content[0]!.text!);
