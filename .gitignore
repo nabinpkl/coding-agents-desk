@@ -6,6 +6,11 @@
 # macOS atomic-write temp artifacts
 .!*
 
+# Package installs and their caches, wherever a tool is run from. A vitest run from the repo root
+# leaves `node_modules/.vite/vitest/<hash>/results.json` here, which `just check` could not place
+# in any leg -- so it ran every leg -- and which the IDE listed as an untracked change.
+node_modules/
+
 # OS noise
 .DS_Store
 __pycache__/
