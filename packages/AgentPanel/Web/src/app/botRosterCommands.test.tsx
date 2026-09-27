@@ -94,11 +94,13 @@ describe("App shell", () => {
 
     // Wrapping, not clamping: the last view is one keystroke from the first.
     fireEvent.keyDown(screen.getByRole("tab", { name: "Canvas" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Messages" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Messages" }), { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.keyDown(screen.getByRole("tab", { name: "Sessions" }), { key: "End" });
-    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Canvas" }), { key: "Home" });
+    expect(screen.getByRole("tab", { name: "Messages" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Messages" }), { key: "Home" });
     expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
     unmount();
   });

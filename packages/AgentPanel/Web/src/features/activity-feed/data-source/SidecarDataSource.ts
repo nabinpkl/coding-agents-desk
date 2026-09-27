@@ -47,6 +47,7 @@ import type {
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarBotDirectory } from "@/features/activity-feed/data-source/layers/SidecarBotDirectory";
+import { SidecarHub, type HubHandle } from "@/features/activity-feed/data-source/layers/SidecarHub";
 
 export { SidecarError, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 export type { TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
@@ -68,6 +69,17 @@ export class SidecarDataSource extends SidecarBotDirectory implements AgentDataS
    * the mount storm has passed instead of being taken as an answer.
    */
   private configRead: Promise<SidecarConfig> | null = null;
+
+  /**
+   * The agent messaging hub, over this same transport.
+   *
+   * A getter rather than a field, because the hub is one consumer of the transport rather than
+   * part of the chain's state: nothing here is subscribed, nothing is cached, and the inbox
+   * re-reads on its own schedule.
+   */
+  hub(): HubHandle {
+    return new SidecarHub(this.transport);
+  }
 
   // ---------------------------------------------------------------------
   // Inventory

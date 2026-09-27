@@ -16,7 +16,9 @@ import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@ag
 import { ProfileRow } from "@/features/profile/ProfileRow";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { BotCanvasStatus } from "@/features/bots/canvas/BotCanvasStatus";
+import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -24,19 +26,22 @@ import { ProjectSidebarItem } from "@/features/sidebar/ProjectSidebarItem";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
 
-export type AgentSidebarMode = "sessions" | "bots" | "canvas";
+export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
 
 /**
  * Tab order, and the order the arrow keys walk.
  *
  * Canvas sits after Bots because it is derived from them: it is the same curated roster with the
  * "pick one" taken out. A reader who has not met it yet meets Bots first, which is the thing it is
- * a view of.
+ * a view of. Messages comes last because it is the only tab whose content did not come from this
+ * machine: it is the hub's, across every machine, so it is the one a reader goes to rather than
+ * reads past.
  */
 const SIDEBAR_MODES: ReadonlyArray<{ mode: AgentSidebarMode; label: string }> = [
   { mode: "sessions", label: "Sessions" },
   { mode: "bots", label: "Bots" },
   { mode: "canvas", label: "Canvas" },
+  { mode: "messages", label: "Messages" },
 ];
 
 interface AgentSidebarProps {
@@ -132,6 +137,8 @@ interface AgentSidebarProps {
    */
   onOpenSessionOnCanvas: (bot: BotView, session: SessionSummary) => void;
   onAddBot: () => void;
+  /** The inbox's data and writes. Owned by the app, so all three sidebar mounts share one poll. */
+  messages: MessagesHandle;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
   /** Drives the Profile section's Usage entry. Owned by the app, so all three sidebar mounts
@@ -320,7 +327,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             }
           />
         </div>
-      ) : (
+      ) : props.mode === "bots" ? (
         <div
           id={panelId("bots")}
           role="tabpanel"
@@ -342,6 +349,15 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onDetachSession={props.onDetachBotSession}
             onAddBot={props.onAddBot}
           />
+        </div>
+      ) : (
+        <div
+          id={panelId("messages")}
+          role="tabpanel"
+          aria-labelledby={tabId("messages")}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <MessagesPanel messages={props.messages} />
         </div>
       )}
 

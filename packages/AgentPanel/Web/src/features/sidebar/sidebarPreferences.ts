@@ -26,7 +26,7 @@ export interface SidebarPreferences {
   botFaces: boolean;
 }
 
-const SIDEBAR_MODES: readonly AgentSidebarMode[] = ["sessions", "bots", "canvas"];
+const SIDEBAR_MODES: readonly AgentSidebarMode[] = ["sessions", "bots", "canvas", "messages"];
 
 export const DEFAULT_SIDEBAR_PREFERENCES: SidebarPreferences = {
   open: true,

@@ -8,6 +8,7 @@
 import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
 import type { useBots } from "@/features/bots/useBots";
 import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
+import type { useMessages } from "@/features/messages/useMessages";
 import type { useUsage } from "@/features/usage/useUsage";
 import type { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
 import type { useProjectInventory } from "@/app/shell-state/useProjectInventory";
@@ -27,6 +28,7 @@ export function sidebarProps({
   createPiSession,
   inventory,
   machines,
+  messages,
   park,
   roster,
   thread,
@@ -40,6 +42,7 @@ export function sidebarProps({
   createPiSession: ReturnType<typeof usePiSessionCreation>["createPiSession"];
   inventory: ReturnType<typeof useProjectInventory>;
   machines: ShellMachines;
+  messages: ReturnType<typeof useMessages>;
   park: ReturnType<typeof useDesktopPark>;
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
@@ -50,6 +53,7 @@ export function sidebarProps({
     onModeChange: chrome.changeSidebarMode,
     usage,
     park,
+    messages,
     projects: inventory.projects,
     sessionsByProject: inventory.sessionsByProject,
     loading: inventory.loadingLayer,

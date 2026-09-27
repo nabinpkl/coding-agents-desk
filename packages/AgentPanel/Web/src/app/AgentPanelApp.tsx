@@ -21,11 +21,13 @@ import {
   AgentSidebarDialog,
   type AgentSidebarMode,
 } from "@/features/sidebar/AgentSidebar";
+import { useMessages } from "@/features/messages/useMessages";
 import {
   HoverSidebarPreview,
   ResizableSidebar,
 } from "@/features/sidebar/SidebarPresentation";
 import { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
+import { sidebarEmptyText, EmptyThread } from "@/app/shell-state/sidebarEmptyText";
 import { useShellInventory } from "@/app/shell-state/useShellInventory";
 import { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import { useBotCommands } from "@/app/shell-state/useBotCommands";
@@ -90,6 +92,10 @@ export function App({ feed, host, machines, fill = false }: Props) {
   // This machine's per-day token usage, behind the sidebar's Profile section. The stream opens
   // when somebody asks for it, not on mount.
   const usage = useUsage(feed);
+  // The owner's threads with every agent the hub can address. The handle is memoised because the
+  // hook's callbacks close over it, and a fresh one each render would restart its poll.
+  const hub = useMemo(() => feed.hub(), [feed]);
+  const messages = useMessages(hub);
   // Gathering windows onto one Desktop is a machine-level capability, probed once
   // the same way usage is. Absent yabai, the menu entry stays disabled.
   const park = useDesktopPark(feed);
@@ -273,6 +279,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
     createPiSession,
     inventory,
     machines: shellMachines,
+    messages,
     park,
     roster,
     thread,
@@ -468,11 +475,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 onCloseNewSession={commands.closeNewSession}
                 canvasZoom={{ mode: roster.canvasZoomMode, room: roster.canvasRoom }}
               />
-            ) : chrome.sidebarMode === "sessions" ? (
-              <div className="flex h-full items-center justify-center p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
-                Select a session from Sessions
-              </div>
-            ) : null}
+            ) : sidebarEmptyText(chrome.sidebarMode) ? <EmptyThread text={sidebarEmptyText(chrome.sidebarMode)!} /> : null}
           </main>
           {commands.forkedSession ? (
             <AgentTerminalPane
