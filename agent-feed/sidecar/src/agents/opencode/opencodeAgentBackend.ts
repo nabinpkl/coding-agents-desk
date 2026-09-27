@@ -60,7 +60,7 @@ export const OPENCODE_AGENT_CAPABILITIES: AgentSessionCapabilities = {
   canSteer: true,
   canAbort: true,
   canFetchRaw: false,
-  canOpenTerminal: false,
+  canOpenTerminal: true,
   supportsExtensionUi: true,
   canStreamLive: false,
 };

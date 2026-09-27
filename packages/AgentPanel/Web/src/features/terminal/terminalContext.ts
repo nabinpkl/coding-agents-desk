@@ -34,7 +34,7 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
   // labels its own pane with the workspace's name, which this has no way to know.
   if (context.kind === "workspace") return context.workspacePath.split("/").pop() || "Workspace";
   if (context.kind === "machine") return "Terminal";
-  const provider = context.source === "claude" ? "Claude" : "Codex";
+  const provider = context.source === "claude" ? "Claude" : context.source === "codex" ? "Codex" : "Opencode";
   return context.kind === "session-tmux" ? `${provider} session` : provider;
 }
 

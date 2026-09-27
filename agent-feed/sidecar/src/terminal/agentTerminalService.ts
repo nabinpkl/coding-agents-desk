@@ -42,11 +42,11 @@ import {
 } from "@/terminal/agentTerminalErrors";
 import {
   identifyTerminal,
-  liveTmuxSession,
   tmuxTargetSession,
   type ResolvedAgentTerminalSession,
   type TerminalIdentity,
 } from "@/terminal/agentTerminalIdentity";
+import { liveTmuxSession } from "@/terminal/tmuxSessionOwner";
 import { streamMessage } from "@/terminal/pty/terminalStreamMessages";
 import {
   connectPtyTerminal,
@@ -102,7 +102,7 @@ export class AgentTerminalService {
   constructor(
     socketPath: string,
     private readonly resolveSession: (
-      source: "claude" | "codex",
+      source: "claude" | "codex" | "opencode",
       sessionId: string,
     ) => ResolvedAgentTerminalSession | undefined,
     private readonly userHomeDirectory = homedir(),
@@ -132,7 +132,7 @@ export class AgentTerminalService {
      * into a second resume of a live transcript rather than into a failure.
      */
     private readonly sessionTmux: {
-      owner: (source: "claude" | "codex", sessionId: string) => Promise<string | null>;
+      owner: (source: "claude" | "codex" | "opencode", sessionId: string) => Promise<string | null>;
       exists: (session: string) => Promise<boolean>;
       create: (options: {
         session: string;

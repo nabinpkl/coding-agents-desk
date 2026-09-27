@@ -256,7 +256,7 @@ export function SessionView({
   // as long as this view is mounted, and nothing about it blinks.
   const composerTerminal = useMemo<SessionTmuxTerminalContext | null>(
     () =>
-      source === "claude" || source === "codex"
+      source === "claude" || source === "codex" || source === "opencode"
         ? { kind: "session-tmux", source, sessionId }
         : null,
     [source, sessionId],
@@ -475,10 +475,10 @@ export function SessionView({
   );
 }
 
-export function isTerminalSource(source: string): source is "claude" | "codex" {
-  return source === "claude" || source === "codex";
+export function isTerminalSource(source: string): source is "claude" | "codex" | "opencode" {
+  return source === "claude" || source === "codex" || source === "opencode";
 }
 
-export function harnessName(source: "claude" | "codex"): string {
-  return source === "claude" ? "Claude" : "Codex";
+export function harnessName(source: "claude" | "codex" | "opencode"): string {
+  return source === "claude" ? "Claude" : source === "codex" ? "Codex" : "Opencode";
 }

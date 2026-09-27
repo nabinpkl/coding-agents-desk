@@ -34,7 +34,7 @@ export interface TmuxSessionSummary {
 export interface AgentSessionTerminalContext {
   kind: "agent-session";
   projectPath: string;
-  source: "claude" | "codex";
+  source: "claude" | "codex" | "opencode";
   sessionId: string;
 }
 
@@ -68,7 +68,7 @@ export interface TmuxTerminalContext {
  */
 export interface SessionTmuxTerminalContext {
   kind: "session-tmux";
-  source: "claude" | "codex";
+  source: "claude" | "codex" | "opencode";
   sessionId: string;
 }
 

@@ -102,7 +102,7 @@ export function terminalPaneModule() {
       terminalPaneMock.context = context;
       terminalPaneMock.onState = onState;
     }
-    const provider = context.source === "claude" ? "Claude" : "Codex";
+    const provider = context.source === "claude" ? "Claude" : context.source === "codex" ? "Codex" : "Opencode";
     return (
       <section
         aria-label={`${provider}${context.kind === "session-tmux" ? " session" : ""} terminal`}

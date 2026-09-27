@@ -26,6 +26,20 @@ export function requiredSessionUuid(value: string, field: string): string {
   return canonical;
 }
 
+/**
+ * An opencode session id, or a refusal naming which field was wrong.
+ *
+ * The serve mints `ses_`-prefixed ids, not UUIDs, so the pane-name rule above -- one id, one
+ * pane -- is kept by checking the serve's own shape rather than by forcing opencode ids
+ * through the UUID check, which would refuse every one of them.
+ */
+export function requiredOpencodeSessionId(value: string, field: string): string {
+  if (!/^ses_[A-Za-z0-9]+$/.test(value)) {
+    throw new AgentTerminalInvalidError(`${field} must be an opencode session id`);
+  }
+  return value;
+}
+
 export function requiredDimension(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 1 || value > 1_000) {
     throw new AgentTerminalInvalidError(`${name} must be an integer between 1 and 1000`);

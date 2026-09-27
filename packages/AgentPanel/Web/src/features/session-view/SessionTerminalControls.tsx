@@ -24,7 +24,7 @@ export function TerminalControl({
   onOpen,
   onClose,
 }: {
-  source: "claude" | "codex";
+  source: "claude" | "codex" | "opencode";
   state: TerminalState;
   onOpen: () => void;
   onClose: () => void;
@@ -125,7 +125,7 @@ export function TerminalNotice({
   source,
   state,
 }: {
-  source: "claude" | "codex";
+  source: "claude" | "codex" | "opencode";
   state: TerminalState;
 }) {
   const harness = harnessName(source);

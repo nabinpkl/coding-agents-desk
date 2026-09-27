@@ -174,3 +174,63 @@ test("a tmux that cannot be asked falls back rather than failing the lookup", as
   );
   expect(found).toBe("agentdesk-b18b005e");
 });
+
+const OPENCODE_SESSION_ID = "ses_abc123XYZ";
+
+test("an opencode session starts a pane running the TUI in its own directory", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  const descriptor = await service.open(
+    { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  // No harness CLI to resume under -- the serve owns the session -- so the pane runs the TUI
+  // itself where the reader picks the session up. A second open joins this pane by name.
+  expect(fakes.created).toEqual([{
+    session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`,
+    cwd: expect.stringContaining("projects/agent-desk"),
+    command: ["opencode"],
+    columns: 100,
+    rows: 30,
+  }]);
+  expect(attached).toEqual([{ session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`, columns: 100, rows: 30 }]);
+  expect(descriptor.ptySessionName).toBe(`agent-tmux-agentdesk-opencode-${OPENCODE_SESSION_ID}`);
+});
+
+test("an opencode session joins the pane its stamp names instead of starting a second", async () => {
+  const fakes: SessionTmuxFakes = { owner: "opencode-title-pane", running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  await service.open(
+    { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
+    { columns: 100, rows: 30 },
+  );
+
+  expect(fakes.created).toEqual([]);
+  expect(attached).toEqual([{ session: "opencode-title-pane", columns: 100, rows: 30 }]);
+});
+
+test("an opencode session id that is not a serve id is refused before touching tmux", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const attached: { session: string; columns: number; rows: number }[] = [];
+  const service = await sessionTmuxService(fakes, attached);
+
+  await expect(service.open(
+    { kind: "session-tmux", source: "opencode", sessionId: "019c3708-fadb-7e2f-a744-322df224faf4" },
+    { columns: 100, rows: 30 },
+  )).rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  expect(fakes.created).toEqual([]);
+  expect(attached).toEqual([]);
+});
+
+test("liveTmuxSession answers an opencode session from its stamp alone", async () => {
+  // No process registry for the serve's sessions: the stamp on the pane is the whole lookup.
+  expect(await liveTmuxSession("opencode", OPENCODE_SESSION_ID, async () => [], async () => "opencode-title-pane"))
+    .toBe("opencode-title-pane");
+  expect(await liveTmuxSession("opencode", OPENCODE_SESSION_ID, async () => [], async () => null))
+    .toBeNull();
+});

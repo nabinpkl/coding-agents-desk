@@ -7,8 +7,11 @@ import { screen, fireEvent, act, within } from "@testing-library/react";
 import {
   createPiSession,
   deliverProjects,
+  deliverProjectSessions,
   deliverSessions,
   emitTerminalState,
+  FIXTURE_PROJECT_A,
+  FIXTURE_SESSIONS,
   openClaudeThread,
   restoreViewport,
   setup,
@@ -135,6 +138,50 @@ describe("App shell", () => {
       },
     });
     expect(screen.getByRole("status")).toHaveTextContent("Codex terminal ready");
+    unmount();
+  });
+
+  it("opens an Opencode terminal under an opencode thread, in the composer and below it", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, [
+      ...FIXTURE_SESSIONS,
+      {
+        sessionId: "ses_abc123",
+        source: "opencode",
+        title: "Session Opencode 01",
+        lastEventAt: Date.now() - 5_000,
+        activity: "ready",
+        capabilities: {
+          modes: ["nice"],
+          canSend: true,
+          canSteer: true,
+          canAbort: true,
+          canFetchRaw: false,
+          canOpenTerminal: true,
+          supportsExtensionUi: true,
+          canStreamLive: false,
+        },
+      },
+    ]);
+    fireEvent.click(screen.getByText("Session Opencode 01"));
+
+    // Below the composer, through the header control: a shell in the session's directory.
+    fireEvent.click(screen.getByRole("button", { name: "Open Opencode terminal" }));
+    expect(terminalPaneMock.context).toEqual({
+      kind: "agent-session",
+      projectPath: "/projects/alpha",
+      source: "opencode",
+      sessionId: "ses_abc123",
+    });
+
+    // Above the field, through the composer's own toggle: the session's tmux pane.
+    fireEvent.click(screen.getByRole("button", { name: "Show the terminal" }));
+    expect(terminalPaneMock.composerContext).toEqual({
+      kind: "session-tmux",
+      source: "opencode",
+      sessionId: "ses_abc123",
+    });
     unmount();
   });
 

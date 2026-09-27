@@ -23,13 +23,11 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
-import { findTmuxSessionByIdentity } from "@/terminal/tmux/tmuxSessions";
-import { currentProcessTable } from "@/tasks/processProbe";
-import { liveSessionProcesses } from "@/tasks/sessionRegistry";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
   AgentTerminalNotFoundError,
+  requiredOpencodeSessionId,
   requiredSessionUuid,
 } from "@/terminal/agentTerminalErrors";
 
@@ -92,11 +90,11 @@ export interface TerminalIdentityDeps {
   /** Every project directory must be inside this, and a tmux target's nominal cwd is it. */
   userHomeDirectory: string;
   resolveSession: (
-    source: "claude" | "codex",
+    source: "claude" | "codex" | "opencode",
     sessionId: string,
   ) => ResolvedAgentTerminalSession | undefined;
   /** Which tmux session a live process for that session id is running inside; see `liveTmuxSession`. */
-  tmuxOwner: (source: "claude" | "codex", sessionId: string) => Promise<string | null>;
+  tmuxOwner: (source: "claude" | "codex" | "opencode", sessionId: string) => Promise<string | null>;
 }
 
 /**
@@ -289,10 +287,12 @@ async function identifyAgentSession(
   deps: TerminalIdentityDeps,
   context: AgentSessionTerminalContext,
 ): Promise<TerminalIdentity> {
-  if (context.source !== "claude" && context.source !== "codex") {
-    throw new AgentTerminalInvalidError("terminal source must be claude or codex");
+  if (context.source !== "claude" && context.source !== "codex" && context.source !== "opencode") {
+    throw new AgentTerminalInvalidError("terminal source must be claude, codex or opencode");
   }
-  const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
+  const sessionId = context.source === "opencode"
+    ? requiredOpencodeSessionId(context.sessionId, "terminal session id")
+    : requiredSessionUuid(context.sessionId, "terminal session id");
   const projectPath = await projectDirectory(deps, context.projectPath);
 
   const session = deps.resolveSession(context.source, sessionId);
@@ -361,6 +361,18 @@ async function projectDirectory(deps: TerminalIdentityDeps, path: string): Promi
 }
 
 /**
+ * The pane an opencode session's TUI is born in.
+ *
+ * Its own prefix rather than the Claude one, because the two id shapes differ (serve `ses_`
+ * ids versus transcript UUIDs) and a pane name that says which harness it holds is what keeps
+ * `tmux list-sessions` readable. Derived from the session id for the same reason Claude's is:
+ * a second open joins rather than starting beside the first.
+ */
+function opencodeSessionPaneName(sessionId: string): string {
+  return `agentdesk-opencode-${sessionId}`;
+}
+
+/**
  * The session's own tmux pane: the one it is running in, or one started to resume it.
  *
  * Which of the two it is cannot be decided by the caller. A panel asking "is this session in
@@ -379,10 +391,12 @@ async function identifySessionTmux(
   deps: TerminalIdentityDeps,
   context: SessionTmuxTerminalContext,
 ): Promise<TerminalIdentity> {
-  if (context.source !== "claude" && context.source !== "codex") {
-    throw new AgentTerminalInvalidError("terminal source must be claude or codex");
+  if (context.source !== "claude" && context.source !== "codex" && context.source !== "opencode") {
+    throw new AgentTerminalInvalidError("terminal source must be claude, codex or opencode");
   }
-  const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
+  const sessionId = context.source === "opencode"
+    ? requiredOpencodeSessionId(context.sessionId, "terminal session id")
+    : requiredSessionUuid(context.sessionId, "terminal session id");
   const session = deps.resolveSession(context.source, sessionId);
   if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
   let projectPath: string;
@@ -407,6 +421,24 @@ async function identifySessionTmux(
     };
   }
 
+  // An opencode session has no harness CLI to resume under: its serve owns the session, so the
+  // pane runs the TUI itself in the session's own directory, where the reader picks the session
+  // up. Plain `opencode`, resolved through the login shell like `claude` is -- no absolute path,
+  // no flags.
+  if (context.source === "opencode") {
+    const pane = opencodeSessionPaneName(sessionId);
+    return {
+      ptySessionName: `agent-tmux-${pane}`,
+      tmuxSession: pane,
+      cwd: projectPath,
+      command: [],
+      refuseNew: null,
+      createTmux: { cwd: projectPath, command: ["opencode"] },
+      stampSession: sessionId,
+      nameFromTitle: session.title,
+    };
+  }
+
   const pane = claudeSessionPaneName(sessionId);
   return {
     ptySessionName: `agent-tmux-${pane}`,
@@ -427,40 +459,4 @@ async function identifySessionTmux(
     // uuid-named pane on the list.
     nameFromTitle: session.title,
   };
-}
-/**
- * The tmux session a live process for that session id is running inside, if any.
- *
- * Claude only: its harness is what writes the process registry this reads, so a Codex session has
- * nothing to look up and answers "none" -- which lands it on the resume path, the same place a
- * Claude session that is not running lands.
- *
- * More than one row can claim one session id, and routinely does: a session resumed by the path
- * below registers itself under the same id as the session it resumed, so from the second open
- * onwards there are two panes to choose from. Measured on this machine with three rows for one id.
- * Somebody else's terminal wins, and the one this sidecar started is the fallback -- picking by
- * registry order would move a thread's terminal between two panes for no visible reason.
- */
-export async function liveTmuxSession(
-  source: "claude" | "codex",
-  sessionId: string,
-  processes: () => Promise<{ sessionId: string; tmuxSession: string | null }[]> =
-    async () => liveSessionProcesses(await currentProcessTable()),
-  stamped: (sessionId: string) => Promise<string | null> = findTmuxSessionByIdentity,
-): Promise<string | null> {
-  if (source !== "claude") return null;
-  // The stamp first, because the registry's answer is a NAME the CLI resolved once at startup and
-  // then cached. It never re-reads it, so a renamed session leaves that row pointing at a name
-  // tmux no longer has -- measured: `has-session` on it exits 1 while the pane sits there running.
-  // The stamp is set on the tmux session itself and rides through any number of renames.
-  const byStamp = await stamped(sessionId).catch(() => null);
-  if (byStamp) return byStamp;
-  const panes = (await processes())
-    .filter((entry) => entry.sessionId === sessionId)
-    .map((entry) => entry.tmuxSession)
-    .filter((pane): pane is string => pane !== null);
-  // Still meaningful after panes started being renamed to their titles, though it reads as though
-  // it should not be: a pane only gives up this name once its stamp reads back, so reaching here at
-  // all -- the stamp having answered nothing -- means the sidecar's own pane is still called this.
-  return panes.find((pane) => pane !== claudeSessionPaneName(sessionId)) ?? panes[0] ?? null;
 }

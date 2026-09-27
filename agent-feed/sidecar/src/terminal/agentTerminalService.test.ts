@@ -289,3 +289,69 @@ test("opens a machine shell in the home, under one name for the machine", async 
   expect(second.terminalId).not.toBe(first.terminalId);
   service.stop();
 });
+
+test("opens an opencode session as a shell in its directory, under its serve id", async () => {
+  const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
+  roots.push(home);
+  const project = join(home, "projects", "agent-desk");
+  await mkdir(project, { recursive: true });
+  const canonicalProject = await realpath(project);
+  const opened: unknown[] = [];
+  const connection = {
+    attachment: {
+      sessionName: "agent-shell-opencode-ses_abc123XYZ",
+      pid: 42,
+      columns: 90,
+      rows: 30,
+    },
+    onEnvelope: () => () => {},
+    onFailure: () => () => {},
+    requestCheckpoint() {},
+    sendInput() {},
+    sendBinaryInput() {},
+    updateViewerState() {},
+    detach() {},
+    kill() {},
+    closeTransport() {},
+  } as unknown as PtySessionConnection;
+  const pty: AgentTerminalPtyClient = {
+    listSessions: async () => [],
+    openSession: async (options) => {
+      opened.push(options);
+      return connection;
+    },
+  };
+  const service = new AgentTerminalService(
+    "/unused/pty.sock",
+    () => ({ projectPath: project, activity: "ready", title: "Source session" }),
+    home,
+    pty,
+  );
+
+  const descriptor = await service.open({
+    kind: "agent-session",
+    projectPath: project,
+    source: "opencode",
+    sessionId: "ses_abc123XYZ",
+  }, { columns: 90, rows: 30 });
+
+  expect(descriptor).toMatchObject({
+    ptySessionName: "agent-shell-opencode-ses_abc123XYZ",
+    pid: 42,
+  });
+  // A shell in the session's directory, the same as every other source: the serve owns the
+  // session, so there is no CLI to resume and nothing to refuse.
+  expect(opened).toEqual([{
+    sessionName: "agent-shell-opencode-ses_abc123XYZ",
+    launch: {
+      cwd: canonicalProject,
+      executable: "/bin/zsh",
+      arguments: ["-l"],
+    },
+    columns: 90,
+    rows: 30,
+    createIfMissing: true,
+    clientTitle: "Agent Feed",
+  }]);
+  service.stop();
+});
