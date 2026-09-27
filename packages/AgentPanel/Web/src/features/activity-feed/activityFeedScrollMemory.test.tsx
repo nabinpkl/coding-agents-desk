@@ -72,6 +72,7 @@ function mountFeed(
   events = Array.from({ length: 30 }, (_, index) => durable(index)),
   windowStart = 0,
   mode: "nice" | "raw" = "nice",
+  olderWindowStart = windowStart,
 ) {
   const transport = new FakeHttpTransport();
   // Paging older answers with an empty page. A feed that opens partway through a thread asks for
@@ -79,7 +80,7 @@ function mountFeed(
   // events field at all.
   transport.defaultResponse = {
     status: 200,
-    body: JSON.stringify({ events: [], windowStart, total: windowStart + events.length }),
+    body: JSON.stringify({ events: [], windowStart: olderWindowStart, total: windowStart + events.length }),
   };
   const view = render(
     <DataSourceProvider source={new SidecarDataSource(transport)}>
@@ -240,10 +241,26 @@ describe("where a session was left being read", () => {
     view.unmount();
   });
 
+  it("does not present the first loaded row while an older anchor is still paging in", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([[`claude:${SESSION}`, 3, "claude:line:3"]]),
+    );
+    const { view } = mountFeed(
+      Array.from({ length: 20 }, (_, index) => durable(index + 40)),
+      40,
+      "nice",
+      40,
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("restoring your place");
+    view.unmount();
+  });
+
   it("lands on the oldest line it has when the one it kept is older than the loaded window", async () => {
     // A reader who paged far up and reloaded: the feed opens on the newest window, so the line they
-    // were on is not loaded yet. The window's first row is the nearest place to it that exists, and
-    // landing there is what asks for the page before it.
+    // were on is not loaded yet. It pages back until there is no older page, then the window's first
+    // row is the nearest place to the remembered line that exists.
     localStorage.setItem(STORAGE_KEY, JSON.stringify([[`claude:${SESSION}`, 3]]));
     const { scroller, view } = mountFeed(
       Array.from({ length: 20 }, (_, index) => durable(index + 40)),

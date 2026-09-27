@@ -53,6 +53,13 @@ export interface EventsPage {
   sequence: number;
   runState: AgentRunState;
   queue: AgentQueueState;
+  /**
+   * Identity of the runtime projection that produced this page, when the source has one.
+   *
+   * A transcript-backed page has no projection and omits it. A runtime-backed page names the
+   * projection instance so a reconnect can tell "same rows" from "the sidecar rebuilt them".
+   */
+  projectionId?: string;
 }
 
 /**
@@ -78,14 +85,23 @@ export interface TimelineEnvelope {
    * True for a session whose durable record is a transcript on disk: lines are only ever appended,
    * so index 5231 is the same line before and after a reconnect, and a snapshot is a WINDOW onto a
    * record the reader may already hold more of. False (or absent, for a sender that predates this
-   * field) for a runtime-backed session, whose projection renumbers: there the snapshot is a
-   * REPLACEMENT and anything the reader still holds is a different session's arithmetic.
+   * field) for a runtime-backed session whose projection renumbers: there the snapshot is a
+   * REPLACEMENT and anything the reader still holds is a different session's arithmetic. OpenCode
+   * is a declared exception, guarded by `projectionId` when its projection is rebuilt.
    *
    * It exists because the receiver cannot work this out. Both kinds arrive on one stream shape, and
    * the sidecar has already decided which it is -- a source with a transcript adapter and a catalog
    * entry -- before the first byte is written.
    */
   stableIndices?: boolean;
+  /**
+   * Which runtime projection produced this envelope, when the source has one.
+   *
+   * `stableIndices` says whether rows may be retained across a reconnect. This says whether the
+   * sender is even the same projection: a sidecar restart rebuilds it, so a new id is a
+   * replacement boundary even when the source otherwise keeps stable indices.
+   */
+  projectionId?: string;
   /**
    * Session occupancy as of this message, not page occupancy.
    *

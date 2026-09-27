@@ -287,7 +287,7 @@ export function ActivityFeed({
     virtualItems,
   });
 
-  useTranscriptScrollRestore({
+  const { restoring } = useTranscriptScrollRestore({
     following,
     parentRef,
     pause,
@@ -296,10 +296,10 @@ export function ActivityFeed({
     sessionId,
     source,
     timelineEpoch: snapshotCount,
+    windowStart,
     topEvent,
     virtualItems,
   });
-
 
   // One synchronous scroll write per jump. The earlier two-step (jump to the
   // row top, then rAF-correct for the bar) showed the row under the bar before
@@ -326,12 +326,16 @@ export function ActivityFeed({
       void loadOlder();
     }
   }, [virtualItems, windowStart, loadOlder]);
-
-  // After older events are prepended, totalSize jumps. Add the delta to
-  // scrollTop in the same layout pass so the visible rows do not shift.
   useLayoutEffect(() => {
+    const el = parentRef.current;
+    // Restore pages from the top; the prepend offset below is for a chosen visible row.
+    if (restoring) {
+      if (el) el.scrollTop = 0;
+      pendingAnchorRef.current = null;
+      prevWindowStartRef.current = windowStart;
+      return;
+    }
     if (windowStart < prevWindowStartRef.current && pendingAnchorRef.current !== null) {
-      const el = parentRef.current;
       if (el) {
         const delta = el.scrollHeight - pendingAnchorRef.current;
         if (delta > 0) el.scrollTop += delta;
@@ -339,7 +343,7 @@ export function ActivityFeed({
       pendingAnchorRef.current = null;
     }
     prevWindowStartRef.current = windowStart;
-  }, [windowStart, totalSize]);
+  }, [windowStart, totalSize, restoring]);
 
   const threadControls = (
     <ActivityFeedControls
@@ -355,7 +359,6 @@ export function ActivityFeed({
       onToggleCacheHits={onToggleCacheHits}
     />
   );
-
 
   if (loading && events.length === 0 && liveTails.length === 0) {
     return (
@@ -384,7 +387,7 @@ export function ActivityFeed({
   }
 
   return (
-    <div className="relative h-full overflow-hidden">
+    <div className="relative h-full overflow-hidden" aria-busy={restoring}>
       {threadControls}
       <div
         ref={parentRef}
@@ -398,6 +401,10 @@ export function ActivityFeed({
             height: rowVirtualizer.getTotalSize(),
             position: "relative",
             width: "100%",
+            // The virtualiser still measures these rows while an older anchor is being
+            // paged in. Only their paint is withheld, so the reader does not see the
+            // opening window's first row as if it were the saved place.
+            opacity: restoring ? 0 : 1,
           }}
         >
           {virtualItems.map((virtualRow) => {
@@ -422,6 +429,20 @@ export function ActivityFeed({
           })}
         </div>
       </div>
+      {restoring ? (
+        <div
+          className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/70"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="rounded-sm border border-border bg-card/95 px-3 py-1.5 font-mono text-foreground/80 shadow-sm"
+            style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
+          >
+            restoring your place…
+          </span>
+        </div>
+      ) : null}
       {(stickyUser || unloaded.message || stickyCurrent) ? (
         <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
           {stickyUser && stickyUserIndex !== null ? (

@@ -247,6 +247,7 @@ export class OpencodeSessionPool {
       sequence: snapshot.sequence,
       runState: snapshot.runState,
       queue: snapshot.queue,
+      projectionId: snapshot.projectionId,
     };
   }
 

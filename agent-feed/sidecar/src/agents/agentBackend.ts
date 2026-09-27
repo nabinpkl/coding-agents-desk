@@ -28,6 +28,8 @@ export interface AgentTimelinePage {
   sequence: number;
   runState: AgentRunState;
   queue: AgentQueueState;
+  /** Identity of the runtime projection that produced this page, when the backend has one. */
+  projectionId?: string;
 }
 
 export type AgentMessageDelivery = "next" | "steer";

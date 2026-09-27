@@ -42,7 +42,12 @@ interface Recorded {
   stopped: string[];
 }
 
-function fakeBackend(total: number, recorded: Recorded, id: SourceId = "pi"): AgentBackend {
+function fakeBackend(
+  total: number,
+  recorded: Recorded,
+  id: SourceId = "pi",
+  projectionId?: string,
+): AgentBackend {
   return {
     id,
     capabilities: PI_CAPABILITIES,
@@ -62,7 +67,15 @@ function fakeBackend(total: number, recorded: Recorded, id: SourceId = "pi"): Ag
       const end = Math.min(total, offset + limit);
       const events: ActivityEvent[] = [];
       for (let index = offset; index < end; index += 1) events.push(event(index));
-      return { events, total, mode: "nice", sequence: total, runState: "idle", queue: { steer: 0, followUp: 0 } };
+      return {
+        events,
+        total,
+        mode: "nice",
+        sequence: total,
+        runState: "idle",
+        queue: { steer: 0, followUp: 0 },
+        ...(projectionId ? { projectionId } : {}),
+      };
     },
     async subscribe(_sessionId, afterSequence) {
       recorded.subscribeCalls.push(afterSequence);
@@ -183,7 +196,7 @@ test("an opencode backend claims stable indices for reconnect retention", async 
   // Opencode upserts by the serve's stable message id and appends new rows, so its
   // projection indices survive the opening snapshot being sent again.
   const recorded = recorder();
-  const backend = fakeBackend(250, recorded, "opencode");
+  const backend = fakeBackend(250, recorded, "opencode", "projection-opencode");
   const { messages, leave } = await openTimeline(
     routesFor(backend),
     "?mode=nice",
@@ -192,6 +205,7 @@ test("an opencode backend claims stable indices for reconnect retention", async 
   );
 
   expect(envelopeOf(messages[0]).stableIndices).toBe(true);
+  expect(envelopeOf(messages[0]).projectionId).toBe("projection-opencode");
   await leave();
 });
 

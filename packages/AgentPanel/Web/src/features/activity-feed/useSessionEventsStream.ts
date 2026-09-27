@@ -116,6 +116,8 @@ interface State {
    *  what tells an unmirrored transcript row apart from one the preview produced,
    *  which is the whole of `visibleTails`' second rule. */
   mirroredMessages: Set<string>;
+  /** Which runtime projection produced the held rows, when the source has one. */
+  projectionId: string | null;
   /** How many snapshots this subscription has applied. What re-arms the gap fill below after a
    *  snapshot overtakes one of its pages and leaves the same hole behind. */
   snapshotCount: number;
@@ -145,6 +147,7 @@ export function useSessionEventsStream(
     queue: { steer: 0, followUp: 0 },
     liveRows: new Map(),
     mirroredMessages: new Set(),
+    projectionId: null,
     snapshotCount: 0,
   });
   const [connected, setConnected] = useState(false);
@@ -218,6 +221,13 @@ onEvent: (event) => {
         seeded = true;
         pendingLive.clear();
         setState((current) => {
+          // A live tail can arrive before the first snapshot, so an empty durable map with no
+          // identity yet is still the same projection; the snapshot must not throw that row away.
+          const sameProjection = current.events.size === 0 && current.projectionId === null
+            ? true
+            : snapshot.projectionId === undefined
+              ? current.projectionId === null
+              : current.projectionId === snapshot.projectionId;
           // A reconnect snapshot is authoritative: every live row whose message it
           // already carries is owned by the durable rows now.
           const named = [...current.liveRows.values()]
@@ -230,21 +240,28 @@ onEvent: (event) => {
                 ),
             )
             .reduce((newest, row) => (newest === null || row.index > newest.index ? row : newest), null as ActivityEvent | null);
-          const liveRows = named
-            ? new Map([...current.liveRows].filter(([, row]) => row.index > named.index))
-            : current.liveRows;
+          const liveRows = !sameProjection
+            ? new Map()
+            : named
+              ? new Map([...current.liveRows].filter(([, row]) => row.index > named.index))
+              : current.liveRows;
+          const mirroredMessages = sameProjection ? current.mirroredMessages : new Set<string>();
           // The snapshot always owns the window it covers. What it does NOT own is
           // what the reader paged in BELOW that window: on a transcript-backed
           // session those rows are still about the same lines, because the file only
-          // ever grew. On a runtime-backed one the projection has renumbered and they
-          // are arithmetic about a session that no longer exists, so they go.
+          // ever grew. A runtime-backed projection can do the same only while it
+          // is the same projection; a rebuilt one has different arithmetic.
           //
           // The sidecar re-sends its opening window on every open, and EventSource
           // reopens on its own after any drop, so without this a reader who had
           // scrolled up watched the transcript collapse back to its last hundred rows
           // for no reason they could see. A stall longer than a window leaves a hole
           // between what is kept and the snapshot; the gap fill below fetches it.
-          const retained = snapshot.stableIndices
+          // Stable indices are not enough on their own. A sidecar restart rebuilds a
+          // runtime projection, and the new projection can renumber the same session.
+          // Its id is the boundary: an ordinary reconnect keeps the id and the paged
+          // rows; a rebuilt projection replaces them.
+          const retained = snapshot.stableIndices && sameProjection
             ? Array.from(current.events.values()).filter(
                 (event) => event.index < snapshot.windowStart,
               )
@@ -277,8 +294,9 @@ onEvent: (event) => {
             sequence: snapshot.state.sequence,
             runState: snapshot.state.runState,
             queue: snapshot.state.queue,
+            projectionId: snapshot.projectionId ?? null,
             liveRows,
-            mirroredMessages: current.mirroredMessages,
+            mirroredMessages,
             snapshotCount: current.snapshotCount + 1,
           };
         });
@@ -335,12 +353,14 @@ onEvent: (event) => {
         let initial: ActivityEvent[] = [];
         let seedUsage = probe.usage;
         let seedModel = probe.sessionModel ?? null;
+        let seedProjectionId = probe.projectionId ?? null;
         if (limit > 0) {
           const data = await ds.fetchEventsPage(session, offset, limit);
           if (cancelled) return;
           initial = data.events;
           seedUsage = data.usage;
           seedModel = data.sessionModel ?? seedModel;
+          seedProjectionId = data.projectionId ?? seedProjectionId;
         }
         if (cancelled || replacedBySnapshot) return;
 
@@ -368,6 +388,7 @@ onEvent: (event) => {
           sequence: current.sequence,
           runState: current.runState,
           queue: current.queue,
+          projectionId: seedProjectionId,
           liveRows: current.liveRows,
           mirroredMessages: current.mirroredMessages,
           snapshotCount: current.snapshotCount,

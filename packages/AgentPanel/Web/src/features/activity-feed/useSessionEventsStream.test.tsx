@@ -131,6 +131,61 @@ describe("useSessionEventsStream", () => {
     expect(view.result.current.sequence).toBe(2);
   });
 
+  it("replaces paged rows when a stable snapshot comes from a rebuilt projection", async () => {
+    const all = Array.from({ length: 250 }, (_, index) =>
+      event(index, `row-${index}`, "assistant"),
+    );
+    let handlers: SessionEventsHandlers | undefined;
+    const source: AgentDataSource = stubDataSource({
+      fetchEventsPage: async (_session, offset, limit) => ({
+        events: all.filter((value) => value.index >= offset && value.index < offset + limit),
+        total: all.length,
+        usage: null,
+        projectionId: "projection-one",
+      }),
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("opencode", "thread", "nice"),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    await act(async () => { await view.result.current.loadOlder(); });
+    expect(view.result.current.events).toHaveLength(200);
+
+    act(() => handlers?.onSnapshot?.({
+      events: all.slice(150),
+      total: all.length,
+      windowStart: 150,
+      stableIndices: true,
+      projectionId: "projection-one",
+      usage: null,
+      state: { sequence: 2, runState: "idle", queue: { steer: 0, followUp: 0 } },
+    }));
+    expect(view.result.current.events).toHaveLength(200);
+
+    act(() => handlers?.onSnapshot?.({
+      events: all.slice(150),
+      total: all.length,
+      windowStart: 150,
+      stableIndices: true,
+      projectionId: "projection-two",
+      usage: null,
+      state: { sequence: 3, runState: "idle", queue: { steer: 0, followUp: 0 } },
+    }));
+    expect(view.result.current.events).toHaveLength(100);
+    expect(view.result.current.events[0]?.id).toBe("row-150");
+    expect(view.result.current.windowStart).toBe(150);
+  });
+
   it("still replaces the window when a snapshot does not claim stable indices", async () => {
     // The same session and the same reconnect, with the flag absent. This is
     // the runtime-backed contract, asserted here so the branch cannot be

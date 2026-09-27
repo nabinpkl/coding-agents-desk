@@ -62,3 +62,18 @@ and appends new rows, so an opening snapshot sent again after a stream reconnect
 same rows. Its timeline now sets `stableIndices: true`, allowing the panel to retain pages the
 reader has already loaded instead of replacing them with the newest window. A pool rebuild after
 the session has been reaped remains a separate lifecycle boundary.
+
+## Update 2026-09-25: a projection identity separates reconnect from restart
+
+`stableIndices` answers whether a snapshot can be merged with rows the reader already holds. It
+does not answer whether the sender is still the same projection. A sidecar restart rebuilds the
+OpenCode pool and rehydrates a new `LiveAgentProjection`, which may assign the same indices to
+different rows. The timeline now carries an optional `projectionId`, generated once per projection
+instance and included in pages and envelopes. The panel retains paged history only when the id is
+unchanged; a new id replaces the held rows before the saved scroll anchor is reapplied.
+
+The panel also keeps a restore pending while an anchor older than the opening window is being
+paged in. The feed continues measuring its rows, but hides the opening window behind a restore
+notice until the exact event is loaded, so the first loaded row is never presented as the reader's
+saved place. A real wheel, touch, or key input cancels the pending restore and hands control back
+to the reader.

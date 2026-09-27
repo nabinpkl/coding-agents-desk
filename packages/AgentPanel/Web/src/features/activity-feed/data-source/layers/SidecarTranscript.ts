@@ -83,7 +83,13 @@ export class SidecarTranscript extends SidecarRoutes {
     const page = parse<WireEventsPage>(
       await this.transport.request("GET", eventsPath(session, offset, limit)),
     );
-    return { events: page.events, total: page.total, usage: page.usage ?? null, sessionModel: page.sessionModel ?? null };
+    return {
+      events: page.events,
+      total: page.total,
+      usage: page.usage ?? null,
+      sessionModel: page.sessionModel ?? null,
+      projectionId: page.projectionId,
+    };
   }
 
   /**
@@ -227,6 +233,7 @@ export class SidecarTranscript extends SidecarRoutes {
             sessionModel: envelope.sessionModel ?? null,
             windowStart: envelope.windowStart ?? 0,
             stableIndices: envelope.stableIndices,
+            projectionId: envelope.projectionId,
             state,
           });
           return;

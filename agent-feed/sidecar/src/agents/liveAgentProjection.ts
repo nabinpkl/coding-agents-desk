@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   ActivityBlock,
   ActivityEvent,
@@ -25,6 +26,14 @@ type ProjectionEvent = ParsedLine & {
 type ProjectionListener = (envelope: TimelineEnvelope) => void;
 
 export class LiveAgentProjection {
+  /**
+   * Identity of this projection instance, carried on every envelope.
+   *
+   * A reconnect to the same sidecar keeps the instance, so its rows may be merged. A sidecar
+   * restart builds a new one even when the underlying session is the same, and the panel must
+   * treat that as a replacement boundary.
+   */
+  readonly projectionId: string;
   private readonly replayLimit: number;
   private readonly items = new Map<string, ActivityEvent>();
   private readonly order: string[] = [];
@@ -34,7 +43,8 @@ export class LiveAgentProjection {
   private currentRunState: AgentRunState = "idle";
   private currentQueue: AgentQueueState = { steer: 0, followUp: 0 };
 
-  constructor(options: { replayLimit?: number } = {}) {
+  constructor(options: { replayLimit?: number; projectionId?: string } = {}) {
+    this.projectionId = options.projectionId ?? randomUUID();
     this.replayLimit = options.replayLimit ?? 256;
     if (!Number.isSafeInteger(this.replayLimit) || this.replayLimit < 1) {
       throw new Error("replayLimit must be a positive integer");
@@ -114,6 +124,7 @@ export class LiveAgentProjection {
       total: this.total,
       runState: this.currentRunState,
       queue: this.queue,
+      projectionId: this.projectionId,
     };
   }
 
@@ -127,6 +138,7 @@ export class LiveAgentProjection {
       total: this.total,
       runState: this.currentRunState,
       queue: this.queue,
+      projectionId: this.projectionId,
     };
     this.replay.push(envelope);
     if (this.replay.length > this.replayLimit) this.replay.shift();

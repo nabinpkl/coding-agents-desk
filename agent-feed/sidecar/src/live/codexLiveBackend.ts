@@ -182,6 +182,7 @@ export class CodexLiveBackend implements AgentBackend {
       sequence,
       runState: projection.runState,
       queue: projection.queue,
+      projectionId: projection.projectionId,
     };
   }
 

@@ -108,6 +108,27 @@ test("Pi pages reject raw mode instead of silently renumbering", async () => {
   expect((await route(request, new URL(request.url), server))?.status).toBe(400);
 });
 
+test("a live page carries the runtime projection identity", async () => {
+  const base = fakeBackend();
+  const backend: AgentBackend = {
+    ...base,
+    id: "opencode",
+    page: async () => ({
+      events: [],
+      total: 0,
+      mode: "nice" as const,
+      sequence: 0,
+      runState: "idle" as const,
+      queue: { steer: 0, followUp: 0 },
+      projectionId: "projection-live",
+    }),
+  };
+  const route = createAgentRoutes((id) => id === "opencode" ? backend : undefined);
+  const request = new Request("http://localhost/api/agent-sessions/opencode/s1/events?mode=nice");
+  const response = await route(request, new URL(request.url), server);
+  expect(await response?.json()).toMatchObject({ projectionId: "projection-live" });
+});
+
 test("extension UI responses are correlated through the backend broker", async () => {
   const backend = fakeBackend();
   const route = createAgentRoutes(() => backend);

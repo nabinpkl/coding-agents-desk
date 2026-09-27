@@ -299,6 +299,10 @@ function timelineStream(options: {
           // by the serve's stable message id and new rows append. Other backend
           // projections remain conservative because they may renumber.
           stableIndices: transcript !== null || source === "opencode",
+          // A runtime page names the projection that produced it. The panel uses this to
+          // distinguish an ordinary reconnect from a sidecar restart that rebuilt the same
+          // session's rows, even when the source otherwise keeps stable indices.
+          ...(window.page.projectionId ? { projectionId: window.page.projectionId } : {}),
           runState: window.page.runState,
           queue: window.page.queue,
           usage: window.page.usage,

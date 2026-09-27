@@ -39,6 +39,24 @@ describe("LiveAgentProjection", () => {
     expect(envelopes.filter((item) => item.kind === "upsert")).toHaveLength(2);
   });
 
+  test("names the projection instance on every envelope", () => {
+    const first = new LiveAgentProjection({ projectionId: "projection-a" });
+    const second = new LiveAgentProjection({ projectionId: "projection-b" });
+    const envelopes: TimelineEnvelope[] = [];
+    first.subscribe(0, (envelope) => envelopes.push(envelope));
+    first.upsert({
+      id: "event:1",
+      ts: 1,
+      type: "system",
+      phase: "complete",
+      blocks: [{ kind: "metadata", text: "one" }],
+    });
+
+    expect(envelopes[0]?.projectionId).toBe("projection-a");
+    expect(first.snapshot().projectionId).toBe("projection-a");
+    expect(second.snapshot().projectionId).toBe("projection-b");
+  });
+
   test("replays retained mutations and snapshots an expired gap", () => {
     const projection = new LiveAgentProjection({ replayLimit: 2 });
     for (let index = 0; index < 3; index += 1) {

@@ -38,6 +38,8 @@ export interface EventsPage {
    *  Beside usage rather than inside it: usage blanks across a post-compaction gap
    *  while the model survives it, and the switcher reads this without touching the meter. */
   sessionModel?: string | null;
+  /** Identity of the runtime projection that produced this page, when the source has one. */
+  projectionId?: string;
 }
 
 export interface SessionEventsSnapshot extends EventsPage {
@@ -47,6 +49,11 @@ export interface SessionEventsSnapshot extends EventsPage {
    *  reader paged in below `windowStart` are still about this transcript. Absent
    *  means they are not: the window replaces whatever was held. */
   stableIndices?: boolean;
+  /**
+   * Which runtime projection produced the window, when the source has one. A changed id is a
+   * replacement boundary even if the source keeps stable indices across ordinary reconnects.
+   */
+  projectionId?: string;
   state: AgentSessionState;
 }
 

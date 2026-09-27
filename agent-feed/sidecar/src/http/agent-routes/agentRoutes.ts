@@ -264,6 +264,7 @@ async function pageLiveEvents(
       runState: page.runState,
       queue: page.queue,
       usage: typeof live.sessionUsage === "function" ? live.sessionUsage(sessionId) : null,
+      ...(page.projectionId ? { projectionId: page.projectionId } : {}),
       ...stampSessionModel(backend, sessionId),
     });
   } catch (error) {
