@@ -339,6 +339,14 @@ function compactFragment(line: string): string {
   return clean.length > 50 ? `${clean.slice(0, 50)}…` : clean;
 }
 
+// One bare name per line, optional trailing comma: import continuations and
+// member lists arrive without their opening line, so no tier above names
+// them. Null when the line is anything else.
+function bareListName(line: string): string | null {
+  const match = line.trim().match(/^([A-Za-z_$][\w$]*),?$/);
+  return match?.[1] ?? null;
+}
+
 export function describeEditChange(oldText: string, newText: string, filePath?: string): string | null {
   const { added, removed } = diffLines(oldText, newText);
   if (added.length === 0 && removed.length === 0) return null;
@@ -426,6 +434,22 @@ export function describeEditChange(oldText: string, newText: string, filePath?: 
     if (before && after) return `${before} → ${after}`;
     if (after) return `+${after}`;
     return `-${before}`;
+  }
+  // Bare identifier lists one band wider: the tiny fallback stops at two
+  // lines per side, and a three-name import continuation (`storeFatherHeight,`
+  // and two siblings, no `import` line in the snippet) fell to bare counts.
+  // Past three per side it is a restructure and stays on counts honestly.
+  if (added.length <= 3 && removed.length <= 3) {
+    const addedNames = addedLines.map(bareListName);
+    const removedNames = removedLines.map(bareListName);
+    if (addedNames.every(Boolean) && removedNames.every(Boolean)) {
+      if (addedNames.length > 0) parts.push(`adds ${addedNames.join(", ")}`);
+      if (removedNames.length > 0) parts.push(`drops ${removedNames.join(", ")}`);
+      if (parts.length > 0) {
+        parts.push(counts);
+        return parts.join(", ");
+      }
+    }
   }
   return counts;
 }

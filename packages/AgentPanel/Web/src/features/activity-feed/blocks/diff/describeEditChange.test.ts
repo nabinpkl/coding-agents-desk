@@ -171,4 +171,18 @@ describe("describeEditChange", () => {
   it("stays on counts past two lines with no scope", () => {
     expect(describeEditChange("", "<div>\n<span>\n</div>")).toBe("+3/-0");
   });
+
+  it("names bare identifier-list removals past the tiny bound", () => {
+    const oldText = [
+      "  storeCanvasScroll,",
+      "  storeFatherHeight,",
+      "  storeFatherOpen,",
+      "  storeFatherWidth,",
+      "  storeHiddenMachines,",
+    ].join("\n");
+    const newText = "  storeCanvasScroll,\n  storeHiddenMachines,";
+    expect(describeEditChange(oldText, newText)).toBe(
+      "drops storeFatherHeight, storeFatherOpen, storeFatherWidth, +0/-3",
+    );
+  });
 });

@@ -8,7 +8,9 @@ import { useFontStore } from "@/features/activity-feed/reading-preferences/fontS
 
 // Renders a unified diff for an Edit tool_use block. Uses the snippet (not
 // the full file) since the harness records old_string/new_string only.
-// Reads sufficiently for short edits which is the common case.
+// Reads sufficiently for short edits which is the common case. No path bar:
+// the row header already names the basename, so a full path here repeats it.
+// filePath stays a prop because the grammar comes from the extension.
 export function DiffBlock({
   filePath, oldString, newString,
 }: {
@@ -54,9 +56,6 @@ export function DiffBlock({
       className="overflow-hidden rounded-sm border border-border/60"
       style={{ fontSize: "var(--agent-panel-fs-tile-diff, 14px)" }}
     >
-      <div className="border-b border-border/60 bg-muted/40 px-[0.55em] py-[0.3em] font-mono text-[0.85em] text-muted-foreground">
-        {filePath}
-      </div>
       <DiffView
         diffFile={file}
         diffViewMode={DiffModeEnum.Unified}
