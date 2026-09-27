@@ -17,53 +17,61 @@
   }
 }
 
-/* Roboto, self-hosted. The panel ships as a local bundle inside WKWebView on
-   both macOS and iOS, so a CDN is not an option; Vite fingerprints these four
-   woff2 files into dist/assets alongside the KaTeX faces already there.
+/* Schibsted Grotesk, self-hosted. The panel ships as a local bundle inside
+   WKWebView on both macOS and iOS, so a CDN is not an option; Vite fingerprints
+   these four woff2 files into dist/assets alongside the KaTeX faces already
+   there. A face drawn for interfaces rather than adopted for them, which is
+   what this panel is: 10px chips up to 28px headings, mostly read on a dark
+   ground, where its open apertures and tall x-height are the whole point.
 
-   The `wght` build rather than `standard`. Roboto varies on two axes, weight
-   and width, and nothing here varies width, so the weight-only files are
-   148KB against 233KB for the dual-axis ones. It carries no optical-size axis
-   at all, which is why `body` no longer sets `font-optical-sizing`: that was
-   there for Inter's `opsz` build, and against Roboto it would be a no-op.
-   The swap also drops 274KB, since the four Inter files were 422KB.
+   `font-weight: 400 900`, not `100 900`. That is the axis this face actually
+   has, and it costs nothing here because nothing in the tree asks below 400 --
+   the utilities in use are normal, medium, semibold and bold. Declaring a
+   range wider than the axis would have the browser synthesize outside it
+   rather than refuse, which is the kind of wrong that never reports itself.
 
-   Latin and latin-ext only, of the nine subsets the package ships. The
-   `unicode-range` descriptors are copied verbatim from the package's own
-   `wght.css` and `wght-italic.css` and are load-bearing: a codepoint outside
-   them falls through to the next family in `--font-sans` per glyph, so
-   Cyrillic or Greek in a transcript renders in the system face instead of
-   tofu. */
+   What was given up against Inter is the optical-size axis, and it was a real
+   trade: `opsz` is what opened the small end on its own, and nothing outside
+   Inter and DM Sans carries one. The chips are the place to look if this ever
+   reads badly; every other size has more face to work with.
+
+   The package ships latin and latin-ext and nothing else, so there is no
+   subset choice to make, and only a `wght` build, so there is no variant
+   choice either. Four files, 137KB. The `unicode-range` descriptors are
+   copied verbatim from its own `wght.css` and `wght-italic.css` and are
+   load-bearing: a codepoint outside them falls through to the next family in
+   `--font-sans` per glyph, so Cyrillic or Greek in a transcript renders in the
+   system face instead of tofu. */
 @font-face {
-  font-family: "Roboto Variable";
+  font-family: "Schibsted Grotesk Variable";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 400 900;
+  src: url("@fontsource-variable/schibsted-grotesk/files/schibsted-grotesk-latin-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Roboto Variable";
+  font-family: "Schibsted Grotesk Variable";
   font-style: italic;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("@fontsource-variable/roboto/files/roboto-latin-wght-italic.woff2") format("woff2-variations");
+  font-weight: 400 900;
+  src: url("@fontsource-variable/schibsted-grotesk/files/schibsted-grotesk-latin-wght-italic.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Roboto Variable";
+  font-family: "Schibsted Grotesk Variable";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("@fontsource-variable/roboto/files/roboto-latin-ext-wght-normal.woff2") format("woff2-variations");
+  font-weight: 400 900;
+  src: url("@fontsource-variable/schibsted-grotesk/files/schibsted-grotesk-latin-ext-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "Roboto Variable";
+  font-family: "Schibsted Grotesk Variable";
   font-style: italic;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("@fontsource-variable/roboto/files/roboto-latin-ext-wght-italic.woff2") format("woff2-variations");
+  font-weight: 400 900;
+  src: url("@fontsource-variable/schibsted-grotesk/files/schibsted-grotesk-latin-ext-wght-italic.woff2") format("woff2-variations");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
@@ -99,8 +107,9 @@
   color-scheme: light dark;
   /* `@theme inline` above republishes this as Tailwind's `font-sans` utility,
      so the stack has exactly one definition. The system faces stay behind
-     Roboto as the per-glyph fallback for the subsets not bundled. */
-  --font-sans: "Roboto Variable", system-ui, -apple-system, sans-serif;
+     Schibsted Grotesk as the per-glyph fallback for the subsets it does not
+     ship. */
+  --font-sans: "Schibsted Grotesk Variable", system-ui, -apple-system, sans-serif;
   /* Leading for every prose surface in the feed. It has four consumers -- the
      Markdown renderer plus the three text wrappers in ActivityEventRows --
      and they had drifted apart: markdown prose sat at 1.45 while user and
@@ -807,12 +816,12 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    /* Roboto sets tighter than Inter did, and at the sizes this panel uses the
-       difference reads as cramped rather than as compact. A hair of tracking
-       opens it back up. Uniform, so the mono spans it also touches keep their
-       columns, and global rather than dark-only, since letter-spacing changes
-       how wide text is and the layout should not reflow when the OS theme
-       flips. */
+    /* A hair of tracking, kept from the Roboto that briefly sat here: Roboto
+       set tight enough to read as cramped, and this face does not, but the
+       opening it gives dark mode is worth keeping on its own. Uniform, so the
+       mono spans it also touches keep their columns, and global rather than
+       dark-only, since letter-spacing changes how wide text is and the layout
+       should not reflow when the OS theme flips. */
     letter-spacing: 0.011em;
     /* No `-webkit-font-smoothing: antialiased` here, deliberately. It forces
        greyscale antialiasing, which thins every stroke, and light text on a

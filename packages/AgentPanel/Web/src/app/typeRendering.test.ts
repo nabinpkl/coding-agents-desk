@@ -47,7 +47,7 @@ describe("Agent Panel type rendering", () => {
     // real stack; drop the :root line and the property is invalid at computed
     // value time, taking `body`'s font-family down with it.
     expect(appStyles).toMatch(
-      /^\s*--font-sans:\s*"Roboto Variable",\s*system-ui,\s*-apple-system,\s*sans-serif;/m,
+      /^\s*--font-sans:\s*"Schibsted Grotesk Variable",\s*system-ui,\s*-apple-system,/m,
     );
     expect(appStyles).toContain("font-family: var(--font-sans);");
   });
