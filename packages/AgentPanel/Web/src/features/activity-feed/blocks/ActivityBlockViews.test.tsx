@@ -141,3 +141,58 @@ describe("read bodies", () => {
     unmount();
   });
 });
+
+describe("search bodies", () => {
+  // A search result is a list, so expanding draws it structured -- content matches grouped by
+  // file, file answers as rows -- instead of one wrapping `pre`. Same pairing boilerplate.
+  function searchRow(tool: string, input: Record<string, unknown>, summary: string, preview: string) {
+    const full = event([
+      { kind: "tool_use", tool, input, summary, callId: "c1" },
+      { kind: "tool_result", preview, callId: "c1" },
+    ]);
+    const paired = pairSameEventToolResults(full);
+    return render(
+      <DataSourceProvider source={DATA_SOURCE}>
+        <SegmentEventRow
+          ev={withoutPairedToolResults(full, paired)}
+          ctx={{ ...CTX, pairedToolResults: paired }}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </DataSourceProvider>,
+    );
+  }
+
+  it("draws a glob answer as rows with no wrapping pre left behind", () => {
+    const { container, unmount } = searchRow(
+      "glob",
+      { pattern: "src/**/*.ts" },
+      "glob src/**/*.ts",
+      "Found 2 files\nsrc/a.ts\nsrc/b.ts",
+    );
+    expect(screen.getByText("Found 2 files")).toBeInTheDocument();
+    expect(screen.getByText("src/a.ts")).toBeInTheDocument();
+    // The file rows are divs, not a pre: a pre here would be the generic result behind them.
+    expect(container.querySelector("pre")).toBeNull();
+    unmount();
+  });
+
+  it("groups grep content matches under the file with no generic result behind them", () => {
+    const { container, unmount } = searchRow(
+      "Grep",
+      { pattern: "manifest", output_mode: "content" },
+      "Grep pattern \"manifest\"",
+      "host/Provider.swift:38:    func manifest() {",
+    );
+    expect(screen.getByText("Provider.swift")).toBeInTheDocument();
+    // textContent rather than getByText: the highlighter tokenizes the match across spans. The
+    // full `path:line:` prefix appears nowhere: the code block carries `38:` without the path,
+    // so a generic `pre` behind it would be the only source of the unstripped line.
+    expect(container.textContent).toContain("func manifest()");
+    expect(container.textContent).not.toContain("host/Provider.swift:38");
+    unmount();
+  });
+});
