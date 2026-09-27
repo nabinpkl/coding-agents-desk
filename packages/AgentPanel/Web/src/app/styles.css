@@ -823,12 +823,18 @@
        dark-only, since letter-spacing changes how wide text is and the layout
        should not reflow when the OS theme flips. */
     letter-spacing: 0.011em;
-    /* No `-webkit-font-smoothing: antialiased` here, deliberately. It forces
-       greyscale antialiasing, which thins every stroke, and light text on a
-       dark ground is where that is most visible -- which is the surface this
-       panel is actually read on. Dropping it is what carries dark mode, and it
-       does it by restoring the stroke the face already has rather than by
-       moving any weight: every `font-weight` in the tree is untouched. */
+    /* Greyscale antialiasing, and it has been decided both ways, so the
+       reasoning is here rather than in a commit nobody will find. It thins
+       every stroke, and against the Roboto that sat here briefly that was the
+       whole problem: light text on a dark ground is where a thinned stroke
+       shows most, and turning this off was what made that face readable.
+       Against this one it is the better rendering. Schibsted Grotesk carries
+       enough weight at 400 to take the thinning, and what it gets back is
+       edges that stay crisp instead of the slight smear the default leaves on
+       a dark ground. Judge any change to this line on the dark Canvas card, at
+       prose size, against the face actually in `--font-sans` -- the answer
+       moves with the face. */
+    -webkit-font-smoothing: antialiased;
     overflow: hidden;
     overscroll-behavior: none;
   }

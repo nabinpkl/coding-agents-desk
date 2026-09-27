@@ -52,16 +52,13 @@ describe("Agent Panel type rendering", () => {
     expect(appStyles).toContain("font-family: var(--font-sans);");
   });
 
-  it("leaves font smoothing alone, so dark mode keeps the stroke the face has", () => {
-    // `-webkit-font-smoothing: antialiased` forces greyscale antialiasing, which
-    // thins every stroke, worst for light text on a dark ground. It was removed
-    // because that is the surface this panel is read on, and removing it was the
-    // whole dark-mode fix -- no weight in the tree moved. Adding it back would
-    // undo that silently: nothing errors and no markup changes, the text just
-    // goes thin again.
-    // Matched as a declaration rather than as a substring, since the comment that
-    // records the removal names the property too.
-    expect(appStyles).not.toMatch(/^\s*-webkit-font-smoothing:/m);
+  it("keeps font smoothing explicit, since it has been set both ways", () => {
+    // `-webkit-font-smoothing` thins every stroke, so it is a real decision rather
+    // than a default worth inheriting, and it has been switched twice: off under
+    // Roboto, which needed the stroke back, and on under this face, which does not.
+    // Neither state errors and neither shows in a diff of the rendered markup, so
+    // the file pins whichever one is current and the reason sits beside the rule.
+    expect(appStyles).toMatch(/^\s*-webkit-font-smoothing: antialiased;/m);
   });
 
   it("keeps the tracking that answers Roboto setting tighter than Inter did", () => {
