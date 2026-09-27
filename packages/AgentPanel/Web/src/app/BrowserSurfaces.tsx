@@ -2,7 +2,7 @@ import { SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
-import { TypeControls } from "@/features/appearance/TypeControls";
+import { TypeSettings } from "@/features/appearance/TypeSettings";
 import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
 import {
@@ -328,11 +328,11 @@ export function BrowserSurfaces({
             />
           </div>
         )}
-        {/* Last in the bar, so it sits in the corner the request asked for and so the machine
-            picker keeps the `ml-auto` that pushes both of them right. It is in this row rather
-            than behind the Profile menu because a face is judged by looking at the page it is
-            on, and a control you have to open a menu to reach is one you compare from memory. */}
-        <TypeControls />
+        {/* Last in the bar, so it sits in the corner. The face and weight live behind this
+            button rather than riding the bar beside it: two always-visible selects spent the
+            corner on a choice most readers make once, and a control reached through one press
+            still shows its effect on the page it is on. */}
+        <TypeSettings />
       </div>
       {terminalMachine ? (
         <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
