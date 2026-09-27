@@ -10,6 +10,7 @@ import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import type { Recipient, SendState } from "../../shared/send.ts";
 import { createAccessVerifier } from "../src/auth/access-jwt.ts";
+import { SendBudget } from "../src/budget.ts";
 import { createApp } from "../src/http/app.ts";
 import { createHubClient } from "../src/hub.ts";
 import { createMcpEndpoint } from "../src/mcp/mcp-endpoint.ts";
@@ -129,7 +130,12 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(): Promise<Harness> {
+export interface HarnessOptions {
+  /** A caller-supplied budget, for the tests that want the throttle rather than around it. */
+  sendBudget?: SendBudget;
+}
+
+export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256" };
   const jwksServer = http.createServer((_q, r) => {
@@ -158,6 +164,10 @@ export async function startHarness(): Promise<Harness> {
     mcp,
     mcpAllowedOrigins: ["https://claude.ai"],
     log: (l) => logs.push(l),
+    // Generous by default on purpose: these tests exercise Send itself, and the real budget is small
+    // enough to throttle a file that sends a dozen times in milliseconds. The budget has its own
+    // tests, and a test that wants the throttle injects its own small one.
+    sendBudget: options.sendBudget ?? new SendBudget({ capacity: 10_000, refillPerSecond: 10_000 }),
   });
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
   await new Promise<void>((r) => server.once("listening", () => r()));

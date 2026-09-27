@@ -6,7 +6,8 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import * as z from "zod";
 import { Unauthorized, type AccessVerifier, type Identity } from "../auth/access-jwt.ts";
-import { HubRefused, HubUnreachable } from "../hub.ts";
+import { budgetKey, OverBudget, SendBudget } from "../budget.ts";
+import { HubBusy, HubRefused, HubUnreachable } from "../hub.ts";
 import type { McpEndpoint } from "../mcp/mcp-endpoint.ts";
 import { Conflict, InvalidInput, NotFound, type AnnotationService } from "../service/annotations.ts";
 import { restRoutes } from "./rest.ts";
@@ -19,6 +20,8 @@ export interface AppDeps {
   mcp: McpEndpoint;
   mcpAllowedOrigins: string[];
   log: (line: Record<string, unknown>) => void;
+  /** Per-caller budget for Send. Injected so a test can hand in a small one. */
+  sendBudget?: SendBudget;
 }
 
 const MCP_BODY_LIMIT = 1024 * 1024;
@@ -56,6 +59,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   });
 
   app.use("/api/v1/*", bodyLimit({ maxSize: API_BODY_LIMIT, onError: () => tooLarge() }));
+
+  // Send is charged before the route runs, so a caller in a loop is refused at the door rather than
+  // after this server has built a brief and written a row per annotation for every one of them.
+  const sendBudget = deps.sendBudget ?? new SendBudget();
+  app.use("/api/v1/send", async (c, next) => {
+    if (c.req.method === "POST") sendBudget.spend(budgetKey(c.get("identity")));
+    await next();
+  });
+
   app.route("/api/v1", restRoutes(deps.service));
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
@@ -67,6 +79,18 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     if (err instanceof InvalidInput) return c.json({ error: err.message }, 400);
+    // Over budget here, or over it at the hub: either way it is "not now", with the wait attached.
+    // A caller told only "no" retries at once, which turns one loop into two.
+    if (err instanceof OverBudget) {
+      deps.log({ level: "warn", path: c.req.path, budget: err.message });
+      return c.json({ error: err.message }, 429, { "retry-after": String(err.retryAfterSeconds) });
+    }
+    if (err instanceof HubBusy) {
+      deps.log({ level: "warn", path: c.req.path, hub: err.message });
+      return err.retryAfterSeconds === undefined
+        ? c.json({ error: err.message }, 429)
+        : c.json({ error: err.message }, 429, { "retry-after": String(err.retryAfterSeconds) });
+    }
     // The hub said no, in words meant for the reader, so those words go back verbatim: a stale
     // recipient pick is theirs to fix, not a server fault to report as one.
     if (err instanceof HubRefused) return c.json({ error: err.message }, 400);

@@ -23,6 +23,24 @@ export class HubRefused extends Error {
   }
 }
 
+/**
+ * The hub refused this caller for being over budget, not for asking wrongly.
+ *
+ * Kept apart from HubRefused because the two mean opposite things to the caller: a refusal is
+ * "not that, try something else", while this is "not now, come back", and an extension that reads a
+ * budget refusal as a bad address would either give up or, worse, retry harder. The wait comes from
+ * the hub's own Retry-After so the caller is told the hub's number, not one invented here.
+ */
+export class HubBusy extends Error {
+  readonly retryAfterSeconds: number | undefined;
+
+  constructor(message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "HubBusy";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 /** The hub could not be reached, or answered with a failure that is ours to fix, not the reader's. */
 export class HubUnreachable extends Error {
   constructor(message: string) {
@@ -59,7 +77,7 @@ function hubError(status: number, body: unknown, path: string): Error {
     // Never the secret, and never the assertion: name the credential so the log says which one.
     return new HubUnreachable(`hub refused this server's Access service token on ${path} (${detail})`);
   }
-  if (status === 404 || status === 409 || status === 400 || status === 422 || status === 429) return new HubRefused(detail);
+  if (status === 404 || status === 409 || status === 400 || status === 422) return new HubRefused(detail);
   return new HubUnreachable(`hub ${path} failed: ${detail}`);
 }
 
@@ -88,6 +106,13 @@ export function createHubClient(config: HubConfig, fetchImpl: typeof fetch = fet
       throw new HubUnreachable(`hub redirected ${path} to a sign-in page: Access refused this server's service token`);
     }
     const parsed: unknown = text ? JSON.parse(text) : null;
+    // A budget refusal is its own thing and carries the hub's own wait, read from its header.
+    if (res.status === 429) {
+      const raw = res.headers.get("retry-after");
+      const wait = raw !== null && /^\d+$/.test(raw) ? Number(raw) : undefined;
+      const detail = typeof parsed === "object" && parsed !== null && typeof (parsed as { error?: unknown }).error === "string" ? (parsed as { error: string }).error : "over budget";
+      throw new HubBusy(`hub is busy: ${detail}`, wait);
+    }
     if (!res.ok) throw hubError(res.status, parsed, path);
     return parsed;
   }

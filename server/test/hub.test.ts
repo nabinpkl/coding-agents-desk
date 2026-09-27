@@ -2,7 +2,7 @@
  * is the reader's problem and which is ours. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createHubClient, HubRefused, HubUnreachable } from "../src/hub.ts";
+import { createHubClient, HubBusy, HubRefused, HubUnreachable } from "../src/hub.ts";
 
 interface Call {
   url: string;
@@ -64,12 +64,35 @@ test("sends as the owner, with the body and refs the caller gave, and reports th
 });
 
 test("the hub's refusals come back as the reader's problem, in the hub's own words", async () => {
-  // 400/404/409/422/429 are answers to what was asked: a stale pick, a full thread, a hop limit.
-  for (const status of [400, 404, 409, 422, 429]) {
+  // 400/404/409/422 are answers to what was asked: a stale pick, a full thread, a hop limit. 429 is
+  // deliberately not here: being over budget is not the same kind of no, and it is its own error.
+  for (const status of [400, 404, 409, 422]) {
     const { fetch } = edge(() => ({ status, body: { error: `hub says ${status}` } }));
     const hub = createHubClient(CONFIG, fetch);
     await assert.rejects(() => hub.send({ to: "opencode:ses_1", body: "hi", refs: [] }), (e: unknown) => e instanceof HubRefused && e.message === `hub says ${status}`);
   }
+});
+
+test("being over the hub's budget is 'not now', not 'not that', and carries the hub's own wait", async () => {
+  // An extension that reads a budget refusal as a bad address either gives up or retries harder.
+  // It has to be able to tell the two apart, and it has to learn how long to wait.
+  const impl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/cdn-cgi/access/token")) return Response.json({ token: "jwt-1", expires_in: 3600 });
+    return new Response(JSON.stringify({ error: "annotator is over its writes budget: POST /v1/messages. Retry in 4s." }), {
+      status: 429,
+      headers: { "content-type": "application/json", "retry-after": "4" },
+    });
+  }) as unknown as typeof fetch;
+  const hub = createHubClient(CONFIG, impl);
+  await assert.rejects(
+    () => hub.send({ to: "opencode:ses_1", body: "hi", refs: [] }),
+    (e: unknown) => {
+      assert.ok(e instanceof HubBusy, "a budget refusal is not a refusal and not an outage");
+      assert.equal((e as HubBusy).retryAfterSeconds, 4, "the wait is the hub's, not one invented here");
+      return true;
+    },
+  );
 });
 
 test("a rejected credential is ours, and the message names it without printing the secret", async () => {
