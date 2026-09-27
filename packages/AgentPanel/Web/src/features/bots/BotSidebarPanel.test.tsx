@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { BotSidebarPanel, withOffCanvasLast } from "@/features/bots/BotSidebarPanel";
+import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { setBotFaces } from "@/features/bots/avatar/BotFace";
 
 const bot = (botId: string, name: string, createdAt = 0): BotView => ({
@@ -43,6 +43,19 @@ const WORK = {
   ],
 } as unknown as BotView;
 const LABELS = new Map([["b-home", "dev"], ["b-peer", "oracle"]]);
+/** A Bot with more sessions than the roster will draw once they are off the canvas. */
+const MANY = {
+  ...bot("b-many", "Many bot", 400),
+  sessionRefs: Array.from({ length: 6 }, (_, index) => ({ source: "claude", sessionId: `m-${index}` })),
+  sessions: Array.from({ length: 6 }, (_, index) => ({
+    source: "claude",
+    sessionId: `m-${index}`,
+    title: `Many session ${index}`,
+    activity: "cold",
+    lastEventAt: index,
+  })),
+} as unknown as BotView;
+
 
 function panel(canvas: {
   detachedBotIds: ReadonlySet<string>;
@@ -51,14 +64,17 @@ function panel(canvas: {
   onToggle?: (bot: BotView) => void;
   /** The sessions whose cards are unfolded, which is what the shell passes as the selection. */
   openKeys?: ReadonlySet<string>;
+  /** The roster to render, for the cases three Bots with two sessions cannot put on screen. */
+  bots?: BotView[];
 }) {
+  const bots = canvas.bots ?? [HOME, PEER, WORK];
   const open = canvas.openKeys ?? new Set<string>();
-  const openBots = [HOME, PEER, WORK]
+  const openBots = bots
     .filter((each) => each.sessions.some((s) => open.has(`${s.source}:${s.sessionId}`)))
     .map((each) => each.botId);
   return render(
     <BotSidebarPanel
-      bots={[HOME, PEER, WORK]}
+      bots={bots}
       machineLabels={LABELS}
       loading={false}
       error={null}
@@ -281,19 +297,66 @@ describe("BotSidebarPanel roster order", () => {
     panel({ detachedBotIds: new Set(["b-home", "b-peer"]), machineHiddenBotIds: new Set() });
     expect(order()).toEqual(["Work bot", "Peer bot", "Home bot"]);
   });
+});
 
-  it("reads a Bot's liveliness from its newest session, not from when it was made", () => {
-    // Work bot is the oldest by creation and the newest by use. Sorting on `createdAt` alone
-    // would bury the one Bot here that has been doing anything.
-    expect(withOffCanvasLast([HOME, PEER, WORK], {
-      detachedBotIds: new Set(["b-home", "b-peer", "b-work"]),
+/**
+ * A Bot's own rows: the ones with cards above the ones without, and a fold once the second group
+ * stops being a tail and starts being a second list.
+ *
+ * Driven through the panel because that is the row's only mount, and because what is being pinned
+ * is the order a reader sees rather than the split that produces it, which `botRosterOrder.test.ts`
+ * asks directly.
+ */
+describe("BotSidebarPanel session rows", () => {
+  /** The session titles in the order their rows stand in, inside one Bot. */
+  const titles = (botName: string, names: string[]) => {
+    const text = screen.getByRole("list", { name: `${botName} sessions` }).textContent ?? "";
+    return [...names].sort((a, b) => text.indexOf(a) - text.indexOf(b));
+  };
+
+  it("puts a session with no card below the ones that have one", () => {
+    panel({
+      detachedBotIds: new Set(),
       machineHiddenBotIds: new Set(),
-    }).map((each) => each.name)).toEqual(["Work bot", "Peer bot", "Home bot"]);
+      detachedSessionKeys: new Set(["claude:s-1"]),
+    });
+    // First session is off the canvas and was listed first; it now sits under its sibling.
+    expect(titles("Work bot", ["First session", "Second session"]))
+      .toEqual(["Second session", "First session"]);
   });
 
-  it("has nothing to sink where there is no canvas to be off", () => {
-    // The Bots tab renders this same panel with no canvas at all.
-    expect(withOffCanvasLast([HOME, PEER, WORK])).toEqual([HOME, PEER, WORK]);
+  it("lists a few off-canvas sessions rather than folding them", () => {
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set() });
+    // Not the avatar toggles, which also say "off the canvas": the fold row alone.
+    expect(screen.queryByRole("button", { name: /^(?:Show|Hide) \d+ off the canvas$/ })).toBeNull();
+    expect(screen.getByText("First session")).toBeDefined();
+  });
+
+  it("folds the off-canvas sessions once there are more than three", () => {
+    panel({
+      detachedBotIds: new Set(),
+      machineHiddenBotIds: new Set(),
+      detachedSessionKeys: new Set(["claude:m-0", "claude:m-1", "claude:m-2", "claude:m-3"]),
+      bots: [MANY],
+    });
+    const fold = screen.getByRole("button", { name: "Show 4 off the canvas" });
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Many session 0")).toBeNull();
+    // The two with cards are untouched by the fold.
+    expect(screen.getByText("Many session 4")).toBeDefined();
+
+    fireEvent.click(fold);
+    expect(screen.getByRole("button", { name: "Hide 4 off the canvas" }))
+      .toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Many session 0")).toBeDefined();
+  });
+
+  it("folds every session of a Bot that is off the canvas itself", () => {
+    // The case that made the fold necessary: nothing on the strip, so the row was spending a
+    // screen of dimmed entries on the one Bot the reader had just said they were done with.
+    panel({ detachedBotIds: new Set(["b-many"]), machineHiddenBotIds: new Set(), bots: [MANY] });
+    expect(screen.getByRole("button", { name: "Show 6 off the canvas" })).toBeDefined();
+    expect(screen.queryByText("Many session 0")).toBeNull();
   });
 });
 
