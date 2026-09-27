@@ -13,7 +13,7 @@ import { cliInputReasonText } from "@/features/cli-input/useCliInput";
 import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
 import { harnessName } from "@/features/session-view/SessionView";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
-import { opencodeCommandRows } from "@/features/session-view/composer/useOpencodeCommands";
+import { draftNamesCommand, opencodeCommandRows } from "@/features/session-view/composer/useOpencodeCommands";
 
 export interface ComposerEditor {
   value: string;
@@ -83,6 +83,15 @@ export interface ComposerEditor {
      * drawn by the band and would otherwise send the half-typed name as text.
      */
     chooseOnEnter?: boolean;
+    /**
+     * Whether the draft already spells this row, which makes Return a SEND rather than another
+     * completion. Absent means "never exact", so a menu that cannot tell still completes.
+     *
+     * It has to be asked rather than derived in the band: only the menu knows how its own filter
+     * reads a draft, and the two answers differ. `"/comp"` against a `compact` row is a
+     * completion, and `"/compact "` against that same row is a command waiting to run.
+     */
+    isExact?: (name: string) => boolean;
   };
 }
 
@@ -206,6 +215,7 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
             shown: opencodeCommandRows(m.opencodeCommands, m.localDraft),
             onChoose: (name: string) => m.setLocalDraft(`${name} `),
             chooseOnEnter: true,
+            isExact: (name: string) => draftNamesCommand(m.localDraft, name),
           },
         }
         : {}),

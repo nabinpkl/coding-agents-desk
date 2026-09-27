@@ -234,11 +234,23 @@ export function SessionComposerBand({
               // A panel-owned command list eats Return first: without this the half-typed name
               // sends as text. The pane's own menu is untouched -- it never sets chooseOnEnter,
               // because the pane eats Return itself.
+              //
+              // Two jobs, and which one Return means is the menu's to say. A name still being
+              // typed (`/comp`) completes, because the reader is choosing. A name the draft
+              // already spells (`/compact`, with or without a trailing space) is a command
+              // waiting to run, so Return submits -- the same thing the Send button does.
+              //
+              // It has to be this split: the picker's filter keeps matching the name it just
+              // completed, so a Return that always completed could never run anything, and
+              // `/compact` plus Enter did nothing at all until Send was clicked.
               if (editor.commands?.chooseOnEnter && editor.commands.shown.length > 0) {
                 event.preventDefault();
                 const selected = editor.commands.shown.find((command) => command.selected)
                   ?? editor.commands.shown[0];
-                if (selected) editor.commands.onChoose(selected.name);
+                if (selected) {
+                  if (editor.commands.isExact?.(selected.name)) void submitComposer(model, "next");
+                  else editor.commands.onChoose(selected.name);
+                }
                 return;
               }
               event.preventDefault();

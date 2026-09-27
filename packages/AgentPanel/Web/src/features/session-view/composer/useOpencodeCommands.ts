@@ -68,6 +68,20 @@ export function opencodeCommandRows(
   }));
 }
 
+/**
+ * Whether the draft already names this command, so Return should run it rather than complete it.
+ *
+ * The same first token `opencodeCommandRows` filters on, which is the whole point: the picker
+ * keeps matching after it completes (`/compact` becomes `/compact `, and the token is still
+ * `compact`), so a Return that always completed could never run anything. Comparing the token
+ * the filter reads is what tells "still choosing" from "already named".
+ */
+export function draftNamesCommand(draft: string, name: string): boolean {
+  if (!draft.startsWith("/")) return false;
+  const token = draft.slice(1).split(/\s/, 1)[0]?.toLowerCase() ?? "";
+  return token === name.replace(/^\//, "").toLowerCase();
+}
+
 /** A draft that names a listed command, split into the command and its arguments. */
 export function parseOpencodeCommand(
   commands: readonly OpencodeSlashCommand[],

@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  draftNamesCommand,
   opencodeCommandRows,
   parseOpencodeCommand,
 } from "@/features/session-view/composer/useOpencodeCommands";
@@ -30,6 +31,33 @@ describe("opencodeCommandRows", () => {
   it("matches arguments after the name without losing the row", () => {
     const rows = opencodeCommandRows(COMMANDS, "/review the last");
     expect(rows.map((row) => row.name)).toEqual(["/review"]);
+  });
+});
+
+describe("draftNamesCommand", () => {
+  // The line between "still choosing" and "already named", which is what decides whether Return
+  // completes a name or runs the command. It reads the same first token the filter does, which
+  // is why a completed draft still matches the row it just completed.
+  it("is false for a name still being typed, so Return completes it", () => {
+    expect(draftNamesCommand("/rev", "/review")).toBe(false);
+    expect(draftNamesCommand("/", "/review")).toBe(false);
+  });
+
+  it("is true for the whole name, with or without the space completion left behind", () => {
+    expect(draftNamesCommand("/review", "/review")).toBe(true);
+    expect(draftNamesCommand("/review ", "/review")).toBe(true);
+  });
+
+  it("is true with arguments, so Return runs the command rather than eating them", () => {
+    expect(draftNamesCommand("/review the last change", "/review")).toBe(true);
+  });
+
+  it("ignores case, as the filter does", () => {
+    expect(draftNamesCommand("/Review", "/review")).toBe(true);
+  });
+
+  it("is false for a draft that is not naming a command at all", () => {
+    expect(draftNamesCommand("hello", "/review")).toBe(false);
   });
 });
 
