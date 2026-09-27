@@ -1170,6 +1170,18 @@ bot-faces-verify:
     PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
       node '{{justfile_directory()}}/chrome-test/bot-faces-verify.mjs'
 
+# Checks the Bot file viewer keeps a long markdown file inside its modal, at desktop and phone
+# widths. NOT in `just check`: it needs a live panel (`just host-run`) and the AD bot, whose
+# directory holds the AGENTS.md it opens. jsdom measures nothing, so the clipping this guards --
+# an auto grid row plus min-width:auto columns pushing the file column past the modal -- is
+# invisible to the unit tests.
+bot-code-dialog-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      node '{{justfile_directory()}}/chrome-test/bot-code-dialog-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay
