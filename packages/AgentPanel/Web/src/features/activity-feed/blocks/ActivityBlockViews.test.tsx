@@ -13,6 +13,10 @@ import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSou
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import {
+  pairSameEventToolResults,
+  withoutPairedToolResults,
+} from "@/features/activity-feed/rows/activityFeedLayout";
+import {
   SegmentEventRow,
   type EventRowContext,
 } from "@/features/activity-feed/blocks/ActivityEventRows";
@@ -88,6 +92,52 @@ describe("opencode file shapes", () => {
     const { unmount } = fileRow("shell", { command: "bun test", workdir: "/repo" });
     // The command is the row's body, not just its header: expanding shows it as source.
     expect(screen.getByText("bun test")).toBeInTheDocument();
+    unmount();
+  });
+});
+
+describe("read bodies", () => {
+  // A read's result is the file's content, so expanding draws it as source under the call's own
+  // grammar rather than as a plain pre. The result's own text is suppressed there, the way a
+  // skill's echo is: the code view IS the result, and drawing it twice is the row repeating
+  // itself. Paired through the same helper the feed uses, so the test pairs what it renders.
+  function readRow(tool: string, input: Record<string, unknown>, preview: string) {
+    const full = event([
+      { kind: "tool_use", tool, input, summary: `${tool} a.ts`, callId: "c1" },
+      { kind: "tool_result", preview, callId: "c1" },
+    ]);
+    const paired = pairSameEventToolResults(full);
+    return render(
+      <DataSourceProvider source={DATA_SOURCE}>
+        <SegmentEventRow
+          ev={withoutPairedToolResults(full, paired)}
+          ctx={{ ...CTX, pairedToolResults: paired }}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </DataSourceProvider>,
+    );
+  }
+
+  it("draws an opencode source read as code, stripped of cat -n line numbers", () => {
+    const { container, unmount } = readRow("read", { path: "/repo/src/a.ts" }, "     1\tconst x = 1;");
+    expect(screen.getByText("const x = 1;")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("1\tconst");
+    unmount();
+  });
+
+  it("renders a markdown read as prose rather than source", () => {
+    const { unmount } = readRow("read", { path: "/repo/NOTES.md" }, "# Notes\n\nHello");
+    expect(screen.getByRole("heading", { name: "Notes" })).toBeInTheDocument();
+    unmount();
+  });
+
+  it("keeps drawing Claude's snake_case Read beside it", () => {
+    const { unmount } = readRow("Read", { file_path: "/repo/src/a.ts" }, "let y = 2;");
+    expect(screen.getByText("let y = 2;")).toBeInTheDocument();
     unmount();
   });
 });

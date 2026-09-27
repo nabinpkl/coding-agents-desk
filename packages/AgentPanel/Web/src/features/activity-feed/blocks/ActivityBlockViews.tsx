@@ -257,6 +257,18 @@ export function Block({
       (b.tool === "Write" || b.tool === "write") &&
       writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
     const isFileBody = isEditDiff || isMarkdownWrite;
+    // A file the call READ, drawn as source once its result lands: the paired result's preview
+    // is the file's content (Claude prefixes `cat -n` line numbers, stripped here), highlighted
+    // by the path's own grammar. Markdown reads render as prose, the way markdown writes do.
+    // Empty previews stay on the existing path: a `Read screenshot.png` returned only a picture,
+    // and an empty code block above it would be the one false thing in the row.
+    const readPath = toolStringInput(b.input, ["file_path", "path"]);
+    const isReadCall = b.tool === "Read" || b.tool === "read";
+    const readText = pairedResult?.block.preview?.trim() ? pairedResult.block.preview : null;
+    const isMarkdownRead =
+      isReadCall && readPath !== null && isMarkdownPath(readPath) && readText !== null;
+    const isCodeRead =
+      isReadCall && readPath !== null && !isMarkdownPath(readPath) && readText !== null;
     // The header truncates the command to one line. Expanding shows it as a
     // shell code block, which highlights it and scrolls horizontally rather
     // than cutting it off at the row's width.
@@ -363,6 +375,12 @@ export function Block({
             {isMarkdownWrite ? (
               <Markdown content={writeContent!} />
             ) : null}
+            {isMarkdownRead ? (
+              <Markdown content={stripReadLineNumbers(readText!)} />
+            ) : null}
+            {isCodeRead ? (
+              <CodeBlock code={stripReadLineNumbers(readText!)} lang={readPath!} />
+            ) : null}
             {namedFiles ? (
               <SentFilesBlock
                 files={namedFiles}
@@ -380,8 +398,10 @@ export function Block({
                   // A skill's result says only `Launching skill: <name>`, and the chip and label
                   // on this very row already say which skill. With the body under it, drawing
                   // that line is the row repeating itself; empty leaves the result's own Raw
-                  // drawer, which is the part that would otherwise become unreachable.
-                  pairedResult.skillBody
+                  // drawer, which is the part that would otherwise become unreachable. A read
+                  // the call drew as source above is the same: the text lives in the code view,
+                  // not twice.
+                  pairedResult.skillBody || isMarkdownRead || isCodeRead
                     ? ""
                     : namedFiles
                       ? withoutFileHandles(pairedResult.block.preview)
