@@ -25,6 +25,7 @@ import { readPublishMode, writePublishMode } from "./src/app/dev-server/publishM
 import {
   PANEL_BUILD_ROUTE,
   PANEL_COMMAND_PARAM,
+  PANEL_MACHINE_PARAM,
   PANEL_PUBLISH_EVENT,
 } from "./src/features/profile/panelBuildRoute";
 
@@ -389,9 +390,15 @@ export default defineConfig({
       // The publisher reports it because the panel's own held work is reported there, and a reader
       // wants one answer to "is what I am looking at current", not two.
       supervisors: () => supervisorClient.report(),
-      // One switch for the panel and every sidecar behind it: what a reader means by manual is
-      // "stop changing under me", not a preference held per process.
-      tell: (command) => supervisorClient.tell(knownMachines(), command),
+      // A mode goes to every machine, because what a reader means by manual is "stop changing under
+      // me", not a preference held per process. A restart goes only to the machine it names.
+      machineParam: PANEL_MACHINE_PARAM,
+      tell: (command, machine) => supervisorClient.tell(
+        machine === undefined
+          ? knownMachines()
+          : knownMachines().filter((known) => known.label === machine),
+        command,
+      ),
       // Kept across dev server restarts, because a restart is one of the things a reader is asking
       // to be protected from when they choose to hold updates. Each machine's supervisor still
       // starts on auto and is told again by the reconcile above, so a machine whose panel is gone

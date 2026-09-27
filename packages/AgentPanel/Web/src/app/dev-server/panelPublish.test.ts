@@ -38,7 +38,7 @@ function gateWith(sidecars: SupervisorReport[] = [], remembered: UpdateMode = "a
     reload: () => {
       reloads += 1;
     },
-    tell: (command) => told.push(command),
+    tell: (command, machine) => told.push(machine === undefined ? command : `${command}:${machine}`),
     remembered: () => remembered,
     remember: (mode) => kept.push(mode),
   });
@@ -229,17 +229,20 @@ describe("holding updates for the reader", () => {
     expect(kept).toEqual(["manual", "auto"]);
   });
 
-  // One switch, both halves. The panel holds an HMR update; a supervisor holds a RESTART, which
-  // costs the reader more: every stream the panel is holding dies with the process. A reader asking
-  // for the page to stop changing under them is not asking about only one of those.
-  it("passes the reader's choice to every machine, not just this page", () => {
+  // The mode is one switch for both halves: a reader asking for the page to stop changing under
+  // them is not asking about only one of those. Taking what is held is not. A supervisor holds a
+  // RESTART, which drops every stream the panel holds from it, so the panel's Apply moves no
+  // sidecar and a restart goes only to the machine it names.
+  it("passes the mode to every machine, and a restart only to the one named", () => {
     const { gate, told } = gateWith();
     gate.setMode("manual");
     expect(told).toEqual(["manual"]);
     gate.apply();
-    expect(told).toEqual(["manual", "apply"]);
+    expect(told).toEqual(["manual"]);
+    gate.restartSidecar("oracle");
+    expect(told).toEqual(["manual", "apply:oracle"]);
     gate.setMode("auto");
-    expect(told).toEqual(["manual", "apply", "auto"]);
+    expect(told).toEqual(["manual", "apply:oracle", "auto"]);
   });
 
   // A supervisor that restarted -- a host relaunch, a crash -- comes back on auto, and would then

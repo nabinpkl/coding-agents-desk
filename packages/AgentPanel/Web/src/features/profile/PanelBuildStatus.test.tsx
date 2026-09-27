@@ -21,6 +21,7 @@ function build(overrides: Partial<PanelBuild> = {}): PanelBuild {
     sidecars: [],
     setMode: vi.fn(),
     apply: vi.fn(),
+    restartSidecar: vi.fn(),
     ...overrides,
   };
 }
@@ -163,7 +164,7 @@ describe("what a machine is waiting for", () => {
       />,
     );
     expect(screen.getByText("oracle sidecar waiting")).toBeDefined();
-    expect(screen.getByText("its tree moved; Apply takes it")).toBeDefined();
+    expect(screen.getByText("its tree moved; Restart takes it")).toBeDefined();
   });
 
   it("still says held back when the machine is stuck on half a file", () => {
@@ -193,18 +194,57 @@ describe("what a machine is waiting for", () => {
     expect(screen.getByText("oracle sidecar held back")).toBeDefined();
   });
 
-  it("offers Apply for a machine even when this page has nothing of its own waiting", () => {
+  // A restart drops every stream from that sidecar, so it is its own decision per machine and
+  // never rides along with a panel reload.
+  it("restarts only the machine whose row was pressed, apart from the panel's Apply", () => {
     const apply = vi.fn();
+    const restartSidecar = vi.fn();
     render(
       <PanelBuildStatus
         build={build({
           mode: "manual",
+          held: ["main.tsx"],
           apply,
+          restartSidecar,
+          sidecars: [
+            { machine: "mac", held: true, blocked: null, mode: "manual" },
+            { machine: "oracle", held: true, blocked: null, mode: "manual" },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Restart the oracle sidecar" }));
+    expect(restartSidecar).toHaveBeenCalledWith("oracle");
+    expect(restartSidecar).toHaveBeenCalledTimes(1);
+    expect(apply).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(restartSidecar).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no panel Apply when only a sidecar is waiting", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
           sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual" }],
         })}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-    expect(apply).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Restart the oracle sidecar" })).toBeEnabled();
+  });
+
+  it("refuses to restart a machine stuck on half a file", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual" }],
+        })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Restart the oracle sidecar" })).toBeDisabled();
   });
 });

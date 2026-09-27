@@ -84,14 +84,15 @@ export interface PublishGateIO {
    */
   reload(): void;
   /**
-   * Pass the reader's choice on to every machine's supervisor.
+   * Pass a command on to the machines' supervisors: every one of them, or the one named.
    *
-   * One switch covers both halves of the same question. The panel holds an HMR update; a supervisor
-   * holds a RESTART, which costs the reader more -- every stream the panel is holding dies with the
-   * process, the desktop encoders with it, and terminals re-import their scrollback. A reader who
-   * asks for the page to stop changing under them is not asking about only one of those.
+   * The MODE is one switch for the panel and every sidecar, because a reader who asks for the page
+   * to stop changing under them is not asking about only one of those. Taking what is held is not:
+   * a supervisor holds a RESTART, which costs more than a reload -- every stream the panel is
+   * holding dies with the process, the desktop encoders with it, and terminals re-import their
+   * scrollback -- so a restart goes to the one machine the reader pressed it for.
    */
-  tell(command: UpdateMode | "apply"): void;
+  tell(command: UpdateMode | "apply", machine?: string): void;
   /** What the reader chose last time there was a server, and where this one records their choice. */
   remembered(): UpdateMode;
   remember(mode: UpdateMode): void;
@@ -184,10 +185,14 @@ export function createPublishGate(io: PublishGateIO) {
       return mode;
     },
 
-    /** Take what is waiting now, here and on every machine, staying in the chosen mode. */
+    /** Reload every surface onto what is waiting, staying in the chosen mode. No sidecar moves. */
     apply(): boolean {
-      io.tell("apply");
       return release();
+    },
+
+    /** Restart one machine's sidecar onto its tree, staying in the chosen mode. */
+    restartSidecar(machine: string): void {
+      io.tell("apply", machine);
     },
 
     /** Choose whether a change that parses is acted on as it lands, here and on every machine. */
@@ -239,8 +244,10 @@ export interface PanelPublishOptions {
   event: string;
   /** The query parameter a POST to `buildRoute` carries its command in. */
   commandParam: string;
-  /** Pass the reader's choice to every machine's own supervisor. */
-  tell: (command: "auto" | "manual" | "apply") => void;
+  /** The query parameter a `restart` names its machine in. */
+  machineParam: string;
+  /** Pass a command to every machine's supervisor, or to the one named. */
+  tell: (command: "auto" | "manual" | "apply", machine?: string) => void;
   /**
    * Where the reader's choice is kept between servers.
    *
@@ -336,7 +343,9 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
           const command = asked.searchParams.get(options.commandParam);
           if (command === "auto" || command === "manual") gate.setMode(command);
           else if (command === "apply") gate.apply();
-          else {
+          else if (command === "restart" && asked.searchParams.get(options.machineParam)) {
+            gate.restartSidecar(asked.searchParams.get(options.machineParam)!);
+          } else {
             // Answering 200 to a command this does not understand would leave a toggle reporting a
             // mode nobody is in, which is the one failure a control like this must not have.
             response.statusCode = 400;

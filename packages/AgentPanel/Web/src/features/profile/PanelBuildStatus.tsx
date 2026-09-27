@@ -14,6 +14,11 @@
 // gone rather than parked. So the button says Apply and means "reload onto the tree as it is now",
 // and it is refused while anything in the queue is still half a file.
 //
+// A held sidecar is a different decision and has its own button on its own row. Restarting one
+// drops every stream the panel holds from it, so it is asked for per machine and never rides along
+// with a panel reload: one Apply used to do both, and taking a panel change restarted every
+// sidecar under every surface.
+//
 // The mode is also said out loud with nothing waiting, which is the one piece of standing text here
 // that earns its line: a panel that has stopped updating because the reader asked it to, an hour
 // ago, is indistinguishable from a broken one otherwise.
@@ -37,7 +42,7 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
             <span className={waiting > 0 ? "text-amber-500" : "text-muted-foreground"}>
               {waiting === 0 ? "updates manual" : manual ? `${count} waiting` : `${count} held back`}
             </span>
-            {manual && (waiting > 0 || build.sidecars.length > 0) ? (
+            {manual && waiting > 0 ? (
               <button
                 type="button"
                 onClick={build.apply}
@@ -45,15 +50,9 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
                 title={
                   build.blocked
                     ? `Cannot apply yet: ${build.blocked}`
-                    : "Reload every open surface, and restart every held sidecar, onto the tree as"
-                      + " it is now."
+                    : "Reload every open surface onto the panel as it is now. No sidecar restarts."
                 }
-                className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px]
-                  font-medium transition-colors hover:bg-accent hover:text-accent-foreground
-                  active:bg-accent/80 focus-visible:outline-2 focus-visible:-outline-offset-2
-                  focus-visible:outline-primary disabled:cursor-not-allowed
-                  disabled:border-border/50 disabled:text-muted-foreground
-                  disabled:hover:bg-transparent"
+                className={ROW_BUTTON}
               >
                 Apply
               </button>
@@ -74,16 +73,35 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
           auto whatever this panel last asked for. */}
       {build.sidecars.map((sidecar) => (
         <div key={sidecar.machine} className="space-y-0.5">
-          <span className="text-amber-500">
-            {sidecar.machine} sidecar {sidecar.blocked === null && sidecar.mode === "manual"
-              ? "waiting"
-              : "held back"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-amber-500">
+              {sidecar.machine} sidecar {sidecar.blocked === null && sidecar.mode === "manual"
+                ? "waiting"
+                : "held back"}
+            </span>
+            {sidecar.mode === "manual" ? (
+              <button
+                type="button"
+                onClick={() => build.restartSidecar(sidecar.machine)}
+                disabled={sidecar.blocked !== null}
+                aria-label={`Restart the ${sidecar.machine} sidecar`}
+                title={
+                  sidecar.blocked
+                    ? `Cannot restart yet: ${sidecar.blocked}`
+                    : `Restart the ${sidecar.machine} sidecar onto its tree as it is now. Every`
+                      + " stream from it reconnects."
+                }
+                className={ROW_BUTTON}
+              >
+                Restart
+              </button>
+            ) : null}
+          </div>
           <Reason
             text={sidecar.blocked}
             fallback={
               sidecar.mode === "manual"
-                ? "its tree moved; Apply takes it"
+                ? "its tree moved; Restart takes it"
                 : "a file it watches will not parse"
             }
           />
@@ -92,6 +110,13 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
     </div>
   );
 }
+
+/** The row's one control, sized for a line of 11px text. */
+const ROW_BUTTON = "shrink-0 cursor-pointer rounded border border-border px-1.5 py-0.5 text-[10px]"
+  + " font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+  + " active:bg-accent/80 focus-visible:outline-2 focus-visible:-outline-offset-2"
+  + " focus-visible:outline-primary disabled:cursor-not-allowed disabled:border-border/50"
+  + " disabled:text-muted-foreground disabled:hover:bg-transparent";
 
 /** One line of why, in the colour the reason earns. */
 function Reason({ text, fallback }: { text: string | null; fallback: string }) {

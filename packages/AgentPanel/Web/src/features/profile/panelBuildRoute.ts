@@ -31,8 +31,16 @@ export const PANEL_PUBLISH_EVENT = "panel:publish-state";
  */
 export type PanelUpdateMode = "auto" | "manual";
 
-/** Setting the mode, or taking what is waiting without leaving manual. */
-export type PanelBuildCommand = PanelUpdateMode | "apply";
+/**
+ * Setting the mode, reloading every surface onto what is waiting (`apply`), or restarting one
+ * machine's held sidecar (`restart`, naming it in `PANEL_MACHINE_PARAM`).
+ *
+ * Two commands rather than one because they cost different things and a reader asks for them at
+ * different moments: a reload keeps every sidecar stream on the other side alive, and a restart
+ * drops all of them. One button used to do both, so taking a panel change restarted every
+ * machine's sidecar under every surface.
+ */
+export type PanelBuildCommand = PanelUpdateMode | "apply" | "restart";
 
 /**
  * How a command is sent: `POST <PANEL_BUILD_ROUTE>?action=manual`, answered with the new report.
@@ -41,6 +49,9 @@ export type PanelBuildCommand = PanelUpdateMode | "apply";
  * read and bound one for a single word, and this carries nothing that does not belong in a URL.
  */
 export const PANEL_COMMAND_PARAM = "action";
+
+/** Which machine a `restart` is for, by the label its row shows. */
+export const PANEL_MACHINE_PARAM = "machine";
 
 /**
  * What the sidecar's own supervisor is holding back.
