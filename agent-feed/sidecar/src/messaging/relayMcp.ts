@@ -223,6 +223,6 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   return server;
 }
 
-export async function runRelayMcpStdio(): Promise<void> {
-  await createRelayMcpServer().connect(new StdioServerTransport());
+export async function runRelayMcpStdio(options: RelayMcpOptions = {}): Promise<void> {
+  await createRelayMcpServer(options).connect(new StdioServerTransport());
 }
