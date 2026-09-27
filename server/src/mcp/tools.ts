@@ -3,6 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { Status } from "../../../shared/annotation.ts";
+import { tagGuide } from "../../../shared/vocab.ts";
 import { NotFound, type AnnotationService } from "../service/annotations.ts";
 
 export const SERVER_NAME = "agentdesk-annotator";
@@ -29,13 +30,16 @@ function guard(fn: () => ToolResult): ToolResult {
 }
 
 export function buildMcpServer(service: AnnotationService): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { instructions: `Annotations are the owner's feedback on web pages. Each carries a tag that says what to do with it. ${tagGuide()}` },
+  );
 
   server.registerTool(
     `${P}_list`,
     {
       description:
-        "List annotations, most recently updated first. Pass url (substring of the page URL) to scope to one site, and status open or resolved. Each record carries createdAt, updatedAt, and resolvedBy (agent versus user) so you can tell who marked it done.",
+        `List annotations, most recently updated first. Pass url (substring of the page URL) to scope to one site, and status open or resolved. Each record carries createdAt, updatedAt, and resolvedBy (agent versus user) so you can tell who marked it done. The tag says what to do: ${tagGuide()}`,
       inputSchema: z.object({ url: UrlFilter, status: Status.optional() }),
     },
     async ({ url, status }) => json(service.list({ url, status })),
@@ -44,7 +48,7 @@ export function buildMcpServer(service: AnnotationService): McpServer {
   server.registerTool(
     `${P}_get`,
     {
-      description: "Full detail of one annotation: comment, selector, DOM path, styles, bounding box, replies.",
+      description: `Full detail of one annotation: comment, tag, selector, DOM path, styles, bounding box, dragged region if any, replies. The tag says what to do: ${tagGuide()}`,
       inputSchema: z.object({ id: Id }),
     },
     async ({ id }) => guard(() => json(service.get(id))),
@@ -53,7 +57,7 @@ export function buildMcpServer(service: AnnotationService): McpServer {
   server.registerTool(
     `${P}_brief`,
     {
-      description: "Markdown brief of open annotations for a URL, ready to work from. Omit url for everything open.",
+      description: "Markdown brief of open annotations for a URL, ready to work from; each item states what its tag asks for. Omit url for everything open.",
       inputSchema: z.object({ url: UrlFilter }),
     },
     async ({ url }) => ({ content: [{ type: "text", text: service.brief(url) }] }),
@@ -98,7 +102,7 @@ export function buildMcpServer(service: AnnotationService): McpServer {
     `${P}_resolve`,
     {
       description:
-        "Mark an annotation fixed after applying the change. Records resolvedBy as agent, distinct from a user resolution. The panel shows who resolved it. Optional message is stored as an agent reply shown in the panel.",
+        "Mark an annotation done: fixed or changed (bug, change), or answered (question, with the answer as the message). Not for info or an unclarified comment. Records resolvedBy as agent, distinct from a user resolution. The panel shows who resolved it. Optional message is stored as an agent reply shown in the panel.",
       inputSchema: z.object({ id: Id, message: z.string().optional().describe("Optional reply shown in the panel, e.g. what was fixed.") }),
     },
     async ({ id, message }) => guard(() => json(service.resolve(id, "agent", message || undefined))),
@@ -108,7 +112,7 @@ export function buildMcpServer(service: AnnotationService): McpServer {
     `${P}_reopen`,
     {
       description:
-        "Acknowledged but unresolved: optional why message stays on the item while it remains open. Use when confused or blocked instead of resolving.",
+        "Acknowledged but unresolved: optional message stays on the item while it remains open. Use it to ask for clarification (comment), to post the debated approaches (suggestion), or when confused or blocked, instead of resolving.",
       inputSchema: z.object({ id: Id, message: z.string().optional().describe("Why it is unresolved, shown in the panel.") }),
     },
     async ({ id, message }) => guard(() => json(service.reopen(id, "agent", message || undefined))),

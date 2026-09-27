@@ -3,7 +3,7 @@
  * state it is given and reports user intent through handlers. Page and user
  * text only ever reaches the DOM through textContent. */
 import type { Annotation, Tag } from "../../../shared/annotation.ts";
-import { TAGS } from "../../../shared/vocab.ts";
+import { DEFAULT_TAG, TAG_MEANINGS, TAGS } from "../../../shared/vocab.ts";
 import { icon, type IconName } from "./icons.ts";
 import { PANEL_CSS } from "./styles.ts";
 
@@ -119,7 +119,7 @@ export function createPanel(on: PanelHandlers): Panel {
   const list = h("div", { class: "list", role: "list" });
 
   const textarea = h("textarea", { rows: "4", placeholder: "What is wrong with this container?", "aria-label": "Comment" });
-  const tagSelect = h("select", { "aria-label": "Tag" }, ...TAGS.map((t) => h("option", { value: t }, t)));
+  const tagSelect = h("select", { "aria-label": "Tag" }, ...TAGS.map((t) => h("option", { value: t, title: `Agent will: ${TAG_MEANINGS[t]}` }, t)));
   const selectorLine = h("div", { class: "selector" });
   const formError = h("div", { class: "form-error", role: "alert" });
   const formTitle = h("span", {}, "Annotate container");
@@ -250,7 +250,7 @@ export function createPanel(on: PanelHandlers): Panel {
       selectorLine.textContent = detail;
       formError.textContent = "";
       textarea.value = "";
-      tagSelect.value = "bug";
+      tagSelect.value = DEFAULT_TAG;
       form.hidden = false;
       saveBtn.disabled = false;
       queueMicrotask(() => textarea.focus());

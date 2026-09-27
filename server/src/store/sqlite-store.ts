@@ -36,16 +36,26 @@ function migrate(db: DatabaseSync): void {
   if (current > MIGRATIONS.length) {
     throw new Error(`database schema version ${current} is newer than this build (${MIGRATIONS.length})`);
   }
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    db.exec("BEGIN");
-    try {
-      db.exec(MIGRATIONS[v]!);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-      db.exec("COMMIT");
-    } catch (e) {
-      db.exec("ROLLBACK");
-      throw e;
+  // Foreign keys off while migrating: a table rebuild drops the old table, which would otherwise
+  // cascade-delete its children. The pragma is a no-op inside a transaction, hence out here, and
+  // foreign_key_check proves each migration left no dangling reference before it commits.
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    for (let v = current; v < MIGRATIONS.length; v++) {
+      db.exec("BEGIN");
+      try {
+        db.exec(MIGRATIONS[v]!);
+        const dangling = db.prepare("PRAGMA foreign_key_check").all();
+        if (dangling.length > 0) throw new Error(`migration ${v + 1} left ${dangling.length} dangling foreign keys`);
+        db.exec(`PRAGMA user_version = ${v + 1}`);
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
     }
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 
@@ -53,7 +63,6 @@ export function openSqliteStore(file: string): AnnotationStore {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
   migrate(db);
 

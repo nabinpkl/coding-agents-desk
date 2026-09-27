@@ -1,6 +1,7 @@
 /* Markdown brief an agent can act on. Used by the server's brief tool and the
  * extension's Copy / Download actions. No DOM access. */
 import type { ElementMetadata, Tag } from "./annotation.ts";
+import { TAG_MEANINGS } from "./vocab.ts";
 
 export interface BriefItem {
   text: string;
@@ -30,7 +31,7 @@ function one(a: BriefItem, i: number): string {
     lines.push(`- **Region:** x=${g.x} y=${g.y} w=${g.width} h=${g.height} (page coordinates, inside the element above)`);
   }
   if (m.styles) lines.push(`- **Styles:** \`${esc(m.styles)}\``);
-  lines.push(`- **Tag:** \`${esc(a.tag)}\``);
+  lines.push(`- **Tag:** \`${esc(a.tag)}\`: ${TAG_MEANINGS[a.tag]}`);
   return lines.join("\n");
 }
 

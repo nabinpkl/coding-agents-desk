@@ -1,7 +1,7 @@
 /* Panel styles, scoped to the shadow root. Direction: a compact utility
  * palette floating over arbitrary pages; solid surfaces so it always reads as
  * separate from the page beneath. Colors are tokens; tags map to semantic
- * colors (bug, suggestion, question). */
+ * colors (comment, bug, change, suggestion, question, info). */
 export const PANEL_CSS = `
 :host { all: initial; }
 .root {
@@ -23,6 +23,9 @@ export const PANEL_CSS = `
   --tag-bug: oklch(0.62 0.21 27);
   --tag-suggestion: oklch(0.66 0.16 150);
   --tag-question: oklch(0.78 0.15 85);
+  --tag-comment: oklch(0.62 0.14 255);
+  --tag-change: oklch(0.58 0.18 305);
+  --tag-info: oklch(0.65 0 0);
   --shadow: 0 6px 24px oklch(0 0 0 / 0.22);
   --radius: 10px;
   --radius-sm: 6px;
@@ -94,6 +97,9 @@ button[aria-busy="true"] { cursor: progress; }
 .item:hover { background: var(--surface-2); }
 .item[data-tag="suggestion"] { border-left-color: var(--tag-suggestion); }
 .item[data-tag="question"] { border-left-color: var(--tag-question); }
+.item[data-tag="comment"] { border-left-color: var(--tag-comment); }
+.item[data-tag="change"] { border-left-color: var(--tag-change); }
+.item[data-tag="info"] { border-left-color: var(--tag-info); }
 .row { display: flex; align-items: flex-start; gap: 2px; }
 .label { flex: 1; padding-top: 4px; overflow-wrap: anywhere; }
 .item.resolved .label .text { text-decoration: line-through; color: var(--ink-2); }

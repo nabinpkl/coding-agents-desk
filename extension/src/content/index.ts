@@ -428,7 +428,7 @@ function main(): void {
   function drawMarkers(): void {
     for (const m of Array.from(document.querySelectorAll("[data-ax-marker]"))) m.remove();
     if (!active) return;
-    const colors: Record<Tag, string> = { bug: "#d32f2f", suggestion: "#2e7d32", question: "#b7791f" };
+    const colors: Record<Tag, string> = { comment: "#2f6fd6", bug: "#d32f2f", change: "#7b3fc0", suggestion: "#2e7d32", question: "#b7791f", info: "#6b6b6b" };
     state.items.forEach((a, i) => {
       if (a.status !== "open") return;
       let r: DOMRect;

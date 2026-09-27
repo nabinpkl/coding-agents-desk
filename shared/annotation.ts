@@ -1,7 +1,7 @@
 /* Wire types shared by the server and the extension. The zod schemas are the
  * single source; TypeScript types are inferred from them. */
 import * as z from "zod";
-import { ACTORS, SCREENSHOT_MIMES, STATUSES, TAGS } from "./vocab.ts";
+import { ACTORS, DEFAULT_TAG, SCREENSHOT_MIMES, STATUSES, TAGS } from "./vocab.ts";
 
 export const Tag = z.enum(TAGS);
 export const Status = z.enum(STATUSES);
@@ -48,7 +48,7 @@ export const NewAnnotation = z.object({
   url: z.url().max(4000),
   title: z.string().max(500).default(""),
   text: z.string().trim().min(1).max(10000),
-  tag: Tag.default("bug"),
+  tag: Tag.default(DEFAULT_TAG),
   metadata: ElementMetadata.default({}),
 });
 export type NewAnnotation = z.infer<typeof NewAnnotation>;

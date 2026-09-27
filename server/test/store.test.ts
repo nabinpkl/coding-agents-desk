@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { MIGRATIONS } from "../src/store/migrations.ts";
 import { openSqliteStore } from "../src/store/sqlite-store.ts";
 
 function inspect(file: string, sql: string): unknown {
@@ -112,4 +113,36 @@ test("transaction rolls back on throw", () => {
   );
   assert.deepEqual(store.get(a.id)?.replies, []);
   store.close();
+});
+
+test("the tag migration keeps rows, replies, screenshots, and the id high-water mark", () => {
+  const file = tmpDb();
+  // A version-1 database as it exists in production: two rows, the newer one deleted.
+  const v1 = new DatabaseSync(file);
+  v1.exec("PRAGMA foreign_keys = ON");
+  v1.exec(MIGRATIONS[0]!);
+  v1.exec("PRAGMA user_version = 1");
+  const row = `(status, url, title, text, tag, metadata_json, created_at, updated_at) VALUES ('open', 'https://a.example/', 'A', 'kept', 'question', '{}', '${T0}', '${T0}')`;
+  v1.exec(`INSERT INTO annotations ${row}`);
+  v1.exec(`INSERT INTO annotations ${row}`);
+  v1.exec("DELETE FROM annotations WHERE id = 2");
+  v1.exec(`INSERT INTO replies (annotation_id, by, text, at) VALUES (1, 'agent', 'hi', '${T0}')`);
+  v1.exec(`INSERT INTO screenshots (annotation_id, mime, bytes, coverage_json, created_at) VALUES (1, 'image/jpeg', x'ffd8', '{"scanned":0,"items":[]}', '${T0}')`);
+  v1.close();
+
+  const store = openSqliteStore(file);
+  const kept = store.get(1);
+  assert.equal(kept?.tag, "question");
+  assert.deepEqual(kept?.replies.map((r) => r.text), ["hi"]);
+  assert.equal(kept?.screenshot?.mime, "image/jpeg");
+  const info = store.insert({ ...sample(), tag: "info" }, T1);
+  assert.equal(info.id, 3, "id 2 was deleted before the migration and must not be reused");
+  assert.equal(store.insert({ ...sample(), tag: "change" }, T1).tag, "change");
+  assert.throws(() => store.insert({ ...sample(), tag: "nope" as "bug" }, T1));
+  // Foreign keys are back on: deleting the parent still cascades.
+  assert.equal(store.remove(1), true);
+  store.close();
+  assert.equal(inspect(file, "SELECT count(*) FROM replies"), 0);
+  assert.equal(inspect(file, "SELECT count(*) FROM screenshots"), 0);
+  assert.equal(inspect(file, "PRAGMA user_version"), MIGRATIONS.length);
 });
