@@ -82,10 +82,12 @@ interface Props {
    * #root already has a definite height (styles.css), so `h-full` resolves the same chain.
    */
   fill?: boolean;
+  /** The Father home's control, owned by the surface bar above the feed; absent where there is none. */
+  fatherControl?: { open: boolean; onToggle: () => void };
 }
 
 
-export function App({ feed, host, machines, fill = false }: Props) {
+export function App({ feed, host, machines, fill = false, fatherControl }: Props) {
   // Which machines this shell can see, which Bots are on each, and which sidecar answers for one.
   // One hook because it is one decision made in five places; see `useBotMachines`.
   const shellMachines = useBotMachines(feed, machines);
@@ -115,9 +117,9 @@ export function App({ feed, host, machines, fill = false }: Props) {
   );
   // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
   const botError = commands.botCommandError ?? roster.canvasError;
-  // The home's wiring, shared by its two stands: the header's switch and the floating one over
-  // the headerless canvas. One object because only one stand is ever mounted.
+  // The home's wiring, shared by its two stands.
   const fatherHomeProps = {
+    control: fatherControl,
     bots: roster.orderedBots,
     sessionContextFor: (botId: string) => shellMachines.contextFor(sessionViewContext, botId),
     attachSessionToBot: roster.attachSessionToBot,
@@ -387,11 +389,9 @@ export function App({ feed, host, machines, fill = false }: Props) {
                   this node's rather than the header's because the strip's own members used to be
                   the header's children and spaced by it. */}
               <div ref={setThreadControlsHost} className="flex shrink-0 items-center gap-1" />
-              {/* The Father home's switch, in the one bar every view shares. */}
               <FatherHome floating={false} {...fatherHomeProps} />
             </header>
           )}
-          {/* No bar over a pinned canvas, so the switch floats over its corner instead. */}
           {headerlessCanvas ? <FatherHome floating {...fatherHomeProps} /> : null}
 
           {/* One scroller per surface, and the session owns its own: `SessionView` is a flex

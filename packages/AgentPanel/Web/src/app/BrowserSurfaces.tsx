@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { TypeSettings } from "@/features/appearance/TypeSettings";
+import { FatherButton } from "@/features/bots/canvas/FatherOverlay";
+import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/fatherPreferences";
 import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
 import {
@@ -244,6 +246,17 @@ export function BrowserSurfaces({
   // dialog ends its shell when it is closed, so a reload that forgets it forgets nothing running.
   const [terminalMachine, setTerminalMachine] = useState<MachineTerminalTarget | null>(null);
   const selectedLabel = sessions.find((session) => session.id === sessionId)?.label ?? "this machine";
+  // The Father home's switch, owned here because its place is in this bar rather than in any one
+  // view. Stored, so the feed it opens over agrees with the bar about whether it is open.
+  const [fatherOpen, setFatherOpen] = useState(loadFatherOpen);
+  const toggleFather = useCallback(() => {
+    setFatherOpen((was) => {
+      const next = !was;
+      storeFatherOpen(next);
+      return next;
+    });
+  }, []);
+  const fatherControl = { open: fatherOpen, onToggle: toggleFather };
 
   function select(next: BrowserSurface): void {
     if (next === surface) return;
@@ -333,6 +346,13 @@ export function BrowserSurfaces({
             corner on a choice most readers make once, and a control reached through one press
             still shows its effect on the page it is on. */}
         <TypeSettings />
+        {/* Right of the display settings: the Father home's switch, on the feed only, because
+            the drawer it opens stands over the feed's roster. */}
+        {surface === "feed" ? (
+          <span className="flex shrink-0 items-center self-center">
+            <FatherButton open={fatherOpen} onToggle={toggleFather} floating={false} />
+          </span>
+        ) : null}
       </div>
       {terminalMachine ? (
         <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
@@ -375,6 +395,7 @@ export function BrowserSurfaces({
             host={host}
             machines={machines}
             fill
+            fatherControl={fatherControl}
           />
         )}
       </div>
