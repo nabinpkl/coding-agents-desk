@@ -37,6 +37,55 @@ test("message routes validate and return a correlated accepted receipt", async (
   expect(await response?.json()).toEqual({ requestId: "r1", delivery: "immediate" });
 });
 
+test("message routes carry image attachments to an opencode backend and refuse them elsewhere", async () => {
+  const received: { attachments: unknown }[] = [];
+  const base = fakeBackend();
+  const route = createAgentRoutes((id) => {
+    if (id !== "opencode" && id !== "pi") return undefined;
+    return {
+      ...base,
+      id,
+      send: async (sessionId: string, requestId: string, _text: string, delivery: "next" | "steer", attachments?: readonly unknown[]) => {
+        received.push({ attachments });
+        return { requestId, delivery: "followUp" as const };
+      },
+    };
+  });
+  const image = {
+    method: "POST",
+    body: JSON.stringify({
+      requestId: "r-img",
+      text: "look at this",
+      delivery: "next",
+      files: [{ data: Buffer.from("png-bytes").toString("base64"), mime: "image/png", name: "shot.png" }],
+    }),
+  };
+  const accepted = new Request("http://localhost/api/agent-sessions/opencode/s1/messages", image);
+  expect((await route(accepted, new URL(accepted.url), server))?.status).toBe(202);
+  expect(received).toHaveLength(1);
+  expect(received[0]!.attachments).toEqual([
+    { data: Buffer.from("png-bytes").toString("base64"), mime: "image/png", name: "shot.png" },
+  ]);
+
+  const refused = new Request("http://localhost/api/agent-sessions/pi/s1/messages", image);
+  const refusal = await route(refused, new URL(refused.url), server);
+  expect(refusal?.status).toBe(400);
+  expect(await refusal?.json()).toMatchObject({ error: { code: "unsupported-attachments" } });
+
+  const badData = new Request("http://localhost/api/agent-sessions/opencode/s1/messages", {
+    method: "POST",
+    body: JSON.stringify({
+      requestId: "r-bad",
+      text: "look",
+      delivery: "next",
+      files: [{ data: "!!!", mime: "image/png", name: "shot.png" }],
+    }),
+  });
+  const rejected = await route(badData, new URL(badData.url), server);
+  expect(rejected?.status).toBe(400);
+  expect(await rejected?.json()).toMatchObject({ error: { code: "invalid-attachments" } });
+});
+
 test("message routes reject empty and oversized prompts", async () => {
   const backend = fakeBackend();
   const route = createAgentRoutes(() => backend);
@@ -47,7 +96,7 @@ test("message routes reject empty and oversized prompts", async () => {
   expect((await route(empty, new URL(empty.url), server))?.status).toBe(400);
   const huge = new Request("http://localhost/api/agent-sessions/pi/s1/messages", {
     method: "POST",
-    body: JSON.stringify({ requestId: "r2", text: "x".repeat(256 * 1024), delivery: "next" }),
+    body: JSON.stringify({ requestId: "r2", text: "x".repeat(256 * 1024 + 1), delivery: "next" }),
   });
   expect((await route(huge, new URL(huge.url), server))?.status).toBe(413);
 });

@@ -63,8 +63,15 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
   if (m.pending || !m.editorValue.trim()) return;
   const text = m.editorValue.trim();
   try {
-    await m.onSendMessage(text, delivery);
+    // Images ride the same request as the text: a turn cannot be amended after it is queued,
+    // so holding them for a second call would strand them. Read at send time rather than held,
+    // because base64 inflates a photo by a third and the strip already shows it.
+    const files = m.session.source === "opencode" && m.sendAttachments.images.length > 0
+      ? await m.sendAttachments.toWire(m.sendAttachments.images)
+      : undefined;
+    await m.onSendMessage(text, delivery, files);
     m.setLocalDraft("");
+    m.sendAttachments.clear();
   } catch {
     // The shell's caption carries the reason; keep the draft so nothing is lost.
   }

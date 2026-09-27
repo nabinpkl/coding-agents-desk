@@ -317,12 +317,12 @@ export function SessionView({
     [],
   );
 
-  const sendPrompt = useCallback(async (text: string, delivery: "next" | "steer") => {
+  const sendPrompt = useCallback(async (text: string, delivery: "next" | "steer", files?: { data: string; mime: string; name: string }[]) => {
     if (commandPending || !text.trim()) return;
     setCommandPending(true);
     setCommandError(null);
     try {
-      await feed.sendMessage(session, text.trim(), delivery);
+      await feed.sendMessage(session, text.trim(), delivery, files);
     } catch (error) {
       setCommandError(String((error as Error).message ?? error));
       // Rethrow so the composer that owns the draft only clears it on success.

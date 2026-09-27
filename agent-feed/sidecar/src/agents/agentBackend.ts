@@ -43,6 +43,19 @@ export class AgentCommandConflictError extends Error {}
 /** The backend has been disposed; no further commands are accepted. */
 export class AgentBackendDisposedError extends Error {}
 
+/**
+ * One image riding a send: bytes as base64, because the route body is JSON.
+ *
+ * Carried rather than referenced by path because the panel holds Blobs, not files -- the bytes
+ * cross here, and the backend writes them where its serve can read them. Opencode-only: its
+ * prompt takes file URIs, while Pi has no image path and the route refuses attachments there.
+ */
+export interface AgentMessageAttachment {
+  data: string;
+  mime: string;
+  name: string;
+}
+
 export interface AgentBackend {
   readonly id: string;
   readonly capabilities: AgentSessionCapabilities;
@@ -50,7 +63,7 @@ export interface AgentBackend {
   createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor>;
   page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage>;
   subscribe(sessionId: string, afterSequence: number, listener: (envelope: TimelineEnvelope) => void): Promise<() => void>;
-  send(sessionId: string, requestId: string, text: string, delivery: AgentMessageDelivery): Promise<AgentCommandReceipt>;
+  send(sessionId: string, requestId: string, text: string, delivery: AgentMessageDelivery, attachments?: readonly AgentMessageAttachment[]): Promise<AgentCommandReceipt>;
   abort(sessionId: string, requestId: string): Promise<AgentCommandReceipt>;
   subscribeUi(sessionId: string, listener: (event: AgentUiEvent) => void): Promise<() => void>;
   respondToUi(sessionId: string, requestId: string, value: unknown): Promise<AgentUiResponseResult>;

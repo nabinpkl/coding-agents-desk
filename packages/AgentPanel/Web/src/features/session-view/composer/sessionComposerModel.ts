@@ -10,6 +10,7 @@ import type { AgentSessionControlState } from "@/features/activity-feed/data-sou
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { CliInputHandle } from "@/features/cli-input/useCliInput";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
+import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useSendAttachments";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 
@@ -42,10 +43,12 @@ export interface ComposerModel {
   isCodex: boolean;
   localDraft: string;
   onAbort: () => void | Promise<void>;
-  onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
+  onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
   pending: boolean;
   queued: number;
   running: boolean;
+  /** Images held for an opencode send, which has no pane to hold them instead. */
+  sendAttachments: ReturnType<typeof useSendAttachments>;
   session: SessionSummary;
   setDeliveryError: (message: string | null) => void;
   setDeliveryPending: (pending: boolean) => void;

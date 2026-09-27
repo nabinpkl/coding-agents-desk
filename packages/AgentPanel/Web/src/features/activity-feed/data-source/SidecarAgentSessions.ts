@@ -57,12 +57,13 @@ export class SidecarAgentSessions extends SidecarTerminals {
     session: SessionAddress,
     text: string,
     delivery: "next" | "steer",
+    files?: { data: string; mime: string; name: string }[],
   ): Promise<AgentCommandReceipt> {
     return parse<AgentCommandReceipt>(
       await this.transport.request(
         "POST",
         `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/messages`,
-        { body: { requestId: crypto.randomUUID(), text, delivery } },
+        { body: { requestId: crypto.randomUUID(), text, delivery, ...(files?.length ? { files } : {}) } },
       ),
     );
   }

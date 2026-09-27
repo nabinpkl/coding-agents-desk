@@ -6,8 +6,10 @@
  * which is what makes it the same button rather than a replacement.
  */
 
-import { describe, expect, it } from "vitest";
-import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
+import { describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
+import { useSendAttachments } from "@/features/session-view/composer/useSendAttachments";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
 function model(overrides: Partial<ComposerModel> = {}): ComposerModel {
@@ -63,5 +65,56 @@ describe("the in-field send button", () => {
       },
     }));
     expect(actions.find((action) => action.key === "send")?.ariaLabel).toBe("Queue message");
+  });
+});
+
+describe("sending with held images", () => {
+  it("reads opencode attachments onto the send and clears them after", async () => {
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:1"),
+      revokeObjectURL: vi.fn(),
+    });
+    try {
+      const { result } = renderHook(() => useSendAttachments());
+      await act(async () => {
+        result.current.attach([new File(["bytes"], "shot.png", { type: "image/png" })]);
+      });
+      const onSendMessage = vi.fn(async () => {});
+      const setLocalDraft = vi.fn();
+      const m = model({
+        editorValue: "look",
+        session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+        sendAttachments: result.current,
+        onSendMessage,
+        setLocalDraft,
+      } as Partial<ComposerModel>);
+      await act(async () => {
+        await submitComposer(m, "next");
+      });
+      expect(onSendMessage).toHaveBeenCalledWith("look", "next", [
+        { data: "Ynl0ZXM=", mime: "image/png", name: "shot.png" },
+      ]);
+      expect(setLocalDraft).toHaveBeenCalledWith("");
+      expect(result.current.images).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends text alone where no images are held", async () => {
+    const onSendMessage = vi.fn(async () => {});
+    const { result } = renderHook(() => useSendAttachments());
+    const m = model({
+      editorValue: "plain",
+      session: { source: "pi", sessionId: "p1" } as ComposerModel["session"],
+      sendAttachments: result.current,
+      onSendMessage,
+      setLocalDraft: vi.fn(),
+    } as Partial<ComposerModel>);
+    await act(async () => {
+      await submitComposer(m, "next");
+    });
+    expect(onSendMessage).toHaveBeenCalledWith("plain", "next", undefined);
   });
 });

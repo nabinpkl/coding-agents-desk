@@ -78,6 +78,8 @@ import {
 } from "@/features/session-view/SessionTerminalControls";
 import type { AgentTerminalComposer, TerminalState } from "@/features/session-view/sessionTerminalTypes";
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
+import { useComposerFileDrop } from "@/features/session-view/composer/useComposerFileDrop";
+import { useSendAttachments, type SendAttachment } from "@/features/session-view/composer/useSendAttachments";
 import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import { harnessName } from "@/features/session-view/SessionView";
 import { composerActions, submitComposer, submitOwnedTransport } from "@/features/session-view/composer/sessionComposerActions";
@@ -174,12 +176,13 @@ export function SessionComposer({
    * band. Called with null whenever nothing here holds one, including on unmount.
    */
   onFileDrop: (drop: { accept: (files: readonly File[]) => void } | null) => void;
-  onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
+  onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
   const isClaude = source === "claude";
   const isCodex = source === "codex";
+  const isOpencode = source === "opencode";
   const inboxCandidate = isClaude && cliInput.isTerminalSession;
   const windowCandidate = (isClaude || isCodex) && !inboxCandidate;
   const running = state.runState === "running";
@@ -229,7 +232,12 @@ export function SessionComposer({
   const [engaged, setEngaged] = useState(false);
   useEffect(() => setEngaged(false), [source, sessionId]);
   const engage = useCallback(() => setEngaged(true), []);
-  const tmuxComposer = useTmuxComposer(
+  // Held here rather than in the pane: an opencode session has no pane, so picked images wait
+  // for the send instead. Cleared with the session, so a strip never rides into another thread.
+  const sendAttachments = useSendAttachments();
+  useEffect(() => {
+    sendAttachments.clear();
+  }, [source, sessionId, sendAttachments.clear]);  const tmuxComposer = useTmuxComposer(
     feed,
     tmuxComposerSession,
     isClaude && (engaged || question !== null),
@@ -271,40 +279,19 @@ export function SessionComposer({
   const inboxBand = transport.kind === "cli-inbox";
   const agentTerminalBand = transport.kind === "agent-terminal";
 
-  /**
-   * Hands the session the function that takes a dropped image, so the card is the target.
-   *
-   * `tmuxComposer.drop` rather than `editor.onFiles`, which is the same function behind a fresh
-   * arrow every render and would re-register on each keystroke. The tmux band is the only one with
-   * a box to put an image in: Claude's own composer is what turns a pasted path into an image, and
-   * nothing on the window, inbox or pty bands holds one.
-   *
-   * It stays registered while the terminal is showing instead of the field. The pane IS the
-   * composer, so an image dropped then lands in the box the reader is already looking at.
-   */
-  //
-  // Registered for every Claude session rather than only for an attached band, because a dropped
-  // image is intent as much as a keystroke is and there is nothing to drop onto if the target
-  // waits for the pane. The drop itself is a POST that resolves the pane for itself; engaging
-  // beside it is what brings the box into the field, so the `[Image #1]` the pane writes appears
-  // where the reader is typing rather than in a mirror nobody opened.
-  const dropFiles = tmuxComposer.drop;
-  const acceptFiles = useCallback((files: readonly File[]) => {
-    engage();
-    void dropFiles(files);
-  }, [dropFiles, engage]);
-  // Refused only where the panel KNOWS there is nowhere to put it, which is a session whose pane
-  // has already been looked for and not found. It used to be refused wherever the band had not
-  // attached, and that reading is no longer available: not having attached now means nobody has
-  // asked yet. Saying "no composer" then would be a guess dressed as a fact, and the wrong one
-  // for every session that has a pane nobody has touched.
-  const noPane = tmuxComposer.reason === "no-pane";
-  useEffect(() => {
-    // Claude only: its own composer is what turns a pasted path into an image, and no other band
-    // holds a box to put one in.
-    onFileDrop(isClaude && !noPane ? { accept: acceptFiles } : null);
-    return () => onFileDrop(null);
-  }, [isClaude, noPane, onFileDrop, acceptFiles]);
+  // Hands the session the function that takes a dropped image, so the card is the target.
+  // Refused only where the panel KNOWS there is nowhere to put it: a Claude session whose pane
+  // has been looked for and not found. Not having attached means nobody has asked yet, and
+  // saying "no composer" then would be a guess dressed as a fact.
+  const fileAccept = useComposerFileDrop({
+    isClaude,
+    noPane: tmuxComposer.reason === "no-pane",
+    isOpencode,
+    dropToPane: tmuxComposer.drop,
+    holdForSend: sendAttachments.attach,
+    engage,
+    onFileDrop,
+  });
 
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
@@ -432,7 +419,7 @@ export function SessionComposer({
         : piUnavailable;
 
   const model: ComposerModel = {
-    acceptFiles: isClaude && !noPane ? acceptFiles : null,
+    acceptFiles: fileAccept,
     agentTerminalBand,
     capabilities,
     cliInput,
@@ -450,6 +437,7 @@ export function SessionComposer({
     pending,
     queued,
     running,
+    sendAttachments,
     session,
     setDeliveryError,
     setDeliveryPending,
@@ -477,7 +465,7 @@ export function SessionComposer({
       editor={editor}
       feed={feed}
       filePicker={filePicker}
-      onPickFiles={isClaude && !noPane ? acceptFiles : null}
+      onPickFiles={fileAccept}
       isClaude={isClaude}
       isCodex={isCodex}
       model={model}

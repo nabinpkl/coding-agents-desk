@@ -7,7 +7,7 @@ import {
 } from "@/agents/agentBackend";
 
 interface Recorded {
-  prompts: Array<{ sessionID: string; text: string; delivery: string }>;
+  prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
   interrupts: string[];
   permissionReplies: Array<{ requestID: string; reply: string }>;
   created: string[];
@@ -83,11 +83,12 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const parsed = new URL(String(url));
     if (parsed.pathname.endsWith("/prompt")) {
-      const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string };
+      const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string; files?: Array<{ uri: string; mime: string; name: string }> };
       recorded.prompts.push({
         sessionID: parsed.pathname.split("/").at(-2) ?? "",
         text: body.text ?? "",
         delivery: body.delivery ?? "",
+        ...(body.files ? { files: body.files } : {}),
       });
       return Response.json({ data: {} });
     }
@@ -155,6 +156,24 @@ test("send prompts the serve and repeats the receipt for a repeated request", as
   const receipt = await backend.abort("s1", "r3");
   expect(receipt).toEqual({ requestId: "r3", delivery: "abort" });
   expect(recorded.interrupts).toEqual(["s1"]);
+  await backend.dispose();
+});
+
+test("send stages image attachments as files the serve reads", async () => {
+  const { backend, recorded } = fixture();
+  const bytes = Buffer.from("fake-png-bytes").toString("base64");
+  const receipt = await backend.send("s1", "r-img", "look", "next", [
+    { data: bytes, mime: "image/png", name: "shot.png" },
+  ]);
+  expect(receipt).toEqual({ requestId: "r-img", delivery: "immediate" });
+  const prompt = recorded.prompts.at(-1)!;
+  expect(prompt.files).toHaveLength(1);
+  expect(prompt.files![0]).toMatchObject({ mime: "image/png", name: "shot.png" });
+  const uri = prompt.files![0]!.uri;
+  expect(uri.startsWith("file://")).toBe(true);
+  // The staged file holds the decoded bytes: the serve reads the path, not the route body.
+  const staged = await Bun.file(uri.slice("file://".length)).arrayBuffer();
+  expect(Buffer.from(staged).toString()).toBe("fake-png-bytes");
   await backend.dispose();
 });
 

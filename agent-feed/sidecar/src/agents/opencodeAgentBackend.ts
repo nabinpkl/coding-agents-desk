@@ -20,9 +20,11 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import { config } from "@/config/config";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencodeClient";
+import { stageOpencodeAttachments } from "@/agents/opencodeAttachments";
 import type {
   AgentBackend,
   AgentCommandReceipt,
+  AgentMessageAttachment,
   AgentMessageDelivery,
   AgentSessionCapabilities,
   AgentSessionDescriptor,
@@ -211,15 +213,21 @@ export class OpencodeAgentBackend implements AgentBackend {
     requestId: string,
     text: string,
     delivery: AgentMessageDelivery,
+    attachments: readonly AgentMessageAttachment[] = [],
   ): Promise<AgentCommandReceipt> {
     const owned = await this.open(sessionId);
-    const signature = JSON.stringify({ type: "send", text, delivery });
+    const signature = JSON.stringify({ type: "send", text, delivery, attachments: attachments.length });
     return this.command(owned, requestId, signature, async () => {
       // Steer and queue are the serve's own deliveries, not two panel
       // inventions: a steer interrupts the turn with this prompt, a queued
       // prompt waits behind it. Idle sends travel as queued prompts.
       const serveDelivery = delivery === "steer" ? "steer" : "queue";
-      const answered = await serveRequest(`/api/session/${sessionId}/prompt`, { text, delivery: serveDelivery });
+      const files = attachments.length > 0 ? await stageOpencodeAttachments(sessionId, requestId, attachments) : undefined;
+      const answered = await serveRequest(`/api/session/${sessionId}/prompt`, {
+        text,
+        delivery: serveDelivery,
+        ...(files ? { files } : {}),
+      });
       if (answered.status === 401) {
         resetOpencodeClient();
         throw new Error(`prompt: unauthorized (${answered.status})`);

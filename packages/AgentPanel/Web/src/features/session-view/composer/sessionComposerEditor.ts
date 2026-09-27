@@ -178,14 +178,25 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
       value: m.localDraft,
       onChange: m.unavailable ? () => {} : m.setLocalDraft,
       disabled: m.unavailable || m.pending,
-      ariaLabel: "Message Pi",
+      ariaLabel: m.session.source === "opencode" ? "Message opencode" : "Message Pi",
       placeholder: m.unavailable
         ? "Composer unavailable"
         : m.running
           ? "Queue the next instruction…"
-          : "Message Pi…",
+          : m.session.source === "opencode"
+            ? "Message opencode…"
+            : "Message Pi…",
       maxLength: 200_000,
       sendOnEnter: !m.unavailable,
+      // No pane to hold them, so opencode picks wait here and ride the send. Every other
+      // agent-session source keeps the text-only field it always had.
+      ...(m.session.source === "opencode"
+        ? {
+          onFiles: m.sendAttachments.attach,
+          images: m.sendAttachments.images,
+          onRemoveImage: m.sendAttachments.remove,
+        }
+        : {}),
     }
   );
 }

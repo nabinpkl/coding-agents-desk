@@ -1,4 +1,4 @@
-import type { AgentBackend, AgentMessageDelivery } from "@/agents/agentBackend";
+import type { AgentBackend, AgentMessageAttachment, AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import { buildHandoverPrompt, renderHandover, SessionHandoverError } from "@/transcripts/sessionHandover";
@@ -17,6 +17,10 @@ const STREAM_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]
 const LIVE_EVENT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
 const LIVE_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
+/** A send may carry images, so its body cap is its own: five 8 MiB files as base64, plus room. */
+const MAXIMUM_SEND_BYTES = 48 * 1024 * 1024;
+const MAXIMUM_SEND_FILES = 5;
+const MAXIMUM_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const LIVE_STREAM_LAG_LIMIT = 32;
 
 type LiveBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
@@ -192,7 +196,7 @@ async function sendMessage(
   try {
     const backend = resolveBackend(source);
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
-    const body = await jsonBody(request);
+    const body = await jsonBody(request, MAXIMUM_SEND_BYTES);
     const requestId = requestIdentifier(body.requestId);
     const text = typeof body.text === "string" ? body.text : "";
     const delivery = body.delivery;
@@ -202,11 +206,46 @@ async function sendMessage(
     if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) {
       return errorResponse("prompt-too-large", "prompt exceeds 256 KiB", 413, requestId);
     }
-    const receipt = await backend.send(sessionId, requestId, text, delivery as AgentMessageDelivery);
+    let attachments;
+    try {
+      attachments = parseMessageAttachments(body.files);
+    } catch (error) {
+      return errorResponse("invalid-attachments", error instanceof Error ? error.message : String(error), 400, requestId);
+    }
+    if (attachments.length > 0 && source !== "opencode") {
+      return errorResponse("unsupported-attachments", `agent source "${source}" takes no image attachments`, 400, requestId);
+    }
+    const receipt = await backend.send(sessionId, requestId, text, delivery as AgentMessageDelivery, attachments);
     return jsonResponse(receipt, 202);
   } catch (error) {
     return routeError(error);
   }
+}
+
+/**
+ * Images riding a send, as the panel holds them: base64 bytes plus their type and name.
+ *
+ * Validated here rather than in the backend because refusal is a 400 about the request, not a
+ * 500 about the command. Five files, 8 MiB decoded each: a phone photo passes, a video does
+ * not, and the route body cap above is what bounds their sum.
+ */
+function parseMessageAttachments(value: unknown): AgentMessageAttachment[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("files must be an array");
+  if (value.length > MAXIMUM_SEND_FILES) throw new Error(`at most ${MAXIMUM_SEND_FILES} files ride one send`);
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object") throw new Error("each file needs data, mime and name");
+    const record = entry as Record<string, unknown>;
+    const data = typeof record.data === "string" ? record.data : "";
+    const mime = typeof record.mime === "string" ? record.mime : "";
+    const name = typeof record.name === "string" ? record.name : "";
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(data) || data.length === 0) throw new Error("each file needs base64 data");
+    if (!mime.startsWith("image/") || mime.length > 128) throw new Error("each file must be an image");
+    if (!name.trim() || name.length > 128) throw new Error("each file needs a name");
+    const decodedBytes = Math.floor((data.length * 3) / 4);
+    if (decodedBytes > MAXIMUM_ATTACHMENT_BYTES) throw new Error(`"${name}" exceeds 8 MiB`);
+    return { data, mime, name };
+  });
 }
 
 async function abortSession(
@@ -357,11 +396,11 @@ function streamEvents(
   });
 }
 
-async function jsonBody(request: Request): Promise<Record<string, unknown>> {
+async function jsonBody(request: Request, maximumBytes = MAXIMUM_BODY_BYTES): Promise<Record<string, unknown>> {
   const announced = Number(request.headers.get("content-length") ?? 0);
-  if (announced > MAXIMUM_BODY_BYTES) throw new BodyTooLargeError();
+  if (announced > maximumBytes) throw new BodyTooLargeError();
   const bytes = await request.bytes();
-  if (bytes.byteLength > MAXIMUM_BODY_BYTES) throw new BodyTooLargeError();
+  if (bytes.byteLength > maximumBytes) throw new BodyTooLargeError();
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder().decode(bytes));
