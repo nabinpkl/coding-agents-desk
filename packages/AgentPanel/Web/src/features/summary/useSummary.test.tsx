@@ -12,6 +12,7 @@ const enabled: SidecarConfig = {
   parkAvailable: false,
   machineShell: "pty",
   supervisor: null,
+  sourceVersion: "0123456789ab",
 };
 
 function digest(headline: string): SummaryResult {

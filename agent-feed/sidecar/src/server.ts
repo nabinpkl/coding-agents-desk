@@ -6,6 +6,7 @@ import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import {
   BYE_BYTES,
+  errorResponse,
   jsonResponse,
 } from "@/http/httpResponses";
 import { createAgentRoutes } from "@/http/agentRoutes";
@@ -69,6 +70,13 @@ import { BotRegistry } from "@/bots/botRegistry";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
+import { sourceVersion } from "@/sourceVersion";
+
+/**
+ * The code this process read, hashed once as it starts. Every module is loaded by the time the
+ * first request is served, and nothing re-reads them, so this is the version for its whole life.
+ */
+const SOURCE_VERSION = sourceVersion(new URL("../..", import.meta.url).pathname);
 
 // Pi normally lazy-loads OAuth providers from sibling files. A standalone Bun
 // executable has no such files beside it, so use Pi's static loader registry to
@@ -270,6 +278,7 @@ const server = Bun.serve<undefined>({
         // link with no request of its own -- and a peer is exactly the case a file cannot serve,
         // since the panel is on a different machine.
         supervisor: readSupervisorDescriptor(),
+        sourceVersion: SOURCE_VERSION,
       };
       return jsonResponse(body);
     }
@@ -277,9 +286,9 @@ const server = Bun.serve<undefined>({
       const response = route(request, url, bunServer);
       if (response !== undefined) return response;
     }
-    return new Response("not found", {
-      status: 404,
-    });
+    // Coded, so the panel can tell "this sidecar has no such route" -- usually one running older
+    // code than the panel calling it -- from a route that answered that its thing is missing.
+    return errorResponse("route-not-found", `this sidecar has no route ${request.method} ${url.pathname}`, 404);
   },
 });
 

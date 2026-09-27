@@ -255,6 +255,12 @@ export interface SidecarConfig {
    * heartbeating: a dead supervisor's last words shown as live are worse than saying nothing.
    */
   supervisor: SupervisorStatus | null;
+  /**
+   * Which code this sidecar is running: a hash of its source and the wire contract, taken as it
+   * started (`sidecar/src/sourceVersion.ts`). The panel's dev server hashes its own tree the same
+   * way, and a difference is a sidecar behind the panel it is serving.
+   */
+  sourceVersion: string;
 }
 
 /**

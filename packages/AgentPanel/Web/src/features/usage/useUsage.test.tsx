@@ -15,6 +15,7 @@ const config: SidecarConfig = {
   parkAvailable: false,
   machineShell: "pty",
   supervisor: null,
+  sourceVersion: "0123456789ab",
 };
 
 function report(inputTokens: number): UsageReport {
