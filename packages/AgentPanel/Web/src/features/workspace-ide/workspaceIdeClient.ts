@@ -5,6 +5,7 @@
 // directly would silently answer the default one.
 
 import type {
+  WorkspaceChangeDiff,
   WorkspaceCommit,
   WorkspaceCommitDetail,
   WorkspaceCommitDiff,
@@ -128,6 +129,12 @@ export class WorkspaceIdeClient {
   commitDiff(id: string, hash: string, path: string): Promise<{ diff: WorkspaceCommitDiff }> {
     const query = new URLSearchParams({ hash, path });
     return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/diff?${query}`);
+  }
+
+  /** One path's uncommitted change against `HEAD`, staged and unstaged together. */
+  changeDiff(id: string, path: string): Promise<{ diff: WorkspaceChangeDiff }> {
+    const query = new URLSearchParams({ path });
+    return this.call("GET", `/api/workspace/${encodeURIComponent(id)}/change?${query}`);
   }
 
   /**

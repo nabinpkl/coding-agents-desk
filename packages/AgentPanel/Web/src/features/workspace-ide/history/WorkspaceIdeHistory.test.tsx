@@ -5,10 +5,14 @@
 // what the three panes do, and this one asks what looking backwards through them does -- and
 // because between them they were past the file-length cap.
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
-import { CLEAN_STATE, mountWorkspaceIde as mounted } from "@/features/workspace-ide/workspaceIdeHarness";
+import {
+  CLEAN_STATE,
+  GIT,
+  mountWorkspaceIde as mounted,
+} from "@/features/workspace-ide/workspaceIdeHarness";
 
 // The terminal pane is a whole other surface with an xterm inside it; this file is about history.
 vi.mock("@/features/workspace-ide/WorkspaceTerminal", () => ({
@@ -267,4 +271,42 @@ it("closes the history on Escape, and gives the button its focus back", async ()
   // The reader was standing on that button. Leaving focus on a removed node drops a keyboard
   // reader back at the top of the document.
   expect(trigger).toHaveFocus();
+});
+
+it("opens a source-control row as its uncommitted diff, and reads it again as git moves", async () => {
+  const transport = await mounted();
+  const change = (line: string) => ({
+    status: 200,
+    body: JSON.stringify({
+      diff: {
+        workspaceId: "w-1",
+        path: "src/main.ts",
+        patch: `diff --git a/src/main.ts b/src/main.ts\n@@ -1 +1 @@\n-export {};\n+${line}\n`,
+        truncated: false,
+      },
+    }),
+  });
+  const asked = () =>
+    transport.requests.filter((request) => request.path === "/api/workspace/w-1/change?path=src%2Fmain.ts")
+      .length;
+  transport.responses.set("GET /api/workspace/w-1/change?path=src%2Fmain.ts", change("first edit"));
+
+  fireEvent.click(screen.getByRole("button", { name: /^Show Source Control/ }));
+  const row = await screen.findByRole("button", { name: "Show the diff of src/main.ts" });
+  fireEvent.click(row);
+
+  const patch = await screen.findByLabelText("Diff of src/main.ts");
+  await waitFor(() => expect(patch.textContent).toContain("first edit"));
+  expect(screen.getByRole("tab", { name: "Show the uncommitted diff of main.ts" })).toBeInTheDocument();
+  expect(row).toHaveAttribute("aria-current", "true");
+  expect(asked()).toBe(1);
+
+  // The file is still being written, so a new status reads the diff again, without blanking it.
+  transport.responses.set("GET /api/workspace/w-1/change?path=src%2Fmain.ts", change("second edit"));
+  act(() => {
+    transport.deliver("/api/workspace/w-1/stream", { type: "git", status: { ...GIT } });
+  });
+  await waitFor(() =>
+    expect(screen.getByLabelText("Diff of src/main.ts").textContent).toContain("second edit"));
+  expect(asked()).toBe(2);
 });

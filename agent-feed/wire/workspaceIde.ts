@@ -254,3 +254,17 @@ export interface WorkspaceCommitDiff {
    * showing a diff that ends mid-hunk as though that were the end of it. */
   truncated: boolean;
 }
+
+/**
+ * `GET /api/workspace/:id/change?path=`: one path's uncommitted change against `HEAD`.
+ *
+ * Staged and unstaged together, because the source-control list files a path under whichever it
+ * is and a reader opening it wants to see what it would take to commit, not one half of it. A file
+ * git does not track yet arrives whole, as added.
+ */
+export interface WorkspaceChangeDiff {
+  workspaceId: string;
+  path: string;
+  patch: string;
+  truncated: boolean;
+}

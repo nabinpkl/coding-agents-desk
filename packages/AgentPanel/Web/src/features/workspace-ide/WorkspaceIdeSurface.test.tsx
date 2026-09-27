@@ -128,7 +128,7 @@ it("shows the source-control section when it is chosen, grouped by how it resolv
 
   const group = await screen.findByRole("button", { name: "Collapse Changes" });
   expect(group).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Open src/main.ts" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Show the diff of src/main.ts" })).toBeInTheDocument();
   expect(screen.queryByRole("tree")).not.toBeInTheDocument();
 });
 
@@ -155,7 +155,7 @@ it("takes the branch's click to the changes it is counting, sidebar and all", as
 
   // Selecting the section alone would leave the reader clicking a control with no visible effect,
   // since the section it selects lives in the pane they just hid.
-  expect(await screen.findByRole("button", { name: "Open src/main.ts" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Show the diff of src/main.ts" })).toBeInTheDocument();
 });
 
 it("counts the changed files on the source-control tab, readable from the explorer", async () => {

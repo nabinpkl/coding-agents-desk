@@ -16,6 +16,7 @@ export function SourceControl({
   selectedPath,
 }: {
   entries: readonly WorkspaceGitEntry[];
+  /** Shows what changed in one path. Named `onOpen` for the row, which is a list's open act. */
   onOpen: (path: string) => void;
   /** The path whose content is showing beside the list, for a surface that shows one. */
   selectedPath?: string | null;
@@ -107,7 +108,7 @@ function Group({
                 <button
                   type="button"
                   title={row.path}
-                  aria-label={`Open ${row.path}`}
+                  aria-label={`Show the diff of ${row.path}`}
                   aria-current={row.path === selectedPath ? "true" : undefined}
                   onClick={() => onOpen(row.path)}
                   className={`group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left

@@ -78,6 +78,17 @@ export function WorkspaceIdeSurface({
     ide.update({ section: "sourceControl", sidebarVisible: true });
   }, [ide]);
 
+  /**
+   * A source-control row, opening what changed rather than the file itself: the list is a list of
+   * changes, and the diff's own "Open file" is one click from the file when that is what is wanted.
+   * Both status letters travel, so a path deleted in the index or the worktree offers no file.
+   */
+  const openDiffChange = diff.openChange;
+  const openChange = useCallback((path: string) => {
+    const entry = ide.git?.entries.find((candidate) => candidate.relativePath === path);
+    openDiffChange(path, [entry?.indexStatus, entry?.workTreeStatus].filter(Boolean).join(""));
+  }, [ide.git, openDiffChange]);
+
   /** Every roster call fails the same way: into the banner, named by what was attempted. */
   const report = useCallback(
     (attempt: string) => (cause: unknown) =>
@@ -209,6 +220,8 @@ export function WorkspaceIdeSurface({
                   onRemoveWorkspace={removeWorkspace}
                   onReorderWorkspaces={reorderWorkspaces}
                   onOpen={ide.openPath}
+                  onOpenChange={openChange}
+                  changePath={diff.active && diff.target?.commit === null ? diff.target.path : null}
                   onToggleDirectory={ide.setDirectoryExpanded}
                 />
               </div>

@@ -50,12 +50,12 @@ it("counts the changed files and opens them as a list and a diff", async () => {
 
   const dialog = await screen.findByRole("dialog", { name: "Changes in Rags" });
   const files = within(dialog).getByRole("navigation", { name: "Changed files" });
-  fireEvent.click(within(files).getByRole("button", { name: "Open src/a.ts" }));
+  fireEvent.click(within(files).getByRole("button", { name: "Show the diff of src/a.ts" }));
 
   await waitFor(() => expect(within(dialog).getByLabelText("Diff of src/a.ts")).toBeTruthy());
   expect(within(dialog).getByLabelText("Diff of src/a.ts").textContent).toContain("new line");
   expect(botGitDiff).toHaveBeenCalledWith("bot-1", "src/a.ts");
-  expect(within(files).getByRole("button", { name: "Open src/a.ts" }).getAttribute("aria-current"))
+  expect(within(files).getByRole("button", { name: "Show the diff of src/a.ts" }).getAttribute("aria-current"))
     .toBe("true");
 
   fireEvent.click(within(dialog).getByRole("button", { name: "Close changes" }));

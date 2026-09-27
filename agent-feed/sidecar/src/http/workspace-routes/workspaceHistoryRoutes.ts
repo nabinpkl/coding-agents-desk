@@ -1,9 +1,12 @@
-// Reading committed history: the log, one commit's files, and one file's patch.
+// Reading committed history: the log, one commit's files, and one file's patch -- and the one read
+// of what is not committed yet, one changed file's patch against `HEAD`, which is the same kind of
+// question with the same boundary.
 //
 // Its own file rather than three more branches in the roster routes, for the reason the file routes
 // are their own: these take a commit and a path from an unauthenticated caller and hand both to
 // git. What is different from the file routes is that everything here is read-only by construction
-// -- `workspaceHistory` runs `log` and `show` and nothing else -- so the boundary to check is
+// -- `workspaceHistory` runs `log` and `show`, the change read runs `status` and `diff`, and none of
+// them writes -- so the boundary to check is
 // argument injection rather than the filesystem.
 
 import { jsonResponse } from "@/http/httpResponses";
@@ -14,6 +17,7 @@ import {
   workspaceErrorResponse,
   workspaceRoute,
 } from "@/http/workspace-routes/workspaceResponses";
+import { workingTreeFileDiff } from "@/workspace/workspaceGit";
 import { commitDetail, commitFileDiff, listCommits } from "@/workspace/workspaceHistory";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
@@ -37,7 +41,9 @@ export function createWorkspaceHistoryRoutes(service: WorkspaceService): RouteHa
     const route = workspaceRoute(url.pathname);
     if (!route) return undefined;
     const { id, action } = route;
-    if (action !== "commits" && action !== "commit" && action !== "diff") return undefined;
+    if (action !== "commits" && action !== "commit" && action !== "diff" && action !== "change") {
+      return undefined;
+    }
     if (request.method !== "GET") return undefined;
 
     const workspace = service.workspace(id);
@@ -59,6 +65,13 @@ export function createWorkspaceHistoryRoutes(service: WorkspaceService): RouteHa
       return listCommits(root, limit)
         .then((commits) => jsonResponse({ commits }))
         .catch((error: unknown) => refusalResponse(error, id));
+    }
+
+    if (action === "change") {
+      const path = parameters.get("path") ?? "";
+      return workingTreeFileDiff(root, path)
+        .then((change) => jsonResponse({ diff: { workspaceId: id, path, ...change } }))
+        .catch((error: unknown) => refusalResponse(error, id, path));
     }
 
     const hash = parameters.get("hash") ?? "";

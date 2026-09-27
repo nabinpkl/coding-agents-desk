@@ -44,6 +44,8 @@ export function WorkspaceSidebar({
   onRemoveWorkspace,
   onReorderWorkspaces,
   onOpen,
+  onOpenChange,
+  changePath,
   onToggleDirectory,
 }: {
   workspaces: WorkspaceSummary[];
@@ -59,6 +61,10 @@ export function WorkspaceSidebar({
   onRemoveWorkspace: (id: string) => void;
   onReorderWorkspaces: (ids: string[]) => void;
   onOpen: (path: string) => void;
+  /** Opens one changed path's uncommitted diff, which is what a source-control row does. */
+  onOpenChange: (path: string) => void;
+  /** The path whose uncommitted diff the editor is showing, so its row reads as current. */
+  changePath: string | null;
   onToggleDirectory: (path: string, expanded: boolean) => void;
 }) {
   const changed = changedFileCount(git?.entries ?? []);
@@ -109,7 +115,13 @@ export function WorkspaceSidebar({
 
       <section className="min-h-0 flex-1 overflow-auto px-1 pb-4 pt-1">
         {section === "sourceControl"
-          ? <SourceControl entries={git?.entries ?? []} onOpen={onOpen} />
+          ? (
+            <SourceControl
+              entries={git?.entries ?? []}
+              onOpen={onOpenChange}
+              selectedPath={changePath}
+            />
+          )
           : (
             <WorkspaceTree
               nodes={tree}

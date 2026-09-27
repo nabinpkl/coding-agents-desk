@@ -6,7 +6,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WorkspaceCommit, WorkspaceCommitDetail, WorkspaceCommitDiff } from "@agentdesk/agent-feed-wire";
+import type {
+  WorkspaceChangeDiff,
+  WorkspaceCommit,
+  WorkspaceCommitDetail,
+  WorkspaceCommitDiff,
+} from "@agentdesk/agent-feed-wire";
 import type { RouteHandler } from "@/http/route";
 import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
@@ -32,7 +37,7 @@ async function run(root: string, args: string[]): Promise<void> {
   await Bun.spawn(["git", ...args], { cwd: root, stdout: "ignore", stderr: "ignore" }).exited;
 }
 
-async function harness(): Promise<{ routes: RouteHandler; workspaceId: string }> {
+async function harness(): Promise<{ routes: RouteHandler; workspaceId: string; root: string }> {
   const state = await scratch("workspace-history-routes-state-");
   const root = await scratch("workspace-history-routes-project-");
   for (const args of [
@@ -53,7 +58,7 @@ async function harness(): Promise<{ routes: RouteHandler; workspaceId: string }>
   services.push(service);
   await service.ready();
   const workspace = await service.store.add(root, "Project");
-  return { routes: createWorkspaceHistoryRoutes(service), workspaceId: workspace.id };
+  return { routes: createWorkspaceHistoryRoutes(service), workspaceId: workspace.id, root };
 }
 
 function call(routes: RouteHandler, path: string): Promise<Response | undefined> {
@@ -116,4 +121,18 @@ test("answers 404 for a workspace the sidecar does not know", async () => {
   const { routes } = await harness();
   const response = await call(routes, "/api/workspace/nope/commits");
   expect(response?.status).toBe(404);
+});
+
+test("answers an uncommitted change, and 404 for a path with none", async () => {
+  const { routes, workspaceId, root } = await harness();
+  await writeFile(join(root, "main.ts"), "export {};\nexport const x = 2;\n");
+
+  const change = await json<{ diff: WorkspaceChangeDiff }>(
+    await call(routes, `/api/workspace/${workspaceId}/change?path=main.ts`),
+  );
+  expect(change.diff).toMatchObject({ workspaceId, path: "main.ts", truncated: false });
+  expect(change.diff.patch).toContain("-export const x = 1;\n+export const x = 2;");
+
+  const none = await call(routes, `/api/workspace/${workspaceId}/change?path=other.ts`);
+  expect(none?.status).toBe(404);
 });

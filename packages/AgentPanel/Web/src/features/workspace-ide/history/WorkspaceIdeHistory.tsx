@@ -140,7 +140,7 @@ export function WorkspaceIdeHistory({
                     now={now}
                     expanded={commit.hash === openHash}
                     detail={details[commit.hash]}
-                    showing={showing?.hash === commit.hash ? showing.path : null}
+                    showing={showing?.commit?.hash === commit.hash ? showing.path : null}
                     onToggle={() => history.toggleCommit(commit.hash)}
                     onSelectFile={(file) => onOpenDiff(commit, file)}
                   />

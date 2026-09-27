@@ -4,7 +4,7 @@
 
 import { useRef } from "react";
 import { GitCompare, X } from "lucide-react";
-import type { CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
+import { diffTargetLabel, type CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
 import type { OpenFile } from "@/features/workspace-ide/useWorkspaceIde";
 import { orderedPathsAfterMove } from "@/features/workspace-ide/editor/orderedPaths";
 
@@ -110,15 +110,17 @@ function DiffTab({ diff }: { diff: CommitDiffTab }) {
         aria-selected={diff.active}
         // Named for what it shows rather than for the file alone, because the strip beside it is
         // full of tabs named for files and this one is not showing a file.
-        aria-label={`Show the diff of ${name} in ${target.shortHash}`}
-        title={`${target.path} in ${target.shortHash}`}
+        aria-label={target.commit
+          ? `Show the diff of ${name} in ${target.commit.shortHash}`
+          : `Show the uncommitted diff of ${name}`}
+        title={`${target.path} · ${diffTargetLabel(target)}`}
         onClick={diff.show}
         className={LABEL}
       >
         <GitCompare aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="overflow-hidden text-ellipsis">{name}</span>
         <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-          {target.shortHash}
+          {diffTargetLabel(target)}
         </span>
       </button>
       <button

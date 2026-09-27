@@ -1,4 +1,5 @@
-// One file as a commit left it, in the editor: the tab, the patch, and the colours.
+// One file's change in the editor: the tab, the patch, and the colours. The change is either one
+// commit's, opened from the history, or what is uncommitted, opened from the source-control list.
 //
 // The diff opens in the editor rather than inside the history popup, which is where it used to be
 // drawn. A patch read in a 460px popup is read through a letterbox, and the reader has the whole
@@ -12,17 +13,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import type { WorkspaceCommit, WorkspaceCommitDiff, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
+import type { WorkspaceCommit, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
-import { PatchView } from "@/features/workspace-ide/history/PatchView";
+import { PatchView, type PatchSource } from "@/features/workspace-ide/history/PatchView";
 
-/** One file of one commit, which is what a diff tab is pointed at. */
+/** One file of one commit, or one file's uncommitted change: what a diff tab is pointed at. */
 export interface CommitDiffTarget {
-  hash: string;
-  shortHash: string;
+  /** The commit whose change this is, or null for what is uncommitted against `HEAD`. */
+  commit: { hash: string; shortHash: string } | null;
   path: string;
-  /** The commit's `--name-status` letter for it, which says whether there is still a file there. */
+  /** Its status letter, which says whether there is still a file there: `D` means there is not. */
   status: string;
+}
+
+/** What the tab says it is showing beside the file's name: the commit, or that it is uncommitted. */
+export function diffTargetLabel(target: CommitDiffTarget): string {
+  return target.commit?.shortHash ?? "uncommitted";
 }
 
 export interface CommitDiffTab {
@@ -31,6 +37,8 @@ export interface CommitDiffTab {
   /** Whether the diff is the pane's content right now, as against a file tab being selected. */
   active: boolean;
   open(commit: WorkspaceCommit, file: WorkspaceCommitFile): void;
+  /** Point the tab at one path's uncommitted change, with its status letter. */
+  openChange(path: string, status: string): void;
   /** Select the existing diff tab, which is what clicking it does. */
   show(): void;
   /** Leave the diff on its tab and show a file instead. */
@@ -57,11 +65,14 @@ export function useCommitDiffTab(): CommitDiffTab {
     active: active && target !== null,
     open: useCallback((commit: WorkspaceCommit, file: WorkspaceCommitFile) => {
       setTarget({
-        hash: commit.hash,
-        shortHash: commit.shortHash,
+        commit: { hash: commit.hash, shortHash: commit.shortHash },
         path: file.path,
         status: file.status,
       });
+      setActive(true);
+    }, []),
+    openChange: useCallback((path: string, status: string) => {
+      setTarget({ commit: null, path, status });
       setActive(true);
     }, []),
     show: useCallback(() => setActive(true), []),
@@ -74,31 +85,50 @@ export function useCommitDiffTab(): CommitDiffTab {
 }
 
 /**
- * The patch for one file of one commit, fetched when the tab is pointed at it.
+ * The patch the tab is pointed at, fetched when it is pointed there.
  *
  * The read happens here rather than in whatever opened the tab, so a tab that is reopened on the
  * same file re-reads rather than drawing a patch from before the branch moved.
+ *
+ * An uncommitted change is read again whenever git's status is, because the file is still being
+ * written: an agent in this workspace may be mid-edit, and a diff fixed at the moment it was
+ * opened would fall quietly behind the list it was opened from. The previous patch stays up while
+ * the next is read, so that refresh does not flash. A commit's patch cannot move, so it is read
+ * once.
  */
 export function CommitDiffView({
   client,
   workspaceId,
   target,
+  gitRevision,
 }: {
   client: WorkspaceIdeClient;
   workspaceId: string;
   target: CommitDiffTarget;
+  /** Changes whenever git's status is read again. Only an uncommitted change listens to it. */
+  gitRevision: unknown;
 }) {
-  const [diff, setDiff] = useState<WorkspaceCommitDiff | null>(null);
+  const [diff, setDiff] = useState<PatchSource | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const { hash, path } = target;
+  const { path } = target;
+  const hash = target.commit?.hash ?? null;
+  const refresh = hash === null ? gitRevision : null;
+
+  useEffect(() => {
+    setDiff(null);
+    setFailure(null);
+  }, [workspaceId, hash, path]);
 
   useEffect(() => {
     let live = true;
-    setDiff(null);
-    setFailure(null);
-    client.commitDiff(workspaceId, hash, path)
+    const read = hash === null
+      ? client.changeDiff(workspaceId, path)
+      : client.commitDiff(workspaceId, hash, path);
+    read
       .then((answer) => {
-        if (live) setDiff(answer.diff);
+        if (!live) return;
+        setDiff(answer.diff);
+        setFailure(null);
       })
       .catch((cause: unknown) => {
         if (live) setFailure(cause instanceof Error ? cause.message : String(cause));
@@ -106,9 +136,9 @@ export function CommitDiffView({
     return () => {
       live = false;
     };
-  }, [client, workspaceId, hash, path]);
+  }, [client, workspaceId, hash, path, refresh]);
 
-  if (failure !== null) {
+  if (failure !== null && diff === null) {
     return (
       <p role="status" className="m-0 p-6 text-center text-sm text-destructive">
         {failure}
@@ -123,5 +153,16 @@ export function CommitDiffView({
       </p>
     );
   }
-  return <PatchView diff={diff} />;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {failure !== null ? (
+        <p role="alert" className="m-0 shrink-0 px-2 py-1 text-xs text-destructive">
+          Could not read this diff again: {failure}
+        </p>
+      ) : null}
+      <div className="min-h-0 flex-1">
+        <PatchView diff={diff} />
+      </div>
+    </div>
+  );
 }

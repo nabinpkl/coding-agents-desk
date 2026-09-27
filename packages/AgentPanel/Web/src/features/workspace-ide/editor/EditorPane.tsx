@@ -1,5 +1,5 @@
 // The editor half: tabs, a breadcrumb, the conflict bar, and whatever the active tab is showing --
-// a file, or the diff of one file in one commit.
+// a file, or the diff of one file in one commit or of its uncommitted change.
 //
 // The toolbar's controls are the ones that act on THIS pane or its neighbour to the left. The
 // terminal toggle used to be here too and is now on the IDE's status bar, at the edge of the pane
@@ -7,7 +7,7 @@
 
 import { Eye, FileCode2, PanelLeft, Pencil } from "lucide-react";
 import type { CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
-import { CommitDiffView } from "@/features/workspace-ide/history/CommitDiff";
+import { CommitDiffView, diffTargetLabel } from "@/features/workspace-ide/history/CommitDiff";
 import type { WorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
 import { CodeEditor } from "@/features/workspace-ide/editor/CodeEditor";
 import { EditorTabs } from "@/features/workspace-ide/editor/EditorTabs";
@@ -72,17 +72,18 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
           {/* The diff's own path, with the commit that changed it: the breadcrumb answers "what am
               I looking at", and while the diff is showing that is not the active file. */}
           {diff.active && diff.target
-            ? `${diff.target.path.split("/").filter(Boolean).join(" / ")} · ${diff.target.shortHash}`
+            ? `${diff.target.path.split("/").filter(Boolean).join(" / ")} · ${diffTargetLabel(diff.target)}`
             : (activePath ?? "").split("/").filter(Boolean).join(" / ")}
         </nav>
         {/* The way out of a diff and into the file it is about, which is where a reader goes next
             about half the time: the patch says what changed, and the question after that is what
             the line says now. Absent for a file the commit deleted -- there is nothing at that
-            path to open, and the control would answer a refusal banner.
+            path to open, and the control would answer a refusal banner. An uncommitted status can
+            carry two letters, so a `D` in either one counts.
 
             It leaves the diff on its tab rather than closing it, so the comparison a reader came
             for is one click away again. */}
-        {diff.active && diff.target && diff.target.status !== "D"
+        {diff.active && diff.target && !diff.target.status.includes("D")
           ? (
             <button
               type="button"
@@ -148,10 +149,11 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
             <CommitDiffView
               // Keyed on what it shows, so pointing the tab at another file reads rather than
               // redrawing the previous patch while the new one arrives.
-              key={`${diff.target.hash}:${diff.target.path}`}
+              key={`${diff.target.commit?.hash ?? "uncommitted"}:${diff.target.path}`}
               client={ide.client}
               workspaceId={ide.workspaceId}
               target={diff.target}
+              gitRevision={ide.git}
             />
           )
           : file && ide.workspaceId

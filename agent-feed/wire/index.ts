@@ -239,6 +239,7 @@ export type {
   WorkspaceBrowseListing,
   WorkspaceCommit,
   WorkspaceCommitDetail,
+  WorkspaceChangeDiff,
   WorkspaceCommitDiff,
   WorkspaceCommitFile,
   WorkspaceDirectoryEntry,
