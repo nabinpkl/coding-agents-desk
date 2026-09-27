@@ -17,31 +17,68 @@
   }
 }
 
-/* Schibsted Grotesk, self-hosted. The panel ships as a local bundle inside
-   WKWebView on both macOS and iOS, so a CDN is not an option; Vite fingerprints
-   these four woff2 files into dist/assets alongside the KaTeX faces already
-   there. A face drawn for interfaces rather than adopted for them, which is
-   what this panel is: 10px chips up to 28px headings, mostly read on a dark
-   ground, where its open apertures and tall x-height are the whole point.
+/* Every face the reader can pick, self-hosted. The panel ships as a local
+   bundle inside WKWebView on both macOS and iOS, so a CDN is not an option;
+   Vite fingerprints these woff2 files into dist/assets alongside the KaTeX
+   faces already there.
 
-   `font-weight: 400 900`, not `100 900`. That is the axis this face actually
-   has, and it costs nothing here because nothing in the tree asks below 400 --
-   the utilities in use are normal, medium, semibold and bold. Declaring a
-   range wider than the axis would have the browser synthesize outside it
-   rather than refuse, which is the kind of wrong that never reports itself.
+   Four families are DECLARED and at most one is ever fetched. A browser
+   downloads a face only when a glyph needs it, so the families nobody picks
+   cost dist size and no bytes on the wire, which is what makes offering a
+   choice cheap enough to be worth offering. The reader's pick is in
+   `features/appearance/typePreferences.ts`, which sets `--font-sans` on the
+   document; the value here is only what the panel opens with.
 
-   What was given up against Inter is the optical-size axis, and it was a real
-   trade: `opsz` is what opened the small end on its own, and nothing outside
-   Inter and DM Sans carries one. The chips are the place to look if this ever
-   reads badly; every other size has more face to work with.
+   Latin and latin-ext only. The `unicode-range` descriptors are copied
+   verbatim from each package's own `wght.css`/`opsz.css` and are load-bearing:
+   a codepoint outside them falls through to the next family in `--font-sans`
+   per glyph, so Cyrillic or Greek in a transcript renders in the system face
+   instead of tofu.
 
-   The package ships latin and latin-ext and nothing else, so there is no
-   subset choice to make, and only a `wght` build, so there is no variant
-   choice either. Four files, 137KB. The `unicode-range` descriptors are
-   copied verbatim from its own `wght.css` and `wght-italic.css` and are
-   load-bearing: a codepoint outside them falls through to the next family in
-   `--font-sans` per glyph, so Cyrillic or Greek in a transcript renders in the
-   system face instead of tofu. */
+   Two per-family details worth not rediscovering. Inter is the `opsz` build
+   rather than the smaller `wght` one, because its optical-size axis is the one
+   thing no other open face here has, and `font-optical-sizing: auto` on `body`
+   is what spends it -- it opens the small end up on its own, which matters at
+   the 10px chips. And Schibsted Grotesk's weight axis starts at 400, not 100,
+   so its `font-weight` descriptor says so; a range wider than the axis makes
+   the browser synthesize outside it rather than refuse, which never reports
+   itself. The weight control below is capped accordingly. */
+
+/* Inter */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-opsz-italic.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-ext-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-ext-opsz-italic.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Schibsted Grotesk */
 @font-face {
   font-family: "Schibsted Grotesk Variable";
   font-style: normal;
@@ -75,11 +112,89 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Geist */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-italic.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-ext-wght-italic.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Roboto */
+@font-face {
+  font-family: "Roboto Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Roboto Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/roboto/files/roboto-latin-wght-italic.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Roboto Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/roboto/files/roboto-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Roboto Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/roboto/files/roboto-latin-ext-wght-italic.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  /* The same self-reference as `--font-sans`, and for the same reason: these
+     become Tailwind's `font-normal`/`font-medium`/`font-semibold`/`font-bold`
+     utilities, and `:root` below holds the numbers. They are variables rather
+     than literals so the weight control can move the whole ladder at once --
+     moving only the base would leave the 103 `font-medium` call sites behind
+     and the panel would look half-changed. */
+  --font-weight-normal: var(--font-weight-normal);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-bold: var(--font-weight-bold);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -106,10 +221,19 @@
 :root {
   color-scheme: light dark;
   /* `@theme inline` above republishes this as Tailwind's `font-sans` utility,
-     so the stack has exactly one definition. The system faces stay behind
-     Schibsted Grotesk as the per-glyph fallback for the subsets it does not
-     ship. */
-  --font-sans: "Schibsted Grotesk Variable", system-ui, -apple-system, sans-serif;
+     so the stack has exactly one definition, and the control overrides it on
+     the document element rather than anywhere else. The system faces stay
+     behind the chosen one as the per-glyph fallback for the subsets it does
+     not ship, and ARE the stack when the reader picks System. */
+  --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
+  /* The ladder the panel opens with, which is exactly Tailwind's own. The
+     control writes these four on the document element as base, base+100,
+     base+200, base+300, so picking 400 reproduces this line for line and every
+     step above it keeps the spacing that tells medium from semibold. */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
   /* Leading for every prose surface in the feed. It has four consumers -- the
      Markdown renderer plus the three text wrappers in ActivityEventRows --
      and they had drifted apart: markdown prose sat at 1.45 while user and
@@ -816,24 +940,37 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    /* A hair of tracking, kept from the Roboto that briefly sat here: Roboto
-       set tight enough to read as cramped, and this face does not, but the
-       opening it gives dark mode is worth keeping on its own. Uniform, so the
-       mono spans it also touches keep their columns, and global rather than
-       dark-only, since letter-spacing changes how wide text is and the layout
-       should not reflow when the OS theme flips. */
+    /* A hair of tracking, on whichever face is picked. Roboto needed it --
+       it sets tight enough to read as cramped -- and the others do not, but
+       the opening it gives dark mode is worth having under all of them, and a
+       value that changed with the family would make switching a reflow rather
+       than a restyle. Uniform, so the mono spans it also touches keep their
+       columns, and not scoped to dark for the same reason: letter-spacing
+       changes how wide text is, and the layout should not move when the OS
+       theme flips. */
     letter-spacing: 0.011em;
-    /* Greyscale antialiasing, and it has been decided both ways, so the
-       reasoning is here rather than in a commit nobody will find. It thins
-       every stroke, and against the Roboto that sat here briefly that was the
-       whole problem: light text on a dark ground is where a thinned stroke
-       shows most, and turning this off was what made that face readable.
-       Against this one it is the better rendering. Schibsted Grotesk carries
-       enough weight at 400 to take the thinning, and what it gets back is
-       edges that stay crisp instead of the slight smear the default leaves on
-       a dark ground. Judge any change to this line on the dark Canvas card, at
-       prose size, against the face actually in `--font-sans` -- the answer
-       moves with the face. */
+    /* Text with no weight class of its own inherits from here, so the ladder
+       has to be applied once at the root as well: without this line the
+       control would move everything carrying a Tailwind class and leave plain
+       text at the UA's 400. */
+    font-weight: var(--font-weight-normal);
+    /* Only Inter has an optical-size axis, so this does nothing under the
+       other three. It is set unconditionally anyway: the alternative is CSS
+       that knows which family is picked, and the point of the control is that
+       nothing else has to. */
+    font-optical-sizing: auto;
+    /* Greyscale antialiasing, which thins every stroke. It has been set both
+       ways here and the right answer moves with the face: under Roboto the
+       thinning was the whole problem, since light text on a dark ground is
+       where a thin stroke shows most, and turning this off was what made that
+       family readable. Under the rest it is the better rendering, crisper at
+       the edges than the default's slight smear.
+
+       It is deliberately NOT part of the control. The weight ladder above is
+       the knob for the same complaint and it is the one a reader can reason
+       about; two knobs that both mean "heavier" is one too many. If a family
+       is ever added that cannot take the thinning, this is the line to
+       revisit, judged on the dark Canvas card at prose size. */
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     overscroll-behavior: none;

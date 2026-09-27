@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { TYPE_FAMILIES } from "@/features/appearance/typePreferences";
 
 const appStyles = readFileSync(resolve("src/app/styles.css"), "utf8");
 const markdownStyles = readFileSync(
@@ -47,7 +48,7 @@ describe("Agent Panel type rendering", () => {
     // real stack; drop the :root line and the property is invalid at computed
     // value time, taking `body`'s font-family down with it.
     expect(appStyles).toMatch(
-      /^\s*--font-sans:\s*"Schibsted Grotesk Variable",\s*system-ui,\s*-apple-system,/m,
+      /^\s*--font-sans:\s*"Inter Variable",\s*system-ui,\s*-apple-system,\s*sans-serif;/m,
     );
     expect(appStyles).toContain("font-family: var(--font-sans);");
   });
@@ -69,9 +70,27 @@ describe("Agent Panel type rendering", () => {
 
   it("points every @font-face at a file the installed package actually ships", () => {
     const sources = [...appStyles.matchAll(/src:\s*url\("([^"]+)"\)/g)].map((m) => m[1]);
-    expect(sources).toHaveLength(4);
+    // Four families, each latin and latin-ext, each upright and italic. A census rather than a
+    // cap: it moves when the picker gains or loses a family, and it is here so that removing a
+    // package without removing its faces has to be noticed.
+    expect(sources).toHaveLength(16);
     for (const specifier of sources) {
       expect(existsSync(resolve("node_modules", specifier))).toBe(true);
+    }
+  });
+
+  it("declares a face for every family the picker offers", () => {
+    // The failure this pins is the whole reason the picker is risky: choosing a family whose
+    // `@font-face` was never written sets `--font-sans` to a name nothing resolves, and the panel
+    // falls through to the UA default -- a serif -- with no error anywhere.
+    for (const family of TYPE_FAMILIES) {
+      const quoted = /^"([^"]+)"/.exec(family.stack)?.[1];
+      // System is the one family with no webfont by design: its stack is the fallbacks alone.
+      if (!quoted) {
+        expect(family.id).toBe("system");
+        continue;
+      }
+      expect(appStyles, family.id).toContain(`font-family: "${quoted}";`);
     }
   });
 
@@ -80,7 +99,8 @@ describe("Agent Panel type rendering", () => {
     // upright, which is thinner and worse-spaced -- and reasoning rows, the
     // feed's only italic surface, are already its lightest text.
     const styles = [...appStyles.matchAll(/font-style:\s*(normal|italic);/g)].map((m) => m[1]);
-    expect(styles.filter((s) => s === "normal")).toHaveLength(2);
-    expect(styles.filter((s) => s === "italic")).toHaveLength(2);
+    const webfonts = TYPE_FAMILIES.filter((family) => family.stack.startsWith('"')).length;
+    expect(styles.filter((s) => s === "normal")).toHaveLength(webfonts * 2);
+    expect(styles.filter((s) => s === "italic")).toHaveLength(webfonts * 2);
   });
 });
