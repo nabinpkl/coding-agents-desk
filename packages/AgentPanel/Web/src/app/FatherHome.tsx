@@ -1,12 +1,14 @@
 // The Father home's stand in the shell: its switch and its drawer, one idea.
 //
 // The switch stands in the header bar every view shares, or floats over the corner where there
-// is no bar (the headerless pinned canvas) -- unless the surface bar above the feed owns it,
-// and this renders the drawer alone. The drawer is `fixed`, so it can live beside the switch
-// here and still draw over the navbar from the viewport top on any view. The open state is
-// written to storage on every change, so closing the home and reopening the panel agree -- and
-// so a header that comes back (pin, unpin, view switch) finds the stored answer rather than a
-// default.
+// is no bar (the headerless pinned canvas). The drawer is `fixed`, so it can live beside the
+// switch here and still draw over the navbar from the viewport top on any view. The open state
+// is owned here and written to storage on every change, so closing the home and reopening the
+// panel agree -- and so a header that comes back (pin, unpin, view switch) finds the stored
+// answer rather than a default.
+//
+// This is the bar-less mounts' home. Where a surface bar owns the switch, the site-wide scope
+// stands the drawer instead and this renders nothing.
 
 import { useEffect, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
@@ -17,7 +19,6 @@ import type { SessionViewContext } from "@/features/session-view/SessionView";
 
 export function FatherHome({
   floating,
-  control,
   bots,
   sessionContextFor,
   attachSessionToBot,
@@ -26,9 +27,6 @@ export function FatherHome({
 }: {
   /** The headerless canvas has no bar to stand in, so the switch floats over its corner. */
   floating: boolean;
-  /** The switch's state, owned by the surface bar above the feed. Absent on mounts with no
-      bar, where the home keeps its own switch beside the drawer. */
-  control?: { open: boolean; onToggle: () => void };
   /** The arranged roster rather than the canvas's subset: taking a Bot off the canvas must not
       close a home its record still names. */
   bots: BotView[];
@@ -40,29 +38,22 @@ export function FatherHome({
   /** A failure from editing a Bot, shown when it is about the Father session. */
   botError: BotCommandError | null;
 }) {
-  const [ownOpen, setOwnOpen] = useState(loadFatherOpen);
+  const [fatherOpen, setFatherOpen] = useState(loadFatherOpen);
   useEffect(() => {
-    if (!control) storeFatherOpen(ownOpen);
-  }, [control, ownOpen]);
-  const open = control?.open ?? ownOpen;
-  const flip = () => {
-    if (control) control.onToggle();
-    else setOwnOpen((was) => !was);
-  };
+    storeFatherOpen(fatherOpen);
+  }, [fatherOpen]);
 
   return (
     <>
-      {control ? null : (
-        <FatherButton open={open} onToggle={flip} floating={floating} />
-      )}
-      {open ? (
+      <FatherButton open={fatherOpen} onToggle={() => setFatherOpen(true)} floating={floating} />
+      {fatherOpen ? (
         <FatherOverlay
           bots={bots}
           sessionContextFor={sessionContextFor}
           attachSessionToBot={attachSessionToBot}
           onDetachSession={onDetachSession}
           botError={botError}
-          onClose={flip}
+          onClose={() => setFatherOpen(false)}
         />
       ) : null}
     </>

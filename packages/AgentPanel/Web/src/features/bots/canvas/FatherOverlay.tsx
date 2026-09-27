@@ -306,6 +306,14 @@ export function FatherOverlay({
             {resolved.bot.name}&apos;s Father session is gone from the catalog
             <span className="font-mono"> ({sessionKey(resolved.missing)})</span>.
           </p>
+          {/* A detach that failed says so here rather than nowhere: the missing paragraph above
+              owns the alert role, so this is text beside it, shown only when it is about this
+              same forgotten session. */}
+          {botError && botError.session === sessionKey(resolved.missing) ? (
+            <p className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
+              {botError.message}
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={() => onDetachSession(resolved.bot, resolved.missing)}

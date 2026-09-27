@@ -1,6 +1,7 @@
 import { SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
+import { FatherScope } from "@/features/bots/father/FatherScope";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { TypeSettings } from "@/features/appearance/TypeSettings";
 import { FatherButton } from "@/features/bots/canvas/FatherOverlay";
@@ -247,7 +248,7 @@ export function BrowserSurfaces({
   const [terminalMachine, setTerminalMachine] = useState<MachineTerminalTarget | null>(null);
   const selectedLabel = sessions.find((session) => session.id === sessionId)?.label ?? "this machine";
   // The Father home's switch, owned here because its place is in this bar rather than in any one
-  // view. Stored, so the feed it opens over agrees with the bar about whether it is open. On
+  // view. Stored, so the drawer it opens over agrees with the bar about whether it is open. On
   // every tab: elsewhere the drawer it opens stands over the feed's roster, so the press goes
   // to the feed first and then opens.
   const [fatherOpen, setFatherOpen] = useState(loadFatherOpen);
@@ -262,8 +263,6 @@ export function BrowserSurfaces({
       return next;
     });
   }, []);
-  const fatherControl = { open: fatherOpen, onToggle: toggleFather };
-
   function select(next: BrowserSurface): void {
     if (next === surface) return;
     remember(next);
@@ -352,25 +351,23 @@ export function BrowserSurfaces({
             corner on a choice most readers make once, and a control reached through one press
             still shows its effect on the page it is on. */}
         <TypeSettings />
-        {/* Right of the display settings, on every tab: the Father home's switch. The drawer it
-            opens stands over the feed's roster, so a press elsewhere goes to the feed first. */}
+        {/* Right of the display settings, on every tab: the Father home's switch. */}
         <span className="flex shrink-0 items-center self-center">
-          <FatherButton
-            open={fatherOpen}
-            onToggle={() => {
-              if (surface === "feed") toggleFather();
-              else {
-                select("feed");
-                writeFatherOpen(true);
-              }
-            }}
-            floating={false}
-          />
+          <FatherButton open={fatherOpen} onToggle={toggleFather} floating={false} />
         </span>
       </div>
       {terminalMachine ? (
         <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
       ) : null}
+      {/* The site-wide Father home: bot records in, over every tab. Its switch is in the bar
+          above; the drawer stands here so no surface owns it. */}
+      <FatherScope
+        feed={feed}
+        host={host}
+        machines={machines}
+        open={fatherOpen}
+        onClose={() => writeFatherOpen(false)}
+      />
       <div className="min-h-0 flex-1">
         {surface === "desktop" ? (
           // Keyed by session so a switch tears the old viewer down. Its WebRTC track, its encoder
@@ -409,7 +406,7 @@ export function BrowserSurfaces({
             host={host}
             machines={machines}
             fill
-            fatherControl={fatherControl}
+            fatherExternal
           />
         )}
       </div>

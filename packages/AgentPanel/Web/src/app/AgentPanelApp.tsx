@@ -82,12 +82,12 @@ interface Props {
    * #root already has a definite height (styles.css), so `h-full` resolves the same chain.
    */
   fill?: boolean;
-  /** The Father home's control, owned by the surface bar above the feed; absent where there is none. */
-  fatherControl?: { open: boolean; onToggle: () => void };
+  /** The site-wide Father home stands over this mount, so the feed's own stays out of its way. */
+  fatherExternal?: boolean;
 }
 
 
-export function App({ feed, host, machines, fill = false, fatherControl }: Props) {
+export function App({ feed, host, machines, fill = false, fatherExternal = false }: Props) {
   // Which machines this shell can see, which Bots are on each, and which sidecar answers for one.
   // One hook because it is one decision made in five places; see `useBotMachines`.
   const shellMachines = useBotMachines(feed, machines);
@@ -117,9 +117,9 @@ export function App({ feed, host, machines, fill = false, fatherControl }: Props
   );
   // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
   const botError = commands.botCommandError ?? roster.canvasError;
-  // The home's wiring, shared by its two stands.
+  // The home's wiring, shared by its two stands. Out of the way entirely where the site-wide
+  // home stands over this mount instead.
   const fatherHomeProps = {
-    control: fatherControl,
     bots: roster.orderedBots,
     sessionContextFor: (botId: string) => shellMachines.contextFor(sessionViewContext, botId),
     attachSessionToBot: roster.attachSessionToBot,
@@ -389,10 +389,10 @@ export function App({ feed, host, machines, fill = false, fatherControl }: Props
                   this node's rather than the header's because the strip's own members used to be
                   the header's children and spaced by it. */}
               <div ref={setThreadControlsHost} className="flex shrink-0 items-center gap-1" />
-              <FatherHome floating={false} {...fatherHomeProps} />
+              {fatherExternal ? null : <FatherHome floating={false} {...fatherHomeProps} />}
             </header>
           )}
-          {headerlessCanvas ? <FatherHome floating {...fatherHomeProps} /> : null}
+          {headerlessCanvas && !fatherExternal ? <FatherHome floating {...fatherHomeProps} /> : null}
 
           {/* One scroller per surface, and the session owns its own: `SessionView` is a flex
               column that fills whatever box it is given, so the transcript inside it scrolls
