@@ -424,3 +424,51 @@ test("a long history walks every page and lands chronological", async () => {
   expect(ids.at(-1)).toBe("opencode:msg-249");
   await backend.dispose();
 });
+
+test("a picture a call returned is served back by its event and block address", async () => {
+  // The pool stores what the mapper collected at sync time; the image route reads it back by
+  // the same address the panel was given. Event 0 is the prompt, event 1 the turn whose third
+  // block is the picture.
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const data = Buffer.from("fake-png-bytes").toString("base64");
+  installFetch(recorded, [
+    {
+      id: "msg-a",
+      time: { created: 200, completed: 300 },
+      type: "assistant",
+      agent: "build",
+      model: { id: "m", providerID: "p" },
+      content: [{
+        type: "tool",
+        id: "c1",
+        name: "read",
+        state: {
+          status: "completed",
+          input: { path: "/tmp/shot.png" },
+          content: [
+            { type: "text", text: "Image read successfully" },
+            { type: "file", uri: `data:image/png;base64,${data}`, mime: "image/png" },
+          ],
+          structured: {},
+        },
+      }],
+    },
+    userItem("msg-u", "hi"),
+  ] as unknown as FakeItem[]);
+  const backend = new OpencodeAgentBackend({
+    resolveSession: (sessionId) =>
+      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    onSessionCreated() {},
+    onCatalogChanged() {},
+    client: () => fakeServe(recorded) as unknown as OpencodeClient,
+    now: () => 1000,
+  });
+  const page = await backend.page("s1", 0, 10, "nice");
+  expect(page.total).toBe(2);
+  expect(backend.opencodeImage("s1", 1, 2)).toEqual({ mediaType: "image/png", data });
+  // The result block beside it, the prompt's row, and a stranger's session name no picture.
+  expect(backend.opencodeImage("s1", 1, 1)).toBeNull();
+  expect(backend.opencodeImage("s1", 0, 0)).toBeNull();
+  expect(backend.opencodeImage("nope", 1, 2)).toBeNull();
+  await backend.dispose();
+});

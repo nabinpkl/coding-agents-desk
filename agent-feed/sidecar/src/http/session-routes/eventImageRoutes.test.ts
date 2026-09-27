@@ -221,3 +221,53 @@ test("refuses a relative path, which names a directory nobody agreed on", async 
   expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`)).status)
     .toBe(404);
 });
+
+const OPENCODE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+
+/** The opencode image store, keyed the way the pool keys it: session, event, picture. */
+function opencodeRoute() {
+  const stored = new Map<string, { mediaType: string; data: string }>([
+    ["ses_abc:opencode:msg-a:0", { mediaType: "image/png", data: OPENCODE_PNG_BASE64 }],
+  ]);
+  return createEventImageRoutes((sessionId, eventIndex, blockIndex) => {
+    // The test's store holds one picture at event 4, block 2; everything else is no picture.
+    if (sessionId === "ses_abc" && eventIndex === 4 && blockIndex === 2) {
+      return stored.get("ses_abc:opencode:msg-a:0") ?? null;
+    }
+    return null;
+  });
+}
+
+function getOpencode(path: string): Promise<Response> {
+  const request = new Request(`http://localhost${path}`);
+  return Promise.resolve(opencodeRoute()(request, new URL(request.url), server) as Promise<Response>);
+}
+
+test("serves an opencode picture by its event and block address", async () => {
+  const response = await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/2/image?mode=nice");
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("image/png");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(Buffer.from(await response.arrayBuffer()).toString("base64")).toBe(OPENCODE_PNG_BASE64);
+});
+
+test("an opencode address naming no picture is a 404, not a neighbouring row's", async () => {
+  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/1/image?mode=nice")).status)
+    .toBe(404);
+  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/9/blocks/2/image?mode=nice")).status)
+    .toBe(404);
+  expect((await getOpencode("/api/sessions/opencode/ses_nope/events/4/blocks/2/image?mode=nice")).status)
+    .toBe(404);
+});
+
+test("an opencode image needs a mode it knows, like every event index does", async () => {
+  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/2/image?mode=pretty")).status)
+    .toBe(400);
+});
+
+test("without a store the opencode pattern falls through to the routes after it", async () => {
+  const request = new Request("http://localhost/api/sessions/opencode/ses_abc/events/4/blocks/2/image?mode=nice");
+  expect(await Promise.resolve(route(request, new URL(request.url), server))).toBeUndefined();
+});

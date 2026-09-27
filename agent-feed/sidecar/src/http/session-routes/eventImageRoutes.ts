@@ -2,6 +2,10 @@
 // block, as the image itself. And `.../blocks/<b>/files/<k>?mode=`, which is the same question
 // asked of a file a call HANDED to the reader rather than one pasted into the transcript.
 //
+// The opencode sibling below answers the same question for live opencode rows, whose pictures
+// arrive inline on the serve's messages rather than in a transcript file: the bytes wait in the
+// session pool's image store instead of on disk.
+//
 // The second one answers for any kind of file, not only a picture, because a reader who was sent
 // a page or a report was sent something to OPEN. That address is what the feed's row links to.
 //
@@ -10,7 +14,8 @@
 // back out of the transcript line on demand: an `<img>` asks for it only when the row is on screen.
 //
 // Claude only, in the pattern: Codex writes its images as data URLs its adapter does not turn into
-// image blocks, so a Codex path here would be a 404 dressed as a route that exists.
+// image blocks, so a Codex path here would be a 404 dressed as a route that exists. The opencode
+// pattern below is the live-session counterpart, resolved out of the pool rather than a file.
 //
 // Ordering note, the same one the timeline and task routes carry: registered BEFORE
 // `createSessionRoutes`, whose catch-all rejects unknown `/api/sessions/` paths.
@@ -37,6 +42,9 @@ const EVENT_IMAGE_ROUTE =
 
 const EVENT_FILE_ROUTE =
   /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/events\/(\d+)\/blocks\/(\d+)\/files\/(\d+)$/i;
+
+const OPENCODE_IMAGE_ROUTE =
+  /^\/api\/sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/events\/(\d+)\/blocks\/(\d+)\/image$/;
 
 const SERVABLE_MEDIA_TYPES: ReadonlySet<string> = new Set(COMPOSER_IMAGE_MEDIA_TYPES);
 
@@ -238,9 +246,66 @@ async function eventFile(
   }
 }
 
-export function createEventImageRoutes(): RouteHandler {
+/**
+ * The bytes behind one opencode image block, addressed the way the panel addresses it.
+ *
+ * Resolved out of the session pool's image store rather than a transcript line: opencode rows
+ * are live projections, and the picture's bytes arrived inline on the serve's own message. The
+ * address is still a position, never a path in the request -- the panel cannot ask for anything
+ * the session's own row at this event and block does not name -- and the media type is checked
+ * against the same servable list, since it becomes this response's content-type.
+ */
+async function opencodeImage(
+  sessionId: string,
+  eventIndex: number,
+  blockIndex: number,
+  imageFor: (
+    sessionId: string,
+    eventIndex: number,
+    blockIndex: number,
+  ) => { mediaType: string; data: string } | null,
+): Promise<Response> {
+  const picture = imageFor(sessionId, eventIndex, blockIndex);
+  if (!picture || !SERVABLE_MEDIA_TYPES.has(picture.mediaType)) {
+    return jsonResponse({ error: "no image at that block" }, 404);
+  }
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(picture.data, "base64");
+  } catch {
+    return jsonResponse({ error: "no image at that block" }, 404);
+  }
+  if (bytes.length === 0) return jsonResponse({ error: "no image at that block" }, 404);
+  return new Response(bytes, {
+    headers: {
+      "content-type": picture.mediaType,
+      "x-content-type-options": "nosniff",
+      // A reaped session takes its pictures with it and a re-sync stores the same bytes under
+      // the same address, so this is cached for a while rather than forever.
+      "cache-control": "private, max-age=300",
+    },
+  });
+}
+
+export function createEventImageRoutes(
+  imageFor?: (
+    sessionId: string,
+    eventIndex: number,
+    blockIndex: number,
+  ) => { mediaType: string; data: string } | null,
+): RouteHandler {
   return (request, url) => {
     if (request.method !== "GET") return undefined;
+    if (imageFor) {
+      const opencode = OPENCODE_IMAGE_ROUTE.exec(url.pathname);
+      if (opencode) {
+        // Rejected rather than defaulted, the same rule as the Claude pair: the mode travels with
+        // every request that names an event index, even though opencode indices are mode-free.
+        const mode = url.searchParams.get("mode") ?? "raw";
+        if (mode !== "raw" && mode !== "nice") return jsonResponse({ error: "invalid mode" }, 400);
+        return opencodeImage(opencode[1]!, Number(opencode[2]!), Number(opencode[3]!), imageFor);
+      }
+    }
     const image = EVENT_IMAGE_ROUTE.exec(url.pathname);
     const file = image ? null : EVENT_FILE_ROUTE.exec(url.pathname);
     if (!image && !file) return undefined;

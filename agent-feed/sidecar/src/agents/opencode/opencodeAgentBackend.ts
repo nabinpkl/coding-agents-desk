@@ -111,6 +111,19 @@ export class OpencodeAgentBackend implements AgentBackend {
   }
 
   /**
+   * The bytes behind one of the session's image blocks, for the image route's on-demand read.
+   * Null where the session holds no picture there; the row draws without it.
+   */
+  opencodeImage(
+    sessionId: string,
+    eventIndex: number,
+    blockIndex: number,
+  ): { mediaType: string; data: string } | null {
+    if (this.disposed) return null;
+    return this.pool.imageFor(sessionId, eventIndex, blockIndex);
+  }
+
+  /**
    * The session's current model as `providerID/modelID`, for the switcher. Delegated so the
    * timeline route's probe lands: it survives the post-compaction gap that blanks usage.
    */

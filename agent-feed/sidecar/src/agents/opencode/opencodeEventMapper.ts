@@ -18,12 +18,32 @@ import type {
   LlmToolContent,
   SessionMessage,
 } from "@opencode-ai/sdk/v2/client";
+import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import type {
   ActivityBlock,
   ParsedLine,
 } from "@/transcripts/transcriptTypes";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { sanitizeAgentValue } from "@/agents/liveAgentProjection";
+
+/**
+ * Pictures this sidecar serves, keyed by what the feed addresses: image blocks carry only their
+ * media type on the wire, so a page stays small whatever was pasted into it, and the bytes wait
+ * here for the image route's on-demand read -- the same split Claude's transcript lines give,
+ * except the store is this sync's memory rather than a file. Opencode's serve carries the bytes
+ * inline (data URLs in tool parts, base64 in user files), so there is no second fetch to do.
+ */
+const SERVABLE_IMAGE_TYPES: ReadonlySet<string> = new Set(COMPOSER_IMAGE_MEDIA_TYPES);
+
+export interface OpencodeImagePayload {
+  /** The projection event id (`opencode:<message id>`), which the image route resolves. */
+  eventId: string;
+  /** Which picture of that event this is, in block order. */
+  ordinal: number;
+  mediaType: string;
+  /** Base64 bytes, straight off the serve. */
+  data: string;
+}
 
 /**
  * Output text past this is capped with a footer, the way the transcript
@@ -37,6 +57,8 @@ export interface OpencodeSyncResult {
   lastTurnClosed: boolean;
   /** True when any envelope is still open (no completion, tool running). */
   open: boolean;
+  /** The pictures this batch carried, in block order per event, for the image route's store. */
+  images: OpencodeImagePayload[];
 }
 
 export class OpencodeEventMapper {
@@ -54,8 +76,9 @@ export class OpencodeEventMapper {
    */
   sync(messages: SessionMessage[]): OpencodeSyncResult {
     const ordered = [...messages].sort((a, b) => messageTime(a) - messageTime(b));
+    const images: OpencodeImagePayload[] = [];
     for (const message of ordered) {
-      const parsed = this.translate(message);
+      const parsed = this.translate(message, images);
       if (!parsed) continue;
       this.projection.upsert({
         ...parsed,
@@ -71,26 +94,38 @@ export class OpencodeEventMapper {
     return {
       lastTurnClosed: last === undefined || (!lastCompacting && turnClosed(last)),
       open: last !== undefined && (!turnClosed(last) || lastCompacting),
+      images,
     };
   }
 
-  private translate(message: SessionMessage): (ParsedLine & { phase: "streaming" | "complete" }) | null {
+  private translate(
+    message: SessionMessage,
+    images: OpencodeImagePayload[],
+  ): (ParsedLine & { phase: "streaming" | "complete" }) | null {
     switch (message.type) {
-      case "user":
-        return {
-          ts: message.time.created,
-          type: "user",
-          humanTurn: true,
-          phase: "complete",
-          blocks: [
-            ...(message.text ? [{ kind: "text", text: message.text } as ActivityBlock] : []),
-            ...(message.files ?? []).map((file) => ({
+      case "user": {
+        const blocks: ActivityBlock[] = [];
+        if (message.text) blocks.push({ kind: "text", text: message.text });
+        // Attached pictures become image blocks the way a tool's returned pictures do, so the
+        // row draws them rather than naming them; anything else keeps its placeholder line.
+        // The bytes ride the message itself, so they join the image route's store beside the row.
+        const eventId = `opencode:${message.id}`;
+        let ordinal = 0;
+        for (const file of message.files ?? []) {
+          const picture = attachedImage(file);
+          if (picture) {
+            blocks.push({ kind: "image", mediaType: picture.mediaType });
+            images.push({ eventId, ordinal: ordinal++, mediaType: picture.mediaType, data: picture.data });
+          } else {
+            blocks.push({
               kind: "text",
               label: file.name ?? file.mime,
               text: `[Attached ${file.mime}]`,
-            }) as ActivityBlock),
-          ],
-        };
+            } as ActivityBlock);
+          }
+        }
+        return { ts: message.time.created, type: "user", humanTurn: true, phase: "complete", blocks };
+      }
       case "synthetic":
         return {
           ts: message.time.created,
@@ -128,6 +163,8 @@ export class OpencodeEventMapper {
       case "assistant": {
         const blocks: ActivityBlock[] = [];
         let open = message.time.completed === undefined;
+        const eventId = `opencode:${message.id}`;
+        let imageOrdinal = 0;
         for (const part of message.content) {
           if (part.type === "text") {
             if (part.text) blocks.push({ kind: "text", text: part.text });
@@ -150,6 +187,17 @@ export class OpencodeEventMapper {
               blocks.push({ kind: "tool_result", callId: part.id, ...capText(toolError(part.state)) });
             } else {
               open = true;
+            }
+            // A picture a call returned is drawn, not named: an image block right after its
+            // result, carrying the call's id the way Claude's adapter names each image by the
+            // call whose result held it, so the panel pairs them. The text above already skips
+            // imaged parts, so nothing reads twice. Only settled calls: a running call's
+            // pictures have not arrived yet, and the row re-syncs when they do.
+            if (part.state.status === "completed" || part.state.status === "error") {
+              for (const picture of toolImages(part.state)) {
+                blocks.push({ kind: "image", mediaType: picture.mediaType, callId: part.id });
+                images.push({ eventId, ordinal: imageOrdinal++, mediaType: picture.mediaType, data: picture.data });
+              }
             }
           }
         }
@@ -343,10 +391,52 @@ function toolContentText(content: LlmToolContent[] | undefined): string {
   return content
     .map((item) => {
       if (item.type === "text") return item.text;
+      // A picture is drawn, not named: its image block sits right after this result, so a line
+      // reading `[image/png: ...]` above the picture would only repeat it. Anything else keeps
+      // its placeholder, which is all the row can say about bytes it will not draw.
+      if (toolFileImage(item)) return "";
       return `[${item.mime}${item.name ? `: ${item.name}` : ""}]`;
     })
     .filter((text) => text.length > 0)
     .join("\n");
+}
+
+/**
+ * The pictures a settled tool call returned, as media type plus base64 bytes.
+ *
+ * Only inline data URLs in a servable image type. A `file://` URI names bytes on the serve's
+ * machine that this sync cannot read -- and must not, from a model-written string -- so those
+ * stay placeholder text. Checked here, where the part is made, because the media type later
+ * becomes the image route's content-type on the panel's origin.
+ */
+function toolImages(state: { status: string }): Array<{ mediaType: string; data: string }> {
+  if ((state.status !== "completed" && state.status !== "error") || !("content" in state)) return [];
+  const content = (state as { content?: LlmToolContent[] }).content;
+  if (!Array.isArray(content)) return [];
+  const pictures: Array<{ mediaType: string; data: string }> = [];
+  for (const item of content) {
+    const picture = toolFileImage(item);
+    if (picture) pictures.push(picture);
+  }
+  return pictures;
+}
+
+function toolFileImage(item: LlmToolContent): { mediaType: string; data: string } | null {
+  if (item.type !== "file" || !SERVABLE_IMAGE_TYPES.has(item.mime)) return null;
+  const prefix = `data:${item.mime};base64,`;
+  if (typeof item.uri !== "string" || !item.uri.startsWith(prefix)) return null;
+  const data = item.uri.slice(prefix.length);
+  return data.length > 0 ? { mediaType: item.mime, data } : null;
+}
+
+/**
+ * A picture attached to a user message, which carries raw base64 rather than a data URL.
+ * Same servable-types gate as tool pictures, for the same content-type reason.
+ */
+function attachedImage(file: { mime?: unknown; data?: unknown }): { mediaType: string; data: string } | null {
+  if (typeof file.mime !== "string" || !SERVABLE_IMAGE_TYPES.has(file.mime)) return null;
+  if (typeof file.data !== "string" || file.data.length === 0) return null;
+  return { mediaType: file.mime, data: file.data };
 }
 
 function errorText(error: unknown): string {

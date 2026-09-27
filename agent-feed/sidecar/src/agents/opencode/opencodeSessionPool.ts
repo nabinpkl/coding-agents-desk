@@ -20,6 +20,7 @@ import { AgentSessionNotFoundError } from "@/agents/agentBackend";
 import { AgentUiBroker } from "@/agents/agentUiBroker";
 import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
+import { OpencodeImageStore } from "@/agents/opencode/opencodeImageStore";
 import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
 import { readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
@@ -78,6 +79,8 @@ export class OpencodeSessionPool {
   private readonly owned = new Map<string, OwnedSession>();
   private readonly starts = new Map<string, Promise<OwnedSession>>();
   private readonly limits = new Map<string, number>();
+  /** The pictures live rows drew, waiting for the image route's on-demand reads. */
+  private readonly imageStore = new OpencodeImageStore();
   private limitsLoading: Promise<void> | null = null;
   private readonly now: () => number;
   private readonly serve: () => OpencodeClient | null;
@@ -185,6 +188,35 @@ export class OpencodeSessionPool {
   }
 
   /**
+   * The bytes behind one image block, addressed the way the panel addresses it: the event's
+   * position in the projection, then the block's position in the event. Null where the session
+   * is not owned, the event moved, or the block is no picture -- the panel then draws the row
+   * without it rather than failing the row.
+   *
+   * The ordinal counts image blocks, not blocks: it is the picture's place among its event's
+   * pictures, which is how the mapper numbered it at sync time.
+   */
+  imageFor(
+    sessionId: string,
+    eventIndex: number,
+    blockIndex: number,
+  ): { mediaType: string; data: string } | null {
+    const owned = this.owned.get(sessionId);
+    if (!owned || owned.disposed) return null;
+    if (!Number.isSafeInteger(eventIndex) || !Number.isSafeInteger(blockIndex)) return null;
+    const [event] = owned.projection.page(eventIndex, 1);
+    if (!event || event.index !== eventIndex) return null;
+    const blocks = event.blocks ?? [];
+    if (blockIndex < 0 || blockIndex >= blocks.length) return null;
+    if (blocks[blockIndex]?.kind !== "image") return null;
+    let ordinal = -1;
+    for (let index = 0; index <= blockIndex; index++) {
+      if (blocks[index]?.kind === "image") ordinal += 1;
+    }
+    return this.imageStore.lookup(sessionId, event.id, ordinal);
+  }
+
+  /**
    * What the session's summariser has streamed so far, or null when it is not compacting.
    *
    * Probed by the timeline route, the way Claude's live backend is probed: a compaction writes
@@ -250,6 +282,7 @@ export class OpencodeSessionPool {
       if (now - owned.lastTouchedAt < config.opencodeIdleMs) continue;
       this.owned.delete(sessionId);
       this.disposeOwned(owned);
+      this.imageStore.dropSession(sessionId);
     }
   }
 
@@ -268,6 +301,7 @@ export class OpencodeSessionPool {
     for (const owned of this.owned.values()) this.disposeOwned(owned);
     this.owned.clear();
     this.starts.clear();
+    this.imageStore.clear();
   }
 
   /**
@@ -361,6 +395,7 @@ export class OpencodeSessionPool {
       const current = this.owned.get(sessionId);
       if (!current || current.disposed) return;
       const result = current.mapper.sync(messages);
+      this.imageStore.store(sessionId, result.images);
       const session = info.data?.data;
       // Named whenever the serve names one, whether or not tokens rode along: a fresh
       // session reports no token totals yet, and usage still blanks across the

@@ -203,7 +203,16 @@ const routes: RouteHandler[] = [
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // And `/events/<n>/blocks/<b>/image`, the picture behind an image block.
-  createEventImageRoutes(),
+  createEventImageRoutes((sessionId, eventIndex, blockIndex) => {
+    const backend = resolveBackend("opencode") as {
+      opencodeImage?: (
+        sessionId: string,
+        eventIndex: number,
+        blockIndex: number,
+      ) => { mediaType: string; data: string } | null;
+    } | undefined;
+    return backend?.opencodeImage?.(sessionId, eventIndex, blockIndex) ?? null;
+  }),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
   // here is only for readability.
   createUsageRoutes(usageScanner),

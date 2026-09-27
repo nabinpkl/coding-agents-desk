@@ -34,6 +34,19 @@ function isMarkdownPath(p: unknown): p is string {
   return typeof p === "string" && /\.mdx?$/i.test(p);
 }
 
+/** First non-empty string under any of these input keys, or null. */
+function toolStringInput(
+  input: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | null {
+  if (!input) return null;
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
 // Claude `Read` results are `cat -n` output: every line is prefixed with
 // optional leading spaces, the line number, then a tab. Strip that prefix to
 // recover the source Markdown. (Repo convention documents the "line number +
@@ -227,14 +240,22 @@ export function Block({
     // Edit tool gets a custom header (filename) and a diff body. Generic
     // tools get chip+summary as header. A matching result expands inside this
     // same block instead of consuming a second source-line row.
+    //
+    // Both harnesses' shapes: Claude's `Edit` carries snake_case (`file_path`,
+    // `old_string`, `new_string`); opencode's `edit` carries camelCase (`path`,
+    // `oldString`, `newString`). The header names the basename either way.
+    const editPath = toolStringInput(b.input, ["file_path", "path"]);
+    const editOld = toolStringInput(b.input, ["old_string", "oldString"]);
+    const editNew = toolStringInput(b.input, ["new_string", "newString"]);
     const isEditDiff =
-      b.tool === "Edit" &&
-      b.input &&
-      typeof b.input.file_path === "string" &&
-      ((typeof b.input.old_string === "string" && b.input.old_string.length > 0) ||
-        (typeof b.input.new_string === "string" && b.input.new_string.length > 0));
+      (b.tool === "Edit" || b.tool === "edit") &&
+      editPath !== null &&
+      ((editOld !== null && editOld.length > 0) || (editNew !== null && editNew.length > 0));
+    const writePath = toolStringInput(b.input, ["file_path", "path"]);
+    const writeContent = toolStringInput(b.input, ["content"]);
     const isMarkdownWrite =
-      b.tool === "Write" && isMarkdownPath(b.input?.file_path) && typeof b.input?.content === "string";
+      (b.tool === "Write" || b.tool === "write") &&
+      writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
     const isFileBody = isEditDiff || isMarkdownWrite;
     // The header truncates the command to one line. Expanding shows it as a
     // shell code block, which highlights it and scrolls horizontally rather
@@ -255,7 +276,7 @@ export function Block({
       ? summary.slice(headerChip.length + 1)
       : summary;
     const headerLabel = isFileBody
-      ? (typeof b.input?.file_path === "string" ? b.input.file_path.split("/").pop() ?? "" : "")
+      ? (editPath?.split("/").pop() ?? "")
       : named;
     // A call that returned a picture shows it while folded, since that picture is usually why the
     // call was made. Open, the result draws it full size, so the header's copy steps aside.
@@ -334,13 +355,13 @@ export function Block({
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
             {isEditDiff ? (
               <DiffBlock
-                filePath={b.input!.file_path as string}
-                oldString={(b.input!.old_string as string | undefined) ?? ""}
-                newString={(b.input!.new_string as string | undefined) ?? ""}
+                filePath={editPath!}
+                oldString={editOld ?? ""}
+                newString={editNew ?? ""}
               />
             ) : null}
             {isMarkdownWrite ? (
-              <Markdown content={b.input!.content as string} />
+              <Markdown content={writeContent!} />
             ) : null}
             {namedFiles ? (
               <SentFilesBlock

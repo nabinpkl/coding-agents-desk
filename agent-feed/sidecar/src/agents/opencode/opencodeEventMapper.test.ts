@@ -305,3 +305,79 @@ test("a cancelled compaction draws nothing; a failed one names its error", () =>
   expect(rows.map((row) => row.id)).toEqual(["opencode:msg-f"]);
   expect(rows[0]!.blocks).toEqual([{ kind: "text", text: "Compaction failed: no summary" }]);
 });
+
+const PNG_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+function imageToolPart(id: string, uri: string, mime = "image/png"): AssistantToolPart {
+  return {
+    type: "tool",
+    id,
+    name: "read",
+    state: {
+      status: "completed",
+      input: { path: "/tmp/shot.png" },
+      content: [{ type: "text", text: "Image read successfully" }, { type: "file", uri, mime }],
+      structured: {},
+    },
+    time: { created: 1, ran: 2, completed: 3 },
+  };
+}
+
+test("a picture a call returned is drawn, not named", () => {
+  const projection = new LiveAgentProjection();
+  const result = new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [imageToolPart("c1", PNG_DATA_URL)], 300),
+  ]);
+  const blocks = projection.page(0, 10)[0]!.blocks;
+  expect(blocks).toEqual([
+    expect.objectContaining({ kind: "tool_use", tool: "read", callId: "c1" }),
+    expect.objectContaining({ kind: "tool_result", callId: "c1", preview: "Image read successfully" }),
+    // The image block carries the call's id, which is how the panel pairs it with its result.
+    { kind: "image", mediaType: "image/png", callId: "c1" },
+  ]);
+  // ... and the bytes wait in the payload for the image route's store, in block order.
+  expect(result.images).toEqual([
+    { eventId: "opencode:msg-a", ordinal: 0, mediaType: "image/png", data: expect.any(String) },
+  ]);
+  expect(result.images[0]!.data.startsWith("iVBOR")).toBe(true);
+});
+
+test("a non-picture file keeps its placeholder line", () => {
+  const projection = new LiveAgentProjection();
+  new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [imageToolPart("c1", PNG_DATA_URL.replace("image/png", "application/pdf"), "application/pdf")], 300),
+  ]);
+  const blocks = projection.page(0, 10)[0]!.blocks;
+  expect(blocks.some((block) => block.kind === "image")).toBe(false);
+  const resultBlock = blocks.find((block) => block.kind === "tool_result");
+  expect(resultBlock).toEqual(expect.objectContaining({ preview: expect.stringContaining("[application/pdf]") }));
+});
+
+test("a file:// URI names bytes this sync cannot read, so it stays text", () => {
+  const projection = new LiveAgentProjection();
+  const result = new OpencodeEventMapper(projection).sync([
+    assistant("msg-a", [imageToolPart("c1", "file:///tmp/shot.png")], 300),
+  ]);
+  const blocks = projection.page(0, 10)[0]!.blocks;
+  expect(blocks.some((block) => block.kind === "image")).toBe(false);
+  expect(result.images).toEqual([]);
+});
+
+test("a picture attached to a user message draws as its own block", () => {
+  const projection = new LiveAgentProjection();
+  const attached = {
+    id: "msg-u",
+    time: { created: 100 },
+    text: "what about this",
+    type: "user",
+    files: [{ name: "shot.png", mime: "image/png", data: "aVZCT1I=" }],
+  } as unknown as SessionMessage;
+  const result = new OpencodeEventMapper(projection).sync([attached]);
+  expect(projection.page(0, 10)[0]!.blocks).toEqual([
+    { kind: "text", text: "what about this" },
+    { kind: "image", mediaType: "image/png" },
+  ]);
+  expect(result.images).toEqual([
+    { eventId: "opencode:msg-u", ordinal: 0, mediaType: "image/png", data: "aVZCT1I=" },
+  ]);
+});
