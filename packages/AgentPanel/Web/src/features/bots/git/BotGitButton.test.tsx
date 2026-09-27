@@ -38,6 +38,8 @@ function feedAnswering(status: BotGitStatus) {
       return () => {};
     }),
     botGitDiff,
+    botTree: vi.fn(async (botId: string) => ({ botId, tree: [] })),
+    botFile: vi.fn(),
   } as unknown as SidecarDataSource;
   return { feed, botGitDiff };
 }
@@ -58,7 +60,7 @@ it("counts the changed files and opens them as a list and a diff", async () => {
   expect(button.textContent).toBe("2");
   fireEvent.click(button);
 
-  const dialog = await screen.findByRole("dialog", { name: "Changes in Rags" });
+  const dialog = await screen.findByRole("dialog", { name: "Rags" });
   const files = within(dialog).getByRole("navigation", { name: "Changed files" });
   fireEvent.click(within(files).getByRole("button", { name: "Show the diff of src/a.ts" }));
 
@@ -68,7 +70,7 @@ it("counts the changed files and opens them as a list and a diff", async () => {
   expect(within(files).getByRole("button", { name: "Show the diff of src/a.ts" }).getAttribute("aria-current"))
     .toBe("true");
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Close changes" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 

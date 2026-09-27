@@ -1,5 +1,5 @@
 // The Bot header's git button: how many files in its directory are uncommitted, and the way in to
-// what they are.
+// what they are -- the Bot's code modal, opened on its Source Control tab.
 //
 // Absent where there is no git to speak of -- a missing directory, one outside any repository, or
 // before the first answer -- rather than drawn as a zero. A zero says "clean", and a Bot pointed at
@@ -9,7 +9,7 @@ import { GitBranch, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { BotGitDialog } from "@/features/bots/git/BotGitDialog";
+import { BotCodeDialog } from "@/features/bots/code/BotCodeDialog";
 import type { BotGitState } from "@/features/bots/git/useBotGitStatus";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
@@ -64,11 +64,11 @@ export function BotGitButton({
         ) : null}
       </button>
       {open ? (
-        <BotGitDialog
+        <BotCodeDialog
           bot={bot}
           feed={feed}
-          status={status}
-          error={error}
+          git={git}
+          initialSection="sourceControl"
           onClose={() => setOpen(false)}
         />
       ) : null}

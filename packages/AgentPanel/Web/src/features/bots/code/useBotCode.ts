@@ -24,7 +24,6 @@ export interface BotCode {
   /** The last failure, of the tree or the file, or null since a good answer. */
   error: string | null;
   open(path: string): void;
-  close(): void;
   toggle(path: string, expanded: boolean): void;
 }
 
@@ -83,7 +82,6 @@ export function useBotCode(feed: SidecarDataSource, botId: string, refresh: unkn
     file: file?.path === openPath ? file : null,
     error: fileError ?? treeError,
     open: setOpenPath,
-    close: useCallback(() => setOpenPath(null), []),
     toggle: useCallback((path: string, open: boolean) => {
       // A collapsed directory's own expanded children are kept: the sidecar lists only what is
       // reachable through expanded parents, so they cost nothing, and reopening it puts the reader

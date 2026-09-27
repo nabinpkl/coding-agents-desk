@@ -1,8 +1,8 @@
-// The large modal a Bot's card opens for a look into its directory: its changes, or its code.
+// The large modal a Bot's card opens for a look into its directory.
 //
-// A frame and nothing else. Both looks are a list on the left and a reading pane on the right,
-// taken from the IDE; what they share with each other is only this -- the backdrop, the header
-// with its close button, and the rule about events below -- so it is written once here.
+// A frame and nothing else: the backdrop, the header with its close button, and the rule about
+// events below. What goes inside is `BotCodeDialog`'s, which is already long enough carrying the
+// IDE's panes without the frame as well.
 
 import { X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";

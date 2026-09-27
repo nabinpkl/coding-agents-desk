@@ -316,7 +316,7 @@ export function BotCanvasCard({
             <span aria-hidden>{shown.length}</span>
             <span className="sr-only">{counted}</span>
           </span>
-          <BotCodeButton bot={bot} feed={sessionContext.feed} refresh={git.status} />
+          <BotCodeButton bot={bot} feed={sessionContext.feed} git={git} />
           <BotGitButton bot={bot} feed={sessionContext.feed} git={git} />
           <button
             type="button"
