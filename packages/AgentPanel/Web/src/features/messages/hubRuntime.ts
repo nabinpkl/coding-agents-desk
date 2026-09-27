@@ -34,10 +34,19 @@ export function runtimesOf(entry: DirectoryEntry): string[] {
 
 /** One pickable recipient, and the group it sits under. */
 export interface RecipientGroup {
-  /** The Bot's name, or the machine and directory a loose session runs in. */
+  /**
+   * The whole path down to this group, `Top · Sub · Leaf`, because a `<select>` renders an
+   * `<optgroup>` label as a single non-selectable line and cannot nest a second one inside it.
+   * Spelling the path in the label is the only way the top level stays readable at a glance, and
+   * the top level is the thing being asked for: which of these are Bots and which are sessions.
+   */
   label: string;
   entries: DirectoryEntry[];
 }
+
+/** The two sections the picker is divided into. */
+export const BOTS_SECTION = "All bots";
+export const SESSIONS_SECTION = "All sessions";
 
 /**
  * A group's entries with names that can be told apart inside that group.
@@ -59,47 +68,48 @@ function distinctNames(entries: DirectoryEntry[]): DirectoryEntry[] {
 }
 
 /**
- * The recipient picker: Bot members under the Bot, everything else under where it runs.
+ * The recipient picker, in two sections: the sessions each Bot owns, and every session.
  *
  * A Bot is not something you can talk to. The hub resolves `bot:<id>` to whichever member session
  * is live at delivery time, so picking a Bot picks a session by a rule the reader cannot see, and
- * two Bots whose sessions overlap are indistinguishable. The Bot's name is therefore only a group
- * label here, and the options under it are the sessions that will actually receive the message.
+ * two Bots whose sessions overlap are indistinguishable. A Bot's name is therefore a group label,
+ * and the options under it are the sessions that will actually receive the message.
  *
- * A loose session is identified by its machine and its directory, not by its name: two opencode
- * sessions can carry the same title on different machines, and one title can be reused inside a
- * directory. A `<select>` nests one level of `<optgroup>`, so the heading carries the machine and
- * the directory and the option carries the name, rather than printing the path on every row.
+ * The two sections are two views of the same sessions, so a session attached to a Bot appears
+ * under both: the Bot section answers "what does this Bot have running", the session section
+ * answers "what can I reach". The overlap is the point rather than a duplicate to be removed,
+ * because each section is a different question and neither is wrong on its own.
+ *
+ * A session is identified by its machine and its directory rather than by its name, since two
+ * opencode sessions can carry the same title on different machines and one title can be reused
+ * inside a directory. Two directories on one machine whose last segment matches grow a segment to
+ * be told apart, which is what splits `projects/tmp` from `/private/tmp`.
  */
 export function recipientGroups(directory: DirectoryEntry[]): RecipientGroup[] {
   const byAddress = new Map(directory.map((entry) => [entry.address, entry]));
   const sessions = directory.filter((entry) => runtimeOf(entry.address) !== null);
-  const claimed = new Set<string>();
   const groups: RecipientGroup[] = [];
 
   for (const bot of directory.filter((entry) => entry.address.startsWith("bot:"))) {
     const members = bot.related
       .map((address) => byAddress.get(address))
-      .filter(
-        (entry): entry is DirectoryEntry =>
-          entry !== undefined && runtimeOf(entry.address) !== null && !claimed.has(entry.address),
-      );
+      .filter((entry): entry is DirectoryEntry => entry !== undefined && runtimeOf(entry.address) !== null);
     if (members.length === 0) continue;
-    for (const member of members) claimed.add(member.address);
-    groups.push({ label: bot.name, entries: distinctNames(members) });
+    groups.push({ label: `${BOTS_SECTION} · ${bot.name}`, entries: distinctNames(members) });
   }
 
-  const loose = sessions.filter((entry) => !claimed.has(entry.address));
-  groups.push(...looseGroups(loose));
+  groups.push(...looseGroups(sessions));
   return groups;
 }
 
 /** The last path segment, with the one above it when two directories in a machine share a name. */
 function pathLabels(paths: readonly string[]): Map<string, string> {
-  const byBasename = new Map<string, string[]>();
+  const byBasename = new Map<string, Set<string>>();
   for (const path of paths) {
     const base = path.split("/").filter(Boolean).pop() ?? path;
-    byBasename.set(base, [...(byBasename.get(base) ?? []), path]);
+    const sharing = byBasename.get(base) ?? new Set<string>();
+    sharing.add(path);
+    byBasename.set(base, sharing);
   }
   const labels = new Map<string, string>();
   for (const [base, sharing] of byBasename) {
@@ -114,7 +124,10 @@ function pathLabels(paths: readonly string[]): Map<string, string> {
         labels.set(path, "home");
         continue;
       }
-      if (sharing.length === 1) {
+      // Distinct paths, not distinct basenames: a directory holding three sessions is one
+      // directory, and counting its sessions as three directories ending in the same name grew
+      // every busy directory's heading by a segment for no reason.
+      if (sharing.size === 1) {
         labels.set(path, base);
         continue;
       }
@@ -126,11 +139,11 @@ function pathLabels(paths: readonly string[]): Map<string, string> {
   return labels;
 }
 
-/** Loose sessions, one group per machine and directory, in a stable order. */
-function looseGroups(loose: DirectoryEntry[]): RecipientGroup[] {
-  if (loose.length === 0) return [];
+/** Every session, one group per machine and directory, under the sessions section. */
+function looseGroups(all: DirectoryEntry[]): RecipientGroup[] {
+  if (all.length === 0) return [];
   const byMachine = new Map<string, DirectoryEntry[]>();
-  for (const entry of loose) {
+  for (const entry of all) {
     const machine = entry.machine ?? "unknown machine";
     byMachine.set(machine, [...(byMachine.get(machine) ?? []), entry]);
   }
@@ -145,7 +158,7 @@ function looseGroups(loose: DirectoryEntry[]): RecipientGroup[] {
     }
     for (const directory of [...byDirectory.keys()].sort()) {
       groups.push({
-        label: `${machine} · ${labels.get(directory) ?? directory}`,
+        label: `${SESSIONS_SECTION} · ${machine} · ${labels.get(directory) ?? directory}`,
         entries: distinctNames(byDirectory.get(directory)!),
       });
     }

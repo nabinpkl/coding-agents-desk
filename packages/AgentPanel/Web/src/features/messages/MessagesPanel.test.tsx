@@ -145,13 +145,21 @@ describe("MessagesPanel", () => {
     await screen.findByText("No messages yet");
     const picker = screen.getByLabelText("To");
     const groups = within(picker).getAllByRole("group").map((group) => group.getAttribute("label"));
-    expect(groups).toEqual(["Site fixer", "mac · other"]);
-    // The Bot itself is not a choice, only a heading.
+    // Directories sort by full path, so `/work/other` precedes `/work/site`.
+    expect(groups).toEqual([
+      "All bots · Site fixer",
+      "All sessions · mac · other",
+      "All sessions · mac · site",
+    ]);
+    // The Bot itself is not a choice, only a heading inside the bots section.
     expect(within(picker).queryByRole("option", { name: /^Site fixer/ })).toBeNull();
-    expect(within(picker).getByRole("option", { name: "Fix the header" })).toBeTruthy();
-    expect(within(picker).getByRole("option", { name: "Fix the footer · no live session" })).toBeTruthy();
-    // And the loose session is still one click away, not filtered out by the grouping.
-    expect(within(picker).getByRole("option", { name: "Loose session" })).toBeTruthy();
+    // A session attached to a Bot is in both sections, so each is looked for in its own group.
+    const botsGroup = within(picker).getAllByRole("group")[0]!;
+    const looseGroup = within(picker).getAllByRole("group").at(-2)!;
+    expect(within(botsGroup).getByRole("option", { name: "Fix the header" })).toBeTruthy();
+    expect(within(botsGroup).getByRole("option", { name: "Fix the footer · no live session" })).toBeTruthy();
+    // And the loose session is still one click away, in the sessions section.
+    expect(within(looseGroup).getByRole("option", { name: "Loose session" })).toBeTruthy();
   });
 
   test("an agent's question carries a reply field that answers in its thread", async () => {
