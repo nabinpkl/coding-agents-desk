@@ -8,7 +8,6 @@ import {
 import {
   PANEL_BUILD_ROUTE,
   PANEL_COMMAND_PARAM,
-  PANEL_MACHINE_PARAM,
   PANEL_PUBLISH_EVENT,
   type PanelBuildReport,
 } from "@/features/profile/panelBuildRoute";
@@ -306,16 +305,16 @@ describe("choosing when updates arrive", () => {
     );
   });
 
-  it("restarts one machine's sidecar by name, apart from applying", async () => {
+  it("restarts the sidecars as its own command, apart from applying", async () => {
     const server = devServer();
     const { asked } = serveReport({ build: "7373cec", mode: "manual" });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
     await waitFor(() => expect(result.current.id).toBe("7373cec"));
 
-    act(() => result.current.restartSidecar("oracle peer"));
+    act(() => result.current.restartSidecars());
     await waitFor(() =>
       expect(asked.at(-1)).toEqual({
-        url: `${PANEL_BUILD_ROUTE}?${PANEL_COMMAND_PARAM}=restart&${PANEL_MACHINE_PARAM}=oracle+peer`,
+        url: `${PANEL_BUILD_ROUTE}?${PANEL_COMMAND_PARAM}=restart`,
         method: "POST",
       }),
     );

@@ -391,8 +391,9 @@ with no rebuild, no reinstall, and no re-pair.
 - **A restart can be held back, from the panel's Profile menu.** One switch covers this and the
   panel's own HMR, because "stop changing under me" is one thought; the parse gate is unchanged
   either way. Taking what is held is NOT one switch: the menu's Apply reloads the panel only, and
-  each held machine's row has its own Restart. They used to be one button, so taking a panel change
-  restarted every sidecar under every surface, and read as the sidecar moving on its own. A
+  Restart sidecars restarts every held machine together. They used to be one button, so taking a
+  panel change restarted every sidecar under every surface, and read as the sidecar moving on its
+  own. A
   supervisor has no port, so the command goes `POST /api/supervisor` on the sidecar,
   which leaves it on the same rendezvous board the supervisor publishes its state to
   (`<registry>/<user>.supervisor.request.json`), re-read both on a one-second timer and at the

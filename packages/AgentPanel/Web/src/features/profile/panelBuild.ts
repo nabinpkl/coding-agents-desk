@@ -40,7 +40,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   PANEL_BUILD_ROUTE,
   PANEL_COMMAND_PARAM,
-  PANEL_MACHINE_PARAM,
   PANEL_PUBLISH_EVENT,
   type PanelBuildCommand,
   type PanelBuildReport,
@@ -112,8 +111,8 @@ export interface PanelBuild extends PanelBuildState {
    * a withheld update is gone; no sidecar moves.
    */
   apply(): void;
-  /** Restart one machine's held sidecar onto its tree, by the label its row shows. */
-  restartSidecar(machine: string): void;
+  /** Restart every machine's held sidecar onto its tree, together. The panel does not reload. */
+  restartSidecars(): void;
 }
 
 /** What a page with no dev server behind it reports: a frozen bundle holds nothing back. */
@@ -164,11 +163,8 @@ function readSidecars(report: PanelBuildReport["sidecars"]): SidecarSupervisorRe
 function askServer(
   command: PanelBuildCommand | null,
   signal?: AbortSignal,
-  machine?: string,
 ): Promise<Omit<PanelBuildState, "connected">> {
-  const query = new URLSearchParams(command ? { [PANEL_COMMAND_PARAM]: command } : {});
-  if (machine !== undefined) query.set(PANEL_MACHINE_PARAM, machine);
-  const route = command ? `${PANEL_BUILD_ROUTE}?${query}` : PANEL_BUILD_ROUTE;
+  const route = command ? `${PANEL_BUILD_ROUTE}?${PANEL_COMMAND_PARAM}=${command}` : PANEL_BUILD_ROUTE;
   return fetch(route, { method: command ? "POST" : "GET", signal })
     .then((answer) => (answer.ok ? answer.json() : Promise.reject(new Error(String(answer.status)))))
     .then((report: PanelBuildReport) => readReport(report));
@@ -243,9 +239,9 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
   }, [devServer]);
 
   const command = useCallback(
-    (action: PanelBuildCommand, machine?: string) => {
+    (action: PanelBuildCommand) => {
       if (!devServerHooks(devServer)) return;
-      void askServer(action, undefined, machine)
+      void askServer(action)
         .then((fresh) => setBuild((current) => ({ ...current, ...fresh })))
         // The server refused what the reader pressed. Read the state back rather than leave the row
         // showing a mode nobody is in: a toggle that reports itself and is not obeyed is worse than
@@ -261,10 +257,10 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
 
   const setMode = useCallback((mode: PanelUpdateMode) => command(mode), [command]);
   const apply = useCallback(() => command("apply"), [command]);
-  const restartSidecar = useCallback((machine: string) => command("restart", machine), [command]);
+  const restartSidecars = useCallback(() => command("restart"), [command]);
 
   return useMemo(
-    () => ({ ...build, live, setMode, apply, restartSidecar }),
-    [build, live, setMode, apply, restartSidecar],
+    () => ({ ...build, live, setMode, apply, restartSidecars }),
+    [build, live, setMode, apply, restartSidecars],
   );
 }

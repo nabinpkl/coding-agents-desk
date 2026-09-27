@@ -21,7 +21,7 @@ function build(overrides: Partial<PanelBuild> = {}): PanelBuild {
     sidecars: [],
     setMode: vi.fn(),
     apply: vi.fn(),
-    restartSidecar: vi.fn(),
+    restartSidecars: vi.fn(),
     ...overrides,
   };
 }
@@ -194,33 +194,35 @@ describe("what a machine is waiting for", () => {
     expect(screen.getByText("oracle sidecar held back")).toBeDefined();
   });
 
-  // A restart drops every stream from that sidecar, so it is its own decision per machine and
-  // never rides along with a panel reload.
-  it("restarts only the machine whose row was pressed, apart from the panel's Apply", () => {
+  // A restart drops every stream from the sidecars, so it never rides along with a panel reload.
+  // It takes every waiting machine at once: the Mac and a peer run one tree between them.
+  it("restarts every waiting sidecar with one button, apart from the panel's Apply", () => {
     const apply = vi.fn();
-    const restartSidecar = vi.fn();
+    const restartSidecars = vi.fn();
     render(
       <PanelBuildStatus
         build={build({
           mode: "manual",
           held: ["main.tsx"],
           apply,
-          restartSidecar,
+          restartSidecars,
           sidecars: [
-            { machine: "mac", held: true, blocked: null, mode: "manual", behind: false },
-            { machine: "oracle", held: true, blocked: null, mode: "manual", behind: false },
+            { machine: "mac", held: true, blocked: null, mode: "manual", behind: true },
+            { machine: "oracle", held: true, blocked: null, mode: "manual", behind: true },
           ],
         })}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Restart the oracle sidecar" }));
-    expect(restartSidecar).toHaveBeenCalledWith("oracle");
-    expect(restartSidecar).toHaveBeenCalledTimes(1);
+    const restart = screen.getByRole("button", { name: "Restart sidecars" });
+    expect(screen.getAllByRole("button", { name: "Restart sidecars" })).toHaveLength(1);
+    expect(restart.title).toContain("mac and oracle sidecars");
+    fireEvent.click(restart);
+    expect(restartSidecars).toHaveBeenCalledTimes(1);
     expect(apply).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(apply).toHaveBeenCalledTimes(1);
-    expect(restartSidecar).toHaveBeenCalledTimes(1);
+    expect(restartSidecars).toHaveBeenCalledTimes(1);
   });
 
   it("offers no panel Apply when only a sidecar is waiting", () => {
@@ -228,12 +230,12 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual", behind: false }],
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual", behind: true }],
         })}
       />,
     );
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Restart the oracle sidecar" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Restart sidecars" })).toBeEnabled();
   });
 
   it("says a machine is behind when it runs older code with nothing newer to restart onto", () => {
@@ -246,19 +248,19 @@ describe("what a machine is waiting for", () => {
       />,
     );
     expect(screen.getByText("oracle sidecar behind")).toBeDefined();
-    expect(screen.getByText("running older code than this Mac's tree; ship it to update")).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Restart the oracle sidecar" })).toBeNull();
+    expect(screen.getByText("older code than this Mac, and no newer files arrived; check its ship job")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Restart sidecars" })).toBeNull();
   });
 
-  it("refuses to restart a machine stuck on half a file", () => {
+  it("offers no restart when the only held machine is stuck on half a file", () => {
     render(
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: false }],
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: true }],
         })}
       />,
     );
-    expect(screen.getByRole("button", { name: "Restart the oracle sidecar" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Restart sidecars" })).toBeNull();
   });
 });

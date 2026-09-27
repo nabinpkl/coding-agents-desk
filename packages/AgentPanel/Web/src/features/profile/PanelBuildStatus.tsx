@@ -14,10 +14,11 @@
 // gone rather than parked. So the button says Apply and means "reload onto the tree as it is now",
 // and it is refused while anything in the queue is still half a file.
 //
-// A held sidecar is a different decision and has its own button on its own row. Restarting one
-// drops every stream the panel holds from it, so it is asked for per machine and never rides along
-// with a panel reload: one Apply used to do both, and taking a panel change restarted every
-// sidecar under every surface.
+// Held sidecars are a different decision and have their own button, under their rows. Restarting
+// drops every stream the panel holds from them, so it never rides along with a panel reload: one
+// Apply used to do both, and taking a panel change restarted every sidecar under every surface.
+// It restarts every waiting machine together, because the Mac and a peer run one tree between
+// them and a reader taking it on one wants it on both.
 //
 // The mode is also said out loud with nothing waiting, which is the one piece of standing text here
 // that earns its line: a panel that has stopped updating because the reader asked it to, an hour
@@ -34,6 +35,11 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
   if (waiting === 0 && build.sidecars.length === 0 && !manual) return null;
 
   const count = `${waiting} ${waiting === 1 ? "file" : "files"}`;
+  // Machines a restart would move: held on the reader's say-so, with a tree that parses. One
+  // stuck on half a file refuses the restart itself, so it neither enables nor blocks the button.
+  const restartable = build.sidecars.filter(
+    (sidecar) => sidecar.held && sidecar.mode === "manual" && sidecar.blocked === null,
+  );
   return (
     <div className="space-y-1 px-3 pb-1 text-[11px] leading-tight">
       {manual || waiting > 0 ? (
@@ -72,41 +78,23 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
           and the machine's own mode decides which, since a supervisor that restarted comes back on
           auto whatever this panel last asked for. */}
       {/* Behind with nothing held is the third case: the sidecar runs older code than this Mac's
-          tree and its own tree has nothing newer -- a peer nobody has shipped to. Restarting it
-          would start the same code again, so there is no button, only the reason. */}
+          tree and its own tree has nothing newer. A peer is shipped to automatically, so this is a
+          ship that stopped arriving; restarting would start the same code again, so the reason
+          points at the ship job instead. */}
       {build.sidecars.map((sidecar) => (
         <div key={sidecar.machine} className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <span className="text-amber-500">
-              {sidecar.machine} sidecar {!sidecar.held
-                ? "behind"
-                : sidecar.blocked === null && sidecar.mode === "manual"
-                  ? "waiting"
-                  : "held back"}
-            </span>
-            {sidecar.held && sidecar.mode === "manual" ? (
-              <button
-                type="button"
-                onClick={() => build.restartSidecar(sidecar.machine)}
-                disabled={sidecar.blocked !== null}
-                aria-label={`Restart the ${sidecar.machine} sidecar`}
-                title={
-                  sidecar.blocked
-                    ? `Cannot restart yet: ${sidecar.blocked}`
-                    : `Restart the ${sidecar.machine} sidecar onto its tree as it is now. Every`
-                      + " stream from it reconnects."
-                }
-                className={ROW_BUTTON}
-              >
-                Restart
-              </button>
-            ) : null}
-          </div>
+          <span className="text-amber-500">
+            {sidecar.machine} sidecar {!sidecar.held
+              ? "behind"
+              : sidecar.blocked === null && sidecar.mode === "manual"
+                ? "waiting"
+                : "held back"}
+          </span>
           <Reason
             text={sidecar.blocked}
             fallback={
               !sidecar.held
-                ? "running older code than this Mac's tree; ship it to update"
+                ? "older code than this Mac, and no newer files arrived; check its ship job"
                 : sidecar.mode === "manual"
                   ? "its tree moved; Restart takes it"
                   : "a file it watches will not parse"
@@ -114,6 +102,18 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
           />
         </div>
       ))}
+      {restartable.length > 0 ? (
+        <button
+          type="button"
+          onClick={build.restartSidecars}
+          title={`Restart the ${restartable.map((sidecar) => sidecar.machine).join(" and ")} `
+            + `${restartable.length === 1 ? "sidecar" : "sidecars"} onto the tree as it is now.`
+            + " Every stream from them reconnects; the panel does not reload."}
+          className={ROW_BUTTON}
+        >
+          Restart sidecars
+        </button>
+      ) : null}
     </div>
   );
 }
