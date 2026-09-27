@@ -18,19 +18,39 @@ export interface OpencodeSlashCommand {
 }
 
 /**
- * The live window's occupancy from the last finished assistant turn, TUI-identical: the TUI
- * reads the last assistant message with output, not the session totals, because the totals
- * accumulate every turn's cache re-read while the window holds only what is in it now.
- * Null when no turn has finished, which is when there is no window to report.
+ * Where the live window starts: the newest completed compaction, TUI-identical
+ * (`lastAssistantWithUsage` in `packages/tui/src/util/session.ts`). Assistants at
+ * or before it belong to the context that compacting just emptied, so the anchor
+ * search stays strictly after it. -1 when nothing has compacted.
+ */
+export function lastCompletedCompactionIndex(
+  messages: readonly { type?: unknown; status?: unknown }[],
+): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    if (message.type === "compaction" && message.status === "completed") return i;
+  }
+  return -1;
+}
+
+/**
+ * The live window's occupancy from the last finished assistant turn past the
+ * compaction boundary, TUI-identical: the TUI reads the last assistant message,
+ * not the session totals, because the totals accumulate every turn's cache
+ * re-read while the window holds only what is in it now. Null in the
+ * post-compaction gap and when no turn has finished, both of which the TUI
+ * draws as a blank meter rather than a stale number.
  */
 export function currentWindowTokens(
   messages: readonly {
     type?: unknown;
     role?: unknown;
+    status?: unknown;
     tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } } | null;
   }[],
 ): number | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
+  const boundary = lastCompletedCompactionIndex(messages);
+  for (let i = messages.length - 1; i > boundary; i -= 1) {
     const message = messages[i]!;
     if (message.type !== "assistant" && message.role !== "assistant") continue;
     const tokens = message.tokens;

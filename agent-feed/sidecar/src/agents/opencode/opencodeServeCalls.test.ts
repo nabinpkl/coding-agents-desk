@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { currentWindowTokens } from "@/agents/opencode/opencodeServeCalls";
+import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
 
 const assistant = (output: number, read: number) => ({
   type: "assistant",
@@ -21,5 +21,44 @@ describe("currentWindowTokens", () => {
     expect(currentWindowTokens([{ type: "assistant", tokens: { input: 5, output: 0 } }])).toBeNull();
     expect(currentWindowTokens([{ type: "user" }])).toBeNull();
     expect(currentWindowTokens([])).toBeNull();
+  });
+});
+
+describe("lastCompletedCompactionIndex", () => {
+  const completed = { type: "compaction", status: "completed" };
+
+  it("ignores assistants at or before the boundary", () => {
+    const before = assistant(216, 610929);
+    const after = assistant(50, 1000);
+    const messages = [before, { type: "user" }, completed, { type: "user" }, after];
+    expect(lastCompletedCompactionIndex(messages)).toBe(2);
+    // The pre-compaction 611K window is gone; only the post-boundary turn counts.
+    expect(currentWindowTokens(messages)).toBe(100 + 50 + 1000);
+  });
+
+  it("blanks the gap: completed compaction with no finished turn after it", () => {
+    expect(
+      currentWindowTokens([assistant(216, 610929), { type: "user" }, completed]),
+    ).toBeNull();
+  });
+
+  it("a running or failed compaction moves no boundary", () => {
+    const messages = [assistant(216, 610929), { type: "compaction", status: "running" }];
+    expect(lastCompletedCompactionIndex(messages)).toBe(-1);
+    expect(currentWindowTokens(messages)).toBe(100 + 216 + 610929);
+    const failed = [assistant(216, 610929), { type: "compaction", status: "failed" }];
+    expect(lastCompletedCompactionIndex(failed)).toBe(-1);
+    expect(currentWindowTokens(failed)).toBe(100 + 216 + 610929);
+  });
+
+  it("the newest completed compaction wins", () => {
+    const messages = [
+      assistant(10, 10),
+      completed,
+      assistant(20, 20),
+      { type: "compaction", status: "completed" },
+    ];
+    expect(lastCompletedCompactionIndex(messages)).toBe(3);
+    expect(currentWindowTokens(messages)).toBeNull();
   });
 });
