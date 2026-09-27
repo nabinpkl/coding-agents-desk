@@ -97,9 +97,15 @@ export function BotCodeDialog({
       error={code.error ?? git.error}
       onClose={onClose}
     >
-      <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(14rem,20rem)_1fr]">
+      {/* One row that fills the dialog rather than sizing to its content: an auto row takes the
+          file's natural height, so a long document outgrows the modal and reads as cut off --
+          the scroller inside only engages once every ancestor above it has a bounded height.
+          The file column is `minmax(0, ...)` for the same reason sideways: a grid item's
+          automatic minimum is its content, so one wide table would push the column past the
+          modal instead of scrolling inside it. */}
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[minmax(14rem,20rem)_minmax(0,1fr)]">
         <div
-          className={`min-h-0 flex-col md:flex md:border-r md:border-border
+          className={`min-h-0 min-w-0 flex-col md:flex md:border-r md:border-border
             ${showing ? "hidden" : "flex"}`}
         >
           <SidebarSections
@@ -135,7 +141,7 @@ export function BotCodeDialog({
         </div>
         <section
           aria-label={showing?.kind === "change" ? "Diff" : "File"}
-          className={`min-h-0 flex-col md:flex ${showing ? "flex" : "hidden"}`}
+          className={`min-h-0 min-w-0 flex-col md:flex ${showing ? "flex" : "hidden"}`}
         >
           {showing ? (
             <>
@@ -172,7 +178,7 @@ export function BotCodeDialog({
                   />
                 ) : null}
               </div>
-              <div className="relative min-h-0 flex-1 overflow-hidden">
+              <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
                 {showing.kind === "change" ? (
                   // Re-read on each pushed status, because an agent on this Bot may be mid-edit.
                   <ReadPatchView
