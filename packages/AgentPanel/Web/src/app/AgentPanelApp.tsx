@@ -38,6 +38,7 @@ import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
 import { sidebarProps } from "@/app/shell-state/sidebarProps";
 import { storeSelection } from "@/features/sidebar/selectionStore";
 import { BotCanvas, type BotCommandError } from "@/features/bots/canvas/BotCanvas";
+import { FatherHome } from "@/app/FatherHome";
 import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { useBotMachines } from "@/app/shell-state/useBotMachines";
@@ -114,6 +115,15 @@ export function App({ feed, host, machines, fill = false }: Props) {
   );
   // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
   const botError = commands.botCommandError ?? roster.canvasError;
+  // The home's wiring, shared by its two stands: the header's switch and the floating one over
+  // the headerless canvas. One object because only one stand is ever mounted.
+  const fatherHomeProps = {
+    bots: roster.orderedBots,
+    sessionContextFor: (botId: string) => shellMachines.contextFor(sessionViewContext, botId),
+    attachSessionToBot: roster.attachSessionToBot,
+    onDetachSession: commands.detachBotSession,
+    botError,
+  };
 
   const botSessionPicker = commands.botSessionPickerId
     ? botsState.bots.find((bot) => bot.botId === commands.botSessionPickerId) ?? null
@@ -377,8 +387,12 @@ export function App({ feed, host, machines, fill = false }: Props) {
                   this node's rather than the header's because the strip's own members used to be
                   the header's children and spaced by it. */}
               <div ref={setThreadControlsHost} className="flex shrink-0 items-center gap-1" />
+              {/* The Father home's switch, in the one bar every view shares. */}
+              <FatherHome floating={false} {...fatherHomeProps} />
             </header>
           )}
+          {/* No bar over a pinned canvas, so the switch floats over its corner instead. */}
+          {headerlessCanvas ? <FatherHome floating {...fatherHomeProps} /> : null}
 
           {/* One scroller per surface, and the session owns its own: `SessionView` is a flex
               column that fills whatever box it is given, so the transcript inside it scrolls

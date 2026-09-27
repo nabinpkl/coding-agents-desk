@@ -9,8 +9,9 @@
 // An overlay rather than a band, because a band spends rows the cards do not get and moves the
 // strip every time it opens: the reader's cards would jump down and back with each toggle. This
 // drops from the viewport top like a drawer -- `fixed`, so it draws over the navbar instead of
-// starting below it -- centered and narrower than the canvas, so the strip beside and below it
-// stays visible and clickable while it is open.
+// starting below it -- top right and narrower than full width, so the page beside and below it
+// stays visible and clickable while it is open. It lives in the app shell rather than on one
+// surface, so it is there on every view, not just the canvas.
 
 import { Crown, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -56,7 +57,12 @@ export function resolveFather(bots: readonly BotView[]): FatherResolution {
   return null;
 }
 
-export function FatherButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function FatherButton({ open, onToggle, floating = true }: {
+  open: boolean;
+  onToggle: () => void;
+  /** Floating over the view when it has no header to stand in; inline in the header otherwise. */
+  floating?: boolean;
+}) {
   if (open) return null;
   return (
     <button
@@ -65,8 +71,10 @@ export function FatherButton({ open, onToggle }: { open: boolean; onToggle: () =
       aria-pressed={false}
       aria-expanded={false}
       aria-controls="father-home"
-      title="Open the Father home: the declared session, over the canvas"
-      className="absolute top-3 right-3 z-30 flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-card/95 px-4 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground shadow-lg backdrop-blur outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
+      title="Open the Father home: the declared session, over the panel"
+      className={floating
+        ? "absolute top-3 right-3 z-30 flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-card/95 px-4 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground shadow-lg backdrop-blur outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
+        : "flex min-h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold text-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"}
     >
       <Crown className="size-4 shrink-0 text-primary" aria-hidden />
       Father
@@ -96,7 +104,7 @@ export function FatherOverlay({
   // follows the live values while they move, and the stored ones are the answers they settled on.
   const [height, setHeight] = useState(loadFatherHeight);
   const [width, setWidth] = useState(loadFatherWidth);
-  // Null until the reader first carries the drawer: centered top is the default and needs
+  // Null until the reader first carries the drawer: top right is the default and needs
   // nothing stored. A stored answer survives resizes by being pulled back on screen, never by
   // being forgotten -- forgetting would reopen centered and strand nothing, but it would also
   // throw away an arrangement the reader made on purpose.
@@ -150,7 +158,7 @@ export function FatherOverlay({
 
   // Carrying the drawer by its header, the way a Bot card carries by its own: a press is a click
   // until it has travelled far enough to be a carry, and a press that began on a control belongs
-  // to that control. The first carry captures where the drawer already stands -- centered top
+  // to that control. The first carry captures where the drawer already stands -- top right
   // included -- so it follows the hand from there instead of jumping to a stored answer.
   const MOVE_THRESHOLD = 4;
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -244,12 +252,12 @@ export function FatherOverlay({
       style={{
         height: resize.height,
         width: resize.width,
-        // An explicit stand once carried; centered top until then. `left-1/2` with the translate
-        // centers, `left-0 top-0` with the numbers stands where the hand left it.
+        // An explicit stand once carried; top right until then. `right-0` anchors the corner,
+        // `left-0 top-0` with the numbers stands where the hand left it.
         ...(placed ? { left: placed.x, top: placed.y } : null),
       }}
       className={`fixed z-50 flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl ${
-        placed ? "left-0 top-0" : "left-1/2 top-0 -translate-x-1/2"
+        placed ? "left-0 top-0" : "right-0 top-0"
       }`}
       {...drop.dropProps}
     >

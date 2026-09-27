@@ -123,7 +123,7 @@ const FATHER_POSITION_KEY = "agent-panel.bot-canvas.father-position";
 
 /**
  * Where the drawer stands, as its top-left in viewport pixels. Null until the reader first
- * carries it: centered top is the default and needs nothing stored.
+ * carries it: top right is the default and needs nothing stored.
  */
 export function loadFatherPosition(): FatherPosition | null {
   if (typeof window === "undefined") return null;
@@ -149,7 +149,7 @@ export function storeFatherPosition(position: FatherPosition): void {
       y: Math.round(position.y),
     }));
   } catch {
-    // The drawer still moves; it just opens centered top next time.
+    // The drawer still moves; it just opens top right next time.
   }
 }
 
