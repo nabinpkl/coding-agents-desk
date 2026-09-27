@@ -93,10 +93,13 @@ export function TypeSettings(): React.ReactElement {
   };
 
   const select =
-    "min-h-8 w-full cursor-pointer rounded-md bg-transparent px-1 py-1 " +
-    "text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground " +
-    "outline-none transition-colors hover:bg-muted/60 hover:text-foreground " +
+    "min-h-9 w-full cursor-pointer rounded-md bg-muted/40 px-2 py-1 " +
+    "text-sm font-semibold text-foreground " +
+    "outline-none transition-colors hover:bg-muted/60 " +
     "focus-visible:ring-2 focus-visible:ring-primary";
+
+  /** A field caption: small, uppercase and quiet, so it reads as a name rather than a value. */
+  const caption = "px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70";
 
   return (
     <span className="flex shrink-0 items-center self-center">
@@ -133,46 +136,44 @@ export function TypeSettings(): React.ReactElement {
             close();
           }}
         >
-          <div role="group" aria-label="Panel type" className="grid gap-1">
-            <label
-              htmlFor="agent-panel-type-family"
-              className="px-1 text-xs font-medium text-muted-foreground"
-            >
-              Typeface
-            </label>
-            <select
-              id="agent-panel-type-family"
-              aria-label="Typeface"
-              value={type.family}
-              onChange={(event) => setType((was) => ({ ...was, family: event.target.value }))}
-              className={select}
-            >
-              {TYPE_FAMILIES.map((family) => (
-                <option key={family.id} value={family.id}>
-                  {family.label}
-                </option>
-              ))}
-            </select>
-            <label
-              htmlFor="agent-panel-type-weight"
-              className="px-1 pt-1 text-xs font-medium text-muted-foreground"
-            >
-              Text weight
-            </label>
-            <select
-              id="agent-panel-type-weight"
-              aria-label="Text weight"
-              title="The weight of ordinary text. Every heavier step moves with it."
-              value={type.weight}
-              onChange={(event) => setType((was) => ({ ...was, weight: Number(event.target.value) }))}
-              className={select}
-            >
-              {TYPE_WEIGHTS.map((weight) => (
-                <option key={weight} value={weight}>
-                  {weight}
-                </option>
-              ))}
-            </select>
+          <div role="group" aria-label="Panel type" className="grid gap-3 p-1">
+            <div className="grid gap-1">
+              <label htmlFor="agent-panel-type-family" className={caption}>
+                Typeface
+              </label>
+              <select
+                id="agent-panel-type-family"
+                aria-label="Typeface"
+                value={type.family}
+                onChange={(event) => setType((was) => ({ ...was, family: event.target.value }))}
+                className={select}
+              >
+                {TYPE_FAMILIES.map((family) => (
+                  <option key={family.id} value={family.id}>
+                    {family.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <label htmlFor="agent-panel-type-weight" className={caption}>
+                Text weight
+              </label>
+              <select
+                id="agent-panel-type-weight"
+                aria-label="Text weight"
+                title="The weight of ordinary text. Every heavier step moves with it."
+                value={type.weight}
+                onChange={(event) => setType((was) => ({ ...was, weight: Number(event.target.value) }))}
+                className={select}
+              >
+                {TYPE_WEIGHTS.map((weight) => (
+                  <option key={weight} value={weight}>
+                    {weight}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>,
         document.body,
