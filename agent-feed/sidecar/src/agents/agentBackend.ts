@@ -56,6 +56,33 @@ export interface AgentMessageAttachment {
   name: string;
 }
 
+const MAXIMUM_SEND_FILES = 5;
+const MAXIMUM_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Images riding a send, validated where the contract lives: refusal is a 400 about the
+ * request, not a 500 about the command. Five files, 8 MiB decoded each: a phone photo
+ * passes, a video does not, and the route's own body cap bounds their sum.
+ */
+export function parseMessageAttachments(value: unknown): AgentMessageAttachment[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("files must be an array");
+  if (value.length > MAXIMUM_SEND_FILES) throw new Error(`at most ${MAXIMUM_SEND_FILES} files ride one send`);
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object") throw new Error("each file needs data, mime and name");
+    const record = entry as Record<string, unknown>;
+    const data = typeof record.data === "string" ? record.data : "";
+    const mime = typeof record.mime === "string" ? record.mime : "";
+    const name = typeof record.name === "string" ? record.name : "";
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(data) || data.length === 0) throw new Error("each file needs base64 data");
+    if (!mime.startsWith("image/") || mime.length > 128) throw new Error("each file must be an image");
+    if (!name.trim() || name.length > 128) throw new Error("each file needs a name");
+    const decodedBytes = Math.floor((data.length * 3) / 4);
+    if (decodedBytes > MAXIMUM_ATTACHMENT_BYTES) throw new Error(`"${name}" exceeds 8 MiB`);
+    return { data, mime, name };
+  });
+}
+
 export interface AgentBackend {
   readonly id: string;
   readonly capabilities: AgentSessionCapabilities;

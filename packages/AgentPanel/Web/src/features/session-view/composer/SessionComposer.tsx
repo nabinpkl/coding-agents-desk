@@ -125,6 +125,7 @@ export function SessionComposer({
   onFileDrop,
   onSendMessage,
   onRunCommand,
+  onOpenModels,
   onAbort,
 }: {
   host: HostActionsClient;
@@ -181,6 +182,8 @@ export function SessionComposer({
   onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
   /** Runs a slash command natively; opencode-only, and the shell owns its pending state. */
   onRunCommand: (name: string, args: string) => Promise<void>;
+  /** Opens the model picker; opencode-only, and the shell owns its pending state. */
+  onOpenModels: (filter: string) => void;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
@@ -438,6 +441,7 @@ export function SessionComposer({
     localDraft,
     onAbort,
     onRunCommand,
+    onOpenModels,
     onSendMessage,
     opencodeCommands: useOpencodeCommands(feed, isOpencode ? tmuxComposerSession : null),
     pending,

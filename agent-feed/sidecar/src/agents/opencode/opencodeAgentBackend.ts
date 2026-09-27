@@ -24,7 +24,7 @@ import type {
   OpencodeClient,
 } from "@opencode-ai/sdk/v2/client";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/opencodeClient";
-import { stageOpencodeAttachments, listOpencodeServeCommands, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, renameOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand } from "@/agents/opencode/opencodeServeCalls";
+import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, renameOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/opencodeServeCalls";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -172,6 +172,22 @@ export class OpencodeAgentBackend implements AgentBackend {
     // Server commands first, TUI-local ops after: the picker shows one list, and the names
     // never collide because the serve answers CommandNotFound for the local ones (measured).
     return [...(await listOpencodeServeCommands()), ...LOCAL_OPENCODE_COMMANDS];
+  }
+
+  /** Every model the serve offers, for the picker. Read-only, so no ledger. */
+  async listModels(): Promise<OpencodeModel[]> {
+    this.assertActive();
+    return listOpencodeModels();
+  }
+
+  /** Switches the session's model; the change lands on the session event like a rename. */
+  async switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt> {
+    const owned = await this.pool.open(sessionId);
+    const signature = JSON.stringify({ type: "switch-model", providerID, modelID });
+    return this.command(owned, requestId, signature, async () => {
+      await switchOpencodeModel(sessionId, providerID, modelID);
+      return { requestId, delivery: owned.projection.runState === "idle" ? "immediate" : "followUp" };
+    });
   }
 
   /**

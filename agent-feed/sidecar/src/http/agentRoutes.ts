@@ -1,4 +1,4 @@
-import type { AgentBackend, AgentCommandReceipt, AgentMessageAttachment, AgentMessageDelivery } from "@/agents/agentBackend";
+import { parseMessageAttachments, type AgentBackend, type AgentCommandReceipt, type AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import { buildHandoverPrompt, renderHandover, SessionHandoverError } from "@/transcripts/sessionHandover";
@@ -9,6 +9,8 @@ import type { RouteHandler } from "@/http/route";
 const CREATE_ROUTE = "/api/agent-sessions";
 const HANDOVER_ROUTE = "/api/agent-sessions/opencode/handover";
 const OPENCODE_COMMANDS_ROUTE = "/api/agent-sessions/opencode/commands";
+const OPENCODE_MODELS_ROUTE = "/api/agent-sessions/opencode/models";
+const OPENCODE_MODEL_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/model$/;
 const OPENCODE_RUN_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/command$/;
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
 const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
@@ -21,8 +23,6 @@ const LIVE_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Z
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 /** A send may carry images, so its body cap is its own: five 8 MiB files as base64, plus room. */
 const MAXIMUM_SEND_BYTES = 48 * 1024 * 1024;
-const MAXIMUM_SEND_FILES = 5;
-const MAXIMUM_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const LIVE_STREAM_LAG_LIMIT = 32;
 
 type LiveBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
@@ -41,6 +41,13 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     const runCommand = OPENCODE_RUN_ROUTE.exec(url.pathname);
     if (request.method === "POST" && runCommand) {
       return runOpencodeCommand(request, resolveBackend, runCommand[1]!);
+    }
+    if (request.method === "GET" && url.pathname === OPENCODE_MODELS_ROUTE) {
+      return listOpencodeModels(resolveBackend);
+    }
+    const switchModel = OPENCODE_MODEL_ROUTE.exec(url.pathname);
+    if (request.method === "POST" && switchModel) {
+      return switchOpencodeModel(request, resolveBackend, switchModel[1]!);
     }
     const message = MESSAGE_ROUTE.exec(url.pathname);
     if (request.method === "POST" && message) {
@@ -200,6 +207,8 @@ async function handoverSession(
 interface OpencodeCommandBackend {
   listCommands(): Promise<Array<{ name: string; description?: string }>>;
   runCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt>;
+  listModels(): Promise<Array<{ providerID: string; modelID: string; name: string; contextLimit: number | null; inputCost: number | null; outputCost: number | null }>>;
+  switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt>;
 }
 
 async function listOpencodeCommands(resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
@@ -218,13 +227,28 @@ async function runOpencodeCommand(request: Request, resolveBackend: (id: string)
     const requestId = requestIdentifier(body.requestId);
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const text = typeof body.text === "string" ? body.text : "";
-    if (!requestId || !name) {
-      return errorResponse("invalid-request", "requestId and name are required", 400, requestId ?? undefined);
-    }
-    if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) {
-      return errorResponse("command-too-large", "command arguments exceed 256 KiB", 413, requestId);
-    }
+    if (!requestId || !name) return errorResponse("invalid-request", "requestId and name are required", 400, requestId ?? undefined);
+    if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) return errorResponse("command-too-large", "command arguments exceed 256 KiB", 413, requestId);
     return jsonResponse(await backend.runCommand(sessionId, requestId, name, text), 202);
+  } catch (error) { return routeError(error); }
+}
+
+async function listOpencodeModels(resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
+  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
+  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
+  try { return jsonResponse({ models: await backend.listModels() }); } catch (error) { return routeError(error); }
+}
+
+async function switchOpencodeModel(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
+  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
+  try {
+    const body = await jsonBody(request);
+    const requestId = requestIdentifier(body.requestId);
+    const providerID = typeof body.providerID === "string" ? body.providerID.trim() : "";
+    const modelID = typeof body.modelID === "string" ? body.modelID.trim() : "";
+    if (!requestId || !providerID || !modelID) return errorResponse("invalid-request", "requestId, providerID and modelID are required", 400, requestId ?? undefined);
+    return jsonResponse(await backend.switchModel(sessionId, requestId, providerID, modelID), 202);
   } catch (error) { return routeError(error); }
 }
 
@@ -261,32 +285,6 @@ async function sendMessage(
   } catch (error) {
     return routeError(error);
   }
-}
-
-/**
- * Images riding a send, as the panel holds them: base64 bytes plus their type and name.
- *
- * Validated here rather than in the backend because refusal is a 400 about the request, not a
- * 500 about the command. Five files, 8 MiB decoded each: a phone photo passes, a video does
- * not, and the route body cap above is what bounds their sum.
- */
-function parseMessageAttachments(value: unknown): AgentMessageAttachment[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error("files must be an array");
-  if (value.length > MAXIMUM_SEND_FILES) throw new Error(`at most ${MAXIMUM_SEND_FILES} files ride one send`);
-  return value.map((entry) => {
-    if (!entry || typeof entry !== "object") throw new Error("each file needs data, mime and name");
-    const record = entry as Record<string, unknown>;
-    const data = typeof record.data === "string" ? record.data : "";
-    const mime = typeof record.mime === "string" ? record.mime : "";
-    const name = typeof record.name === "string" ? record.name : "";
-    if (!/^[A-Za-z0-9+/=\s]+$/.test(data) || data.length === 0) throw new Error("each file needs base64 data");
-    if (!mime.startsWith("image/") || mime.length > 128) throw new Error("each file must be an image");
-    if (!name.trim() || name.length > 128) throw new Error("each file needs a name");
-    const decodedBytes = Math.floor((data.length * 3) / 4);
-    if (decodedBytes > MAXIMUM_ATTACHMENT_BYTES) throw new Error(`"${name}" exceeds 8 MiB`);
-    return { data, mime, name };
-  });
 }
 
 async function abortSession(

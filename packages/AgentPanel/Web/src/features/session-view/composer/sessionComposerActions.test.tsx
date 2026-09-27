@@ -161,4 +161,25 @@ describe("sending a slash command", () => {
     expect(onRunCommand).not.toHaveBeenCalled();
     expect(onSendMessage).toHaveBeenCalledWith("/nope nothing", "next", undefined);
   });
+
+  it("opens the model picker for /models instead of running anything", async () => {
+    const onOpenModels = vi.fn();
+    const onRunCommand = vi.fn(async () => {});
+    const { result } = renderHook(() => useSendAttachments());
+    const m = model({
+      editorValue: "/models spark",
+      session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+      sendAttachments: result.current,
+      opencodeCommands: [],
+      onRunCommand,
+      onOpenModels,
+      onSendMessage: vi.fn(async () => {}),
+      setLocalDraft: vi.fn(),
+    } as Partial<ComposerModel>);
+    await act(async () => {
+      await submitComposer(m, "next");
+    });
+    expect(onOpenModels).toHaveBeenCalledWith("spark");
+    expect(onRunCommand).not.toHaveBeenCalled();
+  });
 });

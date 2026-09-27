@@ -83,5 +83,23 @@ export function useSessionCommands(
     }
   }, [feed, session]);
 
-  return { commandPending, commandError, sendPrompt, runSlashCommand, abortRun, respondToExtensionUI };
+  /**
+   * Switches an opencode session's model. Same pending and error contract as a send: the
+   * change lands on the session event, which is what moves the meter without a second read.
+   */
+  const switchModel = useCallback(async (providerID: string, modelID: string) => {
+    if (commandPending) return;
+    setCommandPending(true);
+    setCommandError(null);
+    try {
+      await feed.switchOpencodeModel(session.sessionId, providerID, modelID);
+    } catch (error) {
+      setCommandError(String((error as Error).message ?? error));
+      throw error;
+    } finally {
+      setCommandPending(false);
+    }
+  }, [commandPending, feed, session]);
+
+  return { commandPending, commandError, sendPrompt, runSlashCommand, abortRun, respondToExtensionUI, switchModel };
 }

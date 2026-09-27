@@ -40,6 +40,16 @@ export function useOpencodeCommands(
 }
 
 /**
+ * The panel-owned entry the serve never lists: opening the model picker. Appended after the
+ * served commands so a name collision -- today there is none -- would keep the serve's
+ * meaning and the dialog stays reachable by typing past it.
+ */
+export const MODELS_COMMAND: OpencodeSlashCommand = {
+  name: "models",
+  description: "Switch this session's model",
+};
+
+/**
  * The picker's rows for this draft: only while it opens with a slash, filtered by the name
  * being typed, first match carrying Return. Shaped as `ComposerCommand` so the band draws the
  * same list the pane's menu gets, with nothing in the band knowing where either came from.
@@ -50,7 +60,7 @@ export function opencodeCommandRows(
 ): readonly ComposerCommand[] {
   if (!draft.startsWith("/")) return [];
   const prefix = draft.slice(1).split(/\s/, 1)[0]?.toLowerCase() ?? "";
-  const matches = commands.filter((command) => command.name.toLowerCase().startsWith(prefix));
+  const matches = [...commands, MODELS_COMMAND].filter((command) => command.name.toLowerCase().startsWith(prefix));
   return matches.map((command, index) => ({
     name: `/${command.name}`,
     description: command.description ?? "",
@@ -66,6 +76,6 @@ export function parseOpencodeCommand(
   const match = /^\/([A-Za-z0-9_-]+)([\s\S]*)$/.exec(draft.trim());
   if (!match) return null;
   const name = match[1]!;
-  if (!commands.some((command) => command.name === name)) return null;
+  if (![...commands, MODELS_COMMAND].some((command) => command.name === name)) return null;
   return { name, args: (match[2] ?? "").trim() };
 }

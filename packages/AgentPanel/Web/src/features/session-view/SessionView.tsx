@@ -46,6 +46,7 @@ import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTask
 import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
 import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTasks";
 import { useSessionCommands } from "@/features/session-view/useSessionCommands";
+import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
@@ -189,6 +190,12 @@ export function SessionView({
   const [openQuestion, setOpenQuestion] = useState<OpenAskUserQuestion | null>(null);
   const [extensionUI, setExtensionUI] = useState<AgentUiRequest[]>([]);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
+  /**
+   * The models dialog, opened from `/models` with the slash args as its filter. Null while
+   * closed; the models list loads with the dialog rather than with the session, because most
+   * sessions never ask what else the serve offers.
+   */
+  const [modelsDialog, setModelsDialog] = useState<{ filter: string } | null>(null);
   // Held in state, not a ref, because the feed has to re-render once the node exists.
   const [feedControlsHost, setFeedControlsHost] = useState<HTMLDivElement | null>(null);
   // This column is what the composer's terminal takes its height as a share of. A band pane cannot
@@ -446,8 +453,18 @@ export function SessionView({
         onFileDrop={setFileDrop}
         onSendMessage={commands.sendPrompt}
         onRunCommand={commands.runSlashCommand}
+        onOpenModels={(filter) => setModelsDialog({ filter })}
         onAbort={commands.abortRun}
       />
+      {modelsDialog && session.source === "opencode" ? (
+        <OpencodeModelsHost
+          feed={feed}
+          usage={sessionUsage}
+          initialFilter={modelsDialog.filter}
+          onClose={() => setModelsDialog(null)}
+          onSwitch={(providerID, modelID) => commands.switchModel(providerID, modelID)}
+        />
+      ) : null}
       {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
       {terminal.kind === "loading" || terminal.kind === "ready" ? (
         <AgentTerminalPane feed={feed} context={terminal.context} onState={updateTerminalState} />

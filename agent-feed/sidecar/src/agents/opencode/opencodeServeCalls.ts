@@ -17,6 +17,80 @@ export interface OpencodeSlashCommand {
   description?: string;
 }
 
+/** One model the serve offers, as the picker shows it. Costs are USD per million tokens. */
+export interface OpencodeModel {
+  providerID: string;
+  modelID: string;
+  name: string;
+  contextLimit: number | null;
+  inputCost: number | null;
+  outputCost: number | null;
+}
+
+function readModelEntry(entry: { modelID?: unknown; providerID?: unknown; name?: unknown; limit?: unknown; cost?: unknown }): OpencodeModel | null {
+  if (typeof entry.modelID !== "string" || typeof entry.providerID !== "string") return null;
+  const limit = entry.limit as { context?: unknown } | undefined;
+  const costs = Array.isArray(entry.cost) ? entry.cost[0] as { input?: unknown; output?: unknown } | undefined : undefined;
+  return {
+    providerID: entry.providerID,
+    modelID: entry.modelID,
+    name: typeof entry.name === "string" && entry.name ? entry.name : entry.modelID,
+    contextLimit: typeof limit?.context === "number" ? limit.context : null,
+    inputCost: typeof costs?.input === "number" ? costs.input : null,
+    outputCost: typeof costs?.output === "number" ? costs.output : null,
+  };
+}
+
+/** Every model the serve offers, for the picker and for limit resolution. */
+export async function listOpencodeModels(): Promise<OpencodeModel[]> {
+  const answered = await serveGet("/api/model");
+  if (answered.status === 401) {
+    resetOpencodeClient();
+    throw new Error(`model list: unauthorized (${answered.status})`);
+  }
+  if (answered.status < 200 || answered.status >= 300) {
+    throw new Error(`model list: serve answered ${answered.status}`);
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(answered.text);
+  } catch {
+    throw new Error("model list: serve answered malformed JSON");
+  }
+  const data = (body as { data?: unknown }).data;
+  if (!Array.isArray(data)) throw new Error("model list: serve answered without models");
+  return data.flatMap((entry) => {
+    const model = readModelEntry(entry as { modelID?: unknown; providerID?: unknown });
+    return model ? [model] : [];
+  });
+}
+
+/** Context limits by `providerID/modelID`, for usage fractions. One GET, cached by the caller. */
+export async function fetchOpencodeModelLimits(): Promise<Map<string, number>> {
+  const limits = new Map<string, number>();
+  for (const model of await listOpencodeModels()) {
+    if (model.contextLimit !== null) limits.set(`${model.providerID}/${model.modelID}`, model.contextLimit);
+  }
+  return limits;
+}
+
+/**
+ * Switches the session's model. The flat `{ providerID, id }` shape is this serve's own --
+ * `modelID` is refused (measured) -- and the change lands on the session event like a rename.
+ */
+export async function switchOpencodeModel(sessionId: string, providerID: string, modelID: string): Promise<void> {
+  const answered = await serveWrite("POST", `/api/session/${sessionId}/model`, {
+    model: { providerID, id: modelID },
+  });
+  if (answered.status === 401) {
+    resetOpencodeClient();
+    throw new Error(`model switch: unauthorized (${answered.status})`);
+  }
+  if (answered.status < 200 || answered.status >= 300) {
+    throw new Error(`model switch: serve answered ${answered.status} ${answered.text.slice(0, 200)}`);
+  }
+}
+
 export interface StagedOpencodeFile {
   uri: string;
   mime: string;

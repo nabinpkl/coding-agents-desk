@@ -16,6 +16,16 @@ import type {
 import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTerminals } from "@/features/activity-feed/data-source/layers/SidecarTerminals";
 
+/** One model the serve offers, as the picker shows it. Costs are USD per million tokens. */
+export interface OpencodeModel {
+  providerID: string;
+  modelID: string;
+  name: string;
+  contextLimit: number | null;
+  inputCost: number | null;
+  outputCost: number | null;
+}
+
 export class SidecarAgentSessions extends SidecarTerminals {
   /**
    * Creates a session and answers with its descriptor, not a receipt.
@@ -102,6 +112,32 @@ export class SidecarAgentSessions extends SidecarTerminals {
         "POST",
         `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/command`,
         { body: { requestId: crypto.randomUUID(), name, text } },
+      ),
+    );
+  }
+
+  /**
+   * Every model the serve offers, with context limits and per-MTok costs for the picker.
+   *
+   * Read when the models dialog opens rather than held: seventy entries are one small GET,
+   * and a model added mid-session must appear without a restart lecture.
+   */
+  async listOpencodeModels(): Promise<OpencodeModel[]> {
+    return parse<{ models: OpencodeModel[] }>(
+      await this.transport.request("GET", "/api/agent-sessions/opencode/models"),
+    ).models;
+  }
+
+  /**
+   * Switches the session's model; the change lands on the session event like a rename,
+   * so the meter and the catalog pick it up without a second read.
+   */
+  async switchOpencodeModel(sessionId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt> {
+    return parse<AgentCommandReceipt>(
+      await this.transport.request(
+        "POST",
+        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/model`,
+        { body: { requestId: crypto.randomUUID(), providerID, modelID } },
       ),
     );
   }

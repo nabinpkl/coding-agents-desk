@@ -22,6 +22,7 @@ import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentPr
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
 import { readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
+import { fetchOpencodeModelLimits } from "@/agents/opencode/opencodeServeCalls";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -69,6 +70,8 @@ const FRESHNESS_BOUND_MS = 10_000;
 export class OpencodeSessionPool {
   private readonly owned = new Map<string, OwnedSession>();
   private readonly starts = new Map<string, Promise<OwnedSession>>();
+  private readonly limits = new Map<string, number>();
+  private limitsLoading: Promise<void> | null = null;
   private readonly now: () => number;
   private readonly serve: () => OpencodeClient | null;
   private readonly events: OpencodeServeEvents;
@@ -220,6 +223,31 @@ export class OpencodeSessionPool {
   }
 
   /**
+   * The model's context window for a usage fraction, or null while unknown.
+   *
+   * One shared load across sessions: the first unknown model fetches the whole list once and
+   * caches every entry, so seventy models cost one GET no matter how many sessions ask. A
+   * failed load answers null rather than throwing, because usage must keep flowing without
+   * a bar -- and a fresh model the serve has not told us about yet is routine, not an error.
+   */
+  private async modelLimit(modelKey: string): Promise<number | null> {
+    const known = this.limits.get(modelKey);
+    if (known !== undefined) return known;
+    if (!this.limitsLoading) {
+      this.limitsLoading = fetchOpencodeModelLimits().then(
+        (limits) => {
+          for (const [key, limit] of limits) this.limits.set(key, limit);
+        },
+        () => {},
+      ).finally(() => {
+        this.limitsLoading = null;
+      });
+    }
+    await this.limitsLoading;
+    return this.limits.get(modelKey) ?? null;
+  }
+
+  /**
    * Re-reads a projection whose last refresh is older than the freshness
    * bound, so polling readers and reconnects converge even when no serve
    * event arrived while they were away. Long subscriptions stay event-driven;
@@ -287,11 +315,15 @@ export class OpencodeSessionPool {
       const session = info.data?.data;
       if (session?.tokens && session.model) {
         const tokens = session.tokens;
+        const modelKey = `${session.model.providerID}/${session.model.id}`;
         current.usage = {
           current: tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write,
-          limit: null,
+          // Resolved from the model list, never invented: a fraction of a guessed denominator
+          // reads as authoritative and is not. Null until the first lookup lands, which the
+          // meter draws as a count without a bar.
+          limit: await this.modelLimit(modelKey),
           updatedAt: this.now(),
-          model: `${session.model.providerID}/${session.model.id}`,
+          model: modelKey,
         };
       }
       current.projection.setState(result.open ? "running" : "idle");

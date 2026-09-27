@@ -33,6 +33,14 @@ describe("opencodeCommandRows", () => {
   });
 });
 
+describe("the panel-owned models entry", () => {
+  it("lists the picker after served commands and parses its filter", () => {
+    const rows = opencodeCommandRows(COMMANDS, "/mo");
+    expect(rows.map((row) => row.name)).toEqual(["/models"]);
+    expect(parseOpencodeCommand(COMMANDS, "/models spark")).toEqual({ name: "models", args: "spark" });
+  });
+});
+
 describe("parseOpencodeCommand", () => {
   it("splits a listed command from its arguments", () => {
     expect(parseOpencodeCommand(COMMANDS, "/review the last commit")).toEqual({

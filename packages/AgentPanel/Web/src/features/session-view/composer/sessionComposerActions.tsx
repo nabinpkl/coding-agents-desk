@@ -70,6 +70,12 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
     ? parseOpencodeCommand(m.opencodeCommands, text)
     : null;
   if (slash) {
+    // The picker is the dialog's door: choosing it, or typing it with a filter behind it,
+    // opens the models over the composer rather than running anything headless.
+    if (slash.name === "models") {
+      m.onOpenModels(slash.args);
+      return;
+    }
     try {
       await m.onRunCommand(slash.name, slash.args);
       m.setLocalDraft("");

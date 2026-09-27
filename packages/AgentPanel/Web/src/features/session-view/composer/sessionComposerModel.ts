@@ -47,6 +47,8 @@ export interface ComposerModel {
   onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
   /** Runs a slash command natively; opencode-only, unset everywhere else. */
   onRunCommand: (name: string, args: string) => Promise<void>;
+  /** Opens the model picker; opencode-only, unset everywhere else. */
+  onOpenModels: (filter: string) => void;
   /** What an opencode session offers after a slash; empty on every other source. */
   opencodeCommands: readonly OpencodeSlashCommand[];
   pending: boolean;

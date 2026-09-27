@@ -9,6 +9,7 @@ import {
 interface Recorded {
   prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
   ran: Array<{ sessionID: string; name: string; text: string }>;
+  switched: Array<{ sessionID: string; model: unknown }>;
   localOps: string[];
   interrupts: string[];
   permissionReplies: Array<{ requestID: string; reply: string }>;
@@ -87,6 +88,17 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
     if (parsed.pathname === "/api/command") {
       return Response.json({ data: [{ name: "review", description: "review changes" }, { name: "lonely" }] });
     }
+    if (parsed.pathname === "/api/model") {
+      return Response.json({ data: [
+        { providerID: "opencode-go", modelID: "muse-spark", name: "Muse Spark", limit: { context: 1000 }, cost: [{ input: 1, output: 2 }] },
+        { providerID: "opencode", modelID: "plain", name: "", limit: {}, cost: [] },
+      ] });
+    }
+    if (parsed.pathname.endsWith("/model")) {
+      const body = JSON.parse(String(init?.body)) as { model?: { providerID?: string; id?: string } };
+      recorded.switched.push({ sessionID: parsed.pathname.split("/").at(-2) ?? "", model: body.model ?? {} });
+      return new Response(null, { status: 204 });
+    }
     if (parsed.pathname.endsWith("/command")) {
       const body = JSON.parse(String(init?.body)) as { name?: string; text?: string };
       recorded.ran.push({
@@ -143,7 +155,7 @@ let pushToStream: ((value: unknown) => void) | null = null;
 
 function fixture() {
   pushToStream = null;
-  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const backend = new OpencodeAgentBackend({
     resolveSession: (sessionId) =>
@@ -254,6 +266,20 @@ test("local ops refuse an unknown name and an empty undo or rename", async () =>
   await backend.dispose();
 });
 
+test("models list with limits and switch natively", async () => {
+  const { backend, recorded } = fixture();
+  await expect(backend.listModels()).resolves.toEqual([
+    { providerID: "opencode-go", modelID: "muse-spark", name: "Muse Spark", contextLimit: 1000, inputCost: 1, outputCost: 2 },
+    { providerID: "opencode", modelID: "plain", name: "plain", contextLimit: null, inputCost: null, outputCost: null },
+  ]);
+  const receipt = await backend.switchModel("s1", "r-m", "opencode-go", "muse-spark");
+  expect(receipt).toEqual({ requestId: "r-m", delivery: "immediate" });
+  expect(recorded.switched).toEqual([
+    { sessionID: "s1", model: { providerID: "opencode-go", id: "muse-spark" } },
+  ]);
+  await backend.dispose();
+});
+
 test("a serve permission becomes a broker select and the answer becomes its reply", async () => {
   const { backend, recorded } = fixture();
   const seen: Array<{ type: string; request?: { requestId: string; kind: string; options?: string[] } }> = [];
@@ -289,7 +315,7 @@ test("a serve permission becomes a broker select and the answer becomes its repl
 
 test("creating a session registers it through the serve", async () => {
   const created: Array<{ sessionId: string; projectPath: string }> = [];
-  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   const backend = new OpencodeAgentBackend({
     resolveSession: () => undefined,
     onSessionCreated: (location) => created.push(location),
@@ -306,7 +332,7 @@ test("creating a session registers it through the serve", async () => {
 
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
-  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   // Newest-first, the way the serve lists; the tail read picks up the push.
   const messages = [userItem("msg-u", "hello")];
   installFetch(recorded, messages);
@@ -332,7 +358,7 @@ test("opening a stale projection re-reads the serve", async () => {
 });
 
 test("a long history walks every page and lands chronological", async () => {
-  const recorded: Recorded = { prompts: [], ran: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   // Newest-first, the way the serve lists: msg-249 first, msg-0 last.
   const all = Array.from({ length: 250 }, (_, i) => ({
     id: `msg-${249 - i}`,

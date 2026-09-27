@@ -326,3 +326,38 @@ test("opencode command routes answer 404 without the backend", async () => {
   });
   expect((await route(run, new URL(run.url), server))?.status).toBe(404);
 });
+
+test("opencode models list and switch through the backend", async () => {
+  const switched: { sessionId: string; providerID: string; modelID: string }[] = [];
+  const base = fakeBackend();
+  const route = createAgentRoutes((id) => id === "opencode" ? {
+    ...base,
+    id: "opencode",
+    listModels: async () => [{ providerID: "p", modelID: "m", name: "M", contextLimit: 1000, inputCost: 1, outputCost: 2 }],
+    switchModel: async (sessionId: string, requestId: string, providerID: string, modelID: string) => {
+      switched.push({ sessionId, providerID, modelID });
+      return { requestId, delivery: "followUp" as const };
+    },
+  } : undefined);
+
+  const list = new Request("http://localhost/api/agent-sessions/opencode/models", { method: "GET" });
+  const listed = await route(list, new URL(list.url), server);
+  expect(listed?.status).toBe(200);
+  expect(await listed?.json()).toEqual({
+    models: [{ providerID: "p", modelID: "m", name: "M", contextLimit: 1000, inputCost: 1, outputCost: 2 }],
+  });
+
+  const run = new Request("http://localhost/api/agent-sessions/opencode/s1/model", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "m1", providerID: "p", modelID: "m" }),
+  });
+  const answered = await route(run, new URL(run.url), server);
+  expect(answered?.status).toBe(202);
+  expect(switched).toEqual([{ sessionId: "s1", providerID: "p", modelID: "m" }]);
+
+  const missing = new Request("http://localhost/api/agent-sessions/opencode/s1/model", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "m2", providerID: "p" }),
+  });
+  expect((await route(missing, new URL(missing.url), server))?.status).toBe(400);
+});
