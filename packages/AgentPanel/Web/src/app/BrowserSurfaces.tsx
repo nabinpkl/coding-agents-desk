@@ -247,8 +247,14 @@ export function BrowserSurfaces({
   const [terminalMachine, setTerminalMachine] = useState<MachineTerminalTarget | null>(null);
   const selectedLabel = sessions.find((session) => session.id === sessionId)?.label ?? "this machine";
   // The Father home's switch, owned here because its place is in this bar rather than in any one
-  // view. Stored, so the feed it opens over agrees with the bar about whether it is open.
+  // view. Stored, so the feed it opens over agrees with the bar about whether it is open. On
+  // every tab: elsewhere the drawer it opens stands over the feed's roster, so the press goes
+  // to the feed first and then opens.
   const [fatherOpen, setFatherOpen] = useState(loadFatherOpen);
+  const writeFatherOpen = useCallback((next: boolean) => {
+    setFatherOpen(next);
+    storeFatherOpen(next);
+  }, []);
   const toggleFather = useCallback(() => {
     setFatherOpen((was) => {
       const next = !was;
@@ -346,13 +352,21 @@ export function BrowserSurfaces({
             corner on a choice most readers make once, and a control reached through one press
             still shows its effect on the page it is on. */}
         <TypeSettings />
-        {/* Right of the display settings: the Father home's switch, on the feed only, because
-            the drawer it opens stands over the feed's roster. */}
-        {surface === "feed" ? (
-          <span className="flex shrink-0 items-center self-center">
-            <FatherButton open={fatherOpen} onToggle={toggleFather} floating={false} />
-          </span>
-        ) : null}
+        {/* Right of the display settings, on every tab: the Father home's switch. The drawer it
+            opens stands over the feed's roster, so a press elsewhere goes to the feed first. */}
+        <span className="flex shrink-0 items-center self-center">
+          <FatherButton
+            open={fatherOpen}
+            onToggle={() => {
+              if (surface === "feed") toggleFather();
+              else {
+                select("feed");
+                writeFatherOpen(true);
+              }
+            }}
+            floating={false}
+          />
+        </span>
       </div>
       {terminalMachine ? (
         <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
