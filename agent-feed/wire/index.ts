@@ -262,3 +262,19 @@ export type {
   WorkspaceSummary,
   WorkspaceTreeNode,
 } from "./workspaceIde.ts";
+
+export type {
+  DirectoryEntry,
+  DirectoryReachability,
+  HubStreamEvent,
+  Message,
+  MessageAddress,
+  MessageKind,
+  MessageRef,
+  MessageState,
+  PublishBotsRequest,
+  PublishedBot,
+  ReplyMessageRequest,
+  SendMessageRequest,
+  SenderKind,
+} from "./messaging.ts";

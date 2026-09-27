@@ -12,7 +12,6 @@ import {
 import { createAgentRoutes } from "@/http/agentRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
 import { createCliInputRoutes } from "@/http/session-routes/cliInputRoutes";
-import { createRelayMcpHttpRoutes } from "@/mcp/relayHttpRoutes";
 import {
   createTmuxComposerRoutes,
   liveTmuxComposerDependencies,
@@ -67,6 +66,9 @@ import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
+import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
+import { HubClient, loadHubSettings } from "@/messaging/hubClient";
+import { createHubRoutes } from "@/messaging/hubRoutes";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
@@ -235,9 +237,8 @@ const routes: RouteHandler[] = [
   createWorkspaceHistoryRoutes(workspaceService),
   createWorkspaceRoutes(workspaceService),
   createSessionRoutes(describeAgentSession),
-  // The relay as a URL instead of a file path: Streamable HTTP MCP on /mcp.
-  // Top level path, so position is readability only.
-  createRelayMcpHttpRoutes(),
+  // The agent messaging hub, spoken to as `human` on the panel's behalf (docs/agent-messaging.md).
+  createHubRoutes(),
 ];
 const SHUTDOWN_GRACE_MS = 500;
 
@@ -309,6 +310,10 @@ void startCatalog()
   .then(async () => {
     await claudeLive.start();
     await codexLive.start();
+    // Bots are published only once the catalog is up, so their session lists are not read empty.
+    const hubSettings = loadHubSettings();
+    if (typeof hubSettings === "string") console.error(`[hub-bots] ${hubSettings}; Bots are not published`);
+    else await startHubBotPublisher(botRegistry, new HubClient(hubSettings));
   })
   .catch((error) => {
     console.error("agent feed catalog startup failed", error);

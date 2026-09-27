@@ -1,0 +1,39 @@
+# The agent messaging hub on oracle. Run from agent-feed/hub/deploy/: docker compose up -d --build
+# Values come from deploy/.env (mode 0600, never committed); see .env.example.
+# No host port: only cloudflared reaches the hub, and every request needs an Access-signed JWT.
+name: agent-hub
+
+services:
+  hub:
+    build:
+      context: ../..
+      dockerfile: hub/deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      HUB_HOST: 0.0.0.0
+      HUB_PORT: "3850"
+      HUB_DATA_DIR: /data
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:?set in deploy/.env}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:?set in deploy/.env}
+      HUB_PRINCIPALS: ${HUB_PRINCIPALS:?set in deploy/.env}
+    volumes:
+      - hub-data:/data
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3850/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.9.1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set in deploy/.env}
+    depends_on:
+      hub:
+        condition: service_healthy
+
+volumes:
+  hub-data:
