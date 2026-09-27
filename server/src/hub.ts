@@ -1,9 +1,14 @@
 /* Talking to the agent hub at relay.example.com.
  *
- * The hub sits behind its own Cloudflare Access app, so calling it means presenting an Access
- * service token: exchange the client id and secret for a short-lived JWT at the team's token
- * endpoint, then send that as `cf-access-jwt-assertion`. There is no other credential: the hub's
- * principals table decides what the token may do, and this one may only send as `human`.
+ * The hub sits behind Cloudflare Access, and Access takes a service token's client id and secret
+ * as headers on the request itself: the edge does the token exchange, and the origin sees only
+ * the assertion that results. So there is nothing to mint, cache, or refresh here. (There is a
+ * `/cdn-cgi/access/token` endpoint for minting an assertion by hand, and it is not what this
+ * setup serves: it answers 404, which is how this file learned that.)
+ *
+ * What the credential is allowed to do is not Cloudflare's decision. It is the hub's principals
+ * table, which resolves the client id to a principal; this one may send as `human` and speaks for
+ * no machine.
  *
  * This module is the only place that knows any of that. The service depends on the `HubClient`
  * interface, so a test can hand it a fake and no test needs an edge.
@@ -46,12 +51,7 @@ export interface HubConfig {
   /** Cloudflare Access service token for the hub's Access app. */
   accessClientId: string;
   accessClientSecret: string;
-  /** Where that token is exchanged for a JWT. Same team as this server's own Access app. */
-  accessTokenUrl: string;
 }
-
-/** Refresh this long before the JWT expires, so a request never leaves with one about to die. */
-const TOKEN_MARGIN_MS = 60_000;
 
 function hubError(status: number, body: unknown, path: string): Error {
   const detail = typeof body === "object" && body !== null && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : `HTTP ${status}`;
@@ -64,55 +64,29 @@ function hubError(status: number, body: unknown, path: string): Error {
 }
 
 export function createHubClient(config: HubConfig, fetchImpl: typeof fetch = fetch): HubClient {
-  let cached: { token: string; expiresAt: number } | null = null;
-  let inFlight: Promise<string> | null = null;
-
-  /**
-   * The Access JWT, fetched once and reused until it is nearly expired.
-   *
-   * Single-flight, because the panel asks for the recipient list and the send states at the same
-   * time, and two simultaneous exchanges would burn two tokens to learn the same thing.
-   */
-  async function assertion(): Promise<string> {
-    const now = Date.now();
-    if (cached && cached.expiresAt - TOKEN_MARGIN_MS > now) return cached.token;
-    inFlight ??= (async () => {
-      let res: Response;
-      try {
-        res = await fetchImpl(config.accessTokenUrl, {
-          method: "POST",
-          headers: { "cf-access-client-id": config.accessClientId, "cf-access-client-secret": config.accessClientSecret },
-        });
-      } catch (e) {
-        throw new HubUnreachable(`could not reach the Access token endpoint: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      if (!res.ok) throw new HubUnreachable(`Access token endpoint answered HTTP ${res.status}`);
-      const body = (await res.json()) as { token?: unknown; expires_in?: unknown };
-      if (typeof body.token !== "string" || typeof body.expires_in !== "number") throw new HubUnreachable("Access token endpoint returned no token");
-      cached = { token: body.token, expiresAt: Date.now() + body.expires_in * 1000 };
-      return body.token;
-    })().finally(() => {
-      inFlight = null;
-    });
-    return inFlight;
-  }
-
   async function call(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
-    const token = await assertion();
     let res: Response;
     try {
       res = await fetchImpl(`${config.url}${path}`, {
         method,
         headers: {
-          "cf-access-jwt-assertion": token,
+          "cf-access-client-id": config.accessClientId,
+          "cf-access-client-secret": config.accessClientSecret,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        // Access answers an unusable service token with a redirect to its login page rather than a
+        // status code, and following it would hand this server an HTML page where JSON belongs.
+        redirect: "manual",
       });
     } catch (e) {
       throw new HubUnreachable(`could not reach the hub: ${e instanceof Error ? e.message : String(e)}`);
     }
     const text = await res.text();
+    // The redirect case first, because its body is a sign-in page and says nothing useful.
+    if (res.status >= 300 && res.status < 400) {
+      throw new HubUnreachable(`hub redirected ${path} to a sign-in page: Access refused this server's service token`);
+    }
     const parsed: unknown = text ? JSON.parse(text) : null;
     if (!res.ok) throw hubError(res.status, parsed, path);
     return parsed;

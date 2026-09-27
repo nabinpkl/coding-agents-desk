@@ -1,5 +1,5 @@
-/* The hub client: the Access token exchange, that the token is reused, and which
- * of the hub's answers is the reader's problem and which is ours. */
+/* The hub client: the service token it presents, and which of the hub's answers
+ * is the reader's problem and which is ours. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createHubClient, HubRefused, HubUnreachable } from "../src/hub.ts";
@@ -7,66 +7,53 @@ import { createHubClient, HubRefused, HubUnreachable } from "../src/hub.ts";
 interface Call {
   url: string;
   method: string;
-  assertion: string | null;
-  clientId: string | null;
+  headers: Record<string, string>;
   body: unknown;
 }
 
-function edge(responder: (call: Call) => { status?: number; body: unknown }, opts: { token?: { status: number; body: unknown } } = {}): { fetch: typeof fetch; calls: Call[] } {
+function edge(responder: (call: Call) => { status?: number; body?: unknown } = () => ({ body: [] })): { fetch: typeof fetch; calls: Call[] } {
   const calls: Call[] = [];
   const impl = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    const headers = new Headers(init?.headers);
-    const call: Call = {
-      url,
-      method: init?.method ?? "GET",
-      assertion: headers.get("cf-access-jwt-assertion"),
-      clientId: headers.get("cf-access-client-id"),
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-    };
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((v, k) => {
+      headers[k] = v;
+    });
+    const call: Call = { url: String(input), method: init?.method ?? "GET", headers, body: init?.body ? JSON.parse(String(init.body)) : undefined };
     calls.push(call);
-    if (url.endsWith("/cdn-cgi/access/token")) {
-      if (opts.token) return Response.json(opts.token.body, { status: opts.token.status });
-      if (call.clientId !== "id") return Response.json({ error: "bad service token" }, { status: 400 });
-      return Response.json({ token: `jwt-${calls.filter((c) => c.url.includes("token")).length}`, expires_in: 3600 });
-    }
-    const { status = 200, body } = responder(call);
+    const { status = 200, body = null } = responder(call);
     return Response.json(body, { status });
   }) as unknown as typeof fetch;
   return { fetch: impl, calls };
 }
 
-const CONFIG = { url: "https://relay.example", accessClientId: "id", accessClientSecret: "secret", accessTokenUrl: "https://team.example/cdn-cgi/access/token" };
+const CONFIG = { url: "https://relay.example", accessClientId: "id", accessClientSecret: "secret" };
 
-test("a call presents a minted Access assertion, and the token is reused rather than reminted", async () => {
-  const { fetch, calls } = edge(() => ({ body: [] }));
+test("every call carries the service token as headers, the way Access takes it", async () => {
+  // Not a minted assertion: the edge does the exchange, so there is nothing to mint. Getting this
+  // wrong passes against a fake and fails against Cloudflare with a 404 on the token endpoint.
+  const { fetch, calls } = edge();
   const hub = createHubClient(CONFIG, fetch);
   await hub.directory();
   await hub.directory();
-  const tokens = calls.filter((c) => c.url.includes("/token"));
-  assert.equal(tokens.length, 1, "one exchange should serve both calls");
-  const hubCalls = calls.filter((c) => !c.url.includes("/token"));
-  assert.deepEqual(hubCalls.map((c) => c.assertion), ["jwt-1", "jwt-1"]);
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.headers["cf-access-client-id"], "id");
+    assert.equal(call.headers["cf-access-client-secret"], "secret");
+  }
+  assert.equal(calls[0]?.headers["cf-access-jwt-assertion"], undefined, "no assertion is minted locally");
 });
 
-test("a stale token is reminted once the old one is nearly expired", async () => {
-  let minted = 0;
-  const impl = (async (input: string | URL | Request) => {
-    const url = String(input);
-    if (url.endsWith("/token")) {
-      minted += 1;
-      // 30s of life against a 60s margin: already inside it, so the next call must remint.
-      return Response.json({ token: `jwt-${minted}`, expires_in: 30 });
-    }
-    return Response.json([], { status: 200 });
-  }) as unknown as typeof fetch;
+test("a redirect to a sign-in page is a refused credential, not a JSON body to parse", async () => {
+  // Access answers an unusable service token with a 30x and an HTML login page.
+  const impl = (async () => new Response("<html>Sign in</html>", { status: 302, headers: { location: "https://relay.example/cdn-cgi/access/login" } })) as unknown as typeof fetch;
   const hub = createHubClient(CONFIG, impl);
-  await hub.directory();
-  await hub.directory();
-  assert.equal(minted, 2, "a token inside the refresh margin should not be handed out");
+  await assert.rejects(
+    () => hub.directory(),
+    (e: unknown) => e instanceof HubUnreachable && /sign-in page/.test(e.message) && /service token/.test(e.message),
+  );
 });
 
-test("sends as human, with the body and refs the caller gave, and reports the id it was given", async () => {
+test("sends as the owner, with the body and refs the caller gave, and reports the id it was given", async () => {
   const { fetch, calls } = edge((call) => (call.url.endsWith("/v1/messages") ? { status: 201, body: { id: "m1", state: "queued" } } : { body: [] }));
   const hub = createHubClient(CONFIG, fetch);
   const out = await hub.send({ to: "opencode:ses_1", body: "look at this", refs: [{ app: "agentdesk-annotator", kind: "annotation", id: "7" }] });
@@ -77,7 +64,7 @@ test("sends as human, with the body and refs the caller gave, and reports the id
 });
 
 test("the hub's refusals come back as the reader's problem, in the hub's own words", async () => {
-  // 400/404/409/429 are answers to what was asked: a stale pick, a full thread, a hop limit.
+  // 400/404/409/422/429 are answers to what was asked: a stale pick, a full thread, a hop limit.
   for (const status of [400, 404, 409, 422, 429]) {
     const { fetch } = edge(() => ({ status, body: { error: `hub says ${status}` } }));
     const hub = createHubClient(CONFIG, fetch);
@@ -85,7 +72,7 @@ test("the hub's refusals come back as the reader's problem, in the hub's own wor
   }
 });
 
-test("a rejected credential is ours, and the message names the credential without printing it", async () => {
+test("a rejected credential is ours, and the message names it without printing the secret", async () => {
   for (const status of [401, 403]) {
     const { fetch } = edge(() => ({ status, body: { error: "nope" } }));
     const hub = createHubClient(CONFIG, fetch);
@@ -101,45 +88,27 @@ test("a rejected credential is ours, and the message names the credential withou
   }
 });
 
-test("a hub that is down is unreachable, not a refusal, and a 500 is not the reader's to fix", async () => {
+test("a hub that is down is unreachable, and so is a 500", async () => {
   const { fetch } = edge(() => ({ status: 500, body: { error: "boom" } }));
-  const hub = createHubClient(CONFIG, fetch);
-  await assert.rejects(() => hub.directory(), (e: unknown) => e instanceof HubUnreachable);
+  await assert.rejects(() => createHubClient(CONFIG, fetch).directory(), (e: unknown) => e instanceof HubUnreachable);
 
-  // A network failure is reported against the hop that failed, which is the token endpoint first.
   const offline = createHubClient(CONFIG, (async () => {
     throw new TypeError("fetch failed");
   }) as unknown as typeof fetch);
-  await assert.rejects(() => offline.directory(), (e: unknown) => e instanceof HubUnreachable && /Access token endpoint/.test(e.message));
-
-  // And with a token in hand, the same failure names the hub.
-  const hubDown = createHubClient(CONFIG, (async (input: string | URL | Request) => {
-    if (String(input).endsWith("/token")) return Response.json({ token: "jwt-1", expires_in: 3600 });
-    throw new TypeError("fetch failed");
-  }) as unknown as typeof fetch);
-  await assert.rejects(() => hubDown.directory(), (e: unknown) => e instanceof HubUnreachable && /could not reach the hub/.test(e.message));
-});
-
-test("a token endpoint that will not mint is unreachable, and says so", async () => {
-  const { fetch } = edge(() => ({ body: [] }), { token: { status: 400, body: { error: "bad service token" } } });
-  const hub = createHubClient(CONFIG, fetch);
-  await assert.rejects(() => hub.directory(), (e: unknown) => e instanceof HubUnreachable && /Access token endpoint/.test(e.message));
+  await assert.rejects(() => offline.directory(), (e: unknown) => e instanceof HubUnreachable && /could not reach the hub/.test(e.message));
 });
 
 test("a directory entry with no address or name is dropped rather than shown as a blank recipient", async () => {
   const { fetch } = edge(() => ({ body: [{ address: "opencode:a", name: "A", machine: null, cwd: null, reachability: "reachable", lastSeenAt: null, related: [] }, { name: "no address" }, null, 7] }));
-  const hub = createHubClient(CONFIG, fetch);
-  assert.deepEqual((await hub.directory()).map((r) => r.address), ["opencode:a"]);
+  assert.deepEqual((await createHubClient(CONFIG, fetch).directory()).map((r) => r.address), ["opencode:a"]);
 });
 
 test("an unfamiliar reachability reads as offline, so nothing is offered as answerable when it is not", async () => {
   const { fetch } = edge(() => ({ body: [{ address: "opencode:a", name: "A", reachability: "starting" }] }));
-  const hub = createHubClient(CONFIG, fetch);
-  assert.equal((await hub.directory())[0]?.reachability, "offline");
+  assert.equal((await createHubClient(CONFIG, fetch).directory())[0]?.reachability, "offline");
 });
 
 test("an accepted message with no id is a failure, not a send that will never be found", async () => {
   const { fetch } = edge(() => ({ status: 201, body: { state: "queued" } }));
-  const hub = createHubClient(CONFIG, fetch);
-  await assert.rejects(() => hub.send({ to: "opencode:a", body: "hi", refs: [] }), (e: unknown) => e instanceof HubUnreachable && /no id/.test(e.message));
+  await assert.rejects(() => createHubClient(CONFIG, fetch).send({ to: "opencode:a", body: "hi", refs: [] }), (e: unknown) => e instanceof HubUnreachable && /no id/.test(e.message));
 });

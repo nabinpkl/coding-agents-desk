@@ -15,12 +15,11 @@ export interface Config {
   };
   /** Origins allowed to send an Origin header to /mcp. Requests without Origin are allowed. */
   mcpAllowedOrigins: string[];
-  /** The agent hub, for Send. Its Access token is minted from the same team as this server's. */
+  /** The agent hub, for Send. The Access service token is sent as headers, so nothing else. */
   hub: {
     url: string;
     accessClientId: string;
     accessClientSecret: string;
-    accessTokenUrl: string;
   };
 }
 
@@ -62,9 +61,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       url: baseUrl(env, "HUB_URL"),
       accessClientId: required(env, "HUB_ACCESS_CLIENT_ID"),
       accessClientSecret: required(env, "HUB_ACCESS_CLIENT_SECRET"),
-      // The same team mints it, so the token endpoint is a fact about the team rather than a value
-      // to keep in step with HUB_URL.
-      accessTokenUrl: `https://${teamDomain}/cdn-cgi/access/token`,
     },
   };
 }

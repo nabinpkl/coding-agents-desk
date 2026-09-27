@@ -18,7 +18,9 @@ Rotating the tunnel token or service token: create a new one in the Access dashb
 
 Send talks to the agent hub at `relay.example.com`, which is a separate Access app in the same team. Two things have to exist there before the annotator server will start, and neither is created from this repo:
 
-1. **An Access service token on the hub's app**, added to that app's policy as an include. Its client id goes in `HUB_ACCESS_CLIENT_ID` and its secret in `HUB_ACCESS_CLIENT_SECRET` in `deploy/.env` on oracle. The token endpoint is derived from `CF_ACCESS_TEAM_DOMAIN`, so it is not configured separately.
+1. **An Access service token on the hub's app**, added to that app's policy as an include. Its client id goes in `HUB_ACCESS_CLIENT_ID` and its secret in `HUB_ACCESS_CLIENT_SECRET` in `deploy/.env` on oracle. Both are sent as headers on every hub request (`cf-access-client-id`, `cf-access-client-secret`) and the edge does the exchange, so there is nothing to mint or refresh and no second URL to configure.
 2. **A principal entry in the hub's `HUB_PRINCIPALS`** naming that client id, with the `human` flag and no machine: `annotator=<client id>=annotator::human`. Without the flag the hub refuses everything this server sends, and the 502 in the log says exactly that.
+
+Created 2026-09-25: service token `hub-annotator` (id `00000000-0000-4000-8000-000000000015`, client id `00000000000000000000000000000000.access`), added to the existing `hub service tokens` policy on the `agent-hub` app alongside `hub-mac`, `hub-oracle` and `hub-panel`.
 
 The hub knows nothing about annotations. This side sends one request with a Markdown brief and a ref per annotation; the agent answers through the `agentdesk-annotator_*` tools as it already does.

@@ -29,10 +29,8 @@ export interface FakeHub {
   url: string;
   /** Every message the hub was asked to post, in order. */
   readonly sent: Array<{ as: unknown; to: unknown; kind: unknown; body: unknown; refs: unknown }>;
-  /** Every call that arrived without a usable Access assertion. */
+  /** Every call that arrived without the right service token. */
   readonly unauthorized: number;
-  /** How many times the Access token was minted, so token caching is observable. */
-  tokensMinted(): number;
   /** Makes the next hub call answer this status and body, once. */
   failOnce(status: number, body: unknown): void;
   /** Moves a message's state, for the per-annotation readout. */
@@ -42,26 +40,18 @@ export interface FakeHub {
 async function startFakeHub(): Promise<FakeHub & { close(): Promise<void> }> {
   const sent: FakeHub["sent"] = [];
   const states = new Map<string, SendState>();
-  const tokenUrl = "/cdn-cgi/access/token";
-  const state = { minted: 0, unauthorized: 0, failure: null as { status: number; body: unknown } | null, counter: 0 };
+  const state = { unauthorized: 0, failure: null as { status: number; body: unknown } | null, counter: 0 };
   const server = http.createServer((req, res) => {
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
-    if (req.url === tokenUrl && req.method === "POST") {
-      if (req.headers["cf-access-client-id"] !== HUB_CLIENT_ID || req.headers["cf-access-client-secret"] !== HUB_CLIENT_SECRET) {
-        send(400, { error: "bad service token" });
-        return;
-      }
-      state.minted += 1;
-      send(200, { token: `hub-jwt-${state.minted}`, expires_in: 3600 });
-      return;
-    }
-    // Everything else is the hub itself, which only takes a minted assertion.
-    if (req.headers["cf-access-jwt-assertion"] !== `hub-jwt-${state.minted}` || state.minted === 0) {
+    // The real edge takes the service token's id and secret as headers on the request and does the
+    // exchange itself, so that is all this fake demands. A client that minted its own assertion
+    // would pass here and fail against Cloudflare, which is how it went wrong once.
+    if (req.headers["cf-access-client-id"] !== HUB_CLIENT_ID || req.headers["cf-access-client-secret"] !== HUB_CLIENT_SECRET) {
       state.unauthorized += 1;
-      send(401, { error: "missing or stale Access token" });
+      send(401, { error: "missing or wrong service token" });
       return;
     }
     if (state.failure) {
@@ -110,7 +100,6 @@ async function startFakeHub(): Promise<FakeHub & { close(): Promise<void> }> {
     get unauthorized() {
       return state.unauthorized;
     },
-    tokensMinted: () => state.minted,
     failOnce(status, body) {
       state.failure = { status, body };
     },
@@ -159,7 +148,6 @@ export async function startHarness(): Promise<Harness> {
       url: hubEdge.url,
       accessClientId: HUB_CLIENT_ID,
       accessClientSecret: HUB_CLIENT_SECRET,
-      accessTokenUrl: `${hubEdge.url}/cdn-cgi/access/token`,
     }),
   );
   const logs: Array<Record<string, unknown>> = [];
