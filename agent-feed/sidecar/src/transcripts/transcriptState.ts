@@ -32,6 +32,12 @@ export interface TranscriptState {
   sourceWatchers: { close(): Promise<void> }[];
   discoveryTimer: ReturnType<typeof setInterval> | null;
   watcherState: WatcherState;
+  /**
+   * What shutdown has to stop beyond the transcript sources: long-lived loops the process started
+   * itself, such as the opencode hub adapter's streams. Each is a synchronous stop; the shutdown
+   * path runs them in order and reports one that throws rather than swallowing it.
+   */
+  shutdownHooks: (() => void)[];
   // Raw event index -> byte offset of its line.
   eventByteOffsets: Map<string, number[]>;
   // Nice event index -> RAW event index, not a byte offset. Nice event N's byte
@@ -81,6 +87,7 @@ export const state: TranscriptState = {
   sourceWatchers: [],
   discoveryTimer: null,
   watcherState: "idle",
+  shutdownHooks: [],
   eventByteOffsets: new Map(),
   niceToRaw: new Map(),
   indexedSizes: new Map(),

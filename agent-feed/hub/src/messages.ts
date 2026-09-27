@@ -5,11 +5,12 @@ import type {
   HubStreamEvent,
   Message,
   MessageAddress,
+  MessagingSource,
   MessageRef,
   SenderKind,
 } from "@agentdesk/agent-feed-wire";
 import type { Principal } from "@/config";
-import { Directory, isAddress } from "@/directory";
+import { Directory, isAddress, sessionAddress, sessionSource } from "@/directory";
 import { publicMessage, type HubStore, type StoredMessage } from "@/store";
 
 export const LIMITS = {
@@ -80,7 +81,7 @@ export class Messages {
       if (!principal.human) throw new Forbidden(`${principal.label} may not send as human`);
       return { from: as, fromKind: "human" };
     }
-    if (!as.startsWith("claude:")) throw new InvalidMessage("only human or a claude session can send");
+    if (!sessionAddress(as)) throw new InvalidMessage("only human or a session can send");
     const session = this.store.getSession(as);
     if (!principal.machine || !session || session.machine !== principal.machine || !session.connected) {
       throw new Forbidden(`${principal.label} has no live stream for ${as}`);
@@ -128,7 +129,8 @@ export class Messages {
     if (parent && this.store.threadSize(threadId) >= LIMITS.threadMessages) throw new Refused(`thread is at ${LIMITS.threadMessages} messages; start a new one`);
 
     const toHuman = to === "human";
-    const fallbackBot = to.startsWith("claude:") ? (this.directory.botsOf(to)[0] ? (`bot:${this.directory.botsOf(to)[0]!.botId}` as MessageAddress) : null) : null;
+    const bots = sessionSource(to) ? this.directory.botsOf(to) : [];
+    const fallbackBot = bots[0] ? (`bot:${bots[0]!.botId}` as MessageAddress) : null;
     const saved = this.store.transaction(() => {
       const row = this.store.insertMessage({
         id,
@@ -188,10 +190,10 @@ export class Messages {
 
   // Streams and delivery
 
-  connect(principal: Principal, session: { sessionId: string; channel: boolean; cwd: string; title: string }, stream: SessionStream): MessageAddress {
+  connect(principal: Principal, session: { source: MessagingSource; sessionId: string; channel: boolean; cwd: string; title: string }, stream: SessionStream): MessageAddress {
     if (!principal.machine) throw new Forbidden(`${principal.label} speaks for no machine`);
-    if (!/^[0-9a-f-]{36}$/.test(session.sessionId)) throw new InvalidMessage("session must be a session uuid");
-    const address = `claude:${session.sessionId}` as MessageAddress;
+    if (!/^[0-9a-zA-Z_-]{1,128}$/.test(session.sessionId)) throw new InvalidMessage("session must be a session id");
+    const address = `${session.source}:${session.sessionId}` as MessageAddress;
     const previous = this.streams.get(address);
     if (previous) this.store.requeueStream(previous.id);
     this.streams.set(address, stream);

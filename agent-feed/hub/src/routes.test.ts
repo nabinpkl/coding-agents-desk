@@ -69,7 +69,7 @@ describe("auth", () => {
 
 describe("stream", () => {
   test("a message sent to a streaming session arrives on its stream and is confirmed", async () => {
-    const stream = await call(`/v1/stream?session=${SESSION}&channel=1&cwd=/work/x&title=probe`, { as: "mac.access" });
+    const stream = await call(`/v1/stream?session=${SESSION}&source=claude&channel=1&cwd=/work/x&title=probe`, { as: "mac.access" });
     expect(stream.status).toBe(200);
     const reader = stream.body!.getReader();
     const decoder = new TextDecoder();
@@ -110,5 +110,16 @@ describe("stream", () => {
   test("bad input is a 400, not a 500", async () => {
     expect((await call("/v1/messages", { as: "mac.access", method: "POST", body: "{nope" })).status).toBe(400);
     expect((await call("/v1/messages", { as: "mac.access", method: "POST", body: JSON.stringify({ as: "human", to: "nobody", kind: "request", body: "x" }) })).status).toBe(400);
+  });
+
+  test("an opencode stream opens under its own source and rejects a bad one", async () => {
+    expect((await call(`/v1/stream?session=${SESSION}&source=cursor`, { as: "mac.access" })).status).toBe(400);
+    const stream = await call(`/v1/stream?session=ses_abc123&source=opencode&channel=1&cwd=/work/x&title=probe`, { as: "mac.access" });
+    expect(stream.status).toBe(200);
+    const reader = stream.body!.getReader();
+    const frame = await reader.read();
+    const hello = JSON.parse(new TextDecoder().decode(frame.value).replace(/^data: /, "").trim()) as { address: string };
+    expect(hello.address).toBe("opencode:ses_abc123");
+    await reader.cancel();
   });
 });

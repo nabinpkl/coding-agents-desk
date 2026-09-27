@@ -1,7 +1,11 @@
 // The relay child's side of the hub stream: keep one stream open for this session, turn each
 // message into a channel notification, and confirm it only after the notification was written.
+//
+// Claude Code sessions get a channel notification. OpenCode sessions have no channel, so the
+// same message is written as a prompt through the sidecar's adapter; the hub contract either side
+// sees is identical, which is why this loop serves both.
 
-import type { Message, MessageRef } from "@agentdesk/agent-feed-wire";
+import type { Message, MessageRef, MessagingSource } from "@agentdesk/agent-feed-wire";
 import type { HubClient } from "@/messaging/hubClient";
 import type { RelaySession } from "@/messaging/relaySession";
 
@@ -41,6 +45,8 @@ export interface ChannelLoopDeps {
   readSession: () => RelaySession | string;
   notify: (notification: ChannelNotification) => Promise<void>;
   log: (text: string) => void;
+  /** Which runtime this child serves. Defaults to claude, the one started per session. */
+  source?: MessagingSource;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -51,6 +57,7 @@ export interface ChannelLoopDeps {
  */
 export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal): Promise<void> {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const source = deps.source ?? "claude";
   let failures = 0;
   while (!signal.aborted) {
     const session = deps.readSession();
@@ -71,6 +78,7 @@ export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal)
       await deps.hub.stream(
         {
           session: session.sessionId,
+          source,
           channel: session.channel ? "1" : "0",
           cwd: session.cwd,
           title: session.title,

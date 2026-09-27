@@ -18,12 +18,12 @@ function fixture() {
   const messages = new Messages(store, () => now);
   const received = new Map<string, HubStreamEvent[]>();
   const streams = new Map<string, SessionStream>();
-  const open = (principal: Principal, sessionId: string, channel = true) => {
+  const open = (principal: Principal, sessionId: string, channel = true, source: "claude" | "opencode" = "claude") => {
     const events: HubStreamEvent[] = [];
     const stream: SessionStream = { id: crypto.randomUUID(), push: (e) => events.push(e) };
     received.set(sessionId, events);
     streams.set(sessionId, stream);
-    messages.connect(principal, { sessionId, channel, cwd: `/work/${sessionId.slice(0, 4)}`, title: "" }, stream);
+    messages.connect(principal, { source, sessionId, channel, cwd: `/work/${sessionId.slice(0, 4)}`, title: "" }, stream);
     return stream;
   };
   const pushed = (sessionId: string) => (received.get(sessionId) ?? []).filter((e) => e.type === "message").map((e) => (e as Extract<HubStreamEvent, { type: "message" }>).message);
@@ -69,6 +69,24 @@ describe("send and reply", () => {
     expect(f.messages.directory.list(Date.now()).find((e) => e.address === `claude:${A}`)?.reachability).toBe("no-channel");
   });
 
+  test("an opencode session is reached, confirmed, and answers like any other", () => {
+    const f = fixture();
+    f.open(MAC, A, true, "opencode");
+    const sent = f.messages.send(MAC, { as: "human", to: `opencode:${A}`, kind: "request", body: "fix it" });
+    expect(sent.state).toBe("pushed");
+    f.confirmAll(MAC, A);
+    const reply = f.messages.send(MAC, { as: `opencode:${A}`, inReplyTo: sent.id, body: "done" });
+    expect(reply).toMatchObject({ to: "human", state: "delivered", fromKind: "agent" });
+    expect(f.messages.get(sent.id).state).toBe("answered");
+  });
+
+  test("one runtime's session id is not another runtime's address", () => {
+    const f = fixture();
+    f.open(MAC, A);
+    // The same id, claimed as opencode, is a different address and has no stream.
+    expect(() => f.messages.send(MAC, { as: "human", to: `opencode:${A}`, kind: "notice", body: "x" })).toThrow(NotFound);
+  });
+
   test("a dropped stream puts unconfirmed pushes back in the queue", () => {
     const f = fixture();
     const stream = f.open(MAC, A);
@@ -89,7 +107,7 @@ describe("send and reply", () => {
 describe("bots", () => {
   test("a Bot address resolves to its newest reachable member, and holds when none is", () => {
     const f = fixture();
-    f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [A, B] }]);
+    f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [`claude:${A}`, `claude:${B}`] }]);
     const held = f.messages.send(MAC, { as: "human", to: "bot:fixer", kind: "request", body: "first" });
     expect(held.state).toBe("queued");
     f.open(MAC, A);
@@ -100,9 +118,17 @@ describe("bots", () => {
     expect(next.deliveredTo).toBe(`claude:${B}`);
   });
 
+  test("a Bot holding both runtimes resolves to whichever member is live", () => {
+    const f = fixture();
+    f.messages.publishBots(MAC, "mac", [{ botId: "mixed", name: "Mixed", path: "/work/site", sessionIds: [`claude:${A}`, `opencode:${B}`] }]);
+    const held = f.messages.send(MAC, { as: "human", to: "bot:mixed", kind: "request", body: "work" });
+    f.open(MAC, B, true, "opencode");
+    expect(f.messages.get(held.id)).toMatchObject({ state: "pushed", deliveredTo: `opencode:${B}` });
+  });
+
   test("a reply to a gone Bot session falls back to the Bot", () => {
     const f = fixture();
-    f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [A, B] }]);
+    f.messages.publishBots(MAC, "mac", [{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: [`claude:${A}`, `claude:${B}`] }]);
     const a = f.open(MAC, A);
     const question = f.messages.send(MAC, { as: `claude:${A}`, to: "human", kind: "request", body: "which colour?" });
     f.messages.disconnect(`claude:${A}`, a.id);

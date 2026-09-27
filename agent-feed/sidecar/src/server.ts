@@ -68,6 +68,7 @@ import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
 import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
+import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
 import { createHubRoutes } from "@/messaging/hubRoutes";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
@@ -312,8 +313,22 @@ void startCatalog()
     await codexLive.start();
     // Bots are published only once the catalog is up, so their session lists are not read empty.
     const hubSettings = loadHubSettings();
-    if (typeof hubSettings === "string") console.error(`[hub-bots] ${hubSettings}; Bots are not published`);
-    else await startHubBotPublisher(botRegistry, new HubClient(hubSettings));
+    if (typeof hubSettings === "string") {
+      console.error(`[hub] ${hubSettings}; no Bots published and no opencode messages delivered`);
+    } else {
+      const hub = new HubClient(hubSettings);
+      await startHubBotPublisher(botRegistry, hub);
+      // OpenCode's streams live here rather than in a per-session child, because opencode runs one
+      // MCP process per serve. The adapter opens one hub stream per session the serve lists and
+      // writes each push as a queued prompt.
+      const opencodeHub = new HubOpencodeAdapter({
+        hub,
+        serve: liveOpencodeServePort(() => void opencodeHub.sync()),
+        log: (line) => console.error(`[hub-opencode] ${line}`),
+      });
+      opencodeHub.start();
+      state.shutdownHooks.push(() => opencodeHub.stop());
+    }
   })
   .catch((error) => {
     console.error("agent feed catalog startup failed", error);
@@ -340,6 +355,13 @@ async function shutdown(signal: string): Promise<void> {
   await Bun.sleep(SHUTDOWN_GRACE_MS);
   for (const stream of [...state.openStreams]) stream.teardown();
   announcement.stop();
+  for (const hook of [...state.shutdownHooks].reverse()) {
+    try {
+      hook();
+    } catch (error) {
+      console.error("shutdown hook failed", error);
+    }
+  }
   await stopCatalog();
   agentTerminals.stop();
   try {

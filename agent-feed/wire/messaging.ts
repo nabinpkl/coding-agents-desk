@@ -4,10 +4,14 @@
 /**
  * Who can send or receive.
  *
- * `human` is the owner. `claude:<sessionId>` is one Claude Code session. `bot:<botId>` is an
- * agent-desk Bot, resolved at delivery time to one of its reachable sessions.
+ * `human` is the owner. `claude:<sessionId>` and `opencode:<sessionId>` are one live agent session
+ * on one machine. `bot:<botId>` is an agent-desk Bot, resolved at delivery time to one of its
+ * reachable sessions.
  */
-export type MessageAddress = "human" | `claude:${string}` | `bot:${string}`;
+export type MessageAddress = "human" | `claude:${string}` | `opencode:${string}` | `bot:${string}`;
+
+/** The agent runtimes v1 can address, in the order the directory lists them. */
+export type MessagingSource = "claude" | "opencode";
 
 export type MessageKind = "request" | "notice" | "reply";
 
@@ -51,7 +55,7 @@ export interface Message {
 }
 
 export interface SendMessageRequest {
-  /** The sender: `human` for a human surface, `claude:<id>` for a relay child speaking for its session. */
+  /** The sender: `human` for a human surface, `<source>:<id>` for a relay child speaking for its session. */
   as: MessageAddress;
   /** Omitted on a reply: a reply always goes to the sender of `inReplyTo`. */
   to?: MessageAddress;
@@ -90,7 +94,11 @@ export interface PublishedBot {
   botId: string;
   name: string;
   path: string;
-  /** Claude session ids attached to this Bot. */
+  /**
+   * The session ids attached to this Bot, each prefixed by its source (`claude:<id>` or
+   * `opencode:<id>`). A Bot can hold sessions from both, so the prefix is what keeps one
+   * runtime's ids from being resolved as another's.
+   */
   sessionIds: string[];
 }
 

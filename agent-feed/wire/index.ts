@@ -270,6 +270,7 @@ export type {
   Message,
   MessageAddress,
   MessageKind,
+  MessagingSource,
   MessageRef,
   MessageState,
   PublishBotsRequest,

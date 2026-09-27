@@ -56,8 +56,8 @@ describe("hub bot publisher", () => {
     }],
   } as unknown as BotSnapshot;
 
-  test("publishes Claude sessions only, whole, under this machine", async () => {
-    expect(publishedBots(snapshot)).toEqual([{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: ["s1"] }]);
+  test("publishes both runtimes' sessions under their source prefix, whole, under this machine", async () => {
+    expect(publishedBots(snapshot)).toEqual([{ botId: "fixer", name: "Site fixer", path: "/work/site", sessionIds: ["claude:s1", "opencode:o1"] }]);
     const puts: { path: string; body: unknown }[] = [];
     const hub = fakeHub(async (request, url) => {
       puts.push({ path: url.pathname, body: await request.json() });

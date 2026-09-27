@@ -1,7 +1,7 @@
 // Who can be addressed, and which session a Bot address lands on right now.
 
 import { basename } from "node:path";
-import type { DirectoryEntry, MessageAddress } from "@agentdesk/agent-feed-wire";
+import type { DirectoryEntry, MessageAddress, MessagingSource } from "@agentdesk/agent-feed-wire";
 import type { BotRow, HubStore, SessionRow } from "@/store";
 
 /** Offline sessions older than this drop out of the listing; their messages stay. */
@@ -9,15 +9,38 @@ const OFFLINE_LISTING_MS = 7 * 24 * 3600 * 1000;
 
 export const HUMAN_NAME = "owner";
 
+export const SESSION_ID = /^[0-9a-zA-Z_-]{1,128}$/;
+
+/** The sources a session stream can be opened for, with the address prefix each one uses. */
+const SOURCE_PREFIX: Record<MessagingSource, string> = { claude: "claude", opencode: "opencode" };
+
 export function isAddress(value: unknown): value is MessageAddress {
-  return typeof value === "string" && (value === "human" || /^claude:[0-9a-f-]{36}$/.test(value) || /^bot:[A-Za-z0-9_.:-]{1,128}$/.test(value));
+  return (
+    typeof value === "string" &&
+    (value === "human" ||
+      /^(claude|opencode):[0-9a-zA-Z_-]{1,128}$/.test(value) ||
+      /^bot:[A-Za-z0-9_.:-]{1,128}$/.test(value))
+  );
 }
 
-export function sessionAddress(sessionId: string): MessageAddress {
-  return `claude:${sessionId}`;
+/** A true session address, or null. Bot and human addresses are not session addresses. */
+export function sessionAddress(value: unknown): MessageAddress | null {
+  if (typeof value !== "string") return null;
+  for (const [source, prefix] of Object.entries(SOURCE_PREFIX)) {
+    if (value.startsWith(`${prefix}:`) && SESSION_ID.test(value.slice(prefix.length + 1))) {
+      return `${source}:${value.slice(prefix.length + 1)}` as MessageAddress;
+    }
+  }
+  return null;
 }
 
-function botAddress(bot: BotRow): MessageAddress {
+export function sessionSource(address: MessageAddress): MessagingSource | null {
+  if (address.startsWith("claude:")) return "claude";
+  if (address.startsWith("opencode:")) return "opencode";
+  return null;
+}
+
+export function botAddress(bot: BotRow): MessageAddress {
   return `bot:${bot.botId}`;
 }
 
@@ -30,9 +53,8 @@ export class Directory {
 
   /** The Bots a session belongs to. */
   botsOf(address: MessageAddress): BotRow[] {
-    if (!address.startsWith("claude:")) return [];
-    const sessionId = address.slice("claude:".length);
-    return this.store.bots().filter((bot) => bot.sessionIds.includes(sessionId));
+    if (!sessionSource(address)) return [];
+    return this.store.bots().filter((bot) => bot.sessionIds.includes(address));
   }
 
   bot(address: MessageAddress): BotRow | undefined {
@@ -56,7 +78,7 @@ export class Directory {
   resolveBot(address: MessageAddress): MessageAddress | null {
     const bot = this.bot(address);
     if (!bot) return null;
-    const members = new Set(bot.sessionIds.map((id) => `claude:${id}`));
+    const members = new Set(bot.sessionIds);
     const live = this.store.sessions().filter((s) => members.has(s.address) && s.connected && s.channel);
     return live[0]?.address ?? null;
   }
@@ -84,7 +106,7 @@ export class Directory {
       cwd: null,
     }];
     for (const bot of bots) {
-      const members = bot.sessionIds.map((id) => byAddress.get(`claude:${id}`)).filter((s): s is SessionRow => s !== undefined);
+      const members = bot.sessionIds.map((id) => byAddress.get(id as MessageAddress)).filter((s): s is SessionRow => s !== undefined);
       entries.push({
         address: botAddress(bot),
         name: bot.name,
@@ -103,7 +125,7 @@ export class Directory {
         machine: s.machine,
         reachability: s.connected ? (s.channel ? "reachable" : "no-channel") : "offline",
         lastSeenAt: s.lastSeen,
-        related: bots.filter((b) => b.sessionIds.includes(s.address.slice("claude:".length))).map(botAddress),
+        related: bots.filter((b) => b.sessionIds.includes(s.address)).map(botAddress),
         cwd: s.cwd,
       });
     }

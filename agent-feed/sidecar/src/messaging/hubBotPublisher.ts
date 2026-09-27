@@ -7,12 +7,17 @@ import type { HubClient } from "@/messaging/hubClient";
 
 const REPUBLISH_MS = 60_000;
 
+/** The runtimes v1 can address. A ref from any other source is not published. */
+const ADDRESSABLE = new Set(["claude", "opencode"]);
+
 export function publishedBots(snapshot: BotSnapshot): PublishedBot[] {
   return snapshot.bots.map((bot) => ({
     botId: bot.botId,
     name: bot.name,
     path: bot.environment.path,
-    sessionIds: bot.sessionRefs.filter((ref) => ref.source === "claude").map((ref) => ref.sessionId),
+    // Source-prefixed, because the hub resolves each id under one runtime's address and a bare
+    // id would let a Claude session answer for an opencode one.
+    sessionIds: bot.sessionRefs.filter((ref) => ADDRESSABLE.has(ref.source)).map((ref) => `${ref.source}:${ref.sessionId}`),
   }));
 }
 

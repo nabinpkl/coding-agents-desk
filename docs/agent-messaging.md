@@ -1,6 +1,6 @@
 # Agent messaging: H2A, A2H, A2A
 
-Status: design, not built. Written 2026-09-25. It replaces the annotator-only dispatch plan. The annotator becomes one adapter on top of this design.
+Status: hub, relay, Bot publishing and the OpenCode adapter are built and live. The panel inbox and the annotator adapter are not. Written 2026-09-25, OpenCode slice landed the same day. It replaces the annotator-only dispatch plan. The annotator becomes one adapter on top of this design.
 
 ## Goal
 
@@ -14,7 +14,7 @@ This is one messaging layer that any surface or agent can use:
 
 It knows nothing about annotations, pages or any one app. Apps attach opaque references.
 
-**v1 scope:** live Claude Code sessions on the mac and oracle, plus the human. OpenCode comes next, with its shape sketched below so v1 does not block it.
+**v1 scope:** OpenCode sessions on the mac and oracle, plus the human. Claude Code's channel path is built and verified but is not in v1, because the OpenCode adapter needed no per-session child and therefore no startup flag.
 
 ## Why this shape
 
@@ -36,12 +36,13 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
                 SQLite: participants, messages, deliveries, directory
              ▲ SSE stream + POST             ▲ POST / GET              ▲ PUT directory
              │ (machine token)               │ (surface token)         │ (machine token)
-   relay child in each Claude session   human surfaces               agent-desk sidecar
-   = channel + send/reply tools         agent-desk panel inbox       publishes Bots per machine
-             │                          annotator (Send adapter)
-   notifications/claude/channel
+   agent-desk sidecar (one stream per      human surfaces             agent-desk sidecar
+   opencode session) + relay child        agent-desk panel inbox      publishes Bots per machine
+   = send/reply tools                     annotator (Send adapter)
+             │
+   opencode serve: POST /api/session/{id}/prompt (delivery: queue)
              ▼
-   the Claude Code session
+   the opencode session
 ```
 
 ## Participants and addresses
@@ -51,12 +52,12 @@ It knows nothing about annotations, pages or any one app. Apps attach opaque ref
 | `human` | The owner. There is one in v1. | Always. Messages are stored and shown on human surfaces. |
 | `claude:<sessionId>` | One Claude Code session. | Its relay child holds an open stream to the hub, and that session was started with the channel flag (see Reachability). |
 | `bot:<botId>` | An agent-desk Bot. It resolves at delivery time to one reachable member session. | Any member session is reachable. |
-| `opencode:<sessionId>` | v2. | While that machine's `opencode serve` is healthy. Every OpenCode session is reachable through the serve API, so it needs no per-session presence. |
+| `opencode:<sessionId>` | One opencode session. | While that machine's sidecar holds a stream for it, which it does for every session the serve lists. |
 
 **The directory:**
 - It is the hub's list of addresses with display names, machine, reachability and last seen.
-- Sessions enter it through their child's stream.
-- Bots enter it through each sidecar publishing its Bot registry: `botId`, name, directory and member session ids. agent-desk stays the authoritative home for Bots, and the hub's copy is replaced whole on each publish.
+- Sessions enter it through their stream: the sidecar's per-session stream under opencode, a relay child's stream under Claude.
+- Bots enter it through each sidecar publishing its Bot registry: `botId`, name, directory and member session ids, each source-prefixed (`claude:<id>`, `opencode:<id>`). agent-desk stays the authoritative home for Bots, and the hub's copy is replaced whole on each publish.
 
 **Resolving `bot:` to a session:**
 - **Thread affinity first:** a message in an existing thread goes to the session that handled the thread's last message, if it is still reachable.
@@ -91,7 +92,28 @@ queued ──▶ delivered(session, at) ──▶ answered(reply id)
 - **Order:** delivery is first-in, first-out per recipient.
 - **The child confirms each delivery with a POST.** A delivery pushed on the stream but never confirmed goes back to `queued` when the stream drops, so it is delivered at least once. The message id sits in the channel tag, so a repeat is visible to the agent.
 
-## Reachability of a Claude session
+## Reachability of an OpenCode session
+
+OpenCode needs none of the above. The sidecar is the thing that already knows which sessions the
+serve lists, so it holds the streams:
+
+1. **The session list** comes from `opencode serve`'s own `/api/session` listing, the same source the
+   catalog reconciles from. The sidecar's existing serve event stream is the trigger, so no second
+   event connection is opened.
+2. **One stream per session.** Each is opened as `opencode:<sessionId>` with `channel: true`, since
+   a prompt needs no startup flag. A session the serve drops has its stream aborted, which requeues
+   anything it had not confirmed.
+3. **Delivery is a prompt.** A push becomes `POST /api/session/{id}/prompt` with
+   `delivery: "queue"` and the message id as the request id, so a redelivery after a dropped stream
+   is the same prompt the serve's ledger already knows rather than a second turn. The hub is
+   confirmed only after that write returns; a failed write leaves the message queued.
+4. **Reachability follows the serve.** While the serve answers and lists a session, that session is
+   reachable, exactly as the owner specified. No per-session presence is tracked.
+
+The stream query carries a `source` parameter (`claude` or `opencode`) because the same id under
+the other runtime's prefix is a different address, not an alias.
+
+## Reachability of a Claude session (built, verified, out of v1)
 
 When the child starts, it works out the following:
 
@@ -103,16 +125,32 @@ When the child starts, it works out the following:
 
 ## The session side: relay child tools and instructions
 
-The four tools on today's relay MCP are replaced: `send` (tmux composer), `notify` (socket inbox), `sessions_list` and `session_status`.
+The old relay tools (`send` through the tmux composer, `notify` through the socket inbox,
+`sessions_list`, `session_status`) are gone. Four hub tools replace them, and the same four are
+served under both runtimes.
 
 | Tool | Does |
 |---|---|
-| `send(to, body, kind, refs?)` | Starts a thread. Returns the message id and the delivery state. |
-| `reply(message_id, body)` | Answers within the message's thread, to its sender. |
-| `inbox(state?)` | Messages to this session not yet answered. Used for recovery after a compaction, or on a session without the channel. |
-| `directory()` | Reachable addresses with names and machines. |
+| `hub_send(to, body, kind, session_id?)` | Starts a thread. On OpenCode, `session_id` is required: one child serves every session the serve holds, so the agent names its own. |
+| `hub_reply(message_id, body)` | Answers within the message's thread, to its sender. Needs no session id on either runtime: the hub stamps `deliveredTo` on the message, so the reply learns the session it must speak as from the message it answers. |
+| `hub_inbox()` | Messages to this session (Claude) or to any of this machine's opencode sessions, not yet answered. Used for recovery after a compaction. |
+| `hub_directory()` | Reachable addresses with names and machines. |
 
-**Channel event as the model sees it:**
+**How OpenCode's child learns who is calling (the probe result, 2026-09-25):** it cannot. OpenCode
+calls `client.callTool({ name, arguments })` with no session metadata, and one child is shared by
+every session the serve holds, so there is no parent process naming a session either. Two
+consequences, both handled above: a new thread names its session explicitly, and a reply does not
+need to, because the hub already knows which session the message reached.
+
+**The message as the model sees it, under OpenCode:**
+
+```
+<channel source="agentdesk-relay" message_id="01K…" thread_id="01K…" from="human" from_name="owner" from_kind="human" kind="request" hops="0">
+body text
+</channel>
+```
+
+**Channel event as the model sees it, under Claude Code:**
 
 ```
 <channel source="agentdesk-relay" message_id="01K…" thread_id="01K…" from="bot:site-fixer" from_kind="agent" kind="request" hops="1">
@@ -130,7 +168,8 @@ body text
 ## Trust and safety
 
 - **Identity is stamped, not claimed:**
-  - Machine tokens (one Access service token per machine) may speak only as `claude:` sessions that are present from that machine.
+  - Machine tokens (one Access service token per machine) may speak only as `claude:` or
+    `opencode:` sessions that are present from that machine.
   - Surface tokens (the annotator server and the agent-desk panel backend) may speak as `human`.
   - **Known limit:** any local process holding a machine's token can claim any session on that machine. This is accepted for one owner and written down.
 - **The envelope cannot be forged:** the hub refuses (400) a body that contains `<channel` or `</channel`. The sender gets the error rather than a silently escaped message.
@@ -157,12 +196,15 @@ body text
    - The annotator needs a hub surface token. Nothing in the hub knows about annotations.
 3. **Later:** phone push for A2H requests, and permission relay.
 
-## Launching sessions with the channel
+## Launching Claude sessions with the channel (not in v1)
+
+OpenCode needs none of this. It is kept here because the Claude path is built and would be re-enabled
+by exactly this work:
 
 - **Flag on every start:** each machine gets a zsh function that adds `--dangerously-load-development-channels server:agentdesk-relay` to every interactive `claude` start. It passes `-p` runs through unchanged, because headless runs such as the oracle Cloudflare flow must not hit the warning screen.
 - **Human starts:** one Enter on the warning, each start.
 - **agent-desk launches:** Bot sessions and forks from `terminal/claudeSessionLaunch.ts` add the flag. The launcher accepts the warning through tmux, and fails loud with a `BotLaunchError` if the warning never appears or never clears.
-- **Claude Desktop sessions** cannot take the flag, so they appear with `channel: false` in v1.
+- **Claude Desktop sessions** cannot take the flag, so they appear with `channel: false`.
 - **Research preview risk:** the flag, the warning or the protocol can change in a Claude Code update. The start-up check fails loud and the directory shows `channel: false`, so breakage is visible rather than silent.
 
 ## What gets deleted
@@ -185,37 +227,29 @@ body text
 
 ## Build order
 
-Each slice is verified on the real surface before the next starts.
+Each slice is verified on the real surface before the next starts. Marked done means built, tested,
+and observed live; the Claude-only steps are struck because v1 is OpenCode.
 
-0. **Spike: the unknowns, no product code.**
-   - The child reads its session and parent argv correctly for a plain start, `--resume`, a fork, under tmux, and on both machines.
-   - The zsh function works: one Enter for a human start, and `-p` is untouched.
-   - The agent-desk launcher gets past the warning with no one present.
-   - An SSE stream through the Access tunnel stays up for an hour with a 30-second heartbeat.
-   - If the warning cannot be passed unattended, stop and report.
-1. **Hub.**
-   - Package and repo location (decision 1), compose on oracle, Access app, machine and surface tokens.
-   - Schema, stream, send and reply, delivery states, directory.
-   - Tests cover stamping, loop guards, the envelope refusal, requeue on a dropped stream, and expiry.
-   - Verified with curl through the edge.
-2. **A2A on the mac.**
-   - Relay child rewrite: channel, the four tools, the reachability check.
-   - Two sessions exchange a request and a reply while both are idle.
-   - Then mac to oracle.
-3. **H2A and A2H.** The agent-desk panel inbox. The owner sends to a session, the agent replies, and the owner answers in the thread.
-4. **Bots.**
-   - Sidecar publishes the directory.
-   - `bot:` addressing, thread affinity, held delivery when a session starts.
-   - The launcher adds the flag.
-5. **Annotator adapter.** Send with a remembered recipient, and per-item state.
-6. **Permission relay:** only after its own go.
-7. **OpenCode.**
-   - Adapter in the sidecar: reachable while serve is healthy, delivered through `POST /api/session/{id}/prompt` with `delivery: "queue"`.
-   - Outbound needs an answer first: OpenCode runs one MCP process per serve, not per session, so a `send` tool must learn which session is calling from the request metadata. If OpenCode does not provide that, outbound needs another path.
+0. ~~**Spike: the unknowns.**~~ Done for the paths v1 needs. The opencode child identity probe
+   returned no session metadata, which is why `hub_send` names its session and `hub_reply` does
+   not. The Claude warning-through-tmux spike is not done and is not needed for v1.
+1. **Hub.** Done. Compose on oracle at `relay.example.com`, Access app `agent-hub`, three service
+   tokens, SQLite on a volume, remote tunnel ingress. Schema, stream, send and reply, delivery
+   states, directory, loop guards, envelope refusal, requeue on a dropped stream, expiry. Verified
+   with curl through the edge and from both machines' tokens.
+2. **Relay child rewrite.** Done. The four hub tools replace the tmux and socket paths; the channel
+   loop is source-aware. Verified against a local stand-in edge with two live sessions.
+3. **Bots.** Done. The sidecar publishes both runtimes' session refs under source-prefixed ids;
+   `bot:` resolves across runtimes with thread affinity and held delivery.
+4. **OpenCode adapter.** Code done: one hub stream per serve-listed session, prompt delivery, hub
+   confirmation after the write, dropped sessions requeued. Awaiting the live check on a real
+   opencode session on both machines.
+5. **Panel inbox.** Not started. The sidecar routes are in place (`/api/hub/*`); the panel surface
+   is not.
+6. **Annotator adapter.** Not started beyond the `sends` table.
+7. **Permission relay:** only after its own go, and Claude-only.
 
 ## Decisions for the owner
 
-1. **Hub placement:** a new service at `relay.example.com` on oracle, with the code in agent-desk (recommended). The alternative is running it inside the agent-desk sidecar on oracle, which avoids a second deploy but puts the hub on the tailnet only, out of reach of the annotator container without extra networking.
-2. **Flag on every Claude start** through the zsh function, costing one Enter per start (recommended). The alternative is only agent-desk-launched sessions being reachable.
-3. **Peer authority:** agent requests are weighed as a colleague's, and anything destructive or out of scope goes to the human first (recommended). The alternative is peers carrying the owner's authority.
-4. **v1 A2H surface:** the agent-desk panel only (recommended), or phone push as well from day one.
+All four are settled (2026-09-25): a new `relay.example.com` service on oracle; v1 is OpenCode only,
+so no Claude startup flag; peer messages carry colleague weight; A2H is the agent-desk panel only.

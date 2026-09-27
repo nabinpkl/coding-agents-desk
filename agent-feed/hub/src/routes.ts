@@ -3,7 +3,7 @@
 import type { MessageAddress, PublishedBot } from "@agentdesk/agent-feed-wire";
 import { Unauthorized, type Verifier } from "@/auth";
 import type { Principal } from "@/config";
-import { isAddress } from "@/directory";
+import { isAddress, SESSION_ID, sessionAddress } from "@/directory";
 import { Forbidden, InvalidMessage, Messages, NotFound, RateLimited, Refused, type SessionStream } from "@/messages";
 
 const HEARTBEAT_MS = 25_000;
@@ -45,6 +45,8 @@ function errorResponse(error: unknown, log: RouteDeps["log"], path: string): Res
 
 function openStream(deps: RouteDeps, principal: Principal, url: URL): Response {
   const sessionId = url.searchParams.get("session") ?? "";
+  const sourceName = url.searchParams.get("source") ?? "claude";
+  const source = sourceName === "opencode" ? "opencode" : "claude";
   const channel = url.searchParams.get("channel") === "1";
   const cwd = url.searchParams.get("cwd") ?? "";
   const title = url.searchParams.get("title") ?? "";
@@ -72,7 +74,7 @@ function openStream(deps: RouteDeps, principal: Principal, url: URL): Response {
   const body = new ReadableStream<Uint8Array>({
     start(c) {
       controller = c;
-      address = deps.messages.connect(principal, { sessionId, channel, cwd, title }, stream);
+      address = deps.messages.connect(principal, { source, sessionId, channel, cwd, title }, stream);
       heartbeat = setInterval(() => write(": heartbeat\n\n"), HEARTBEAT_MS);
       deps.log({ event: "stream-open", address, channel, who: principal.label });
     },
@@ -95,7 +97,9 @@ async function route(deps: RouteDeps, request: Request, url: URL): Promise<Respo
   if (method === "GET" && path === "/v1/stream") {
     // Validate before the stream opens, so a bad request is a status code rather than a dead stream.
     if (!principal.machine) throw new Forbidden(`${principal.label} speaks for no machine`);
-    if (!/^[0-9a-f-]{36}$/.test(url.searchParams.get("session") ?? "")) throw new InvalidMessage("session must be a session uuid");
+    if (!SESSION_ID.test(url.searchParams.get("session") ?? "")) throw new InvalidMessage("session must be a session id");
+    const source = url.searchParams.get("source") ?? "claude";
+    if (source !== "claude" && source !== "opencode") throw new InvalidMessage("source must be claude or opencode");
     return openStream(deps, principal, url);
   }
   if (method === "GET" && path === "/v1/directory") return json(messages.directory.list(Date.now()));
@@ -131,8 +135,8 @@ async function route(deps: RouteDeps, request: Request, url: URL): Promise<Respo
     if (!Array.isArray(body.bots)) throw new InvalidMessage("bots must be an array");
     const bots = body.bots.map((b): PublishedBot => {
       const bot = b as Record<string, unknown>;
-      if (typeof bot.botId !== "string" || typeof bot.name !== "string" || typeof bot.path !== "string" || !Array.isArray(bot.sessionIds) || !bot.sessionIds.every((s) => typeof s === "string")) {
-        throw new InvalidMessage("each bot needs botId, name, path and sessionIds");
+      if (typeof bot.botId !== "string" || typeof bot.name !== "string" || typeof bot.path !== "string" || !Array.isArray(bot.sessionIds) || !bot.sessionIds.every((s) => typeof s === "string" && sessionAddress(s) !== null)) {
+        throw new InvalidMessage("each bot needs botId, name, path and source-prefixed sessionIds");
       }
       return { botId: bot.botId, name: bot.name, path: bot.path, sessionIds: bot.sessionIds as string[] };
     });
