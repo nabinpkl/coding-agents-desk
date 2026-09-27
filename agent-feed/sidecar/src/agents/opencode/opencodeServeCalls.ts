@@ -17,6 +17,31 @@ export interface OpencodeSlashCommand {
   description?: string;
 }
 
+/**
+ * The live window's occupancy from the last finished assistant turn, TUI-identical: the TUI
+ * reads the last assistant message with output, not the session totals, because the totals
+ * accumulate every turn's cache re-read while the window holds only what is in it now.
+ * Null when no turn has finished, which is when there is no window to report.
+ */
+export function currentWindowTokens(
+  messages: readonly {
+    type?: unknown;
+    role?: unknown;
+    tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } } | null;
+  }[],
+): number | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    if (message.type !== "assistant" && message.role !== "assistant") continue;
+    const tokens = message.tokens;
+    const output = typeof tokens?.output === "number" ? tokens.output : 0;
+    if (output <= 0) continue;
+    const num = (value: unknown): number => (typeof value === "number" ? value : 0);
+    return num(tokens?.input) + output + num(tokens?.reasoning) + num(tokens?.cache?.read) + num(tokens?.cache?.write);
+  }
+  return null;
+}
+
 /** One model the serve offers, as the picker shows it. Costs are USD per million tokens. */
 export interface OpencodeModel {
   providerID: string;

@@ -22,7 +22,7 @@ import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentPr
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
 import { readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
-import { fetchOpencodeModelLimits } from "@/agents/opencode/opencodeServeCalls";
+import { currentWindowTokens, fetchOpencodeModelLimits } from "@/agents/opencode/opencodeServeCalls";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -316,8 +316,14 @@ export class OpencodeSessionPool {
       if (session?.tokens && session.model) {
         const tokens = session.tokens;
         const modelKey = `${session.model.providerID}/${session.model.id}`;
+        // The window, not the odometer: session totals accumulate every turn's cache re-read
+        // (measured 330M on a 1M window), while the meter answers what is in context now.
+        // Keeps the previous reading when the batch holds no finished turn, and seeds from
+        // the totals only for a session that has never reported a window at all.
+        const windowTokens = currentWindowTokens(messages);
+        const totals = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;
         current.usage = {
-          current: tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write,
+          current: windowTokens ?? current.usage?.current ?? totals,
           // Resolved from the model list, never invented: a fraction of a guessed denominator
           // reads as authoritative and is not. Null until the first lookup lands, which the
           // meter draws as a count without a bar.
