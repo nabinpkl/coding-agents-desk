@@ -150,6 +150,7 @@ function readSidecars(report: PanelBuildReport["sidecars"]): SidecarSupervisorRe
       held: entry.held === true,
       blocked: typeof entry.blocked === "string" ? entry.blocked : null,
       mode: entry.mode === "manual" ? "manual" : "auto",
+      behind: entry.behind === true,
     }));
 }
 

@@ -95,18 +95,18 @@ describe("the publish gate", () => {
   // a reader looking at a feed with no new rows cannot otherwise tell it apart from a quiet session.
   it("carries what each machine's supervisor is holding", () => {
     const { gate } = gateWith([
-      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto" },
+      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto", behind: false },
     ]);
     expect(gate.report().sidecars).toEqual([
-      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto" },
+      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto", behind: false },
     ]);
   });
 
   // A machine that is merely running is not news, and every machine the panel can see answers.
   it("leaves out the machines that are running the tree they were given", () => {
     const { gate } = gateWith([
-      { machine: "dev", held: false, blocked: null, mode: "auto" },
-      { machine: "oracle", held: true, blocked: "half a file", mode: "auto" },
+      { machine: "dev", held: false, blocked: null, mode: "auto", behind: false },
+      { machine: "oracle", held: true, blocked: "half a file", mode: "auto", behind: false },
     ]);
     expect(gate.report().sidecars.map((sidecar) => sidecar.machine)).toEqual(["oracle"]);
   });
@@ -248,7 +248,7 @@ describe("holding updates for the reader", () => {
   // A supervisor that restarted -- a host relaunch, a crash -- comes back on auto, and would then
   // quietly start replacing its sidecar under a reader who asked for the opposite.
   it("says it again to a machine that came back in the wrong mode", () => {
-    const machine = { machine: "oracle", held: false, blocked: null, mode: "auto" as const };
+    const machine = { machine: "oracle", held: false, blocked: null, mode: "auto" as const, behind: false };
     const { gate, told } = gateWith([machine]);
     gate.setMode("manual");
     gate.reconcile();
@@ -257,8 +257,8 @@ describe("holding updates for the reader", () => {
 
   it("says nothing to machines that already agree", () => {
     const { gate, told } = gateWith([
-      { machine: "oracle", held: false, blocked: null, mode: "auto" },
-      { machine: "dev", held: true, blocked: null, mode: "auto" },
+      { machine: "oracle", held: false, blocked: null, mode: "auto", behind: false },
+      { machine: "dev", held: true, blocked: null, mode: "auto", behind: false },
     ]);
     gate.reconcile();
     expect(told).toEqual([]);

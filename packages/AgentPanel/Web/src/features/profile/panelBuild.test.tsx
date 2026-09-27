@@ -210,7 +210,7 @@ describe("work the dev server is holding", () => {
     const server = devServer();
     serveReport({
       build: "7373cec",
-      sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto" }],
+      sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false }],
     });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 

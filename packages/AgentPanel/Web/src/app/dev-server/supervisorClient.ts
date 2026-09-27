@@ -30,6 +30,8 @@ export interface MachineSupervisor {
   held: boolean;
   blocked: string | null;
   mode: SupervisorMode;
+  /** The code the sidecar is running (`sourceVersion` on its config), or null if it did not say. */
+  version: string | null;
 }
 
 /** Bodies from another machine, bounded: the part that matters is a few hundred bytes. */
@@ -48,13 +50,15 @@ export function createSupervisorClient() {
   const read = (machine: Machine, onChange: () => void): void => {
     ask(machine, "GET", "/api/config", null, (body) => {
       const before = JSON.stringify(supervisors.get(machine.label) ?? null);
-      const status = body === null ? null : (body as { supervisor?: unknown }).supervisor;
+      const config = body as { supervisor?: unknown; sourceVersion?: unknown } | null;
+      const status = config?.supervisor;
       if (status && typeof status === "object") {
         const { held, blocked, mode } = status as Record<string, unknown>;
         supervisors.set(machine.label, {
           held: held === true,
           blocked: typeof blocked === "string" ? blocked : null,
           mode: mode === "manual" ? "manual" : "auto",
+          version: typeof config.sourceVersion === "string" ? config.sourceVersion : null,
         });
       } else {
         supervisors.delete(machine.label);
@@ -78,9 +82,24 @@ export function createSupervisorClient() {
       for (const machine of machines) read(machine, onChange);
     },
 
-    /** What to put on the panel's report: one entry per machine still answering. */
-    report(): { machine: string; held: boolean; blocked: string | null; mode: SupervisorMode }[] {
-      return [...supervisors].map(([machine, status]) => ({ machine, ...status }));
+    /**
+     * What to put on the panel's report: one entry per machine still answering, each marked behind
+     * when it runs different code from `treeVersion`, the same hash of the tree the panel is served
+     * from. A machine that did not say which code it runs is not called behind: that is a sidecar
+     * too old to report it, and the claim would be a guess.
+     */
+    report(treeVersion: string | null): {
+      machine: string;
+      held: boolean;
+      blocked: string | null;
+      mode: SupervisorMode;
+      behind: boolean;
+    }[] {
+      return [...supervisors].map(([machine, { version, ...status }]) => ({
+        machine,
+        ...status,
+        behind: version !== null && treeVersion !== null && version !== treeVersion,
+      }));
     },
 
     /**

@@ -64,7 +64,7 @@ describe("held work in the sidebar", () => {
     render(
       <PanelBuildStatus
         build={build({
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false }],
         })}
       />,
     );
@@ -79,8 +79,8 @@ describe("held work in the sidebar", () => {
       <PanelBuildStatus
         build={build({
           sidecars: [
-            { machine: "dev", held: true, blocked: null, mode: "auto" },
-            { machine: "oracle", held: true, blocked: "half a file", mode: "auto" },
+            { machine: "dev", held: true, blocked: null, mode: "auto", behind: false },
+            { machine: "oracle", held: true, blocked: "half a file", mode: "auto", behind: false },
           ],
         })}
       />,
@@ -94,7 +94,7 @@ describe("held work in the sidebar", () => {
       <PanelBuildStatus
         build={build({
           held: ["main.tsx"],
-          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "auto" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "auto", behind: false }],
         })}
       />,
     );
@@ -159,7 +159,7 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual", behind: false }],
         })}
       />,
     );
@@ -172,7 +172,7 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: false }],
         })}
       />,
     );
@@ -187,7 +187,7 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "auto" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "auto", behind: false }],
         })}
       />,
     );
@@ -207,8 +207,8 @@ describe("what a machine is waiting for", () => {
           apply,
           restartSidecar,
           sidecars: [
-            { machine: "mac", held: true, blocked: null, mode: "manual" },
-            { machine: "oracle", held: true, blocked: null, mode: "manual" },
+            { machine: "mac", held: true, blocked: null, mode: "manual", behind: false },
+            { machine: "oracle", held: true, blocked: null, mode: "manual", behind: false },
           ],
         })}
       />,
@@ -228,7 +228,7 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: null, mode: "manual", behind: false }],
         })}
       />,
     );
@@ -236,12 +236,26 @@ describe("what a machine is waiting for", () => {
     expect(screen.getByRole("button", { name: "Restart the oracle sidecar" })).toBeEnabled();
   });
 
+  it("says a machine is behind when it runs older code with nothing newer to restart onto", () => {
+    render(
+      <PanelBuildStatus
+        build={build({
+          mode: "manual",
+          sidecars: [{ machine: "oracle", held: false, blocked: null, mode: "manual", behind: true }],
+        })}
+      />,
+    );
+    expect(screen.getByText("oracle sidecar behind")).toBeDefined();
+    expect(screen.getByText("running older code than this Mac's tree; ship it to update")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Restart the oracle sidecar" })).toBeNull();
+  });
+
   it("refuses to restart a machine stuck on half a file", () => {
     render(
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual" }],
+          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: false }],
         })}
       />,
     );

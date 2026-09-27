@@ -38,6 +38,16 @@ export function parse<T>(response: { status: number; body: string }): T {
   }
   if (response.status < 200 || response.status >= 300) {
     const error = (payload as { error?: { code?: string; message?: string } }).error;
+    // A route the panel's code calls and this sidecar does not have is almost always a sidecar
+    // running older code: held back by its supervisor, or a peer not shipped to yet. Saying so
+    // points at the Profile menu, where the row says which machine and offers the restart.
+    if (error?.code === "route-not-found") {
+      throw new SidecarError(
+        error.code,
+        "This sidecar is running older code without this yet. Restart it from the Profile menu.",
+        response.status,
+      );
+    }
     throw new SidecarError(
       error?.code ?? "sidecar-error",
       error?.message ?? `sidecar answered ${response.status}`,

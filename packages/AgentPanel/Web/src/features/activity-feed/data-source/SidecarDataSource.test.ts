@@ -225,6 +225,25 @@ describe("SidecarDataSource", () => {
     );
   });
 
+  // A route the panel calls that the sidecar does not have is a sidecar behind the panel, and the
+  // message says where to fix it rather than echoing a path the reader cannot act on.
+  it("says a missing route means an older sidecar, and keeps the code", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 404,
+      body: JSON.stringify({ error: { code: "route-not-found", message: "this sidecar has no route GET /x" } }),
+    };
+    const source = new SidecarDataSource(transport);
+
+    await expect(source.botFile("bot-1", "a.ts")).rejects.toThrow(
+      expect.objectContaining({
+        code: "route-not-found",
+        status: 404,
+        message: expect.stringContaining("Restart it from the Profile menu") as string,
+      }) as Error,
+    );
+  });
+
   it("returns a raw transcript line as text, without a JSON round trip", async () => {
     const transport = new FakeHttpTransport();
     // Deliberately not valid JSON on its own terms as a body: the route answers text.

@@ -64,6 +64,12 @@ export interface SupervisorReport {
   blocked: string | null;
   /** Whether that machine takes a tree that parses at once, or waits to be asked. */
   mode: UpdateMode;
+  /**
+   * True when the sidecar is running different code from this Mac's tree: its `sourceVersion`
+   * differs from the same hash of the files the panel is served from. Held back by its supervisor,
+   * or a peer nobody has shipped to; either way, routes the panel's code expects may not be there.
+   */
+  behind: boolean;
 }
 
 /** Everything the gate does to the world, so its decisions can be tested without a dev server. */
@@ -134,7 +140,7 @@ export function createPublishGate(io: PublishGateIO) {
     blocked: firstReason(held),
     // Only the ones with something to say. A machine that is merely running is not news, and the
     // row is built to render nothing at all when there is nothing to render.
-    sidecars: io.sidecars().filter((sidecar) => sidecar.held),
+    sidecars: io.sidecars().filter((sidecar) => sidecar.held || sidecar.behind),
   });
 
   const broadcast = () => io.broadcast(report());

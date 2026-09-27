@@ -21,6 +21,7 @@ import {
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
+import { sourceSignature, sourceVersion } from "../../../agent-feed/sidecar/src/sourceVersion";
 import { readPublishMode, writePublishMode } from "./src/app/dev-server/publishMode";
 import {
   PANEL_BUILD_ROUTE,
@@ -67,6 +68,28 @@ const agentFeedWire = fileURLToPath(
   new URL("../../../agent-feed/wire/index.ts", import.meta.url),
 );
 const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
+const agentFeedRoot = fileURLToPath(new URL("../../../agent-feed/", import.meta.url));
+
+/**
+ * The sidecar code in this tree, hashed the way a sidecar hashes what it started from, so the two
+ * compare. Re-hashed only when a stat of the files says something moved: the report is read every
+ * couple of seconds, and the hash reads two megabytes where the stat reads none.
+ */
+let treeVersionFor = { signature: "", version: null as string | null };
+function treeVersion(): string | null {
+  try {
+    const signature = sourceSignature(agentFeedRoot);
+    if (signature !== treeVersionFor.signature) {
+      treeVersionFor = { signature, version: sourceVersion(agentFeedRoot) };
+    }
+    return treeVersionFor.version;
+  } catch (error) {
+    // A tree mid-rename can fail one read. No version means no machine is called behind, which is
+    // the quiet answer; the next report tries again.
+    console.warn(`[panel] could not hash the sidecar source: ${String(error)}`);
+    return null;
+  }
+}
 
 /**
  * The build id of the tree as it is RIGHT NOW: short commit, `+` when the tree is not exactly it.
@@ -389,7 +412,7 @@ export default defineConfig({
       // Filled by `panelSessions`, which already asks every sidecar it knows whether it is alive.
       // The publisher reports it because the panel's own held work is reported there, and a reader
       // wants one answer to "is what I am looking at current", not two.
-      supervisors: () => supervisorClient.report(),
+      supervisors: () => supervisorClient.report(treeVersion()),
       // A mode goes to every machine, because what a reader means by manual is "stop changing under
       // me", not a preference held per process. A restart goes only to the machine it names.
       machineParam: PANEL_MACHINE_PARAM,

@@ -71,15 +71,20 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
           Waiting and stuck are said differently because only one of them is the reader's doing --
           and the machine's own mode decides which, since a supervisor that restarted comes back on
           auto whatever this panel last asked for. */}
+      {/* Behind with nothing held is the third case: the sidecar runs older code than this Mac's
+          tree and its own tree has nothing newer -- a peer nobody has shipped to. Restarting it
+          would start the same code again, so there is no button, only the reason. */}
       {build.sidecars.map((sidecar) => (
         <div key={sidecar.machine} className="space-y-0.5">
           <div className="flex items-center gap-2">
             <span className="text-amber-500">
-              {sidecar.machine} sidecar {sidecar.blocked === null && sidecar.mode === "manual"
-                ? "waiting"
-                : "held back"}
+              {sidecar.machine} sidecar {!sidecar.held
+                ? "behind"
+                : sidecar.blocked === null && sidecar.mode === "manual"
+                  ? "waiting"
+                  : "held back"}
             </span>
-            {sidecar.mode === "manual" ? (
+            {sidecar.held && sidecar.mode === "manual" ? (
               <button
                 type="button"
                 onClick={() => build.restartSidecar(sidecar.machine)}
@@ -100,9 +105,11 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
           <Reason
             text={sidecar.blocked}
             fallback={
-              sidecar.mode === "manual"
-                ? "its tree moved; Restart takes it"
-                : "a file it watches will not parse"
+              !sidecar.held
+                ? "running older code than this Mac's tree; ship it to update"
+                : sidecar.mode === "manual"
+                  ? "its tree moved; Restart takes it"
+                  : "a file it watches will not parse"
             }
           />
         </div>

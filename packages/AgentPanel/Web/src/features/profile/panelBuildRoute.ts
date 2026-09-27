@@ -79,6 +79,12 @@ export interface SidecarSupervisorReport {
    * from one that is simply waiting for the reader.
    */
   mode: PanelUpdateMode;
+  /**
+   * True when the sidecar is running different code from this Mac's tree: its `sourceVersion`
+   * differs from the same hash of the files the panel is served from. Held back by its supervisor,
+   * or a peer nobody has shipped to; either way, routes the panel's code expects may not be there.
+   */
+  behind: boolean;
 }
 
 export interface PanelBuildReport {
