@@ -3,15 +3,31 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import { isCancellable, isUnanswered, messageTime, threadState, threadStateLabel } from "@/features/messages/messageState";
+import { runtimesOf } from "@/features/messages/hubRuntime";
+import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
-function otherName(message: Message, directory: DirectoryEntry[]): string {
+function otherEntry(message: Message, directory: DirectoryEntry[]): DirectoryEntry | undefined {
   const other = message.from === "human" ? message.to : message.from;
-  return directory.find((entry) => entry.address === other)?.name ?? other;
+  return directory.find((entry) => entry.address === other);
 }
 
 function isReachable(address: string, directory: DirectoryEntry[]): boolean {
   return directory.find((entry) => entry.address === address)?.reachability === "reachable";
+}
+
+/**
+ * One recipient's name in the picker, with its runtime and whether anyone is there.
+ *
+ * The runtime is spelled out here rather than badged, because an `option` cannot hold a badge and
+ * a reader choosing between two Bots of the same name needs the distinction in the text they are
+ * about to pick from.
+ */
+function optionLabel(entry: DirectoryEntry): string {
+  const runtime = runtimesOf(entry).join(" + ");
+  return [entry.name, runtime, entry.reachability === "reachable" ? "" : "no live session"]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 interface MessagesPanelProps {
@@ -90,8 +106,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
               <optgroup label="Bots">
                 {bots.map((entry) => (
                   <option key={entry.address} value={entry.address}>
-                    {entry.name}
-                    {entry.reachability === "reachable" ? "" : " · no live session"}
+                    {optionLabel(entry)}
                   </option>
                 ))}
               </optgroup>
@@ -100,8 +115,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
               <optgroup label="Sessions">
                 {sessions.map((entry) => (
                   <option key={entry.address} value={entry.address}>
-                    {entry.name}
-                    {entry.reachability === "reachable" ? "" : " · no live session"}
+                    {optionLabel(entry)}
                   </option>
                 ))}
               </optgroup>
@@ -152,7 +166,8 @@ function Thread({
   messages: MessagesHandle;
 }) {
   const last = thread[thread.length - 1]!;
-  const other = otherName(last, directory);
+  const entry = otherEntry(last, directory);
+  const other = entry?.name ?? (last.from === "human" ? last.to : last.from);
   const state = threadState(thread);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
@@ -175,7 +190,7 @@ function Thread({
 
   return (
     <li className="border-b border-border/80">
-      <div className="flex min-h-11 flex-col justify-center gap-0.5 px-3 py-2">
+      <div className="px-3 py-2">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-medium text-foreground">
             {other}
@@ -195,16 +210,27 @@ function Thread({
             </span>
           ) : null}
         </div>
-        {isCancellable(thread) ? (
-          <button
-            type="button"
-            onClick={() => void messages.cancel(last.id)}
-            className="flex w-fit items-center gap-1 rounded text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="size-3" aria-hidden />
-            Cancel
-          </button>
-        ) : null}
+        {/*
+          The runtime goes on the meta line, not beside the name, which is where `SessionMeta`
+          already puts the source badge. Beside the name it was the badge that won: a 70px uppercase
+          mono label on a 300px rail truncated "Checking implementation status and revisiting the
+          agent messaging plan" to "Checking implementation...", which is the reader losing the
+          thing they were scanning for to learn something they could see in the address.
+        */}
+        <div className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+          {entry ? runtimesOf(entry).map((runtime) => <SourceBadge key={runtime} source={runtime} />) : null}
+          <span>{messageTime(last.createdAt)}</span>
+          {isCancellable(thread) ? (
+            <button
+              type="button"
+              onClick={() => void messages.cancel(last.id)}
+              className="ml-auto flex items-center gap-1 rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="size-3" aria-hidden />
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/*

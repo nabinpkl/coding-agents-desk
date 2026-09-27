@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import { MessagesPanel } from "@/features/messages/MessagesPanel";
@@ -59,12 +59,51 @@ describe("MessagesPanel", () => {
     expect(await screen.findByText("No messages yet")).toBeTruthy();
   });
 
-  test("lists threads with the other side's name and the delivery state in the owner's words", async () => {
+  test("lists a thread under the other side's name, badged with the runtime that answers it", async () => {
+    // Scoped to the thread list on purpose. Asserting a bare name used to pass by matching an
+    // `<option>` in the recipient picker rather than the thread header, so it was testing the
+    // composer it thought it was testing the inbox.
     const data = feed({ threads: vi.fn(async () => [[message({ state: "queued", deliveredTo: null })]]) });
     render(<Harness data={data} />);
-    expect(await screen.findByText("Site fixer")).toBeTruthy();
-    expect(screen.getByText("fix the header")).toBeTruthy();
-    expect(screen.getByText("waiting for a live session")).toBeTruthy();
+    const threads = await screen.findByRole("list", { name: "Message threads" });
+    expect(within(threads).getByText("OpenCode session")).toBeTruthy();
+    // The runtime comes from the address prefix, and uses the badge the session rows already use.
+    expect(within(threads).getByText("OpenCode")).toBeTruthy();
+    expect(within(threads).getByText("fix the header")).toBeTruthy();
+    expect(within(threads).getByText("waiting for a live session")).toBeTruthy();
+  });
+
+  test("a Bot holding sessions from both runtimes is badged with both", async () => {
+    const data = feed({
+      threads: vi.fn(async () => [
+        [
+          message({
+            id: "b1",
+            to: "bot:both",
+            deliveredTo: "opencode:ses_1",
+            state: "queued",
+          }),
+        ],
+      ]),
+      directory: vi.fn(async () => [
+        ...directory,
+        {
+          address: "bot:both",
+          name: "Both runtimes",
+          machine: "mac",
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: ["opencode:ses_1"],
+          cwd: "/work/site",
+        },
+      ]),
+    });
+    render(<Harness data={data} />);
+    const threads = await screen.findByRole("list", { name: "Message threads" });
+    expect(within(threads).getByText("Both runtimes")).toBeTruthy();
+    // One badge for the one runtime its members have, not a guess from the name.
+    expect(within(threads).getByText("OpenCode")).toBeTruthy();
+    expect(within(threads).queryByText("Claude")).toBeNull();
   });
 
   test("a Bot with no live session is named as such, and the message waits rather than failing", async () => {
