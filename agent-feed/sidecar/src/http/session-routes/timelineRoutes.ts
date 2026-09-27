@@ -294,10 +294,11 @@ function timelineStream(options: {
           windowStart: window.windowStart,
           total: window.page.total,
           // A transcript is append-only, so its indices survive a reconnect and the
-          // reader may keep whatever it paged in below this window. A backend's
-          // projection renumbers, so it may not. `transcript` already answers that
-          // question above, and this is the only place the answer leaves the sidecar.
-          stableIndices: transcript !== null,
+          // reader may keep whatever it paged in below this window. Opencode's
+          // projection has the same property for its live stream: rows are upserted
+          // by the serve's stable message id and new rows append. Other backend
+          // projections remain conservative because they may renumber.
+          stableIndices: transcript !== null || source === "opencode",
           runState: window.page.runState,
           queue: window.page.queue,
           usage: window.page.usage,

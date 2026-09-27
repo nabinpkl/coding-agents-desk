@@ -30,7 +30,7 @@ Chose **Option B** because the backend seam already serves non-transcript source
 
 - Good, because catalog, timeline, composer send/steer/abort, and permission/question mirrors all work with no panel feature code: they key off capabilities and the shared timeline path.
 - Good, because live updates cost one shared serve event stream per sidecar, fanned out per session, with each event collapsing into a coalesced message re-read: no stream id to track, no delta to lose.
-- Bad, because indices are backend-owned and renumber, so reconnects re-page (`stableIndices: false`) like Pi rather than resuming like transcripts.
+- Bad for backend projections generally, because indices are backend-owned and can renumber; the opencode exception is recorded in the update below.
 - Bad, because the generated SDK snapshots one OpenAPI revision; a serve upgrade can drift it, which the live contract probe guards.
 - Neutral, because `Session.transcriptPath` is now optional: backend-owned records omit it and every transcript-only reader answers not-found for them.
 
@@ -53,3 +53,12 @@ what picks up the durable `compaction` row the mapper already translated. No fai
 compaction event exists in the pinned SDK snapshot, so a checkpoint landing without its `ended`
 settles the notice by session, and a 15-minute timer backstops a dropped stream the way Claude's
 does.
+
+## Update 2026-09-25: opencode projections claim stable indices
+
+The generic backend timeline contract still treats a projection as renumbering, which keeps Pi
+conservative. Opencode is the exception: its projection upserts by the serve's stable message id
+and appends new rows, so an opening snapshot sent again after a stream reconnect describes the
+same rows. Its timeline now sets `stableIndices: true`, allowing the panel to retain pages the
+reader has already loaded instead of replacing them with the newest window. A pool rebuild after
+the session has been reaped remains a separate lifecycle boundary.

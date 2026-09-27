@@ -41,14 +41,14 @@ interface Recorded {
   stopped: string[];
 }
 
-function fakeBackend(total: number, recorded: Recorded): AgentBackend {
+function fakeBackend(total: number, recorded: Recorded, id = "pi"): AgentBackend {
   return {
-    id: "pi",
+    id,
     capabilities: PI_CAPABILITIES,
     describeSession(sessionId): AgentSessionDescriptor {
       return {
         sessionId,
-        source: "pi",
+        source: id,
         projectPath: "/project",
         title: sessionId,
         lastEventAt: 0,
@@ -130,8 +130,9 @@ async function openTimeline(
   route: ReturnType<typeof routesFor>,
   query = "?mode=nice",
   count = 1,
+  source = "pi",
 ): Promise<{ messages: TimelineMessage[]; leave: () => Promise<void> }> {
-  const request = timelineRequest(query);
+  const request = timelineRequest(query, source);
   const response = await route(request, new URL(request.url), server);
   const read = await readMessages(response as Response, count);
   // The snapshot resolves before the follow-on subscriptions are issued; give the
@@ -148,8 +149,8 @@ function envelopeOf(message: TimelineMessage | undefined): TimelineEnvelope {
   return message.envelope;
 }
 
-function timelineRequest(query = "?mode=nice"): Request {
-  return new Request(`http://localhost/api/sessions/pi/s1/timeline${query}`);
+function timelineRequest(query = "?mode=nice", source = "pi"): Request {
+  return new Request(`http://localhost/api/sessions/${source}/s1/timeline${query}`);
 }
 
 test("a thread opens at its end, not at its beginning", async () => {
@@ -174,6 +175,22 @@ test("a backend-backed thread does not claim its indices are stable", async () =
   const { messages, leave } = await openTimeline(routesFor(fakeBackend(250, recorded)));
 
   expect(envelopeOf(messages[0]).stableIndices).toBe(false);
+  await leave();
+});
+
+test("an opencode backend claims stable indices for reconnect retention", async () => {
+  // Opencode upserts by the serve's stable message id and appends new rows, so its
+  // projection indices survive the opening snapshot being sent again.
+  const recorded = recorder();
+  const backend = fakeBackend(250, recorded, "opencode");
+  const { messages, leave } = await openTimeline(
+    routesFor(backend),
+    "?mode=nice",
+    1,
+    "opencode",
+  );
+
+  expect(envelopeOf(messages[0]).stableIndices).toBe(true);
   await leave();
 });
 
