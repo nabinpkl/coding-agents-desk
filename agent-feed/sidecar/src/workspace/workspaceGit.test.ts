@@ -2,7 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitStatus, parsePorcelain, statusForPath } from "@/workspace/workspaceGit";
+import {
+  gitStatus,
+  parsePorcelain,
+  readGitStatus,
+  statusForPath,
+  workingTreeFileDiff,
+} from "@/workspace/workspaceGit";
 
 const roots: string[] = [];
 
@@ -74,4 +80,58 @@ test("reads real status and branch out of a real repository", async () => {
   expect(status.entries).toEqual([
     { relativePath: "src/main.ts", indexStatus: "?", workTreeStatus: "?" },
   ]);
+});
+
+async function run(root: string, ...args: string[]): Promise<void> {
+  const code = await Bun.spawn(["git", ...args], { cwd: root, stdout: "ignore", stderr: "ignore" })
+    .exited;
+  if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
+}
+
+test("a directory outside any repository reads as no repository, not as a clean one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "workspace-git-none-"));
+  roots.push(root);
+  expect(await readGitStatus(root)).toBe(null);
+});
+
+test("diffs a tracked change against HEAD, staged and unstaged together", async () => {
+  const root = await repository();
+  await writeFile(join(root, "a.ts"), "one\n");
+  await run(root, "add", "a.ts");
+  await run(root, "commit", "-m", "first");
+  await writeFile(join(root, "a.ts"), "one\ntwo\n");
+  await run(root, "add", "a.ts");
+  await writeFile(join(root, "a.ts"), "one\ntwo\nthree\n");
+
+  const { patch, truncated } = await workingTreeFileDiff(root, "a.ts");
+  expect(truncated).toBe(false);
+  expect(patch).toContain("+two\n+three\n");
+});
+
+test("shows an untracked file whole, and answers from a subdirectory by the top's path", async () => {
+  const root = await repository();
+  await mkdir(join(root, "sub"));
+  await writeFile(join(root, "sub", "new.ts"), "fresh\n");
+
+  // The Bot's directory is `sub`, and porcelain names the file from the repository's top.
+  const { patch } = await workingTreeFileDiff(join(root, "sub"), "sub/new.ts");
+  expect(patch).toContain("+fresh");
+});
+
+test("diffs a staged file in a repository with no commits yet", async () => {
+  const root = await repository();
+  await writeFile(join(root, "first.ts"), "hello\n");
+  await run(root, "add", "first.ts");
+
+  expect((await workingTreeFileDiff(root, "first.ts")).patch).toContain("+hello");
+});
+
+test("refuses a path that has no uncommitted change", async () => {
+  const root = await repository();
+  await writeFile(join(root, "a.ts"), "one\n");
+  await run(root, "add", "a.ts");
+  await run(root, "commit", "-m", "first");
+
+  await expect(workingTreeFileDiff(root, "a.ts")).rejects.toThrow("not found");
+  await expect(workingTreeFileDiff(root, "../etc/passwd")).rejects.toThrow("invalid");
 });

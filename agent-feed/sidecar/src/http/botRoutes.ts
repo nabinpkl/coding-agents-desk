@@ -1,6 +1,8 @@
 import type {
   AddBotCommand,
   AddBotSessionsCommand,
+  BotGitDiff,
+  BotGitStatus,
   DetachBotSessionsCommand,
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
@@ -21,6 +23,8 @@ import {
   startServerSentEventStream,
 } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
+import { readGitStatus, workingTreeFileDiff } from "@/workspace/workspaceGit";
+import { WorkspaceFailure } from "@/workspace/workspacePaths";
 
 const BOTS_ROUTE = "/api/bots";
 const BOTS_STREAM_ROUTE = "/api/bots/stream";
@@ -83,8 +87,72 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     if (request.method === "POST" && canvasMatch) {
       return setBotCanvas(request, canvasMatch[1]!, registry);
     }
+    // What is uncommitted in the Bot's directory, and one path of it. Reads, so GETs, and the
+    // Bot's own paths rather than the IDE's: see `BotGitStatus` for why a Bot is not a workspace.
+    const gitMatch = /^\/api\/bots\/([^/]+)\/git$/.exec(url.pathname);
+    if (request.method === "GET" && gitMatch) {
+      return botGitStatus(gitMatch[1]!, registry);
+    }
+    const gitDiffMatch = /^\/api\/bots\/([^/]+)\/git\/diff$/.exec(url.pathname);
+    if (request.method === "GET" && gitDiffMatch) {
+      return botGitDiff(gitDiffMatch[1]!, url.searchParams.get("path"), registry);
+    }
     return undefined;
   };
+}
+
+/**
+ * The directory a Bot is bound to, from the roster rather than from the request.
+ *
+ * Only a Bot's own directory can be read this way, which is the confinement: the panel names a Bot,
+ * never a path on the disk.
+ */
+async function botDirectory(botId: string, registry: BotRegistry): Promise<string> {
+  const decodedBotId = decodeBotId(botId);
+  const bot = (await registry.snapshot()).bots.find((each) => each.botId === decodedBotId);
+  if (!bot) throw new BotNotFoundError(`no Bot "${decodedBotId}"`);
+  if (bot.environmentAvailability === "missing") {
+    throw new BotConflictError(`the directory of "${bot.name}" is missing`);
+  }
+  return bot.environment.path;
+}
+
+async function botGitStatus(botId: string, registry: BotRegistry): Promise<Response> {
+  try {
+    const status = await readGitStatus(await botDirectory(botId, registry));
+    const answer: BotGitStatus = {
+      botId: decodeBotId(botId),
+      repository: status !== null,
+      branch: status?.branch ?? null,
+      entries: status?.entries ?? [],
+    };
+    return jsonResponse(answer);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function botGitDiff(
+  botId: string,
+  path: string | null,
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    if (!path) throw new BotInvalidError("path is required");
+    const directory = await botDirectory(botId, registry);
+    const diff = await workingTreeFileDiff(directory, path);
+    const answer: BotGitDiff = { botId: decodeBotId(botId), path, ...diff };
+    return jsonResponse(answer);
+  } catch (error) {
+    // The workspace's refusals, spelled the way this route spells its own: a path that is not a
+    // change is a missing resource, and one that is not a relative path is a bad request.
+    if (error instanceof WorkspaceFailure) {
+      return error.code === "notFound"
+        ? errorResponse("bot-git-path-not-found", `"${path}" has no uncommitted change`, 404)
+        : errorResponse("invalid-bot", error.message, 400);
+    }
+    return routeError(error);
+  }
 }
 
 async function createBot(request: Request, registry: BotRegistry): Promise<Response> {

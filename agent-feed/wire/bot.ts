@@ -3,6 +3,7 @@
 
 import type { SourceId } from "./activity.ts";
 import type { SessionSummary, StartedSession } from "./session.ts";
+import type { WorkspaceGitEntry } from "./workspaceIde.ts";
 
 export type BotGrant = "add_bot";
 
@@ -291,4 +292,33 @@ export interface BotSessionsRetired {
    * ends and removes nothing: none of the acts above is idempotent on its own.
    */
   retired: RetiredBotSession[];
+}
+
+/**
+ * `GET /api/bots/:botId/git` response: what is uncommitted in the Bot's directory.
+ *
+ * The Bot's own route rather than the IDE's, because a Bot is a directory and not a workspace: the
+ * IDE addresses a root somebody registered, and a Bot's directory usually is not one. The entries
+ * are the IDE's own shape, so both surfaces draw them with one list.
+ */
+export interface BotGitStatus {
+  botId: string;
+  /**
+   * False when the directory is not inside a repository. Said rather than answered as an empty
+   * list, because "nothing changed" and "there is no git here" are different things to show.
+   */
+  repository: boolean;
+  branch: string | null;
+  /** Paths relative to the repository's top, which may be above the Bot's directory. */
+  entries: WorkspaceGitEntry[];
+}
+
+/** `GET /api/bots/:botId/git/diff?path=` response: one changed path against `HEAD`. */
+export interface BotGitDiff {
+  botId: string;
+  path: string;
+  /** Staged and unstaged together, or the whole file as added when git does not track it yet. */
+  patch: string;
+  /** True when the patch was cut at the sidecar's ceiling. */
+  truncated: boolean;
 }

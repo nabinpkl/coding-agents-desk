@@ -69,7 +69,7 @@ function requireHash(hash: string): string {
  * as a glob that matches other files, and `top` roots it at the repository rather than at the cwd,
  * which is the workspace root and may be a subdirectory of the repository.
  */
-function literalPathspec(path: string): string {
+export function literalPathspec(path: string): string {
   pathComponents(path, { allowRoot: false });
   return `:(top,literal)${path}`;
 }

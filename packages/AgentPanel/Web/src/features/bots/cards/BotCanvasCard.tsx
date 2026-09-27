@@ -14,6 +14,7 @@ import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { botSessionShades, botSurfaceStyle } from "@/features/bots/botSurface";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
+import { BotGitButton } from "@/features/bots/git/BotGitButton";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
@@ -305,6 +306,9 @@ export function BotCanvasCard({
             <span aria-hidden>{shown.length}</span>
             <span className="sr-only">{counted}</span>
           </span>
+          {/* The machine's feed, from the card's own context: a peer's Bot is a directory on the
+              peer, and asking this Mac's git about it would answer about a path it may not have. */}
+          <BotGitButton bot={bot} feed={sessionContext.feed} />
           <button
             type="button"
             onClick={() => onAddSession(bot)}

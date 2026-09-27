@@ -48,6 +48,8 @@ export type {
   BotCanvasSessionChange,
   BotCreatedBy,
   BotDirectoryEnvironment,
+  BotGitDiff,
+  BotGitStatus,
   BotGrant,
   BotLaunchCommand,
   BotSessionsAdded,

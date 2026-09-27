@@ -8,7 +8,10 @@
 // space (` M file` is "modified in the worktree, unstaged"). Trimming would silently reclassify
 // every unstaged change as a staged one.
 
+import { join } from "node:path";
 import type { WorkspaceGitEntry, WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
+import { literalPathspec, MAX_PATCH_BYTES } from "@/workspace/workspaceHistory";
+import { WorkspaceFailure } from "@/workspace/workspacePaths";
 
 async function git(args: string[], cwd: string): Promise<{ code: number; out: string }> {
   const process = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
@@ -49,15 +52,21 @@ export function parsePorcelain(output: string): WorkspaceGitEntry[] {
   return entries;
 }
 
+/** What git says about one directory: its branch and every path with something uncommitted. */
+export interface DirectoryGitStatus {
+  branch: string | null;
+  entries: WorkspaceGitEntry[];
+}
+
 /**
- * The status of one workspace, or an empty status when it is not a repository.
+ * The status of the repository a directory is in, or null when it is not in one.
  *
- * Not being a repository is a normal state for a project root, not an error: the tree still draws,
- * the source-control section is simply empty. A git that fails for any other reason lands the same
- * way, which is the one place this file is deliberately quiet, because a decoration that cannot be
- * computed must not stop a file from opening.
+ * Null is kept apart from an empty status because the two read differently: a Bot's directory with
+ * no repository has no changes to count at all, where a clean one has zero. A git that fails for
+ * any other reason lands as null too, because a decoration that cannot be computed must not stop
+ * anything else from drawing.
  */
-export async function gitStatus(workspaceId: string, root: string): Promise<WorkspaceGitStatus> {
+export async function readGitStatus(root: string): Promise<DirectoryGitStatus | null> {
   const [status, branch] = await Promise.all([
     // `--untracked-files=all`, not the default `normal`: normal collapses a wholly untracked
     // directory to one `src/` record, so every file inside it would draw undecorated in a tree
@@ -69,12 +78,66 @@ export async function gitStatus(workspaceId: string, root: string): Promise<Work
     // at all. This answers the branch name either way.
     git(["branch", "--show-current"], root),
   ]);
-  if (status.code !== 0) return { workspaceId, branch: null, entries: [] };
+  if (status.code !== 0) return null;
   return {
-    workspaceId,
     branch: branch.code === 0 ? branch.out.trim() || null : null,
     entries: parsePorcelain(status.out),
   };
+}
+
+/**
+ * The status of one workspace, or an empty status when it is not a repository.
+ *
+ * Not being a repository is a normal state for a project root, not an error: the tree still draws,
+ * the source-control section is simply empty.
+ */
+export async function gitStatus(workspaceId: string, root: string): Promise<WorkspaceGitStatus> {
+  const status = await readGitStatus(root);
+  return { workspaceId, branch: status?.branch ?? null, entries: status?.entries ?? [] };
+}
+
+/** The tree of a repository with nothing in it, which is what an unborn `HEAD` is diffed against. */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/**
+ * The uncommitted change to one path, staged and unstaged together, against `HEAD`.
+ *
+ * Only a path `git status` reports is answered, which is both the confinement and the switch: the
+ * path cannot name anything outside the changes, and an untracked file is the one case `git diff`
+ * says nothing about, so it is diffed against nothing with `--no-index` to show it whole.
+ *
+ * Porcelain paths are relative to the repository's top, which may be above `root`, so the tracked
+ * case uses the `:(top,literal)` pathspec and the untracked one joins onto the top itself.
+ */
+export async function workingTreeFileDiff(
+  root: string,
+  path: string,
+): Promise<{ patch: string; truncated: boolean }> {
+  const pathspec = literalPathspec(path);
+  const status = await readGitStatus(root);
+  const entry = status?.entries.find((candidate) => candidate.relativePath === path);
+  if (!entry) throw new WorkspaceFailure("notFound");
+  const plain = ["--no-color", "--no-ext-diff"];
+  let answer: { code: number; out: string };
+  if (entry.indexStatus === "?") {
+    const top = await git(["rev-parse", "--show-toplevel"], root);
+    if (top.code !== 0) throw new WorkspaceFailure("notFound");
+    answer = await git(
+      ["diff", "--no-index", ...plain, "--", "/dev/null", join(top.out.trim(), path)],
+      root,
+    );
+    // `--no-index` exits 1 when the two sides differ, which against nothing they always do.
+    if (answer.code === 1) answer = { ...answer, code: 0 };
+  } else {
+    const head = await git(["rev-parse", "--verify", "--quiet", "HEAD"], root);
+    answer = await git(
+      ["diff", ...plain, head.code === 0 ? "HEAD" : EMPTY_TREE, "--", pathspec],
+      root,
+    );
+  }
+  if (answer.code !== 0) throw new WorkspaceFailure("notFound");
+  const truncated = Buffer.byteLength(answer.out, "utf8") > MAX_PATCH_BYTES;
+  return { patch: truncated ? answer.out.slice(0, MAX_PATCH_BYTES) : answer.out, truncated };
 }
 
 /**

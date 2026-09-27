@@ -13,9 +13,12 @@ import {
 export function SourceControl({
   entries,
   onOpen,
+  selectedPath,
 }: {
   entries: readonly WorkspaceGitEntry[];
   onOpen: (path: string) => void;
+  /** The path whose content is showing beside the list, for a surface that shows one. */
+  selectedPath?: string | null;
 }) {
   const sections = sourceControlSections(entries);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -50,6 +53,7 @@ export function SourceControl({
               return next;
             })}
           onOpen={onOpen}
+          selectedPath={selectedPath ?? null}
         />
       ))}
     </div>
@@ -61,11 +65,13 @@ function Group({
   collapsed,
   onToggle,
   onOpen,
+  selectedPath,
 }: {
   section: SourceControlSection;
   collapsed: boolean;
   onToggle: () => void;
   onOpen: (path: string) => void;
+  selectedPath: string | null;
 }) {
   const Chevron = collapsed ? ChevronRight : ChevronDown;
   return (
@@ -102,10 +108,12 @@ function Group({
                   type="button"
                   title={row.path}
                   aria-label={`Open ${row.path}`}
+                  aria-current={row.path === selectedPath ? "true" : undefined}
                   onClick={() => onOpen(row.path)}
-                  className="group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left
+                  className={`group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left
                     outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary
-                    focus-visible:ring-inset active:bg-muted"
+                    focus-visible:ring-inset active:bg-muted
+                    ${row.path === selectedPath ? "bg-muted" : ""}`}
                 >
                   <span
                     className={`grid h-[17px] min-w-[18px] shrink-0 place-items-center rounded px-1

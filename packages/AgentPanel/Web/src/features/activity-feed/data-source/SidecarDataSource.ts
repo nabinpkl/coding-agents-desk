@@ -21,6 +21,8 @@ import type {
   ActivityEvent,
   AddBotCommand,
   AddBotSessionsCommand,
+  BotGitDiff,
+  BotGitStatus,
   BotSessionsAdded,
   BotSnapshot,
   BotView,
@@ -230,6 +232,21 @@ export class SidecarDataSource extends SidecarAgentSessions implements AgentData
         `/api/bots/${encodeURIComponent(botId)}/canvas`,
         { body: command },
       ),
+    );
+  }
+
+  /** What is uncommitted in the Bot's directory, read fresh from git on this machine. */
+  async botGitStatus(botId: string): Promise<BotGitStatus> {
+    return parse<BotGitStatus>(
+      await this.transport.request("GET", `/api/bots/${encodeURIComponent(botId)}/git`),
+    );
+  }
+
+  /** One path's uncommitted change in the Bot's directory, against `HEAD`. */
+  async botGitDiff(botId: string, path: string): Promise<BotGitDiff> {
+    const query = new URLSearchParams({ path });
+    return parse<BotGitDiff>(
+      await this.transport.request("GET", `/api/bots/${encodeURIComponent(botId)}/git/diff?${query}`),
     );
   }
 

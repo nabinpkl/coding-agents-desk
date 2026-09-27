@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { BotConflictError, type BotRegistry } from "@/bots/botRegistry";
 import { createBotRoutes } from "@/http/botRoutes";
@@ -242,4 +245,41 @@ test("routes a retire to its own path and hands the disposals through untouched"
     },
     actor: { kind: "user" },
   }]);
+});
+
+test("reads the Bot's directory's git status, and says when there is no repository", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bot-git-route-"));
+  try {
+    const registry = {
+      async snapshot() {
+        return { version: 2, revision: 1, bots: [{ ...bot, environment: { kind: "directory", path: root } }] };
+      },
+    } as unknown as BotRegistry;
+    const route = createBotRoutes(registry);
+    const plain = new Request("http://localhost/api/bots/bot-1/git");
+    const none = await route(plain, new URL(plain.url), server);
+    expect(await none?.json()).toEqual({ botId: "bot-1", repository: false, branch: null, entries: [] });
+
+    await Bun.spawn(["git", "init", "--initial-branch=main"], { cwd: root, stdout: "ignore" }).exited;
+    await writeFile(join(root, "new.ts"), "fresh\n");
+    const status = await route(plain, new URL(plain.url), server);
+    expect(await status?.json()).toEqual({
+      botId: "bot-1",
+      repository: true,
+      branch: "main",
+      entries: [{ relativePath: "new.ts", indexStatus: "?", workTreeStatus: "?" }],
+    });
+
+    const diff = new Request("http://localhost/api/bots/bot-1/git/diff?path=new.ts");
+    const answer = await route(diff, new URL(diff.url), server);
+    expect(answer?.status).toBe(200);
+    expect(((await answer?.json()) as { patch: string }).patch).toContain("+fresh");
+
+    const unchanged = new Request("http://localhost/api/bots/bot-1/git/diff?path=other.ts");
+    expect((await route(unchanged, new URL(unchanged.url), server))?.status).toBe(404);
+    const unknown = new Request("http://localhost/api/bots/bot-2/git");
+    expect((await route(unknown, new URL(unknown.url), server))?.status).toBe(404);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
