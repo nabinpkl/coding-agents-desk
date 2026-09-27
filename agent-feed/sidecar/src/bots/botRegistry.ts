@@ -399,7 +399,9 @@ export class BotRegistry {
     let closed = false;
     let tail: Promise<void> = Promise.resolve();
     let lastRevision = -1;
-    const emit = (force = true): void => {
+    // `force` is for the first snapshot, which nobody has emitted yet. Everything after that goes
+    // through the revision check, which is the whole point of having one.
+    const emit = (force = false): void => {
       tail = tail.then(async () => {
         const snapshot = await this.snapshot();
         if (closed || (!force && snapshot.revision === lastRevision)) return;
@@ -409,6 +411,14 @@ export class BotRegistry {
         if (!closed) onError?.(error);
       });
     };
+    // Both signals go unforced, and the catalog one matters most. The catalog changes on ordinary
+    // session churn -- state, token counts, activity -- and every one of those events used to
+    // publish this machine's whole Bot list to the hub: a directory write per session transition
+    // rather than per Bot change, which on a busy machine was over a hundred a minute. The revision
+    // check is what says "this is the same list you already have". It is safe because every edit
+    // that can change what is published goes through `mutate`, which bumps the revision: a rename, a
+    // ref reorder, a session attached or detached. A catalog event that moves no Bot changes nothing
+    // a subscriber can act on.
     const stopStore = this.store.subscribe(() => emit());
     const stopCatalog = this.catalog.subscribe(() => emit());
     try {

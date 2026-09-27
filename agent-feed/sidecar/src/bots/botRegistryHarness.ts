@@ -219,6 +219,15 @@ export function botRegistryHarness() {
   }
 
 
+  /**
+   * Fires a catalog event, the way ordinary session churn does: a session's state or token count
+   * changing, with no Bot touched. Exposed because a subscriber that cannot tell this apart from a
+   * real change republishes on every one of them, and nothing else in the suite can produce one.
+   */
+  function notifyCatalog(): void {
+    for (const listener of [...listeners]) listener();
+  }
+
   return {
     addBot,
     addSessions,
@@ -226,6 +235,7 @@ export function botRegistryHarness() {
     endedPanes,
     fixture,
     git,
+    notifyCatalog,
     projects,
     recordingLauncher,
     remoteBranches,
