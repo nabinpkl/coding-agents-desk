@@ -51,6 +51,8 @@ export interface ComposerModel {
   onOpenModels: (filter: string) => void;
   /** What an opencode session offers after a slash; empty on every other source. */
   opencodeCommands: readonly OpencodeSlashCommand[];
+  /** The session's current model as `providerID/modelID`, or null before the first usage lands. */
+  sessionModel: string | null;
   pending: boolean;
   queued: number;
   running: boolean;

@@ -449,6 +449,7 @@ export function SessionComposer({
     running,
     sendAttachments,
     session,
+    sessionModel: usage?.model ?? null,
     setDeliveryError,
     setDeliveryPending,
     setLocalDraft,

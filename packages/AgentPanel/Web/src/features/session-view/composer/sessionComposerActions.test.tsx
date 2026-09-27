@@ -26,6 +26,7 @@ function model(overrides: Partial<ComposerModel> = {}): ComposerModel {
     },
     deliveryPending: false,
     editorValue: "hello",
+    session: { source: "pi", sessionId: "p1" },
     pending: false,
     running: false,
     ...overrides,
@@ -116,6 +117,28 @@ describe("sending with held images", () => {
       await submitComposer(m, "next");
     });
     expect(onSendMessage).toHaveBeenCalledWith("plain", "next", undefined);
+  });
+});
+
+describe("the model switcher", () => {
+  it("shows the session model and opens the picker", () => {
+    const onOpenModels = vi.fn();
+    const actions = composerActions(model({
+      session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+      sessionModel: "opencode-go/muse-spark",
+      onOpenModels,
+    }));
+    const button = actions.find((action) => action.key === "switch-model");
+    expect(button?.placement).toBe("footer");
+    button?.onClick();
+    expect(onOpenModels).toHaveBeenCalledWith("");
+  });
+
+  it("is absent off opencode", () => {
+    const actions = composerActions(model({
+      session: { source: "pi", sessionId: "p1" } as ComposerModel["session"],
+    }));
+    expect(actions.some((action) => action.key === "switch-model")).toBe(false);
   });
 });
 

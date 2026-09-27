@@ -16,7 +16,7 @@ describe("TokenMeter", () => {
     });
     expect(bar.getAttribute("aria-valuenow")).toBe("75");
     expect((bar.firstElementChild as HTMLElement).style.width).toBe("75%");
-    expect(screen.getByTitle(/150,000 \/ 200,000 tokens/).textContent).toContain("150k");
+    expect(screen.getByTitle(/150,000 \/ 200,000 tokens/).textContent).toContain("150k (75%)");
   });
 
   it("renders a bare count with no bar when no window is known", () => {
@@ -145,7 +145,7 @@ describe("cost threshold", () => {
     expect(bar.getAttribute("aria-label")).toContain("compacting now pays for itself");
     // The count carries it and the track does not: a 30% bar painted amber would be claiming the
     // window is nearly gone, which is a different and false thing.
-    expect(screen.getByText("300k").className).toContain("text-amber-500");
+    expect(screen.getByText(/300k/).className).toContain("text-amber-500");
     expect((bar.firstElementChild as HTMLElement).className).toContain("bg-muted-foreground/60");
   });
 

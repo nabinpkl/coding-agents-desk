@@ -251,7 +251,7 @@ export function TokenMeter({
             ? { "aria-label": `Context: ${usage.current.toLocaleString()} tokens` }
             : {})}
         >
-          {compact}
+          {compact}{percent === null ? "" : ` (${percent}%)`}
         </span>
         {/* The track carries the role and the accessible name, not the wrapper: the bar IS the
             fraction, and naming it here is what makes the readout addressable rather than a

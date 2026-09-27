@@ -119,6 +119,23 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: () => m.filePicker.current?.click(),
     });
   }
+  // The TUI's `{agent} · {model}` row, minus the agent: the serve reports the session's model
+  // on its usage, and pressing it opens the picker instead of typing `/models`.
+  if (m.session.source === "opencode") {
+    const [provider, ...rest] = (m.sessionModel ?? "").split("/");
+    const label = rest.length > 0 ? `${rest.join("/")} · ${provider}` : "Model";
+    actions.push({
+      key: "switch-model",
+      ariaLabel: m.sessionModel ? `Switch model, currently ${m.sessionModel}` : "Switch model",
+      title: "Switch this session's model",
+      icon: <span>{label}</span>,
+      disabled: m.pending,
+      className:
+        "h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
+      placement: "footer",
+      onClick: () => m.onOpenModels(""),
+    });
+  }
 if (m.windowBand) {
   // The window band's only explicit action is the Enter button: filling and
   // reading are automatic (focus prefill, debounced sync, one round trip for
