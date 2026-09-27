@@ -70,6 +70,25 @@ describe("SidecarDataSource", () => {
     );
   });
 
+  it("uses the backend-owned event route for opencode pages", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 200,
+      body: JSON.stringify({ events: [event(0)], total: 1, usage: null }),
+    };
+    const source = new SidecarDataSource(transport);
+
+    await source.fetchEventsPage(
+      { source: "opencode", sessionId: "ses_abc", mode: "nice" },
+      2400,
+      100,
+    );
+
+    expect(transport.requests.at(-1)?.path).toBe(
+      "/api/agent-sessions/opencode/ses_abc/events?offset=2400&limit=100&mode=nice",
+    );
+  });
+
   it("opens one stream for a thread, not four", () => {
     const transport = new FakeHttpTransport();
     const source = new SidecarDataSource(transport);

@@ -47,7 +47,10 @@ function subagentTranscriptPath(session: SessionReference, agentId: string): str
 }
 
 function eventsPath(session: SessionReference, offset: number, limit: number): string {
-  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events?offset=${offset}&limit=${limit}&mode=${session.mode}`;
+  // Opencode is backend-owned, so its page lives beside the other live-backend
+  // routes. The generic path is for transcript-backed sources and Pi.
+  const root = session.source === "opencode" ? "/api/agent-sessions" : "/api/sessions";
+  return `${root}/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events?offset=${offset}&limit=${limit}&mode=${session.mode}`;
 }
 
 /**
