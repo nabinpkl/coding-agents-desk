@@ -362,11 +362,14 @@ export class OpencodeSessionPool {
       if (!current || current.disposed) return;
       const result = current.mapper.sync(messages);
       const session = info.data?.data;
+      // Named whenever the serve names one, whether or not tokens rode along: a fresh
+      // session reports no token totals yet, and usage still blanks across the
+      // post-compaction gap, but neither ever changes the model.
+      const servedModel = session?.model;
+      if (servedModel) current.model = `${servedModel.providerID}/${servedModel.id}`;
       if (session?.tokens && session.model) {
         const tokens = session.tokens;
         const modelKey = `${session.model.providerID}/${session.model.id}`;
-        // Named on every refresh, inside the occupancy branch or out of it: usage blanks
-        // across the post-compaction gap while the model survives it.
         current.model = modelKey;
         // The window, not the odometer: session totals accumulate every turn's cache re-read
         // (measured 330M on a 1M window), while the meter answers what is in context now.

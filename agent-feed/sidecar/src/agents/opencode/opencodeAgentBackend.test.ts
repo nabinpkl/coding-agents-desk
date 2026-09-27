@@ -33,11 +33,11 @@ function sessionInfo() {
   };
 }
 
-function fakeServe(recorded: Recorded) {
+function fakeServe(recorded: Recorded, session = sessionInfo()) {
   return {
     v2: {
       session: {
-        get: async () => ({ data: { data: sessionInfo() } }),
+        get: async () => ({ data: { data: session } }),
         interrupt: async (params: { sessionID: string }) => {
           recorded.interrupts.push(params.sessionID);
           return { data: true };
@@ -198,6 +198,25 @@ test("the session model survives the post-compaction gap that blanks usage", asy
   });
   await backend.page("s1", 0, 10, "nice");
   expect(backend.sessionUsage("s1")).toBeNull();
+  expect(backend.sessionModel("s1")).toBe("p/m");
+  await backend.dispose();
+});
+
+test("the session model is named even when the serve reports no token totals", async () => {
+  // A fresh session the serve names a model for but reports no tokens on yet: there is no
+  // occupancy to derive anything from, but the switcher must still name the model.
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const { model, ...withoutTokens } = sessionInfo();
+  installFetch(recorded, [userItem("msg-u", "hello")]);
+  const backend = new OpencodeAgentBackend({
+    resolveSession: (sessionId) =>
+      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    onSessionCreated() {},
+    onCatalogChanged() {},
+    client: () => fakeServe(recorded, { ...withoutTokens, model }) as unknown as OpencodeClient,
+    now: () => 1000,
+  });
+  await backend.page("s1", 0, 10, "nice");
   expect(backend.sessionModel("s1")).toBe("p/m");
   await backend.dispose();
 });
