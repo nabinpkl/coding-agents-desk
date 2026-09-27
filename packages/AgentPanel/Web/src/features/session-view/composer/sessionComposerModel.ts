@@ -45,10 +45,12 @@ export interface ComposerModel {
   localDraft: string;
   onAbort: () => void | Promise<void>;
   onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
-  /** Runs a slash command natively; opencode-only, unset everywhere else. */
-  onRunCommand: (name: string, args: string) => Promise<void>;
-  /** Opens the model picker; opencode-only, unset everywhere else. */
-  onOpenModels: (filter: string) => void;
+  /**
+   * Runs one parsed slash command, wherever it belongs: the sidecar for most, the panel for
+   * `/model`, `/new`, `/fork`, `/export` and `/btw`. One door on purpose -- the composer parses
+   * a name and arguments and does not learn which of them it owns.
+   */
+  onRunSlash: (name: string, args: string) => Promise<void>;
   /** What an opencode session offers after a slash; empty on every other source. */
   opencodeCommands: readonly OpencodeSlashCommand[];
   /** The session's current model as `providerID/modelID`, or null while nothing has named one. */

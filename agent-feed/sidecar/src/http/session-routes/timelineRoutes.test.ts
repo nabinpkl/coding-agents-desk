@@ -3,6 +3,7 @@ import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend
 import type {
   ActivityEvent,
   AgentSessionCapabilities,
+  SourceId,
   TimelineEnvelope,
   TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
@@ -41,7 +42,7 @@ interface Recorded {
   stopped: string[];
 }
 
-function fakeBackend(total: number, recorded: Recorded, id = "pi"): AgentBackend {
+function fakeBackend(total: number, recorded: Recorded, id: SourceId = "pi"): AgentBackend {
   return {
     id,
     capabilities: PI_CAPABILITIES,

@@ -3,7 +3,7 @@
 // Every one of these travels verbatim: the host relay attaches an Authorization header and copies
 // bytes, so what the sidecar writes here is exactly what the panel parses.
 
-import type { ActivityEvent, EventMode, TokenUsage } from "./activity.ts";
+import type { ActivityEvent, EventMode, SourceId, TokenUsage } from "./activity.ts";
 import type {
   AgentQueueState,
   AgentRunState,
@@ -160,7 +160,11 @@ export const TIMELINE_HEARTBEAT_MS = 15_000;
  */
 export interface AgentSessionDescriptor {
   sessionId: string;
-  source: string;
+  /**
+   * A registered source, not an open string: a descriptor is what a Bot's session list is built
+   * from, and that list addresses sessions by `SourceId` (`BotSessionRef`).
+   */
+  source: SourceId;
   projectPath: string;
   title: string;
   lastEventAt: number;
@@ -172,6 +176,12 @@ export interface AgentSessionDescriptor {
 export interface AgentCommandReceipt {
   requestId: string;
   delivery: "immediate" | "followUp" | "steer" | "abort";
+  /**
+   * The session a command made rather than drove, which today is only `/fork`. The panel opens
+   * it on the canvas, so the answer has to name it: a request id it would have to correlate
+   * against a later catalog refresh is a race it has no way to win.
+   */
+  session?: AgentSessionDescriptor;
 }
 
 export type AgentUiRequestKind =

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
-import { createAgentRoutes } from "@/http/agentRoutes";
+import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
@@ -270,94 +270,4 @@ test("a handover answers 404 when opencode is not registered", async () => {
   } finally {
     await unseedHandoverSession(HANDOVER_ID, root);
   }
-});
-
-test("opencode commands list from the backend and run with the draft as arguments", async () => {
-  const ran: { sessionId: string; name: string; text: string }[] = [];
-  const base = fakeBackend();
-  const route = createAgentRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    listCommands: async () => [{ name: "review", description: "review changes" }],
-    runCommand: async (sessionId: string, requestId: string, name: string, text: string) => {
-      ran.push({ sessionId, name, text });
-      return { requestId, delivery: "followUp" as const };
-    },
-  } : undefined);
-
-  const list = new Request("http://localhost/api/agent-sessions/opencode/commands", { method: "GET" });
-  const listed = await route(list, new URL(list.url), server);
-  expect(listed?.status).toBe(200);
-  // The route publishes the backend's list verbatim; merging locals is the backend's job.
-  expect(await listed?.json()).toEqual({ commands: [{ name: "review", description: "review changes" }] });
-
-  const run = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
-    method: "POST",
-    body: JSON.stringify({ requestId: "c1", name: "review", text: "the last commit" }),
-  });
-  const answered = await route(run, new URL(run.url), server);
-  expect(answered?.status).toBe(202);
-  expect(await answered?.json()).toEqual({ requestId: "c1", delivery: "followUp" });
-  expect(ran).toEqual([{ sessionId: "s1", name: "review", text: "the last commit" }]);
-
-  const local = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
-    method: "POST",
-    body: JSON.stringify({ requestId: "c-local", name: "compact", text: "" }),
-  });
-  const localAnswered = await route(local, new URL(local.url), server);
-  expect(localAnswered?.status).toBe(202);
-  // Local names travel the same run route: the backend sorts them natively.
-  expect(ran.at(-1)).toEqual({ sessionId: "s1", name: "compact", text: "" });
-
-  const nameless = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
-    method: "POST",
-    body: JSON.stringify({ requestId: "c2", text: "the last commit" }),
-  });
-  expect((await route(nameless, new URL(nameless.url), server))?.status).toBe(400);
-});
-
-test("opencode command routes answer 404 without the backend", async () => {
-  const route = createAgentRoutes(() => undefined);
-  const list = new Request("http://localhost/api/agent-sessions/opencode/commands", { method: "GET" });
-  expect((await route(list, new URL(list.url), server))?.status).toBe(404);
-  const run = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
-    method: "POST",
-    body: JSON.stringify({ requestId: "c1", name: "review", text: "" }),
-  });
-  expect((await route(run, new URL(run.url), server))?.status).toBe(404);
-});
-
-test("opencode models list and switch through the backend", async () => {
-  const switched: { sessionId: string; providerID: string; modelID: string }[] = [];
-  const base = fakeBackend();
-  const route = createAgentRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    listModels: async () => [{ providerID: "p", modelID: "m", name: "M", contextLimit: 1000, inputCost: 1, outputCost: 2 }],
-    switchModel: async (sessionId: string, requestId: string, providerID: string, modelID: string) => {
-      switched.push({ sessionId, providerID, modelID });
-      return { requestId, delivery: "followUp" as const };
-    },
-  } : undefined);
-
-  const list = new Request("http://localhost/api/agent-sessions/opencode/models", { method: "GET" });
-  const listed = await route(list, new URL(list.url), server);
-  expect(listed?.status).toBe(200);
-  expect(await listed?.json()).toEqual({
-    models: [{ providerID: "p", modelID: "m", name: "M", contextLimit: 1000, inputCost: 1, outputCost: 2 }],
-  });
-
-  const run = new Request("http://localhost/api/agent-sessions/opencode/s1/model", {
-    method: "POST",
-    body: JSON.stringify({ requestId: "m1", providerID: "p", modelID: "m" }),
-  });
-  const answered = await route(run, new URL(run.url), server);
-  expect(answered?.status).toBe(202);
-  expect(switched).toEqual([{ sessionId: "s1", providerID: "p", modelID: "m" }]);
-
-  const missing = new Request("http://localhost/api/agent-sessions/opencode/s1/model", {
-    method: "POST",
-    body: JSON.stringify({ requestId: "m2", providerID: "p" }),
-  });
-  expect((await route(missing, new URL(missing.url), server))?.status).toBe(400);
 });

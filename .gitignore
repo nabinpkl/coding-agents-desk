@@ -104,3 +104,10 @@ terminal/emulator/Package.resolved
 # / `graphify cluster-only .` / `just graphify-import-graph`, and the HTML
 # views can run into the tens of MB with embedded data.
 graphify-out/
+
+# Upstream opencode, shallow-cloned as a read-only reference for mirroring the TUI
+# (its slash-command list, its keymap, its submit rules). Never built, never
+# imported; regenerate at the version the panel mirrors with:
+#   git clone --depth 1 --branch v2.0.16 --single-branch \
+#     https://github.com/anomalyco/opencode.git .reference/opencode
+.reference/

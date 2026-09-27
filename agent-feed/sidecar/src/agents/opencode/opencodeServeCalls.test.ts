@@ -1,5 +1,12 @@
-import { describe, expect, it } from "bun:test";
-import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
+import { afterEach, describe, expect, it } from "bun:test";
+import {
+  askOpencodeAside,
+  currentWindowTokens,
+  exportOpencodeSession,
+  forkOpencodeSession,
+  lastCompletedCompactionIndex,
+  LOCAL_OPENCODE_COMMANDS,
+} from "@/agents/opencode/opencodeServeCalls";
 
 const assistant = (output: number, read: number) => ({
   type: "assistant",
@@ -72,5 +79,61 @@ describe("lastCompletedCompactionIndex", () => {
     ];
     expect(lastCompletedCompactionIndex(messages)).toBe(3);
     expect(currentWindowTokens(messages)).toBeNull();
+  });
+});
+
+describe("the mirrored web set", () => {
+  it("lists the commands the panel can run, in the order the picker shows them", () => {
+    // Names only: the descriptions are opencode's own strings, carried through rather than
+    // restated here. `/models` is the one the panel added, as an alias rather than a second
+    // command, so the row is the web client's `model` either way it is typed.
+    expect(LOCAL_OPENCODE_COMMANDS.map((command) => command.name)).toEqual([
+      "model", "new", "undo", "redo", "compact", "fork", "export", "btw", "rename",
+    ]);
+    expect(LOCAL_OPENCODE_COMMANDS.find((command) => command.name === "model")?.aliases).toEqual(["models"]);
+    // Every row says what it does. A row with no description is a name a reader has to guess at.
+    expect(LOCAL_OPENCODE_COMMANDS.every((command) => (command.description ?? "").length > 0)).toBe(true);
+  });
+});
+
+describe("the two reads", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function serve(answers: Record<string, () => Response>) {
+    const asked: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(url)).pathname;
+      const answer = answers[Object.keys(answers).find((key) => path.endsWith(key)) ?? ""];
+      asked.push(`${init?.method ?? "GET"} ${path} ${String(init?.body ?? "")}`);
+      if (!answer) return new Response("not found", { status: 404 });
+      return answer();
+    }) as typeof fetch;
+    return asked;
+  }
+
+  it("asks a side question with the TUI's own instruction, and answers with the text", async () => {
+    const asked = serve({ generate: () => Response.json({ data: { text: "a side answer" } }) });
+    await expect(askOpencodeAside("s1", "what did we decide?")).resolves.toBe("a side answer");
+    // The instruction rides the prompt because `session.generate` runs no tool loop, so a tool
+    // call there would surface as an empty answer.
+    expect(asked[0]).toContain("POST /api/session/s1/generate");
+    expect(asked[0]).toContain("Do not call any tools");
+    expect(asked[0]).toContain("what did we decide?");
+  });
+
+  it("answers an export with the transcript, unwrapped from the serve's envelope", async () => {
+    const asked = serve({ export: () => Response.json({ data: { info: { id: "s1" }, messages: [] } }) });
+    await expect(exportOpencodeSession("s1")).resolves.toEqual({ info: { id: "s1" }, messages: [] });
+    expect(asked[0]).toBe("GET /api/experimental/session/s1/export ");
+  });
+
+  it("refuses a shape the serve did not send, rather than answering with undefined", async () => {
+    serve({ fork: () => Response.json({ data: { title: "no id here" } }) });
+    await expect(forkOpencodeSession("s1")).rejects.toThrow("without a session id");
+    serve({ generate: () => Response.json({ nope: true }) });
+    await expect(askOpencodeAside("s1", "why")).rejects.toThrow("aside: serve answered without data");
   });
 });

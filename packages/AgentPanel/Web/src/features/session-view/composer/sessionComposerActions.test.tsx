@@ -121,17 +121,17 @@ describe("sending with held images", () => {
 });
 
 describe("the model switcher", () => {
-  it("shows the session model and opens the picker", () => {
-    const onOpenModels = vi.fn();
+  it("shows the session model and opens the picker through the same door `/model` uses", () => {
+    const onRunSlash = vi.fn(async () => {});
     const actions = composerActions(model({
       session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
       sessionModel: "opencode-go/muse-spark",
-      onOpenModels,
+      onRunSlash,
     }));
     const button = actions.find((action) => action.key === "switch-model");
     expect(button?.placement).toBe("footer");
     button?.onClick();
-    expect(onOpenModels).toHaveBeenCalledWith("");
+    expect(onRunSlash).toHaveBeenCalledWith("model", "");
   });
 
   it("is absent off opencode", () => {
@@ -144,7 +144,7 @@ describe("the model switcher", () => {
 
 describe("sending a slash command", () => {
   it("runs a listed command natively with the remainder as arguments", async () => {
-    const onRunCommand = vi.fn(async () => {});
+    const onRunSlash = vi.fn(async () => {});
     const onSendMessage = vi.fn(async () => {});
     const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     const setLocalDraft = vi.fn();
@@ -153,20 +153,20 @@ describe("sending a slash command", () => {
       session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
       sendAttachments: result.current,
       opencodeCommands: [{ name: "review", description: "review changes" }],
-      onRunCommand,
+      onRunSlash,
       onSendMessage,
       setLocalDraft,
     } as Partial<ComposerModel>);
     await act(async () => {
       await submitComposer(m, "next");
     });
-    expect(onRunCommand).toHaveBeenCalledWith("review", "the last commit");
+    expect(onRunSlash).toHaveBeenCalledWith("review", "the last commit");
     expect(onSendMessage).not.toHaveBeenCalled();
     expect(setLocalDraft).toHaveBeenCalledWith("");
   });
 
   it("sends an unknown slash as text, which the serve reads literally", async () => {
-    const onRunCommand = vi.fn(async () => {});
+    const onRunSlash = vi.fn(async () => {});
     const onSendMessage = vi.fn(async () => {});
     const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     const m = model({
@@ -174,35 +174,37 @@ describe("sending a slash command", () => {
       session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
       sendAttachments: result.current,
       opencodeCommands: [{ name: "review" }],
-      onRunCommand,
+      onRunSlash,
       onSendMessage,
       setLocalDraft: vi.fn(),
     } as Partial<ComposerModel>);
     await act(async () => {
       await submitComposer(m, "next");
     });
-    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(onRunSlash).not.toHaveBeenCalled();
     expect(onSendMessage).toHaveBeenCalledWith("/nope nothing", "next", undefined);
   });
 
-  it("opens the model picker for /models instead of running anything", async () => {
-    const onOpenModels = vi.fn();
-    const onRunCommand = vi.fn(async () => {});
+  it("hands the picker its filter under the catalogue's own name, whichever was typed", async () => {
+    const onRunSlash = vi.fn(async () => {});
     const { result } = renderHook(() => useSendAttachments("opencode/s1"));
-    const m = model({
-      editorValue: "/models spark",
-      session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
-      sendAttachments: result.current,
-      opencodeCommands: [],
-      onRunCommand,
-      onOpenModels,
-      onSendMessage: vi.fn(async () => {}),
-      setLocalDraft: vi.fn(),
-    } as Partial<ComposerModel>);
-    await act(async () => {
-      await submitComposer(m, "next");
-    });
-    expect(onOpenModels).toHaveBeenCalledWith("spark");
-    expect(onRunCommand).not.toHaveBeenCalled();
+    const commands = [{ name: "model", aliases: ["models"], description: "Select a different model" }];
+    for (const draft of ["/models spark", "/model spark"]) {
+      const m = model({
+        editorValue: draft,
+        session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+        sendAttachments: result.current,
+        opencodeCommands: commands,
+        onRunSlash,
+        onSendMessage: vi.fn(async () => {}),
+        setLocalDraft: vi.fn(),
+      } as Partial<ComposerModel>);
+      await act(async () => {
+        await submitComposer(m, "next");
+      });
+    }
+    // One name reaches the panel either way: the alias is a spelling, not a second command.
+    expect(onRunSlash).toHaveBeenCalledTimes(2);
+    expect(onRunSlash).toHaveBeenLastCalledWith("model", "spark");
   });
 });

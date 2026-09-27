@@ -70,14 +70,11 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
     ? parseOpencodeCommand(m.opencodeCommands, text)
     : null;
   if (slash) {
-    // The picker is the dialog's door: choosing it, or typing it with a filter behind it,
-    // opens the models over the composer rather than running anything headless.
-    if (slash.name === "models") {
-      m.onOpenModels(slash.args);
-      return;
-    }
+    // One door, whatever the command is: `/model` opens a dialog here rather than at the sidecar,
+    // `/fork` names a session the card then opens, and everything else is a turn. Held images
+    // stay out of it -- a command route takes none -- and ride the next ordinary send instead.
     try {
-      await m.onRunCommand(slash.name, slash.args);
+      await m.onRunSlash(slash.name, slash.args);
       m.setLocalDraft("");
     } catch {
       // Same contract as a send: the caption carries the reason, the draft survives.
@@ -120,7 +117,7 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
     });
   }
   // The TUI's `{agent} · {model}` row, minus the agent: the sidecar names the session's model
-  // beside usage, and pressing it opens the picker instead of typing `/models`. Truncated with
+  // beside usage, and pressing it opens the picker instead of typing `/model`. Truncated with
   // a selector chevron: on a narrow card the `model · provider` text wraps to two lines and
   // crowds the meter, so it gets one capped line with an ellipsis and the affordance says menu.
   if (m.session.source === "opencode") {
@@ -140,7 +137,9 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       className:
         "h-9 min-w-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
       placement: "footer",
-      onClick: () => m.onOpenModels(""),
+      // The same door the command uses, so the button and `/model` are one act rather than two
+      // that have to be kept in step.
+      onClick: () => void m.onRunSlash("model", ""),
     });
   }
 if (m.windowBand) {

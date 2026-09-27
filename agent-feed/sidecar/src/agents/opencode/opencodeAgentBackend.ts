@@ -24,7 +24,7 @@ import type {
   OpencodeClient,
 } from "@opencode-ai/sdk/v2/client";
 import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/opencodeClient";
-import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, renameOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/opencodeServeCalls";
+import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, redoOpencodeSession, renameOpencodeSession, forkOpencodeSession, askOpencodeAside, exportOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/opencodeServeCalls";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -40,6 +40,7 @@ import {
   AgentBackendDisposedError,
   AgentCommandConflictError,
   AgentModeUnsupportedError,
+  AgentSessionNotFoundError,
 } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import type { TokenUsage, EventMode } from "@/transcripts/transcriptTypes";
@@ -208,9 +209,48 @@ export class OpencodeAgentBackend implements AgentBackend {
   /** What this serve offers after a slash; listing needs no session, only a live backend. */
   async listCommands(): Promise<OpencodeSlashCommand[]> {
     this.assertActive();
-    // Server commands first, TUI-local ops after: the picker shows one list, and the names
-    // never collide because the serve answers CommandNotFound for the local ones (measured).
+    // Server commands first, panel-run commands after: the picker shows one list, and the names
+    // never collide because the serve answers CommandNotFound for ours (measured).
     return [...(await listOpencodeServeCommands()), ...LOCAL_OPENCODE_COMMANDS];
+  }
+
+  /**
+   * Whether a typed name is one this backend runs natively, or null for a serve command. Names
+   * only: the panel resolves an alias to its catalogue name before it sends one, so a second
+   * alias table here would be a second answer to the same question.
+   */
+  private isLocalCommand(name: string): boolean {
+    return LOCAL_OPENCODE_COMMANDS.some((command) => command.name === name);
+  }
+
+  /**
+   * `/btw`: one answer from the session's own context, adding nothing to the conversation.
+   *
+   * Its own route rather than a command receipt because it starts no turn -- there is nothing to
+   * correlate -- and because the answer is the whole payload.
+   */
+  async askAside(sessionId: string, question: string): Promise<string> {
+    this.assertActive();
+    this.requireKnownSession(sessionId);
+    return askOpencodeAside(sessionId, question);
+  }
+
+  /** `/export`: the projected transcript, whole, as the web client writes it to a file. */
+  async exportTranscript(sessionId: string): Promise<unknown> {
+    this.assertActive();
+    this.requireKnownSession(sessionId);
+    return exportOpencodeSession(sessionId);
+  }
+
+  /**
+   * A session this machine knows about, checked against the registry rather than opened through
+   * the pool: a read asks about a session that may hold no turn at all, and adopting one to read a
+   * tail is work neither of these needs.
+   */
+  private requireKnownSession(sessionId: string): void {
+    if (!this.options.resolveSession(sessionId)) {
+      throw new AgentSessionNotFoundError(`opencode session "${sessionId}" was not found`);
+    }
   }
 
   /** Every model the serve offers, for the picker. Read-only, so no ledger. */
@@ -230,10 +270,16 @@ export class OpencodeAgentBackend implements AgentBackend {
   }
 
   /**
-   * Runs a TUI-local slash op natively: compact, undo, rename. These never appear in the
-   * server command list (measured: it carries only custom commands and init/review), so the
-   * run route sorts them here instead of at the serve's command endpoint. Unknown names are
-   * refused rather than prompted, because a typo reaching the model reads as a literal slash.
+   * Runs a panel-run slash op natively: compact, undo, redo, rename, fork. These never appear
+   * in the serve's own command list (measured: it carries only the custom commands plus init and
+   * review), so the run route sorts them here instead of at the serve's command endpoint. Unknown
+   * names are refused rather than prompted, because a typo reaching the model reads as a literal
+   * slash.
+   *
+   * `/fork` is the one that answers with more than a receipt: it makes a session, and the panel
+   * has to be told which one to open. `/btw` and `/export` are NOT here -- they read rather than
+   * change, they start no turn, and what they answer with is the payload, so each is its own
+   * route (`askAside`, `exportTranscript`) rather than a receipt nobody can carry a transcript in.
    */
   async runLocalCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt> {
     const owned = await this.pool.open(sessionId);
@@ -250,10 +296,31 @@ export class OpencodeAgentBackend implements AgentBackend {
         const messageId = await lastOpencodeUserMessage(sessionId);
         if (!messageId) throw new Error("nothing to undo");
         await undoOpencodeSession(sessionId, messageId);
+      } else if (name === "redo") {
+        // The mirror of undo, and it needs no target: what undo left staged is what redo drops.
+        await redoOpencodeSession(sessionId);
       } else if (name === "rename") {
         const title = text.trim();
         if (!title) throw new Error("rename needs a title after the name");
         await renameOpencodeSession(sessionId, title);
+      } else if (name === "fork") {
+        const location = this.options.resolveSession(sessionId);
+        if (!location) throw new AgentSessionNotFoundError(`opencode session "${sessionId}" was not found`);
+        const forked = await forkOpencodeSession(sessionId);
+        this.options.onSessionCreated({ sessionId: forked.sessionId, projectPath: location.projectPath });
+        return {
+          requestId,
+          delivery: owned.projection.runState === "idle" ? "immediate" : "followUp",
+          session: {
+            sessionId: forked.sessionId,
+            source: "opencode",
+            projectPath: location.projectPath,
+            title: forked.title,
+            lastEventAt: this.now(),
+            activity: "ready",
+            capabilities: this.capabilities,
+          },
+        };
       } else {
         throw new Error(`unknown local command "${name}"`);
       }
@@ -261,9 +328,9 @@ export class OpencodeAgentBackend implements AgentBackend {
     });
   }
 
-  /** Runs one slash command natively: prompt text starting with `/name` reads literally (measured), so only this route expands the template. The flat `{ name, text }` shape is this serve's own -- the pinned SDK sends `{ command, arguments }` and is refused. TUI-local names sort to their native implementations here rather than at the route, so the route never learns the distinction. */
+  /** Runs one slash command natively: prompt text starting with `/name` reads literally (measured), so only this route expands the template. The flat `{ name, text }` shape is this serve's own -- the pinned SDK sends `{ command, arguments }` and is refused. Panel-run names sort to their native implementations here rather than at the route, so the route never learns the distinction. */
   async runCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt> {
-    if (LOCAL_OPENCODE_COMMANDS.some((command) => command.name === name)) {
+    if (this.isLocalCommand(name)) {
       return this.runLocalCommand(sessionId, requestId, name, text);
     }
     const owned = await this.pool.open(sessionId);

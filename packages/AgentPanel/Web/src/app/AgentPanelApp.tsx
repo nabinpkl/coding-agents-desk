@@ -34,6 +34,7 @@ import { useBotCommands } from "@/app/shell-state/useBotCommands";
 import { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
+import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
 import { sidebarProps } from "@/app/shell-state/sidebarProps";
 import { storeSelection } from "@/features/sidebar/selectionStore";
 import { BotCanvas, type BotCommandError } from "@/features/bots/canvas/BotCanvas";
@@ -42,7 +43,7 @@ import type { BotMachine } from "@/features/bots/botMachines";
 import { useBotMachines } from "@/app/shell-state/useBotMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { ForkedSessionView } from "@/app/ForkedSessionView";
-import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
+import { SessionView } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 
@@ -248,12 +249,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
   const [threadControlsHost, setThreadControlsHost] = useState<HTMLDivElement | null>(null);
   const [tasksHost, setTasksHost] = useState<HTMLDivElement | null>(null);
 
-  /**
-   * Everything a session needs that is not the session: built once and handed to whichever surface
-   * is showing one. The thread view and the Bot canvas both render `SessionView`, and neither is
-   * the place to decide how a window composer is built or where a tasks panel lands.
-   */
-  const sessionViewContext: SessionViewContext = {
+  const sessionViewContext = buildSessionViewContext({
     feed,
     host,
     eventMode: thread.eventMode,
@@ -264,7 +260,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
     compact: chrome.compact,
     tasksHost,
     onForkFromMessage: commands.forkFromMessage,
-  };
+  });
 
   // One subscription for all three sidebar mounts. Owned here rather than inside the sidebar so
   // the pinned rail, the hover preview, and the phone drawer share one stream instead of opening
@@ -457,6 +453,7 @@ export function App({ feed, host, machines, fill = false }: Props) {
                 botError={botError}
                 onAddSession={commands.openBotSessionPicker}
                 onForkSession={commands.forkSession}
+                attachSessionToBot={roster.attachSessionToBot}
                 onForkFromLastMessage={commands.forkFromLastMessage}
                 onForkFromLastCompaction={commands.forkFromLastCompaction}
                 onHandoverToOpencode={commands.handoverToOpencode}

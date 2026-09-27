@@ -8,10 +8,6 @@ import type { RouteHandler } from "@/http/route";
 
 const CREATE_ROUTE = "/api/agent-sessions";
 const HANDOVER_ROUTE = "/api/agent-sessions/opencode/handover";
-const OPENCODE_COMMANDS_ROUTE = "/api/agent-sessions/opencode/commands";
-const OPENCODE_MODELS_ROUTE = "/api/agent-sessions/opencode/models";
-const OPENCODE_MODEL_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/model$/;
-const OPENCODE_RUN_ROUTE = /^\/api\/agent-sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/command$/;
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
 const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
 const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/stream$/;
@@ -34,20 +30,6 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     }
     if (request.method === "POST" && url.pathname === HANDOVER_ROUTE) {
       return handoverSession(request, resolveBackend);
-    }
-    if (request.method === "GET" && url.pathname === OPENCODE_COMMANDS_ROUTE) {
-      return listOpencodeCommands(resolveBackend);
-    }
-    const runCommand = OPENCODE_RUN_ROUTE.exec(url.pathname);
-    if (request.method === "POST" && runCommand) {
-      return runOpencodeCommand(request, resolveBackend, runCommand[1]!);
-    }
-    if (request.method === "GET" && url.pathname === OPENCODE_MODELS_ROUTE) {
-      return listOpencodeModels(resolveBackend);
-    }
-    const switchModel = OPENCODE_MODEL_ROUTE.exec(url.pathname);
-    if (request.method === "POST" && switchModel) {
-      return switchOpencodeModel(request, resolveBackend, switchModel[1]!);
     }
     const message = MESSAGE_ROUTE.exec(url.pathname);
     if (request.method === "POST" && message) {
@@ -201,55 +183,6 @@ async function handoverSession(
   } catch (error) {
     return routeError(error);
   }
-}
-
-/** The opencode-only backend surface these routes need; resolved by id, like the handover. */
-interface OpencodeCommandBackend {
-  listCommands(): Promise<Array<{ name: string; description?: string }>>;
-  runCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt>;
-  listModels(): Promise<Array<{ providerID: string; modelID: string; name: string; contextLimit: number | null; inputCost: number | null; outputCost: number | null }>>;
-  switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt>;
-}
-
-async function listOpencodeCommands(resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
-  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
-  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
-  try {
-    return jsonResponse({ commands: await backend.listCommands() });
-  } catch (error) { return routeError(error); }
-}
-
-async function runOpencodeCommand(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
-  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
-  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
-  try {
-    const body = await jsonBody(request);
-    const requestId = requestIdentifier(body.requestId);
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    const text = typeof body.text === "string" ? body.text : "";
-    if (!requestId || !name) return errorResponse("invalid-request", "requestId and name are required", 400, requestId ?? undefined);
-    if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) return errorResponse("command-too-large", "command arguments exceed 256 KiB", 413, requestId);
-    return jsonResponse(await backend.runCommand(sessionId, requestId, name, text), 202);
-  } catch (error) { return routeError(error); }
-}
-
-async function listOpencodeModels(resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
-  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
-  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
-  try { return jsonResponse({ models: await backend.listModels() }); } catch (error) { return routeError(error); }
-}
-
-async function switchOpencodeModel(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
-  const backend = resolveBackend("opencode") as unknown as OpencodeCommandBackend | undefined;
-  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404);
-  try {
-    const body = await jsonBody(request);
-    const requestId = requestIdentifier(body.requestId);
-    const providerID = typeof body.providerID === "string" ? body.providerID.trim() : "";
-    const modelID = typeof body.modelID === "string" ? body.modelID.trim() : "";
-    if (!requestId || !providerID || !modelID) return errorResponse("invalid-request", "requestId, providerID and modelID are required", 400, requestId ?? undefined);
-    return jsonResponse(await backend.switchModel(sessionId, requestId, providerID, modelID), 202);
-  } catch (error) { return routeError(error); }
 }
 
 async function sendMessage(
@@ -437,7 +370,8 @@ function streamEvents(
   });
 }
 
-async function jsonBody(request: Request, maximumBytes = MAXIMUM_BODY_BYTES): Promise<Record<string, unknown>> {
+/** The request-reading and error-shaping helpers, shared with the opencode routes beside this. */
+export async function jsonBody(request: Request, maximumBytes = MAXIMUM_BODY_BYTES): Promise<Record<string, unknown>> {
   const announced = Number(request.headers.get("content-length") ?? 0);
   if (announced > maximumBytes) throw new BodyTooLargeError();
   const bytes = await request.bytes();
@@ -460,15 +394,15 @@ function integerQuery(url: URL, name: string, fallback: number, maximum: number)
   return Number.isSafeInteger(value) ? Math.min(value, maximum) : null;
 }
 
-function requestIdentifier(value: unknown): string | null {
+export function requestIdentifier(value: unknown): string | null {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
 }
 
-function sourceIdentifier(value: unknown): string | null {
+export function sourceIdentifier(value: unknown): string | null {
   return typeof value === "string" && /^[a-z][a-z0-9-]{0,31}$/.test(value) ? value : null;
 }
 
-function stringValue(value: unknown): string | null {
+export function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
@@ -477,7 +411,8 @@ class InvalidJsonError extends Error {
   constructor(options?: unknown) { super("request body is not valid JSON", { cause: options }); }
 }
 
-function routeError(error: unknown): Response {
+/** Also serves the opencode routes beside it, which shape their failures the same way. */
+export function routeError(error: unknown): Response {
   if (error instanceof BodyTooLargeError) return errorResponse("body-too-large", "request body exceeds 256 KiB", 413);
   if (error instanceof InvalidJsonError) return errorResponse("invalid-json", error.message, 400);
   if (error instanceof AgentCommandConflictError) return errorResponse("request-conflict", error.message, 409);
@@ -495,6 +430,6 @@ function errorPayload(error: unknown) {
   };
 }
 
-function errorResponse(code: string, message: string, status: number, requestId?: string, retryable = false): Response {
+export function errorResponse(code: string, message: string, status: number, requestId?: string, retryable = false): Response {
   return jsonResponse({ error: { code, message, requestId, retryable } }, status);
 }

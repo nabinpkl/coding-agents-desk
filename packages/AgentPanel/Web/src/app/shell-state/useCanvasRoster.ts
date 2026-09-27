@@ -12,7 +12,7 @@
 // keeps it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
+import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import {
@@ -232,6 +232,45 @@ export function useCanvasRoster(
       return new Set(current).add(key);
     });
   }, [setBotCanvas]);
+
+  /**
+   * Binds a session one of a Bot's own sessions just made -- `/new` and `/fork` -- to that Bot,
+   * and opens its card.
+   *
+   * A function of the Bot rather than one that takes it per call, because the caller is a card
+   * that knows which Bot it belongs to and nothing else does: the session view's context is built
+   * once for every session on the surface, so a command run from inside a card has to be handed
+   * that card's Bot by the card itself.
+   *
+   * Here rather than beside the other Bot commands because this is canvas placement, which is
+   * what this hook already owns: the attach is what makes the session one of this Bot's, and the
+   * open key is the same one `openSessionOnCanvas` writes. A detached Bot goes back on the canvas
+   * for the same reason it does there, since a card that is not rendered cannot be opened.
+   */
+  const attachSessionToBot = useCallback(
+    (bot: BotView) => async (session: AgentSessionDescriptor) => {
+      try {
+        await feeds.forBot(bot.botId).addBotSessions(bot.botId, {
+          sessionRefs: [{ source: session.source, sessionId: session.sessionId }],
+        });
+        if (bot.offCanvas) {
+          void setBotCanvas(bot.botId, { onCanvas: true });
+        }
+        setCanvasOpenKeys((current) => new Set(current).add(`${session.source}:${session.sessionId}`));
+      } catch (error) {
+        // Named against the Bot rather than a session card: the attach failed, so there is no card
+        // for this to land on. The session itself exists either way, which is why the message says
+        // so rather than leaving the reader to wonder whether the command ran at all.
+        setCanvasError({
+          session: null,
+          message: `${session.title || session.sessionId} was created but could not be attached to ${bot.name}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      }
+    },
+    [feeds, setBotCanvas, setCanvasOpenKeys],
+  );
   /**
    * Machines the canvas is not showing, and the chip that changes that.
    *
@@ -292,6 +331,7 @@ export function useCanvasRoster(
     removeSessionFromCanvas,
     toggleCanvasSession,
     openSessionOnCanvas,
+    attachSessionToBot,
     toggleBotOnCanvas,
   };
 }

@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  AgentSessionDescriptor,
   AgentTerminalContext,
   AgentTerminalDescriptor,
   AgentUiRequest,
@@ -46,6 +47,7 @@ import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTask
 import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
 import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTasks";
 import { useSessionCommands } from "@/features/session-view/useSessionCommands";
+import { usePanelCommands } from "@/features/session-view/usePanelCommands";
 import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
@@ -126,6 +128,7 @@ export function SessionView({
   tasksHost,
   onAcceptFiles,
   onForkFromMessage,
+  onAttachSession,
   externalError = null,
 }: SessionViewContext & {
   /** The directory this session runs in, which is how its terminal names the process to open. */
@@ -155,6 +158,13 @@ export function SessionView({
    */
   onAcceptFiles: (accept: ((files: readonly File[]) => void) | null) => void;
   /**
+   * The bound half of the context's `attachSessionToBot`: takes a session `/new` or `/fork` just
+   * made and puts it on the Bot this card belongs to. Absent on a surface with no canvas behind
+   * the session, and the command then says where the session went rather than appearing to do
+   * nothing.
+   */
+  onAttachSession?: (session: AgentSessionDescriptor) => void | Promise<void>;
+  /**
    * An error raised outside this session's own commands -- a Bot edit, say -- shown on the same
    * band, because it has no band of its own and a failure that shows nowhere is indistinguishable
    * from a success.
@@ -179,6 +189,21 @@ export function SessionView({
   );
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
   const commands = useSessionCommands(feed, session);
+  /**
+   * The slash commands the panel runs itself -- `/model`, `/new`, `/fork`, `/export`, `/btw` --
+   * and the dialogs two of them open. It owns the models dialog's filter rather than this file
+   * holding the state, because the routing and the dialog are one thing: a filter set by
+   * `/model opus` and one set by the footer's model button are the same door.
+   */
+  const panelCommands = usePanelCommands({
+    commands,
+    feed,
+    sessionId,
+    projectPath,
+    // A prop rather than the context's factory: the card binds its own Bot before handing this
+    // over, and a surface with no canvas behind the session leaves it out.
+    ...(onAttachSession === undefined ? {} : { onAttachSession }),
+  });
   const [sessionState, setSessionState] = useState<AgentSessionControlState>({
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
@@ -192,12 +217,6 @@ export function SessionView({
   const [openQuestion, setOpenQuestion] = useState<OpenAskUserQuestion | null>(null);
   const [extensionUI, setExtensionUI] = useState<AgentUiRequest[]>([]);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
-  /**
-   * The models dialog, opened from `/models` with the slash args as its filter. Null while
-   * closed; the models list loads with the dialog rather than with the session, because most
-   * sessions never ask what else the serve offers.
-   */
-  const [modelsDialog, setModelsDialog] = useState<{ filter: string } | null>(null);
   // Held in state, not a ref, because the feed has to re-render once the node exists.
   const [feedControlsHost, setFeedControlsHost] = useState<HTMLDivElement | null>(null);
   // This column is what the composer's terminal takes its height as a share of. A band pane cannot
@@ -456,15 +475,8 @@ export function SessionView({
         terminalHeightBasis={column}
         onFileDrop={setFileDrop}
         onSendMessage={commands.sendPrompt}
-        onRunCommand={commands.runSlashCommand}
-        onOpenModels={(filter) => setModelsDialog({ filter })}
-        modelsMenu={session.source === "opencode" && modelsDialog
-          ? {
-            filter: modelsDialog.filter,
-            onClose: () => setModelsDialog(null),
-            onSwitch: (providerID, modelID) => commands.switchModel(providerID, modelID),
-          }
-          : null}
+        onRunSlash={panelCommands.run}
+        surfaces={panelCommands.surfaces}
         onAbort={commands.abortRun}
       />
       {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}

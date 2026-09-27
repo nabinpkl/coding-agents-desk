@@ -1,12 +1,15 @@
 /**
- * The picker's rows and the draft's meaning: filter as the name is typed, first match carrying
- * Return, and a draft that names a listed command splitting into the command and its arguments.
- * An unknown name is not a command, so it stays text the serve reads literally.
+ * The picker's rows and the draft's meaning: when there is a list at all, what it filters on,
+ * and a draft that names a listed command splitting into the command and its arguments. An
+ * unknown name is not a command, so it stays text the serve reads literally.
+ *
+ * The list closing on the first space is the web client's rule rather than a panel invention
+ * (`/^\/(\S*)$/`, `packages/app/src/composer/suggestions/machine.ts`), and it is what makes
+ * Return mean one thing: an open list completes a name, a closed one submits.
  */
 
 import { describe, expect, it } from "vitest";
 import {
-  draftNamesCommand,
   opencodeCommandRows,
   parseOpencodeCommand,
 } from "@/features/session-view/composer/useOpencodeCommands";
@@ -14,6 +17,7 @@ import {
 const COMMANDS = [
   { name: "review", description: "review changes" },
   { name: "init", description: "guided setup" },
+  { name: "model", aliases: ["models"], description: "Select a different model" },
 ];
 
 describe("opencodeCommandRows", () => {
@@ -28,44 +32,19 @@ describe("opencodeCommandRows", () => {
     expect(rows[0]?.selected).toBe(true);
   });
 
-  it("matches arguments after the name without losing the row", () => {
-    const rows = opencodeCommandRows(COMMANDS, "/review the last");
-    expect(rows.map((row) => row.name)).toEqual(["/review"]);
-  });
-});
-
-describe("draftNamesCommand", () => {
-  // The line between "still choosing" and "already named", which is what decides whether Return
-  // completes a name or runs the command. It reads the same first token the filter does, which
-  // is why a completed draft still matches the row it just completed.
-  it("is false for a name still being typed, so Return completes it", () => {
-    expect(draftNamesCommand("/rev", "/review")).toBe(false);
-    expect(draftNamesCommand("/", "/review")).toBe(false);
+  it("closes on the first space, so a draft with arguments has no list to complete", () => {
+    expect(opencodeCommandRows(COMMANDS, "/review")).toHaveLength(1);
+    expect(opencodeCommandRows(COMMANDS, "/review ")).toEqual([]);
+    expect(opencodeCommandRows(COMMANDS, "/review the last")).toEqual([]);
   });
 
-  it("is true for the whole name, with or without the space completion left behind", () => {
-    expect(draftNamesCommand("/review", "/review")).toBe(true);
-    expect(draftNamesCommand("/review ", "/review")).toBe(true);
+  it("matches an alias as well as the name, and offers the row once", () => {
+    expect(opencodeCommandRows(COMMANDS, "/mod").map((row) => row.name)).toEqual(["/model"]);
+    expect(opencodeCommandRows(COMMANDS, "/models").map((row) => row.name)).toEqual(["/model"]);
   });
 
-  it("is true with arguments, so Return runs the command rather than eating them", () => {
-    expect(draftNamesCommand("/review the last change", "/review")).toBe(true);
-  });
-
-  it("ignores case, as the filter does", () => {
-    expect(draftNamesCommand("/Review", "/review")).toBe(true);
-  });
-
-  it("is false for a draft that is not naming a command at all", () => {
-    expect(draftNamesCommand("hello", "/review")).toBe(false);
-  });
-});
-
-describe("the panel-owned models entry", () => {
-  it("lists the picker after served commands and parses its filter", () => {
-    const rows = opencodeCommandRows(COMMANDS, "/mo");
-    expect(rows.map((row) => row.name)).toEqual(["/models"]);
-    expect(parseOpencodeCommand(COMMANDS, "/models spark")).toEqual({ name: "models", args: "spark" });
+  it("carries the description the sidecar sent, which is the web client's own wording", () => {
+    expect(opencodeCommandRows(COMMANDS, "/model")[0]?.description).toBe("Select a different model");
   });
 });
 
@@ -76,6 +55,11 @@ describe("parseOpencodeCommand", () => {
       args: "the last commit",
     });
     expect(parseOpencodeCommand(COMMANDS, "/init")).toEqual({ name: "init", args: "" });
+  });
+
+  it("resolves an alias to the command it names, so `/models` reaches the picker", () => {
+    expect(parseOpencodeCommand(COMMANDS, "/models spark")).toEqual({ name: "model", args: "spark" });
+    expect(parseOpencodeCommand(COMMANDS, "/Model")).toEqual({ name: "model", args: "" });
   });
 
   it("leaves an unknown name as text", () => {

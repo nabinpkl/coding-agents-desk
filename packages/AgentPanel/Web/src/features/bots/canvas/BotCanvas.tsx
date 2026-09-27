@@ -1,4 +1,4 @@
-import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
@@ -47,6 +47,7 @@ export function BotCanvas({
   botError,
   onAddSession,
   onForkSession,
+  attachSessionToBot,
   onForkFromLastMessage,
   onForkFromLastCompaction,
   onHandoverToOpencode,
@@ -137,6 +138,8 @@ export function BotCanvas({
   onAddSession: (bot: BotView) => void;
   /** Branches a new session from this one, in its own pane, and gives it to the Bot. */
   onForkSession: (bot: BotView, session: SessionSummary) => void;
+  /** A function of the Bot: the card is the only thing that knows which one it belongs to. */
+  attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
   /** The same fork, starting just before the last thing a person said in that session. */
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
@@ -246,6 +249,7 @@ export function BotCanvas({
       botError={botError}
       onAddSession={onAddSession}
       onForkSession={onForkSession}
+      attachSessionToBot={attachSessionToBot}
       onForkFromLastMessage={onForkFromLastMessage}
       onForkFromLastCompaction={onForkFromLastCompaction}
       onHandoverToOpencode={onHandoverToOpencode}

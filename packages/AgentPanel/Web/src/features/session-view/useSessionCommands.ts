@@ -7,7 +7,7 @@
 
 import { useCallback, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import type { SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { AgentCommandReceipt, AgentSessionDescriptor, SessionSummary } from "@agentdesk/agent-feed-wire";
 
 export function useSessionCommands(
   feed: SidecarDataSource,
@@ -39,13 +39,16 @@ export function useSessionCommands(
    * Runs a slash command natively on an opencode session, with the draft's remainder as its
    * arguments. Same pending and error contract as a send, because from the reader's side it
    * is one: type after a slash, press Return, watch it run.
+   *
+   * Answers with the receipt rather than nothing, because one command makes a session: `/fork`
+   * names it there, and the card that asked has to open it.
    */
-  const runSlashCommand = useCallback(async (name: string, args: string) => {
-    if (commandPending) return;
+  const runSlashCommand = useCallback(async (name: string, args: string): Promise<AgentCommandReceipt> => {
+    if (commandPending) throw new Error("another command is still running");
     setCommandPending(true);
     setCommandError(null);
     try {
-      await feed.runOpencodeCommand(session.sessionId, name, args);
+      return await feed.runOpencodeCommand(session.sessionId, name, args);
     } catch (error) {
       setCommandError(String((error as Error).message ?? error));
       throw error;
@@ -53,6 +56,33 @@ export function useSessionCommands(
       setCommandPending(false);
     }
   }, [commandPending, feed, session]);
+
+  /**
+   * Creates another session in this one's directory, which is what the web client's `/new` does.
+   *
+   * The same contract as a send, for the same reason: a session that was created and never
+   * reported is one the reader cannot tell from one that was never asked for. The panel places
+   * it, not this hook -- a surface with a canvas behind the session and one without answer
+   * differently, and neither of them is a transport concern.
+   */
+  const createOpencodeSession = useCallback(async (projectPath: string): Promise<AgentSessionDescriptor> => {
+    if (commandPending) throw new Error("another command is still running");
+    setCommandPending(true);
+    setCommandError(null);
+    try {
+      return await feed.createSession(projectPath, "opencode");
+    } catch (error) {
+      setCommandError(String((error as Error).message ?? error));
+      throw error;
+    } finally {
+      setCommandPending(false);
+    }
+  }, [commandPending, feed, session]);
+
+  /** Puts a reason in the caption from outside this hook, for the panel-run commands' own reads. */
+  const reportCommandError = useCallback((message: string) => {
+    setCommandError(message);
+  }, []);
 
   const abortRun = useCallback(async () => {
     if (commandPending) return;
@@ -101,5 +131,15 @@ export function useSessionCommands(
     }
   }, [commandPending, feed, session]);
 
-  return { commandPending, commandError, sendPrompt, runSlashCommand, abortRun, respondToExtensionUI, switchModel };
+  return {
+    commandPending,
+    commandError,
+    sendPrompt,
+    runSlashCommand,
+    createOpencodeSession,
+    reportCommandError,
+    abortRun,
+    respondToExtensionUI,
+    switchModel,
+  };
 }

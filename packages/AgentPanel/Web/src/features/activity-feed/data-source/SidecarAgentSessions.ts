@@ -26,6 +26,16 @@ export interface OpencodeModel {
   outputCost: number | null;
 }
 
+/**
+ * One slash command, as the composer menu shows it: the name the row carries, the web client's
+ * own description, and any other spelling that reaches the same command.
+ */
+export interface OpencodeSlashCommand {
+  name: string;
+  description?: string;
+  aliases?: string[];
+}
+
 export class SidecarAgentSessions extends SidecarTerminals {
   /**
    * Creates a session and answers with its descriptor, not a receipt.
@@ -89,13 +99,14 @@ export class SidecarAgentSessions extends SidecarTerminals {
   }
 
   /**
-   * What an opencode session offers after a slash: built-ins plus its custom commands.
+   * What an opencode session offers after a slash: the serve's own custom commands plus the
+   * panel-run set, which the sidecar mirrors from opencode's web client.
    *
    * Read when the composer opens rather than on every keystroke: the list is one small GET
    * and the draft filters it locally, so typing never waits on the sidecar.
    */
-  async listOpencodeCommands(): Promise<{ name: string; description?: string }[]> {
-    return parse<{ commands: { name: string; description?: string }[] }>(
+  async listOpencodeCommands(): Promise<OpencodeSlashCommand[]> {
+    return parse<{ commands: OpencodeSlashCommand[] }>(
       await this.transport.request("GET", "/api/agent-sessions/opencode/commands"),
     ).commands;
   }
@@ -105,6 +116,10 @@ export class SidecarAgentSessions extends SidecarTerminals {
    *
    * Separate from `sendMessage` because the serve treats prompt text starting with `/name`
    * as literal text (measured) -- only this route expands the template.
+   *
+   * Answers with the session too when the command made one (`/fork`): the panel attaches and
+   * opens it, and a request id it would have to correlate against a later catalog refresh is a
+   * race it has no way to win.
    */
   async runOpencodeCommand(sessionId: string, name: string, text: string): Promise<AgentCommandReceipt> {
     return parse<AgentCommandReceipt>(
@@ -114,6 +129,28 @@ export class SidecarAgentSessions extends SidecarTerminals {
         { body: { requestId: crypto.randomUUID(), name, text } },
       ),
     );
+  }
+
+  /**
+   * `/btw`: one answer from the session's context, adding nothing to the conversation. Its own
+   * route because it starts no turn -- there is no receipt to correlate -- and the answer is
+   * the whole payload.
+   */
+  async askOpencodeAside(sessionId: string, question: string): Promise<string> {
+    return parse<{ text: string }>(
+      await this.transport.request(
+        "POST",
+        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/aside`,
+        { body: { question } },
+      ),
+    ).text;
+  }
+
+  /** `/export`: the whole projected transcript, as the web client writes it to a file. */
+  async exportOpencodeTranscript(sessionId: string): Promise<unknown> {
+    return parse<{ transcript: unknown }>(
+      await this.transport.request("GET", `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/export`),
+    ).transcript;
   }
 
   /**

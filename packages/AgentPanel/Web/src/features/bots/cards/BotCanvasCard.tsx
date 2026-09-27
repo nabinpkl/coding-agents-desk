@@ -6,7 +6,7 @@
 
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -45,6 +45,7 @@ export function BotCanvasCard({
   canMoveRight,
   onAddSession,
   onForkSession,
+  attachSessionToBot,
   onForkFromLastMessage,
   onForkFromLastCompaction,
   onHandoverToOpencode,
@@ -84,6 +85,7 @@ export function BotCanvasCard({
   canMoveRight: boolean;
   onAddSession: (bot: BotView) => void;
   onForkSession: (bot: BotView, session: SessionSummary) => void;
+  attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
   /** Opens the handover dialog for a Claude session. Absent as a capability elsewhere. */
@@ -432,6 +434,9 @@ export function BotCanvasCard({
                 onRename={
                   session.source === "claude" ? () => onRenameSession(session) : undefined
                 }
+                // Every source: `/new` and `/fork` are opencode's, but a session made from any
+                // session's composer belongs to the Bot whose card asked.
+                onAttachSession={attachSessionToBot(bot)}
                 onDetach={() => onDetachSession(bot, session)}
                 onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
               />

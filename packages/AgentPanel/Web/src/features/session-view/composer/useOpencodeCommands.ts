@@ -5,16 +5,18 @@
  * owns this list outright: one GET when the composer opens, then the draft filters it without
  * another round trip. A failed fetch is an empty list rather than an error -- the field keeps
  * sending text, which is what the composer was before commands existed.
+ *
+ * The list itself is not written here. The sidecar mirrors opencode's web client
+ * (`packages/app` at v2.0.16) and merges in the serve's own custom commands, so this file only
+ * decides what the menu shows of it and what a typed draft resolves to.
  */
 
 import { useEffect, useState } from "react";
 import type { ComposerCommand } from "@agentdesk/agent-feed-wire";
+import type { OpencodeSlashCommand } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
-export interface OpencodeSlashCommand {
-  name: string;
-  description?: string;
-}
+export type { OpencodeSlashCommand };
 
 export function useOpencodeCommands(
   feed: SidecarDataSource,
@@ -40,46 +42,39 @@ export function useOpencodeCommands(
 }
 
 /**
- * The panel-owned entry the serve never lists: opening the model picker. Appended after the
- * served commands so a name collision -- today there is none -- would keep the serve's
- * meaning and the dialog stays reachable by typing past it.
- */
-export const MODELS_COMMAND: OpencodeSlashCommand = {
-  name: "models",
-  description: "Switch this session's model",
-};
-
-/**
- * The picker's rows for this draft: only while it opens with a slash, filtered by the name
- * being typed, first match carrying Return. Shaped as `ComposerCommand` so the band draws the
- * same list the pane's menu gets, with nothing in the band knowing where either came from.
+ * The picker's rows for this draft, and the rule for when there are any at all.
+ *
+ * Only while the draft opens with a slash and spells nothing else: `/^\/(\S*)$/`, which is the
+ * web client's own test (`packages/app/src/composer/suggestions/machine.ts`). It is what makes
+ * Return mean one thing. While the menu is open the reader is choosing a name, so Return takes
+ * the highlighted row; the moment the draft carries an argument the menu is gone, so Return is
+ * a submit -- the same thing the Send button does. An earlier version kept filtering on the
+ * first token, which left the menu open after `/compact ` was completed and forced an exactness
+ * test to tell "still choosing" from "already named".
+ *
+ * A name matches by any of its spellings, so `/models` finds the `model` row. Shaped as
+ * `ComposerCommand` so the band draws the same list the pane's menu gets, with nothing in the
+ * band knowing where either came from.
  */
 export function opencodeCommandRows(
   commands: readonly OpencodeSlashCommand[],
   draft: string,
 ): readonly ComposerCommand[] {
-  if (!draft.startsWith("/")) return [];
-  const prefix = draft.slice(1).split(/\s/, 1)[0]?.toLowerCase() ?? "";
-  const matches = [...commands, MODELS_COMMAND].filter((command) => command.name.toLowerCase().startsWith(prefix));
-  return matches.map((command, index) => ({
-    name: `/${command.name}`,
-    description: command.description ?? "",
-    selected: index === 0,
-  }));
+  const typed = /^\/(\S*)$/.exec(draft);
+  if (!typed) return [];
+  const prefix = (typed[1] ?? "").toLowerCase();
+  return commands
+    .filter((command) => commandNames(command).some((name) => name.startsWith(prefix)))
+    .map((command, index) => ({
+      name: `/${command.name}`,
+      description: command.description ?? "",
+      selected: index === 0,
+    }));
 }
 
-/**
- * Whether the draft already names this command, so Return should run it rather than complete it.
- *
- * The same first token `opencodeCommandRows` filters on, which is the whole point: the picker
- * keeps matching after it completes (`/compact` becomes `/compact `, and the token is still
- * `compact`), so a Return that always completed could never run anything. Comparing the token
- * the filter reads is what tells "still choosing" from "already named".
- */
-export function draftNamesCommand(draft: string, name: string): boolean {
-  if (!draft.startsWith("/")) return false;
-  const token = draft.slice(1).split(/\s/, 1)[0]?.toLowerCase() ?? "";
-  return token === name.replace(/^\//, "").toLowerCase();
+/** Every spelling of a command, canonical first: its name and then its aliases. */
+function commandNames(command: OpencodeSlashCommand): readonly string[] {
+  return [command.name, ...(command.aliases ?? [])].map((name) => name.toLowerCase());
 }
 
 /** A draft that names a listed command, split into the command and its arguments. */
@@ -89,7 +84,10 @@ export function parseOpencodeCommand(
 ): { name: string; args: string } | null {
   const match = /^\/([A-Za-z0-9_-]+)([\s\S]*)$/.exec(draft.trim());
   if (!match) return null;
-  const name = match[1]!;
-  if (![...commands, MODELS_COMMAND].some((command) => command.name === name)) return null;
-  return { name, args: (match[2] ?? "").trim() };
+  const typed = match[1]!.toLowerCase();
+  // The catalogue name, whatever the reader typed: `/models` runs the `model` row, which is the
+  // one thing the shell routes to the model dialog.
+  const command = commands.find((entry) => commandNames(entry).includes(typed));
+  if (!command) return null;
+  return { name: command.name, args: (match[2] ?? "").trim() };
 }

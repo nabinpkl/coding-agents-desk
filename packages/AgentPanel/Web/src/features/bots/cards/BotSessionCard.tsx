@@ -6,7 +6,7 @@
 
 import { Bot, ChevronDown } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionMeta } from "@/features/sidebar/SessionMeta";
@@ -59,6 +59,7 @@ export function BotSessionCard({
   onForkFromLastCompaction,
   onHandoverToOpencode,
   onRename,
+  onAttachSession,
   onDetach,
   onRemoveFromCanvas,
 }: {
@@ -106,6 +107,12 @@ export function BotSessionCard({
   onHandoverToOpencode?: () => void;
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
+  /**
+   * Takes a session one of this session's own slash commands made -- `/new`, `/fork` -- and puts
+   * it on this Bot's canvas. Bound to the Bot by the canvas above, which is the only thing that
+   * knows which Bot this session belongs to.
+   */
+  onAttachSession?: (session: AgentSessionDescriptor) => void | Promise<void>;
   onDetach: () => void;
   /** Takes this card off the canvas. The Bot keeps the session, and the sidebar still lists it. */
   onRemoveFromCanvas: () => void;
@@ -382,6 +389,7 @@ export function BotSessionCard({
                 controlsHost={controlsHost}
                 tasksHost={tasksHost}
                 onAcceptFiles={takeAcceptFiles}
+                {...(onAttachSession === undefined ? {} : { onAttachSession })}
               />
             </section>
           ) : null}

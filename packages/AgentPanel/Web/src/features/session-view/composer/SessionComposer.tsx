@@ -69,7 +69,7 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import { composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
-import type { OpencodeModelsMenu } from "@/features/bots/dialogs/OpencodeModelsDialog";
+import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import {
@@ -126,9 +126,8 @@ export function SessionComposer({
   terminalHeightBasis,
   onFileDrop,
   onSendMessage,
-  onRunCommand,
-  onOpenModels,
-  modelsMenu,
+  onRunSlash,
+  surfaces,
   onAbort,
 }: {
   host: HostActionsClient;
@@ -185,11 +184,13 @@ export function SessionComposer({
    */
   onFileDrop: (drop: { accept: (files: readonly File[]) => void } | null) => void;
   onSendMessage: (text: string, delivery: "next" | "steer", files?: SendAttachment[]) => Promise<void>;
-  /** Runs a slash command natively; opencode-only, and the shell owns its pending state. */
-  onRunCommand: (name: string, args: string) => Promise<void>;
-  /** Opens the model picker; opencode-only, and the shell owns its pending state. */
-  onOpenModels: (filter: string) => void;
-  modelsMenu: OpencodeModelsMenu | null;
+  /**
+   * Runs one parsed slash command, wherever it belongs: the sidecar for most, the panel for
+   * `/model`, `/new`, `/fork`, `/export` and `/btw`. The session view owns that routing.
+   */
+  onRunSlash: (name: string, args: string) => Promise<void>;
+  /** What a slash command left open over this composer; see `usePanelCommands`. */
+  surfaces: PanelCommandSurfaces;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
@@ -436,8 +437,7 @@ export function SessionComposer({
     isCodex,
     localDraft,
     onAbort,
-    onRunCommand,
-    onOpenModels,
+    onRunSlash,
     onSendMessage,
     opencodeCommands: useOpencodeCommands(feed, isOpencode ? tmuxComposerSession : null),
     pending,
@@ -476,7 +476,7 @@ export function SessionComposer({
       isClaude={isClaude}
       isCodex={isCodex}
       model={model}
-      modelsMenu={modelsMenu}
+      surfaces={surfaces}
       noteTerminalState={noteTerminalState}
       questionMirror={questionMirror}
       sectionLabel={sectionLabel}

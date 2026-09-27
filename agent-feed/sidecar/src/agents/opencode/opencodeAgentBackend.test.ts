@@ -5,6 +5,7 @@ import {
   AgentModeUnsupportedError,
   AgentSessionNotFoundError,
 } from "@/agents/agentBackend";
+import { LOCAL_OPENCODE_COMMANDS } from "@/agents/opencode/opencodeServeCalls";
 
 interface Recorded {
   prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
@@ -112,6 +113,14 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       recorded.localOps.push(`${init?.method ?? "POST"} ${parsed.pathname.split("/").slice(-2).join("/")} ${String(init?.body)}`);
       return Response.json({ data: {} });
     }
+    if (parsed.pathname.endsWith("/revert") && init?.method === "DELETE") {
+      recorded.localOps.push("DELETE revert");
+      return Response.json({ data: {} });
+    }
+    if (parsed.pathname.endsWith("/fork")) {
+      recorded.localOps.push(`POST fork ${String(init?.body)}`);
+      return Response.json({ data: { id: "s-fork", title: "Forked" } });
+    }
     if (parsed.pathname.endsWith("/s1") && init?.method === "PATCH") {
       recorded.localOps.push(`PATCH session ${String(init?.body)}`);
       return new Response(null, { status: 204 });
@@ -157,15 +166,18 @@ function fixture() {
   pushToStream = null;
   const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
   installFetch(recorded, [userItem("msg-u", "hello")]);
+  const registered: string[] = [];
   const backend = new OpencodeAgentBackend({
     resolveSession: (sessionId) =>
       sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
-    onSessionCreated() {},
+    // What a command made rather than drove, in the order it was made: a fork registers the same
+    // way a create does, and a test that cannot see it is a test that cannot tell the two apart.
+    onSessionCreated: (location) => registered.push(`${location.sessionId}@${location.projectPath}`),
     onCatalogChanged() {},
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => 1000,
   });
-  return { backend, recorded };
+  return { backend, recorded, registered };
 }
 
 test("timeline serves nice mode only", async () => {
@@ -256,13 +268,6 @@ test("send stages image attachments as files the serve reads", async () => {
 
 test("commands list from the serve and run natively with the draft as arguments", async () => {
   const { backend, recorded } = fixture();
-  await expect(backend.listCommands()).resolves.toEqual([
-    { name: "review", description: "review changes" },
-    { name: "lonely" },
-    { name: "compact", description: "Summarize this session to free context" },
-    { name: "undo", description: "Revert the last thing you said" },
-    { name: "rename", description: "Rename this session" },
-  ]);
   const receipt = await backend.runCommand("s1", "r-cmd", "review", "the last commit");
   expect(receipt).toEqual({ requestId: "r-cmd", delivery: "immediate" });
   expect(recorded.ran).toEqual([{ sessionID: "s1", name: "review", text: "the last commit" }]);
@@ -272,17 +277,39 @@ test("commands list from the serve and run natively with the draft as arguments"
   await backend.dispose();
 });
 
-test("local ops compact, undo and rename through their native endpoints", async () => {
+test("local ops compact, undo, redo and rename through their native endpoints", async () => {
   const { backend, recorded } = fixture();
   await backend.runLocalCommand("s1", "r-compact", "compact", "");
   await backend.runLocalCommand("s1", "r-undo", "undo", "");
+  await backend.runLocalCommand("s1", "r-redo", "redo", "");
   await backend.runLocalCommand("s1", "r-rename", "rename", "New title");
   expect(recorded.localOps).toEqual([
     'POST s1/compact {}',
     expect.stringContaining('"messageID":"msg-u"'),
     'POST revert/commit {}',
+    'DELETE revert',
     'PATCH session {"title":"New title"}',
   ]);
+  await backend.dispose();
+});
+
+test("fork answers with the session it made, registered so the panel can open it", async () => {
+  const { backend, recorded, registered } = fixture();
+  const receipt = await backend.runCommand("s1", "r-fork", "fork", "");
+  expect(recorded.localOps).toEqual(['POST fork {}']);
+  // The descriptor is assembled here rather than taken whole from the serve, so the panel has
+  // something it can open: the fork's own id, the project it belongs to, and this backend's
+  // capabilities.
+  expect(receipt).toEqual({
+    requestId: "r-fork",
+    delivery: "immediate",
+    session: {
+      sessionId: "s-fork", source: "opencode", projectPath: "/repo", title: "Forked",
+      lastEventAt: 1000, activity: "ready", capabilities: backend.capabilities,
+    },
+  });
+  // Registered with the pool, or the panel would never see the session it was just told about.
+  expect(registered).toEqual(["s-fork@/repo"]);
   await backend.dispose();
 });
 
@@ -291,12 +318,10 @@ test("runCommand sorts local names natively and lists them with server commands"
   await backend.runCommand("s1", "r-l", "compact", "");
   expect(recorded.localOps).toEqual(["POST s1/compact {}"]);
   expect(recorded.ran).toHaveLength(0);
-  await expect(backend.listCommands()).resolves.toEqual([
-    { name: "review", description: "review changes" },
-    { name: "lonely" },
-    { name: "compact", description: "Summarize this session to free context" },
-    { name: "undo", description: "Revert the last thing you said" },
-    { name: "rename", description: "Rename this session" },
+  // The serve's own commands first, then the mirrored web set: the picker shows one list, and the
+  // seam between the two is what this route has to keep.
+  await expect(backend.listCommands().then((list) => list.map((command) => command.name))).resolves.toEqual([
+    "review", "lonely", ...LOCAL_OPENCODE_COMMANDS.map((command) => command.name),
   ]);
   await backend.dispose();
 });

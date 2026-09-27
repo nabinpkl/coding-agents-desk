@@ -9,7 +9,8 @@ import {
   errorResponse,
   jsonResponse,
 } from "@/http/httpResponses";
-import { createAgentRoutes } from "@/http/agentRoutes";
+import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
+import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
 import { createCliInputRoutes } from "@/http/session-routes/cliInputRoutes";
 import {
@@ -28,7 +29,7 @@ import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
 import { createEventImageRoutes } from "@/http/session-routes/eventImageRoutes";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 import { createTaskRoutes } from "@/http/session-routes/taskRoutes";
-import { createAgentTerminalRoutes } from "@/http/agentTerminalRoutes";
+import { createAgentTerminalRoutes } from "@/http/agent-routes/agentTerminalRoutes";
 import { createTmuxRoutes } from "@/http/tmuxRoutes";
 import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
@@ -181,6 +182,9 @@ const routes: RouteHandler[] = [
   }),
   createAgentTerminalRoutes(agentTerminals),
   createTmuxRoutes(),
+  // Ahead of the generic agent-session routes: opencode's own paths live under the same
+  // prefix, and the slash-command half of them answers first.
+  createOpencodeRoutes(resolveBackend),
   createAgentRoutes(resolveBackend),
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.

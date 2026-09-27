@@ -118,6 +118,10 @@ export function sidebarProps({
     detachedSessionKeys: roster.detachedSessionKeys,
     canvasOpenSessionKeys: roster.canvasOpenKeys,
     onOpenSessionOnCanvas: roster.openSessionOnCanvas,
+    // Beside it because it is the same act with a session attached first: `/new` and `/fork` make
+    // one, and a Bot is a curated view over transcripts it does not own, so a made session that
+    // nobody attached belongs to nobody.
+    attachSessionToBot: roster.attachSessionToBot,
     onAddBot: () => {
       commands.setBotCreatorOpen(true);
       chrome.setHoverPreviewOpen(false);

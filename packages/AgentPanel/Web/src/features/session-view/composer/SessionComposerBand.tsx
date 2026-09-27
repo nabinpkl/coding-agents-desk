@@ -23,7 +23,9 @@ import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
-import { OpencodeModelsHost, type OpencodeModelsMenu } from "@/features/bots/dialogs/OpencodeModelsDialog";
+import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
+import { OpencodeAsideDialog } from "@/features/session-view/OpencodeAsideDialog";
+import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
@@ -41,7 +43,7 @@ export function SessionComposerBand({
   isClaude,
   isCodex,
   model,
-  modelsMenu,
+  surfaces,
   noteTerminalState,
   onPickFiles,
   questionMirror,
@@ -68,7 +70,8 @@ export function SessionComposerBand({
   isCodex: boolean;
   model: ComposerModel;
   /** The models menu the switcher button or `/models` opened, or null while closed. */
-  modelsMenu: OpencodeModelsMenu | null;
+  /** What a slash command left open over the composer: the model picker, or the `/btw` answer. */
+  surfaces: PanelCommandSurfaces;
   noteTerminalState: () => void;
   /** The open question and the way to answer it, or null when there is none. */
   questionMirror: QuestionMirrorModel | null;
@@ -235,22 +238,16 @@ export function SessionComposerBand({
               // sends as text. The pane's own menu is untouched -- it never sets chooseOnEnter,
               // because the pane eats Return itself.
               //
-              // Two jobs, and which one Return means is the menu's to say. A name still being
-              // typed (`/comp`) completes, because the reader is choosing. A name the draft
-              // already spells (`/compact`, with or without a trailing space) is a command
-              // waiting to run, so Return submits -- the same thing the Send button does.
-              //
-              // It has to be this split: the picker's filter keeps matching the name it just
-              // completed, so a Return that always completed could never run anything, and
-              // `/compact` plus Enter did nothing at all until Send was clicked.
+              // One job, and the list decides which by being open or not. While it is open the
+              // reader is choosing a name, so Return takes the highlighted row; the opencode
+              // list closes on the first space (the web client's own rule), so a draft that
+              // already carries arguments has no list and Return submits -- the same thing the
+              // Send button does. `/compact` plus Enter runs it, `/comp` plus Enter completes.
               if (editor.commands?.chooseOnEnter && editor.commands.shown.length > 0) {
                 event.preventDefault();
                 const selected = editor.commands.shown.find((command) => command.selected)
                   ?? editor.commands.shown[0];
-                if (selected) {
-                  if (editor.commands.isExact?.(selected.name)) void submitComposer(model, "next");
-                  else editor.commands.onChoose(selected.name);
-                }
+                if (selected) editor.commands.onChoose(selected.name);
                 return;
               }
               event.preventDefault();
@@ -291,13 +288,23 @@ export function SessionComposerBand({
           {/* The models menu, rising from the footer cluster that holds its switcher -- a narrow
               drop-up at the footer's own left, over the field and transcript, rather than a modal
               in the middle of the card or a full-width sheet above the field. */}
-          {modelsMenu ? (
+          {surfaces.models ? (
             <OpencodeModelsHost
               feed={feed}
               usage={usage}
-              initialFilter={modelsMenu.filter}
-              onClose={modelsMenu.onClose}
-              onSwitch={modelsMenu.onSwitch}
+              initialFilter={surfaces.models.filter}
+              onClose={surfaces.models.onClose}
+              onSwitch={surfaces.models.onSwitch}
+            />
+          ) : null}
+          {/* The same edge and the same rise as the picker: both are something a slash command
+              opened over the composer, and a reader who typed `/btw` should not find a dialog
+              from an earlier command still in the way. */}
+          {surfaces.aside ? (
+            <OpencodeAsideDialog
+              aside={surfaces.aside}
+              onAsk={surfaces.onAskAside}
+              onClose={surfaces.onCloseAside}
             />
           ) : null}
           {footerActions.filter((action) => action.key !== "switch-model").map(actionButton)}

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import {
   loadSessionCardSizes,
@@ -45,6 +45,7 @@ export function BotCanvasList({
   botError,
   onAddSession,
   onForkSession,
+  attachSessionToBot,
   onForkFromLastMessage,
   onForkFromLastCompaction,
   onHandoverToOpencode,
@@ -75,6 +76,7 @@ export function BotCanvasList({
   botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
   onForkSession: (bot: BotView, session: SessionSummary) => void;
+  attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
   /** The same fork, starting just before the last thing a person said in that session. */
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
@@ -201,6 +203,7 @@ export function BotCanvasList({
           onResizeSession={resizeSession}
           onAddSession={onAddSession}
           onForkSession={onForkSession}
+          attachSessionToBot={attachSessionToBot}
           onForkFromLastMessage={onForkFromLastMessage}
           onForkFromLastCompaction={onForkFromLastCompaction}
           onHandoverToOpencode={onHandoverToOpencode}

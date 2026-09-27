@@ -15,6 +15,8 @@ import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 export interface OpencodeSlashCommand {
   name: string;
   description?: string;
+  /** Other names the same command answers to. The row shows `name`; these only match and parse. */
+  aliases?: readonly string[];
 }
 
 /**
@@ -196,10 +198,45 @@ export async function listOpencodeServeCommands(): Promise<OpencodeSlashCommand[
   );
 }
 
-/** Slash ops the TUI owns locally, answered here instead of by a server command. */
+/**
+ * The panel's own slash commands, mirroring opencode's WEB client at v2.0.16 rather than its
+ * TUI: `packages/app/src/composer/commands.tsx` and `packages/app/src/session/commands/
+ * use-session-commands.tsx`. Descriptions are that client's own strings.
+ *
+ * The TUI is not the model here. It lists 34 built-ins and 21 of those open a dialog in a
+ * terminal app -- exit, terminal, editor, pair, cd, worktrees, settings, themes, status, debug,
+ * update, restart, reload, sessions, timeline, plugins, skills, diff, stats, help -- and a
+ * browser has none of them. The web client is the same class of surface as this panel and
+ * lists 13.
+ *
+ * Five of its 13 are absent because the panel has no such surface, and a row that cannot do
+ * what it says is worse than a short list: `/open` (the IDE is workspace-scoped, not
+ * session-scoped), `/terminal` (terminals hang off a Bot's canvas, not a session), `/mcp` and
+ * `/agent` (opencode's own config and picker), `/connect` (provider sign-in).
+ *
+ * Two rows are not the web client's. `/models` is an alias of the web's `/model`, because that
+ * name shipped here first and the panel's own model button has been saying `/models` since.
+ * `/rename` is the TUI's, kept: the web client renames from a dialog, and this panel has no
+ * other way to name an opencode session at all.
+ *
+ * Read the list against a checkout rather than against this comment when it needs checking: the
+ * reference clone at `.reference/opencode` is the upstream tree (see `.gitignore`), and
+ * `git clone --depth 1 --branch v2.0.16` puts it back.
+ *
+ * One row says more than the panel does. `/fork` carries the web client's own description, which
+ * promises a session from a PREVIOUS MESSAGE, and the panel forks the whole history -- the
+ * serve's own default when no message is named. It grows a message picker, or a shorter
+ * description, when somebody wants to branch mid-conversation.
+ */
 export const LOCAL_OPENCODE_COMMANDS: readonly OpencodeSlashCommand[] = [
-  { name: "compact", description: "Summarize this session to free context" },
-  { name: "undo", description: "Revert the last thing you said" },
+  { name: "model", aliases: ["models"], description: "Select a different model" },
+  { name: "new", description: "New session" },
+  { name: "undo", description: "Undo the last message" },
+  { name: "redo", description: "Redo the last undone message" },
+  { name: "compact", description: "Summarize the session to reduce context size" },
+  { name: "fork", description: "Create a new session from a previous message" },
+  { name: "export", description: "Export the full session transcript as JSON" },
+  { name: "btw", description: "One-shot answer from the session's context without adding to the conversation" },
   { name: "rename", description: "Rename this session" },
 ];
 
@@ -241,4 +278,81 @@ export async function undoOpencodeSession(sessionId: string, messageId: string):
 export async function renameOpencodeSession(sessionId: string, title: string): Promise<void> {
   const answered = await serveWrite("PATCH", `/api/session/${sessionId}`, { title });
   checkLocalOp("rename", answered.status, answered.text);
+}
+
+/**
+ * Drops a staged revert, which is what puts back what `/undo` took away. The serve's own two
+ * steps mean there is nothing to undo here and there is something to redo: the stage is what
+ * undo leaves behind, and clearing it is the whole of redo.
+ */
+export async function redoOpencodeSession(sessionId: string): Promise<void> {
+  const answered = await serveWrite("DELETE", `/api/session/${sessionId}/revert`);
+  checkLocalOp("redo", answered.status, answered.text);
+}
+
+/** The new session a fork made, as the panel needs to open it. */
+export interface ForkedOpencodeSession {
+  sessionId: string;
+  title: string;
+}
+
+/**
+ * Copies the projected history into a new session, whole or up to a message. Omitting the
+ * message is the serve's own "copy everything" (`packages/protocol/src/groups/session.ts`), so
+ * the panel's `/fork` needs no picker of its own to be useful.
+ */
+export async function forkOpencodeSession(sessionId: string, before?: string): Promise<ForkedOpencodeSession> {
+  const answered = await serveWrite("POST", `/api/session/${sessionId}/fork`, before ? { before } : {});
+  checkLocalOp("fork", answered.status, answered.text);
+  const data = readServedData(answered.text, "fork") as { id?: unknown; title?: unknown } | undefined;
+  if (!data || typeof data.id !== "string" || data.id.length === 0) {
+    throw new Error("fork: serve answered without a session id");
+  }
+  return { sessionId: data.id, title: typeof data.title === "string" ? data.title : data.id };
+}
+
+/** The whole projected transcript, which is what the web client's `/export` writes to a file. */
+export async function exportOpencodeSession(sessionId: string): Promise<unknown> {
+  const answered = await serveGet(`/api/experimental/session/${sessionId}/export`);
+  if (answered.status === 401) {
+    resetOpencodeClient();
+    throw new Error(`export: unauthorized (${answered.status})`);
+  }
+  if (answered.status < 200 || answered.status >= 300) {
+    throw new Error(`export: serve answered ${answered.status} ${answered.text.slice(0, 200)}`);
+  }
+  return readServedData(answered.text, "export");
+}
+
+/**
+ * The TUI's `/btw`, word for word (`packages/tui/src/feature-plugins/prompt/btw.tsx`): one
+ * answer from the session's context, adding nothing to the conversation. `session.generate`
+ * runs no tool loop, which is why the instruction says so out loud -- a tool call there would
+ * surface as an empty answer.
+ */
+export async function askOpencodeAside(sessionId: string, question: string): Promise<string> {
+  const instructions = [
+    "The user is asking a quick side question about the conversation so far.",
+    "Answer directly and concisely in markdown from what you already know.",
+    "Do not call any tools and do not take any actions.",
+  ].join(" ");
+  const answered = await serveWrite("POST", `/api/session/${sessionId}/generate`, {
+    prompt: `${instructions}\n\n${question}`,
+  });
+  checkLocalOp("aside", answered.status, answered.text);
+  const data = readServedData(answered.text, "aside") as { text?: unknown } | undefined;
+  return typeof data?.text === "string" ? data.text : "";
+}
+
+/** The serve's `{data: …}` envelope, unwrapped. Throws with the caller's own name on a shape it did not send. */
+function readServedData(text: string, caller: string): unknown {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`${caller}: serve answered malformed JSON`);
+  }
+  const data = (body as { data?: unknown }).data;
+  if (data === undefined) throw new Error(`${caller}: serve answered without data`);
+  return data;
 }
