@@ -20,6 +20,7 @@ import { AgentSessionNotFoundError } from "@/agents/agentBackend";
 import { AgentUiBroker } from "@/agents/agentUiBroker";
 import { LiveAgentProjection, type TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
+import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
 import { readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 import { currentWindowTokens, fetchOpencodeModelLimits } from "@/agents/opencode/opencodeServeCalls";
@@ -75,6 +76,7 @@ export class OpencodeSessionPool {
   private readonly now: () => number;
   private readonly serve: () => OpencodeClient | null;
   private readonly events: OpencodeServeEvents;
+  private readonly compactions = new OpencodeCompactionWatch();
   private readonly reaper: ReturnType<typeof setInterval>;
   private disposed = false;
 
@@ -88,6 +90,14 @@ export class OpencodeSessionPool {
         catalogChanged: () => this.options.onCatalogChanged(),
         hasSession: (sessionId) => this.owned.has(sessionId),
         uiFor: (sessionId) => this.owned.get(sessionId)?.ui ?? null,
+        compactionStarted: (sessionId, messageId) => this.compactions.begin(messageId, sessionId),
+        compactionDelta: (_sessionId, messageId, text) => {
+          this.compactions.append(messageId, text);
+        },
+        compactionEnded: (_sessionId, messageId) => {
+          this.compactions.end(messageId);
+        },
+        compactionSettled: (sessionId) => this.compactions.endSession(sessionId),
       },
       this.serve,
     );
@@ -154,6 +164,26 @@ export class OpencodeSessionPool {
   /** Latest occupancy the pool has seen, for the timeline's meter. */
   sessionUsage(sessionId: string): TokenUsage | null {
     return this.owned.get(sessionId)?.usage ?? null;
+  }
+
+  /**
+   * What the session's summariser has streamed so far, or null when it is not compacting.
+   *
+   * Probed by the timeline route, the way Claude's live backend is probed: a compaction writes
+   * no durable message until it lands, so this is the only thing on screen while it streams.
+   */
+  compactionSummary(sessionId: string): string | null {
+    return this.compactions.summary(sessionId);
+  }
+
+  onCompaction(listener: (sessionId: string, active: boolean) => void): () => void {
+    return this.compactions.onChange(listener);
+  }
+
+  onCompactionSummary(
+    listener: (sessionId: string, text: string, replace: boolean) => void,
+  ): () => void {
+    return this.compactions.onSummary(listener);
   }
 
   async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {

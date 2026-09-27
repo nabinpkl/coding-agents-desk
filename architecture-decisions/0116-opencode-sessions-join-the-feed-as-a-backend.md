@@ -37,3 +37,19 @@ Chose **Option B** because the backend seam already serves non-transcript source
 ### Confirmation
 
 `opencodeAgentBackend.test.ts` and `opencodeEventMapper.test.ts` pin translation and commands against a fake serve; `opencodeCatalog.test.ts` pins listing, pruning, and the unconfigured case; the panel renders an opencode thread in debug Chrome against the live serve.
+
+## Update 2026-09-24: compaction streams beside the thread, not through a re-read
+
+The serve's compaction writes no durable message until it lands (the checkpoint is inserted on
+`session.next.compaction.ended`), so collapsing every serve event into a message re-read left the
+feed silent for the minutes the summariser streamed -- and the desktop streams exactly that: live
+start, deltas, and completion of the summary in its timeline. The pool now folds
+`session.next.compaction.started` / `.delta` / `.ended` into a message-id-keyed watch
+(`opencodeCompactionWatch.ts`, mirroring `claudeCompactionWatch.ts`), and the backend answers the
+timeline's existing compaction probe, so the same `compacting` / `compaction-summary` notice the
+panel already draws for Claude covers opencode with no panel code. Deltas never re-read (they
+arrive per token with nothing new to fetch); the end and `session.compacted` do, which is also
+what picks up the durable `compaction` row the mapper already translated. No failed/cancelled
+compaction event exists in the pinned SDK snapshot, so a checkpoint landing without its `ended`
+settles the notice by session, and a 15-minute timer backstops a dropped stream the way Claude's
+does.

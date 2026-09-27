@@ -163,3 +163,26 @@ test("long tool output is capped with a footer", () => {
     expect(result.hiddenLines).toBe(2);
   }
 });
+
+test("a landed compaction arrives as a banner carrying its summary", () => {
+  const projection = new LiveAgentProjection();
+  const compaction: SessionMessage = {
+    id: "msg-c",
+    type: "compaction",
+    reason: "auto",
+    summary: "## Summary\n1. Primary Request",
+    recent: "recent context",
+    time: { created: 400 },
+  };
+  const result = new OpencodeEventMapper(projection).sync([user("msg-u", "hi"), compaction]);
+  expect(result.lastTurnClosed).toBe(true);
+  const rows = projection.page(0, 10);
+  expect(rows.map((row) => row.id)).toEqual(["opencode:msg-u", "opencode:msg-c"]);
+  const banner = rows[1]!;
+  expect(banner.type).toBe("system");
+  expect(banner.phase).toBe("complete");
+  // The panel reads the banner's summary from the block's text, not its metadata.
+  expect(banner.blocks).toEqual([
+    expect.objectContaining({ kind: "compaction", text: "## Summary\n1. Primary Request" }),
+  ]);
+});

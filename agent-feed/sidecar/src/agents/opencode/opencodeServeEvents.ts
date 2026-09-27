@@ -18,10 +18,24 @@ export interface ServeEventRouter {
   catalogChanged(): void;
   hasSession(sessionId: string): boolean;
   uiFor(sessionId: string): AgentUiBroker | null;
+  /** A compaction started streaming its summary; the durable row lands on `ended`. */
+  compactionStarted(sessionId: string, messageId: string): void;
+  /** One streamed delta of a running compaction's summary. */
+  compactionDelta(sessionId: string, messageId: string, text: string): void;
+  /** A compaction finished (or its checkpoint landed); the notice comes down. */
+  compactionEnded(sessionId: string, messageId: string): void;
+  /**
+   * A checkpoint landed without naming its compaction (`session.compacted` carries only the
+   * session). Ends whatever is running there: the notice must not outlive the row it waited on.
+   */
+  compactionSettled(sessionId: string): void;
 }
 
 type PermissionAsked = Extract<V2Event, { type: "permission.v2.asked" }>;
 type QuestionAsked = Extract<V2Event, { type: "question.v2.asked" }>;
+type CompactionStarted = Extract<V2Event, { type: "session.next.compaction.started" }>;
+type CompactionDelta = Extract<V2Event, { type: "session.next.compaction.delta" }>;
+type CompactionEnded = Extract<V2Event, { type: "session.next.compaction.ended" }>;
 
 /** How long a dropped serve stream waits before redialing it. */
 const STREAM_RETRY_MS = 5000;
@@ -114,6 +128,41 @@ export class OpencodeServeEvents {
       }
       case "question.v2.asked": {
         if (sessionId) void this.answerQuestion(sessionId, event);
+        return;
+      }
+      // A compaction writes no durable message until it lands -- the checkpoint is inserted on
+      // `ended` -- so the summary streams through the watch beside the thread (the same notice
+      // Claude compactions draw), and only the end re-reads the messages. Deltas never refresh:
+      // they arrive per token and there is nothing new to read until the checkpoint exists.
+      case "session.next.compaction.started": {
+        const started = event as CompactionStarted;
+        if (sessionId && this.router.hasSession(sessionId)) {
+          this.router.setRunState(sessionId, "running");
+          this.router.compactionStarted(sessionId, started.data.messageID);
+        }
+        return;
+      }
+      case "session.next.compaction.delta": {
+        const delta = event as CompactionDelta;
+        if (sessionId && this.router.hasSession(sessionId)) {
+          this.router.compactionDelta(sessionId, delta.data.messageID, delta.data.text);
+        }
+        return;
+      }
+      case "session.next.compaction.ended": {
+        const ended = event as CompactionEnded;
+        if (sessionId && this.router.hasSession(sessionId)) {
+          this.router.compactionEnded(sessionId, ended.data.messageID);
+          this.router.refresh(sessionId);
+        }
+        return;
+      }
+      case "session.compacted": {
+        // The checkpoint landed; a notice orphaned by a dropped stream comes down with it.
+        if (sessionId && this.router.hasSession(sessionId)) {
+          this.router.compactionSettled(sessionId);
+          this.router.refresh(sessionId);
+        }
         return;
       }
       default: {

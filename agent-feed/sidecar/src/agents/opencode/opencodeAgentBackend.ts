@@ -110,6 +110,24 @@ export class OpencodeAgentBackend implements AgentBackend {
     return this.pool.sessionUsage(sessionId);
   }
 
+  /**
+   * What the session's summariser has streamed so far, or null when it is not compacting.
+   * Delegated so the timeline route's probe lands: only this backend's sessions compact.
+   */
+  compactionSummary(sessionId: string): string | null {
+    return this.pool.compactionSummary(sessionId);
+  }
+
+  onCompaction(listener: (sessionId: string, active: boolean) => void): () => void {
+    return this.pool.onCompaction(listener);
+  }
+
+  onCompactionSummary(
+    listener: (sessionId: string, text: string, replace: boolean) => void,
+  ): () => void {
+    return this.pool.onCompactionSummary(listener);
+  }
+
   async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {
     if (mode !== "nice") throw new AgentModeUnsupportedError("opencode sessions serve nice mode only");
     return this.pool.page(sessionId, offset, limit, mode);
