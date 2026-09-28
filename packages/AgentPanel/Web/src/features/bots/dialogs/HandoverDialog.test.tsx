@@ -37,6 +37,30 @@ describe("HandoverDialog", () => {
     expect(onHandover).not.toHaveBeenCalled();
   });
 
+  it("names the harness the context is going to, in both directions", () => {
+    // The dialog is the last thing a reader sees before a session starts somewhere, so a title
+    // naming the wrong harness is the one wrong word that cannot be caught afterwards.
+    const { unmount } = render(<HandoverDialog request={REQUEST} onClose={() => {}} onHandover={async () => {}} />);
+    expect(screen.getByRole("heading", { name: "Hand over to opencode" })).toBeTruthy();
+    unmount();
+
+    const back: HandoverRequest = {
+      ...REQUEST,
+      session: { source: "opencode", sessionId: "oc-1", title: "Handover driver" } as SessionSummary,
+    };
+    render(<HandoverDialog request={back} onClose={() => {}} onHandover={async () => {}} />);
+    expect(screen.getByRole("heading", { name: "Hand over to Claude" })).toBeTruthy();
+  });
+
+  it("renders nothing for a session with nowhere to go", () => {
+    const codex: HandoverRequest = {
+      ...REQUEST,
+      session: { source: "codex", sessionId: "cx-1", title: "no boundary" } as SessionSummary,
+    };
+    const { container } = render(<HandoverDialog request={codex} onClose={() => {}} onHandover={async () => {}} />);
+    expect(container.firstChild).toBeNull();
+  });
+
   it("renders nothing without a request", () => {
     render(<HandoverDialog request={null} onClose={() => {}} onHandover={async () => {}} />);
     expect(screen.queryByRole("button", { name: "Hand over" })).toBeNull();

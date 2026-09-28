@@ -1,10 +1,16 @@
-// Turning a compacted Claude session into the one prompt an opencode session starts from.
+// Turning a compacted session into the one prompt its successor starts from, either way round.
 //
-// A handover is what Claude's own next API call would have carried, delivered all at once: the
-// compaction summary plus every turn since the boundary, as prose. It cannot be native history --
-// the serve exposes no endpoint that inserts assistant turns or tool results, so everything
-// arrives as a single user turn and tool outputs ride as quoted text rather than structured
-// results. The model gets the facts but resumes nothing; it re-reads files itself.
+// A handover is what the source's own next API call would have carried, delivered all at once:
+// the compaction summary plus every turn since the boundary, as prose. It cannot be native
+// history in either direction -- opencode's serve exposes no endpoint that inserts assistant
+// turns or tool results, and a Claude session is a CLI process whose only inlet is its first
+// turn -- so everything arrives as a single user turn and tool outputs ride as quoted text
+// rather than structured results. The model gets the facts but resumes nothing; it re-reads
+// files itself.
+//
+// What is source-specific is only how the events are FETCHED. Claude's come off the event index
+// below; opencode's come off the serve, in `opencodeHandover.ts`, which calls back into the two
+// renderers here so the caps are decided once.
 //
 // What is capped and what is not is the whole design. Person and model prose is uncapped (a 16KB
 // safety ceiling per turn bounds pathology, and says so when hit), because truncating it is what
@@ -143,10 +149,60 @@ function renderEvent(event: ActivityEvent): { text: string; lossy: boolean } | n
 }
 
 /**
- * The summary and the turns since the newest compaction, rendered off index events.
+ * Where the newest compaction sits in a session's events, and the summary it carried.
  *
- * Throws `SessionHandoverError` when the session was never compacted: a handover without a
- * summary is just a long paste with no statement of what the reader is looking at.
+ * The NEWEST rather than the first: a long session compacts more than once, and the context the
+ * reader is looking at is the one the last compaction produced. Null when there was none, which
+ * is a refusal rather than a degraded handover -- without a summary this is a long paste with no
+ * statement of what the reader is looking at.
+ */
+export function findCompactionBoundary(
+  events: readonly ActivityEvent[],
+): { index: number; summary: string } | null {
+  let index = -1;
+  let summary = "";
+  for (let i = 0; i < events.length; i += 1) {
+    for (const block of events[i]!.blocks) {
+      if (block.kind !== "compaction") continue;
+      index = i;
+      if (block.text?.trim()) summary = block.text;
+    }
+  }
+  if (index < 0 || !summary.trim()) return null;
+  return { index, summary };
+}
+
+/**
+ * Every person and model turn after `fromIndex`, as the prose the next session reads.
+ *
+ * Takes events rather than a session, and that is what lets the two directions share it. Claude's
+ * come off the event index and opencode's off a projection the serve's messages were mapped into,
+ * but by the time they reach here both are `ActivityEvent`, so the caps, the line collapse and the
+ * turn separator are decided once instead of drifting per source.
+ */
+export function renderHandoverTurns(
+  events: readonly ActivityEvent[],
+  fromIndex: number,
+): { turns: string; turnCount: number; lossy: boolean } {
+  const turns: string[] = [];
+  let lossy = false;
+  for (let i = fromIndex + 1; i < events.length; i += 1) {
+    const rendered = renderEvent(events[i]!);
+    if (!rendered) continue;
+    turns.push(rendered.text);
+    lossy = lossy || rendered.lossy;
+  }
+  return { turns: turns.join("\n\n---\n\n"), turnCount: turns.length, lossy };
+}
+
+/**
+ * The summary and the turns since the newest compaction of a CLAUDE session.
+ *
+ * Read through the event index, never the file: the index is what numbers a transcript, and a
+ * second reader counting its own lines would agree until the day something stopped parsing. That
+ * is also why this is Claude's alone -- the index takes a `TranscriptSourceId`, which opencode is
+ * explicitly not, because opencode has no file to index. It goes through
+ * `renderOpencodeHandover` instead.
  */
 export async function renderHandover(sessionId: string, transcriptPath: string): Promise<RenderedHandover> {
   acquireIndex("claude", sessionId);
@@ -154,27 +210,11 @@ export async function renderHandover(sessionId: string, transcriptPath: string):
     await ensureIndexed("claude", sessionId, transcriptPath);
     const total = getEventCount("claude", sessionId, "raw");
     const events = await readEvents("claude", sessionId, transcriptPath, 0, total);
-    let boundary = -1;
-    let summary = "";
-    for (let i = 0; i < events.length; i += 1) {
-      for (const block of events[i]!.blocks) {
-        if (block.kind !== "compaction") continue;
-        boundary = i;
-        if (block.text?.trim()) summary = block.text;
-      }
-    }
-    if (boundary < 0 || !summary.trim()) {
+    const boundary = findCompactionBoundary(events);
+    if (!boundary) {
       throw new SessionHandoverError(`session "${sessionId}" was never compacted: nothing to hand over`);
     }
-    const turns: string[] = [];
-    let lossy = false;
-    for (let i = boundary + 1; i < events.length; i += 1) {
-      const rendered = renderEvent(events[i]!);
-      if (!rendered) continue;
-      turns.push(rendered.text);
-      lossy = lossy || rendered.lossy;
-    }
-    return { summary, turns: turns.join("\n\n---\n\n"), turnCount: turns.length, lossy };
+    return { summary: boundary.summary, ...renderHandoverTurns(events, boundary.index) };
   } finally {
     releaseIndex("claude", sessionId);
   }

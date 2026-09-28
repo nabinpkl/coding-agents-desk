@@ -13,6 +13,7 @@ import { BotCanvasHeader } from "@/features/bots/cards/BotCanvasHeader";
 import { botSessionSlots, botSurfaceStyle } from "@/features/bots/botSurface";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { canRenameSession } from "@/features/bots/sessionRename";
+import { handoverMenuProp } from "@/features/bots/sessionHandover";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
@@ -45,7 +46,7 @@ export function BotCanvasCard({
   attachSessionToBot,
   onForkFromLastMessage,
   onForkFromLastCompaction,
-  onHandoverToOpencode,
+  onHandoverSession,
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
@@ -89,7 +90,7 @@ export function BotCanvasCard({
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
   /** Opens the handover dialog for a Claude session. Absent as a capability elsewhere. */
-  onHandoverToOpencode: (bot: BotView, session: SessionSummary) => void;
+  onHandoverSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
@@ -345,11 +346,7 @@ export function BotCanvasCard({
                     ? () => onForkFromLastCompaction(session, bot.environment.path)
                     : undefined
                 }
-                onHandoverToOpencode={
-                  session.source === "claude"
-                    ? () => onHandoverToOpencode(bot, session)
-                    : undefined
-                }
+                handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
                 onRename={
                   canRenameSession(session) ? () => onRenameSession(session) : undefined
                 }

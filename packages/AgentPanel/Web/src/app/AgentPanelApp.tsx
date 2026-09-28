@@ -455,7 +455,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                 attachSessionToBot={roster.attachSessionToBot}
                 onForkFromLastMessage={commands.forkFromLastMessage}
                 onForkFromLastCompaction={commands.forkFromLastCompaction}
-                onHandoverToOpencode={commands.handoverToOpencode}
+                onHandoverSession={commands.handoverSession}
                 onRenameSession={commands.setRenamingSession}
                 onDetachSession={commands.detachBotSession}
                 onSetFatherSession={commands.setFatherBotSession}

@@ -1,6 +1,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
+import { handoverDestination, HANDOVER_LABELS } from "@/features/bots/sessionHandover";
 
 /**
  * What is being handed over, and where the reader was when they asked.
@@ -33,6 +34,7 @@ export function HandoverDialog({
   onClose: () => void;
   onHandover: (request: HandoverRequest, message: string) => Promise<void>;
 }) {
+  const destination = request ? handoverDestination(request.session) : null;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
@@ -52,7 +54,7 @@ export function HandoverDialog({
     else dialog.setAttribute("open", "");
   }, [request]);
 
-  if (!request) return null;
+  if (!request || !destination) return null;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -84,9 +86,12 @@ export function HandoverDialog({
         onSubmit={submit}
         className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
       >
-        <h2 id="session-handover-title" className="text-base font-semibold">Hand over to opencode</h2>
+        <h2 id="session-handover-title" className="text-base font-semibold">
+          Hand over to {HANDOVER_LABELS[destination]}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Starts an opencode session on this Bot carrying{" "}
+          Starts {destination === "claude" ? "a" : "an"} {HANDOVER_LABELS[destination]} session on
+          this Bot carrying{" "}
           <span className="font-mono">{request.session.title || request.session.sessionId}</span>
           &rsquo;s context since its newest compaction. The new session opens on this Bot.
         </p>

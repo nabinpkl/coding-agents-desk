@@ -12,6 +12,7 @@
 import type {
   AgentCommandReceipt,
   AgentSessionDescriptor,
+  StartedSession,
 } from "@agentdesk/agent-feed-wire";
 import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTerminals } from "@/features/activity-feed/data-source/layers/SidecarTerminals";
@@ -68,6 +69,28 @@ export class SidecarAgentSessions extends SidecarTerminals {
       handover: { turnCount: number; chars: number; lossy: boolean };
     }>(
       await this.transport.request("POST", "/api/agent-sessions/opencode/handover", {
+        body: { requestId: crypto.randomUUID(), sessionId, ...(message ? { message } : {}) },
+      }),
+    );
+  }
+
+  /**
+   * Starts a Claude session carrying a compacted opencode session's context.
+   *
+   * The mirror of the call above, and a separate method rather than a destination argument
+   * because the two answer differently: opencode answers with a session descriptor the backend
+   * made, Claude with the pane that was started. One call for the same reason -- a Claude session
+   * is created and given its first turn by one argv, so there is no half-done state to strand.
+   */
+  async handoverToClaude(sessionId: string, message?: string): Promise<{
+    session: StartedSession;
+    handover: { turnCount: number; chars: number; lossy: boolean };
+  }> {
+    return parse<{
+      session: StartedSession;
+      handover: { turnCount: number; chars: number; lossy: boolean };
+    }>(
+      await this.transport.request("POST", "/api/agent-sessions/claude/handover", {
         body: { requestId: crypto.randomUUID(), sessionId, ...(message ? { message } : {}) },
       }),
     );

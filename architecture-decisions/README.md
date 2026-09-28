@@ -150,3 +150,6 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0117 | Terminals list windows and panes, addressed the way tmux addresses them | accepted | 2026-09-23 |
 | ADR-0118 | Terminal wall tiles follow the pane and never resize it | accepted | 2026-09-23 |
 | ADR-0119 | Claude sessions hand over to opencode as one rendered prompt | accepted | 2026-09-23 |
+| ADR-0120 | Opencode sessions get the thread terminal Claude sessions have | accepted | 2026-09-24 |
+| ADR-0121 | Opencode session pane resumes onto its session | accepted | 2026-09-25 |
+| ADR-0122 | Opencode sessions hand over to Claude as one first-turn argv | accepted | 2026-09-28 |

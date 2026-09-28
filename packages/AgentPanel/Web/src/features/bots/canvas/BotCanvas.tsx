@@ -50,7 +50,7 @@ export function BotCanvas({
   attachSessionToBot,
   onForkFromLastMessage,
   onForkFromLastCompaction,
-  onHandoverToOpencode,
+  onHandoverSession,
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
@@ -146,7 +146,7 @@ export function BotCanvas({
   /** The same fork, starting just before the last thing a person said in that session. */
   onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
   onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
-  onHandoverToOpencode: (bot: BotView, session: SessionSummary) => void;
+  onHandoverSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;
   /**
@@ -263,7 +263,7 @@ export function BotCanvas({
         attachSessionToBot={attachSessionToBot}
         onForkFromLastMessage={onForkFromLastMessage}
         onForkFromLastCompaction={onForkFromLastCompaction}
-        onHandoverToOpencode={onHandoverToOpencode}
+        onHandoverSession={onHandoverSession}
         onRenameSession={onRenameSession}
         onDetachSession={onDetachSession}
         onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}

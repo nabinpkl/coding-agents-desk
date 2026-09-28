@@ -1,0 +1,301 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
+import {
+  createHandoverRoutes,
+  MAX_HANDOVER_PROMPT,
+  type HandoverRouteActions,
+} from "@/http/agent-routes/handoverRoutes";
+import type { SessionLauncher } from "@/transcripts/session-ops/forkSession";
+import { SessionHandoverError } from "@/transcripts/sessionHandover";
+import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
+import { state } from "@/transcripts/transcriptState";
+
+const server = { upgrade: () => false } as unknown as Parameters<ReturnType<typeof createHandoverRoutes>>[2];
+
+function fakeBackend(): AgentBackend {
+  return {
+    id: "pi",
+    capabilities: {
+      modes: ["nice"], canSend: true, canSteer: true, canAbort: true,
+      canFetchRaw: false, canOpenTerminal: false, supportsExtensionUi: true, canStreamLive: false,
+    },
+    describeSession() { return undefined; },
+    async createSession() { throw new Error("not used"); },
+    async page() {
+      return { events: [], total: 0, mode: "nice" as const, sequence: 0, runState: "idle" as const, queue: { steer: 0, followUp: 0 } };
+    },
+    async subscribe() { return () => {}; },
+    async send(_sessionId, requestId, _text, delivery) {
+      return { requestId, delivery: delivery === "steer" ? "steer" as const : "immediate" as const };
+    },
+    async abort(_sessionId, requestId) { return { requestId, delivery: "abort" as const }; },
+    async subscribeUi() { return () => {}; },
+    async respondToUi() { return "already-resolved" as const; },
+    async dispose() {},
+  };
+}
+
+/**
+ * The handover creates an opencode session and sends the rendered context as its first prompt.
+ * Real catalog state plus a real temp transcript, because the route's job is the wiring between
+ * the two: the render itself is `sessionHandover.test.ts`'s. Nothing here replaces a module.
+ */
+const HANDOVER_ID = "44444444-4444-4444-8444-444444444444";
+const HANDOVER_PLAIN_ID = "55555555-5555-4555-8555-555555555555";
+
+function handoverLine(record: Record<string, unknown>): string {
+  return JSON.stringify({ cwd: "/tmp/project", timestamp: "2026-09-09T05:00:00.000Z", uuid: crypto.randomUUID(), ...record });
+}
+
+async function handoverTranscript(id: string, compacted: boolean): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "agent-handover-"));
+  const path = join(root, `${id}.jsonl`);
+  const lines = compacted
+    ? [
+      handoverLine({ type: "user", message: { role: "user", content: "before" } }),
+      handoverLine({ type: "system", subtype: "compact_boundary", content: "Conversation compacted" }),
+      handoverLine({ type: "user", isCompactSummary: true, message: { role: "user", content: "Primary request: fix it." } }),
+      handoverLine({ type: "user", message: { role: "user", content: "did it land?" } }),
+    ]
+    : [handoverLine({ type: "user", message: { role: "user", content: "never summarized" } })];
+  await writeFile(path, `${lines.join("\n")}\n`);
+  return root;
+}
+
+function seedHandoverSession(id: string, transcriptPath: string): void {
+  state.sessions.set(sessionKey("claude", id), {
+    sessionId: id,
+    source: "claude",
+    project: "/tmp/project",
+    transcriptPath,
+    lastEventAt: Date.now(),
+  });
+}
+
+function unseedHandoverSession(id: string, root: string): Promise<void> {
+  state.sessions.delete(sessionKey("claude", id));
+  return rm(root, { recursive: true, force: true });
+}
+
+function handoverBackend(calls: { created: { requestId: string; project: string }[]; sent: { sessionId: string; text: string }[] }): AgentBackend {
+  const base = fakeBackend();
+  const backend: AgentBackend = {
+    ...base,
+    id: "opencode",
+    createSession: async (requestId: string, projectPath: string): Promise<AgentSessionDescriptor> => {
+      calls.created.push({ requestId, project: projectPath });
+      return { sessionId: "opencode-new", source: "opencode", projectPath, title: "new", lastEventAt: Date.now(), activity: "ready", capabilities: base.capabilities };
+    },
+    send: async (sessionId: string, requestId: string, text: string, _delivery: "next" | "steer") => {
+      calls.sent.push({ sessionId, text });
+      return { requestId, delivery: "followUp" as const };
+    },
+  };
+  return backend;
+}
+
+test("a handover creates the opencode session in the source project and sends provenance plus context", async () => {
+  const root = await handoverTranscript(HANDOVER_ID, true);
+  seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
+  try {
+    const calls = { created: [] as { requestId: string; project: string }[], sent: [] as { sessionId: string; text: string }[] };
+    const route = createHandoverRoutes((id) => id === "opencode" ? handoverBackend(calls) : undefined);
+    const request = new Request("http://localhost/api/agent-sessions/opencode/handover", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "h1", sessionId: HANDOVER_ID, message: "go on" }),
+    });
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(201);
+    const body = await response?.json() as { session: { sessionId: string }; handover: { turnCount: number } };
+    expect(body.session.sessionId).toBe("opencode-new");
+    expect(calls.created).toEqual([{ requestId: "h1-create", project: "/tmp/project" }]);
+    expect(calls.sent).toHaveLength(1);
+    const prompt = calls.sent[0]!.text;
+    expect(prompt.startsWith("This was obtained from an earlier session from another agent")).toBe(true);
+    expect(prompt).toContain("Primary request: fix it.");
+    expect(prompt).toContain("did it land?");
+    expect(prompt).not.toContain("before");
+    expect(prompt.endsWith("go on\n")).toBe(true);
+  } finally {
+    await unseedHandoverSession(HANDOVER_ID, root);
+  }
+});
+
+test("a handover answers 404 when the session is unknown or was never compacted", async () => {
+  const route = createHandoverRoutes(() => fakeBackend());
+  const missing = new Request("http://localhost/api/agent-sessions/opencode/handover", {
+    method: "POST",
+    body: JSON.stringify({ requestId: "h2", sessionId: "no-such-session" }),
+  });
+  expect((await route(missing, new URL(missing.url), server))?.status).toBe(404);
+
+  const root = await handoverTranscript(HANDOVER_PLAIN_ID, false);
+  seedHandoverSession(HANDOVER_PLAIN_ID, join(root, `${HANDOVER_PLAIN_ID}.jsonl`));
+  try {
+    const plain = new Request("http://localhost/api/agent-sessions/opencode/handover", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "h3", sessionId: HANDOVER_PLAIN_ID }),
+    });
+    const response = await route(plain, new URL(plain.url), server);
+    expect(response?.status).toBe(404);
+    expect(await response?.json()).toMatchObject({ error: { code: "no-compaction-point" } });
+  } finally {
+    await unseedHandoverSession(HANDOVER_PLAIN_ID, root);
+  }
+});
+
+test("a handover answers 404 when opencode is not registered", async () => {
+  const root = await handoverTranscript(HANDOVER_ID, true);
+  seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
+  try {
+    const route = createHandoverRoutes(() => undefined);
+    const request = new Request("http://localhost/api/agent-sessions/opencode/handover", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "h4", sessionId: HANDOVER_ID }),
+    });
+    expect((await route(request, new URL(request.url), server))?.status).toBe(404);
+  } finally {
+    await unseedHandoverSession(HANDOVER_ID, root);
+  }
+});
+
+/**
+ * The reverse direction. What it has to get right is not the render -- that is
+ * `opencodeHandover.test.ts`'s -- but the wiring either side of it: that the successor lands in
+ * the source's own directory, that the reader's message rides last, and that nothing is started
+ * when the render refuses or the result is too large to put on a command line.
+ */
+const OPENCODE_ID = "oc_66666666";
+
+function seedOpencodeSession(id: string, title?: string): void {
+  state.sessions.set(sessionKey("opencode", id), {
+    sessionId: id,
+    source: "opencode",
+    project: "/tmp/project",
+    lastEventAt: Date.now(),
+    ...(title === undefined ? {} : { title }),
+  });
+}
+
+function unseedOpencodeSession(id: string): void {
+  state.sessions.delete(sessionKey("opencode", id));
+}
+
+/** Records what would have been started, and starts nothing. */
+function recordingLauncher(started: { cwd: string; title: string; prompt?: string }[]): SessionLauncher {
+  return {
+    async start(options) {
+      started.push({ cwd: options.cwd, title: options.title, ...(options.prompt === undefined ? {} : { prompt: options.prompt }) });
+      return { tmuxSession: `agentdesk-${options.sessionId}` };
+    },
+    async fork() { throw new Error("a handover never forks"); },
+    async end() { return null; },
+  };
+}
+
+function claudeActions(
+  started: { cwd: string; title: string; prompt?: string }[],
+  renderOpencode: HandoverRouteActions["renderOpencode"],
+): HandoverRouteActions {
+  return { launch: recordingLauncher(started), renderOpencode };
+}
+
+function handoverRequest(body: Record<string, unknown>): Request {
+  return new Request("http://localhost/api/agent-sessions/claude/handover", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+test("a handover to Claude starts a session where the opencode session runs, carrying its context", async () => {
+  seedOpencodeSession(OPENCODE_ID, "Wire contract");
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => ({
+      summary: "Primary request: fix the wire.",
+      turns: "human: did it land?",
+      turnCount: 1,
+      lossy: false,
+    })));
+    const request = handoverRequest({ requestId: "r1", sessionId: OPENCODE_ID, message: "go on" });
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(201);
+    const body = await response?.json() as { session: { title: string; projectPath: string }; handover: { chars: number } };
+    expect(body.session.title).toBe("Wire contract (handover)");
+    expect(body.session.projectPath).toBe("/tmp/project");
+    expect(started).toHaveLength(1);
+    expect(started[0]!.cwd).toBe("/tmp/project");
+    const prompt = started[0]!.prompt!;
+    expect(prompt.startsWith("This was obtained from an earlier session from another agent (opencode,")).toBe(true);
+    expect(prompt).toContain("Primary request: fix the wire.");
+    expect(prompt).toContain("did it land?");
+    // Last, where an instruction gets the model's attention rather than being buried under the
+    // history above it. The forward direction pins the same thing for the same reason.
+    expect(prompt.endsWith("go on\n")).toBe(true);
+    expect(body.handover.chars).toBe(prompt.length);
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});
+
+test("a handover to Claude answers 404 for an unknown session and for one never compacted", async () => {
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  const refusing = createHandoverRoutes(() => undefined, claudeActions(started, async () => {
+    throw new SessionHandoverError("was never compacted: nothing to hand over");
+  }));
+
+  const missing = handoverRequest({ requestId: "r2", sessionId: "oc_nothing" });
+  expect((await refusing(missing, new URL(missing.url), server))?.status).toBe(404);
+
+  seedOpencodeSession(OPENCODE_ID);
+  try {
+    const plain = handoverRequest({ requestId: "r3", sessionId: OPENCODE_ID });
+    const response = await refusing(plain, new URL(plain.url), server);
+    expect(response?.status).toBe(404);
+    expect(await response?.json()).toMatchObject({ error: { code: "no-compaction-point" } });
+    // The refusal is the whole point: a session that was started and then told nothing is worse
+    // than no session, because it looks like the handover worked.
+    expect(started).toEqual([]);
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});
+
+test("a handover past the command-line cap is refused rather than handed to the kernel", async () => {
+  seedOpencodeSession(OPENCODE_ID);
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => ({
+      summary: "x".repeat(MAX_HANDOVER_PROMPT + 1),
+      turns: "",
+      turnCount: 0,
+      lossy: false,
+    })));
+    const request = handoverRequest({ requestId: "r4", sessionId: OPENCODE_ID });
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(413);
+    expect(await response?.json()).toMatchObject({ error: { code: "handover-too-large" } });
+    expect(started).toEqual([]);
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});
+
+test("a session with no title of its own still gets a title that is one", async () => {
+  seedOpencodeSession(OPENCODE_ID);
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => ({
+      summary: "summary", turns: "", turnCount: 0, lossy: false,
+    })));
+    const request = handoverRequest({ requestId: "r5", sessionId: OPENCODE_ID });
+    expect((await route(request, new URL(request.url), server))?.status).toBe(201);
+    // `-n` takes this to the Claude CLI's command line, so an empty one is not a cosmetic gap.
+    expect(started[0]!.title).toBe("opencode session (handover)");
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});

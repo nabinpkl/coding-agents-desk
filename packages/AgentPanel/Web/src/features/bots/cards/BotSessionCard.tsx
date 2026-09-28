@@ -12,6 +12,7 @@ import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/file
 import { SessionMeta } from "@/features/sidebar/SessionMeta";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
+import type { HandoverDestination } from "@/features/bots/sessionHandover";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
@@ -57,7 +58,7 @@ export function BotSessionCard({
   onFork,
   onForkFromLastMessage,
   onForkFromLastCompaction,
-  onHandoverToOpencode,
+  handover,
   onRename,
   onAttachSession,
   onDetach,
@@ -107,7 +108,7 @@ export function BotSessionCard({
   onForkFromLastMessage?: () => void;
   onForkFromLastCompaction?: () => void;
   /** Hands this session's context since its newest compaction to a new opencode session. Claude-only. */
-  onHandoverToOpencode?: () => void;
+  handover?: { to: HandoverDestination; onSelect: () => void };
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
   /**
@@ -363,7 +364,7 @@ export function BotSessionCard({
                 onFork={onFork}
                 onForkFromLastMessage={onForkFromLastMessage}
                 onForkFromLastCompaction={onForkFromLastCompaction}
-                onHandoverToOpencode={onHandoverToOpencode}
+                handover={handover}
                 onMoveEarlier={canMoveEarlier ? () => onMoveBySteps(-1) : undefined}
                 onMoveLater={canMoveLater ? () => onMoveBySteps(1) : undefined}
                 onDetach={onDetach}

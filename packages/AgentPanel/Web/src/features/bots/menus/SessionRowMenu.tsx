@@ -10,6 +10,7 @@ import {
   Scissors,
   Unlink,
 } from "lucide-react";
+import { HANDOVER_LABELS, type HandoverDestination } from "@/features/bots/sessionHandover";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 
 /**
@@ -24,7 +25,7 @@ export function SessionRowMenu({
   onFork,
   onForkFromLastMessage,
   onForkFromLastCompaction,
-  onHandoverToOpencode,
+  handover,
   onMoveEarlier,
   onMoveLater,
   onDetach,
@@ -67,14 +68,15 @@ export function SessionRowMenu({
    */
   onForkFromLastCompaction?: () => void;
   /**
-   * Starts an opencode session carrying this session's context since its newest compaction.
+   * Starts a session of the OTHER harness carrying this one's context since its newest
+   * compaction, and what that harness is called.
    *
-   * Below the forks because it leaves the provider: the three above stay inside Claude, this
-   * one hands the summarised context to another agent. Absent everywhere a fork is, plus on
-   * non-Claude rows -- the render reads Claude records, and opencode rows have no compaction
-   * to hand over.
+   * Below the forks because it leaves the provider: the three above stay inside Claude, this one
+   * hands the summarised context across. One prop rather than a callback and a label, because
+   * two props are two chances for the item to say it goes somewhere it does not. Absent
+   * everywhere a fork is, plus on Codex rows, which have no compaction boundary to cut at.
    */
-  onHandoverToOpencode?: () => void;
+  handover?: { to: HandoverDestination; onSelect: () => void };
   /**
    * Moves this session one place earlier in its Bot's order, or later.
    *
@@ -131,11 +133,11 @@ export function SessionRowMenu({
       onSelect: onForkFromLastCompaction,
     });
   }
-  if (onHandoverToOpencode) {
+  if (handover) {
     items.push({
-      label: "Hand over to opencode",
+      label: `Hand over to ${HANDOVER_LABELS[handover.to]}`,
       icon: ArrowRightLeft,
-      onSelect: onHandoverToOpencode,
+      onSelect: handover.onSelect,
     });
   }
   // Above the removals and below the forks, which is the list widening from making something new,

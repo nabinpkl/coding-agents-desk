@@ -21,6 +21,7 @@ import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
+import { handoverDestination } from "@/features/bots/sessionHandover";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
 
 /**
@@ -117,13 +118,14 @@ export function useBotCommands(
   const [handoverRequest, setHandoverRequest] = useState<HandoverRequest | null>(null);
 
   /**
-   * Opens the handover dialog for a Bot's Claude session.
+   * Opens the handover dialog for a Bot's Claude or opencode session.
    *
-   * Claude-only like the forks, and absent rather than inert elsewhere: the render reads Claude
-   * records, and Codex and opencode rows have nothing it can hand over.
+   * The two harnesses that compact, in either direction. Codex is absent rather than inert: it
+   * has no compaction boundary to cut at, so there is nothing to state what the successor would
+   * be looking at.
    */
-  const handoverToOpencode = useCallback((bot: BotView, session: SessionSummary) => {
-    if (session.source !== "claude") return;
+  const handoverSession = useCallback((bot: BotView, session: SessionSummary) => {
+    if (!handoverDestination(session)) return;
     setHandoverRequest({ botId: bot.botId, session, projectPath: bot.environment.path });
   }, []);
 
@@ -138,16 +140,30 @@ export function useBotCommands(
   const startHandover = useCallback(async (request: HandoverRequest, message: string) => {
     setHandoverRequest(null);
     setBotCommandError(null);
+    const destination = handoverDestination(request.session);
+    const band = `${request.session.source}:${request.session.sessionId}`;
+    if (!destination) {
+      // Unreachable through the dialog, which only opens for a session that has one. Said out
+      // loud rather than returned quietly, because the quiet version is a confirmed handover that
+      // starts nothing and reports nothing.
+      setBotCommandError({ session: band, message: "That session has nothing to hand over." });
+      return;
+    }
     try {
       const feed = feeds.forBot(request.botId);
-      const { session: started } = await feed.handoverToOpencode(request.session.sessionId, message);
+      // Two calls rather than one with an argument, because the sidecar answers them differently:
+      // opencode hands back the descriptor its backend made, Claude hands back the pane it
+      // started. Both carry a session id, which is all that happens next needs.
+      const { session: started } = destination === "claude"
+        ? await feed.handoverToClaude(request.session.sessionId, message)
+        : await feed.handoverToOpencode(request.session.sessionId, message);
       await feed.addBotSessions(request.botId, {
-        sessionRefs: [{ source: "opencode", sessionId: started.sessionId }],
+        sessionRefs: [{ source: destination, sessionId: started.sessionId }],
       });
-      setCanvasOpenKeys((current) => new Set(current).add(`opencode:${started.sessionId}`));
+      setCanvasOpenKeys((current) => new Set(current).add(`${destination}:${started.sessionId}`));
     } catch (error) {
       setBotCommandError({
-        session: `claude:${request.session.sessionId}`,
+        session: band,
         message: `Could not hand over the session: ${
           error instanceof Error ? error.message : String(error)
         }`,
@@ -449,7 +465,7 @@ export function useBotCommands(
     setForkRequest,
     handoverRequest,
     setHandoverRequest,
-    handoverToOpencode,
+    handoverSession,
     startHandover,
     renamingSession,
     setRenamingSession,
