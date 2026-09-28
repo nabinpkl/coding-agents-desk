@@ -1,15 +1,16 @@
 /* MV3 service worker. Owns every call to the annotator server (with the OAuth
  * token attached), tab capture, the badge, and the toolbar toggle. */
 import { accessToken, isSignedIn, Offline, signIn, signOut } from "./auth.ts";
-import { SERVER_ORIGIN } from "./origins.ts";
+import { apiUrl, SERVER_ORIGIN } from "./origins.ts";
 import type { AuthStatus, BackgroundRequest, HttpMethod, Result, TabMessage } from "./messages.ts";
 
 type Outcome = { kind: "response"; res: Response } | { kind: "signed-out" } | { kind: "offline"; error: string };
 
 /** Sends one authorized request; on 401 refreshes once and retries. */
 async function authorized(method: HttpMethod, path: string, body?: unknown): Promise<Outcome> {
+  const target = apiUrl(path);
   const attempt = async (token: string): Promise<Response> =>
-    fetch(`${SERVER_ORIGIN}${path}`, {
+    fetch(target, {
       method,
       headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
