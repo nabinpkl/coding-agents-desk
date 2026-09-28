@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
 import {
   createHandoverRoutes,
+  LIVE_HANDOVER_ACTIONS,
   MAX_HANDOVER_PROMPT,
   type HandoverRouteActions,
 } from "@/http/agent-routes/handoverRoutes";
@@ -200,7 +201,7 @@ function claudeActions(
   started: { cwd: string; title: string; prompt?: string }[],
   renderOpencode: HandoverRouteActions["renderOpencode"],
 ): HandoverRouteActions {
-  return { launch: recordingLauncher(started), renderOpencode };
+  return { ...LIVE_HANDOVER_ACTIONS, launch: recordingLauncher(started), renderOpencode };
 }
 
 function handoverRequest(body: Record<string, unknown>): Request {
@@ -298,4 +299,122 @@ test("a session with no title of its own still gets a title that is one", async 
   } finally {
     unseedOpencodeSession(OPENCODE_ID);
   }
+});
+
+/**
+ * Reading a session's handover without starting anything.
+ *
+ * The property worth pinning is not the JSON, it is that this and the two POSTs answer the same
+ * question: a session the read offers a summary for is one a handover can be started from, and a
+ * session it refuses is refused by the POST with the same code. Three routes disagreeing is a
+ * caller that reads a summary and then cannot act on it.
+ */
+function readRequest(source: string, sessionId: string): Request {
+  return new Request(`http://localhost/api/sessions/${source}/${sessionId}/handover`, { method: "GET" });
+}
+
+test("reads a Claude session's summary and the turns since it, and starts nothing", async () => {
+  const root = await handoverTranscript(HANDOVER_ID, true);
+  seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => {
+      throw new Error("the opencode reader is not this session's");
+    }));
+    const request = readRequest("claude", HANDOVER_ID);
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(200);
+    const body = await response?.json() as {
+      source: string; sessionId: string; project: string;
+      summary: string; turns: string; turnCount: number; lossy: boolean;
+    };
+    expect(body).toMatchObject({
+      source: "claude",
+      sessionId: HANDOVER_ID,
+      project: "/tmp/project",
+      summary: "Primary request: fix it.",
+      turnCount: 1,
+      lossy: false,
+    });
+    expect(body.turns).toContain("did it land?");
+    expect(body.turns).not.toContain("before");
+    expect(started).toEqual([]);
+  } finally {
+    await unseedHandoverSession(HANDOVER_ID, root);
+  }
+});
+
+test("reads an opencode session's summary through the serve", async () => {
+  seedOpencodeSession(OPENCODE_ID, "Wire contract");
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => ({
+      summary: "Primary request: fix the wire.",
+      turns: "human: did it land?",
+      turnCount: 1,
+      lossy: true,
+    })));
+    const request = readRequest("opencode", OPENCODE_ID);
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({
+      source: "opencode",
+      sessionId: OPENCODE_ID,
+      title: "Wire contract",
+      summary: "Primary request: fix the wire.",
+      turnCount: 1,
+      // Carried on the read as well as on the start, so a caller rendering this somewhere can say
+      // that tool output was cut rather than presenting it as the whole record.
+      lossy: true,
+    });
+    expect(started).toEqual([]);
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});
+
+test("refuses a source with no compaction boundary by name, not as a missing session", async () => {
+  const route = createHandoverRoutes(() => undefined);
+  const request = readRequest("codex", "cx-1");
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(400);
+  expect(await response?.json()).toMatchObject({ error: { code: "unsupported-source" } });
+});
+
+test("the read and the start refuse the same session for the same reason", async () => {
+  // The one thing three routes sharing a reader is FOR. A read that offers a summary the start
+  // then refuses, or the other way round, is worse than either refusing alone.
+  const root = await handoverTranscript(HANDOVER_PLAIN_ID, false);
+  seedHandoverSession(HANDOVER_PLAIN_ID, join(root, `${HANDOVER_PLAIN_ID}.jsonl`));
+  try {
+    const route = createHandoverRoutes((id) => id === "opencode"
+      ? handoverBackend({ created: [], sent: [] })
+      : undefined);
+
+    const read = readRequest("claude", HANDOVER_PLAIN_ID);
+    const readAnswer = await route(read, new URL(read.url), server);
+    const start = new Request("http://localhost/api/agent-sessions/opencode/handover", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "r9", sessionId: HANDOVER_PLAIN_ID }),
+    });
+    const startAnswer = await route(start, new URL(start.url), server);
+
+    expect(readAnswer?.status).toBe(startAnswer?.status);
+    const [readBody, startBody] = await Promise.all([
+      readAnswer?.json() as Promise<{ error: { code: string } }>,
+      startAnswer?.json() as Promise<{ error: { code: string } }>,
+    ]);
+    expect(readBody.error.code).toBe("no-compaction-point");
+    expect(startBody.error.code).toBe("no-compaction-point");
+  } finally {
+    await unseedHandoverSession(HANDOVER_PLAIN_ID, root);
+  }
+});
+
+test("a session the catalog does not hold is 404 on the read too", async () => {
+  const route = createHandoverRoutes(() => undefined);
+  const request = readRequest("opencode", "oc_gone");
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(404);
+  expect(await response?.json()).toMatchObject({ error: { code: "unknown-session" } });
 });

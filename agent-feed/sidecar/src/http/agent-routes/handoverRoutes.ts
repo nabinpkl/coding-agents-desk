@@ -1,9 +1,16 @@
-// Handing a compacted session's context to a session of the other harness, in either direction.
+// Handing a compacted session's context to a session of the other harness, in either direction,
+// and reading what that context currently amounts to without handing it anywhere.
 //
-// Both directions are one route each, and one route rather than two calls for the same reason:
-// the panel must never be left holding a session that was created and never prompted, and the
-// only way to guarantee that is for the create and the first turn to be one request the sidecar
-// either completes or fails.
+// Three routes over one reader. The read is a GET on the session itself and starts nothing, which
+// is why it is separate: asking what a session's context amounts to should not commit anyone to
+// continuing it. It exists because the summary is worth having on its own -- it is the statement
+// of what a long session is currently working from, and until now the only way to see one was to
+// start a successor and read its first turn.
+//
+// Both write directions are one route each, and one route rather than two calls for the same
+// reason: the panel must never be left holding a session that was created and never prompted, and
+// the only way to guarantee that is for the create and the first turn to be one request the
+// sidecar either completes or fails.
 //
 // What the two directions do NOT share is how the successor is made, and the asymmetry is the
 // whole reason this file has two handlers instead of one with a flag:
@@ -28,9 +35,15 @@
 // cap is about, and raising the shared one would loosen it for the case it was written to catch.
 
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
+import type { Session } from "@/transcripts/transcriptTypes";
 import { SUMMARY_TITLE_CHARACTERS } from "@/transcripts/catalog/catalogState";
 import { renderOpencodeHandover } from "@/transcripts/opencodeHandover";
-import { buildHandoverPrompt, renderHandover, SessionHandoverError } from "@/transcripts/sessionHandover";
+import {
+  buildHandoverPrompt,
+  renderHandover,
+  SessionHandoverError,
+  type RenderedHandover,
+} from "@/transcripts/sessionHandover";
 import { LIVE_SESSION_LAUNCHER, launchSession, type SessionLauncher } from "@/transcripts/session-ops/forkSession";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import type { AgentBackend } from "@/agents/agentBackend";
@@ -40,6 +53,14 @@ import { errorResponse, jsonBody, requestIdentifier, routeError } from "@/http/a
 
 const HANDOVER_TO_OPENCODE_ROUTE = "/api/agent-sessions/opencode/handover";
 const HANDOVER_TO_CLAUDE_ROUTE = "/api/agent-sessions/claude/handover";
+/**
+ * Reading a session's own handover, addressed by the session rather than by a destination.
+ *
+ * Under `/api/sessions/` because the two POSTs above are named for where a successor is STARTED,
+ * and this starts nothing: it answers what a session's context currently amounts to. A reader
+ * that only wants the summary reads `summary` and ignores the rest.
+ */
+const HANDOVER_READ_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/handover$/;
 
 /**
  * Registered beside `createAgentRoutes` rather than inside it, the way the opencode command
@@ -52,10 +73,14 @@ export function createHandoverRoutes(
 ): RouteHandler {
   return (request, url) => {
     if (request.method === "POST" && url.pathname === HANDOVER_TO_OPENCODE_ROUTE) {
-      return handoverToOpencode(request, resolveBackend);
+      return handoverToOpencode(request, resolveBackend, actions);
     }
     if (request.method === "POST" && url.pathname === HANDOVER_TO_CLAUDE_ROUTE) {
       return handoverToClaude(request, actions);
+    }
+    const read = HANDOVER_READ_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && read) {
+      return readHandover(read[1]!, read[2]!, actions);
     }
     return undefined;
   };
@@ -68,13 +93,106 @@ export function createHandoverRoutes(
  */
 export interface HandoverRouteActions {
   launch: SessionLauncher;
+  renderClaude: typeof renderHandover;
   renderOpencode: typeof renderOpencodeHandover;
 }
 
 export const LIVE_HANDOVER_ACTIONS: HandoverRouteActions = {
   launch: LIVE_SESSION_LAUNCHER,
+  renderClaude: renderHandover,
   renderOpencode: renderOpencodeHandover,
 };
+
+/**
+ * What a session's context amounts to right now, or why it amounts to nothing.
+ *
+ * One reader for all three routes, because "which sessions can be handed over, and how is each
+ * one read" is one question and three answers to it would drift: the GET would offer a handover
+ * the POST then refused, or the other way round, and neither would look wrong on its own.
+ *
+ * A union rather than a thrown error so each caller keeps its own status and its own wording,
+ * which is the same reason `sessionTitleRefusal` returns a reason instead of throwing.
+ */
+type HandoverRead =
+  | { ok: true; session: Session; handover: RenderedHandover }
+  | { ok: false; code: string; message: string; status: number };
+
+async function readSessionHandover(
+  source: string,
+  sessionId: string,
+  actions: HandoverRouteActions,
+): Promise<HandoverRead> {
+  if (source !== "claude" && source !== "opencode") {
+    return {
+      ok: false,
+      code: "unsupported-source",
+      // Named rather than silently empty: Codex and Pi sessions are real rows in the same lists,
+      // and a reader told only "not found" would go looking for the session.
+      message: `"${source}" sessions have no compaction boundary to hand over from`,
+      status: 400,
+    };
+  }
+  const session = findSession(source, sessionId);
+  const missing: HandoverRead = {
+    ok: false,
+    code: "unknown-session",
+    message: `${source} session "${sessionId}" was not found`,
+    status: 404,
+  };
+  if (!session) return missing;
+  if (source === "opencode") {
+    return rendered(session, () => actions.renderOpencode(sessionId));
+  }
+  // Bound before the check rather than read twice, so the render takes a string the type system
+  // has already proved rather than one asserted past it.
+  const transcriptPath = session.transcriptPath;
+  if (!transcriptPath) return missing;
+  return rendered(session, () => actions.renderClaude(sessionId, transcriptPath));
+}
+
+/** Turns the one refusal a render can make into the union, and lets every other failure out. */
+async function rendered(
+  session: Session,
+  render: () => Promise<RenderedHandover>,
+): Promise<HandoverRead> {
+  try {
+    return { ok: true, session, handover: await render() };
+  } catch (error) {
+    if (error instanceof SessionHandoverError) {
+      return { ok: false, code: "no-compaction-point", message: error.message, status: 404 };
+    }
+    throw error;
+  }
+}
+
+/**
+ * The summary a session is currently running on, and the turns since it.
+ *
+ * Read-only and starts nothing, which is the whole point of it being separate from the two POSTs:
+ * asking what a session's context amounts to should not commit anyone to continuing it somewhere.
+ */
+async function readHandover(
+  source: string,
+  sessionId: string,
+  actions: HandoverRouteActions,
+): Promise<Response> {
+  try {
+    const read = await readSessionHandover(source, sessionId, actions);
+    if (!read.ok) return errorResponse(read.code, read.message, read.status);
+    return jsonResponse({
+      source,
+      sessionId,
+      title: read.session.title ?? null,
+      project: read.session.project,
+      summary: read.handover.summary,
+      turns: read.handover.turns,
+      turnCount: read.handover.turnCount,
+      lossy: read.handover.lossy,
+    });
+  } catch (error) {
+    return routeError(error);
+  }
+}
 
 /**
  * The largest rendered prompt this will put on a command line.
@@ -95,6 +213,7 @@ export const MAX_HANDOVER_PROMPT = 256 * 1024;
 export async function handoverToOpencode(
   request: Request,
   resolveBackend: (id: string) => AgentBackend | undefined,
+  actions: HandoverRouteActions = LIVE_HANDOVER_ACTIONS,
 ): Promise<Response> {
   try {
     const body = await jsonBody(request);
@@ -104,21 +223,11 @@ export async function handoverToOpencode(
     if (!requestId || !sessionId) {
       return errorResponse("invalid-request", "requestId and sessionId are required", 400, requestId ?? undefined);
     }
-    const source = findSession("claude", sessionId);
-    if (!source || !source.transcriptPath) {
-      return errorResponse("unknown-session", `claude session "${sessionId}" was not found`, 404, requestId);
-    }
     const backend = resolveBackend("opencode");
     if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404, requestId);
-    let handover;
-    try {
-      handover = await renderHandover(sessionId, source.transcriptPath);
-    } catch (error) {
-      if (error instanceof SessionHandoverError) {
-        return errorResponse("no-compaction-point", error.message, 404, requestId);
-      }
-      throw error;
-    }
+    const read = await readSessionHandover("claude", sessionId, actions);
+    if (!read.ok) return errorResponse(read.code, read.message, read.status, requestId);
+    const { session: source, handover } = read;
     const prompt = buildHandoverPrompt({ source: "claude", sessionId, handover, message });
     const created = await backend.createSession(`${requestId}-create`, source.project);
     await backend.send(created.sessionId, `${requestId}-send`, prompt, "next");
@@ -153,23 +262,15 @@ export async function handoverToClaude(
     if (!requestId || !sessionId) {
       return errorResponse("invalid-request", "requestId and sessionId are required", 400, requestId ?? undefined);
     }
-    const source = findSession("opencode", sessionId);
-    if (!source) {
-      return errorResponse("unknown-session", `opencode session "${sessionId}" was not found`, 404, requestId);
-    }
+    const read = await readSessionHandover("opencode", sessionId, actions);
+    if (!read.ok) return errorResponse(read.code, read.message, read.status, requestId);
+    const { session: source, handover } = read;
+    // Checked after the render rather than before it, so a session that cannot be handed over at
+    // all says so instead of complaining about the name it would have been given.
     const title = handoverTitle(body.title, source.title);
     const refusal = sessionTitleRefusal(title);
     if (refusal) return errorResponse("invalid-request", `title: ${refusal}`, 400, requestId);
 
-    let handover;
-    try {
-      handover = await actions.renderOpencode(sessionId);
-    } catch (error) {
-      if (error instanceof SessionHandoverError) {
-        return errorResponse("no-compaction-point", error.message, 404, requestId);
-      }
-      throw error;
-    }
     const prompt = buildHandoverPrompt({ source: "opencode", sessionId, handover, message });
     if (prompt.length > MAX_HANDOVER_PROMPT) {
       return errorResponse(

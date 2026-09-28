@@ -64,6 +64,10 @@ it.
 - Images and structured tool results are not carried, the same as the forward direction.
 - Codex is a source in neither direction. It has no compaction boundary to cut at, so there is
   nothing to state what the successor is looking at.
+- The same render answers a read: `GET /api/sessions/:source/:sessionId/handover` returns the
+  summary and the turns since it without starting anything, for either source. One reader backs
+  all three routes, because a read that offers a summary the start then refuses is worse than
+  either refusing on its own.
 - A handover is cut at the newest LANDED compaction. The serve writes a checkpoint when compaction
   starts and flips it on landing, and a retry compacts the same session under a new message, so
   cutting at a running or aborted one would carry a summary still being written.
