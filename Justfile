@@ -1837,12 +1837,12 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     # host's own code default carries it (single source of truth). The native-messaging
     # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
+        DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792; VOICEBACKENDPORT=7793
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; BUILT_APP='{{host_build_app}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
+        DD='{{derived_data}}'; BUILT_APP='{{host_build_app}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692; VOICEBACKENDPORT=7693
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}')
@@ -1852,6 +1852,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     # default that ignored the override would point that tab at the wrong host's feed.
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
+    VOICEBACKENDPORT="${AGENTDESK_VOICE_SIDECAR_BACKEND_PORT:-$VOICEBACKENDPORT}"
     export AGENT_FEED_PTY_MANAGER_SOCKET="$PTY_SOCKET"
     export AGENTDESK_RUNTIME_ROOT='{{runtime_root}}'
     export AGENT_FEED_GRID_ENCODER_PATH='{{grid_encoder}}'
@@ -1979,6 +1980,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     fi
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
+    sh tools/reclaim-port.sh "voice server" "$VOICEBACKENDPORT"
     sleep 1
     node tools/build-system/install-runtime.mjs host "$BUILT_APP" "$APP" "$HOST_BID"
     trap 'env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset' EXIT
@@ -2037,12 +2039,12 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app_release}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
+        DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app_release}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792; VOICEBACKENDPORT=7793
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; BUILT_APP='{{host_build_app_release}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
+        DD='{{derived_data}}'; BUILT_APP='{{host_build_app_release}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692; VOICEBACKENDPORT=7693
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}')
@@ -2052,6 +2054,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     # default that ignored the override would point that tab at the wrong host's feed.
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
+    VOICEBACKENDPORT="${AGENTDESK_VOICE_SIDECAR_BACKEND_PORT:-$VOICEBACKENDPORT}"
     export AGENT_FEED_PTY_MANAGER_SOCKET="$PTY_SOCKET"
     export AGENTDESK_RUNTIME_ROOT='{{runtime_root}}'
     export AGENT_FEED_GRID_ENCODER_PATH='{{grid_encoder}}'
@@ -2184,6 +2187,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     fi
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
+    sh tools/reclaim-port.sh "voice server" "$VOICEBACKENDPORT"
     sleep 1
     node tools/build-system/install-runtime.mjs host "$BUILT_APP" "$APP" "$HOST_BID"
     trap 'env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset' EXIT
@@ -3483,18 +3487,3 @@ testflight-open:
 # Short archive recipe kept as the local archive action.
 client-archive:
     just client-archive-release
-
-# Launcher page for this tailnet host: one card per app on its port, each
-# opening in a new tab. Serves tools/tailnet-apps/ on :8080, reachable as
-# http://<this-mac>.ts.net:8080 from the phone and the Mac alike.
-#
-# The bare https://<this-mac>.ts.net/ (443) is tailscale serve, not this
-# recipe: `tailscale serve --bg http://127.0.0.1:8080` proxies 443 to this
-# port with the tailnet's trusted cert, no root needed, and the config
-# persists across restarts. `tailscale serve status` shows it;
-# `tailscale serve --https=443 off` removes it.
-tailnet-apps port="8080":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    sh '{{justfile_directory()}}/tools/reclaim-port.sh' "tailnet apps page" '{{port}}'
-    exec python3 '{{justfile_directory()}}/tools/tailnet-apps/serve.py' '{{port}}'

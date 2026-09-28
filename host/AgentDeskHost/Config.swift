@@ -1094,18 +1094,34 @@ enum Config {
     // the sidecar really is not coming, and a visible error the caller can retry
     // beats a hung window.
     static let agentFeedSidecarReadyWaitSeconds: TimeInterval = 10
-    // How long a voice request waits for a sidecar still coming up. Sized to the
-    // voice supervisor's own 20s readiness budget, so the wait covers exactly one
-    // full startup attempt: the observed cold start is 1.3s, and beyond one
-    // attempt an interactive caller is better served by an error it can retry than
-    // by more silence.
+    // How long a voice request waits for the activation listener to come up. The
+    // listener binds in milliseconds; the Python server behind it is started by the
+    // first connection and waited for there, not here.
     static let voiceSidecarReadyWaitSeconds: TimeInterval = 20
-    // Voice server sidecar (`voice-server` in the gesture-agent project). Runs
-    // on loopback like the agent feed sidecar; the phone reaches voice only through the
-    // host-mounted webview, never this port.
+    // Voice server sidecar (`voice-server` in the gesture-agent project). Every
+    // consumer dials this port on loopback: the host's voice lane on the phone's
+    // behalf (the phone never reaches it directly), and the Mac dictation and
+    // gesture webviews through their injected ws URL. The host owns the listener
+    // and starts the Python server behind it on the first connection
+    // (VoiceSidecarActivationProxy), so a host that never uses voice never pays
+    // for the ~2GB of Whisper and Kokoro that server holds.
     static let voiceSidecarPort: UInt16 = port(
         environmentKey: "AGENTDESK_VOICE_SIDECAR_PORT",
         defaultValue: tieredPort(stable: 7692, dev: 7792)
+    )
+    // Where the Python server itself listens, reached only through the listener
+    // above. Fixed rather than ephemeral so a launch can reclaim an orphan left by
+    // a host that was killed without tearing its child down.
+    static let voiceSidecarBackendPort: UInt16 = port(
+        environmentKey: "AGENTDESK_VOICE_SIDECAR_BACKEND_PORT",
+        defaultValue: tieredPort(stable: 7693, dev: 7793)
+    )
+    // How long the Python server may sit with no open connection before it is
+    // stopped to hand its memory back. Every piece of its work (a recording, a
+    // reanalysis, a synthesis) runs inside a connection, so none can outlive it.
+    static let voiceSidecarIdleSeconds: TimeInterval = positiveDouble(
+        environmentKey: "AGENTDESK_VOICE_SIDECAR_IDLE_SECONDS",
+        defaultValue: 300
     )
     // Opt-in Python import-time trace for diagnosing cold voice starts. The
     // sidecar keeps structured timing events on stdout while raw dependency

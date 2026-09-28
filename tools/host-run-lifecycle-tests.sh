@@ -70,6 +70,9 @@ assert_contains "$stable_release" \
 assert_contains "$stable_release" \
     'sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"' \
     'stable launch must reclaim the voice sidecar port'
+assert_contains "$stable_release" \
+    'sh tools/reclaim-port.sh "voice server" "$VOICEBACKENDPORT"' \
+    'stable launch must reclaim the port the on-demand voice server listens on'
 assert_not_contains "$stable_release" \
     'is held by a non-AgentDesk process' \
     'stable launch must not refuse to start over a port holder it does not recognize'
@@ -100,6 +103,9 @@ assert_contains "$dev_debug" \
 assert_contains "$dev_debug" \
     'sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"' \
     'dev launch must reclaim the voice sidecar port'
+assert_contains "$dev_debug" \
+    'sh tools/reclaim-port.sh "voice server" "$VOICEBACKENDPORT"' \
+    'dev launch must reclaim the port the on-demand voice server listens on'
 assert_not_contains "$dev_debug" \
     'is held by a non-AgentDesk process' \
     'dev launch must not refuse to start over a port holder it does not recognize'

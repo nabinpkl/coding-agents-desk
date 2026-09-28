@@ -262,8 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             port: Config.agentFeedSidecarPort
         )
     }()
-    // Voice server sidecar: spawns `voice-server` on loopback for the
-    // InteractionPanel's voice UI (live capture + transcript). Built in
+    // Voice server sidecar: owns the voice port for the InteractionPanel's voice
+    // UI (live capture + transcript) and spawns `voice-server` behind it only
+    // while a connection is open, stopping it again when idle. Built in
     // startVoiceEngineSidecar() after the venv is provisioned (or from the
     // env-driven dev launch), so it is a plain var rather than a lazy resolved
     // before provisioning completes.
@@ -565,7 +566,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startVoiceSidecar(launch: VoiceSidecarLaunch) {
         // Guard against a double-start if provisioning and a fallback ever race.
         guard voiceEngineSidecar == nil else { return }
-        let sidecar = VoiceEngineSidecar(launch: launch, port: Config.voiceSidecarPort)
+        let sidecar = VoiceEngineSidecar(
+            launch: launch,
+            port: Config.voiceSidecarPort,
+            backendPort: Config.voiceSidecarBackendPort,
+            idleSeconds: Config.voiceSidecarIdleSeconds
+        )
         voiceEngineSidecar = sidecar
         sidecar.start()
     }
