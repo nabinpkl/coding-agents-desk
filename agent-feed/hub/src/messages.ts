@@ -301,6 +301,15 @@ export class Messages {
     if (!/^[0-9a-zA-Z_-]{1,128}$/.test(session.sessionId)) throw new InvalidMessage("session must be a session id");
     const address = `${session.source}:${session.sessionId}` as SessionAddress;
     const previous = this.streams.get(address);
+    // A machine reconnecting replaces its own stream. Another machine claiming an address that is
+    // live elsewhere is refused: session ids are random per launch, so two machines naming one is a
+    // bug in whoever chose the id, and taking the address over would silently hand the first
+    // machine's queued messages to the second. Once the first stream ends, the address is free, so a
+    // session that genuinely moves between machines still moves.
+    const holder = previous ? this.store.getSession(address) : undefined;
+    if (previous && holder?.connected && holder.machine !== principal.machine) {
+      throw new Refused(`${address} is live on ${holder.machine}; ${principal.label} cannot open a second stream for it`);
+    }
     if (previous) this.store.requeueStream(previous.id);
     this.streams.set(address, stream);
     this.store.upsertSession({

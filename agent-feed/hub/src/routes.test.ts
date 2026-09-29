@@ -42,7 +42,7 @@ beforeAll(async () => {
     port: 0,
     dbFile: ":memory:",
     access: { teamDomain: TEAM, audience: AUD, jwksUrl: `http://127.0.0.1:${jwks.port}/certs` },
-    principals: parsePrincipals("mac.access=mac:mac:human,annotator.access=annotator::human"),
+    principals: parsePrincipals("mac.access=mac:mac:human,oracle.access=oracle:oracle,annotator.access=annotator::human"),
     ownerEmail: null,
   };
   const messages = new Messages(new HubStore(":memory:"));
@@ -131,6 +131,17 @@ describe("stream", () => {
     const frame = await reader.read();
     const hello = JSON.parse(new TextDecoder().decode(frame.value).replace(/^data: /, "").trim()) as { address: string };
     expect(hello.address).toBe("opencode:ses_abc123");
+    await reader.cancel();
+  });
+
+  test("a second machine's stream for a live address is a 409, not a takeover", async () => {
+    const first = await call(`/v1/stream?session=ses_taken1&source=opencode&channel=1`, { as: "mac.access" });
+    expect(first.status).toBe(200);
+    const reader = first.body!.getReader();
+    await reader.read();
+    const second = await call(`/v1/stream?session=ses_taken1&source=opencode&channel=1`, { as: "oracle.access" });
+    expect(second.status).toBe(409);
+    expect(((await second.json()) as { error: string }).error).toContain("is live on mac");
     await reader.cancel();
   });
 });

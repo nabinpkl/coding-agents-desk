@@ -334,6 +334,34 @@ describe("agent to agent", () => {
   });
 });
 
+describe("one live stream per address", () => {
+  test("another machine cannot take a session that is live elsewhere, and the first keeps its messages", () => {
+    const f = fixture();
+    const bot = curated(f, [A, "claude"]);
+    f.open(MAC, A);
+    expect(() => f.open(ORACLE, A)).toThrow(Refused);
+    expect(() => f.open(ORACLE, A)).toThrow(`claude:${A} is live on mac`);
+    expect(f.store.getSession(`claude:${A}`)?.machine).toBe("mac");
+    f.messages.send(MAC, { as: "human", to: bot(A), kind: "notice", body: "still yours" });
+    expect(f.store.getSession(`claude:${A}`)?.connected).toBe(true);
+    expect(f.store.openFor(`claude:${A}`).map((m) => m.body)).toEqual(["still yours"]);
+  });
+
+  test("the same machine reconnecting replaces its own stream", () => {
+    const f = fixture();
+    f.open(MAC, A);
+    expect(() => f.open(MAC, A)).not.toThrow();
+  });
+
+  test("a session moves once its first stream has ended", () => {
+    const f = fixture();
+    const first = f.open(MAC, A);
+    f.messages.disconnect(`claude:${A}`, first.id);
+    expect(() => f.open(ORACLE, A)).not.toThrow();
+    expect(f.store.getSession(`claude:${A}`)?.machine).toBe("oracle");
+  });
+});
+
 describe("rules", () => {
   test("identity is checked, not claimed", () => {
     const f = fixture();
