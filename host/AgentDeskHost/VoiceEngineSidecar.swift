@@ -39,8 +39,8 @@ struct VoiceSidecarOutputFramer {
 // The server keeps Whisper (MLX, on the GPU) and Kokoro resident: 2.26GB measured
 // by `footprint` on 2026-09-28, on a host that had not used voice in three weeks.
 // So `start()` spawns nothing. It binds the voice port through
-// VoiceSidecarActivationProxy, and the first connection to arrive spawns the
-// server on the backend port and waits for its /health. When the last connection
+// VoiceSidecarActivationProxy, and the first connection to send a real request
+// spawns the server on the backend port and waits for its /health. When the last connection
 // closes an idle timer starts; if it runs out the server is terminated, which is
 // the only way to hand back all of its memory (clearing MLX's cache still leaves
 // torch and the Python heap), and the next connection starts a fresh one.
@@ -144,7 +144,8 @@ final class VoiceEngineSidecar: @unchecked Sendable {
             guard let self, !self.stopped, self.proxy == nil else { return }
             let proxy = VoiceSidecarActivationProxy(
                 port: self.port,
-                acquire: { [weak self] in await self?.acquireBackend() },
+                acquire: { [weak self] in self?.acquireBackend() },
+                backend: { [weak self] in await self?.backendURL() },
                 release: { [weak self] in self?.releaseBackend() },
                 onReady: { [weak self] url in self?.readiness.publish(url) }
             )
@@ -188,26 +189,26 @@ final class VoiceEngineSidecar: @unchecked Sendable {
 
     // MARK: - Demand
 
-    /// Registers a connection and returns the server's base URL once it answers,
-    /// starting it if none is running. Balanced by exactly one `releaseBackend`,
-    /// whatever this returns.
-    private func acquireBackend() async -> URL? {
-        let admitted: Bool = await withCheckedContinuation { continuation in
-            queue.async { [weak self] in
-                guard let self, !self.stopped else {
-                    continuation.resume(returning: false)
-                    return
-                }
-                self.activeConnections += 1
-                self.idleStop?.cancel()
-                self.idleStop = nil
-                // Resume before spawning: a spawn blocks this queue until /health
-                // answers, and the caller only needs to know it was counted.
-                continuation.resume(returning: true)
-                self.spawnIfNeeded()
-            }
+    /// Counts a connection and starts the server if none is running. Balanced by
+    /// exactly one `releaseBackend`. Enqueued in call order, so a connection that
+    /// hangs up at once can never be released before it was counted.
+    private func acquireBackend() {
+        queue.async { [weak self] in
+            guard let self, !self.stopped else { return }
+            self.activeConnections += 1
+            self.idleStop?.cancel()
+            self.idleStop = nil
+            self.spawnIfNeeded()
         }
-        guard admitted else { return nil }
+    }
+
+    /// The server's base URL once it answers, or nil when it could not be started.
+    private func backendURL() async -> URL? {
+        // Let everything already queued run first: this connection's own count, and
+        // an idle stop that fired just before it, whose server must not be handed out.
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
         // Covers the longest a start can take: a full backoff and then a full ready window.
         return await backendReadiness.value(
             waitingUpTo: Self.maxBackoffSeconds + Self.readyTimeoutSeconds

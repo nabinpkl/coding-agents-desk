@@ -71,9 +71,12 @@ struct VoiceEngineSidecarTests {
         defer { sidecar.stop() }
         _ = try #require(await sidecar.baseURL(waitingUpTo: 5))
 
-        // A raw socket that sends nothing stands in for a live voice websocket.
+        // A raw socket that sends a request line and then holds stands in for a live
+        // voice websocket.
         let held = try connectLoopback(port: port)
         defer { close(held) }
+        let requestLine = Array("GET /ws/voice HTTP/1.1\r\n".utf8)
+        #expect(Darwin.write(held, requestLine, requestLine.count) == requestLine.count)
         #expect(await waitUntil(timeout: 10) { sidecar.isServerRunningForTesting })
         try await Task.sleep(for: .seconds(1.5))
         #expect(sidecar.isServerRunningForTesting, "an open connection must keep the server up")
@@ -82,9 +85,94 @@ struct VoiceEngineSidecarTests {
         #expect(await waitUntil(timeout: 5) { !sidecar.isServerRunningForTesting })
     }
 
+    // The real server is HTTP/1.1 and keeps a connection open after replying, so
+    // the client is the one that closes. Driven with curl, as the check on a live
+    // host was.
+    @Test func aClientThatClosesFirstStillLetsTheServerIdleOut() async throws {
+        let port = try freePort()
+        let backendPort = try freePort()
+        let stubURL = try makeStubServer(keepAlive: true)
+        defer { try? FileManager.default.removeItem(at: stubURL) }
+
+        let sidecar = VoiceEngineSidecar(
+            launch: VoiceSidecarLaunch(
+                executableURL: stubURL,
+                arguments: [],
+                workingDirectory: nil
+            ),
+            port: port,
+            backendPort: backendPort,
+            idleSeconds: 0.5
+        )
+        sidecar.start()
+        defer { sidecar.stop() }
+        _ = try #require(await sidecar.baseURL(waitingUpTo: 5))
+
+        let curl = Process()
+        curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        curl.arguments = ["-sS", "-m", "30", "-o", "/dev/null", "http://127.0.0.1:\(port)/health"]
+        try curl.run()
+        curl.waitUntilExit()
+        #expect(curl.terminationStatus == 0)
+        #expect(sidecar.spawnCountForTesting == 1)
+
+        #expect(
+            await waitUntil(timeout: 5) { !sidecar.isServerRunningForTesting },
+            "the server must stop once the client has closed and the idle period passed"
+        )
+    }
+
+    // A port scanner asks every listening port for its page and icon. Answering
+    // that must not load 2GB of models, and must not keep them loaded.
+    @Test func aPortProbeIsAnsweredWithoutStartingTheServer() async throws {
+        let port = try freePort()
+        let backendPort = try freePort()
+        let stubURL = try makeStubServer()
+        defer { try? FileManager.default.removeItem(at: stubURL) }
+
+        let sidecar = VoiceEngineSidecar(
+            launch: VoiceSidecarLaunch(
+                executableURL: stubURL,
+                arguments: [],
+                workingDirectory: nil
+            ),
+            port: port,
+            backendPort: backendPort,
+            idleSeconds: 0.5
+        )
+        sidecar.start()
+        defer { sidecar.stop() }
+        let base = try #require(await sidecar.baseURL(waitingUpTo: 5))
+
+        for path in ["/", "/favicon.ico", "/?x=1"] {
+            let url = try #require(URL(string: path, relativeTo: base)?.absoluteURL)
+            let session = URLSession(configuration: .ephemeral)
+            let (_, response) = try await session.data(from: url)
+            session.invalidateAndCancel()
+            #expect((response as? HTTPURLResponse)?.statusCode == 404, "\(path) is answered here")
+        }
+        // A connection that opens and says nothing does not start it either.
+        let silent = try connectLoopback(port: port)
+        try await Task.sleep(for: .milliseconds(300))
+        close(silent)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(sidecar.spawnCountForTesting == 0, "probes and silent connections must not start the server")
+    }
+
+    @Test func probeRequestsAreRecognizedByTheirRequestLine() {
+        func probe(_ line: String) -> Bool { VoiceProbeRequest.isProbe(Data(line.utf8)) }
+        #expect(probe("GET / HTTP/1.1\r\nHost: x\r\n"))
+        #expect(probe("GET /favicon.ico HTTP/1.1\r\n"))
+        #expect(probe("HEAD /?refresh=1 HTTP/1.1\r\n"))
+        #expect(!probe("GET /health HTTP/1.1\r\n"))
+        #expect(!probe("GET /ws/voice?source=macos HTTP/1.1\r\n"))
+        #expect(!probe("POST / HTTP/1.1\r\n"))
+        #expect(!probe("GET / HTTP/1.1"), "an unfinished line is not judged")
+    }
+
     // MARK: - Helpers
 
-    private func makeStubServer() throws -> URL {
+    private func makeStubServer(keepAlive: Bool = false) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("voice-stub-\(UUID().uuidString)")
         let script = """
@@ -92,6 +180,7 @@ struct VoiceEngineSidecarTests {
         import http.server, os, signal, socketserver, sys
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "\(keepAlive ? "HTTP/1.1" : "HTTP/1.0")"
             def log_message(self, fmt, *args): pass
             def do_GET(self):
                 body = b"voice-stub"
