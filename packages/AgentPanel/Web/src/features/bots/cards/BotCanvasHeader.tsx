@@ -1,16 +1,13 @@
 // One Bot card's head: its face, its name, what it is pointed at, and its controls.
 //
 // Apart from the card because the card is the roster of sessions and their grips, and the head
-// is the Bot itself: carrying the whole card by this band, counting and summarising what stands
-// below it, and holding every control that acts on the Bot rather than on one session. What the
-// head says about counts is said about the sessions the canvas is showing, so the card hands
-// over the numbers and the head words them.
+// is the Bot itself: carrying the whole card by this band and holding every control that acts
+// on the Bot rather than on one session.
 
 import { Plus } from "lucide-react";
 import { useRef } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { ActivityDot } from "@/features/sidebar/SessionMeta";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
@@ -24,9 +21,6 @@ export function BotCanvasHeader({
   rank,
   machineLabel,
   feed,
-  sessionCount,
-  liveCount,
-  hiddenCount,
   onMoveStart,
   onMoveBy,
   onMoveEnd,
@@ -47,10 +41,6 @@ export function BotCanvasHeader({
   machineLabel?: string;
   /** The sidecar that owns this Bot's directory, for the header's buttons. */
   feed: SidecarDataSource;
-  /** The Bot's sessions this canvas is showing, and the live and hidden counts beside them. */
-  sessionCount: number;
-  liveCount: number;
-  hiddenCount: number;
   /** Carrying the whole card by this band. See below for why a press waits before it carries. */
   onMoveStart: (clientX: number) => void;
   onMoveBy: (clientX: number) => void;
@@ -104,11 +94,6 @@ export function BotCanvasHeader({
     if (held.carrying) onMoveEnd();
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
-  // A count, and the live and hidden beside it. Said over the sessions the canvas is showing
-  // rather than over the Bot's whole roster, because those are what stand below this head.
-  const counted = `${sessionCount} ${sessionCount === 1 ? "session" : "sessions"}${
-    liveCount > 0 ? `, ${liveCount} live` : ""
-  }${hiddenCount > 0 ? `, ${hiddenCount} off the canvas` : ""}`;
   return (
     // `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
     // sized by its contents, and contents are measured at MAX-content -- so the Bot's full
@@ -146,18 +131,6 @@ export function BotCanvasHeader({
           <span className="font-mono">{projectName}</span>
           {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
         </span>
-      </span>
-      {/* A count, not a sentence. "3 sessions" said in a header sitting over three sessions is
-          a word spent naming what is directly underneath it; the number is the only part that
-          was carrying anything. The dot is there only when something is live, which is the one
-          thing the spines below cannot tell you at a glance once there are several. */}
-      <span
-        className="flex shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium text-muted-foreground"
-        title={counted}
-      >
-        {liveCount > 0 ? <ActivityDot activity="live" /> : null}
-        <span aria-hidden>{sessionCount}</span>
-        <span className="sr-only">{counted}</span>
       </span>
       <BotCodeButton bot={bot} feed={feed} git={git} />
       <BotGitButton bot={bot} feed={feed} git={git} />

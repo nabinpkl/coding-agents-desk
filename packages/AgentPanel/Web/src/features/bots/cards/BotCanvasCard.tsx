@@ -142,10 +142,8 @@ export function BotCanvasCard({
     (each) => !bot.sessions.some((session) => session.sessionId === each.sessionId),
   );
   // The Bot's sessions this canvas is showing. Everything the card says about itself is said about
-  // THESE rather than about the Bot: the count over an empty strip, the live dot that exists to
-  // summarise the spines below it, and the scroll that brings a card forward when one of its own
-  // opens. The ones that are off are named in the count's long form rather than dropped silently,
-  // because the whole hazard of hiding something is a reader who has forgotten they hid it.
+  // THESE rather than about the Bot: the empty-strip message, and the scroll that brings a card
+  // forward when one of its own opens.
   const shown = bot.sessions.filter((session) => !detachedSessionKeys.has(sessionKey(session)));
   // The same split for a reference the catalog cannot resolve. The whole list used to render
   // regardless, so a session the reader had taken off this canvas came back as a `missing` row
@@ -247,9 +245,6 @@ export function BotCanvasCard({
           rank={rank}
           machineLabel={machineLabel}
           feed={sessionContext.feed}
-          sessionCount={shown.length}
-          liveCount={shown.filter((session) => session.activity === "live").length}
-          hiddenCount={hidden}
           onMoveStart={onMoveStart}
           onMoveBy={onMoveBy}
           onMoveEnd={onMoveEnd}

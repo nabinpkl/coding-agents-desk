@@ -276,7 +276,9 @@ describe("App shell", () => {
           }],
         });
       });
-      expect(screen.getByText("2 sessions, 1 live")).toBeInTheDocument();
+      // Both sessions stand on the canvas.
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
+      expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
 
       fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
       // Below the Bot-level removal, because it is the smaller of the two and the one that is
@@ -300,12 +302,13 @@ describe("App shell", () => {
         fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));
       });
 
-      // The card is gone and the Bot is untouched: nothing was asked of the sidecar, and the
-      // count says where the missing session went rather than pretending it was never there.
+      // The card is gone and the Bot is untouched: nothing was asked of the sidecar. The header
+      // carries no count, so the missing session leaves no mark on the canvas; the dimmed roster
+      // row below is the way back.
       expect(canvas().queryByRole("button", { name: /^Session Claude 01/ })).toBeNull();
       expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
       expect(transport.requests.some((request) => request.method === "DELETE")).toBe(false);
-      expect(screen.getByText("1 session, 1 off the canvas")).toBeInTheDocument();
+      expect(canvas().queryByText(/off the canvas/)).toBeNull();
 
       // Still in the roster, dimmed rather than dropped, and clicking it is the way back. It says
       // so with a mark rather than a hover title: the row gives up its colour when it loses its
@@ -319,7 +322,8 @@ describe("App shell", () => {
         "aria-expanded",
         "true",
       );
-      expect(screen.getByText("2 sessions, 1 live")).toBeInTheDocument();
+      // Back on the canvas beside its sibling.
+      expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
       unmount();
     } finally {
       scrollIntoView.mockRestore();

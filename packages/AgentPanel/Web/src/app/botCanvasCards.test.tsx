@@ -281,10 +281,11 @@ describe("App shell", () => {
 
     // The one the canvas is showing is still a row, and still says why.
     expect(canvas().getByText("sid-kept")).toBeInTheDocument();
-    // The one the reader detached is not, and is counted with everything else they put away: one
-    // shown session, and one off the canvas -- the detached reference that cannot resolve.
+    // The one the reader detached is not, and nothing on the card names it: the header carries
+    // no count, so a session put away from a non-empty card leaves no mark on the canvas. The
+    // sidebar roster is the way back.
     expect(canvas().queryByText("sid-put-away")).toBeNull();
-    expect(canvas().getByText(/1 off the canvas/)).toBeInTheDocument();
+    expect(canvas().queryByText(/off the canvas/)).toBeNull();
     unmount();
   });
 
