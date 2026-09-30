@@ -618,7 +618,9 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     # `/@vite/client` rather than `/`, because this asks a narrower question: not "is something
     # listening on this port" but "is that something a Vite dev server". An unhealthy listener
     # or missing runtime credentials must be replaced before a host adopts this origin.
-    serving() { curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
+    # --noproxy: this shell inherits HTTPS_PROXY (proxy-agent) with only loopback in NO_PROXY, so
+    # without it the probe to the tailnet name is tunnelled through the proxy instead of reaching Vite.
+    serving() { curl -fs --noproxy '*' -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
     if serving && [ -s "$TLS_PREFIX.crt" ] && [ -s "$TLS_PREFIX.key" ]; then
         echo "agent-webview-dev: already serving at $ORIGIN" >&2
         echo "$ORIGIN"

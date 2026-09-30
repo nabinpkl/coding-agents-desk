@@ -18,18 +18,23 @@ if ! command -v tailscale >/dev/null 2>&1; then
     exit 1
 fi
 
+# A stopped Tailscale still reports its last MagicDNS name from cache, so the name alone proves
+# nothing: the dev server then starts, its name resolves nowhere, and the launch fails 20 seconds
+# later on a readiness probe. Require the backend to be Running.
 name="$(
     tailscale status --json 2>/dev/null |
         /usr/bin/python3 -c 'import json,sys
 try:
-    print((json.load(sys.stdin)["Self"]["DNSName"] or "").rstrip("."))
+    d = json.load(sys.stdin)
+    if d.get("BackendState") == "Running":
+        print((d["Self"]["DNSName"] or "").rstrip("."))
 except Exception:
     pass'
 )"
 
 if [ -z "$name" ]; then
-    echo "ERROR: no MagicDNS name for this machine. Is tailscaled running, and MagicDNS enabled" >&2
-    echo "       for this tailnet? 'tailscale status' is the place to look." >&2
+    echo "ERROR: no MagicDNS name for this machine. Tailscale must be Running (not stopped or logged" >&2
+    echo "       out) with MagicDNS enabled for this tailnet. 'tailscale status' is the place to look." >&2
     exit 1
 fi
 
