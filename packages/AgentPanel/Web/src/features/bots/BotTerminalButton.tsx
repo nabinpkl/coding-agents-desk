@@ -28,13 +28,6 @@ export function BotTerminalButton({
 }) {
   const [open, setOpen] = useState(false);
   const missing = bot.environmentAvailability === "missing";
-  const session = botTerminalSession(bot.botId);
-  // Stable by identity: the hook tears the terminal down and re-attaches when this changes, so a
-  // fresh object every render would do that on every render.
-  const context = useMemo<AgentTerminalContext>(
-    () => ({ kind: "tmux-new", session, directory: bot.environment.path }),
-    [session, bot.environment.path],
-  );
   return (
     <>
       <button
@@ -47,19 +40,47 @@ export function BotTerminalButton({
       >
         <Terminal className="size-4" aria-hidden />
       </button>
-      {open ? (
-        <TerminalShellDialog
-          feed={feed}
-          context={context}
-          title={`Terminal in ${bot.name}`}
-          where={bot.environment.path}
-          onClose={() => setOpen(false)}
-          onEnd={async (endFeed) => {
-            await endFeed.killTmuxSession(session);
-            return true;
-          }}
-        />
-      ) : null}
+      {open ? <BotTerminalDialog bot={bot} feed={feed} onClose={() => setOpen(false)} /> : null}
     </>
+  );
+}
+
+/**
+ * The dialog above, without the button that opens it.
+ *
+ * Apart from the button because a card header can offer the terminal from its more menu instead of
+ * from a slot in the row -- a narrow card gives that slot to the Bot's name -- and then it is the
+ * header holding the dialog, not a button. One dialog either way: the session it names, the
+ * directory it runs in and what ending it kills are decided here, so the two entry points cannot
+ * drift into opening different shells.
+ */
+export function BotTerminalDialog({
+  bot,
+  feed,
+  onClose,
+}: {
+  bot: BotView;
+  feed: SidecarDataSource;
+  onClose: () => void;
+}) {
+  const session = botTerminalSession(bot.botId);
+  // Stable by identity: the hook tears the terminal down and re-attaches when this changes, so a
+  // fresh object every render would do that on every render.
+  const context = useMemo<AgentTerminalContext>(
+    () => ({ kind: "tmux-new", session, directory: bot.environment.path }),
+    [session, bot.environment.path],
+  );
+  return (
+    <TerminalShellDialog
+      feed={feed}
+      context={context}
+      title={`Terminal in ${bot.name}`}
+      where={bot.environment.path}
+      onClose={onClose}
+      onEnd={async (endFeed) => {
+        await endFeed.killTmuxSession(session);
+        return true;
+      }}
+    />
   );
 }

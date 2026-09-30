@@ -3,17 +3,30 @@
 // Apart from the card because the card is the roster of sessions and their grips, and the head
 // is the Bot itself: carrying the whole card by this band and holding every control that acts
 // on the Bot rather than on one session.
+//
+// WHICH controls are in the row is a fact about this card's width and not about the Bot, because
+// a card is exactly as wide as the sessions standing in it: a Bot with one short-named session is
+// narrow while its neighbour is not, on the same strip. A narrow card spends its width on the
+// name and the add button, and the code, git and terminal controls move into the more menu beside
+// it -- the same controls, the same dialogs, one owner each. See `useNarrowHeader` for the
+// measurement and the threshold, and `BotCardMenu` for where the moved entries land.
 
-import { Plus } from "lucide-react";
-import { useRef } from "react";
+import { CodeXml, GitBranch, Plus, Terminal } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
+import type { RowMenuItem } from "@/features/bots/menus/RowMenu";
 import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
-import { BotGitButton } from "@/features/bots/git/BotGitButton";
-import { BotTerminalButton } from "@/features/bots/BotTerminalButton";
+import { BotCodeDialog } from "@/features/bots/code/BotCodeDialog";
+import { BotGitButton, BotGitUnavailable, gitHeaderAction } from "@/features/bots/git/BotGitButton";
 import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
+import { BotTerminalButton, BotTerminalDialog } from "@/features/bots/BotTerminalButton";
+import { useNarrowHeader } from "@/features/bots/cards/useNarrowHeader";
+
+/** The dialogs a narrow card opens from its more menu, where no button in the row owns them. */
+type HeaderDialog = "code" | "git" | "terminal";
 
 export function BotCanvasHeader({
   bot,
@@ -65,6 +78,34 @@ export function BotCanvasHeader({
     bot.botId,
     bot.environmentAvailability === "available",
   );
+  const header = useRef<HTMLDivElement | null>(null);
+  const narrow = useNarrowHeader(header);
+  // Only the narrow path opens dialogs from here, and only one at a time. The wide path's dialogs
+  // belong to the buttons in the row, which are not rendered there -- the same arrangement the
+  // canvas uses for the Father home, where one stand gives way to the other rather than both
+  // holding the same state.
+  const [dialog, setDialog] = useState<HeaderDialog | null>(null);
+  const closeDialog = useCallback(() => setDialog(null), []);
+  const gitAction = gitHeaderAction(git);
+  // A missing directory has no code to browse, no git to read and nowhere to land a terminal, so
+  // the row's controls are all disabled on it and the menu has nothing to offer. The caption
+  // already says the directory is missing, which is the one thing a reader needs.
+  const hasDirectory = bot.environmentAvailability !== "missing";
+  const overflow: RowMenuItem[] | undefined = !narrow
+    ? undefined
+    : !hasDirectory
+      ? []
+      : [
+        { label: "Browse code", icon: CodeXml, onSelect: () => setDialog("code") },
+        ...(gitAction.kind === "changes"
+          ? [{
+            label: gitAction.count > 0 ? `Show git changes (${gitAction.label})` : "Show git changes",
+            icon: GitBranch,
+            onSelect: () => setDialog("git"),
+          }]
+          : []),
+        { label: "Open terminal", icon: Terminal, onSelect: () => setDialog("terminal") },
+      ];
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
   // pixels while clicking "Add sessions" would reorder the canvas.
@@ -95,13 +136,17 @@ export function BotCanvasHeader({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
   return (
-    // `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
-    // sized by its contents, and contents are measured at MAX-content -- so the Bot's full
-    // name and full project path were setting a width the sessions never asked for, and
-    // `truncate` never engaged because nothing was ever constraining it. A percentage
-    // min-width cannot be resolved while that measurement is happening, so the header counts
-    // as zero then and stretches to the answer afterwards.
+    <>
+    {/* `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
+        sized by its contents, and contents are measured at MAX-content -- so the Bot's full
+        name and full project path were setting a width the sessions never asked for, and
+        `truncate` never engaged because nothing was ever constraining it. A percentage
+        min-width cannot be resolved while that measurement is happening, so the header counts
+        as zero then and stretches to the answer afterwards. It is also what makes this header
+        measureable at all: its own box is the card's width rather than anything this row chose,
+        which is the number `useNarrowHeader` reads. */}
     <div
+      ref={header}
       // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
       // the same colour and so invisible; now that the card carries a hue, repainting the band
       // that holds the Bot's name would be the one part of the card not wearing it.
@@ -132,9 +177,21 @@ export function BotCanvasHeader({
           {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
         </span>
       </span>
-      <BotCodeButton bot={bot} feed={feed} git={git} />
-      <BotGitButton bot={bot} feed={feed} git={git} />
-      <BotTerminalButton bot={bot} feed={feed} />
+      {/*
+        The three directory controls, in the row while it has room and in the more menu while it
+        does not. The git mark is the exception and stays in the row either way: it is a fact about
+        the Bot rather than a way in, and a row that cannot spare a control can still spare a fact.
+      */}
+      {gitAction.kind === "unreadable" ? (
+        <BotGitUnavailable error={gitAction.error} />
+      ) : narrow ? null : (
+        <>
+          <BotCodeButton bot={bot} feed={feed} git={git} />
+          {/* Nothing to say for a directory with no repository, which the button decides itself. */}
+          <BotGitButton bot={bot} feed={feed} git={git} />
+          <BotTerminalButton bot={bot} feed={feed} />
+        </>
+      )}
       <button
         type="button"
         onClick={() => onAddSession(bot)}
@@ -151,6 +208,7 @@ export function BotCanvasHeader({
           takes the whole Bot off the canvas, and they are not the same scale of act. */}
       <BotCardMenu
         bot={bot}
+        overflow={overflow}
         onDetach={() => onDetachBot(bot)}
         onMoveLeft={canMoveLeft ? () => onMoveBySteps(-1) : undefined}
         onMoveRight={canMoveRight ? () => onMoveBySteps(1) : undefined}
@@ -158,5 +216,20 @@ export function BotCanvasHeader({
         onDeleteBot={() => onDeleteBot(bot)}
       />
     </div>
+    {/* The dialogs a narrow card opened from its menu, which the row's own buttons do not own
+        there. One of the two paths is ever mounted: `narrow` decides which. */}
+    {dialog === "code" || dialog === "git" ? (
+      <BotCodeDialog
+        bot={bot}
+        feed={feed}
+        git={git}
+        initialSection={dialog === "git" ? "sourceControl" : "explorer"}
+        onClose={closeDialog}
+      />
+    ) : null}
+    {dialog === "terminal" ? (
+      <BotTerminalDialog bot={bot} feed={feed} onClose={closeDialog} />
+    ) : null}
+    </>
   );
 }

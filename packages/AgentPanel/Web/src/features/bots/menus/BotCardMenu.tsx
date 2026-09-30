@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Pencil, Trash2, Unlink } from "lucide-react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { RowMenu } from "@/features/bots/menus/RowMenu";
+import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 
 /**
  * The actions menu on a Bot's card header, for the things that are done to the whole Bot rather
@@ -17,9 +17,14 @@ import { RowMenu } from "@/features/bots/menus/RowMenu";
  * Delete last: the sessions survive it -- panes keep running, transcripts stay attachable -- but
  * it is still the one entry that takes something away, and the last place is where a reader
  * looks for that.
+ *
+ * `overflow` is the fourth kind: the header's own controls, on a card too narrow to hold them in
+ * the row. They come first because they are the row's actions, and a reader who opened this menu
+ * looking for one of them should not have to read past the arrangement moves to find it.
  */
 export function BotCardMenu({
   bot,
+  overflow,
   onDetach,
   onMoveLeft,
   onMoveRight,
@@ -27,6 +32,8 @@ export function BotCardMenu({
   onDeleteBot,
 }: {
   bot: BotView;
+  /** The header's controls, for a card with no room for them. See above. */
+  overflow?: RowMenuItem[];
   onDetach: () => void;
   /** Absent at the left end of the strip, where there is nowhere further to go. */
   onMoveLeft?: () => void;
@@ -40,6 +47,7 @@ export function BotCardMenu({
     <RowMenu
       label={bot.name}
       items={[
+        ...(overflow ?? []),
         ...(onMoveLeft ? [{ label: "Move left", icon: ArrowLeft, onSelect: onMoveLeft }] : []),
         ...(onMoveRight ? [{ label: "Move right", icon: ArrowRight, onSelect: onMoveRight }] : []),
         { label: "Remove from canvas", icon: Unlink, onSelect: onDetach },
