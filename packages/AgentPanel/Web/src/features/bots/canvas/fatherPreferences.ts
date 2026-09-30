@@ -153,6 +153,21 @@ export function storeFatherPosition(position: FatherPosition): void {
   }
 }
 
+/** How much of the drawer stays on screen at the bottom, so a hand can always grab it back. */
+const FATHER_EDGE_KEEP = 80;
+
+/**
+ * The topmost a drawer may sit, so a strip of it stays inside the viewport however short the
+ * window gets.
+ *
+ * Its own door because the resting place is asked this question too: the drawer hangs below the
+ * switch that opens it, and a window shorter than the switch plus that gap still has to leave a
+ * strip of the home on screen rather than push it off the bottom.
+ */
+export function clampFatherTop(top: number, viewportHeight: number): number {
+  return Math.min(Math.max(top, 0), Math.max(viewportHeight - FATHER_EDGE_KEEP, 0));
+}
+
 /**
  * Holds the drawer where a hand can find it: at least a strip of it stays inside the viewport
  * on every side, so no drag and no window shrink can strand it off-screen with no way back.
@@ -165,6 +180,6 @@ export function clampFatherPosition(
   const margin = 120;
   return {
     x: Math.min(Math.max(position.x, margin - size.width), Math.max(viewport.width - margin, 0)),
-    y: Math.min(Math.max(position.y, 0), Math.max(viewport.height - 80, 0)),
+    y: clampFatherTop(position.y, viewport.height),
   };
 }

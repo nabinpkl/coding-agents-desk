@@ -8,19 +8,22 @@
 //
 // An overlay rather than a band, because a band spends rows the cards do not get and moves the
 // strip every time it opens: the reader's cards would jump down and back with each toggle. This
-// drops from the viewport top like a drawer -- `fixed`, so it draws over the navbar instead of
-// starting below it -- top right and narrower than full width, so the page beside and below it
-// stays visible and clickable while it is open. It lives in the app shell rather than on one
-// surface, so it is there on every view, not just the canvas.
+// hangs from below its switch like a drawer -- `fixed`, so the strip does not move when it opens
+// -- pinned to the right and narrower than full width, so the page beside and below it stays
+// visible and clickable while it is open. It used to drop from the top of the window instead, over
+// the navbar, because the switch left the screen as it opened and there was nothing to cover. It
+// lives in the app shell rather than on one surface, so it is there on every view, not just the
+// canvas.
 
 import { Crown, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import {
   clampFatherHeight,
   clampFatherPosition,
+  clampFatherTop,
   clampFatherWidth,
   loadFatherHeight,
   loadFatherPosition,
@@ -32,6 +35,9 @@ import {
 } from "@/features/bots/canvas/fatherPreferences";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
+
+/** The gap between the switch and the drawer hanging from it, so the two read as one drawer. */
+const SWITCH_GAP = 4;
 
 export type FatherResolution =
   | { bot: BotView; session: SessionSummary }
@@ -57,24 +63,42 @@ export function resolveFather(bots: readonly BotView[]): FatherResolution {
   return null;
 }
 
+/**
+ * The switch that opens and puts away the home.
+ *
+ * A toggle and always on screen, rather than a control that exists only while the home is shut.
+ * A switch that vanishes the moment it is used leaves the reader with no way back to it and no
+ * sign of what is running: the home's own X and the Escape key both close it, so the state was
+ * legible either way, but neither of those says "Father" on the page. Standing there while the
+ * drawer is open takes the corner the drawer used to drop into, so the drawer now hangs from below
+ * the switch instead -- which also leaves the bar's other controls reachable while it is open.
+ */
 export function FatherButton({ open, onToggle, floating = true }: {
   open: boolean;
   onToggle: () => void;
   /** Floating over the view when it has no header to stand in; inline in the header otherwise. */
   floating?: boolean;
 }) {
-  if (open) return null;
+  // The state in the border and the label rather than a filled background: the floating variant's
+  // own surface is a translucent card over whatever is behind it, and a fill would have to fight it.
+  // Hover stays a tint either way, so an open switch still answers the pointer.
+  const state = open
+    ? "border-primary/60 text-primary hover:bg-muted/70 hover:text-primary"
+    : "border-border text-foreground hover:bg-muted hover:text-foreground";
   return (
     <button
       type="button"
       onClick={onToggle}
-      aria-pressed={false}
-      aria-expanded={false}
+      // `aria-controls` finally points at something: while the home was shut-only there was never
+      // an element by that id to point at.
+      aria-expanded={open}
       aria-controls="father-home"
-      title="Open the Father home: the declared session, over the panel"
+      title={open
+        ? "Put the Father home away"
+        : "Open the Father home: the declared session, over the panel"}
       className={floating
-        ? "absolute top-3 right-3 z-30 flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-card/95 px-4 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground shadow-lg backdrop-blur outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
-        : "flex min-h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold text-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"}
+        ? `absolute top-3 right-3 z-30 flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-card/95 px-4 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold shadow-lg backdrop-blur outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 ${state}`
+        : `flex min-h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-card px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 ${state}`}
     >
       <Crown className="size-4 shrink-0 text-primary" aria-hidden />
       Father
@@ -120,6 +144,22 @@ export function FatherOverlay({
       );
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // How far below its switch the drawer hangs, before a hand has carried it anywhere. Measured
+  // rather than a constant because the switch stands in two different bars -- the app header on
+  // most views, a floating pill over the headerless canvas -- and each is sized by its own
+  // content. Null when there is no switch to measure, which falls back to the old top of the
+  // window; a layout effect settles the measurement before the browser paints, so the drawer only
+  // ever appears where it belongs.
+  const [restTop, setRestTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const measure = (): void => {
+      const switchBox = document.querySelector('[aria-controls="father-home"]')?.getBoundingClientRect();
+      setRestTop(switchBox ? clampFatherTop(switchBox.bottom + SWITCH_GAP, window.innerHeight) : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
   }, []);
   // Where this session portals its control strip and its background-tasks panel: nodes of its
   // own, the way a card gives it, or two open surfaces would land both in the app's single host.
@@ -232,12 +272,16 @@ export function FatherOverlay({
   // closes -- a click would fire only when both land outside, and a drag onto the drawer would
   // leave it open under the hand. Portal menus the session opens into `document.body` are not
   // outside: they are the drawer acting at a distance, and picking from one should not dismiss
-  // what opened it.
+  // what opened it. Neither is its own switch, which is the one control that both opens and closes
+  // this: dismissing it on the press and toggling it on the click would shut the home and open it
+  // again in the same gesture.
   useEffect(() => {
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target as Element | null;
       if (sectionRef.current?.contains(event.target as Node)) return;
-      if (target?.closest?.('[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"]')) return;
+      if (target?.closest?.(
+        '[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"], [aria-controls="father-home"]',
+      )) return;
       onClose();
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -252,9 +296,11 @@ export function FatherOverlay({
       style={{
         height: resize.height,
         width: resize.width,
-        // An explicit stand once carried; top right until then. `right-0` anchors the corner,
-        // `left-0 top-0` with the numbers stands where the hand left it.
-        ...(placed ? { left: placed.x, top: placed.y } : null),
+        // An explicit stand once carried; hanging from below its switch until then, and the old
+        // top of the window if there is no switch to measure. `right-0` keeps the edge pinned so
+        // the width grip still grows it leftwards; `left-0 top-0` with the numbers stands where
+        // the hand left it.
+        ...(placed ? { left: placed.x, top: placed.y } : restTop === null ? null : { top: restTop }),
       }}
       className={`fixed z-50 flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl ${
         placed ? "left-0 top-0" : "right-0 top-0"

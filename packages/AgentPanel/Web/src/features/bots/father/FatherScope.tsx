@@ -2,9 +2,10 @@
 //
 // Mounted once beside the surfaces rather than inside one: the bar's switch opens it over the
 // desktop, the terminals, the IDE -- anywhere -- because its pipeline reads the bot records
-// themselves rather than anything the canvas arranged. The drawer is `fixed`, so it draws over
-// the navbar from the viewport top on any tab; the tasks node beside it is the session's own,
-// so its background-tasks panel positions against the home rather than a surface.
+// themselves rather than anything the canvas arranged. The drawer is `fixed` and hangs from below
+// that switch on any tab, leaving the bar's own controls reachable; the tasks node beside it is
+// the session's own, so its background-tasks panel positions against the home rather than a
+// surface.
 
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";

@@ -2,7 +2,7 @@
 //
 // The switch stands in the header bar every view shares, or floats over the corner where there
 // is no bar (the headerless pinned canvas). The drawer is `fixed`, so it can live beside the
-// switch here and still draw over the navbar from the viewport top on any view. The open state
+// switch here and still draw over the strip from the top of the page on any view. The open state
 // is owned here and written to storage on every change, so closing the home and reopening the
 // panel agree -- and so a header that comes back (pin, unpin, view switch) finds the stored
 // answer rather than a default.
@@ -45,7 +45,13 @@ export function FatherHome({
 
   return (
     <>
-      <FatherButton open={fatherOpen} onToggle={() => setFatherOpen(true)} floating={floating} />
+      <FatherButton
+        open={fatherOpen}
+        // A real toggle now that the switch stays on screen: the same press that opens the home
+        // puts it away again.
+        onToggle={() => setFatherOpen((was) => !was)}
+        floating={floating}
+      />
       {fatherOpen ? (
         <FatherOverlay
           bots={bots}
