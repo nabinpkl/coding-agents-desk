@@ -5,7 +5,7 @@
 // terminal toggle used to be here too and is now on the IDE's status bar, at the edge of the pane
 // it opens rather than three controls away and above it.
 
-import { FileCode2, PanelLeft } from "lucide-react";
+import { FileCode2, FileSearch, PanelLeft } from "lucide-react";
 import type { CommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
 import { CommitDiffView, diffTargetLabel } from "@/features/workspace-ide/history/CommitDiff";
 import type { WorkspaceIde } from "@/features/workspace-ide/useWorkspaceIde";
@@ -18,7 +18,16 @@ import {
   hasSource,
 } from "@/features/workspace-ide/editor/FileBody";
 
-export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffTab }) {
+export function EditorPane({
+  ide,
+  diff,
+  onQuickOpen,
+}: {
+  ide: WorkspaceIde;
+  diff: CommitDiffTab;
+  /** Opens quick open: the toolbar's way in, which is the only one on a phone with no Shift key. */
+  onQuickOpen: () => void;
+}) {
   const { activePath, openFiles, visibleOpenPaths, preferences } = ide;
   const file = activePath ? openFiles[activePath] : undefined;
   // Whether this file is showing rendered is `useWorkspaceIde`'s to answer, from the reader's
@@ -30,6 +39,8 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
       <EditorTabs
         paths={visibleOpenPaths}
         openFiles={openFiles}
+        previewPath={ide.shared?.previewPath ?? null}
+        onKeep={(path) => ide.openPath(path)}
         // No file tab is selected while the diff is showing. One tablist reporting two selected
         // tabs is two accent bars to the eye and a contradiction to a screen reader.
         activePath={diff.active ? null : activePath}
@@ -55,6 +66,17 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
           className={CONTROL}
         >
           <PanelLeft className="size-4" />
+        </button>
+        {/* Beside the sidebar toggle rather than in the sidebar: this row is on screen whatever is
+            hidden, and quick open is most wanted exactly when the tree is not. */}
+        <button
+          type="button"
+          aria-label="Go to file"
+          title="Go to file (Shift Shift, ⌘P)"
+          onClick={onQuickOpen}
+          className={CONTROL}
+        >
+          <FileSearch className="size-4" />
         </button>
         <nav
           aria-label="File breadcrumb"
@@ -145,7 +167,14 @@ export function EditorPane({ ide, diff }: { ide: WorkspaceIde; diff: CommitDiffT
             />
           )
           : file && ide.workspaceId
-          ? <FileBody file={file} preview={preview} onChange={(text) => ide.edit(file.path, text)} />
+          ? (
+            <FileBody
+              file={file}
+              preview={preview}
+              onChange={(text) => ide.edit(file.path, text)}
+              reveal={ide.reveal?.path === file.path ? ide.reveal : undefined}
+            />
+          )
           : (
             <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
               {ide.loadingPath ? "Opening file…" : "Open a file from the explorer"}

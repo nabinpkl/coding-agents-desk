@@ -72,6 +72,14 @@ export interface WorkspaceSharedState {
   revision: number;
   orderedOpenPaths: string[];
   expandedDirectoryPaths: string[];
+  /**
+   * The open path that is only being looked at, or null.
+   *
+   * A search result opens here rather than as a tab of its own: stepping through twenty results
+   * would otherwise leave twenty tabs, on every reader's screen. The next preview replaces it in
+   * place, and opening it for real -- an `open`, or an edit -- keeps it. VS Code's preview tab.
+   */
+  previewPath: string | null;
 }
 
 /**
@@ -83,6 +91,7 @@ export interface WorkspaceSharedState {
  */
 export type WorkspaceOperation =
   | { type: "open"; path: string }
+  | { type: "preview"; path: string }
   | { type: "close"; path: string }
   | { type: "reorder"; orderedPaths: string[] }
   | { type: "expand"; path: string }
@@ -165,6 +174,10 @@ export type WorkspaceErrorCode =
   | "revisionConflict"
   | "invalidOperation"
   | "stateLimitExceeded"
+  // Search: no `rg` on this machine, too many searches running, a regex or glob rg refused.
+  | "searchUnavailable"
+  | "searchBusy"
+  | "invalidQuery"
   // The sidecar got something wrong, rather than the caller. Kept distinct so a bug here does
   // not spend a week reading as a bad request.
   | "internal";
@@ -266,5 +279,66 @@ export interface WorkspaceChangeDiff {
   workspaceId: string;
   path: string;
   patch: string;
+  truncated: boolean;
+}
+
+/**
+ * `GET /api/workspaces/:id/files`: every file quick open can offer, relative to the root.
+ *
+ * The whole list, once per opening of the picker, and matched in the panel: a fuzzy match has to
+ * score every candidate on every keystroke, which is cheap on 20,000 strings in hand and a round
+ * trip per character otherwise. `truncated` says the list was cut at the sidecar's cap, so a file
+ * that is not offered is explained rather than silently missing.
+ */
+export interface WorkspaceFileList {
+  workspaceId: string;
+  files: string[];
+  truncated: boolean;
+}
+
+/** How a text search reads its query. Every field defaults to off. */
+export interface WorkspaceSearchOptions {
+  /** Off means smart case: case-insensitive unless the query holds a capital. */
+  matchCase: boolean;
+  wholeWord: boolean;
+  /** Off means literal words, found in any order on one line; `"quoted"` keeps a phrase whole. */
+  regex: boolean;
+  /** Globs, as VS Code's "files to include" and "files to exclude" take them. */
+  include: string[];
+  exclude: string[];
+}
+
+/** One matching line. `ranges` are `[start, end)` indices into `preview`, which may be trimmed. */
+export interface WorkspaceSearchMatch {
+  line: number;
+  preview: string;
+  ranges: Array<[number, number]>;
+  /**
+   * What to add to a `preview` index to get the index in the whole line: zero for a line shown
+   * whole, and for a trimmed one the characters cut from its start, less the "…" standing for them.
+   * It is what lets a result select its match in the file rather than only reach the line.
+   */
+  previewOffset: number;
+}
+
+export interface WorkspaceSearchFile {
+  path: string;
+  matches: WorkspaceSearchMatch[];
+}
+
+/**
+ * `GET /api/workspaces/:id/search?q=...`: the lines that match, grouped by file.
+ *
+ * Whole rather than streamed. A streamed answer would ride `EventSource`, which reconnects when the
+ * server ends a stream -- and a reconnect is the same search run again. Measured 2026-09-30, one
+ * query over a 17,600-file folder answers in about half a second, so the reader loses little by
+ * waiting for the lot, and a search they have typed past is cancelled by aborting its request.
+ */
+export interface WorkspaceSearchResult {
+  workspaceId: string;
+  query: string;
+  files: WorkspaceSearchFile[];
+  matchCount: number;
+  /** The match cap was reached, so there are more than `matchCount`. */
   truncated: boolean;
 }

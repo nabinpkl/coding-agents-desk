@@ -20,6 +20,8 @@ const CLOSE = "grid w-7 shrink-0 place-items-center text-muted-foreground outlin
 export function EditorTabs({
   paths,
   openFiles,
+  previewPath,
+  onKeep,
   activePath,
   onSelect,
   onClose,
@@ -28,6 +30,10 @@ export function EditorTabs({
 }: {
   paths: readonly string[];
   openFiles: Record<string, OpenFile>;
+  /** The tab that is only a preview: italic, and replaced by the next search result opened. */
+  previewPath: string | null;
+  /** Keep the preview as a tab of its own, which double-clicking it does, as in VS Code. */
+  onKeep: (path: string) => void;
   activePath: string | null;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
@@ -48,6 +54,7 @@ export function EditorTabs({
         const name = path.split("/").pop() ?? path;
         const file = openFiles[path];
         const selected = path === activePath;
+        const previewing = path === previewPath;
         return (
           <div
             key={path}
@@ -68,12 +75,13 @@ export function EditorTabs({
               type="button"
               role="tab"
               aria-selected={selected}
-              aria-label={`Open ${name}`}
+              aria-label={previewing ? `Open ${name}, preview` : `Open ${name}`}
               onClick={() => onSelect(path)}
-              title={path}
+              onDoubleClick={previewing ? () => onKeep(path) : undefined}
+              title={previewing ? `${path} (preview; double-click to keep open)` : path}
               className={LABEL}
             >
-              <span className="overflow-hidden text-ellipsis">{name}</span>
+              <span className={`overflow-hidden text-ellipsis ${previewing ? "italic" : ""}`}>{name}</span>
               <TabState file={file} />
             </button>
             <button

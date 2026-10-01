@@ -1184,6 +1184,15 @@ bot-code-dialog-verify:
     PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
       node '{{justfile_directory()}}/chrome-test/bot-code-dialog-verify.mjs'
 
+# The IDE's quick open and text search on the live panel: double Shift, Cmd+Shift+F, a result
+# landing on its line. Opens tabs in the first workspace and closes the ones it opened (ADR-0123).
+ide-search-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+      node '{{justfile_directory()}}/chrome-test/ide-search-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay

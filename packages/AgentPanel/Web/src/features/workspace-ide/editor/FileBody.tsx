@@ -7,7 +7,7 @@
 
 import { Eye, Pencil } from "lucide-react";
 import type { WorkspaceFileKind } from "@agentdesk/agent-feed-wire";
-import { CodeEditor } from "@/features/workspace-ide/editor/CodeEditor";
+import { CodeEditor, type LineReveal } from "@/features/workspace-ide/editor/CodeEditor";
 import { FilePreview, type ViewedFile } from "@/features/workspace-ide/editor/FilePreview";
 import type { FileView } from "@/features/workspace-ide/workspaceIdePreferences";
 
@@ -50,14 +50,17 @@ export function FileBody({
   file,
   preview,
   onChange,
+  reveal,
 }: {
   file: ViewedFile;
   preview: boolean;
   /** Absent where the file is only read. */
   onChange?: (text: string) => void;
+  /** A line to scroll to, which only the source view has. */
+  reveal?: LineReveal;
 }) {
   if (preview || !hasSource(file.kind)) return <FilePreview file={file} />;
-  return <CodeEditor path={file.path} text={file.text} onChange={onChange} />;
+  return <CodeEditor path={file.path} text={file.text} onChange={onChange} reveal={reveal} />;
 }
 
 /**

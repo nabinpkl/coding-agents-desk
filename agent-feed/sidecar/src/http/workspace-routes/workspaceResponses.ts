@@ -5,6 +5,7 @@
 
 import type { WorkspaceError, WorkspaceErrorCode } from "@agentdesk/agent-feed-wire";
 import { jsonResponse } from "@/http/httpResponses";
+import { SearchFailure } from "@/workspace/search/ripgrep";
 import { SharedStateFailure } from "@/workspace/workspaceSharedState";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
 import { WorkspaceStoreError } from "@/workspace/workspaceStore";
@@ -31,6 +32,9 @@ const STATUS: Record<WorkspaceErrorCode, number> = {
   revisionConflict: 409,
   invalidOperation: 400,
   stateLimitExceeded: 429,
+  searchUnavailable: 503,
+  searchBusy: 429,
+  invalidQuery: 400,
   internal: 500,
 };
 
@@ -57,6 +61,9 @@ export function refusalResponse(
   path: string | null = null,
 ): Response {
   if (error instanceof WorkspaceFailure) {
+    return workspaceErrorResponse(error.code, error.message, workspaceId, path);
+  }
+  if (error instanceof SearchFailure) {
     return workspaceErrorResponse(error.code, error.message, workspaceId, path);
   }
   if (error instanceof SharedStateFailure) {

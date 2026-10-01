@@ -28,7 +28,7 @@ export interface WorkspaceIdePreferences {
    * change to a default reach files nobody has touched.
    */
   fileViewByWorkspace: Record<string, Record<string, FileView>>;
-  section: "explorer" | "sourceControl";
+  section: "explorer" | "search" | "sourceControl";
   sidebarVisible: boolean;
   terminalVisible: boolean;
   /** Pane sizes as a fraction of the window, which is what survives a resize. */
@@ -102,7 +102,9 @@ export function loadWorkspaceIdePreferences(): WorkspaceIdePreferences {
       workspaceId: typeof parsed.workspaceId === "string" ? parsed.workspaceId : null,
       activePathByWorkspace: stringRecord(parsed.activePathByWorkspace),
       fileViewByWorkspace: fileViewRecord(parsed.fileViewByWorkspace),
-      section: parsed.section === "sourceControl" ? "sourceControl" : "explorer",
+      section: parsed.section === "sourceControl" || parsed.section === "search"
+        ? parsed.section
+        : "explorer",
       sidebarVisible: parsed.sidebarVisible !== false,
       terminalVisible: parsed.terminalVisible === true,
       sidebarFraction: clampFraction(

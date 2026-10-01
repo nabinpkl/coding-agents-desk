@@ -51,6 +51,8 @@ interface Record_ {
   revision: number;
   orderedOpenPaths: string[];
   expandedDirectoryPaths: string[];
+  /** The open path that is only a preview, replaced by the next one. See the wire's `previewPath`. */
+  previewPath: string | null;
   /**
    * Operation ids already applied, newest last.
    *
@@ -66,7 +68,13 @@ interface StoredState {
 }
 
 function emptyRecord(): Record_ {
-  return { revision: 0, orderedOpenPaths: [], expandedDirectoryPaths: [], appliedOperationIds: [] };
+  return {
+    revision: 0,
+    orderedOpenPaths: [],
+    expandedDirectoryPaths: [],
+    previewPath: null,
+    appliedOperationIds: [],
+  };
 }
 
 function isRecord(value: unknown): value is Record_ {
@@ -78,7 +86,9 @@ function isRecord(value: unknown): value is Record_ {
     && Array.isArray(record.expandedDirectoryPaths)
     && record.expandedDirectoryPaths.every((path) => typeof path === "string")
     && Array.isArray(record.appliedOperationIds)
-    && record.appliedOperationIds.every((id) => typeof id === "string");
+    && record.appliedOperationIds.every((id) => typeof id === "string")
+    && (record.previewPath === undefined || record.previewPath === null
+      || typeof record.previewPath === "string");
 }
 
 function decode(raw: string, path: string): StoredState {
@@ -96,7 +106,10 @@ function decode(raw: string, path: string): StoredState {
   const records: Record<string, Record_> = {};
   for (const [id, value] of Object.entries(outer.records as Record<string, unknown>)) {
     if (!isRecord(value)) throw new Error(`workspace shared state record is malformed: ${id}`);
-    records[id] = value;
+    // A record written before previews existed has no field, which is the same fact as null: no
+    // tab is a preview. Read as that rather than refused, because refusing is every reader's open
+    // tabs gone for a field that has one obvious value.
+    records[id] = { ...value, previewPath: value.previewPath ?? null };
   }
   return { version: SHARED_STATE_VERSION, records };
 }
@@ -119,6 +132,11 @@ function applyOperation(operation: WorkspaceOperation, record: Record_): boolean
   switch (operation.type) {
     case "open": {
       const path = validPath(operation.path);
+      // Opening the preview for real keeps it: it stops being the slot the next preview replaces.
+      if (record.previewPath === path) {
+        record.previewPath = null;
+        return true;
+      }
       if (record.orderedOpenPaths.includes(path)) return false;
       if (record.orderedOpenPaths.length >= MAXIMUM_OPEN_PATHS) {
         throw new SharedStateFailure("stateLimitExceeded", "too many open files");
@@ -126,10 +144,28 @@ function applyOperation(operation: WorkspaceOperation, record: Record_): boolean
       record.orderedOpenPaths.push(path);
       return true;
     }
+    case "preview": {
+      const path = validPath(operation.path);
+      // Already a tab, kept or previewed: showing it is the reader's own selection, not a change.
+      if (record.orderedOpenPaths.includes(path)) return false;
+      const slot = record.previewPath === null ? -1 : record.orderedOpenPaths.indexOf(record.previewPath);
+      if (slot >= 0) {
+        // In place, so stepping through results does not walk the tab along the strip.
+        record.orderedOpenPaths[slot] = path;
+      } else {
+        if (record.orderedOpenPaths.length >= MAXIMUM_OPEN_PATHS) {
+          throw new SharedStateFailure("stateLimitExceeded", "too many open files");
+        }
+        record.orderedOpenPaths.push(path);
+      }
+      record.previewPath = path;
+      return true;
+    }
     case "close": {
       const path = validPath(operation.path);
       const before = record.orderedOpenPaths.length;
       record.orderedOpenPaths = record.orderedOpenPaths.filter((open) => open !== path);
+      if (record.previewPath === path) record.previewPath = null;
       return record.orderedOpenPaths.length !== before;
     }
     case "reorder": {
@@ -233,7 +269,10 @@ export class WorkspaceSharedStateStore {
     if (operationId === "" || Buffer.byteLength(operationId, "utf8") > MAXIMUM_OPERATION_ID_BYTES) {
       throw new SharedStateFailure("invalidOperation", "an operation id is required");
     }
-    const record = { ...(this.state.records[workspaceId] ?? emptyRecord()) };
+    const stored = this.state.records[workspaceId] ?? emptyRecord();
+    // Copied deeply enough that an operation which throws halfway leaves the stored record as it
+    // was: `preview` writes into the open list in place.
+    const record = { ...stored, orderedOpenPaths: [...stored.orderedOpenPaths] };
     if (record.appliedOperationIds.includes(operationId)) {
       return this.project(workspaceId, record);
     }
@@ -269,6 +308,7 @@ export class WorkspaceSharedStateStore {
       revision: record.revision,
       orderedOpenPaths: [...record.orderedOpenPaths],
       expandedDirectoryPaths: [...record.expandedDirectoryPaths],
+      previewPath: record.previewPath,
     };
   }
 

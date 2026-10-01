@@ -50,15 +50,42 @@ const PAINTED = "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-
   // the full width, and the outer layer would have no horizontal range to follow the textarea's.
   + " [&_.shiki]:w-max [&_.shiki]:overflow-visible";
 
+/** A line to bring into view and mark: `[start, end)` are character offsets into that line. */
+export interface LineReveal {
+  line: number;
+  start: number;
+  end: number;
+  nonce: number;
+}
+
+/**
+ * Where a textarea would put a line: the offset of its first character, and its top in pixels.
+ * Measured from the control's own computed metrics rather than restated here, so a change to
+ * `LAYER` cannot leave the band a line off.
+ */
+function lineGeometry(control: HTMLTextAreaElement, text: string, line: number) {
+  const lines = text.split("\n");
+  const index = Math.min(Math.max(line, 1), lines.length) - 1;
+  let offset = 0;
+  for (let at = 0; at < index; at += 1) offset += lines[at]!.length + 1;
+  const style = getComputedStyle(control);
+  const height = Number.parseFloat(style.lineHeight) || 20;
+  const top = (Number.parseFloat(style.paddingTop) || 0) + index * height;
+  return { offset, lineLength: lines[index]!.length, top, height };
+}
+
 export function CodeEditor({
   path,
   text,
   onChange,
+  reveal,
 }: {
   path: string;
   text: string;
   /** Absent for a file that is only read: the same surface, with the caret but no typing. */
   onChange?: (text: string) => void;
+  /** A line to scroll to and mark, from a search result or a `file:line` in quick open. */
+  reveal?: LineReveal;
 }) {
   const readOnly = onChange === undefined;
   // The path, not an extension pulled off it: the highlighter takes a file name as readily as a
@@ -67,6 +94,11 @@ export function CodeEditor({
   const input = useRef<HTMLTextAreaElement | null>(null);
   const painted = useRef<HTMLPreElement | null>(null);
   const gutter = useRef<HTMLPreElement | null>(null);
+  // The band behind a revealed line, and where it sits in the content. Moved by the same scroll
+  // sync as the layers, so it stays on its line as the reader scrolls away and back.
+  const band = useRef<HTMLDivElement | null>(null);
+  const bandTop = useRef<number | null>(null);
+  const applied = useRef<number | null>(null);
 
   const html = useMemo(() => {
     if (!highlighter) return null;
@@ -111,11 +143,39 @@ export function CodeEditor({
       }
       const numbered = gutter.current;
       if (numbered) numbered.scrollTop = control.scrollTop;
+      const marked = band.current;
+      if (marked && bandTop.current !== null) {
+        marked.style.transform = `translateY(${bandTop.current - control.scrollTop}px)`;
+      }
     };
     control.addEventListener("scroll", sync);
     sync();
     return () => control.removeEventListener("scroll", sync);
   }, []);
+
+  // Take the reader to a revealed line: a third of the way down the pane, so the lines before it
+  // give it context, with the match selected so the caret is already there when they click in.
+  // Not focused: on a phone, focus opens the keyboard over the line it just scrolled to.
+  useEffect(() => {
+    const control = input.current;
+    if (!control || !reveal || applied.current === reveal.nonce) return;
+    applied.current = reveal.nonce;
+    const { offset, lineLength, top, height } = lineGeometry(control, text, reveal.line);
+    control.scrollTop = Math.max(0, top - control.clientHeight / 3);
+    const start = Math.min(reveal.start, lineLength);
+    const end = Math.min(Math.max(reveal.end, start), lineLength);
+    control.setSelectionRange(offset + start, offset + end);
+    // Horizontally only when the match would be off the right edge; one character is about 0.6em
+    // in this face, which is close enough to land it in view.
+    const column = start * 13 * 0.6;
+    control.scrollLeft = column > control.clientWidth * 0.8 ? column - control.clientWidth / 3 : 0;
+    bandTop.current = top;
+    if (band.current) {
+      band.current.style.height = `${height}px`;
+      band.current.style.transform = `translateY(${top - control.scrollTop}px)`;
+    }
+    control.dispatchEvent(new Event("scroll"));
+  }, [reveal, text]);
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-background">
@@ -131,6 +191,13 @@ export function CodeEditor({
       >
         {numbers}
       </pre>
+      {/* Under the painted text, so the line reads through it; hidden until a reveal places it. */}
+      <div
+        ref={band}
+        aria-hidden
+        style={{ left: gutterWidth, display: reveal ? undefined : "none" }}
+        className="pointer-events-none absolute right-0 top-0 bg-primary/15"
+      />
       {html
         ? (
           <pre

@@ -38,6 +38,7 @@ import { createLimitsRoutes } from "@/http/limitsRoutes";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
 import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
+import { createWorkspaceSearchRoutes } from "@/http/workspace-routes/workspaceSearchRoutes";
 import { createWorkspaceRoutes } from "@/http/workspace-routes/workspaceRoutes";
 import { createWorkspaceStreamRoutes } from "@/http/workspace-routes/workspaceStreamRoutes";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
@@ -261,6 +262,7 @@ const routes: RouteHandler[] = [
     maxDocumentBytes: config.workspaceMaxDocumentBytes,
   }),
   createWorkspaceHistoryRoutes(workspaceService),
+  createWorkspaceSearchRoutes(workspaceService, config.ripgrepPath),
   createWorkspaceRoutes(workspaceService),
   // And `/bracket`, which names what one session is doing: a session's address rather than a
   // Bot's, for the same reason forking moved off the Bot endpoint, and ahead of the catch-all

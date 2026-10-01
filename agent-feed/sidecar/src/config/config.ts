@@ -16,7 +16,7 @@ import {
   urlEnvironment,
 } from "@/config/configEnvironment";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
-import { tmuxBinary, yabaiBinary } from "@/config/configBinaries";
+import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
 
 const userHomeDirectory = homedir();
 
@@ -289,6 +289,9 @@ export const config = {
   // its own: a session running in tmux is one somebody is already watching from a real terminal,
   // and tmux is what makes a second viewer of it legal.
   tmuxPath: tmuxBinary(),
+  // The IDE's file list and text search. Null answers those two routes with a refusal that names
+  // the missing program, rather than an empty result that reads as "nothing matched".
+  ripgrepPath: ripgrepBinary(),
   // How much of each parked window stays on the display. macOS clamps to 40pt
   // horizontally, so this is the ceiling as well as the default.
   parkStrip: integerEnvironment("AGENT_FEED_PARK_STRIP", 40, 1, 400),

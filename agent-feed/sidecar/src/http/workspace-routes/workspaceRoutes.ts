@@ -35,6 +35,7 @@ function parseOperation(value: unknown): WorkspaceOperation {
   const record = value as Record<string, unknown>;
   switch (record.type) {
     case "open":
+    case "preview":
     case "close":
     case "expand":
     case "collapse":

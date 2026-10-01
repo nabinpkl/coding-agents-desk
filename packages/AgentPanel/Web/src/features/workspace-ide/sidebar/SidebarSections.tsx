@@ -1,16 +1,19 @@
-// The two sections a file sidebar switches between: the explorer tree and source control.
+// The sections a file sidebar switches between: the explorer tree, text search, and source
+// control. Search is the IDE's alone; a Bot's code modal shows the other two.
 //
 // Icons rather than words, with the changed-file count riding the Source Control tab so it is
 // readable from the Explorer. The IDE's sidebar and a Bot's code modal both switch with this, so
 // the two read the same wherever a reader meets them.
 
-import { FolderTree, GitBranch } from "lucide-react";
+import { FolderTree, GitBranch, Search } from "lucide-react";
 import { changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 
-export type SidebarSection = "explorer" | "sourceControl";
+export type SidebarSection = "explorer" | "search" | "sourceControl";
 
-const SECTIONS: { id: SidebarSection; label: string; Icon: typeof FolderTree }[] = [
+const SECTIONS: { id: SidebarSection; label: string; shortcut?: string; Icon: typeof FolderTree }[] = [
   { id: "explorer", label: "Explorer", Icon: FolderTree },
+  // The shortcut rides the hover title only: read aloud, "shift command F" is noise in a name.
+  { id: "search", label: "Search", shortcut: "⇧⌘F", Icon: Search },
   { id: "sourceControl", label: "Source Control", Icon: GitBranch },
 ];
 
@@ -32,6 +35,7 @@ export function SidebarSections({
   section,
   changed,
   sourceControlUnavailable,
+  searchable = false,
   onSelect,
 }: {
   /** Names the strip for a screen reader, which meets more than one on a page. */
@@ -41,6 +45,8 @@ export function SidebarSections({
   changed: number;
   /** Why there is no source control to show, when there is none: a directory outside git. */
   sourceControlUnavailable?: string;
+  /** Whether text search is offered. A Bot's read-only code modal does not have one. */
+  searchable?: boolean;
   onSelect: (section: SidebarSection) => void;
 }) {
   return (
@@ -48,7 +54,7 @@ export function SidebarSections({
       aria-label={label}
       className="flex shrink-0 items-center gap-1 border-b border-border px-1.5 py-1"
     >
-      {SECTIONS.map(({ id, label: name, Icon }) => {
+      {SECTIONS.filter(({ id }) => searchable || id !== "search").map(({ id, label: name, shortcut, Icon }) => {
         const selected = id === section;
         const count = id === "sourceControl" ? changed : 0;
         const unavailable = id === "sourceControl" ? sourceControlUnavailable : undefined;
@@ -61,7 +67,8 @@ export function SidebarSections({
             // because the badge that carries it is a glyph to everything but the eye.
             aria-label={count > 0 ? `Show ${name}, ${changedLabel(count)}` : `Show ${name}`}
             aria-pressed={selected}
-            title={unavailable ?? (count > 0 ? `${name} (${changedLabel(count)})` : name)}
+            title={unavailable
+              ?? (count > 0 ? `${name} (${changedLabel(count)})` : shortcut ? `${name} (${shortcut})` : name)}
             disabled={unavailable !== undefined}
             onClick={() => onSelect(id)}
             className={`${CONTROL} ${selected

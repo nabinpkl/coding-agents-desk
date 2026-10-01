@@ -43,6 +43,7 @@ export const CLEAN_STATE: WorkspaceSharedState = {
   revision: 0,
   orderedOpenPaths: [],
   expandedDirectoryPaths: [],
+  previewPath: null,
 };
 
 export const GIT: WorkspaceGitStatus = {

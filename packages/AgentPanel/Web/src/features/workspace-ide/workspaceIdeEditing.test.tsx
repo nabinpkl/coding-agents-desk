@@ -24,6 +24,7 @@ const OPEN_STATE: WorkspaceSharedState = {
   revision: 1,
   orderedOpenPaths: ["notes.txt"],
   expandedDirectoryPaths: [],
+  previewPath: null,
 };
 
 const feed = {} as SidecarDataSource;

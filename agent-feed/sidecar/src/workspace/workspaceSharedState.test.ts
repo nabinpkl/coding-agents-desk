@@ -51,6 +51,7 @@ test("an unknown workspace starts empty at revision zero", async () => {
     revision: 0,
     orderedOpenPaths: [],
     expandedDirectoryPaths: [],
+    previewPath: null,
   });
 });
 
@@ -210,4 +211,62 @@ test("refuses a state file written by something else", async () => {
   await writeFile(path, JSON.stringify({ version: 99, records: {} }));
 
   await expect(new WorkspaceSharedStateStore(path).ready).rejects.toThrow();
+});
+
+async function preview(
+  created: WorkspaceSharedStateStore,
+  path: string,
+): Promise<WorkspaceSharedState> {
+  return created.apply(WORKSPACE, created.snapshot(WORKSPACE).revision, nextOperationId(), {
+    type: "preview",
+    path,
+  });
+}
+
+test("a preview replaces the previous preview in place, so stepping through results leaves one tab", async () => {
+  const { store: created } = await store();
+  await open(created, "kept.ts");
+  await preview(created, "first.ts");
+  await open(created, "after.ts");
+  const second = await preview(created, "second.ts");
+  expect(second.orderedOpenPaths).toEqual(["kept.ts", "second.ts", "after.ts"]);
+  expect(second.previewPath).toBe("second.ts");
+});
+
+test("opening the preview keeps it, and the next preview becomes a tab of its own", async () => {
+  const { store: created } = await store();
+  await preview(created, "first.ts");
+  const kept = await open(created, "first.ts");
+  expect(kept.previewPath).toBeNull();
+  expect(kept.revision).toBe(2);
+  const next = await preview(created, "second.ts");
+  expect(next.orderedOpenPaths).toEqual(["first.ts", "second.ts"]);
+});
+
+test("previewing a file that is already a tab changes nothing", async () => {
+  const { store: created } = await store();
+  await open(created, "a.ts");
+  const again = await preview(created, "a.ts");
+  expect(again.revision).toBe(1);
+  expect(again.previewPath).toBeNull();
+});
+
+test("closing the preview clears the slot", async () => {
+  const { store: created } = await store();
+  await preview(created, "a.ts");
+  const closed = await created.apply(WORKSPACE, 1, nextOperationId(), { type: "close", path: "a.ts" });
+  expect(closed).toMatchObject({ orderedOpenPaths: [], previewPath: null });
+});
+
+test("a record stored before previews existed loads with no preview", async () => {
+  const { path } = await store();
+  await writeFile(path, JSON.stringify({
+    version: 1,
+    records: {
+      [WORKSPACE]: { revision: 3, orderedOpenPaths: ["a.ts"], expandedDirectoryPaths: [], appliedOperationIds: [] },
+    },
+  }));
+  const reloaded = new WorkspaceSharedStateStore(path);
+  await reloaded.ready;
+  expect(reloaded.snapshot(WORKSPACE)).toMatchObject({ orderedOpenPaths: ["a.ts"], previewPath: null });
 });

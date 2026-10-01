@@ -5,13 +5,16 @@
 // are CSS here, which is the whole reason the port was worth doing -- the layout is now something
 // a reader changes by saving a file.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FolderPlus } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { EditorPane } from "@/features/workspace-ide/editor/EditorPane";
 import { useCommitDiffTab } from "@/features/workspace-ide/history/CommitDiff";
 import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
+import { QuickOpen } from "@/features/workspace-ide/search/QuickOpen";
+import { useContentSearch } from "@/features/workspace-ide/search/useContentSearch";
+import { useSearchShortcuts } from "@/features/workspace-ide/search/useSearchShortcuts";
 import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
 import { WorkspaceIdeStatusBar } from "@/features/workspace-ide/WorkspaceIdeStatusBar";
@@ -40,6 +43,36 @@ export function WorkspaceIdeSurface({
   const editor = useRef<HTMLDivElement | null>(null);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  // Held here rather than in the section, so the results survive switching to the Explorer and
+  // back -- which is how a reader works through them, one file at a time.
+  const search = useContentSearch(ide.client, ide.workspaceId);
+  const searchField = useRef<HTMLInputElement | null>(null);
+  const [focusSearch, setFocusSearch] = useState(0);
+
+  // After the render that mounted the section, since the field does not exist until then.
+  useEffect(() => {
+    if (focusSearch === 0) return;
+    searchField.current?.focus();
+    searchField.current?.select();
+  }, [focusSearch]);
+
+  const showSearch = useCallback(() => {
+    ide.update({ section: "search", sidebarVisible: true });
+    setFocusSearch((count) => count + 1);
+  }, [ide]);
+  const hasWorkspace = ide.workspaceId !== null;
+  const openQuickOpen = useCallback(() => {
+    if (hasWorkspace) setQuickOpen(true);
+  }, [hasWorkspace]);
+  useSearchShortcuts({ onQuickOpen: openQuickOpen, onSearch: showSearch });
+
+  /** A search result: the file in the preview tab, on its line, with the diff put away. */
+  const hideDiff = diff.hide;
+  const openResult = useCallback((path: string, line: number, start: number, end: number) => {
+    hideDiff();
+    ide.previewPath(path, line, start, end);
+  }, [ide, hideDiff]);
 
   // Fractions rather than pixels, because a fraction is what survives the window being resized,
   // and this panel is read on a phone and on an 8K desk within the same hour.
@@ -223,6 +256,9 @@ export function WorkspaceIdeSurface({
                   onOpenChange={openChange}
                   changePath={diff.active && diff.target?.commit === null ? diff.target.path : null}
                   onToggleDirectory={ide.setDirectoryExpanded}
+                  search={search}
+                  searchField={searchField}
+                  onOpenResult={openResult}
                 />
               </div>
               <PaneDivider axis="vertical" label="Resize sidebar" onGrow={growSidebar} />
@@ -232,7 +268,7 @@ export function WorkspaceIdeSurface({
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div ref={editor} className="min-h-0 flex-1">
-            <EditorPane ide={ide} diff={diff} />
+            <EditorPane ide={ide} diff={diff} onQuickOpen={openQuickOpen} />
           </div>
           {preferences.terminalVisible
             ? (
@@ -288,6 +324,22 @@ export function WorkspaceIdeSurface({
             browse={ide.client.browse.bind(ide.client)}
             onChoose={chooseWorkspace}
             onCancel={() => setPicking(false)}
+          />
+        )
+        : null}
+
+      {quickOpen && ide.workspaceId
+        ? (
+          <QuickOpen
+            client={ide.client}
+            workspaceId={ide.workspaceId}
+            openPaths={ide.visibleOpenPaths}
+            onOpen={(path, line) => {
+              setQuickOpen(false);
+              diff.hide();
+              ide.openPath(path, line ?? undefined);
+            }}
+            onClose={() => setQuickOpen(false)}
           />
         )
         : null}

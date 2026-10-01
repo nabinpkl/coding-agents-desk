@@ -46,3 +46,23 @@ export function yabaiBinary(): string | null {
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
+
+/**
+ * Absolute path to `rg`, or null when this machine has none.
+ *
+ * Both of the IDE's searches run on it: quick open lists files with `rg --files`, and the Search
+ * section searches inside them. Same shape as `tmuxBinary` and for the same reason; `/usr/bin` is
+ * where a Debian or Ubuntu package puts it, which is the oracle peer.
+ */
+export function ripgrepBinary(): string | null {
+  const override = process.env.AGENT_FEED_RIPGREP_PATH?.trim();
+  if (override) return existsSync(override) ? resolve(override) : null;
+  const candidates = [
+    join(userHomeDirectory, ".local", "bin", "rg"),
+    join(userHomeDirectory, ".cargo", "bin", "rg"),
+    "/opt/homebrew/bin/rg",
+    "/usr/local/bin/rg",
+    "/usr/bin/rg",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}

@@ -43,6 +43,21 @@ export interface OpenFile {
   saveState: SaveState;
 }
 
+/**
+ * A line to bring into view in the file viewer, and the characters on it to mark.
+ *
+ * The nonce is what makes asking for the same line twice move the view twice: a reader who
+ * scrolled away from a search result and clicks it again expects to be taken back.
+ */
+export interface Reveal {
+  path: string;
+  line: number;
+  /** Character offsets into the line, `[start, end)`; equal when only the line is known. */
+  start: number;
+  end: number;
+  nonce: number;
+}
+
 export interface WorkspaceIdeState {
   workspaces: WorkspaceSummary[];
   workspaceId: string | null;
@@ -59,6 +74,8 @@ export interface WorkspaceIdeState {
   visibleOpenPaths: string[];
   activePath: string | null;
   loadingPath: string | null;
+  /** The last line asked for, which the viewer scrolls to when that file is on screen. */
+  reveal: Reveal | null;
   error: string | null;
   preferences: WorkspaceIdePreferences;
 }
@@ -66,7 +83,13 @@ export interface WorkspaceIdeState {
 export interface WorkspaceIde extends WorkspaceIdeState {
   client: WorkspaceIdeClient;
   selectWorkspace(id: string): void;
-  openPath(path: string): void;
+  /** Open a file as a tab of its own, optionally at a line. */
+  openPath(path: string, line?: number): void;
+  /**
+   * Show a file in the preview slot, at a line: what a text search result does. Opened as source,
+   * because a rendered file has no lines to scroll to.
+   */
+  previewPath(path: string, line: number, start: number, end: number): void;
   closePath(path: string): void;
   activate(path: string): void;
   reorderTabs(paths: string[]): void;
@@ -97,6 +120,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
   const [openFiles, setOpenFiles] = useState<Record<string, OpenFile>>({});
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
+  const [reveal, setReveal] = useState<Reveal | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // One effect on the value, rather than a write beside each of the calls that change it: that is
@@ -165,6 +189,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     setGit(null);
     setOpenFiles({});
     setLoadingPath(null);
+    setReveal(null);
 
     return client.subscribe(
       workspaceId,
@@ -334,10 +359,40 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     reload,
   });
 
-  const openPath = useCallback((path: string) => {
+  const revealLine = useCallback((path: string, line: number, start: number, end: number) => {
+    setReveal((current) => ({ path, line, start, end, nonce: (current?.nonce ?? 0) + 1 }));
+  }, []);
+
+  const openPath = useCallback((path: string, line?: number) => {
     setActivePath(path);
+    if (line !== undefined) revealLine(path, line, 0, 0);
     void applyOperation({ type: "open", path });
-  }, [applyOperation, setActivePath]);
+  }, [applyOperation, setActivePath, revealLine]);
+
+  const previewPath = useCallback((path: string, line: number, start: number, end: number) => {
+    if (!workspaceId) return;
+    setActivePath(path);
+    revealLine(path, line, start, end);
+    // Source, as a choice the reader can see and undo with the toggle, rather than a preview that
+    // quietly will not render: a markdown result lands on its line instead of on the top of a
+    // rendered page with the line nowhere in it.
+    setPreferences((current) => {
+      const held = current.fileViewByWorkspace[workspaceId] ?? {};
+      if (held[path] === "source") return current;
+      return {
+        ...current,
+        fileViewByWorkspace: { ...current.fileViewByWorkspace, [workspaceId]: { ...held, [path]: "source" } },
+      };
+    });
+    void applyOperation({ type: "preview", path });
+  }, [applyOperation, setActivePath, revealLine, workspaceId]);
+
+  /** Typing into the preview keeps it, the way VS Code does: an edited file is not a glance. */
+  const writingEdit = writing.edit;
+  const edit = useCallback((path: string, text: string) => {
+    if (sharedRef.current?.previewPath === path) void applyOperation({ type: "open", path });
+    writingEdit(path, text);
+  }, [applyOperation, writingEdit]);
 
   const isPreview = useCallback((path: string) => {
     if (!workspaceId) return false;
@@ -383,6 +438,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     visibleOpenPaths,
     activePath,
     loadingPath,
+    reveal,
     error,
     preferences,
     // Normalised here rather than at each caller: both the roster's "No workspaces" option and
@@ -391,6 +447,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     selectWorkspace: useCallback((id: string) => update({ workspaceId: id || null }), [update]),
     reportError: setError,
     openPath,
+    previewPath,
     closePath: writing.closePath,
     activate: setActivePath,
     reorderTabs: useCallback(
@@ -402,7 +459,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
         void applyOperation({ type: expanded ? "expand" : "collapse", path }),
       [applyOperation],
     ),
-    edit: writing.edit,
+    edit,
     togglePreview,
     useHostVersion: writing.useHostVersion,
     keepMyVersion: writing.keepMyVersion,

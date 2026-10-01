@@ -10,10 +10,13 @@ import type {
   WorkspaceCommitDetail,
   WorkspaceCommitDiff,
   WorkspaceFileConflict,
+  WorkspaceFileList,
   WorkspaceFileRead,
   WorkspaceFileWritten,
   WorkspaceGitStatus,
   WorkspaceOperation,
+  WorkspaceSearchOptions,
+  WorkspaceSearchResult,
   WorkspaceSharedState,
   WorkspaceStreamEvent,
   WorkspaceBrowseListing,
@@ -51,8 +54,11 @@ function parse<T>(status: number, body: string): T {
 export class WorkspaceIdeClient {
   constructor(private readonly transport: AgentHttpTransport) {}
 
-  private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const response = await this.transport.request(method, path, body === undefined ? {} : { body });
+  private async call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+    const response = await this.transport.request(method, path, {
+      ...(body === undefined ? {} : { body }),
+      ...(signal ? { signal } : {}),
+    });
     if (response.status === 204) return undefined as T;
     return parse<T>(response.status, response.body);
   }
@@ -98,6 +104,35 @@ export class WorkspaceIdeClient {
 
   tree(id: string): Promise<{ tree: WorkspaceTreeNode[] }> {
     return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/tree`);
+  }
+
+  /** Every file quick open can offer, fetched once per opening of the picker. */
+  files(id: string, signal?: AbortSignal): Promise<WorkspaceFileList> {
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/files`, undefined, signal);
+  }
+
+  /**
+   * The lines that match a text search. Aborting the signal is how a search the reader has typed
+   * past is cancelled: the sidecar hands the request's own signal to `rg`, so the process dies too.
+   */
+  search(
+    id: string,
+    query: string,
+    options: WorkspaceSearchOptions,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceSearchResult> {
+    const parameters = new URLSearchParams({ q: query });
+    if (options.matchCase) parameters.set("case", "1");
+    if (options.wholeWord) parameters.set("word", "1");
+    if (options.regex) parameters.set("regex", "1");
+    if (options.include.length > 0) parameters.set("include", options.include.join(","));
+    if (options.exclude.length > 0) parameters.set("exclude", options.exclude.join(","));
+    return this.call(
+      "GET",
+      `/api/workspaces/${encodeURIComponent(id)}/search?${parameters}`,
+      undefined,
+      signal,
+    );
   }
 
   git(id: string): Promise<{ status: WorkspaceGitStatus }> {

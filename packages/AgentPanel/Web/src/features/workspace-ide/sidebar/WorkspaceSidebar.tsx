@@ -3,7 +3,10 @@
 // The branch name used to ride the section nav and is on the IDE's status bar now. It says which
 // repository every pane is showing, so it should not go away with the pane it was sitting in.
 
+import type { Ref } from "react";
 import type { WorkspaceGitStatus, WorkspaceSummary, WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
+import { SearchPanel } from "@/features/workspace-ide/search/SearchPanel";
+import type { ContentSearch } from "@/features/workspace-ide/search/useContentSearch";
 import { SourceControl } from "@/features/workspace-ide/sidebar/SourceControl";
 import { changedFileCount } from "@/features/workspace-ide/sidebar/gitTones";
 import { SidebarSections } from "@/features/workspace-ide/sidebar/SidebarSections";
@@ -30,6 +33,9 @@ export function WorkspaceSidebar({
   onOpenChange,
   changePath,
   onToggleDirectory,
+  search,
+  searchField,
+  onOpenResult,
 }: {
   workspaces: WorkspaceSummary[];
   workspaceId: string | null;
@@ -49,6 +55,11 @@ export function WorkspaceSidebar({
   /** The path whose uncommitted diff the editor is showing, so its row reads as current. */
   changePath: string | null;
   onToggleDirectory: (path: string, expanded: boolean) => void;
+  /** The Search section's state, held above so its results outlive switching sections. */
+  search: ContentSearch;
+  /** The query field, so the shortcut that opens Search can put the caret in it. */
+  searchField: Ref<HTMLInputElement>;
+  onOpenResult: (path: string, line: number, start: number, end: number) => void;
 }) {
   const changed = changedFileCount(git?.entries ?? []);
   return (
@@ -67,10 +78,22 @@ export function WorkspaceSidebar({
         label="Workspace sidebar sections"
         section={section}
         changed={changed}
+        searchable
         onSelect={onSelectSection}
       />
 
-      <section className="min-h-0 flex-1 overflow-auto px-1 pb-4 pt-1">
+      {section === "search"
+        ? (
+          // Its own scroller, below a query box that stays put, so it is not inside the one below.
+          <section className="min-h-0 flex-1 pt-1">
+            <SearchPanel ref={searchField} search={search} onOpen={onOpenResult} />
+          </section>
+        )
+        : null}
+      <section
+        hidden={section === "search"}
+        className="min-h-0 flex-1 overflow-auto px-1 pb-4 pt-1"
+      >
         {section === "sourceControl"
           ? (
             <SourceControl

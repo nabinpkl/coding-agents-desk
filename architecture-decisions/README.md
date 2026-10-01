@@ -153,3 +153,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0120 | Opencode sessions get the thread terminal Claude sessions have | accepted | 2026-09-24 |
 | ADR-0121 | Opencode session pane resumes onto its session | accepted | 2026-09-25 |
 | ADR-0122 | Opencode sessions hand over to Claude as one first-turn argv | accepted | 2026-09-28 |
+| ADR-0123 | The IDE's file and text search run on ripgrep, over one scope | accepted | 2026-09-30 |
