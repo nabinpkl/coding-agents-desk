@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act, within } from "@testing-library/react";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
+import { SESSION_MEASURE_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import {
   deliverTwoBots,
   deliverProjects,
@@ -64,6 +65,22 @@ describe("App shell", () => {
       "data-controls-host",
       "attached",
     );
+    unmount();
+  });
+
+  it("caps and centres the session column, so a wide window is still a readable line", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    mirrorClaudeComposer(transport);
+
+    // Every token of the measure, rather than one of them: the question this answers is whether the
+    // column still carries the cap at all, so a number chosen later is free and dropping the cap is
+    // not. A line across a whole window carried 120 characters of body prose at 1440 with the
+    // sidebar open, which is the width of a sentence nobody finishes.
+    const column = sessionCard();
+    for (const token of SESSION_MEASURE_CLASS.split(" ")) {
+      expect(column.className).toContain(token);
+    }
     unmount();
   });
 

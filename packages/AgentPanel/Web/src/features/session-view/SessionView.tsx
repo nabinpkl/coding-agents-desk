@@ -41,6 +41,7 @@ import type {
   EventMode,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import { ActivityFeed } from "@/features/activity-feed/ActivityFeed";
+import { SESSION_MEASURE_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTasksPanel";
@@ -106,7 +107,8 @@ export type { SessionViewContext } from "@/features/session-view/sessionTerminal
  * Everything inside it measures this column rather than the viewport, which is what makes the
  * paragraph above true rather than aspirational: `SummaryBand` caps at a share of it, the thread's
  * terminal takes a share of it by being its child, and the composer's terminal is handed it
- * explicitly because a band pane has no parent to measure.
+ * explicitly because a band pane has no parent to measure. It is capped and centred rather than
+ * filling whatever box it is given, so a wide window shows a measure (`SESSION_MEASURE_CLASS`).
  *
  * Everything per-session is owned here and reset by REMOUNTING, so the owner keys this on the
  * session. The mode toggle deliberately does not remount it: only the feed inside is keyed on the
@@ -382,7 +384,7 @@ export function SessionView({
         only a Bot card's shaded session does (`styles.css`, `.bot-session-fill`). Putting the
         utility back would repaint an open session plain over the top of the colour that says which
         session it is, which is the bug these replaced. */}
-    <div ref={setColumn} className="flex h-full min-h-0 flex-col session-view-surface">
+    <div ref={setColumn} className={`${SESSION_MEASURE_CLASS} flex h-full min-h-0 flex-col session-view-surface`}>
       {controlsHost
         ? createPortal(
           <>

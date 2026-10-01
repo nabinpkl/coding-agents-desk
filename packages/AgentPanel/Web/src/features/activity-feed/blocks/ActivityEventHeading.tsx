@@ -109,6 +109,40 @@ export const CHIP_CLASS =
 export const COLUMN_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
 
 /**
+ * The width a session's column stops growing at, and the centring that goes with it.
+ *
+ * The other half of the gutter above: that one is the space either side of the column, this is the
+ * column's own measure -- how many characters a line of prose holds before the eye stops finding
+ * the next one. A line across a whole window is not a wider line of text, it is a line nobody
+ * finishes.
+ *
+ * Measured on the live panel at the reader's default sizes, as characters per full line of the
+ * column. A thread view 1176 wide -- a 1440 window with the sidebar open -- carries 120 characters
+ * of body prose at 16px and 167 of italic reasoning at 14px. The Father home, at 870, already sits
+ * where this reads: 89 and 124. So the cap is that width, and a wide thread view is brought to the
+ * measure the drawer has been showing all along rather than given a new one. At 48rem it is 78
+ * characters of body prose and 109 of reasoning, verified the same way.
+ *
+ * `rem`, not a font token, because the body size IS a token the reader can scale
+ * (`--agent-panel-fs-…`). A cap in the reader's own font would hold the pixels and let the
+ * characters per line fall as the text grows; a cap in rem keeps the measure and lets the line get
+ * shorter, which is the right way round for larger type.
+ *
+ * `mx-auto` because a capped column that stays pinned to the left is not centred, only narrowed,
+ * and centring on a large screen is the whole of what was asked for.
+ *
+ * A maximum, so it is responsive by construction rather than by breakpoint: a phone, a narrow Bot
+ * card and a 900px window are all under it and are not touched, and there is no width at which a
+ * step appears.
+ *
+ * On the session view's own root rather than on the transcript, because everything inside that view
+ * measures that column (see `SessionView`'s note): one cap on the root takes the rows, the sticky
+ * headers over them and the composer under them together, where a cap on any one of them would
+ * leave the others pointing at the old edges.
+ */
+export const SESSION_MEASURE_CLASS = "mx-auto w-full max-w-[48rem]";
+
+/**
  * An event's role chip and collapse toggle, floated so the first line of the
  * body sits beside it.
  *
