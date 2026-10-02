@@ -19,7 +19,8 @@ import type {
   SetBotCanvasCommand,
   UpdateBotCommand,
 } from "@agentdesk/agent-feed-wire";
-import { LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
+import { type ForkRewinder, LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
+import { LIVE_FORK_REWINDER } from "@/transcripts/session-ops/forkRewind";
 import { directoryBelongsTo } from "@/git/worktree";
 import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import { type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
@@ -103,8 +104,10 @@ export class BotRegistry {
      * generator would let a test's readable stand-in reach a place that needs the real shape.
      */
     private readonly newSessionId: () => string = () => crypto.randomUUID(),
+    /** Moves a fork back to the message it was asked to start from. Drives a real pane when live. */
+    rewinder: ForkRewinder = LIVE_FORK_REWINDER,
   ) {
-    this.starter = new BotSessionStarter(store, catalog, launcher, newSessionId);
+    this.starter = new BotSessionStarter(store, catalog, launcher, newSessionId, rewinder);
     this.retirer = new BotSessionRetirer(store, catalog, launcher);
     this.viewer = new BotViewer(store, catalog);
     this.editor = new BotRecordEditor(store, (record) => this.viewer.viewRecord(record));

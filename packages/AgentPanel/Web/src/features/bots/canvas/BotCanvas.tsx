@@ -144,8 +144,8 @@ export function BotCanvas({
   /** A function of the Bot: the card is the only thing that knows which one it belongs to. */
   attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
   /** The same fork, starting just before the last thing a person said in that session. */
-  onForkFromLastMessage: (session: SessionSummary, projectPath: string) => void;
-  onForkFromLastCompaction: (session: SessionSummary, projectPath: string) => void;
+  onForkFromLastMessage: (bot: BotView, session: SessionSummary) => void;
+  onForkFromLastCompaction: (bot: BotView, session: SessionSummary) => void;
   onHandoverSession: (bot: BotView, session: SessionSummary) => void;
   /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
   onRenameSession: (session: SessionSummary) => void;

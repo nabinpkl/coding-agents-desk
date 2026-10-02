@@ -31,6 +31,7 @@ export function buildSessionViewContext(input: {
     session: SessionSummary;
     projectPath: string;
     message: { eventId: string; text: string };
+    botId?: string;
   }) => void;
 }): SessionViewContext {
   return {

@@ -16,7 +16,9 @@ import {
   BotRegistry,
   type BotRegistryCatalog,
   type BotSessionLauncher,
+  type ResolvedBotSession,
 } from "@/bots/botRegistry";
+import type { ForkRewinder } from "@/transcripts/session-ops/forkSession";
 import { forgetWorktrees } from "@/git/worktree";
 
 export interface LaunchRecord {
@@ -32,7 +34,7 @@ export interface LaunchRecord {
 export function botRegistryHarness() {
   const temporaryDirectories: string[] = [];
   const projects = new Set<string>();
-  const sessions = new Map<string, { projectPath: string; summary: SessionSummary }>();
+  const sessions = new Map<string, ResolvedBotSession>();
   const listeners = new Set<() => void>();
   /**
    * Which sessions have a pane, and what it is called.
@@ -43,6 +45,15 @@ export function botRegistryHarness() {
    */
   const runningPanes = new Map<string, string>();
   const endedPanes: string[] = [];
+  /**
+   * What a fork from a message asked to be moved back to. Always a stand-in: the live rewinder
+   * drives a real pane, which no test here may reach.
+   */
+  const rewound: Parameters<ForkRewinder>[0][] = [];
+  const rewinder: ForkRewinder = async (options) => {
+    rewound.push(options);
+    return { done: true };
+  };
 
   async function endPane(options: { sessionId: string }): Promise<string | null> {
     const pane = runningPanes.get(options.sessionId);
@@ -76,6 +87,7 @@ export function botRegistryHarness() {
     listeners.clear();
     runningPanes.clear();
     endedPanes.length = 0;
+    rewound.length = 0;
     await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
   });
 
@@ -214,6 +226,7 @@ export function botRegistryHarness() {
           end: endPane,
         },
         () => `started-${++nextSessionId}`,
+        rewinder,
       ),
     };
   }
@@ -239,6 +252,7 @@ export function botRegistryHarness() {
     projects,
     recordingLauncher,
     remoteBranches,
+    rewound,
     runningPanes,
     sessions,
     summary,

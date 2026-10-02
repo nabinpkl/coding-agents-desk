@@ -24,18 +24,6 @@ import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { handoverDestination } from "@/features/bots/sessionHandover";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
 
-/**
- * The Bot a whole-session fork attaches to.
- *
- * Thrown rather than defaulted, because there is no sensible Bot to guess: a fork with neither a
- * message to start from nor a Bot to land on is a request that was built wrong, and sending
- * `undefined` in the path would ask the sidecar about a Bot called "undefined" instead.
- */
-function requireBot(request: ForkRequest): string {
-  if (request.botId) return request.botId;
-  throw new Error("a fork of a whole session must name the Bot to attach it to");
-}
-
 export function useBotCommands(
   /**
    * Which sidecar each command goes to, rather than the one sidecar it used to be.
@@ -63,11 +51,12 @@ export function useBotCommands(
   const record = useBotRecordCommands(feeds, setBotCommandError);
   const [botSessionPickerId, setBotSessionPickerId] = useState<string | null>(null);
   /**
-   * A session forked from another, and the pane it runs in.
+   * A session forked from another with no Bot to land on, and the pane it runs in.
    *
-   * Held here rather than in the canvas because it takes over `main`, and because the fork's own
-   * identity has to outlive the row that started it: the source session can be detached from its
-   * Bot while its fork is still open.
+   * Only a fork asked for from the full-width thread view, which has no Bot behind it. A fork asked
+   * for from a canvas card goes to that card's Bot and opens as a card in its column instead
+   * (`newSessions` below): taking over `main` replaced the whole canvas with one empty session, and
+   * the reader lost the card they had forked from in the same click.
    *
    * Everything in it comes back from `POST /api/bots/:id/sessions` and none of it is predicted.
    * The panel used to mint the fork's id, name its pane by the sidecar's own rule, and then open a
@@ -96,9 +85,10 @@ export function useBotCommands(
    * has a name, has a pane, and cannot be attached to anything. The canvas renders it from this
    * list during that window, and the effect below hands it over the moment it can.
    *
-   * A list rather than one, unlike the fork, because these are cards on a canvas that already
-   * holds as many as the reader opens: starting a second before the first has spoken is an
-   * ordinary thing to do, and the fork's single slot would have silently replaced it.
+   * A list rather than one, because these are cards on a canvas that already holds as many as the
+   * reader opens: starting a second before the first has spoken is an ordinary thing to do. Forks
+   * asked for from a card land here too, on the card's Bot, which attached them as it started
+   * them.
    *
    * Not persisted, deliberately. It is a record the stream is about to own, not an arrangement of
    * the reader's -- so a reload during that window shows the Bot without the card, and the session
@@ -186,19 +176,21 @@ export function useBotCommands(
   /**
    * The same dialog, opened from a message rather than from a roster row.
    *
-   * No Bot, and that is the point: a reader decides to branch while READING, and the transcript
-   * view has no Bot to hang the request on. The fork goes through the session endpoint instead and
-   * lands in the catalog on its own, the way a session started anywhere else does.
+   * On a canvas card the card says which Bot it is, and the fork lands on that Bot as a card beside
+   * its source. The full-width thread view has no Bot to name, so a fork asked for there goes
+   * through the session endpoint and lands in the catalog on its own.
    */
   const forkFromMessage = useCallback((request: {
     session: SessionSummary;
     projectPath: string;
     message: { eventId: string; text: string };
+    botId?: string;
   }) => {
     if (request.session.source !== "claude") return;
     setForkRequest({
       session: request.session,
       projectPath: request.projectPath,
+      ...(request.botId === undefined ? {} : { botId: request.botId }),
       from: request.message,
     });
   }, []);
@@ -211,17 +203,16 @@ export function useBotCommands(
    * tool calls is enough to put it off the screen -- so the affordance was furthest away exactly
    * when it was most wanted.
    *
-   * The Bot is deliberately NOT carried through. This goes to the session endpoint like every
-   * other fork from a message, so it lands in the catalog on its own rather than on the Bot the
-   * row happened to be read from; see `forkFromMessage`.
+   * The Bot is carried through, so the fork lands on it as a card beside its source.
    */
-  const forkFromLastMessage = useCallback(async (session: SessionSummary, projectPath: string) => {
+  const forkFromLastMessage = useCallback(async (bot: BotView, session: SessionSummary) => {
     if (session.source !== "claude") return;
     setBotCommandError(null);
     try {
       setForkRequest({
         session,
-        projectPath,
+        projectPath: bot.environment.path,
+        botId: bot.botId,
         from: await feeds.forSession(session).lastMessage(session.sessionId),
       });
     } catch (error) {
@@ -248,13 +239,14 @@ export function useBotCommands(
    * compaction is two records the panel draws as one banner, and which message sits after them is
    * a question about a file rather than about what happens to be rendered.
    */
-  const forkFromLastCompaction = useCallback(async (session: SessionSummary, projectPath: string) => {
+  const forkFromLastCompaction = useCallback(async (bot: BotView, session: SessionSummary) => {
     if (session.source !== "claude") return;
     setBotCommandError(null);
     try {
       setForkRequest({
         session,
-        projectPath,
+        projectPath: bot.environment.path,
+        botId: bot.botId,
         from: await feeds.forSession(session).lastCompaction(session.sessionId),
       });
     } catch (error) {
@@ -276,40 +268,62 @@ export function useBotCommands(
     ) => {
       setForkRequest(null);
       setBotCommandError(null);
+      const sourceTitle = request.session.title || request.session.sessionId;
       try {
-        // Resolved once: `requireBot` throws when a whole-session fork names no Bot, and calling it
-        // twice would leave the machine lookup and the path disagreeing about which id they meant.
-        const forkTarget = request.from ? "" : requireBot(request);
-        // Two endpoints, because they answer two different questions. A fork asked for from a Bot
-        // row is a session FOR that Bot and has to arrive attached to it; a fork asked for from a
-        // message belongs to nobody but the reader, and only the session endpoint takes the
-        // message to start before.
-        const started = request.from
-          ? await feeds.forSession(request.session).forkSession(request.session.sessionId, {
-            title: forkTitle,
+        const options = {
+          title: forkTitle,
+          ...(brief.trim() ? { prompt: brief } : {}),
+          ...(worktree ? { worktree: {} } : {}),
+        };
+        // Two endpoints, because they answer two different questions. A fork asked for from a card
+        // is a session FOR that card's Bot and has to arrive attached to it, message or not; one
+        // asked for from the thread view belongs to nobody but the reader.
+        if (request.botId === undefined) {
+          if (!request.from) throw new Error("a fork of a whole session must name the Bot to attach it to");
+          const started = await feeds.forSession(request.session).forkSession(request.session.sessionId, {
+            ...options,
             from: { eventId: request.from.eventId },
-            ...(brief.trim() ? { prompt: brief } : {}),
-            ...(worktree ? { worktree: {} } : {}),
-          })
-          : (await feeds.forBot(forkTarget).addBotSessions(forkTarget, {
-            launch: {
-              title: forkTitle,
-              from: { source: "claude", sessionId: request.session.sessionId },
-              ...(brief.trim() ? { prompt: brief } : {}),
-              ...(worktree ? { worktree: {} } : {}),
+          });
+          setForkedSession({
+            sessionId: started.sessionId,
+            title: started.title,
+            tmuxSession: started.tmuxSession,
+            sourceTitle,
+            ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
+          });
+          return;
+        }
+        const botId = request.botId;
+        const { started } = await feeds.forBot(botId).addBotSessions(botId, {
+          launch: {
+            ...options,
+            from: {
+              source: "claude",
+              sessionId: request.session.sessionId,
+              ...(request.from ? { eventId: request.from.eventId } : {}),
             },
-          })).started;
-        if (!started) return;
-        setForkedSession({
-          sessionId: started.sessionId,
-          title: started.title,
-          tmuxSession: started.tmuxSession,
-          sourceTitle: request.session.title || request.session.sessionId,
-          // Carried rather than swallowed. The fork EXISTS and is running -- it just holds the
-          // whole conversation instead of the slice that was asked for -- and a reader told
-          // nothing would believe they had branched from their message when they had not.
-          ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
+          },
         });
+        if (!started) return;
+        // A card on the Bot the fork was asked from, open, beside its source -- the same card a
+        // session started fresh gets, which the ordinary card replaces once the first turn lands.
+        setNewSessions((current) => [
+          ...current,
+          {
+            botId,
+            sessionId: started.sessionId,
+            title: started.title,
+            projectPath: started.projectPath,
+            tmuxSession: started.tmuxSession,
+            forkedFrom: sourceTitle,
+            // Carried rather than swallowed. The fork EXISTS and is running -- it just holds the
+            // whole conversation instead of the slice that was asked for -- and a reader told
+            // nothing would believe they had branched from their message when they had not.
+            ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
+          },
+        ]);
+        putBotOnCanvas(botId);
+        setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
       } catch (error) {
         // Named rather than attributed to a session: the fork does not exist, so there is no card
         // for this to land on. A fork that silently failed to start is indistinguishable from one
@@ -322,7 +336,7 @@ export function useBotCommands(
         });
       }
     },
-    [feeds],
+    [feeds, putBotOnCanvas, setCanvasOpenKeys],
   );
 
   const startNewSession = useCallback(async (bot: BotView, title: string) => {

@@ -131,6 +131,12 @@ export interface SessionLaunchPlan {
   sourcePath?: string;
   /** The session id to branch from. Absent starts one with no history. */
   from?: string;
+  /**
+   * Where in `from`'s conversation to start, when the caller named a message. Resolved by the
+   * caller BEFORE this runs (`resolveMessageAnchor`), so a row that is not a message is refused
+   * rather than answered with a running fork holding the whole conversation.
+   */
+  anchor?: MessageAnchor;
   title: string;
   prompt?: string;
   worktree?: { branch?: string };
@@ -147,6 +153,7 @@ export async function launchSession(
   plan: SessionLaunchPlan,
   launcher: SessionLauncher = LIVE_SESSION_LAUNCHER,
   newSessionId: () => string = () => crypto.randomUUID(),
+  rewinder: ForkRewinder = LIVE_FORK_REWINDER,
 ): Promise<StartedSession> {
   const cwd = plan.worktree
     ? (await prepareWorktree({
@@ -162,10 +169,23 @@ export async function launchSession(
       sessionId: plan.from,
       forkId: sessionId,
       title: plan.title,
-      brief: plan.prompt,
+      // Withheld from the command line when there is a rewind coming: the CLI takes a positional
+      // prompt as the first turn, and that turn would run against the whole inherited context
+      // before anything had moved. It is typed into the box after the rewind instead.
+      brief: plan.anchor ? undefined : plan.prompt,
     })
     : await launcher.start({ cwd, sessionId, title: plan.title, prompt: plan.prompt });
-  return { sessionId, title: plan.title, projectPath: cwd, tmuxSession: started.tmuxSession };
+  const launched = { sessionId, title: plan.title, projectPath: cwd, tmuxSession: started.tmuxSession };
+  if (!plan.from || !plan.anchor) return launched;
+
+  const moved = await rewinder({
+    sessionId,
+    anchor: plan.anchor,
+    ...(plan.prompt === undefined ? {} : { prompt: plan.prompt }),
+  });
+  // Reported, never thrown. The fork is running either way, and a caller told only that the
+  // request failed would not know there was now a session holding more than it asked for.
+  return moved.done ? launched : { ...launched, rewindFailed: moved.reason };
 }
 
 /**
@@ -210,47 +230,46 @@ export async function forkClaudeSession(
 
   // Resolved BEFORE anything is started, so a request naming a row that is not a message is
   // refused rather than answered with a running fork holding the whole conversation.
-  const anchor = await resolveAnchor(command.from, sessionId, source.transcriptPath);
+  const anchor = command.from === undefined
+    ? undefined
+    : await resolveMessageAnchor(command.from, sessionId, source.transcriptPath);
 
-  const started = await launchSession(
+  return launchSession(
     {
       checkout: (await worktreeOf(source.project))?.mainCheckout ?? source.project,
       sourcePath: source.project,
       from: sessionId,
+      ...(anchor === undefined ? {} : { anchor }),
       title,
-      // Withheld from the command line when there is a rewind coming: the CLI takes a positional
-      // prompt as the first turn, and that turn would run against the whole inherited context
-      // before anything had moved. It is typed into the box after the rewind instead.
-      ...(brief === undefined || anchor ? {} : { prompt: brief }),
+      ...(brief === undefined ? {} : { prompt: brief }),
       ...(worktree === undefined ? {} : { worktree }),
     },
     launcher,
     newSessionId,
+    rewinder,
   );
-  if (!anchor) return started;
-
-  const moved = await rewinder({
-    sessionId: started.sessionId,
-    anchor,
-    ...(brief === undefined ? {} : { prompt: brief }),
-  });
-  // Reported, never thrown. The fork is running either way, and a caller told only that the
-  // request failed would not know there was now a session holding more than it asked for.
-  return moved.done ? started : { ...started, rewindFailed: moved.reason };
 }
 
-/** Where in the source's conversation to start, when the caller named a message. */
-async function resolveAnchor(
-  from: ForkSessionCommand["from"],
+/**
+ * Where in a session's conversation to start, for a caller that named one of its messages.
+ *
+ * Exported for the Bot endpoint, which forks from a message too and has to refuse the same rows
+ * this does. Throws `SessionForkInvalidError` for each caller to say in its own vocabulary.
+ */
+export async function resolveMessageAnchor(
+  from: unknown,
   sessionId: string,
   transcriptPath: string,
-): Promise<MessageAnchor | undefined> {
-  if (from === undefined) return undefined;
-  if (!from || typeof from !== "object" || typeof from.eventId !== "string") {
+): Promise<MessageAnchor> {
+  if (!from || typeof from !== "object" || typeof (from as { eventId?: unknown }).eventId !== "string") {
     throw new SessionForkInvalidError("from.eventId must be a string");
   }
   try {
-    return await anchorAtLine(sessionId, transcriptPath, lineFromEventId(from.eventId, sessionId));
+    return await anchorAtLine(
+      sessionId,
+      transcriptPath,
+      lineFromEventId((from as { eventId: string }).eventId, sessionId),
+    );
   } catch (error) {
     if (error instanceof MessageAnchorError) throw new SessionForkInvalidError(`from: ${error.message}`);
     throw error;

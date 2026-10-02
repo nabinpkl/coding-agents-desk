@@ -22,7 +22,7 @@ import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import { useBotCommands } from "@/app/shell-state/useBotCommands";
-import type { SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { botFeeds } from "@/features/bots/botMachines";
 
 /** Enough of a session to be forked and named. */
@@ -32,6 +32,9 @@ const SOURCE = {
   title: "Picker driver",
   lastEventAt: 0,
 } as unknown as SessionSummary;
+
+/** The Bot whose card the fork is asked from: what it lands on, and where it is numbered. */
+const BOT = { botId: "bot-1", environment: { kind: "directory", path: "/repo" } } as unknown as BotView;
 
 /**
  * One machine, which is what this suite is about: the anchors a fork can start from, not where the
@@ -110,14 +113,14 @@ describe("what the command does with it", () => {
     const result = commands(new SidecarDataSource(transport));
 
     await act(async () => {
-      await result.current.forkFromLastMessage(SOURCE, "/repo");
+      await result.current.forkFromLastMessage(BOT, SOURCE);
     });
 
-    // No Bot, exactly like a fork from a message: this goes to the session endpoint and lands in
-    // the catalog on its own rather than on whichever Bot the row was read from.
+    // The card's Bot rides along, so the fork lands on it as a card beside its source.
     expect(result.current.forkRequest).toEqual({
       session: SOURCE,
       projectPath: "/repo",
+      botId: "bot-1",
       from: { eventId: "claude:sid-1:line:12", text: "Rewrite the picker driver" },
     });
   });
@@ -135,7 +138,7 @@ describe("what the command does with it", () => {
     const result = commands(new SidecarDataSource(transport));
 
     await act(async () => {
-      await result.current.forkFromLastMessage(SOURCE, "/repo");
+      await result.current.forkFromLastMessage(BOT, SOURCE);
     });
 
     expect(result.current.forkRequest).toBeNull();
@@ -152,10 +155,7 @@ describe("what the command does with it", () => {
     const result = commands(new SidecarDataSource(transport));
 
     await act(async () => {
-      await result.current.forkFromLastMessage(
-        { ...SOURCE, source: "codex" } as SessionSummary,
-        "/repo",
-      );
+      await result.current.forkFromLastMessage(BOT, { ...SOURCE, source: "codex" } as SessionSummary);
     });
 
     expect(result.current.forkRequest).toBeNull();
@@ -192,12 +192,13 @@ describe("finding the compaction", () => {
     const result = commands(new SidecarDataSource(transport));
 
     await act(async () => {
-      await result.current.forkFromLastCompaction(SOURCE, "/repo");
+      await result.current.forkFromLastCompaction(BOT, SOURCE);
     });
 
     expect(result.current.forkRequest).toEqual({
       session: SOURCE,
       projectPath: "/repo",
+      botId: "bot-1",
       from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
     });
   });
@@ -219,7 +220,7 @@ describe("finding the compaction", () => {
     const result = commands(new SidecarDataSource(transport));
 
     await act(async () => {
-      await result.current.forkFromLastCompaction(SOURCE, "/repo");
+      await result.current.forkFromLastCompaction(BOT, SOURCE);
     });
 
     expect(result.current.forkRequest).toBeNull();

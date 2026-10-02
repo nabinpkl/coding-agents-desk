@@ -143,8 +143,13 @@ export interface BotLaunchCommand {
    * the Bot's directory.
    *
    * Refused when creating a Bot, which has no sessions of its own to branch from yet.
+   *
+   * `eventId` starts the fork just BEFORE one of that session's messages rather than holding all
+   * of it, exactly as `ForkSessionCommand.from` does, rewind and `rewindFailed` included. It is
+   * here as well as there because a reader forking from a card's message wants the fork on that
+   * card's Bot, and only this endpoint attaches a session that has not spoken yet.
    */
-  from?: BotSessionRef;
+  from?: BotSessionRef & { eventId?: string };
   /**
    * Run it in a NEW git worktree of the Bot's repository, rather than in the repository itself.
    *

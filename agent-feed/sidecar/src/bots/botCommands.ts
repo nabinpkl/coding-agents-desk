@@ -18,6 +18,8 @@ import { sessionKey } from "@/bots/botIdempotency";
 import { BotInvalidError } from "@/bots/botTypes";
 
 const MAX_NAME = 64;
+/** A row id is `claude:<sessionId>:line:<n>`; past this it is not one. */
+const MAX_EVENT_ID = 256;
 const MAX_DIRECTORY_PATH = 4_096;
 const MAX_ROLE = 120;
 const MAX_DESCRIPTION = 1_000;
@@ -52,7 +54,8 @@ export interface NormalizedAddBot {
 export interface NormalizedLaunch {
   title: string;
   prompt?: string;
-  from?: BotSessionRef;
+  /** With the message to start before, when one was named; see `BotLaunchCommand.from`. */
+  from?: BotSessionRef & { eventId?: string };
   worktree?: { branch?: string };
 }
 
@@ -203,12 +206,18 @@ function normalizeLaunch(value: unknown): NormalizedLaunch | undefined {
     // would be silently resumed into the original transcript rather than branched from it.
     throw new BotInvalidError("launch.from must name a claude session");
   }
+  const eventId = command.from?.eventId;
+  if (eventId !== undefined && (typeof eventId !== "string" || eventId.length > MAX_EVENT_ID)) {
+    throw new BotInvalidError("launch.from.eventId must be a transcript row id");
+  }
   return {
     title,
     // Only trimmed, never reshaped: the prompt is the session's first turn and its line breaks
     // are the reader's.
     prompt: compactOptional(command.prompt, "launch.prompt", MAX_LAUNCH_PROMPT),
-    ...(command.from === undefined ? {} : { from: normalizeSessionRef(command.from) }),
+    ...(command.from === undefined
+      ? {}
+      : { from: { ...normalizeSessionRef(command.from), ...(eventId === undefined ? {} : { eventId }) } }),
     ...(command.worktree === undefined ? {} : { worktree: normalizeWorktree(command.worktree) }),
   };
 }

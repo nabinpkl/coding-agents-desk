@@ -107,7 +107,11 @@ const botRegistry = new BotRegistry(botStore, {
   resolveSession(ref) {
     const session = findSession(ref.source, ref.sessionId);
     return session
-      ? { projectPath: session.project, summary: summarizeSession(session, describeAgentSession) }
+      ? {
+        projectPath: session.project,
+        summary: summarizeSession(session, describeAgentSession),
+        ...(session.transcriptPath ? { transcriptPath: session.transcriptPath } : {}),
+      }
       : undefined;
   },
   subscribe(listener) {

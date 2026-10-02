@@ -9,16 +9,17 @@ const MAXIMUM_BRIEF = 32_768;
 /**
  * What is being forked, and from where.
  *
- * `botId` and `from` are the two ways this dialog is reached, and they are mutually exclusive in
- * practice rather than by type: a Bot row forks the whole session onto that Bot, a message row
- * forks a session nobody owns and starts it just before that message. Both spend the same name,
- * the same brief and the same worktree question, which is why there is one dialog.
+ * `botId` says where the fork lands and `from` says where in the source it starts. Asked from a
+ * canvas card, it carries the card's Bot and lands there as a card, whole or from a message; asked
+ * from a message in the full-width thread view, it has no Bot and starts a session nobody owns.
+ * Both spend the same name, the same brief and the same worktree question, which is why there is
+ * one dialog.
  */
 export interface ForkRequest {
   session: SessionSummary;
   /** The directory the source runs in, which is what the proposed name is numbered against. */
   projectPath: string;
-  /** The Bot to attach the fork to. Absent when the fork was asked for from a message. */
+  /** The Bot to attach the fork to. Absent when it was asked for off the canvas. */
   botId?: string;
   /**
    * The message the fork starts just BEFORE, and what it says.

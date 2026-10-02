@@ -2,10 +2,22 @@
 // which session gets a label, and what forking one of its own sessions carries over.
 
 import { expect, test } from "bun:test";
-import { BotConflictError, BotNotFoundError } from "@/bots/botRegistry";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { BotConflictError, BotInvalidError, BotNotFoundError } from "@/bots/botRegistry";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, checkoutWithWorktree, fixture, projects, recordingLauncher, sessions, summary } = botRegistryHarness();
+const {
+  addBot,
+  addSessions,
+  checkoutWithWorktree,
+  fixture,
+  projects,
+  recordingLauncher,
+  rewound,
+  sessions,
+  summary,
+} = botRegistryHarness();
 
 test("attaches a session working in a git worktree of the Bot's directory", async () => {
   // A worktree is the same project by every meaning a reader has, and refusing it made isolation
@@ -143,6 +155,59 @@ test("forks one of the Bot's own sessions, and puts the brief behind the handoff
   expect(added.started?.title).toBe("Adam (Bot background color)");
   expect(added.bot.sessionSlots?.["claude:started-1"]).toBe(1);
   expect(added.bot.sessionAnchors?.["claude:started-1"]).toBe("Adam");
+});
+
+test("forks one of the Bot's own sessions from a message, and holds the brief for after the rewind", async () => {
+  // The same rewind the session endpoint does, on the endpoint that attaches: a reader forking from
+  // a message on a card wants the fork on that card's Bot.
+  const { launched, launcher } = recordingLauncher();
+  const { project, claudeRef, registry } = await fixture(launcher);
+  const transcriptPath = join(project, `${claudeRef.sessionId}.jsonl`);
+  const said = (text: string) => JSON.stringify({ type: "user", message: { role: "user", content: text } });
+  await writeFile(transcriptPath, `${[said("ALPHA one"), said("BRAVO two")].join("\n")}\n`);
+  sessions.set(`claude:${claudeRef.sessionId}`, { ...sessions.get(`claude:${claudeRef.sessionId}`)!, transcriptPath });
+
+  const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
+  const added = await registry.addSessions(
+    bot.botId,
+    {
+      requestId: "fork",
+      launch: {
+        title: "From ALPHA",
+        from: { ...claudeRef, eventId: `claude:${claudeRef.sessionId}:line:0` },
+        prompt: "the sibling task",
+      },
+    },
+    { kind: "user" },
+  );
+
+  expect(launched).toMatchObject([{ kind: "fork", forkId: "started-1", brief: undefined }]);
+  expect(rewound).toEqual([{
+    sessionId: "started-1",
+    anchor: { fromEnd: 2, text: "ALPHA one" },
+    prompt: "the sibling task",
+  }]);
+  expect(added.started?.rewindFailed).toBeUndefined();
+  expect(added.bot.sessionAnchors?.["claude:started-1"]).toBe("Adam");
+});
+
+test("refuses a fork from a row that is not one of the source's messages, before starting anything", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, claudeRef, registry } = await fixture(launcher);
+  const transcriptPath = join(project, `${claudeRef.sessionId}.jsonl`);
+  await writeFile(transcriptPath, `${JSON.stringify({ type: "user", message: { role: "user", content: "x" } })}\n`);
+  sessions.set(`claude:${claudeRef.sessionId}`, { ...sessions.get(`claude:${claudeRef.sessionId}`)!, transcriptPath });
+  const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
+
+  await expect(registry.addSessions(
+    bot.botId,
+    { requestId: "fork", launch: { title: "No", from: { ...claudeRef, eventId: "claude:someone-else:line:0" } } },
+    { kind: "user" },
+  )).rejects.toThrow(BotInvalidError);
+  expect(launched).toEqual([]);
+  expect(rewound).toEqual([]);
 });
 
 test("refuses to fork a session the Bot does not hold", async () => {

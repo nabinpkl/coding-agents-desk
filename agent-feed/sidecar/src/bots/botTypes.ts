@@ -14,6 +14,8 @@ export type BotActor =
 export interface ResolvedBotSession {
   projectPath: string;
   summary: SessionSummary;
+  /** The transcript on disk, which a fork from one of its messages counts back through. */
+  transcriptPath?: string;
 }
 
 export interface BotRegistryCatalog {

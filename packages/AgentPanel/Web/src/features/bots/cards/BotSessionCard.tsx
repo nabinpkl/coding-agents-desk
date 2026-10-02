@@ -5,7 +5,7 @@
 // and that is a different thing from the Bot card that holds it.
 
 import { Bot, ChevronDown } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
@@ -158,6 +158,15 @@ export function BotSessionCard({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
+  // A fork from one of this card's messages names this card's Bot, so it opens as a card beside
+  // this one rather than in place of the canvas.
+  const contextFork = sessionContext.onForkFromMessage;
+  const forkFromMessage = useMemo(
+    () => contextFork === undefined
+      ? undefined
+      : (request: Parameters<typeof contextFork>[0]) => contextFork({ ...request, botId: bot.botId }),
+    [bot.botId, contextFork],
+  );
   // Both or neither, decided in one place so the class and the properties cannot disagree: a card
   // wearing `bot-session-fill` with no `--bot-hue` would resolve the hue it inherited from the Bot
   // card around it and paint step zero of a ladder it is not on.
@@ -399,6 +408,7 @@ export function BotSessionCard({
                   column it is, so the box decides. */}
               <SessionView
                 {...sessionContext}
+                {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
                 projectPath={bot.environment.path}
                 session={session}
                 controlsHost={controlsHost}

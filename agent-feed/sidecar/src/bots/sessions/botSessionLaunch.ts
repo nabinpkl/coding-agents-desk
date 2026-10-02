@@ -13,7 +13,13 @@ import {
   taskFromText,
 } from "@agentdesk/agent-feed-wire";
 import { WorktreeError } from "@/git/worktree";
-import { launchSession } from "@/transcripts/session-ops/forkSession";
+import {
+  type ForkRewinder,
+  launchSession,
+  resolveMessageAnchor,
+  SessionForkInvalidError,
+} from "@/transcripts/session-ops/forkSession";
+import type { MessageAnchor } from "@/transcripts/messageAnchor";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import type { BotStore } from "@/bots/botStore";
 import type { NormalizedLaunch } from "@/bots/botCommands";
@@ -44,6 +50,7 @@ export class BotSessionStarter {
     private readonly catalog: BotRegistryCatalog,
     private readonly launcher: BotSessionLauncher,
     private readonly newSessionId: () => string,
+    private readonly rewinder: ForkRewinder,
   ) {}
 
   /**
@@ -89,23 +96,48 @@ export class BotSessionStarter {
     // session already in a worktree stays in that worktree rather than being pulled back into the
     // checkout it branched away from.
     const source = launch.from ? this.resolveOwnSession(bot, launch.from) : undefined;
+    const anchor = launch.from?.eventId === undefined || source === undefined
+      ? undefined
+      : await this.resolveAnchor(launch.from.sessionId, launch.from.eventId, source);
     try {
       return await launchSession(
         {
           checkout: bot.environment.path,
           ...(source === undefined ? {} : { sourcePath: source.projectPath }),
           ...(launch.from === undefined ? {} : { from: launch.from.sessionId }),
+          ...(anchor === undefined ? {} : { anchor }),
           title: launch.title,
           ...(launch.prompt === undefined ? {} : { prompt: launch.prompt }),
           ...(launch.worktree === undefined ? {} : { worktree: launch.worktree }),
         },
         this.launcher,
         newSessionId,
+        this.rewinder,
       );
     } catch (error) {
       // Said as a Bot conflict rather than passed through: the caller asked a Bot for a session,
       // and git's own wording about worktrees names nothing they can act on.
       if (error instanceof WorktreeError) throw new BotConflictError(error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * The message a fork starts before, resolved BEFORE anything is started, so a row that is not a
+   * message is refused rather than answered with a running fork holding the whole conversation.
+   */
+  private async resolveAnchor(
+    sessionId: string,
+    eventId: string,
+    source: ResolvedBotSession,
+  ): Promise<MessageAnchor> {
+    if (!source.transcriptPath) {
+      throw new BotNotFoundError(`session claude:${sessionId} has no transcript to fork a message from`);
+    }
+    try {
+      return await resolveMessageAnchor({ eventId }, sessionId, source.transcriptPath);
+    } catch (error) {
+      if (error instanceof SessionForkInvalidError) throw new BotInvalidError(`launch.${error.message}`);
       throw error;
     }
   }

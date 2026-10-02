@@ -25,6 +25,10 @@ export interface NewBotSession {
    * copy of that rule, in a page, that goes wrong silently the day the first one changes.
    */
   tmuxSession: string;
+  /** The title of the session this one was forked from, when it is a fork. */
+  forkedFrom?: string;
+  /** Why a fork could not be moved back to the message it was asked to start from, if it was. */
+  rewindFailed?: string;
 }
 
 /**
@@ -114,7 +118,9 @@ export function BotNewSessionCard({
                     it explains why the card holds a terminal and nothing else. */}
                 <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
                   <SourceBadge source="claude" />
-                  <span>new, no transcript yet</span>
+                  <span>
+                    {session.forkedFrom ? `forked from ${session.forkedFrom}` : "new"}, no transcript yet
+                  </span>
                 </span>
               </span>
               <ChevronDown
@@ -143,6 +149,14 @@ export function BotNewSessionCard({
                   something arriving that only the reader can cause. */}
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-auto p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
                 <SquareTerminal className="size-5" aria-hidden />
+                {/* The fork asked to start at a message and did not get there. It is running either
+                    way, so this says what it holds rather than offering to undo it. */}
+                {session.rewindFailed ? (
+                  <p role="alert" className="text-destructive">
+                    It could not be moved back to the message you picked, so it holds the whole
+                    conversation. {session.rewindFailed}
+                  </p>
+                ) : null}
                 <p>
                   Running in{" "}
                   <span className="font-medium text-foreground">

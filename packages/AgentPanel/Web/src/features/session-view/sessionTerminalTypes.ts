@@ -73,5 +73,7 @@ export interface SessionViewContext {
     session: SessionSummary;
     projectPath: string;
     message: { eventId: string; text: string };
+    /** The Bot whose card asked, which the fork then lands on as a card. Absent off the canvas. */
+    botId?: string;
   }) => void;
 }
