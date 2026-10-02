@@ -33,6 +33,8 @@ function column(overrides: Partial<Parameters<typeof BotDirectoryColumn>[0]> = {
   const onSelect = vi.fn();
   const browse = vi.fn((path: string | null) =>
     Promise.resolve(path === null ? HOME : BROWSED));
+  const createFolder = vi.fn((path: string, name: string) =>
+    Promise.resolve({ path: `${path}/${name}`, parent: path, entries: [] }));
   render(
     <BotDirectoryColumn
       machines={[MAC]}
@@ -45,10 +47,11 @@ function column(overrides: Partial<Parameters<typeof BotDirectoryColumn>[0]> = {
       selectedPath={null}
       onSelect={onSelect}
       browse={browse}
+      createFolder={createFolder}
       {...overrides}
     />,
   );
-  return { onSelect, browse };
+  return { onSelect, browse, createFolder };
 }
 
 it("binds a folder the catalog has never heard of", async () => {

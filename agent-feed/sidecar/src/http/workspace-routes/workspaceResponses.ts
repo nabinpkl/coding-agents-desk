@@ -16,6 +16,8 @@ import { WorkspaceStoreError } from "@/workspace/workspaceStore";
  * `notFound` is 404 and everything else a client got wrong is 400, with two deliberate exceptions:
  * `forbidden` is 403 because a symlink escape is a refusal rather than a malformed request, and
  * `revisionConflict` is 409 because the client was not wrong at all, it was merely behind.
+ * `nameTaken` is the same 409 for the same reason: the name was well formed and the folder already
+ * exists, which is a fact about the world rather than about the request.
  */
 const STATUS: Record<WorkspaceErrorCode, number> = {
   workspaceUnavailable: 404,
@@ -29,6 +31,7 @@ const STATUS: Record<WorkspaceErrorCode, number> = {
   invalidUtf8: 415,
   tooLarge: 413,
   writeFailed: 500,
+  nameTaken: 409,
   revisionConflict: 409,
   invalidOperation: 400,
   stateLimitExceeded: 429,

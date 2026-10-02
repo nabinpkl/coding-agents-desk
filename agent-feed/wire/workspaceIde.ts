@@ -153,6 +153,17 @@ export interface WorkspaceBrowseListing {
 }
 
 /**
+ * What a folder creation leaves behind: the listing of the folder that now exists.
+ *
+ * The listing rather than the path, so the panel does not have to assemble the answer it is about
+ * to browse -- and because the sidecar resolved the name against what is really there, so the path
+ * on screen is the resolved one rather than the one the reader typed.
+ */
+export interface WorkspaceFolderCreated {
+  listing: WorkspaceBrowseListing;
+}
+
+/**
  * Why an operation was refused.
  *
  * Ported one-for-one from `WorkspaceFileServiceFailure`, including the distinction the Swift kept:
@@ -171,6 +182,9 @@ export type WorkspaceErrorCode =
   | "invalidUtf8"
   | "tooLarge"
   | "writeFailed"
+  // The folder picker's own: a name that is already taken, which is the answer a reader gets most
+  // often and the one a generic "invalid path" would say nothing useful about.
+  | "nameTaken"
   | "revisionConflict"
   | "invalidOperation"
   | "stateLimitExceeded"

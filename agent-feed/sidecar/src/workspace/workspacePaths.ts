@@ -32,7 +32,11 @@ export type WorkspaceFailureCode =
   | "binary"
   | "invalidUtf8"
   | "tooLarge"
-  | "writeFailed";
+  | "writeFailed"
+  // The folder picker's own. A name that is already taken is not an invalid path, it is the one
+  // answer a reader creating a folder will get most often, and "the requested path is invalid"
+  // would say nothing they can act on.
+  | "nameTaken";
 
 const MESSAGES: Record<WorkspaceFailureCode, string> = {
   workspaceUnavailable: "Workspace is unavailable.",
@@ -46,6 +50,7 @@ const MESSAGES: Record<WorkspaceFailureCode, string> = {
   invalidUtf8: "This file is not valid UTF-8 text.",
   tooLarge: "This file exceeds the supported size.",
   writeFailed: "The file could not be saved.",
+  nameTaken: "A folder with that name already exists here.",
 };
 
 export class WorkspaceFailure extends Error {

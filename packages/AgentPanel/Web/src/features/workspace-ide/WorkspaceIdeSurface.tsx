@@ -205,6 +205,7 @@ export function WorkspaceIdeSurface({
           ? (
             <WorkspacePicker
               browse={ide.client.browse.bind(ide.client)}
+              createFolder={ide.client.createFolder.bind(ide.client)}
               onChoose={chooseWorkspace}
               onCancel={() => setPicking(false)}
             />
@@ -322,6 +323,7 @@ export function WorkspaceIdeSurface({
         ? (
           <WorkspacePicker
             browse={ide.client.browse.bind(ide.client)}
+            createFolder={ide.client.createFolder.bind(ide.client)}
             onChoose={chooseWorkspace}
             onCancel={() => setPicking(false)}
           />

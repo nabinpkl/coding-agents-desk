@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { browseDirectories } from "@/workspace/workspaceBrowse";
+import { browseDirectories, createDirectory } from "@/workspace/workspaceBrowse";
 
 let home: string;
 let outside: string;
@@ -69,4 +69,65 @@ test("refuses a file and a path that is not there", async () => {
 
   expect(listing(join(home, "notes.txt"))).rejects.toThrow();
   expect(listing(join(home, "nope"))).rejects.toThrow();
+});
+
+/** Every case below is about what a name may become, so the parent is always the scratch home. */
+const create = (path: string, name: string) => createDirectory(path, name, home);
+
+test("makes a folder and answers with where it now is, empty", async () => {
+  await mkdir(join(home, "projects"));
+
+  const listing = await create(join(home, "projects"), "ecc");
+
+  // The listing rather than the path, so the picker can stand in the folder without asking again.
+  expect(listing.path).toBe(join(home, "projects", "ecc"));
+  expect(listing.parent).toBe(join(home, "projects"));
+  expect(listing.entries).toEqual([]);
+  expect((await stat(join(home, "projects", "ecc"))).isDirectory()).toBe(true);
+});
+
+test("makes a folder at the confinement root itself", async () => {
+  // The root is a directory the picker opens first, so creating in it is the most ordinary case of
+  // all -- and the one where a confinement check written for "somewhere below" would break.
+  const listing = await create(home, "scratch");
+
+  expect(listing.path).toBe(join(home, "scratch"));
+  // Its way up is the root, which is what the picker needs to offer: the new folder is below the
+  // root, not the root.
+  expect(listing.parent).toBe(home);
+});
+
+test("refuses a name that is already taken, rather than accepting it as done", async () => {
+  await mkdir(join(home, "projects"));
+  await mkdir(join(home, "projects", "ecc"));
+
+  // Not `recursive: true`: a silent success would leave the reader believing they had made
+  // something they had not, in a folder that was already there.
+  expect(create(join(home, "projects"), "ecc")).rejects.toThrow(/already exists/);
+});
+
+test("refuses a name carrying a separator or a way up", async () => {
+  await mkdir(join(home, "projects"));
+
+  // Each of these asks to create somewhere other than where the reader is looking, which is the
+  // walk the confinement exists to refuse, wearing a name.
+  expect(create(join(home, "projects"), "../outside")).rejects.toThrow();
+  expect(create(join(home, "projects"), "nested/child")).rejects.toThrow();
+  expect(create(join(home, "projects"), "..")).rejects.toThrow();
+  expect(create(join(home, "projects"), "   ")).rejects.toThrow();
+});
+
+test("refuses a parent outside the home directory, or reached through a link out of it", async () => {
+  await symlink(outside, join(home, "escape"));
+
+  expect(create(outside, "anywhere")).rejects.toThrow();
+  // The parent is resolved before it is checked, exactly as a browse does, so a link inside home
+  // cannot become a way to write outside it.
+  expect(create(join(home, "escape"), "anywhere")).rejects.toThrow();
+});
+
+test("refuses a file as the parent", async () => {
+  await writeFile(join(home, "notes.txt"), "x");
+
+  expect(create(join(home, "notes.txt"), "child")).rejects.toThrow();
 });

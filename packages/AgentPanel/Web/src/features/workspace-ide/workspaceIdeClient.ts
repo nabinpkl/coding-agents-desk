@@ -20,6 +20,7 @@ import type {
   WorkspaceSharedState,
   WorkspaceStreamEvent,
   WorkspaceBrowseListing,
+  WorkspaceFolderCreated,
   WorkspaceSummary,
   WorkspaceTreeNode,
 } from "@agentdesk/agent-feed-wire";
@@ -76,6 +77,22 @@ export class WorkspaceIdeClient {
   browse(path: string | null): Promise<WorkspaceBrowseListing> {
     const query = path === null ? "" : `?path=${encodeURIComponent(path)}`;
     return this.call("GET", `/api/workspaces/browse${query}`);
+  }
+
+  /**
+   * Make a folder inside `path`, and stand in it.
+   *
+   * The new folder's listing rather than its path, because that is what the picker needs next and
+   * because the path the sidecar answers with is the resolved one. Same shape as the browse beside
+   * it, so the picker does not have to know which client it was handed.
+   */
+  async createFolder(path: string, name: string): Promise<WorkspaceBrowseListing> {
+    const created = await this.call<WorkspaceFolderCreated>(
+      "POST",
+      "/api/workspaces/folders",
+      { path, name },
+    );
+    return created.listing;
   }
 
   addWorkspace(root: string, name?: string): Promise<{ workspace: WorkspaceSummary }> {

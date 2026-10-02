@@ -102,6 +102,12 @@ export function BotCreatorDialog({
     (path: string | null) => machine.feed.browseDirectories(path),
     [machine],
   );
+  // Memoized for the same reason, and on the same machine: a folder a reader makes while naming a
+  // Bot has to land on the machine they picked, or the Bot is pointed at a path that is not there.
+  const createFolder = useCallback(
+    (path: string, name: string) => machine.feed.createDirectory(path, name),
+    [machine],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -235,6 +241,7 @@ export function BotCreatorDialog({
               setError(null);
             }}
             browse={browse}
+            createFolder={createFolder}
           />
 
           <div className="min-h-0 overflow-y-auto p-4">

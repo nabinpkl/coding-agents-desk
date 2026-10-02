@@ -18,6 +18,7 @@ import type {
   SetBotCanvasCommand,
   UpdateBotCommand,
   WorkspaceBrowseListing,
+  WorkspaceFolderCreated,
 } from "@agentdesk/agent-feed-wire";
 import { parse } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarBotDirectory } from "@/features/activity-feed/data-source/layers/SidecarBotDirectory";
@@ -66,6 +67,21 @@ export class SidecarBots extends SidecarBotDirectory {
     return parse<WorkspaceBrowseListing>(
       await this.transport.request("GET", `/api/workspaces/browse${query}`),
     );
+  }
+
+  /**
+   * Make a folder on this machine, for the same picker `browseDirectories` serves.
+   *
+   * On this layer rather than only on `WorkspaceIdeClient` because that client belongs to the IDE
+   * and a Bot can be created on any machine the canvas reads: the folder a reader makes while
+   * naming a Bot has to land on the machine they picked, which is the whole reason this browse is
+   * here rather than there.
+   */
+  async createDirectory(path: string, name: string): Promise<WorkspaceBrowseListing> {
+    const created = parse<WorkspaceFolderCreated>(
+      await this.transport.request("POST", "/api/workspaces/folders", { body: { path, name } }),
+    );
+    return created.listing;
   }
 
   async createBot(command: Omit<AddBotCommand, "requestId">): Promise<BotView> {

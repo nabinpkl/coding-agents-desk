@@ -32,6 +32,7 @@ export function BotDirectoryColumn({
   selectedPath,
   onSelect,
   browse,
+  createFolder,
 }: {
   /** Every sidecar a Bot can be created on, home first. One machine hides the picker entirely. */
   machines: readonly BotMachine[];
@@ -46,6 +47,8 @@ export function BotDirectoryColumn({
   selectedPath: string | null;
   onSelect: (path: string) => void;
   browse: (path: string | null) => Promise<WorkspaceBrowseListing>;
+  /** Makes a folder on the machine this column is pointed at, for the same picker `browse` serves. */
+  createFolder: (path: string, name: string) => Promise<WorkspaceBrowseListing>;
 }) {
   const [picking, setPicking] = useState(false);
   // A folder chosen through the picker, kept so it has a row to be selected in: it is not in the
@@ -171,6 +174,7 @@ export function BotDirectoryColumn({
       {picking ? (
         <WorkspacePicker
           browse={browse}
+          createFolder={createFolder}
           title={`Choose a folder on ${machine.label}`}
           confirmLabel="Use this folder"
           onCancel={() => setPicking(false)}

@@ -288,3 +288,42 @@ test("refuses a reorder that is not a permutation", async () => {
   });
   expect(response?.status).toBe(400);
 });
+
+/**
+ * The folder picker may make a directory, so these pin where it may not make one.
+ *
+ * Nothing here writes anything: the name is refused before the filesystem is consulted, and the
+ * parent is refused before any `mkdir`. A test that created a folder to prove the route works
+ * would be creating one in whichever home the machine running it happens to have.
+ */
+test("refuses a name that is not a name, before it asks the filesystem anything", async () => {
+  const { roster } = await harness();
+  // A path that does not exist, so the answer could only be about the name: a refused name must
+  // not be usable to find out what does.
+  const response = await call(roster, "POST", "/api/workspaces/folders", {
+    path: "/no/such/directory",
+    name: "../escape",
+  });
+  expect(response?.status).toBe(400);
+  expect(await json<{ error: { code: string } }>(response)).toMatchObject({
+    error: { code: "invalidPath" },
+  });
+});
+
+test("refuses to make a folder outside the home directory", async () => {
+  const { roster } = await harness();
+  const response = await call(roster, "POST", "/api/workspaces/folders", {
+    path: "/etc",
+    name: "workspace-routes-probe",
+  });
+  expect(response?.status).toBe(403);
+  expect(await json<{ error: { code: string } }>(response)).toMatchObject({
+    error: { code: "forbidden" },
+  });
+});
+
+test("a folder creation without a name is 400, like every other body this roster reads", async () => {
+  const { roster } = await harness();
+  expect((await call(roster, "POST", "/api/workspaces/folders", { path: "/tmp" }))?.status)
+    .toBe(400);
+});

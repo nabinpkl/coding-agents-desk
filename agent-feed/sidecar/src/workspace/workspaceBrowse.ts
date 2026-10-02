@@ -1,4 +1,4 @@
-// Listing directories so the panel can offer a folder picker.
+// Listing and creating directories so the panel can offer a folder picker.
 //
 // A browser cannot pick a directory on this machine: `<input webkitdirectory>` hands the page the
 // files inside a folder, never the folder's own path, and nothing in the web platform will name an
@@ -12,7 +12,7 @@
 // the confinement costs nothing the picker needed, and a path outside it can still be registered by
 // naming it, which is a deliberate act rather than a walk.
 
-import { readdir, realpath, stat } from "node:fs/promises";
+import { mkdir, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { WorkspaceBrowseListing } from "@agentdesk/agent-feed-wire";
@@ -78,4 +78,70 @@ export async function browseDirectories(
     parent: resolved === root ? null : dirname(resolved),
     entries,
   };
+}
+
+/**
+ * The name of a folder to create, refused before it reaches the filesystem.
+ *
+ * One segment and nothing else. A name carrying a separator would create somewhere other than
+ * where the reader is looking, and `..` would create above it -- which is exactly the walk the
+ * confinement above exists to refuse, asked for in a form that looks like a name.
+ */
+function folderName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed === "" || trimmed === "." || trimmed === "..") {
+    throw new WorkspaceFailure("invalidPath");
+  }
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("\0")) {
+    throw new WorkspaceFailure("invalidPath");
+  }
+  return trimmed;
+}
+
+/**
+ * Create a folder inside `parent` and hand back the listing of what now exists.
+ *
+ * Here beside `browseDirectories` because the picker needs both and they share one confinement: a
+ * route that could make a directory anywhere could put one anywhere the reader cannot browse, so
+ * the two would have to agree about where the edge is or the picker would be a hole in its own
+ * wall.
+ *
+ * The parent is resolved and checked exactly as a browse resolves it -- symlinks included, since
+ * `mkdir` through a link inside home would otherwise write outside it. `recursive: false` is the
+ * point of the whole function: a name that already exists is the reader's most common outcome and
+ * is refused as `nameTaken` rather than quietly accepted as a directory that was already there.
+ */
+export async function createDirectory(
+  parent: string,
+  name: string,
+  confinedTo: string = homedir(),
+): Promise<WorkspaceBrowseListing> {
+  const wanted = folderName(name);
+  const root = await realpath(confinedTo);
+  const asked = resolve(parent);
+
+  let resolvedParent: string;
+  try {
+    resolvedParent = await realpath(asked);
+  } catch {
+    throw new WorkspaceFailure("notFound");
+  }
+  if (!withinRoot(resolvedParent, root)) throw new WorkspaceFailure("forbidden");
+
+  const info = await stat(resolvedParent).catch(() => null);
+  if (!info?.isDirectory()) throw new WorkspaceFailure("notDirectory");
+
+  const created = join(resolvedParent, wanted);
+  try {
+    await mkdir(created);
+  } catch (error) {
+    // The one errno this route exists to report, named rather than folded into "something went
+    // wrong": a reader who has just typed a name needs to know it is taken, not that creation
+    // failed.
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new WorkspaceFailure("nameTaken");
+    throw error;
+  }
+  // The listing of the new folder rather than its path, so the panel can stand in it without a
+  // second round trip and cannot show a path the filesystem did not resolve to that.
+  return browseDirectories(created, confinedTo);
 }

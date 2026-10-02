@@ -267,6 +267,7 @@ export type {
   WorkspaceFileRead,
   WorkspaceFileRevision,
   WorkspaceFileWritten,
+  WorkspaceFolderCreated,
   WorkspaceGitEntry,
   WorkspaceGitStatus,
   WorkspaceOperation,

@@ -15,12 +15,13 @@ import {
   workspaceRecord,
   workspaceRoute,
 } from "@/http/workspace-routes/workspaceResponses";
-import { browseDirectories } from "@/workspace/workspaceBrowse";
+import { browseDirectories, createDirectory } from "@/workspace/workspaceBrowse";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
 const COLLECTION = "/api/workspaces";
 const ORDER = "/api/workspaces/order";
 const BROWSE = "/api/workspaces/browse";
+const FOLDERS = "/api/workspaces/folders";
 
 /**
  * Validate an operation from the wire before it reaches the state store.
@@ -80,6 +81,9 @@ export function createWorkspaceRoutes(service: WorkspaceService): RouteHandler {
       return undefined;
     }
     if (pathname === BROWSE && request.method === "GET") return browse(request);
+    // The other half of the picker: making the folder the reader is standing in, which is a POST
+    // because it changes the filesystem. Matched on its own method for the same reason BROWSE is.
+    if (pathname === FOLDERS && request.method === "POST") return createFolder(request);
     // A complete replacement, refused unless it is exactly the permutation the store holds.
     if (pathname === ORDER && request.method === "PUT") return reorder(service, request);
 
@@ -157,6 +161,24 @@ async function browse(request: Request): Promise<Response> {
   try {
     const asked = new URL(request.url).searchParams.get("path");
     return jsonResponse(await browseDirectories(asked));
+  } catch (error) {
+    return refusalResponse(error);
+  }
+}
+
+/**
+ * Make a folder inside the directory the picker is looking at.
+ *
+ * `path` is that directory and `name` the folder to put in it, rather than a full path: the whole
+ * point of the picker is that the reader names a folder, not that they assemble an absolute path
+ * they cannot see. The answer is the new folder's listing, so the panel can stand in it.
+ */
+async function createFolder(request: Request): Promise<Response> {
+  try {
+    const body = await readJsonBody(request);
+    return jsonResponse({
+      listing: await createDirectory(requiredString(body, "path"), requiredString(body, "name")),
+    });
   } catch (error) {
     return refusalResponse(error);
   }
