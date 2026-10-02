@@ -26,6 +26,7 @@ import {
 } from "@/sidecarRegistry";
 import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
 import { ownSources } from "@/supervisorSources";
+import { stopChild } from "@/supervisorStop";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
@@ -165,9 +166,10 @@ function replaceSidecar(reason: string): void {
   }
   say(`${reason}; replacing the sidecar`);
   replacing = true;
-  // SIGTERM rather than SIGKILL: the sidecar closes its listeners and lets go of the port, which is
-  // what the next one needs in the half-second before it binds.
-  child.kill();
+  // SIGTERM first: the sidecar closes its listeners and lets go of the port, which is what the next
+  // one needs in the half-second before it binds. SIGKILL only if it cannot, or the replacement
+  // would wait on its exit forever.
+  stopChild(child, say);
 }
 
 const gate = createSupervisorGate({
@@ -279,14 +281,17 @@ function leave(why: string): void {
   clearTimeout(settle);
   clearInterval(requests);
   say(why);
-  child?.kill();
   clearSupervisorDescriptor();
-  // The child holds the port, so leaving before it is gone hands the next launch a bound port. It
-  // gets a moment, and the process leaves either way rather than hanging on a child that will not
-  // go. A supervisor killed with SIGKILL cannot do even this, which is why `host-login` reclaims
-  // the sidecar ports before it starts anything.
+  if (!child) process.exit(0);
+  // The child holds the port, so leaving before it is gone hands the next launch a bound port --
+  // and a child that outlives this is an orphan nothing will ever stop. So this waits for the exit,
+  // and `stopChild` makes sure there is one, escalating inside the two seconds the host allows
+  // before it kills this process. The timer is only for a child the kernel cannot reap, which
+  // SIGKILL does not fix either. A supervisor killed with SIGKILL cannot do even this, which is
+  // why `host-login` reclaims the sidecar ports before it starts anything.
+  stopChild(child, say);
+  void child.exited.then(() => process.exit(0));
   setTimeout(() => process.exit(0), 2_000);
-  void child?.exited.then(() => process.exit(0));
 }
 
 process.on("SIGTERM", () => leave("SIGTERM; stopping the sidecar"));
