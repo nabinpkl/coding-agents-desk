@@ -10,7 +10,7 @@ import type { useBots } from "@/features/bots/useBots";
 import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
 import type { useMessages } from "@/features/messages/useMessages";
 import type { useUsage } from "@/features/usage/useUsage";
-import type { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
+import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
 import type { useProjectInventory } from "@/app/shell-state/useProjectInventory";
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";

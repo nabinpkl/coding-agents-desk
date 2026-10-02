@@ -4,6 +4,7 @@ import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/ca
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
+import { bindableDirectory } from "@/bots/botDirectory";
 
 const CREATE_ROUTE = "/api/agent-sessions";
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
@@ -125,8 +126,11 @@ async function createSession(request: Request, resolveBackend: (id: string) => A
     const backend = resolveBackend(source);
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404, requestId);
     const projectPath = await canonicalProjectPath(requestedProject);
-    if (!projectPath || projectPath !== requestedProject || !getSnapshot().some((session) => session.project === projectPath)) {
-      return errorResponse("project-not-found", "projectPath is not in the discovered project catalog", 404, requestId);
+    // The catalog, or any directory under home: the same answer a Bot gets when it binds one, so
+    // a Bot whose directory has no sessions yet can still have its first one be an opencode one.
+    const inCatalog = (path: string) => getSnapshot().some((session) => session.project === path);
+    if (!projectPath || projectPath !== requestedProject || !bindableDirectory(projectPath, inCatalog)) {
+      return errorResponse("project-not-found", "projectPath is not a directory this machine can start a session in", 404, requestId);
     }
     return jsonResponse(await backend.createSession(requestId, projectPath), 201);
   } catch (error) {

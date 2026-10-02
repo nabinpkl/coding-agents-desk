@@ -12,6 +12,7 @@
 import type {
   AgentCommandReceipt,
   AgentSessionDescriptor,
+  SourceId,
   StartedSession,
 } from "@agentdesk/agent-feed-wire";
 import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
@@ -194,6 +195,20 @@ export class SidecarAgentSessions extends SidecarTerminals {
     );
     if (typeof answer.title !== "string") throw new Error("Rename returned no title");
     return answer.title;
+  }
+
+  /**
+   * Names what a Bot's session is doing: the session's own rename, to its Bot's anchor with this
+   * task bracketed after it. An empty task leaves the bare anchor. The same route `set_task` uses.
+   */
+  async setSessionTask(source: SourceId, sessionId: string, task: string): Promise<void> {
+    parse<unknown>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/${encodeURIComponent(source)}/${encodeURIComponent(sessionId)}/bracket`,
+        { body: { task } },
+      ),
+    );
   }
 
   /**

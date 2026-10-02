@@ -18,6 +18,7 @@ import type { BotMachine } from "@/features/bots/botMachines";
 import { BotCreatorDialog } from "@/features/bots/dialogs/BotCreatorDialog";
 import { BotRenameDialog } from "@/features/bots/dialogs/BotRenameDialog";
 import { SessionRenameDialog } from "@/features/bots/dialogs/SessionRenameDialog";
+import type { NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
@@ -82,7 +83,7 @@ export function AppDialogs({
     worktree: boolean,
   ) => Promise<void>;
   startHandover: (request: HandoverRequest, message: string) => Promise<void>;
-  startNewSession: (bot: BotView, title: string) => Promise<void>;
+  startNewSession: (bot: BotView, title: string, harness: NewSessionHarness) => Promise<void>;
 }) {
   const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
     `${session.source}:${session.sessionId}`;

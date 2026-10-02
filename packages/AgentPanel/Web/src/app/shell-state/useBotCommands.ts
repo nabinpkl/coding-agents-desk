@@ -1,6 +1,6 @@
 // Everything the shell asks a Bot to do, and the failures it reports back.
 //
-// Creating a Bot, attaching sessions to one, forking a session, starting a fresh one, renaming
+// Creating a Bot, attaching sessions to one, starting a fresh one (forks: `useForkCommands`), renaming
 // one, dropping one: all of them are a call to the sidecar and then nothing, because the Bot
 // stream publishes a new snapshot and the rows move on their own. What is here is what that
 // leaves behind -- the dialogs that are open, the sessions the catalog has not heard of yet, and
@@ -19,10 +19,11 @@ import type {
 import type { BotFeeds, BotMachine } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { handoverDestination } from "@/features/bots/sessionHandover";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
+import { useForkCommands } from "@/app/shell-state/useForkCommands";
+import type { NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 export function useBotCommands(
   /**
@@ -51,32 +52,6 @@ export function useBotCommands(
   const record = useBotRecordCommands(feeds, setBotCommandError);
   const [botSessionPickerId, setBotSessionPickerId] = useState<string | null>(null);
   /**
-   * A session forked from another with no Bot to land on, and the pane it runs in.
-   *
-   * Only a fork asked for from the full-width thread view, which has no Bot behind it. A fork asked
-   * for from a canvas card goes to that card's Bot and opens as a card in its column instead
-   * (`newSessions` below): taking over `main` replaced the whole canvas with one empty session, and
-   * the reader lost the card they had forked from in the same click.
-   *
-   * Everything in it comes back from `POST /api/bots/:id/sessions` and none of it is predicted.
-   * The panel used to mint the fork's id, name its pane by the sidecar's own rule, and then open a
-   * terminal whose context created the session as a side effect of attaching to it -- so the page
-   * held a second copy of three decisions the sidecar owns, and the fork reached its Bot only
-   * after its first turn had landed. The Bot creates and attaches it now, and this is the receipt.
-   */
-  const [forkedSession, setForkedSession] = useState<
-    {
-      sessionId: string;
-      title: string;
-      /** The pane the Bot started it in. Taken from the Bot, never rebuilt here. */
-      tmuxSession: string;
-      /** What it was forked FROM, which is the one thing the empty view has to say. */
-      sourceTitle: string;
-      /** Why it could not be moved back to the message it was asked to start from, if it was. */
-      rewindFailed?: string;
-    } | null
-  >(null);
-  /**
    * Sessions this panel has started fresh, until the catalog has heard of them.
    *
    * Held here for the same reason the fork above is, and it is the same gap: `claude` writes no
@@ -96,9 +71,6 @@ export function useBotCommands(
    * truth for which sessions exist.
    */
   const [newSessions, setNewSessions] = useState<readonly NewBotSession[]>([]);
-
-  /** The session whose fork is being named, if any. Nothing is started until it is confirmed. */
-  const [forkRequest, setForkRequest] = useState<ForkRequest | null>(null);
 
   /**
    * The Claude session being handed to opencode, if any. Nothing is started until it is
@@ -161,187 +133,45 @@ export function useBotCommands(
     }
   }, [feeds, setCanvasOpenKeys]);
 
-  // Asks for a name rather than forking. Nothing is started here: the pane, the tmux session and
-  // the `claude --fork-session` behind it all wait on the dialog being confirmed, because `-n` is
-  // an argument of that command and there is no second chance to set it.
-  const forkSession = useCallback((bot: BotView, session: SessionSummary) => {
-    if (session.source !== "claude") return;
-    setForkRequest({
-      session,
-      botId: bot.botId,
-      projectPath: bot.environment.path,
-    });
-  }, []);
+  const forks = useForkCommands(feeds, roster, setBotCommandError, setNewSessions);
 
   /**
-   * The same dialog, opened from a message rather than from a roster row.
+   * An opencode session for a Bot: created at the serve, attached, named, and opened as a card.
    *
-   * On a canvas card the card says which Bot it is, and the fork lands on that Bot as a card beside
-   * its source. The full-width thread view has no Bot to name, so a fork asked for there goes
-   * through the session endpoint and lands in the catalog on its own.
+   * Four calls where Claude takes one, because the Bot's launch starts Claude panes only. Unlike a
+   * fresh Claude session this one is in the catalog the moment the serve creates it, so it attaches
+   * at once and opens as an ordinary card -- no stand-in card waiting on a first turn. Naming comes
+   * after the attach because the anchor it brackets onto is spent BY the attach.
    */
-  const forkFromMessage = useCallback((request: {
-    session: SessionSummary;
-    projectPath: string;
-    message: { eventId: string; text: string };
-    botId?: string;
-  }) => {
-    if (request.session.source !== "claude") return;
-    setForkRequest({
-      session: request.session,
-      projectPath: request.projectPath,
-      ...(request.botId === undefined ? {} : { botId: request.botId }),
-      from: request.message,
-    });
-  }, []);
-
-  /**
-   * The same dialog again, from the session's own ⋮ rather than from a message.
-   *
-   * The message is looked up instead of picked. A reader who wants to branch from the last thing
-   * they said would otherwise have to scroll back to that row to reach its menu, and one turn of
-   * tool calls is enough to put it off the screen -- so the affordance was furthest away exactly
-   * when it was most wanted.
-   *
-   * The Bot is carried through, so the fork lands on it as a card beside its source.
-   */
-  const forkFromLastMessage = useCallback(async (bot: BotView, session: SessionSummary) => {
-    if (session.source !== "claude") return;
-    setBotCommandError(null);
+  const startOpencodeSession = useCallback(async (bot: BotView, task: string) => {
+    const feed = feeds.forBot(bot.botId);
+    let created: { sessionId: string } | null = null;
     try {
-      setForkRequest({
-        session,
-        projectPath: bot.environment.path,
-        botId: bot.botId,
-        from: await feeds.forSession(session).lastMessage(session.sessionId),
-      });
+      created = await feed.createSession(bot.environment.path, "opencode");
+      await feed.addBotSessions(bot.botId, { sessionRefs: [{ source: "opencode", sessionId: created.sessionId }] });
+      putBotOnCanvas(bot.botId);
+      setCanvasOpenKeys((current) => new Set(current).add(`opencode:${created!.sessionId}`));
+      await feed.setSessionTask("opencode", created.sessionId, task);
     } catch (error) {
-      // Named against the session, unlike a failed fork: this one failed before anything was
-      // started, so the card it was asked from is still there to say so on.
-      setBotCommandError({
-        session: `${session.source}:${session.sessionId}`,
-        message: `Could not find the last message: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-  }, [feeds]);
-
-  /**
-   * The same dialog again, anchored at the last compaction rather than the last message.
-   *
-   * What a reader wants after a turn that went the wrong way with a summarised context behind it:
-   * a session holding the compaction summary and none of what followed. A plain fork does not give
-   * that -- it inherits everything after the summary too -- and finding the right row by hand means
-   * scrolling back past the whole wrong turn to the message under the compaction banner.
-   *
-   * The sidecar decides which row that is, for `forkFromLastMessage`'s reason and one more: a
-   * compaction is two records the panel draws as one banner, and which message sits after them is
-   * a question about a file rather than about what happens to be rendered.
-   */
-  const forkFromLastCompaction = useCallback(async (bot: BotView, session: SessionSummary) => {
-    if (session.source !== "claude") return;
-    setBotCommandError(null);
-    try {
-      setForkRequest({
-        session,
-        projectPath: bot.environment.path,
-        botId: bot.botId,
-        from: await feeds.forSession(session).lastCompaction(session.sessionId),
-      });
-    } catch (error) {
-      setBotCommandError({
-        session: `${session.source}:${session.sessionId}`,
-        message: `Could not find a compaction to fork from: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-  }, [feeds]);
-
-  const startFork = useCallback(
-    async (
-      request: ForkRequest,
-      forkTitle: string,
-      brief: string,
-      worktree: boolean,
-    ) => {
-      setForkRequest(null);
-      setBotCommandError(null);
-      const sourceTitle = request.session.title || request.session.sessionId;
-      try {
-        const options = {
-          title: forkTitle,
-          ...(brief.trim() ? { prompt: brief } : {}),
-          ...(worktree ? { worktree: {} } : {}),
-        };
-        // Two endpoints, because they answer two different questions. A fork asked for from a card
-        // is a session FOR that card's Bot and has to arrive attached to it, message or not; one
-        // asked for from the thread view belongs to nobody but the reader.
-        if (request.botId === undefined) {
-          if (!request.from) throw new Error("a fork of a whole session must name the Bot to attach it to");
-          const started = await feeds.forSession(request.session).forkSession(request.session.sessionId, {
-            ...options,
-            from: { eventId: request.from.eventId },
-          });
-          setForkedSession({
-            sessionId: started.sessionId,
-            title: started.title,
-            tmuxSession: started.tmuxSession,
-            sourceTitle,
-            ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
-          });
-          return;
-        }
-        const botId = request.botId;
-        const { started } = await feeds.forBot(botId).addBotSessions(botId, {
-          launch: {
-            ...options,
-            from: {
-              source: "claude",
-              sessionId: request.session.sessionId,
-              ...(request.from ? { eventId: request.from.eventId } : {}),
-            },
-          },
-        });
-        if (!started) return;
-        // A card on the Bot the fork was asked from, open, beside its source -- the same card a
-        // session started fresh gets, which the ordinary card replaces once the first turn lands.
-        setNewSessions((current) => [
-          ...current,
-          {
-            botId,
-            sessionId: started.sessionId,
-            title: started.title,
-            projectPath: started.projectPath,
-            tmuxSession: started.tmuxSession,
-            forkedFrom: sourceTitle,
-            // Carried rather than swallowed. The fork EXISTS and is running -- it just holds the
-            // whole conversation instead of the slice that was asked for -- and a reader told
-            // nothing would believe they had branched from their message when they had not.
-            ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
-          },
-        ]);
-        putBotOnCanvas(botId);
-        setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
-      } catch (error) {
-        // Named rather than attributed to a session: the fork does not exist, so there is no card
-        // for this to land on. A fork that silently failed to start is indistinguishable from one
-        // that was never asked for.
-        setBotCommandError({
+      const reason = error instanceof Error ? error.message : String(error);
+      // Said in terms of how far it got: a session that exists but is not on the Bot, or is on it
+      // under the serve's own name, is not the same report as one that was never made.
+      setBotCommandError(created === null
+        ? { session: null, message: `Could not start the opencode session: ${reason}` }
+        : {
           session: null,
-          message: `Could not fork the session: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          message: `The opencode session ${created.sessionId} was created, but setting it up on ${bot.name} failed: ${reason}`,
         });
-      }
-    },
-    [feeds, putBotOnCanvas, setCanvasOpenKeys],
-  );
+    }
+  }, [feeds, putBotOnCanvas, setCanvasOpenKeys]);
 
-  const startNewSession = useCallback(async (bot: BotView, title: string) => {
+  const startNewSession = useCallback(async (bot: BotView, title: string, harness: NewSessionHarness) => {
     setBotSessionPickerId(null);
     setBotCommandError(null);
+    if (harness === "opencode") {
+      await startOpencodeSession(bot, title);
+      return;
+    }
     try {
       const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, { launch: { title } });
       if (!added.started) return;
@@ -366,7 +196,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feeds, putBotOnCanvas]);
+  }, [feeds, putBotOnCanvas, startOpencodeSession]);
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
   const closeNewSession = useCallback((sessionId: string) => {
@@ -472,22 +302,14 @@ export function useBotCommands(
     ...record,
     botSessionPickerId,
     setBotSessionPickerId,
-    forkedSession,
-    setForkedSession,
+    ...forks,
     newSessions,
-    forkRequest,
-    setForkRequest,
     handoverRequest,
     setHandoverRequest,
     handoverSession,
     startHandover,
     renamingSession,
     setRenamingSession,
-    forkSession,
-    forkFromMessage,
-    forkFromLastMessage,
-    forkFromLastCompaction,
-    startFork,
     startNewSession,
     closeNewSession,
     renameSession,

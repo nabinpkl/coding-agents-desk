@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import {
+  BOT_WITH_ONE_SESSION,
   FIXTURE_PROJECT_A,
   FIXTURE_PROJECT_B,
   FIXTURE_SESSIONS,
@@ -323,6 +324,91 @@ describe("App shell", () => {
     });
     // Attaching leaves the canvas up rather than dropping the reader into the thread.
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+    unmount();
+  });
+
+  it("starts an opencode session for a Bot, attaches it, names it, and opens its card", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+    });
+    transport.responses.set("POST /api/agent-sessions", {
+      status: 201,
+      body: JSON.stringify({
+        sessionId: "oc-1",
+        source: "opencode",
+        projectPath: FIXTURE_PROJECT_A.projectPath,
+        title: "New session",
+        lastEventAt: 1,
+        activity: "ready",
+        capabilities: FIXTURE_SESSIONS[0]!.capabilities,
+      }),
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({ bot: BOT_WITH_ONE_SESSION }),
+    });
+    transport.responses.set("POST /api/sessions/opencode/oc-1/bracket", {
+      status: 200,
+      body: JSON.stringify({ title: "Adam (Port the parser)" }),
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Release Captain" }));
+    // Claude Code until the reader says otherwise, which is what the dialog did before it asked.
+    expect(screen.getByRole("radio", { name: /Claude Code/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
+    fireEvent.change(screen.getByLabelText("Start a new session here"), { target: { value: "Port the parser" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    // Created in the Bot's directory, attached by reference, then named onto the anchor the attach
+    // spent -- in that order, because the name needs the anchor.
+    await waitFor(() => {
+      expect(transport.requests.some((request) => request.path === "/api/sessions/opencode/oc-1/bracket"))
+        .toBe(true);
+    });
+    const asked = transport.requests
+      .filter((request) => request.method === "POST")
+      .map((request) => ({ path: request.path, body: request.body }));
+    expect(asked).toEqual([
+      {
+        path: "/api/agent-sessions",
+        body: { source: "opencode", projectPath: FIXTURE_PROJECT_A.projectPath },
+      },
+      {
+        path: "/api/bots/bot-1/sessions",
+        body: { requestId: expect.any(String), sessionRefs: [{ source: "opencode", sessionId: "oc-1" }] },
+      },
+      { path: "/api/sessions/opencode/oc-1/bracket", body: { task: "Port the parser" } },
+    ]);
+    // No Claude launch, and the canvas is still what is on screen.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+
+    // The Bot's next snapshot carries it, and its card is already open.
+    const opencodeSession = {
+      sessionId: "oc-1",
+      source: "opencode",
+      title: "Adam (Port the parser)",
+      lastEventAt: 2,
+      activity: "ready",
+      capabilities: FIXTURE_SESSIONS[0]!.capabilities,
+    };
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 2,
+        bots: [{
+          ...BOT_WITH_ONE_SESSION,
+          sessionRefs: [...BOT_WITH_ONE_SESSION.sessionRefs, { source: "opencode", sessionId: "oc-1" }],
+          sessions: [...BOT_WITH_ONE_SESSION.sessions, opencodeSession],
+        }],
+      });
+    });
+    await waitFor(() => {
+      expect(canvas().getByRole("region", { name: "Adam (Port the parser) session" })).toBeInTheDocument();
+    });
     unmount();
   });
 

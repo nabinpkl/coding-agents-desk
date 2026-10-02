@@ -26,8 +26,8 @@ import {
   HoverSidebarPreview,
   ResizableSidebar,
 } from "@/features/sidebar/SidebarPresentation";
-import { useSidebarChrome } from "@/app/shell-state/useSidebarChrome";
-import { sidebarEmptyText, EmptyThread } from "@/app/shell-state/sidebarEmptyText";
+import { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
+import { sidebarEmptyText, EmptyThread } from "@/app/shell-state/sidebar/sidebarEmptyText";
 import { useShellInventory } from "@/app/shell-state/useShellInventory";
 import { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import { useBotCommands } from "@/app/shell-state/useBotCommands";
@@ -35,7 +35,7 @@ import { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
 import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
-import { sidebarProps } from "@/app/shell-state/sidebarProps";
+import { sidebarProps } from "@/app/shell-state/sidebar/sidebarProps";
 import { storeSelection } from "@/features/sidebar/selectionStore";
 import { BotCanvas, type BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import { FatherHome } from "@/app/FatherHome";

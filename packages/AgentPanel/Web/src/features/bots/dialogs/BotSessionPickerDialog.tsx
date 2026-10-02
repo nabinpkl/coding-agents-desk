@@ -4,6 +4,14 @@ import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-fe
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 
+/** The harness a new session runs in. Codex and Pi are not offered: neither is started from here. */
+export type NewSessionHarness = "claude" | "opencode";
+
+const HARNESSES: readonly { value: NewSessionHarness; label: string }[] = [
+  { value: "claude", label: "Claude Code" },
+  { value: "opencode", label: "opencode" },
+];
+
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;
 }
@@ -38,20 +46,21 @@ export function BotSessionPickerDialog({
   onClose: () => void;
   onAttach: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
   /**
-   * Starts a fresh session in the Bot's directory under the spent anchor, bracketed with this
-   * task, and closes the dialog.
+   * Starts a fresh session in the Bot's directory, in the chosen harness, under the spent anchor
+   * bracketed with this task, and closes the dialog.
    *
    * Nothing is awaited and nothing is reported back here: the session becomes a card on the canvas
    * with its terminal in it, so the pane itself is where a failure to start would show. A dialog
    * left open over that card would only be in the way of the thing it just made.
    */
-  onStartNew: (bot: BotView, task: string) => void;
+  onStartNew: (bot: BotView, task: string, harness: NewSessionHarness) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [task, setTask] = useState("");
+  const [harness, setHarness] = useState<NewSessionHarness>("claude");
   const attachedKeys = useMemo(
     () => new Set(bot?.sessionRefs.map(sessionKey) ?? []),
     [bot],
@@ -63,6 +72,7 @@ export function BotSessionPickerDialog({
     setPending(false);
     setError(null);
     setTask("");
+    setHarness("claude");
   }, [bot?.botId, open]);
 
   useEffect(() => {
@@ -91,7 +101,7 @@ export function BotSessionPickerDialog({
     event.preventDefault();
     // An empty task is a bare anchor, not a missing name.
     if (pending || bot.environmentAvailability === "missing") return;
-    onStartNew(bot, task.trim());
+    onStartNew(bot, task.trim(), harness);
   };
 
   const submit = async (event: FormEvent) => {
@@ -149,6 +159,27 @@ export function BotSessionPickerDialog({
           onSubmit={startNew}
           className="flex shrink-0 flex-wrap items-end gap-2 border-b border-border px-4 py-3"
         >
+          <fieldset className="flex basis-full gap-1 rounded-lg border border-border p-1">
+            <legend className="sr-only">Harness</legend>
+            {HARNESSES.map((option) => (
+              <label
+                key={option.value}
+                className="flex min-h-9 flex-1 cursor-pointer items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground has-checked:bg-muted has-checked:text-foreground has-focus-visible:ring-2 has-focus-visible:ring-primary has-disabled:cursor-not-allowed has-disabled:opacity-50"
+              >
+                <input
+                  type="radio"
+                  name="bot-session-harness"
+                  value={option.value}
+                  checked={harness === option.value}
+                  onChange={() => setHarness(option.value)}
+                  disabled={pending || bot.environmentAvailability === "missing"}
+                  className="sr-only"
+                />
+                <SourceBadge source={option.value} />
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
           <p className="basis-full rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground">
             {anchorPreview} <span className="text-muted-foreground">(what it is doing)</span>
           </p>
@@ -174,7 +205,8 @@ export function BotSessionPickerDialog({
           </button>
           {/* Said before rather than discovered later: the anchor is the stable half. */}
           <p className="basis-full text-xs text-muted-foreground">
-            Runs Claude in {bot.environment.path} and opens it on the canvas. The name before the
+            Runs {harness === "claude" ? "Claude Code" : "opencode"} in {bot.environment.path} and
+            opens it on the canvas. The name before the
             brackets never changes; what it is doing goes inside them.
           </p>
         </form>
