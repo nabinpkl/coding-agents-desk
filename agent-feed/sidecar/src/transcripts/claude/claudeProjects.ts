@@ -196,8 +196,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         // otherwise. `cwd` is where the session OPENED, which is its project; `recentCwd` is
         // wherever the agent's shell has wandered to since, which is not.
         // `cwd` from the HEAD only. The tail's is wherever the agent's shell has wandered to,
-        // and taking it is how a live session gets filed under one of its own subfolders --
-        // which a Bot, holding only sessions in its own checkout, then reports as missing.
+        // and taking it is how a live session gets filed under one of its own subfolders.
         if (typeof ev.cwd === 'string') {
           if (isHead) out.cwd ??= ev.cwd;
           out.recentCwd = ev.cwd;

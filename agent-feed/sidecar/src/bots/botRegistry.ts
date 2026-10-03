@@ -21,7 +21,6 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { type ForkRewinder, LIVE_SESSION_LAUNCHER } from "@/transcripts/session-ops/forkSession";
 import { LIVE_FORK_REWINDER } from "@/transcripts/session-ops/forkRewind";
-import { directoryBelongsTo } from "@/git/worktree";
 import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import { type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
 import {
@@ -37,6 +36,7 @@ import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
 import { BotRecordEditor } from "@/bots/botUpdate";
 import { BotViewer } from "@/bots/botViews";
 import { attachRefs } from "@/bots/sessions/botSessionAttach";
+import { sessionWorkedIn } from "@/bots/sessions/botSessionHistory";
 import {
   normalizeBotTitles,
   renameBracketTitle,
@@ -241,8 +241,8 @@ export class BotRegistry {
       return session;
     });
     // Asked out here because the mutation below is synchronous, and because it is a question about
-    // the disk rather than about the snapshot: whether each session's directory is the Bot's
-    // directory or a git worktree of it.
+    // the disk rather than about the snapshot: whether each session has ever worked in the Bot's
+    // directory or in a git worktree of it (`botSessionHistory.ts` says why "ever" and not "now").
     //
     // Read against the Bot as it stands now, which the mutation then re-reads. A Bot cannot change
     // its directory, so the two readings cannot disagree about the thing this is asking; a Bot
@@ -250,19 +250,18 @@ export class BotRegistry {
     // one worth reporting.
     const directory = (await this.store.snapshot()).bots
       .find((bot) => bot.botId === botId)?.environment.path;
-    const belongs = new Map<string, boolean>();
-    for (const path of new Set(resolved.map((session) => session.projectPath))) {
-      belongs.set(path, directory ? await directoryBelongsTo(path, directory) : false);
+    // Index-aligned with `normalized.sessionRefs`, which `resolved` was mapped from.
+    let outsideIndex = -1;
+    if (directory !== undefined) {
+      for (const [index, session] of resolved.entries()) {
+        if (await sessionWorkedIn(session, directory)) continue;
+        outsideIndex = index;
+        break;
+      }
     }
     const signature = commandSignature({ botId, ...normalized, launch });
     const idempotencyKey = `sessions:${actorKey(actor)}:${normalized.requestId}`;
 
-    // Index-aligned with `normalized.sessionRefs`: the mutation re-reads the Bot, but a Bot cannot
-    // change its directory, so this reading cannot disagree about the thing being asked. A Bot
-    // deleted in between fails inside the mutation with its own error instead.
-    const outsideIndex = directory === undefined ? -1 : resolved.findIndex((session) =>
-      session.projectPath !== directory && !belongs.get(session.projectPath)
-    );
     const record = await this.store.mutate((snapshot) =>
       attachRefs(
         snapshot,

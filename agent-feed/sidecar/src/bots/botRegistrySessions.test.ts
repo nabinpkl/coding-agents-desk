@@ -3,7 +3,7 @@
 
 import { expect, test } from "bun:test";
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { BotConflictError, BotInvalidError, BotNotFoundError } from "@/bots/botRegistry";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
@@ -64,6 +64,54 @@ test("still refuses a session from a directory that is not the Bot's and not a w
     { requestId: "r2", sessionRefs: [secondRef] },
     { kind: "user" },
   )).rejects.toThrow(BotConflictError);
+});
+
+test("attaches a session whose agent is elsewhere right now, because it has worked here", async () => {
+  // A project renamed under a running session: the catalog files it wherever its agent last ran a
+  // command, so attaching it used to depend on which second somebody asked. Its transcript
+  // remembers the Bot's directory, and that is what attaching now asks.
+  const { registry, project, secondProject } = await fixture();
+  const ref = { source: "claude" as const, sessionId: "wandered" };
+  const transcriptPath = join(dirname(project), "wandered.jsonl");
+  await writeFile(transcriptPath, [
+    JSON.stringify({ type: "user", cwd: join(dirname(project), "import-graph") }),
+    JSON.stringify({ type: "user", cwd: project }),
+    JSON.stringify({ type: "user", cwd: secondProject }),
+  ].join("\n") + "\n");
+  sessions.set("claude:wandered", { projectPath: secondProject, summary: summary(ref), transcriptPath });
+
+  const bot = await addBot(registry,
+    { requestId: "r1", name: "RepoShape", directoryPath: project },
+    { kind: "user" },
+  );
+  const attached = await addSessions(registry,
+    bot.botId,
+    { requestId: "r2", sessionRefs: [ref] },
+    { kind: "user" },
+  );
+
+  expect(attached.sessions.map((session) => session.sessionId)).toEqual(["wandered"]);
+  expect(attached.missingSessionRefs).toEqual([]);
+});
+
+test("keeps showing an attached session wherever the catalog files it next, with no foreign branch", async () => {
+  // Where the catalog files a session moves with its agent when its project was renamed; the Bot's
+  // reference does not. Standing in another repository's worktree must not put that repository's
+  // branch on this Bot's card either.
+  const { registry, project, claudeRef } = await fixture();
+  const { worktree } = await checkoutWithWorktree();
+  const bot = await addBot(registry,
+    { requestId: "r1", name: "Plain bot", directoryPath: project },
+    { kind: "user" },
+  );
+  await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [claudeRef] }, { kind: "user" });
+
+  sessions.set(`claude:${claudeRef.sessionId}`, { projectPath: worktree, summary: summary(claudeRef) });
+  const view = (await registry.snapshot()).bots.find((one) => one.botId === bot.botId)!;
+
+  expect(view.sessions.map((session) => session.sessionId)).toEqual([claudeRef.sessionId]);
+  expect(view.missingSessionRefs).toEqual([]);
+  expect(view.sessions[0]!.worktree).toBeUndefined();
 });
 
 test("leaves a session in the Bot's own directory unlabelled, so the label means something", async () => {

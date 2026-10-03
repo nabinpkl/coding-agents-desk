@@ -17,10 +17,11 @@ import { BotConflictError, BotNotFoundError } from "@/bots/botTypes";
  * Records references a Bot now holds, refusing ones it already has or may not claim.
  *
  * A replay answers with the Bot the first run made and starts nothing. `outside` names a
- * reference working somewhere the Bot may not claim, decided against the disk before this runs;
- * an empty `refs` with no launch records only the idempotency, so the launch after it knows the
- * request is new. A session attached from outside arrives with whatever title it has; the anchor
- * it will normalize to is spent here, beside the slot, so the next rename already knows its name.
+ * reference that has never worked anywhere the Bot may claim, decided against the disk before
+ * this runs; an empty `refs` with no launch records only the idempotency, so the launch after it
+ * knows the request is new. A session attached from outside arrives with whatever title it has;
+ * the anchor it will normalize to is spent here, beside the slot, so the next rename already
+ * knows its name.
  */
 export function attachRefs(
   snapshot: StoredBotSnapshot,
@@ -47,7 +48,7 @@ export function attachRefs(
   }
   if (outside) {
     throw new BotConflictError(
-      "every attached session must belong to the Bot's directory, or a git worktree of it",
+      "every attached session must have worked in the Bot's directory, or in a git worktree of it",
     );
   }
   const attached = new Set(bot.sessionRefs.map(sessionKey));

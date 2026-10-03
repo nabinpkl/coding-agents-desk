@@ -94,10 +94,10 @@ async function readBranch(gitDir: string): Promise<string | null> {
 /**
  * Whether a session working in `directory` is working in `checkout`, worktrees included.
  *
- * The predicate the directory-keyed rules want, in one place so they cannot drift apart. Two of
- * them exist in the Bot registry alone -- one deciding whether a session may be attached and one
- * deciding whether an attached session still resolves -- and a Bot that accepts a session it will
- * not then show would be worse than one that refuses it outright.
+ * The predicate the directory-keyed rules want, in one place so they cannot drift apart. Attaching
+ * a session to a Bot asks it of every directory the session has worked in
+ * (`bots/sessions/botSessionHistory.ts`), and anything else deciding whether a session is a Bot's
+ * should ask the same question rather than a near copy of it.
  */
 export async function directoryBelongsTo(directory: string, checkout: string): Promise<boolean> {
   if (directory === checkout) return true;

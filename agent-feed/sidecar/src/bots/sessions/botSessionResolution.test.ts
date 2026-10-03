@@ -5,8 +5,9 @@
 // catalog broadcast, which is every coalesced transcript write, so a level-triggered log here would
 // write a line per reference per write forever; and the held set is process-global, so a per-Bot
 // diff would read every other Bot's still-missing reference as resolved. One line on the way in,
-// one on the way out, one if the reason changes, and every pass is a whole snapshot: those are the
-// contracts, and these are the tests that hold them.
+// one on the way out, and every pass is a whole snapshot: those are the contracts, and these are
+// the tests that hold them. So is the one thing that does NOT make a reference missing, which is
+// where the catalog happens to file the session.
 //
 // The per-Bot scoping test is here because it caught exactly that: it was written against a
 // per-Bot note, failed, and the fix was to collect outcomes across the snapshot and note once.
@@ -127,10 +128,8 @@ describe("a reference the catalog does not hold", () => {
     expect(split.missingSessionRefs).toEqual([REF]);
     const line = firstLogged(log);
     expect(line.event).toBe("agent-feed-bot-session-missing");
-    expect(line.reason).toBe("catalog-unresolved");
     expect(line.sessionId).toBe("sid-1");
     expect(line.botPath).toBe("/repo");
-    expect(line.sessionProjectPath).toBeNull();
   });
 
   test("carries the catalog's size, which is the field that names a restart", async () => {
@@ -142,15 +141,22 @@ describe("a reference the catalog does not hold", () => {
   });
 });
 
-describe("a reference the catalog holds somewhere else", () => {
-  test("is `missing`, and the line carries both sides of the comparison", async () => {
-    const split = await passOne(recordWith(REF), resolver({ "claude:sid-1": "/elsewhere" }));
-    expect(split.sessions).toEqual([]);
-    expect(split.missingSessionRefs).toEqual([REF]);
-    const line = firstLogged(log);
-    expect(line.reason).toBe("outside-bot-directory");
-    expect(line.sessionProjectPath).toBe("/elsewhere");
-    expect(line.botPath).toBe("/repo");
+describe("a reference the catalog files somewhere else", () => {
+  test("is shown, because the reference is the fact and the directory was checked on attach", async () => {
+    // The renamed-project case: the catalog files the session wherever its agent last ran a
+    // command, which changed 81 times in 2,064 writes on the session that prompted this.
+    const split = await passOne(recordWith(REF), resolver({ "claude:sid-1": "/scratchpad" }));
+    expect(split.sessions).toHaveLength(1);
+    expect(split.missingSessionRefs).toEqual([]);
+    expect(logged(log)).toEqual([]);
+  });
+
+  test("moving between directories never flips it, which is the whole point", async () => {
+    for (const where of ["/repo", "/scratchpad", "/repo/backend", "/elsewhere", "/repo"]) {
+      const split = await passOne(recordWith(REF), resolver({ "claude:sid-1": where }));
+      expect(split.missingSessionRefs).toEqual([]);
+    }
+    expect(logged(log)).toEqual([]);
   });
 });
 
@@ -175,15 +181,6 @@ describe("the edge trigger", () => {
     await pass([recordWith(REF), resolver({})], [recordWith(OTHER_REF), resolver({})]);
     expect(logged(log)).toEqual([]);
   });
-
-  test("says again when the reason changes underneath it", async () => {
-    await passOne(recordWith(REF), resolver({}));
-    log.mockClear();
-    await passOne(recordWith(REF), resolver({ "claude:sid-1": "/elsewhere" }));
-    const line = firstLogged(log);
-    expect(line.event).toBe("agent-feed-bot-session-missing");
-    expect(line.reason).toBe("outside-bot-directory");
-  });
 });
 
 describe("coming back", () => {
@@ -194,7 +191,6 @@ describe("coming back", () => {
     expect(split.sessions).toHaveLength(1);
     const line = firstLogged(log);
     expect(line.event).toBe("agent-feed-bot-session-resolved");
-    expect(line.reason).toBe("catalog-unresolved");
     expect(typeof line.missingForMs).toBe("number");
     expect(line.sessionId).toBe("sid-1");
   });
