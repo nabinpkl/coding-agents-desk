@@ -499,6 +499,17 @@ scheme minted one per dev-server start, wrote it 0600 under the runtime root, ha
 as a bearer on every request, and was validated by nobody, so it was removed rather than left
 looking like protection.
 
+**The bind address keeps out other machines, not the owner's own browser.** A browser does not
+treat loopback as a boundary: any page open in it can send the sidecar requests (a `text/plain`
+POST needs no preflight, and the routes parse JSON whatever the Content-Type says), and a page
+whose name is re-pointed at 127.0.0.1 (DNS rebinding) can read every answer, session ids
+included, and then type into a session. So `http/requestGuard.ts` runs ahead of every route and
+refuses a `Host` outside `config.allowedHosts` (loopback, the bind address, and
+`AGENT_FEED_ALLOWED_HOSTS`) and any request whose `Sec-Fetch-Site` is `cross-site` or
+`same-site`; its test sends both over a real socket. The panel's proxy passes because it rewrites
+`Host` to the sidecar's own authority, and the host's clients send no `Sec-Fetch-Site`. A new way
+of reaching the sidecar is a new `allowedHosts` entry, never a removed check.
+
 During an approved host launch, `agent-webview-dev-ensure` reuses a healthy server with intact TLS
 or stops the configured port's listener before recreating it; a failed stop or readiness check
 aborts the launch. One server means one `/api` target, so a browser tab follows whichever host tier

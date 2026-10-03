@@ -1,6 +1,7 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
+import { refuseForeignRequest } from "@/http/requestGuard";
 import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import {
@@ -293,7 +294,10 @@ const server = Bun.serve<undefined>({
     const url = new URL(request.url);
     // The control API is unauthenticated on purpose: the sidecar binds to loopback, the tailnet
     // reaches only the panel in front of it, and the tailnet is the trust boundary. There is no
-    // token to mint, plumb, or type in to add a session.
+    // token to mint, plumb, or type in to add a session. The owner's own browser is not behind
+    // that boundary, so a page of another site, or one rebound to loopback, is refused first.
+    const refusal = refuseForeignRequest(request, config.allowedHosts);
+    if (refusal) return refusal;
     if (request.method === "GET" && url.pathname === "/api/config") {
       const body: SidecarConfig = {
         staleThresholdMs: config.staleThresholdMs,

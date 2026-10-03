@@ -17,6 +17,7 @@ import {
 } from "@/config/configEnvironment";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
 import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
+import { allowedHosts, bindHost } from "@/config/configHosts";
 
 const userHomeDirectory = homedir();
 
@@ -29,7 +30,8 @@ delete process.env.AGENT_FEED_SUMMARY_API_KEY;
 
 
 export const config = {
-  host: process.env.AGENT_FEED_HOST ?? "127.0.0.1",
+  host: bindHost,
+  allowedHosts,
   port: integerEnvironment("AGENT_FEED_PORT", 7682, 1, 65_535),
   claudeProjectsDirectory: directoryEnvironment(
     "AGENT_FEED_CLAUDE_PROJECTS_DIR",
