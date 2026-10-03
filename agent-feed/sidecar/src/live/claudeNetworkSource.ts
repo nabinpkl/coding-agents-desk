@@ -171,6 +171,33 @@ export class SseTextParser {
   }
 }
 
+/** How long a release may take; it runs at shutdown too, when the caller's own signal is spent. */
+const RELEASE_TIMEOUT_MS = 2_000;
+
+/**
+ * Hands a stream resource back to proxy-agent.
+ *
+ * Its registry holds 64 resources and frees one only after ten minutes with no activity, so a
+ * resource left behind costs a slot for ten minutes. That is cheap once and not cheap on a retry
+ * loop: on 2026-10-02 every 30s retry created a resource, failed to open its events stream because
+ * proxy-agent's 32 feed subscriptions were full, and left the resource behind -- two a retry,
+ * forty per ten minutes, until creating failed too. A 404 is a resource proxy-agent already let
+ * go of, which is the outcome this wanted.
+ */
+async function releaseObserverStream(endpoint: URL, streamId: string): Promise<void> {
+  try {
+    const response = await fetch(new URL(`/v1/viewer/streams/${streamId}`, endpoint), {
+      method: "DELETE",
+      signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS),
+    });
+    if (!response.ok && response.status !== 404) {
+      console.error(`proxy-observer-stream-release-failed: stream=${streamId} HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.error(`proxy-observer-stream-release-failed: stream=${streamId} ${String(error)}`);
+  }
+}
+
 /**
  * Opens one proxy-agent viewer stream (creating it first) and forwards each
  * decoded observer event to `onEvent`. `onError` fires on transport failure or
@@ -197,12 +224,22 @@ export async function subscribeToObserver(
     throw new Error("proxy observer stream create returned no streamId");
   }
 
-  const eventsUrl = new URL(`/v1/viewer/streams/${created.streamId}/events`, endpoint);
-  const eventsResponse = await fetch(eventsUrl, {
-    headers: { accept: "text/event-stream" },
-    signal,
-  });
+  // From here the resource is ours, and every way out of this function hands it back: a failed
+  // events request below, and the stream's end, error or close in the reader's `finally`.
+  const streamId = created.streamId;
+  const eventsUrl = new URL(`/v1/viewer/streams/${streamId}/events`, endpoint);
+  let eventsResponse: Response;
+  try {
+    eventsResponse = await fetch(eventsUrl, {
+      headers: { accept: "text/event-stream" },
+      signal,
+    });
+  } catch (error) {
+    void releaseObserverStream(endpoint, streamId);
+    throw error;
+  }
   if (!eventsResponse.ok || !eventsResponse.body) {
+    void releaseObserverStream(endpoint, streamId);
     throw new Error(`proxy observer events failed: HTTP ${eventsResponse.status}`);
   }
 
@@ -250,6 +287,7 @@ export async function subscribeToObserver(
       if (!controller.signal.aborted) onError(error);
     } finally {
       outerSignal?.removeEventListener("abort", onAbort);
+      void releaseObserverStream(endpoint, streamId);
       resolveClosed();
     }
   })();

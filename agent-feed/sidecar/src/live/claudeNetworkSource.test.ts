@@ -4,6 +4,7 @@ import {
   decodeDeltaData,
   mapAnthropicStreamEvent,
   requestsLongContext,
+  subscribeToObserver,
 } from "@/live/claudeNetworkSource";
 
 test("SseTextParser splits data frames and tolerates split chunk boundaries", () => {
@@ -77,4 +78,72 @@ test("requestsLongContext reads the header name case-insensitively, and survives
   expect(requestsLongContext([{ name: "authorization", value: "context-1m-2025-08-07" }])).toBe(false);
   expect(requestsLongContext(undefined)).toBe(false);
   expect(requestsLongContext([null, 7, { name: "anthropic-beta" }])).toBe(false);
+});
+
+/**
+ * A stand-in for proxy-agent's viewer API that records which stream resources were handed back.
+ * `events` decides how the events request goes, so one fake covers the failure and the live case.
+ */
+function fakeObserver(events: "full" | "live") {
+  const deleted: string[] = [];
+  let created = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 0,
+    fetch(request) {
+      const { pathname } = new URL(request.url);
+      if (request.method === "POST" && pathname === "/v1/viewer/streams") {
+        created += 1;
+        return Response.json({ streamId: `stream-${created}` }, { status: 201 });
+      }
+      if (request.method === "DELETE") {
+        deleted.push(pathname.slice("/v1/viewer/streams/".length));
+        return new Response(null, { status: 204 });
+      }
+      if (events === "full") {
+        return Response.json({ code: "OBSERVER_ERROR_CODE_STREAM_CAPACITY_REACHED" }, { status: 503 });
+      }
+      return new Response(
+        new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(": hi\n\n")); } }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  return { endpoint: new URL(`http://127.0.0.1:${server.port}`), deleted, stop: () => server.stop(true) };
+}
+
+async function until(condition: () => boolean): Promise<void> {
+  for (let waited = 0; !condition() && waited < 2_000; waited += 10) await Bun.sleep(10);
+}
+
+// The 2026-10-02 pile-up: the stream was created, its events were refused because proxy-agent's
+// feed subscriptions were full, and the resource sat in the registry for ten minutes per retry.
+test("a stream whose events are refused is handed back", async () => {
+  const observer = fakeObserver("full");
+  try {
+    await expect(subscribeToObserver(observer.endpoint, () => {}, () => {})).rejects.toThrow(
+      "proxy observer events failed: HTTP 503",
+    );
+    await until(() => observer.deleted.length > 0);
+    expect(observer.deleted).toEqual(["stream-1"]);
+  } finally {
+    observer.stop();
+  }
+});
+
+test("a live stream is handed back when it is closed, and not before", async () => {
+  const observer = fakeObserver("live");
+  try {
+    const subscription = await subscribeToObserver(observer.endpoint, () => {}, () => {});
+    await Bun.sleep(50);
+    expect(observer.deleted).toEqual([]);
+
+    subscription.close();
+    await subscription.closed;
+    await until(() => observer.deleted.length > 0);
+    expect(observer.deleted).toEqual(["stream-1"]);
+  } finally {
+    observer.stop();
+  }
 });
