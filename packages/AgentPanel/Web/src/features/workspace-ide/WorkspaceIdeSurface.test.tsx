@@ -6,6 +6,7 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
+import type { WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 import {
   CLEAN_STATE,
@@ -176,6 +177,78 @@ it("hides the sidebar when the toggle asks, and remembers that across a remount"
 
   render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
   await waitFor(() => expect(screen.queryByRole("tree")).not.toBeInTheDocument());
+});
+
+/**
+ * The names of a tree's rows, top to bottom, which is what an order is.
+ *
+ * Off each row's button rather than its text: a row's text also carries the git letter, so a changed
+ * file would read as `srcM` and an order test would fail on a change rather than on an order.
+ */
+function rowNames(tree: HTMLElement): string[] {
+  return within(tree).getAllByRole("treeitem").map(
+    (row) => (row.querySelector("button")?.getAttribute("aria-label") ?? "")
+      .replace(/^(Expand|Collapse|Open) /, ""),
+  );
+}
+
+it("orders the tree by when each thing changed, putting the newest first", async () => {
+  const transport = await mounted();
+  const tree = await screen.findByRole("tree");
+
+  // Delivered here rather than taken from the shared fixture because the order can only be seen
+  // where it disagrees with the order the rows arrive in: a directory and a file beside it sort the
+  // same way in both orders, since folders stay above files.
+  const byName: WorkspaceTreeNode[] = [
+    { name: "alpha.ts", path: "alpha.ts", isDirectory: false, expanded: false, gitStatus: null, modifiedAt: 1_700_000_000_000, children: [] },
+    { name: "beta.ts", path: "beta.ts", isDirectory: false, expanded: false, gitStatus: null, modifiedAt: 1_900_000_000_000, children: [] },
+  ];
+  act(() => transport.deliver("/api/workspaces/w-1/stream", { type: "tree", workspaceId: "w-1", tree: byName }));
+  expect(rowNames(tree)).toEqual(["alpha.ts", "beta.ts"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Sort by modified date" }));
+
+  expect(rowNames(tree)).toEqual(["beta.ts", "alpha.ts"]);
+  expect(screen.getByRole("button", { name: "Sort by modified date" }))
+    .toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Sort by name" }))
+    .toHaveAttribute("aria-pressed", "false");
+});
+
+it("remembers the order across a remount, because it is how this reader arranged it", async () => {
+  const transport = await mounted();
+  await screen.findByRole("tree");
+
+  fireEvent.click(screen.getByRole("button", { name: "Sort by modified date" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Sort by modified date" }))
+      .toHaveAttribute("aria-pressed", "true"));
+
+  render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { name: "Sort by modified date" })[0])
+      .toHaveAttribute("aria-pressed", "true"));
+});
+
+/**
+ * The sidebar's section strip, which is where the order control lives.
+ *
+ * Scoped rather than queried across the page because the status bar's branch button ends its name
+ * with the same words ("main. Show Source Control"), and a pattern loose enough to find one finds
+ * both.
+ */
+function sections(): HTMLElement {
+  return screen.getByRole("navigation", { name: "Workspace sidebar sections" });
+}
+
+it("takes the order control away in the sections that have no tree to reorder", async () => {
+  await mounted();
+  await screen.findByRole("tree");
+
+  fireEvent.click(within(sections()).getByRole("button", { name: /Show Source Control/ }));
+  await screen.findByRole("button", { name: "Show Explorer" });
+  expect(within(sections()).queryByRole("button", { name: "Sort by modified date" }))
+    .not.toBeInTheDocument();
 });
 
 it("surfaces a stream failure instead of sitting blank", async () => {

@@ -33,6 +33,7 @@ function node(path: string, isDirectory: boolean, children: WorkspaceTreeNode[] 
     isDirectory,
     expanded: children.length > 0,
     gitStatus: null,
+    modifiedAt: 1_700_000_000_000,
     children,
   };
 }

@@ -133,6 +133,10 @@ export function BotCodeDialog({
               <WorkspaceTree
                 nodes={code.tree}
                 activePath={showing?.kind === "file" ? showing.path : null}
+                // Name order, which is what the sidecar sends, and the only order this modal has:
+                // it is a look at somebody else's directory rather than a workspace being worked in,
+                // so there is nothing here to remember an arrangement in.
+                order="name"
                 onOpen={openFile}
                 onToggle={code.toggle}
               />

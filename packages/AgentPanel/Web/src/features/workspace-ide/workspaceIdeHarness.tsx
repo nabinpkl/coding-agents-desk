@@ -19,6 +19,8 @@ import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurfac
 
 export const WORKSPACE: WorkspaceSummary = { id: "w-1", name: "Project", root: "/projects/thing" };
 
+// Deliberately not in name order by date: `src` is older than `README.md`, so a test that asks for
+// the other order gets an answer that could not have come from the order the rows arrived in.
 export const TREE: WorkspaceTreeNode[] = [
   {
     name: "src",
@@ -26,6 +28,7 @@ export const TREE: WorkspaceTreeNode[] = [
     isDirectory: true,
     expanded: false,
     gitStatus: "M",
+    modifiedAt: 1_700_000_000_000,
     children: [],
   },
   {
@@ -34,6 +37,7 @@ export const TREE: WorkspaceTreeNode[] = [
     isDirectory: false,
     expanded: false,
     gitStatus: null,
+    modifiedAt: 1_800_000_000_000,
     children: [],
   },
 ];

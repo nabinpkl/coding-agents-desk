@@ -39,6 +39,7 @@ describe("loadWorkspaceIdePreferences", () => {
         "w-1": { "README.md": "source" as const, "notes.txt": "preview" as const },
       },
       section: "sourceControl" as const,
+      treeOrder: "modified" as const,
       terminalVisible: true,
       sidebarFraction: 0.3,
     };
@@ -55,6 +56,7 @@ describe("loadWorkspaceIdePreferences", () => {
         "w-2": "not-a-record",
       },
       section: "invented",
+      treeOrder: "by-vibes",
       sidebarFraction: "wide",
       terminalFraction: 99,
     }));
@@ -66,6 +68,9 @@ describe("loadWorkspaceIdePreferences", () => {
       // nothing renders; "w-2" is not a record at all and never reaches the result.
       fileViewByWorkspace: { "w-1": { "a.md": "source" } },
       section: "explorer",
+      // An order nobody can draw is the default order, rather than a third order the tree would
+      // have to know about.
+      treeOrder: "name",
       terminalFraction: 0.7,
     });
   });

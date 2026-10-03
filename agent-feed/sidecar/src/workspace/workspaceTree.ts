@@ -50,6 +50,9 @@ export async function buildTree(
         isDirectory: entry.isDirectory,
         expanded: isExpanded,
         gitStatus: statusForPath(gitEntries, entry.path),
+        // Carried rather than re-derived: the listing already paid for it, and a second stat here
+        // would ask the filesystem the same question twice in one projection.
+        modifiedAt: entry.modifiedAt,
         children: isExpanded ? await level(entry.path, depth + 1) : [],
       };
     }));

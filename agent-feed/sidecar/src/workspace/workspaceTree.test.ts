@@ -48,3 +48,13 @@ test("decorates a file and the directories above it", async () => {
   expect(tree[0]!.children.find((node) => node.name === "index.ts")!.gitStatus).toBe("M");
   expect(tree.find((node) => node.name === "README.md")!.gitStatus).toBe(null);
 });
+
+test("every node carries when it last changed, at every level", async () => {
+  // The order a reader chooses is decided from this and nowhere else, so a level that forgets it
+  // silently loses the only thing that order has to work with.
+  const tree = await buildTree(await project(), ["src", "src/app"], []);
+  const nested = tree[0]!.children[0]!.children[0]!;
+  expect(tree.every((node) => node.modifiedAt > 0)).toBe(true);
+  expect(nested.name).toBe("main.tsx");
+  expect(nested.modifiedAt).toBeGreaterThan(0);
+});

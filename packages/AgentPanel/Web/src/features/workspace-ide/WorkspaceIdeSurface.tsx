@@ -247,8 +247,10 @@ export function WorkspaceIdeSurface({
                   tree={ide.tree}
                   git={ide.git}
                   activePath={ide.activePath}
+                  treeOrder={preferences.treeOrder}
                   onSelectWorkspace={ide.selectWorkspace}
                   onSelectSection={(section) => ide.update({ section })}
+                  onSelectTreeOrder={(treeOrder) => ide.update({ treeOrder })}
                   onAddWorkspace={() => setPicking(true)}
                   onRenameWorkspace={renameWorkspace}
                   onRemoveWorkspace={removeWorkspace}

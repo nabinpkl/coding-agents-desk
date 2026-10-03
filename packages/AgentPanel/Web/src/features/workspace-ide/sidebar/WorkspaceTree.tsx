@@ -8,6 +8,7 @@ import { ChevronRight } from "lucide-react";
 import type { WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
 import { gitDecorationTone, type GitTone } from "@/features/workspace-ide/sidebar/gitTones";
+import { sortSiblings, type TreeOrder } from "@/features/workspace-ide/sidebar/treeOrder";
 
 /**
  * The colour each tone carries.
@@ -31,12 +32,19 @@ const ROW = "group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-lef
 export function WorkspaceTree({
   nodes,
   activePath,
+  order,
   onOpen,
   onToggle,
   nested = false,
 }: {
   nodes: WorkspaceTreeNode[];
   activePath: string | null;
+  /**
+   * The reader's order for these rows, applied to this level and passed down: the component draws
+   * the tree level by level, so the order belongs where the rows are rather than in a pass over the
+   * whole projection that would rebuild every node to change what order they are printed in.
+   */
+  order: TreeOrder;
   onOpen: (path: string) => void;
   onToggle: (path: string, expanded: boolean) => void;
   nested?: boolean;
@@ -46,11 +54,12 @@ export function WorkspaceTree({
       role={nested ? "group" : "tree"}
       className={`m-0 list-none p-0 ${nested ? "pl-3.5" : ""}`}
     >
-      {nodes.map((node) => (
+      {sortSiblings(nodes, order).map((node) => (
         <TreeRow
           key={node.path}
           node={node}
           activePath={activePath}
+          order={order}
           onOpen={onOpen}
           onToggle={onToggle}
         />
@@ -62,11 +71,13 @@ export function WorkspaceTree({
 function TreeRow({
   node,
   activePath,
+  order,
   onOpen,
   onToggle,
 }: {
   node: WorkspaceTreeNode;
   activePath: string | null;
+  order: TreeOrder;
   onOpen: (path: string) => void;
   onToggle: (path: string, expanded: boolean) => void;
 }) {
@@ -112,6 +123,7 @@ function TreeRow({
           <WorkspaceTree
             nodes={node.children}
             activePath={activePath}
+            order={order}
             onOpen={onOpen}
             onToggle={onToggle}
             nested

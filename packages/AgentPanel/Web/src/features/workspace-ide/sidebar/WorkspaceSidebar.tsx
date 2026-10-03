@@ -12,6 +12,7 @@ import { changedFileCount } from "@/features/workspace-ide/sidebar/gitTones";
 import { SidebarSections } from "@/features/workspace-ide/sidebar/SidebarSections";
 import { WorkspaceRoster } from "@/features/workspace-ide/sidebar/WorkspaceRoster";
 import { WorkspaceTree } from "@/features/workspace-ide/sidebar/WorkspaceTree";
+import type { TreeOrder } from "@/features/workspace-ide/sidebar/treeOrder";
 import type { WorkspaceIdePreferences } from "@/features/workspace-ide/workspaceIdePreferences";
 
 type Section = WorkspaceIdePreferences["section"];
@@ -23,8 +24,10 @@ export function WorkspaceSidebar({
   tree,
   git,
   activePath,
+  treeOrder,
   onSelectWorkspace,
   onSelectSection,
+  onSelectTreeOrder,
   onAddWorkspace,
   onRenameWorkspace,
   onRemoveWorkspace,
@@ -43,8 +46,11 @@ export function WorkspaceSidebar({
   tree: WorkspaceTreeNode[];
   git: WorkspaceGitStatus | null;
   activePath: string | null;
+  /** The order the tree's rows are in, which the Explorer section's control changes. */
+  treeOrder: TreeOrder;
   onSelectWorkspace: (id: string) => void;
   onSelectSection: (section: Section) => void;
+  onSelectTreeOrder: (order: TreeOrder) => void;
   onAddWorkspace: () => void;
   onRenameWorkspace: (id: string, name: string) => void;
   onRemoveWorkspace: (id: string) => void;
@@ -79,6 +85,10 @@ export function WorkspaceSidebar({
         section={section}
         changed={changed}
         searchable
+        // With the Explorer only, because the order is the tree's and there is no tree in the other
+        // two sections. Source Control is sorted by how git resolves a change, which is not this.
+        order={section === "explorer" ? treeOrder : undefined}
+        onOrderChange={section === "explorer" ? onSelectTreeOrder : undefined}
         onSelect={onSelectSection}
       />
 
@@ -106,6 +116,7 @@ export function WorkspaceSidebar({
             <WorkspaceTree
               nodes={tree}
               activePath={activePath}
+              order={treeOrder}
               onOpen={onOpen}
               onToggle={onToggleDirectory}
             />

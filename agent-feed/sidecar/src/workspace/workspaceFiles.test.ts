@@ -2,7 +2,7 @@
 // binary refusal and the revision check are all behaviour at the syscall boundary.
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -77,7 +77,25 @@ test("a nested listing carries the path a client can ask for next", async () => 
   await writeFile(join(root, "src", "app", "main.tsx"), "");
 
   const entries = await listDirectory(root, "src/app");
-  expect(entries).toEqual([{ name: "main.tsx", path: "src/app/main.tsx", isDirectory: false }]);
+  expect(entries.map(({ name, path, isDirectory }) => ({ name, path, isDirectory })))
+    .toEqual([{ name: "main.tsx", path: "src/app/main.tsx", isDirectory: false }]);
+  expect(entries[0]!.modifiedAt).toBeGreaterThan(0);
+});
+
+test("reports when each entry last changed, so a reader can order by it", async () => {
+  // The stamp has to be the filesystem's, not the listing's: a directory written twice has two
+  // real mtimes and the order between them is the whole point of asking.
+  const root = await workspace();
+  await writeFile(join(root, "older.ts"), "");
+  await utimes(join(root, "older.ts"), new Date(1000_000), new Date(1000_000));
+  await writeFile(join(root, "newer.ts"), "");
+  await utimes(join(root, "newer.ts"), new Date(2000_000), new Date(2000_000));
+
+  const entries = await listDirectory(root, "");
+  const older = entries.find((entry) => entry.name === "older.ts")!;
+  const newer = entries.find((entry) => entry.name === "newer.ts")!;
+  expect(older.modifiedAt).toBe(1000_000);
+  expect(newer.modifiedAt).toBe(2000_000);
 });
 
 test("omits symlinks from a listing rather than offering what an open would refuse", async () => {

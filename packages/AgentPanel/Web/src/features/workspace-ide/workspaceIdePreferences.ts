@@ -10,6 +10,8 @@
 // beside these would mean one 4MB file quietly costing the reader everything else this module
 // remembers.
 
+import { isTreeOrder, type TreeOrder } from "@/features/workspace-ide/sidebar/treeOrder";
+
 /** Source or rendered. Stored per file, and only where the reader said something. */
 export type FileView = "source" | "preview";
 
@@ -29,6 +31,15 @@ export interface WorkspaceIdePreferences {
    */
   fileViewByWorkspace: Record<string, Record<string, FileView>>;
   section: "explorer" | "search" | "sourceControl";
+  /**
+   * The order the explorer's rows are in.
+   *
+   * Here rather than beside the tree because it is a fact about how this reader is reading, not
+   * about the workspace: two readers on one sidecar are looking at the same files and can want them
+   * in different orders. The sidecar owns the other half -- the order the rows arrive in -- and sends
+   * that whatever this says.
+   */
+  treeOrder: TreeOrder;
   sidebarVisible: boolean;
   terminalVisible: boolean;
   /** Pane sizes as a fraction of the window, which is what survives a resize. */
@@ -41,6 +52,7 @@ export const DEFAULT_WORKSPACE_IDE_PREFERENCES: WorkspaceIdePreferences = {
   activePathByWorkspace: {},
   fileViewByWorkspace: {},
   section: "explorer",
+  treeOrder: "name",
   sidebarVisible: true,
   terminalVisible: false,
   sidebarFraction: 0.24,
@@ -105,6 +117,7 @@ export function loadWorkspaceIdePreferences(): WorkspaceIdePreferences {
       section: parsed.section === "sourceControl" || parsed.section === "search"
         ? parsed.section
         : "explorer",
+      treeOrder: isTreeOrder(parsed.treeOrder) ? parsed.treeOrder : "name",
       sidebarVisible: parsed.sidebarVisible !== false,
       terminalVisible: parsed.terminalVisible === true,
       sidebarFraction: clampFraction(

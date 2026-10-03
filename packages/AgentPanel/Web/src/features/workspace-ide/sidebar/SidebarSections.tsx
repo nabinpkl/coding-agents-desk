@@ -5,8 +5,9 @@
 // readable from the Explorer. The IDE's sidebar and a Bot's code modal both switch with this, so
 // the two read the same wherever a reader meets them.
 
-import { FolderTree, GitBranch, Search } from "lucide-react";
+import { ArrowDownAZ, ClockArrowDown, FolderTree, GitBranch, Search } from "lucide-react";
 import { changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
+import type { TreeOrder } from "@/features/workspace-ide/sidebar/treeOrder";
 
 export type SidebarSection = "explorer" | "search" | "sourceControl";
 
@@ -15,6 +16,18 @@ const SECTIONS: { id: SidebarSection; label: string; shortcut?: string; Icon: ty
   // The shortcut rides the hover title only: read aloud, "shift command F" is noise in a name.
   { id: "search", label: "Search", shortcut: "⇧⌘F", Icon: Search },
   { id: "sourceControl", label: "Source Control", Icon: GitBranch },
+];
+
+/**
+ * The two orders the explorer draws its rows in, as the pair a reader chooses between.
+ *
+ * Both are on screen rather than one button that toggles, because a toggle has to be read as "the
+ * icon says which order this is" or "the icon says what pressing it will do", and only one of those
+ * is true at a time. Two labelled buttons answer both, and which one is pressed is the state.
+ */
+const ORDERS: { id: TreeOrder; label: string; Icon: typeof FolderTree }[] = [
+  { id: "name", label: "Sort by name", Icon: ArrowDownAZ },
+  { id: "modified", label: "Sort by modified date", Icon: ClockArrowDown },
 ];
 
 const CONTROL = "relative grid h-7 w-8 place-items-center rounded-md outline-none transition-colors"
@@ -36,6 +49,8 @@ export function SidebarSections({
   changed,
   sourceControlUnavailable,
   searchable = false,
+  order,
+  onOrderChange,
   onSelect,
 }: {
   /** Names the strip for a screen reader, which meets more than one on a page. */
@@ -47,6 +62,15 @@ export function SidebarSections({
   sourceControlUnavailable?: string;
   /** Whether text search is offered. A Bot's read-only code modal does not have one. */
   searchable?: boolean;
+  /**
+   * The order the explorer's rows are in, and the control that changes it.
+   *
+   * Both absent wherever the section on screen has no tree to reorder, rather than drawn disabled:
+   * a control that cannot do anything is a question nobody asked. A Bot's code modal shows the
+   * explorer with no arrangement to remember, so it gets neither.
+   */
+  order?: TreeOrder;
+  onOrderChange?: (order: TreeOrder) => void;
   onSelect: (section: SidebarSection) => void;
 }) {
   return (
@@ -84,6 +108,34 @@ export function SidebarSections({
           </button>
         );
       })}
+
+      {/* Its own group at the far end, divided from the section tabs: these two do not switch
+          what is on screen, they change how the thing already on screen is listed. */}
+      {onOrderChange && order
+        ? (
+          <div
+            role="group"
+            aria-label="Row order"
+            className="ml-auto flex items-center gap-0.5 border-l border-border pl-1.5"
+          >
+            {ORDERS.map(({ id, label: name, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                aria-label={name}
+                aria-pressed={order === id}
+                title={name}
+                onClick={() => onOrderChange(id)}
+                className={`${CONTROL} ${order === id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+              >
+                <Icon className="size-4" />
+              </button>
+            ))}
+          </div>
+        )
+        : null}
     </nav>
   );
 }

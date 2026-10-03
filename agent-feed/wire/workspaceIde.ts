@@ -23,11 +23,19 @@ export type WorkspaceFileKind = "text" | "markdown" | "html" | "notebook" | "doc
 
 export type WorkspaceFileMode = "edit" | "preview";
 
-/** One entry in a directory listing. Directories sort first, then by locale-aware name. */
+/**
+ * One entry in a directory listing. Directories sort first, then by locale-aware name.
+ *
+ * `modifiedAt` is the filesystem's own mtime for the entry, in milliseconds since the epoch. It is
+ * here because a reader who wants "what did I touch lately" cannot be answered without it, and
+ * because a browser cannot stat anything: whatever reads this decides how to order it and how to
+ * say it, rather than being handed a formatted string to display.
+ */
 export interface WorkspaceDirectoryEntry {
   name: string;
   path: string;
   isDirectory: boolean;
+  modifiedAt: number;
 }
 
 /**
@@ -42,6 +50,8 @@ export interface WorkspaceTreeNode {
   isDirectory: boolean;
   expanded: boolean;
   gitStatus: string | null;
+  /** The entry's mtime in milliseconds since the epoch, for ordering by how recently it changed. */
+  modifiedAt: number;
   children: WorkspaceTreeNode[];
 }
 
