@@ -61,7 +61,11 @@ it("binds a folder the catalog has never heard of", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await waitFor(() => screen.getByRole("button", { name: "Open brand-new" }));
   fireEvent.click(screen.getByRole("button", { name: "Open brand-new" }));
-  await waitFor(() => expect(screen.getByText("/Users/dev/brand-new")).toBeTruthy());
+  // The picker's header is a field now, so "where am I" is the value in it rather than a line of
+  // text beside a title.
+  await waitFor(() =>
+    expect((screen.getByLabelText("Folder path") as HTMLInputElement).value)
+      .toBe("/Users/dev/brand-new"));
   fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
 
   expect(onSelect).toHaveBeenCalledWith("/Users/dev/brand-new");
@@ -76,7 +80,11 @@ it("refuses a browsed folder another Bot already holds, before the round trip", 
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await waitFor(() => screen.getByRole("button", { name: "Open brand-new" }));
   fireEvent.click(screen.getByRole("button", { name: "Open brand-new" }));
-  await waitFor(() => expect(screen.getByText("/Users/dev/brand-new")).toBeTruthy());
+  // The picker's header is a field now, so "where am I" is the value in it rather than a line of
+  // text beside a title.
+  await waitFor(() =>
+    expect((screen.getByLabelText("Folder path") as HTMLInputElement).value)
+      .toBe("/Users/dev/brand-new"));
   fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
 
   expect(onSelect).not.toHaveBeenCalled();

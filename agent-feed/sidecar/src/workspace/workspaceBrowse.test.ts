@@ -71,6 +71,16 @@ test("refuses a file and a path that is not there", async () => {
   expect(listing(join(home, "nope"))).rejects.toThrow();
 });
 
+test("takes a typed `~` as home, because only this process knows where that is", async () => {
+  await mkdir(join(home, "projects"));
+  await mkdir(join(home, "projects", "agent-desk"));
+
+  // The panel sends what was written and cannot expand it: a browser has no idea what home is on
+  // this machine, and a second copy of that answer is exactly what this expansion avoids.
+  expect((await listing("~/projects/agent-desk")).path).toBe(join(home, "projects", "agent-desk"));
+  expect((await listing("~")).path).toBe(home);
+});
+
 /** Every case below is about what a name may become, so the parent is always the scratch home. */
 const create = (path: string, name: string) => createDirectory(path, name, home);
 
@@ -130,4 +140,14 @@ test("refuses a file as the parent", async () => {
   await writeFile(join(home, "notes.txt"), "x");
 
   expect(create(join(home, "notes.txt"), "child")).rejects.toThrow();
+});
+
+test("refuses a relative path rather than resolving it against the sidecar's working directory", async () => {
+  // That directory is wherever the host happened to launch this from, so `projects` would answer
+  // with a folder nobody asked about -- and a picker that answers a different question than the one
+  // it was asked is worse than one that says it needs an absolute path.
+  expect(listing("projects")).rejects.toThrow();
+  // The same for the parent of a folder to be made, or a Bot could be pointed at a relative path
+  // that resolves somewhere else entirely by the time it is used.
+  expect(create("projects", "child")).rejects.toThrow();
 });

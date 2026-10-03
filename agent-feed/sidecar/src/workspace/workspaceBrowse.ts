@@ -24,6 +24,28 @@ function withinRoot(candidate: string, root: string): boolean {
 }
 
 /**
+ * The path a reader typed, turned into one this process can open.
+ *
+ * `~` is expanded HERE rather than in the panel because home is this process's to know. The panel
+ * runs in a browser, cannot be handed it, and hard-coding a home would be a second place holding
+ * an answer that decides where the picker starts and how far it may walk -- so the panel sends what
+ * was typed and this decides what it means. The base is the resolved root rather than `homedir()`,
+ * so the shortcut and the confinement can never disagree about where home is.
+ *
+ * A relative path is refused rather than resolved against this process's working directory. That
+ * directory is wherever the host happened to launch the sidecar from, so `projects` would quietly
+ * answer with a folder no reader asked about -- and a picker that answers a different question than
+ * the one it was asked is worse than one that says it needs an absolute path.
+ */
+function askedPath(path: string, root: string): string {
+  const trimmed = path.trim();
+  if (trimmed === "~") return root;
+  if (trimmed.startsWith("~/")) return resolve(root, trimmed.slice(2));
+  if (!trimmed.startsWith("/")) throw new WorkspaceFailure("invalidPath");
+  return resolve(trimmed);
+}
+
+/**
  * The directories inside `path`.
  *
  * Symlinks are resolved before the confinement check rather than after, because a link inside home
@@ -33,13 +55,16 @@ function withinRoot(candidate: string, root: string): boolean {
  * `confinedTo` is a parameter rather than read here so the confinement itself is testable against a
  * scratch directory. Reading `homedir()` inside would make every test either a test of this
  * machine's home or no test of the boundary at all.
+ *
+ * `path` is whatever the reader typed, because the picker can be typed at, so it is put through
+ * `askedPath` first: `~` has to mean something, and it can only mean something here.
  */
 export async function browseDirectories(
   path: string | null,
   confinedTo: string = homedir(),
 ): Promise<WorkspaceBrowseListing> {
   const root = await realpath(confinedTo);
-  const asked = path ? resolve(path) : root;
+  const asked = path ? askedPath(path, root) : root;
 
   let resolved: string;
   try {
@@ -118,7 +143,7 @@ export async function createDirectory(
 ): Promise<WorkspaceBrowseListing> {
   const wanted = folderName(name);
   const root = await realpath(confinedTo);
-  const asked = resolve(parent);
+  const asked = askedPath(parent, root);
 
   let resolvedParent: string;
   try {

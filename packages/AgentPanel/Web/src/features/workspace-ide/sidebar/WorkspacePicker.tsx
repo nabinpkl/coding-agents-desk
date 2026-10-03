@@ -1,8 +1,11 @@
 // Choosing a folder to register as a workspace.
 //
-// This replaces a `window.prompt` asking for an absolute path, which was a shortcut with two real
-// costs: on a phone it asked a touch keyboard to type `/Users/...` correctly, and on either surface
-// it made the reader hold the filesystem in their head rather than look at it.
+// This replaced a `window.prompt` asking for an absolute path, and taking typing away was half the
+// fix rather than all of it: on a phone that prompt asked a touch keyboard for `/Users/...` with no
+// way to see whether the answer was even right. Browsing came first because looking beats holding
+// the filesystem in your head. Typing came back as the field in the header, because the other half
+// is a reader who already HAS the path -- copied out of a terminal, out of a message, out of a
+// README -- and clicking down six levels to reach it is the same cost the prompt was, only slower.
 //
 // A browser cannot do this on its own -- nothing in the web platform hands a page an absolute
 // directory path, `<input webkitdirectory>` included -- so the sidecar lists and creates and this
@@ -38,10 +41,14 @@ export function WorkspacePicker({
   const [listing, setListing] = useState<WorkspaceBrowseListing | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // What the reader is typing OVER the path, and what they are naming a new folder: two answers to
+  // two questions, kept apart so neither can be submitted as the other. Null means the field is
+  // reporting where the picker actually is rather than anything the reader has said.
+  const [typed, setTyped] = useState<string | null>(null);
   // The create form is its own row rather than another field on the footer: the footer says what
   // choosing this folder means, and a reader who cannot get to the folder they want needs a way to
   // make it without that decision changing under them.
-  const [draft, setDraft] = useState<{ name: string; error: string | null; busy: boolean } | null>(null);
+  const [naming, setNaming] = useState<{ name: string; error: string | null; busy: boolean } | null>(null);
 
   const show = useCallback(
     (path: string | null) => {
@@ -50,9 +57,15 @@ export function WorkspacePicker({
       // A name being typed belongs to the directory it was typed in. Carrying it across a move
       // would create that folder somewhere the reader was not looking when they named it, which is
       // the one outcome a picker that shows where it is exists to prevent.
-      setDraft(null);
+      setNaming(null);
       browse(path)
-        .then(setListing)
+        .then((next) => {
+          setListing(next);
+          // Where the field got to has been resolved, so it goes back to reporting the real path
+          // rather than the reader's spelling of it. A REFUSED path keeps its text: a typo nobody
+          // can see to correct is worse than a field still holding what was written in it.
+          setTyped(null);
+        })
         .catch((cause: unknown) =>
           setFailure(cause instanceof Error ? cause.message : String(cause)))
         .finally(() => setLoading(false));
@@ -61,6 +74,22 @@ export function WorkspacePicker({
   );
 
   useEffect(() => show(null), [show]);
+
+  /**
+   * Go where the reader typed.
+   *
+   * On Return and on nothing else. Not on blur, because a half-typed path must not fire because
+   * focus went somewhere else, and a picker that navigates when you look away turns one glance into
+   * a jump. An empty field is the sidecar's "start where you start", which is the only sensible
+   * reading of a field with nothing in it.
+   */
+  const goTo = useCallback(
+    (asked: string) => {
+      const trimmed = asked.trim();
+      show(trimmed === "" ? null : trimmed);
+    },
+    [show],
+  );
 
   /**
    * Make the folder the reader named, and stand in it.
@@ -74,23 +103,25 @@ export function WorkspacePicker({
    * where they are went wrong, so wiping it would throw away the position a retry needs.
    */
   const create = useCallback(() => {
-    if (!listing || draft === null) return;
-    const name = draft.name.trim();
-    if (name === "" || draft.busy) return;
-    setDraft({ ...draft, busy: true, error: null });
+    if (!listing || naming === null) return;
+    const name = naming.name.trim();
+    if (name === "" || naming.busy) return;
+    setNaming({ ...naming, busy: true, error: null });
     createFolder(listing.path, name)
       .then((created) => {
-        setDraft(null);
+        setNaming(null);
         setListing(created);
         setFailure(null);
+        // Same rule as any other move: the path on screen is the resolved one, not what was typed.
+        setTyped(null);
       })
       .catch((cause: unknown) =>
-        setDraft({
+        setNaming({
           name,
           error: cause instanceof Error ? cause.message : String(cause),
           busy: false,
         }));
-  }, [createFolder, draft, listing]);
+  }, [createFolder, naming, listing]);
 
   return (
     <div
@@ -107,13 +138,42 @@ export function WorkspacePicker({
       >
         <header className="shrink-0 border-b border-border px-4 py-3">
           <h2 className="m-0 text-sm font-medium">{title}</h2>
-          {/* The path is the answer to "where am I", so it stays visible while browsing rather
-              than only appearing on the button. */}
-          <p className="m-0 mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono
-            text-xs text-muted-foreground"
-          >
-            {listing?.path ?? "…"}
-          </p>
+          {/* The path is the answer to "where am I", and it was a line of text because browsing
+              only ever went one folder at a time. A reader who has the path somewhere else --
+              copied out of a terminal, out of a message, out of a README -- has no way to paste it
+              in, and walking six levels up to get there is the cost this picker exists to remove.
+              So it is a field: it reports where we are until it is typed at, and Return goes
+              there. Flat and borderless until it is used, because a reader who is only browsing
+              should not be invited to type at all. */}
+          <label htmlFor="workspace-picker-path" className="sr-only">Folder path</label>
+          <input
+            id="workspace-picker-path"
+            value={typed ?? listing?.path ?? ""}
+            placeholder="…"
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                goTo((event.target as HTMLInputElement).value);
+              }
+              // Escape puts the picker back where it was, list and all. Restoring only the text in
+              // the field would be worse than doing nothing: after a refused path the field would
+              // read one folder and the body another, with nothing between them but another round
+              // trip. Re-reading it is the same rule as the folder being named below it -- Escape
+              // is about the thing just opened, the only thing it can sensibly be about here.
+              if (event.key === "Escape") {
+                event.preventDefault();
+                show(listing?.path ?? null);
+              }
+            }}
+            className="mt-1 w-full rounded-md border border-transparent bg-muted/40 px-1.5
+              py-1 font-mono text-xs text-foreground outline-none hover:border-border
+              focus:border-border focus-visible:ring-2 focus-visible:ring-primary"
+          />
         </header>
 
         <div className="min-h-0 flex-1 overflow-auto p-1.5">
@@ -163,27 +223,28 @@ export function WorkspacePicker({
         {/* The create form, above the footer rather than inside it: the footer is where the two
             decisions about THIS folder live, and neither of them changes because a folder was made
             here -- so it should not look as if they did. */}
-        {draft === null ? null : (
+        {naming === null ? null : (
           <div className="shrink-0 border-t border-border px-4 py-3">
             <div className="flex items-center gap-2">
               <label htmlFor="workspace-picker-new-folder" className="sr-only">New folder name</label>
               <input
                 id="workspace-picker-new-folder"
                 autoFocus
-                value={draft.name}
+                value={naming.name}
                 placeholder="Folder name"
                 onChange={(event) =>
-                  setDraft({ ...draft, name: event.target.value, error: null })}
+                  setNaming({ ...naming, name: event.target.value, error: null })}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
                     create();
                   }
-                  // Escape abandons the folder rather than the picker: this row is what the reader
-                  // opened a moment ago, and it is the only thing here Escape can be about.
+                  // Escape abandons the folder rather than the picker, the same rule the path
+                  // field above follows: it is about the thing opened a moment ago, and the only
+                  // thing here Escape can sensibly be about.
                   if (event.key === "Escape") {
                     event.preventDefault();
-                    setDraft(null);
+                    setNaming(null);
                   }
                 }}
                 className="min-w-0 flex-1 rounded-md border border-border bg-background px-2
@@ -192,16 +253,16 @@ export function WorkspacePicker({
               <button
                 type="button"
                 onClick={create}
-                disabled={draft.busy || draft.name.trim() === ""}
+                disabled={naming.busy || naming.name.trim() === ""}
                 className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground
                   outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary
                   disabled:opacity-40"
               >
-                {draft.busy ? "Creating…" : "Create"}
+                {naming.busy ? "Creating…" : "Create"}
               </button>
               <button
                 type="button"
-                onClick={() => setDraft(null)}
+                onClick={() => setNaming(null)}
                 aria-label="Cancel creating a folder"
                 className="flex size-8 shrink-0 items-center justify-center rounded-md
                   text-muted-foreground outline-none hover:bg-muted hover:text-foreground
@@ -213,8 +274,8 @@ export function WorkspacePicker({
             {/* The sidecar's reason, in its words: "that name is taken" is not something this
                 component can invent, and a refusal the reader cannot read is a refusal they will
                 try again the same way. */}
-            {draft.error === null ? null : (
-              <p role="alert" className="m-0 mt-2 text-xs text-destructive">{draft.error}</p>
+            {naming.error === null ? null : (
+              <p role="alert" className="m-0 mt-2 text-xs text-destructive">{naming.error}</p>
             )}
           </div>
         )}
@@ -225,7 +286,7 @@ export function WorkspacePicker({
               from a folder that is not there: browsing can only ever show what already exists. */}
           <button
             type="button"
-            onClick={() => setDraft({ name: "", error: null, busy: false })}
+            onClick={() => setNaming({ name: "", error: null, busy: false })}
             className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3
               py-1.5 text-sm outline-none hover:bg-muted focus-visible:ring-2
               focus-visible:ring-primary"
